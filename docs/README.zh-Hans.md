@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">真正免费、开源、跨平台的 CapCut 替代品。</h3>
+<h3 align="center">免费、开源、跨平台的 CapCut 替代品。</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -49,7 +49,7 @@ Concat 是一款免费、开源的视频编辑器，是 macOS、Windows、Linux 
 
 **适合：** TikTok、Reels 和 Shorts，YouTube 视频，教程与屏幕录制，播客片段，表情包。
 
-**也适合机器：** 提供 JSON-RPC、gRPC 和 MCP API，脚本和 AI 代理同样可以用它剪视频。
+**也适合机器：** 提供 JSON-RPC 和 gRPC API，脚本和 AI 代理同样可以用它剪视频。
 
 ## 亮点
 
@@ -59,14 +59,14 @@ Concat 是一款免费、开源的视频编辑器，是 macOS、Windows、Linux 
 - 🗣️ **文字转语音 + 声音克隆。** 免费的本地声音，或用几秒钟录音克隆任何声音。
 - 🧍 **背景移除。** 人物、物体，或者自己涂抹遮罩。
 - 🎞️ **关键帧。** 位置、缩放、旋转、不透明度、音量、特效参数。内置曲线编辑器。
-- ✨ **170 多种特效、滤镜、转场和文字动画。** GPU 渲染，预览中实时呈现。
+- ✨ **100 种特效、滤镜和转场。** GPU 渲染，预览中实时呈现。
 - ✂️ **快剪。** 分割、修剪、涟漪、合并、定格、变速。想要的话还有磁性时间线。
 - 🎚️ **多轨道、多时间线。** 一个项目里放多个剪辑版本。混合模式、裁剪、翻转。
 - 📝 **标题。** 字体、描边、阴影、背景底板。有预设可作起点。
 - 🎙️ **一键人声净化。** 降噪、增强人声、响度均衡。还有花栗鼠、机器人、电话等效果。
 - 📤 **导出。** H.264、HEVC、AV1。最高 4K 60，10 位色彩。
 - 🦀 **原生 Rust 引擎。** GPU 合成器、代理、硬件解码。4K 拖动也顺滑。
-- 🤖 **可脚本化。** JSON-RPC、gRPC 和 MCP API，外加 CLI。AI 代理可以用它剪视频。
+- 🤖 **可脚本化。** JSON-RPC 和 gRPC API，外加 CLI。AI 代理可以用它剪视频。
 - 🖥️ **macOS、Windows、Linux、Android。** 25 种语言。同一个应用，同样的项目文件。
 
 ## 下载
@@ -80,7 +80,7 @@ Concat 处于 **测试版**：能用，但还有毛边。遇到了请 [告诉我
 
 **平台**
 
-- ✅ **Windows** · x86_64 和 ARM。安装程序和 `.msi`。如果 SmartScreen 拦截未签名版本：**更多信息** › **仍要运行**
+- ✅ **Windows** · x86_64（ARM 版本已暂停，见 [#326](https://github.com/jub0t/Concat/issues/326)）。安装程序和 `.msi`。如果 SmartScreen 拦截未签名版本：**更多信息** › **仍要运行**
 - ✅ **macOS** · Intel 和 Apple 芯片。如果 macOS 拒绝打开未签名版本：`xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 和 ARM。`.deb`、`.rpm`、`.AppImage` 和 Arch 软件包。另有 **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** 上的 Flatpak，这是一个社区 Flatpak 仓库，封装每个版本的 x86_64 `.deb` 并随之更新
 - ✅ **Android** · 手机和平板
@@ -97,7 +97,7 @@ Concat 处于 **测试版**：能用，但还有毛边。遇到了请 [告诉我
 > [!IMPORTANT]
 > 最好的贡献方式是从 [Releases](https://github.com/jub0t/Concat/releases) 页面拿一个版本来用：找到它哪里会坏，说出它哪里可以更好。
 >
-> 准备写代码了？[CONTRIBUTING.md](../CONTRIBUTING.md) 介绍了环境搭建、目录结构、要运行的检查以及贡献的许可方式。要从脚本、服务或代理驱动 Concat？[开发者文档](https://concatenate.pages.dev/docs) 介绍了 Concat API 及其传输方式：JSON-RPC、gRPC 和 MCP。项目在 [这个 Discussion](https://github.com/jub0t/Concat/discussions/3) 里发布。
+> 准备写代码了？[CONTRIBUTING.md](../CONTRIBUTING.md) 介绍了环境搭建、目录结构、要运行的检查以及贡献的许可方式。要从脚本、服务或代理驱动 Concat？[开发者文档](https://concatenate.pages.dev/docs) 介绍了 Concat API 及其传输方式：JSON-RPC 和 gRPC。项目在 [这个 Discussion](https://github.com/jub0t/Concat/discussions/3) 里发布。
 > 
 > 贡献者可以在 Discord 服务器申请 `@Contributor` 身份组，开口要就行。
 

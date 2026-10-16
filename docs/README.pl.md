@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">Naprawdę darmowy, otwartoźródłowy i wieloplatformowy zamiennik CapCuta.</h3>
+<h3 align="center">Darmowy, otwartoźródłowy i wieloplatformowy zamiennik CapCuta.</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -49,7 +49,7 @@ Wszystko działa lokalnie, na natywnym silniku napisanym w Rust, z kompozytorem 
 
 **Nadaje się do:** TikToka, Reels i Shorts, filmów na YouTube, poradników i nagrań ekranu, fragmentów podcastów, memów.
 
-**Także dla maszyn:** API w JSON-RPC, gRPC i MCP, dzięki któremu skrypty i agenci AI też mogą w nim montować wideo.
+**Także dla maszyn:** API w JSON-RPC i gRPC, dzięki któremu skrypty i agenci AI też mogą w nim montować wideo.
 
 ## Najważniejsze funkcje
 
@@ -59,14 +59,14 @@ Wszystko działa lokalnie, na natywnym silniku napisanym w Rust, z kompozytorem 
 - 🗣️ **Zamiana tekstu na mowę + klonowanie głosu.** Darmowe lokalne głosy albo dowolny głos z kilku sekund nagrania.
 - 🧍 **Usuwanie tła.** Ludzie, obiekty albo maska, którą malujesz sam.
 - 🎞️ **Klatki kluczowe.** Pozycja, skala, obrót, krycie, głośność, parametry efektów. Wbudowany edytor krzywych.
-- ✨ **Ponad 170 efektów, filtrów, przejść i animacji tekstu.** Renderowane na GPU, na żywo w podglądzie.
+- ✨ **100 efektów, filtrów i przejść.** Renderowane na GPU, na żywo w podglądzie.
 - ✂️ **Szybkie cięcie.** Dzielenie, przycinanie, ripple, scalanie, stopklatka, prędkość. Magnetyczna oś czasu, jeśli chcesz.
 - 🎚️ **Wiele ścieżek, wiele osi czasu.** Kilka wersji montażu w jednym projekcie. Tryby mieszania, kadrowanie, odbicia.
 - 📝 **Napisy tytułowe.** Czcionki, obrys, cień, tło pod tekstem. Gotowe szablony na start.
 - 🎙️ **Czyszczenie głosu jednym przełącznikiem.** Odszumianie, poprawa głosu, wyrównanie głośności. Do tego wiewiórka, robot, telefon i spółka.
 - 📤 **Eksport.** H.264, HEVC, AV1. Do 4K 60, kolor 10-bitowy.
 - 🦀 **Natywny silnik w Rust.** Kompozytor na GPU, proxy, sprzętowe dekodowanie. Nawet 4K przewija się płynnie.
-- 🤖 **Skryptowalny.** API w JSON-RPC, gRPC i MCP oraz CLI. Agenci AI mogą w nim montować wideo.
+- 🤖 **Skryptowalny.** API w JSON-RPC i gRPC oraz CLI. Agenci AI mogą w nim montować wideo.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 języków. Ta sama aplikacja, te same pliki projektów.
 
 ## Pobieranie
@@ -80,7 +80,7 @@ Concat jest w fazie **beta**: działa, ale wciąż ma swoje niedoróbki. [Daj zn
 
 **Platformy**
 
-- ✅ **Windows** · x86_64 i ARM. Instalator i `.msi`. Jeśli SmartScreen zatrzyma niepodpisaną wersję: **Więcej informacji** › **Uruchom mimo to**
+- ✅ **Windows** · x86_64 (wersje na ARM są wstrzymane, zobacz [#326](https://github.com/jub0t/Concat/issues/326)). Instalator i `.msi`. Jeśli SmartScreen zatrzyma niepodpisaną wersję: **Więcej informacji** › **Uruchom mimo to**
 - ✅ **macOS** · Intel i Apple silicon. Jeśli macOS nie chce otworzyć niepodpisanej wersji: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 i ARM. `.deb`, `.rpm`, `.AppImage` i pakiet dla Archa. Do tego Flatpak na **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, społecznościowym repozytorium Flatpak, które opakowuje `.deb` dla x86_64 z każdego wydania i aktualizuje się razem z nim
 - ✅ **Android** · telefony i tablety
@@ -97,9 +97,9 @@ Concat jest w fazie **beta**: działa, ale wciąż ma swoje niedoróbki. [Daj zn
 > [!IMPORTANT]
 > Najlepiej pomożesz, jeśli pobierzesz wersję ze strony [Releases](https://github.com/jub0t/Concat/releases) i zaczniesz z niej korzystać: znajdź miejsca, w których się psuje, i powiedz, co mogłoby działać lepiej.
 >
-> Chcesz pisać kod? [CONTRIBUTING.md](../CONTRIBUTING.md) opisuje przygotowanie środowiska, strukturę repozytorium, testy do uruchomienia i licencjonowanie wkładu. Sterujesz Concat ze skryptu, usługi albo agenta? [Dokumentacja dla deweloperów](https://concatenate.pages.dev/docs) opisuje API Concat i jego transporty: JSON-RPC, gRPC i MCP. W [tej dyskusji](https://github.com/jub0t/Concat/discussions/3) projekt został ogłoszony.
+> Chcesz pisać kod? [CONTRIBUTING.md](../CONTRIBUTING.md) opisuje przygotowanie środowiska, strukturę repozytorium, testy do uruchomienia i licencjonowanie wkładu. Sterujesz Concat ze skryptu, usługi albo agenta? [Dokumentacja dla deweloperów](https://concatenate.pages.dev/docs) opisuje API Concat i jego transporty: JSON-RPC i gRPC. W [tej dyskusji](https://github.com/jub0t/Concat/discussions/3) projekt został ogłoszony.
 > 
-> Współtwórcy mogą dostać rolę `@Contributor` na serwerze Discord, wystarczy poprosić.
+> Współtwórcy mogą dostać rolę `@Contributor` na serwerze Discord: wystarczy poprosić.
 
 ## Historia gwiazdek
 

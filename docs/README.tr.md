@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">Gerçekten ücretsiz, açık kaynaklı ve çok platformlu CapCut alternatifi.</h3>
+<h3 align="center">Ücretsiz, açık kaynaklı ve çok platformlu CapCut alternatifi.</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -49,7 +49,7 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 
 **Şunlar için uygun:** TikTok, Reels ve Shorts, YouTube videoları, eğitimler ve ekran kayıtları, podcast kesitleri, memler.
 
-**Makineler için de:** bir JSON-RPC, gRPC ve MCP API’si; böylece betikler ve yapay zekâ ajanları da onunla video kesebilir.
+**Makineler için de:** bir JSON-RPC ve gRPC API’si; böylece betikler ve yapay zekâ ajanları da onunla video kesebilir.
 
 ## Öne çıkanlar
 
@@ -59,14 +59,14 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 - 🗣️ **Metinden sese + ses klonlama.** Ücretsiz yerel sesler ya da birkaç saniyelik kayıttan herhangi bir ses.
 - 🧍 **Arka plan kaldırma.** İnsanlar, nesneler ya da maskeyi kendiniz boyayın.
 - 🎞️ **Anahtar kareler.** Konum, ölçek, döndürme, saydamlık, ses düzeyi, efekt parametreleri. Yerleşik eğri düzenleyici.
-- ✨ **170’ten fazla efekt, filtre, geçiş ve yazı animasyonu.** GPU ile çizilir, önizlemede canlı.
+- ✨ **100 efekt, filtre ve geçiş.** GPU ile çizilir, önizlemede canlı.
 - ✂️ **Hızlı kesin.** Böl, kırp, ripple, birleştir, kareyi dondur, hız. İsterseniz manyetik zaman çizelgesi.
 - 🎚️ **Çok parçalı, çok zaman çizelgeli.** Bir projede birden çok kurgu. Karışım modları, kırpma, çevirmeler.
 - 📝 **Yazılar.** Yazı tipleri, kontur, gölge, arka plan plakası. Başlamak için hazır ayarlar.
 - 🎙️ **Tek anahtarla ses temizliği.** Gürültü azaltma, sesi iyileştirme, ses düzeyini dengeleme. Artı sincap, robot, telefon ve arkadaşları.
 - 📤 **Dışa aktarma.** H.264, HEVC, AV1. 4K 60’a kadar, 10 bit renk.
 - 🦀 **Yerel Rust motoru.** GPU birleştirici, proxy’ler, donanım çözme. 4K akıcı gezinir.
-- 🤖 **Betiklenebilir.** JSON-RPC, gRPC ve MCP API’si, artı bir CLI. Yapay zekâ ajanları onunla video kesebilir.
+- 🤖 **Betiklenebilir.** JSON-RPC ve gRPC API’si, artı bir CLI. Yapay zekâ ajanları onunla video kesebilir.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 dil. Aynı uygulama, aynı proje dosyaları.
 
 ## İndir
@@ -80,7 +80,7 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 
 **Platformlar**
 
-- ✅ **Windows** · x86_64 ve ARM. Bir kurulum ve bir `.msi`. SmartScreen imzasız bir derlemeyi durdurursa: **Daha fazla bilgi** › **Yine de çalıştır**
+- ✅ **Windows** · x86_64 (ARM derlemelerine ara verildi, bkz. [#326](https://github.com/jub0t/Concat/issues/326)). Bir kurulum ve bir `.msi`. SmartScreen imzasız bir derlemeyi durdurursa: **Daha fazla bilgi** › **Yine de çalıştır**
 - ✅ **macOS** · Intel ve Apple Silicon. macOS imzasız bir derlemeyi açmayı reddederse: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 ve ARM. `.deb`, `.rpm`, `.AppImage` ve bir Arch paketi. Ayrıca her sürümün x86_64 `.deb`’ini saran ve onunla güncellenen topluluk Flatpak deposu **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** üzerinde bir Flatpak
 - ✅ **Android** · telefonlar ve tabletler
@@ -97,9 +97,9 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 > [!IMPORTANT]
 > Katkıda bulunmanın en iyi yolu [Releases](https://github.com/jub0t/Concat/releases) sayfasından bir derleme alıp kullanmaktır: nerede bozulduğunu bulun ve nerede daha iyi olabileceğini söyleyin.
 >
-> Kod yazmaya hazır mısınız? [CONTRIBUTING.md](../CONTRIBUTING.md) kurulumu, ağacın düzenini, çalıştırılacak denetimleri ve katkıların nasıl lisanslandığını anlatır. Concat’i bir betikten, servisten ya da ajandan mı sürüyorsunuz? [Geliştirici belgeleri](https://concatenate.pages.dev/docs) Concat API’sini ve taşıyıcılarını anlatır: JSON-RPC, gRPC ve MCP. Proje [bu tartışmada](https://github.com/jub0t/Concat/discussions/3) duyuruldu.
+> Kod yazmaya hazır mısınız? [CONTRIBUTING.md](../CONTRIBUTING.md) kurulumu, ağacın düzenini, çalıştırılacak denetimleri ve katkıların nasıl lisanslandığını anlatır. Concat’i bir betikten, servisten ya da ajandan mı sürüyorsunuz? [Geliştirici belgeleri](https://concatenate.pages.dev/docs) Concat API’sini ve taşıyıcılarını anlatır: JSON-RPC ve gRPC. Proje [bu tartışmada](https://github.com/jub0t/Concat/discussions/3) duyuruldu.
 > 
-> Katkıda bulunanlar Discord sunucusunda bir `@Contributor` rolü alabilir, istemeniz yeter.
+> Katkıda bulunanlar Discord sunucusunda bir `@Contributor` rolü alabilir: istemeniz yeter.
 
 ## Yıldız geçmişi
 

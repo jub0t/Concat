@@ -23,7 +23,7 @@ Copyright and marks are held by Jareer (GitHub: [@jub0t](https://github.com/jub0
   projects". Describe the relationship accurately and you need no permission.
 - **Redistribute official builds** under the name Concat, unmodified.
 - **Package Concat for a distribution** (Nix, Homebrew, AUR, Debian, Flatpak…)
-  from unmodified upstream source, keeping the name — patches confined to
+  from unmodified upstream source, keeping the name. Patches confined to
   packaging, paths and build flags are fine.
 - **Write about Concat.** Reviews, tutorials, videos, screenshots, comparisons,
   academic work. No permission needed, no approval sought.
@@ -38,7 +38,7 @@ own icon. Concretely, rename before you ship if you:
 - add or remove features and distribute the result to others;
 - ship builds users could mistake for official ones.
 
-You keep every right the AGPL grants you — fork it, change it, sell it, host
+You keep every right the AGPL grants you: fork it, change it, sell it, host
 it. Just call it something else, so bug reports and reputations land in the
 right place. Forks are welcome here; that is the point of the licence.
 

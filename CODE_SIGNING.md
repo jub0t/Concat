@@ -46,10 +46,12 @@ This program will not transfer any information to other networked systems
 unless specifically requested by the user or the person installing or operating
 it. Concat reaches the network only when you ask it to:
 
-- **Check for updates** in Settings asks GitHub for the list of releases, and
-  installing one downloads it from GitHub.
+- **Settings › Version** asks GitHub for the list of releases when you open
+  it or press **Check for updates**, and installing one downloads it from
+  GitHub.
 - **Downloading a model** (transcription, speech, cutout) fetches it from the
-  address shown in Settings.
+  source picked under **Downloads** in Settings › General, and tries the other
+  sources listed there if that one fails.
 - **The Remote API** is off by default. Turned on, it listens on this computer
   (`127.0.0.1`) unless you give it another address, and answers only callers
   that hold its token.

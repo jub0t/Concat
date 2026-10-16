@@ -3,16 +3,20 @@
 ## FFmpeg
 
 Concat links FFmpeg's libraries - libavformat, libavcodec, libavfilter,
-libswscale and libswresample - through the `ffmpeg-the-third` crate. The
-Slint app spawns no `ffmpeg` or `ffprobe` process.
+libavdevice, libavutil, libswscale and libswresample - through the
+`ffmpeg-the-third` crate. The Slint app spawns no `ffmpeg` or `ffprobe`
+process.
 
 FFmpeg is licensed under the LGPL-2.1-or-later; builds that include x264
 (which the H.264 export uses) are GPL-2.0-or-later. Concat's own sources are
 AGPL-3.0-or-later, and section 13 of the GPL-3.0 and AGPL-3.0 expressly
 permits linking the two, so a distributed build may be conveyed on those
 terms. Which FFmpeg a binary carries depends on the machine that built it:
-Homebrew's on macOS, a BtbN `shared` build (https://github.com/BtbN/FFmpeg-Builds)
-on Windows and in CI. FFmpeg source code: https://ffmpeg.org/download.html
+Homebrew's on macOS, a BtbN `gpl-shared` build
+(https://github.com/BtbN/FFmpeg-Builds) on Windows and Linux and in CI, and
+on Android and iOS an LGPL build without x264, compiled from FFmpeg's source
+by `src/scripts/ffmpeg-mobile.sh` and linked statically.
+FFmpeg source code: https://ffmpeg.org/download.html
 
 ## whisper.cpp
 
@@ -22,7 +26,7 @@ originate at https://huggingface.co/ggerganov/whisper.cpp (MIT); Concat
 mirrors them and downloads them on demand from that mirror, and never
 bundles them. See "The model mirror" below.
 
-## Slint — used under GPL-3.0-only
+## Slint (used under GPL-3.0-only)
 
 The `concat` crate (`src/crates/concat`) builds against
 [Slint](https://github.com/slint-ui/slint), which its authors offer under
@@ -51,8 +55,11 @@ the two cannot be mixed.
 
 Slint pulls in its Skia renderer (see `src/crates/concat/Cargo.toml`) along
 with winit and their transitive crates, which are
-predominantly MIT/Apache-2.0/BSD licensed. `cargo tree -p concat` gives the
-resolved set of any given build.
+predominantly MIT/Apache-2.0/BSD licensed. The Skia renderer crate,
+`i-slint-renderer-skia`, is built from a patched copy in
+`src/patches/i-slint-renderer-skia`; its changes are listed in
+`src/patches/README.md` and marked `Concat:` in the source.
+`cargo tree -p concat` gives the resolved set of any given build.
 
 ## Fonts
 
@@ -62,52 +69,46 @@ The window and the title painter embed the interface's font into the binary
 licence travels with it. The files and the full licence text are in
 `src/crates/concat-text/fonts/`.
 
-- **Hanken Grotesk** — Copyright 2021 The Hanken Grotesk Project Authors
+- **Hanken Grotesk**: Copyright 2021 The Hanken Grotesk Project Authors
   (https://github.com/marcologous/hanken-grotesk), SIL Open Font License
   1.1. The Regular, Medium, SemiBold, Bold and Italic static instances are
   embedded. See `fonts/LICENSE-HankenGrotesk.txt`.
 
-The base fonts every title can use, embedded by `concat-text` (`BASE_FONTS`)
-and registered with the window for the text presets. Each file's licence is
-beside it in `src/crates/concat-text/fonts/`, as `LICENSE-<Family>.txt`;
-OFL is the SIL Open Font License 1.1.
+These are the base fonts every title can use, embedded by `concat-text`
+(`BASE_FONTS`) and registered with the window for the text presets. Each
+file's licence is beside it in `src/crates/concat-text/fonts/`, as
+`LICENSE-<Family>.txt`; OFL is the SIL Open Font License 1.1.
 
-- **Inter** — Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter). OFL. See `fonts/LICENSE-Inter.txt`.
-- **Montserrat** — Copyright 2024 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat). OFL. See `fonts/LICENSE-Montserrat.txt`.
-- **Space Grotesk** — Copyright Florian Karsten. OFL. See `fonts/LICENSE-SpaceGrotesk.txt`.
-- **Archivo Black** — Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack). OFL. See `fonts/LICENSE-ArchivoBlack.txt`.
-- **Bebas Neue** — Copyright 2010 Dharma Type. OFL. See `fonts/LICENSE-BebasNeue.txt`.
-- **Anton** — Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont). OFL. See `fonts/LICENSE-Anton.txt`.
-- **DM Serif Display** — Copyright 2014-2018 Adobe, with Reserved Font Name 'Source'; Copyright 2019 Colophon Foundry. OFL. See `fonts/LICENSE-DMSerifDisplay.txt`.
-- **Abril Fatface** — Copyright 2011 TypeTogether. OFL. See `fonts/LICENSE-AbrilFatface.txt`.
-- **Bangers** — Copyright 2010 The Bangers Project Authors. OFL. See `fonts/LICENSE-Bangers.txt`.
-- **Permanent Marker** — Copyright Font Diner. Apache License 2.0. See `fonts/LICENSE-PermanentMarker.txt`.
-- **Pacifico** — Copyright 2018 The Pacifico Project Authors. OFL. See `fonts/LICENSE-Pacifico.txt`.
-- **Lobster** — Copyright 2010 The Lobster Project Authors, with Reserved Font Name "Lobster". OFL. See `fonts/LICENSE-Lobster.txt`.
-- **Caveat Brush** — Copyright 2015 Google Inc.. OFL. See `fonts/LICENSE-CaveatBrush.txt`.
-- **Staatliches** — The Staatliches Project Authors. OFL. See `fonts/LICENSE-Staatliches.txt`.
-- **Black Ops One** — The Black Ops One Project Authors. OFL. See `fonts/LICENSE-BlackOpsOne.txt`.
-- **Germania One** — The Germania One Project Authors. OFL. See `fonts/LICENSE-GermaniaOne.txt`.
-- **Atomic Age** — The Atomic Age Project Authors. OFL. See `fonts/LICENSE-AtomicAge.txt`.
-- **Hammersmith One** — The Hammersmith One Project Authors. OFL. See `fonts/LICENSE-HammersmithOne.txt`.
-- **Secular One** — The Secular One Project Authors. OFL. See `fonts/LICENSE-SecularOne.txt`.
-- **Londrina Solid** — The Londrina Solid Project Authors. OFL. See `fonts/LICENSE-LondrinaSolid.txt`.
-- **Bungee Hairline** — The Bungee Project Authors. OFL. See `fonts/LICENSE-BungeeHairline.txt`.
-- **Rubik Scribble** — The Rubik Scribble Project Authors. OFL. See `fonts/LICENSE-RubikScribble.txt`.
-- **Shadows Into Light Two** — The Shadows Into Light Two Project Authors. OFL. See `fonts/LICENSE-ShadowsIntoLightTwo.txt`.
-- **Pixelify Sans** — The Pixelify Sans Project Authors. OFL. See `fonts/LICENSE-PixelifySans.txt`.
-- **Google Sans Code** — The Google Sans Code Project Authors. OFL. See `fonts/LICENSE-GoogleSansCode.txt`.
-- **Kosugi Maru** — Copyright MOTOYA Co., Ltd.. Apache License 2.0. See `fonts/LICENSE-KosugiMaru.txt`.
-- **Noto Sans CJK SC** (a subset: the Chinese, Korean and kana characters the interface falls back on) — Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. OFL. See `src/crates/concat/fonts/LICENSE-NotoSansCJK.txt`.
-- **Noto Sans Arabic UI** 2.011 (a subset: the Arabic block and the characters the Arabic, Persian and Urdu interface uses) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansArabicUI.txt`.
-- **Noto Sans Hebrew** 3.001 (a subset: the Hebrew block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/hebrew). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansHebrew.txt`.
-- **Noto Sans Devanagari** 2.007 (a subset: the Devanagari block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansDevanagari.txt`.
-- **Noto Sans Bengali** 3.011 (a subset: the Bengali block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/bengali). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansBengali.txt`.
-- **Noto Sans Thai** 2.002 (a subset: the Thai block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansThai.txt`.
-- **Frijole** — The Frijole Project Authors. OFL. See `fonts/LICENSE-Frijole.txt`.
-- **Emilys Candy** — The Emilys Candy Project Authors. OFL. See `fonts/LICENSE-EmilysCandy.txt`.
-- **Mystery Quest** — The Mystery Quest Project Authors. OFL. See `fonts/LICENSE-MysteryQuest.txt`.
-- **Zen Tokyo Zoo** — The Zen Tokyo Zoo Project Authors. OFL. See `fonts/LICENSE-ZenTokyoZoo.txt`.
+- **Inter**: Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter). OFL. See `fonts/LICENSE-Inter.txt`.
+- **Montserrat**: Copyright 2024 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat). OFL. See `fonts/LICENSE-Montserrat.txt`.
+- **Space Grotesk**: Copyright Florian Karsten. OFL. See `fonts/LICENSE-SpaceGrotesk.txt`.
+- **Archivo Black**: Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack). OFL. See `fonts/LICENSE-ArchivoBlack.txt`.
+- **Bebas Neue**: Copyright 2010 Dharma Type. OFL. See `fonts/LICENSE-BebasNeue.txt`.
+- **Anton**: Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont). OFL. See `fonts/LICENSE-Anton.txt`.
+- **DM Serif Display**: Copyright 2014-2018 Adobe, with Reserved Font Name 'Source'; Copyright 2019 Colophon Foundry. OFL. See `fonts/LICENSE-DMSerifDisplay.txt`.
+- **Abril Fatface**: Copyright 2011 TypeTogether. OFL. See `fonts/LICENSE-AbrilFatface.txt`.
+- **Bangers**: Copyright 2010 The Bangers Project Authors. OFL. See `fonts/LICENSE-Bangers.txt`.
+- **Permanent Marker**: Copyright Font Diner. Apache License 2.0. See `fonts/LICENSE-PermanentMarker.txt`.
+- **Pacifico**: Copyright 2018 The Pacifico Project Authors. OFL. See `fonts/LICENSE-Pacifico.txt`.
+- **Lobster**: Copyright 2010 The Lobster Project Authors, with Reserved Font Name "Lobster". OFL. See `fonts/LICENSE-Lobster.txt`.
+- **Caveat Brush**: Copyright 2015 Google Inc. OFL. See `fonts/LICENSE-CaveatBrush.txt`.
+- **Staatliches**: The Staatliches Project Authors. OFL. See `fonts/LICENSE-Staatliches.txt`.
+- **Black Ops One**: The Black Ops One Project Authors. OFL. See `fonts/LICENSE-BlackOpsOne.txt`.
+- **Germania One**: The Germania One Project Authors. OFL. See `fonts/LICENSE-GermaniaOne.txt`.
+- **Atomic Age**: The Atomic Age Project Authors. OFL. See `fonts/LICENSE-AtomicAge.txt`.
+- **Hammersmith One**: The Hammersmith One Project Authors. OFL. See `fonts/LICENSE-HammersmithOne.txt`.
+- **Secular One**: The Secular One Project Authors. OFL. See `fonts/LICENSE-SecularOne.txt`.
+- **Londrina Solid**: The Londrina Solid Project Authors. OFL. See `fonts/LICENSE-LondrinaSolid.txt`.
+- **Bungee Hairline**: The Bungee Project Authors. OFL. See `fonts/LICENSE-BungeeHairline.txt`.
+- **Rubik Scribble**: The Rubik Scribble Project Authors. OFL. See `fonts/LICENSE-RubikScribble.txt`.
+- **Shadows Into Light Two**: The Shadows Into Light Two Project Authors. OFL. See `fonts/LICENSE-ShadowsIntoLightTwo.txt`.
+- **Pixelify Sans**: The Pixelify Sans Project Authors. OFL. See `fonts/LICENSE-PixelifySans.txt`.
+- **Google Sans Code**: The Google Sans Code Project Authors. OFL. See `fonts/LICENSE-GoogleSansCode.txt`.
+- **Kosugi Maru**: Copyright MOTOYA Co., Ltd. Apache License 2.0. See `fonts/LICENSE-KosugiMaru.txt`.
+- **Frijole**: The Frijole Project Authors. OFL. See `fonts/LICENSE-Frijole.txt`.
+- **Emilys Candy**: The Emilys Candy Project Authors. OFL. See `fonts/LICENSE-EmilysCandy.txt`.
+- **Mystery Quest**: The Mystery Quest Project Authors. OFL. See `fonts/LICENSE-MysteryQuest.txt`.
+- **Zen Tokyo Zoo**: The Zen Tokyo Zoo Project Authors. OFL. See `fonts/LICENSE-ZenTokyoZoo.txt`.
 
 The Noto faces in `src/crates/concat/fonts/` are the window's fallback for
 the scripts its own face does not draw, compiled into the binary
@@ -118,18 +119,27 @@ cut it are recorded beside each face in `fonts.rs`. A subset is a Modified
 Version under the OFL, and keeps the family name the release gave it, as
 the OFL allows for Noto, which reserves no font name.
 
+- **Noto Sans CJK SC** (a subset: the Chinese, Korean and kana characters the interface falls back on): Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. OFL. See `src/crates/concat/fonts/LICENSE-NotoSansCJK.txt`.
+- **Noto Sans Arabic UI** 2.011 (a subset: the Arabic block and the characters the Arabic, Persian and Urdu interface uses): Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansArabicUI.txt`.
+- **Noto Sans Hebrew** 3.001 (a subset: the Hebrew block): Copyright 2022 The Noto Project Authors (https://github.com/notofonts/hebrew). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansHebrew.txt`.
+- **Noto Sans Devanagari** 2.007 (a subset: the Devanagari block): Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansDevanagari.txt`.
+- **Noto Sans Bengali** 3.011 (a subset: the Bengali block): Copyright 2022 The Noto Project Authors (https://github.com/notofonts/bengali). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansBengali.txt`.
+- **Noto Sans Thai** 2.002 (a subset: the Thai block): Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansThai.txt`.
+
 The licence does not permit selling the font on its own; shipping the
 `fonts/` directory as it stands satisfies it.
 
 ## sherpa-onnx and Kokoro voices
 
-Text to speech links the sherpa-onnx runtime statically
-(https://github.com/k2-fsa/sherpa-onnx, Apache-2.0), which itself statically
-links onnxruntime (MIT), piper-phonemize (MIT) and espeak-ng
+Text to speech uses the sherpa-onnx runtime
+(https://github.com/k2-fsa/sherpa-onnx, Apache-2.0), linked statically on
+macOS and Linux, and on Windows, Android and iOS shipped with the app as
+the prebuilt shared libraries k2-fsa publishes. It carries onnxruntime
+(MIT), piper-phonemize (MIT) and espeak-ng
 (**GPL-3.0-or-later**, https://github.com/espeak-ng/espeak-ng) for
 grapheme-to-phoneme conversion. Because espeak-ng is compiled into the app
-binary, distributed builds must comply with the GPL-3.0 for that combined
-work. Concat's own sources are AGPL-3.0-or-later; section 13 of both GPL-3.0
+binary or into the sherpa-onnx libraries shipped with it, distributed builds
+must comply with the GPL-3.0 for that combined work. Concat's own sources are AGPL-3.0-or-later; section 13 of both GPL-3.0
 and AGPL-3.0 expressly permits that combination, so the combined binary may be
 conveyed on those terms.
 
@@ -161,7 +171,7 @@ anyone passing the sound off as a person's should know is not there.
 
 The cutout models run on Microsoft's ONNX Runtime
 (https://github.com/microsoft/onnxruntime, MIT), through the `ort` crate
-(https://github.com/pykeio/ort, MIT or Apache-2.0). On Apple silicon and
+(https://github.com/pykeio/ort, MIT OR Apache-2.0). On Apple silicon and
 the phones it is linked into the app from pyke's builds of it; an Intel
 Mac's bundle carries Microsoft's last shared build for that machine in
 `Contents/Frameworks`. The Linux and Windows bundles ship Microsoft's own
@@ -188,7 +198,7 @@ which permit shipping them alongside an application that uses them.
 
 ## The cutout models
 
-Remove background runs three models, none of which ship inside the app
+Remove background runs four models, none of which ship inside the app
 except the first:
 
 - Google's MediaPipe Selfie Segmentation (Apache-2.0), in the ONNX
@@ -221,7 +231,7 @@ iOS, NNAPI on Android. How each platform carries the runtime is under
 
 ## The model mirror
 
-Every model named above is mirrored onto a release of Concat's own
+Every downloaded model named above is mirrored onto a release of Concat's own
 repository, and the app fetches it from there; the upstream each was
 obtained from is the fallback and is named above in every case. The table of
 what is mirrored, and the digest each download is checked against, is

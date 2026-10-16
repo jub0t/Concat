@@ -2,7 +2,9 @@
 
 Shortcuts work when the editor window has focus. On macOS, `Ctrl` below means `⌘`.
 
-Single-letter shortcuts don't fire while holding `Ctrl`/`⌘`/`Alt`, or while typing in a text field.
+Single-key shortcuts don't fire while typing in a text field. Letter shortcuts also don't fire while holding `Ctrl`/`⌘`, `Alt` or `Shift`.
+
+On the start screen only `Ctrl` + `O`, `Ctrl` + `Q` (Windows/Linux) and `Ctrl` + `W` (macOS) work.
 
 ## Playback and navigation
 
@@ -17,18 +19,18 @@ Single-letter shortcuts don't fire while holding `Ctrl`/`⌘`/`Alt`, or while ty
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl` + `B` | Split clip at playhead |
+| `Ctrl` + `B` | Split every clip under the playhead |
 | `B` | Toggle the split (razor) tool |
 | `Delete` / `Backspace` | Delete selection |
-| `Shift` + `Delete` | Ripple delete |
+| `Shift` + `Delete` / `Backspace` | Ripple delete (close the gap) |
 | `Ctrl` + `Z` | Undo |
-| `Ctrl` + `Shift` + `Z` (`Ctrl` + `Y` on Windows/Linux) | Redo |
+| `Ctrl` + `Shift` + `Z`, or `Ctrl` + `Y` on Windows/Linux | Redo |
 | `Ctrl` + `A` | Select all |
 | `Ctrl` + `C` / `Ctrl` + `V` | Copy / paste |
-| `Ctrl` + `D` | Duplicate selection |
+| `Ctrl` + `D` | Duplicate the selected clip |
 | `H` | Toggle the pan (hand) tool |
 | `N` | Toggle snapping |
-| `M` | Mute |
+| `M` | Mute / unmute the selected clip |
 | `S` | Toggle preview axis overlay |
 
 ## Project and app

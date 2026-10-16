@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">Istinski besplatna zamjena za CapCut otvorenog koda, za sve platforme.</h3>
+<h3 align="center">Besplatna zamjena za CapCut otvorenog koda, za sve platforme.</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -49,24 +49,24 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 
 **Dobro za:** TikTok, Reels i Shorts, YouTube videe, tutorijale i snimke zaslona, isječke podcasta, memeove.
 
-**I za strojeve:** JSON-RPC, gRPC i MCP API, pa skripte i AI agenti također mogu njime rezati video.
+**I za strojeve:** JSON-RPC i gRPC API, pa skripte i AI agenti također mogu njime rezati video.
 
 ## Istaknuto
 
 - 🚫 **Bez vodenih žigova. Bez računa. Bez naplate.** Nikad.
 - 🔒 **100 % lokalno.** Ništa se ne učitava. Radi izvan mreže.
-- 💬 **Automatski titlovi.** Lokalni Whisper. Odaberite veličinu modela i dobijete stilizirane titlove na vremenskoj crti.
+- 💬 **Automatski titlovi.** Lokalni Whisper. Odaberite veličinu modela i dobit ćete stilizirane titlove na vremenskoj crti.
 - 🗣️ **Tekst u govor + kloniranje glasa.** Besplatni lokalni glasovi ili bilo koji glas iz nekoliko sekundi snimke.
 - 🧍 **Uklanjanje pozadine.** Osobe, predmeti ili sami nacrtajte masku.
 - 🎞️ **Ključni kadrovi.** Položaj, skala, rotacija, prozirnost, glasnoća, parametri efekata. Ugrađeni uređivač krivulja.
-- ✨ **Više od 170 efekata, filtara, prijelaza i animacija teksta.** Iscrtano na GPU-u, uživo u pregledu.
+- ✨ **100 efekata, filtara i prijelaza.** Iscrtano na GPU-u, uživo u pregledu.
 - ✂️ **Brzo rezanje.** Podijeli, skrati, ripple, spoji, zamrzni kadar, brzina. Magnetska vremenska crta ako je želite.
 - 🎚️ **Više traka, više vremenskih crta.** Više montaža u jednom projektu. Načini stapanja, obrezivanje, zrcaljenja.
 - 📝 **Naslovi.** Fontovi, obrub, sjena, pozadinska pločica. Predlošci za početak.
 - 🎙️ **Čišćenje glasa jednim prekidačem.** Uklanjanje šuma, poboljšanje glasa, izjednačavanje glasnoće. Plus vjeverica, robot, telefon i društvo.
 - 📤 **Izvoz.** H.264, HEVC, AV1. Do 4K 60, 10-bitna boja.
 - 🦀 **Nativni Rust motor.** GPU kompozitor, proxyji, hardversko dekodiranje. 4K se pregledava glatko.
-- 🤖 **Skriptabilan.** JSON-RPC, gRPC i MCP API, plus CLI. AI agenti mogu njime rezati video.
+- 🤖 **Skriptabilan.** JSON-RPC i gRPC API, plus CLI. AI agenti mogu njime rezati video.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 jezika. Ista aplikacija, iste datoteke projekta.
 
 ## Preuzimanje
@@ -80,7 +80,7 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 
 **Platforme**
 
-- ✅ **Windows** · x86_64 i ARM. Instalacija i `.msi`. Ako SmartScreen zaustavi nepotpisanu inačicu: **Više informacija** › **Svejedno pokreni**
+- ✅ **Windows** · x86_64 (ARM inačice su pauzirane, vidi [#326](https://github.com/jub0t/Concat/issues/326)). Instalacija i `.msi`. Ako SmartScreen zaustavi nepotpisanu inačicu: **Više informacija** › **Svejedno pokreni**
 - ✅ **macOS** · Intel i Apple Silicon. Ako macOS odbije otvoriti nepotpisanu inačicu: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 i ARM. `.deb`, `.rpm`, `.AppImage` i Arch paket. Također Flatpak na **[Flatparku](https://flatpark.org/apps/app.concat.editor/)**, Flatpak repozitoriju zajednice koji omata x86_64 `.deb` svakog izdanja i ažurira se s njim
 - ✅ **Android** · telefoni i tableti
@@ -97,9 +97,9 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 > [!IMPORTANT]
 > Najbolji način doprinosa jest uzeti inačicu sa stranice [Releases](https://github.com/jub0t/Concat/releases) i koristiti je: pronaći gdje puca i reći gdje bi mogla biti bolja.
 >
-> Spremni pisati kod? [CONTRIBUTING.md](../CONTRIBUTING.md) pokriva postavljanje, raspored stabla, provjere koje treba pokrenuti i kako se doprinosi licenciraju. Upravljate Concatom iz skripte, servisa ili agenta? [Dokumentacija za razvojne programere](https://concatenate.pages.dev/docs) pokriva Concat API i njegove prijenose: JSON-RPC, gRPC i MCP. [U ovoj raspravi](https://github.com/jub0t/Concat/discussions/3) projekt je najavljen.
+> Spremni pisati kod? [CONTRIBUTING.md](../CONTRIBUTING.md) pokriva postavljanje, raspored stabla, provjere koje treba pokrenuti i kako se doprinosi licenciraju. Upravljate Concatom iz skripte, servisa ili agenta? [Dokumentacija za razvojne programere](https://concatenate.pages.dev/docs) pokriva Concat API i njegove prijenose: JSON-RPC i gRPC. [U ovoj raspravi](https://github.com/jub0t/Concat/discussions/3) projekt je najavljen.
 > 
-> Suradnici mogu zatražiti ulogu `@Contributor` na Discord poslužitelju, samo pitajte.
+> Suradnici mogu zatražiti ulogu `@Contributor` na Discord poslužitelju: samo pitajte.
 
 ## Povijest zvjezdica
 

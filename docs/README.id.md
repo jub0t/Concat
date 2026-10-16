@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">Pengganti CapCut lintas platform yang benar-benar gratis dan sumber terbuka.</h3>
+<h3 align="center">Pengganti CapCut yang gratis, sumber terbuka, dan lintas platform.</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -43,13 +43,13 @@
 
 ## Tentang
 
-Concat adalah penyunting video gratis dan sumber terbuka, alternatif CapCut untuk macOS, Windows, Linux, dan Android. Ia mencakup hal-hal yang sebenarnya orang buka CapCut untuk: teks otomatis, teks ke suara, penghapusan latar, animasi keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
+Concat adalah penyunting video gratis dan sumber terbuka, alternatif CapCut untuk macOS, Windows, Linux, dan Android. Ia mencakup hal-hal yang sebenarnya dicari orang saat membuka CapCut: teks otomatis, teks ke suara, penghapusan latar, animasi keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
 
 Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatuhkan rekaman, potong. Model AI untuk teks, suara, dan pemotongan latar diunduh sekali dari Pengaturan dan setelah itu bekerja luring. Rekaman Anda tidak pernah meninggalkan disk Anda.
 
 **Cocok untuk:** TikTok, Reels, dan Shorts, video YouTube, tutorial dan rekaman layar, klip podcast, meme.
 
-**Juga untuk mesin:** API JSON-RPC, gRPC, dan MCP, sehingga skrip dan agen AI juga bisa memotong video dengannya.
+**Juga untuk mesin:** API JSON-RPC dan gRPC, sehingga skrip dan agen AI juga bisa memotong video dengannya.
 
 ## Sorotan
 
@@ -59,14 +59,14 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 - 🗣️ **Teks ke suara + kloning suara.** Suara lokal gratis, atau suara apa pun dari rekaman beberapa detik.
 - 🧍 **Penghapusan latar.** Orang, objek, atau lukis maskernya sendiri.
 - 🎞️ **Keyframe.** Posisi, skala, rotasi, opasitas, volume, parameter efek. Penyunting kurva bawaan.
-- ✨ **170+ efek, filter, transisi, dan animasi teks.** Dirender GPU, langsung di pratinjau.
+- ✨ **100 efek, filter, dan transisi.** Dirender GPU, langsung di pratinjau.
 - ✂️ **Potong cepat.** Belah, pangkas, ripple, gabung, bekukan bingkai, kecepatan. Lini masa magnetik kalau mau.
 - 🎚️ **Multi-trek, multi-lini masa.** Beberapa potongan dalam satu proyek. Mode campur, crop, balik.
 - 📝 **Judul.** Font, garis tepi, bayangan, pelat latar. Preset untuk memulai.
 - 🎙️ **Pembersihan suara satu saklar.** Hilangkan derau, tingkatkan suara, ratakan kenyaringan. Plus tupai, robot, telepon, dan kawan-kawan.
 - 📤 **Ekspor.** H.264, HEVC, AV1. Hingga 4K 60, warna 10-bit.
 - 🦀 **Mesin Rust native.** Kompositor GPU, proxy, dekode perangkat keras. 4K digeser dengan mulus.
-- 🤖 **Bisa diskrip.** API JSON-RPC, gRPC, dan MCP, plus CLI. Agen AI bisa memotong video dengannya.
+- 🤖 **Bisa diskrip.** API JSON-RPC dan gRPC, plus CLI. Agen AI bisa memotong video dengannya.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 bahasa. Aplikasi yang sama, berkas proyek yang sama.
 
 ## Unduh
@@ -80,7 +80,7 @@ Concat masih **beta**: ia bekerja, dan masih ada sisi kasarnya. [Beri tahu](http
 
 **Platform**
 
-- ✅ **Windows** · x86_64 dan ARM. Sebuah setup dan `.msi`. Jika SmartScreen menghentikan build tanpa tanda tangan: **More info** › **Run anyway**
+- ✅ **Windows** · x86_64 (build ARM sedang dijeda, lihat [#326](https://github.com/jub0t/Concat/issues/326)). Sebuah setup dan `.msi`. Jika SmartScreen menghentikan build tanpa tanda tangan: **More info** › **Run anyway**
 - ✅ **macOS** · Intel dan Apple Silicon. Jika macOS menolak membuka build tanpa tanda tangan: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 dan ARM. `.deb`, `.rpm`, `.AppImage`, dan paket Arch. Juga Flatpak di **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, remote Flatpak komunitas yang membungkus `.deb` x86_64 setiap rilis dan ikut memperbarui bersamanya
 - ✅ **Android** · ponsel dan tablet
@@ -97,9 +97,9 @@ Concat masih **beta**: ia bekerja, dan masih ada sisi kasarnya. [Beri tahu](http
 > [!IMPORTANT]
 > Cara terbaik berkontribusi adalah mengambil build dari halaman [Releases](https://github.com/jub0t/Concat/releases) dan memakainya: temukan di mana ia rusak, dan katakan di mana ia bisa lebih baik.
 >
-> Siap menulis kode? [CONTRIBUTING.md](../CONTRIBUTING.md) membahas penyiapan, tata letak pohon, pemeriksaan yang dijalankan, dan bagaimana kontribusi dilisensikan. Mengendalikan Concat dari skrip, layanan, atau agen? [Dokumentasi pengembang](https://concatenate.pages.dev/docs) membahas API Concat dan transportnya: JSON-RPC, gRPC, dan MCP. [Diskusi ini](https://github.com/jub0t/Concat/discussions/3) adalah tempat proyek diumumkan.
+> Siap menulis kode? [CONTRIBUTING.md](../CONTRIBUTING.md) membahas penyiapan, tata letak pohon, pemeriksaan yang dijalankan, dan bagaimana kontribusi dilisensikan. Mengendalikan Concat dari skrip, layanan, atau agen? [Dokumentasi pengembang](https://concatenate.pages.dev/docs) membahas API Concat dan transportnya: JSON-RPC dan gRPC. [Diskusi ini](https://github.com/jub0t/Concat/discussions/3) adalah tempat proyek diumumkan.
 > 
-> Kontributor bebas meminta peran `@Contributor` di server Discord, cukup minta saja.
+> Kontributor bisa mendapatkan peran `@Contributor` di server Discord: cukup minta saja.
 
 ## Riwayat bintang
 

@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">The truly free, and open-source cross-platform CapCut replacement.</h3>
+<h3 align="center">The free, open-source, cross-platform CapCut replacement.</h3>
 
 <div align="center">
 
@@ -47,7 +47,7 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 
 **Good for:** TikTok, Reels and Shorts, YouTube videos, tutorials and screen recordings, podcast clips, memes.
 
-**Also for machines:** a JSON-RPC, gRPC and MCP API, so scripts and AI agents can cut video with it too.
+**Also for machines:** a JSON-RPC and gRPC API, so scripts and AI agents can cut video with it too.
 
 ## Highlights
 
@@ -57,14 +57,14 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 - 🗣️ **Text-to-speech + voice cloning.** Free local voices, or any voice from a few seconds of a recording.
 - 🧍 **Background removal.** People, objects, or paint the mask yourself.
 - 🎞️ **Keyframes.** Position, scale, rotation, opacity, volume, effect parameters. Curve editor built in.
-- ✨ **170+ effects, filters, transitions and text animations.** GPU-rendered, live in the preview.
+- ✨ **100 effects, filters and transitions.** GPU-rendered, live in the preview.
 - ✂️ **Cut fast.** Split, trim, ripple, merge, freeze frame, speed. Magnetic timeline if you want it.
 - 🎚️ **Multi-track, multi-timeline.** Several cuts in one project. Blend modes, crop, flips.
 - 📝 **Titles.** Fonts, stroke, shadow, background plate. Presets to start from.
 - 🎙️ **One-switch voice cleanup.** Denoise, enhance voice, level the loudness. Plus chipmunk, robot, telephone and friends.
 - 📤 **Export.** H.264, HEVC, AV1. Up to 4K 60, 10-bit colour.
 - 🦀 **Native Rust engine.** GPU compositor, proxies, hardware decode. 4K scrubs smoothly.
-- 🤖 **Scriptable.** JSON-RPC, gRPC and MCP API, plus a CLI. AI agents can cut video with it.
+- 🤖 **Scriptable.** JSON-RPC and gRPC API, plus a CLI. AI agents can cut video with it.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 languages. Same app, same project files.
 
 ## Download
@@ -78,7 +78,7 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 
 **Platforms**
 
-- ✅ **Windows** · x86_64 and ARM. A setup and an `.msi`. If SmartScreen stops an unsigned build: **More info** › **Run anyway**
+- ✅ **Windows** · x86_64 (ARM builds are paused, see [#326](https://github.com/jub0t/Concat/issues/326)). A setup and an `.msi`. If SmartScreen stops an unsigned build: **More info** › **Run anyway**
 - ✅ **macOS** · Intel and Apple silicon. If macOS refuses to open an unsigned build: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 and ARM. `.deb`, `.rpm`, `.AppImage` and an Arch package. Also a Flatpak on **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, a community Flatpak remote that wraps the x86_64 `.deb` of each release and updates with it
 - ✅ **Android** · phones and tablets
@@ -120,9 +120,9 @@ If you change text the interface shows, run `python3 scripts/locales.py` from th
 > [!IMPORTANT]
 > The best way to contribute is to grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page and use it: find where it breaks, and say where it could be better.
 >
-> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [The developer docs](https://concatenate.pages.dev/docs) cover the Concat API and its transports: JSON-RPC, gRPC and MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
+> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [The developer docs](https://concatenate.pages.dev/docs) cover the Concat API and its transports: JSON-RPC and gRPC. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
 > 
-> Contributors are free to claim a `@Contributor` role in the Discord server, just ask for it.
+> Contributors can claim a `@Contributor` role in the Discord server: just ask.
 
 ## Star History
 

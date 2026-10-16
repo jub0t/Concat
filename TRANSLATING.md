@@ -13,7 +13,7 @@ locale is a JSON file that maps each key to your language:
   "_": { "name": "Deutsch" },
   "common.settings": "Einstellungen",
   "mediaBin.importedFiles": "{0} Dateien importiert",
-  "tray.splitAtPlayhead": "Am Abspielkopf teilen (B, oder ⌘B für jeden Clip)"
+  "tray.splitAtPlayhead": "Am Abspielkopf teilen ({0})"
 }
 ```
 
@@ -30,8 +30,8 @@ locale is a JSON file that maps each key to your language:
   transitions and text presets are data, and always read in English, as
   their manifests write them: their names, descriptions and knob labels
   have no lines here.
-- `{0}`, `{1}` and so on are filled in at run time — a count, a name, a
-  file size. Keep them, and put them where your language wants them.
+- `{0}`, `{1}` and so on are filled in at run time: a count, a name, a
+  file size, a shortcut. Keep them, and put them where your language wants them.
 - A key your file leaves out reads in English. Nothing breaks; the line is
   simply not translated yet.
 - A file from before keys, keyed by the English itself, still loads: each
@@ -59,13 +59,20 @@ change.
 1. Put the file in `src/crates/concat/locales/`.
 2. Add its code and file to the `BUILT_IN` table at the top of
    `src/crates/concat/src/i18n.rs`.
-3. Run `python3 scripts/locales.py --check`. It lists every line each
-   locale still lacks, and refuses a key nothing in the source asks for.
-4. Open a pull request. Corrections to the languages Concat already ships
+3. Give it a README: add `scripts/readme/lang_<code>.py` with the README's
+   words in your language, add the code to `ORDER` in
+   `scripts/readme/gen.py`, and run `python3 scripts/readme/gen.py`. The app
+   and the READMEs speak the same languages, one for one.
+4. Run `python3 scripts/locales.py --check`. It lists every line each
+   locale still lacks, refuses a key nothing in the source asks for, and
+   fails on a locale with no README or a README with no locale.
+5. Open a pull request. Corrections to the languages Concat already ships
    are just as welcome as new ones.
 
-Concat ships English, Deutsch, Español, فارسی, Français, Hrvatski, Italiano,
-日本語, 한국어, Português (Brasil), Русский, Türkçe, 简体中文 and 正體中文.
+Concat ships 25 languages: English, العربية, বাংলা, Deutsch, Español, فارسی,
+Français, עברית, हिन्दी, Hrvatski, Bahasa Indonesia, Italiano, 日本語, 한국어,
+Nederlands, Polski, Português (Brasil), Русский, ไทย, Türkçe, Українська,
+اردو, Tiếng Việt, 简体中文 and 繁體中文.
 
 ## For developers
 

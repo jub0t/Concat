@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">O substituto do CapCut realmente gratuito, de código aberto e multiplataforma.</h3>
+<h3 align="center">O substituto do CapCut gratuito, de código aberto e multiplataforma.</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -43,13 +43,13 @@
 
 ## Sobre
 
-O Concat é um editor de vídeo gratuito e de código aberto, uma alternativa ao CapCut para macOS, Windows, Linux e Android. Ele cobre o que as pessoas realmente abrem o CapCut para fazer: legendas automáticas, texto para fala, remoção de fundo, animação por keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
+O Concat é um editor de vídeo gratuito e de código aberto, uma alternativa ao CapCut para macOS, Windows, Linux e Android. Ele cobre aquilo para que as pessoas realmente abrem o CapCut: legendas automáticas, texto para fala, remoção de fundo, animação por keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
 
 Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instale, solte o material, corte. Os modelos de IA para legendas, vozes e recorte são baixados uma vez nas Configurações e depois funcionam offline. Seu material nunca sai do seu disco.
 
 **Bom para:** TikTok, Reels e Shorts, vídeos do YouTube, tutoriais e gravações de tela, trechos de podcast, memes.
 
-**Também para máquinas:** uma API JSON-RPC, gRPC e MCP, para que scripts e agentes de IA também possam cortar vídeo com ele.
+**Também para máquinas:** uma API JSON-RPC e gRPC, para que scripts e agentes de IA também possam cortar vídeo com ele.
 
 ## Destaques
 
@@ -59,14 +59,14 @@ Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instal
 - 🗣️ **Texto para fala + clonagem de voz.** Vozes locais gratuitas, ou qualquer voz a partir de alguns segundos de gravação.
 - 🧍 **Remoção de fundo.** Pessoas, objetos, ou pinte a máscara você mesmo.
 - 🎞️ **Keyframes.** Posição, escala, rotação, opacidade, volume, parâmetros de efeitos. Editor de curvas embutido.
-- ✨ **Mais de 170 efeitos, filtros, transições e animações de texto.** Renderizados na GPU, ao vivo na prévia.
+- ✨ **100 efeitos, filtros e transições.** Renderizados na GPU, ao vivo na prévia.
 - ✂️ **Corte rápido.** Dividir, aparar, ripple, mesclar, congelar quadro, velocidade. Linha do tempo magnética se você quiser.
 - 🎚️ **Multipista, múltiplas linhas do tempo.** Vários cortes em um projeto. Modos de mesclagem, corte, inversões.
 - 📝 **Títulos.** Fontes, contorno, sombra, placa de fundo. Predefinições para começar.
 - 🎙️ **Limpeza de voz com um interruptor.** Reduzir ruído, realçar a voz, nivelar o volume. Mais esquilo, robô, telefone e companhia.
 - 📤 **Exportação.** H.264, HEVC, AV1. Até 4K 60, cor de 10 bits.
 - 🦀 **Motor nativo em Rust.** Compositor na GPU, proxies, decodificação por hardware. O 4K navega suavemente.
-- 🤖 **Automatizável.** API JSON-RPC, gRPC e MCP, mais uma CLI. Agentes de IA podem cortar vídeo com ele.
+- 🤖 **Automatizável.** API JSON-RPC e gRPC, mais uma CLI. Agentes de IA podem cortar vídeo com ele.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 idiomas. O mesmo app, os mesmos arquivos de projeto.
 
 ## Download
@@ -80,7 +80,7 @@ O Concat está em **beta**: funciona, e ainda tem arestas. [Conte](https://githu
 
 **Plataformas**
 
-- ✅ **Windows** · x86_64 e ARM. Um instalador e um `.msi`. Se o SmartScreen barrar uma build sem assinatura: **Mais informações** › **Executar assim mesmo**
+- ✅ **Windows** · x86_64 (as builds para ARM estão pausadas, veja [#326](https://github.com/jub0t/Concat/issues/326)). Um instalador e um `.msi`. Se o SmartScreen barrar uma build sem assinatura: **Mais informações** › **Executar assim mesmo**
 - ✅ **macOS** · Intel e Apple Silicon. Se o macOS se recusar a abrir uma build sem assinatura: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 e ARM. `.deb`, `.rpm`, `.AppImage` e um pacote para Arch. Também um Flatpak no **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, um remoto Flatpak da comunidade que empacota o `.deb` x86_64 de cada versão e se atualiza com ela
 - ✅ **Android** · celulares e tablets
@@ -97,9 +97,9 @@ Os **requisitos do sistema** e os tamanhos dos modelos opcionais estão no [site
 > [!IMPORTANT]
 > A melhor forma de contribuir é pegar uma build na página de [Releases](https://github.com/jub0t/Concat/releases) e usá-la: descubra onde ela quebra e diga onde poderia ser melhor.
 >
-> Pronto para escrever código? O [CONTRIBUTING.md](../CONTRIBUTING.md) cobre a configuração, a organização da árvore, as verificações a rodar e como as contribuições são licenciadas. Controla o Concat a partir de um script, um serviço ou um agente? [A documentação para desenvolvedores](https://concatenate.pages.dev/docs) cobre a API do Concat e seus transportes: JSON-RPC, gRPC e MCP. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) é onde o projeto foi anunciado.
+> Pronto para escrever código? O [CONTRIBUTING.md](../CONTRIBUTING.md) cobre a configuração, a organização da árvore, as verificações a rodar e como as contribuições são licenciadas. Controla o Concat a partir de um script, um serviço ou um agente? [A documentação para desenvolvedores](https://concatenate.pages.dev/docs) cobre a API do Concat e seus transportes: JSON-RPC e gRPC. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) é onde o projeto foi anunciado.
 > 
-> Contribuidores podem pedir o papel `@Contributor` no servidor do Discord, basta pedir.
+> Contribuidores podem ganhar o cargo `@Contributor` no servidor do Discord: basta pedir.
 
 ## Histórico de estrelas
 

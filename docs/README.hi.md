@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">CapCut का सचमुच मुफ़्त, ओपन-सोर्स और क्रॉस-प्लेटफ़ॉर्म विकल्प।</h3>
+<h3 align="center">CapCut का मुफ़्त, ओपन-सोर्स और क्रॉस-प्लेटफ़ॉर्म विकल्प।</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -49,7 +49,7 @@ Concat macOS, Windows, Linux और Android के लिए एक मुफ़
 
 **इनके लिए अच्छा:** TikTok, Reels और Shorts, YouTube वीडियो, ट्यूटोरियल और स्क्रीन रिकॉर्डिंग, पॉडकास्ट क्लिप, मीम।
 
-**मशीनों के लिए भी:** एक JSON-RPC, gRPC और MCP API, ताकि स्क्रिप्ट और AI एजेंट भी इससे वीडियो काट सकें।
+**मशीनों के लिए भी:** एक JSON-RPC और gRPC API, ताकि स्क्रिप्ट और AI एजेंट भी इससे वीडियो काट सकें।
 
 ## मुख्य बातें
 
@@ -59,14 +59,14 @@ Concat macOS, Windows, Linux और Android के लिए एक मुफ़
 - 🗣️ **टेक्स्ट-टू-स्पीच + वॉइस क्लोनिंग।** मुफ़्त लोकल आवाज़ें, या कुछ सेकंड की रिकॉर्डिंग से कोई भी आवाज़।
 - 🧍 **बैकग्राउंड हटाना।** लोग, वस्तुएँ, या मास्क खुद पेंट करें।
 - 🎞️ **कीफ़्रेम।** स्थिति, स्केल, घुमाव, अपारदर्शिता, वॉल्यूम, इफ़ेक्ट पैरामीटर। कर्व एडिटर बिल्ट-इन।
-- ✨ **170+ इफ़ेक्ट, फ़िल्टर, ट्रांज़िशन और टेक्स्ट एनिमेशन।** GPU से रेंडर, प्रीव्यू में लाइव।
+- ✨ **100 इफ़ेक्ट, फ़िल्टर और ट्रांज़िशन।** GPU से रेंडर, प्रीव्यू में लाइव।
 - ✂️ **तेज़ी से काटें।** स्प्लिट, ट्रिम, रिपल, मर्ज, फ़्रीज़ फ़्रेम, स्पीड। चाहें तो मैग्नेटिक टाइमलाइन।
 - 🎚️ **मल्टी-ट्रैक, मल्टी-टाइमलाइन।** एक प्रोजेक्ट में कई कट। ब्लेंड मोड, क्रॉप, फ़्लिप।
 - 📝 **टाइटल।** फ़ॉन्ट, स्ट्रोक, शैडो, बैकग्राउंड प्लेट। शुरू करने के लिए प्रीसेट।
 - 🎙️ **एक स्विच से आवाज़ की सफ़ाई।** शोर हटाएँ, आवाज़ निखारें, लाउडनेस बराबर करें। साथ में चिपमंक, रोबोट, टेलीफ़ोन वगैरह।
 - 📤 **एक्सपोर्ट।** H.264, HEVC, AV1। 4K 60 तक, 10-बिट रंग।
 - 🦀 **नेटिव Rust इंजन।** GPU कंपोज़िटर, प्रॉक्सी, हार्डवेयर डिकोड। 4K आसानी से स्क्रब होता है।
-- 🤖 **स्क्रिप्ट किया जा सकता है।** JSON-RPC, gRPC और MCP API, साथ में एक CLI। AI एजेंट इससे वीडियो काट सकते हैं।
+- 🤖 **स्क्रिप्ट किया जा सकता है।** JSON-RPC और gRPC API, साथ में एक CLI। AI एजेंट इससे वीडियो काट सकते हैं।
 - 🖥️ **macOS, Windows, Linux, Android।** 25 भाषाएँ। वही ऐप, वही प्रोजेक्ट फ़ाइलें।
 
 ## डाउनलोड
@@ -80,7 +80,7 @@ Concat **बीटा** में है: यह काम करता है, 
 
 **प्लेटफ़ॉर्म**
 
-- ✅ **Windows** · x86_64 और ARM। एक सेटअप और एक `.msi`। अगर SmartScreen किसी बिना हस्ताक्षर वाली बिल्ड को रोके: **More info** › **Run anyway**
+- ✅ **Windows** · x86_64 (ARM बिल्ड फ़िलहाल रोके गए हैं, देखें [#326](https://github.com/jub0t/Concat/issues/326))। एक सेटअप और एक `.msi`। अगर SmartScreen किसी बिना हस्ताक्षर वाली बिल्ड को रोके: **More info** › **Run anyway**
 - ✅ **macOS** · Intel और Apple Silicon। अगर macOS बिना हस्ताक्षर वाली बिल्ड खोलने से मना करे: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 और ARM। `.deb`, `.rpm`, `.AppImage` और एक Arch पैकेज। साथ ही **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** पर एक Flatpak, जो एक सामुदायिक Flatpak रिमोट है और हर रिलीज़ की x86_64 `.deb` को लपेटकर उसके साथ अपडेट होता है
 - ✅ **Android** · फ़ोन और टैबलेट
@@ -97,9 +97,9 @@ Concat **बीटा** में है: यह काम करता है, 
 > [!IMPORTANT]
 > योगदान का सबसे अच्छा तरीका है [Releases](https://github.com/jub0t/Concat/releases) पेज से एक बिल्ड लेकर उसे इस्तेमाल करना: पता लगाएँ कहाँ टूटता है, और बताएँ कहाँ बेहतर हो सकता है।
 >
-> कोड लिखने को तैयार हैं? [CONTRIBUTING.md](../CONTRIBUTING.md) में सेटअप, ट्री की बनावट, चलाई जाने वाली जाँचें और योगदान के लाइसेंस की जानकारी है। किसी स्क्रिप्ट, सर्विस या एजेंट से Concat चला रहे हैं? [डेवलपर डॉक्स](https://concatenate.pages.dev/docs) में Concat API और उसके ट्रांसपोर्ट हैं: JSON-RPC, gRPC और MCP। प्रोजेक्ट की घोषणा [इस Discussion](https://github.com/jub0t/Concat/discussions/3) में हुई थी।
+> कोड लिखने को तैयार हैं? [CONTRIBUTING.md](../CONTRIBUTING.md) में सेटअप, ट्री की बनावट, चलाई जाने वाली जाँचें और योगदान के लाइसेंस की जानकारी है। किसी स्क्रिप्ट, सर्विस या एजेंट से Concat चला रहे हैं? [डेवलपर डॉक्स](https://concatenate.pages.dev/docs) में Concat API और उसके ट्रांसपोर्ट हैं: JSON-RPC और gRPC। प्रोजेक्ट की घोषणा [इस Discussion](https://github.com/jub0t/Concat/discussions/3) में हुई थी।
 > 
-> योगदानकर्ता Discord सर्वर पर `@Contributor` रोल ले सकते हैं, बस माँग लें।
+> योगदानकर्ता Discord सर्वर पर `@Contributor` रोल ले सकते हैं: बस माँग लें।
 
 ## स्टार इतिहास
 

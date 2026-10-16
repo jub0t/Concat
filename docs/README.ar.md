@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">البديل المجاني حقًا ومفتوح المصدر لـ CapCut، على كل المنصات.</h3>
+<h3 align="center">البديل المجاني ومفتوح المصدر لـ CapCut، على كل المنصات.</h3>
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.7" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -49,7 +49,7 @@ Concat محرر فيديو مجاني ومفتوح المصدر وبديل لـ 
 
 **مناسب لـ:** TikTok وReels وShorts، فيديوهات YouTube، الشروحات وتسجيلات الشاشة، مقاطع البودكاست، الميمز.
 
-**وللآلات أيضًا:** واجهة برمجية JSON-RPC وgRPC وMCP، ليتمكن المبرمجون ووكلاء الذكاء الاصطناعي من قص الفيديو به كذلك.
+**وللآلات أيضًا:** واجهة برمجية JSON-RPC وgRPC، لتتمكن السكربتات ووكلاء الذكاء الاصطناعي من قص الفيديو به كذلك.
 
 ## أبرز الميزات
 
@@ -59,14 +59,14 @@ Concat محرر فيديو مجاني ومفتوح المصدر وبديل لـ 
 - 🗣️ **تحويل النص إلى كلام + استنساخ الصوت.** أصوات محلية مجانية، أو أي صوت من بضع ثوانٍ من التسجيل.
 - 🧍 **إزالة الخلفية.** الأشخاص، الأشياء، أو ارسم القناع بنفسك.
 - 🎞️ **إطارات مفتاحية.** الموضع، الحجم، الدوران، الشفافية، مستوى الصوت، معاملات المؤثرات. محرر منحنيات مدمج.
-- ✨ **أكثر من 170 مؤثرًا ومرشحًا وانتقالًا وتحريكًا للنص.** تُرسم على بطاقة الرسوميات، مباشرة في المعاينة.
+- ✨ **100 مؤثر ومرشح وانتقال.** تُرسم على بطاقة الرسوميات، مباشرة في المعاينة.
 - ✂️ **قصّ سريع.** تقسيم، تشذيب، إزاحة، دمج، تجميد الإطار، السرعة. خط زمني مغناطيسي إن أردت.
 - 🎚️ **مسارات متعددة، خطوط زمنية متعددة.** عدة مونتاجات في مشروع واحد. أنماط المزج، الاقتصاص، القلب.
 - 📝 **عناوين.** خطوط، حدود، ظل، لوحة خلفية. إعدادات مسبقة للبدء منها.
 - 🎙️ **تنقية الصوت بمفتاح واحد.** إزالة الضوضاء، تحسين الصوت، موازنة الارتفاع. إضافة إلى السنجاب والروبوت والهاتف وغيرها.
 - 📤 **تصدير.** H.264 وHEVC وAV1. حتى 4K بمعدل 60، ألوان 10 بت.
 - 🦀 **محرك Rust أصلي.** مركّب على بطاقة الرسوميات، ملفات وسيطة، فك ترميز عتادي. تمرير 4K سلس.
-- 🤖 **قابل للبرمجة.** واجهة JSON-RPC وgRPC وMCP، إضافة إلى سطر أوامر. وكلاء الذكاء الاصطناعي يمكنهم قص الفيديو به.
+- 🤖 **قابل للبرمجة.** واجهة JSON-RPC وgRPC، إضافة إلى سطر أوامر. وكلاء الذكاء الاصطناعي يمكنهم قص الفيديو به.
 - 🖥️ **macOS وWindows وLinux وAndroid.** 25 لغة. التطبيق نفسه، ملفات المشروع نفسها.
 
 ## التنزيل
@@ -80,7 +80,7 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 
 **المنصات**
 
-- ✅ **Windows** · x86_64 وARM. مثبّت وملف `.msi`. إذا أوقف SmartScreen إصدارًا غير موقّع: **مزيد من المعلومات** › **التشغيل على أي حال**
+- ✅ **Windows** · x86_64 (إصدارات ARM متوقفة مؤقتًا، انظر [#326](https://github.com/jub0t/Concat/issues/326)). مثبّت وملف `.msi`. إذا أوقف SmartScreen إصدارًا غير موقّع: **مزيد من المعلومات** › **التشغيل على أي حال**
 - ✅ **macOS** · Intel وApple Silicon. إذا رفض macOS فتح إصدار غير موقّع: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 وARM. ‏`.deb` و`.rpm` و`.AppImage` وحزمة Arch. وأيضًا Flatpak على **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**، وهو مستودع Flatpak مجتمعي يغلّف ملف `.deb` لمعمارية x86_64 من كل إصدار ويتحدّث معه
 - ✅ **Android** · الهواتف والأجهزة اللوحية
@@ -97,9 +97,9 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 > [!IMPORTANT]
 > أفضل طريقة للمساهمة أن تأخذ إصدارًا من صفحة [Releases](https://github.com/jub0t/Concat/releases) وتستخدمه: اعثر على ما يتعطّل، وقل أين يمكن أن يكون أفضل.
 >
-> مستعد لكتابة الشيفرة؟ يغطي [CONTRIBUTING.md](../CONTRIBUTING.md) الإعداد وبنية الشجرة والفحوصات التي تُشغَّل وكيفية ترخيص المساهمات. تقود Concat من سكربت أو خدمة أو وكيل؟ تغطي [وثائق المطوّرين](https://concatenate.pages.dev/docs) واجهة Concat ووسائل نقلها: JSON-RPC وgRPC وMCP. [هذه المناقشة](https://github.com/jub0t/Concat/discussions/3) هي حيث أُعلن عن المشروع.
+> مستعد لكتابة الشيفرة؟ يغطي [CONTRIBUTING.md](../CONTRIBUTING.md) الإعداد وبنية الشجرة والفحوصات التي تُشغَّل وكيفية ترخيص المساهمات. تقود Concat من سكربت أو خدمة أو وكيل؟ تغطي [وثائق المطوّرين](https://concatenate.pages.dev/docs) واجهة Concat ووسائل نقلها: JSON-RPC وgRPC. [هذه المناقشة](https://github.com/jub0t/Concat/discussions/3) هي حيث أُعلن عن المشروع.
 > 
-> يمكن للمساهمين طلب دور `@Contributor` في خادم Discord، فقط اطلبه.
+> يمكن للمساهمين الحصول على دور `@Contributor` في خادم Discord: فقط اطلبه.
 
 ## تاريخ النجوم
 
