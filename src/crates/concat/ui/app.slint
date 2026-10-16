@@ -533,6 +533,31 @@ export component App inherits Window {
         // before a key can walk up to this scope, which is what keeps
         // typing a title from cutting a clip.
         key-pressed(event) => {
+            // Escape closes the sheet on top, as its × does. A sheet busy
+            // with a job keeps itself - its × is gone then too - and the
+            // key is spent on it, not passed to the editor underneath.
+            if (event.text == Key.Escape) {
+                if (root.confirm.open) { root.confirm-dismissed(); return accept; }
+                if (root.relink.open) { root.relink-dismiss(); return accept; }
+                if (root.speech.open) {
+                    if (!root.speech.running) { root.speech-closed(); }
+                    return accept;
+                }
+                if (root.captions.open) {
+                    if (!root.captions.running) { root.captions-closed(); }
+                    return accept;
+                }
+                if (root.project-sheet.open) { root.project-closed(); return accept; }
+                if (root.settings.open) { root.settings-closed(); return accept; }
+                if (root.export.open) {
+                    if (root.export.phase != ExportPhase.running) { root.export-closed(); }
+                    return accept;
+                }
+                if (root.start.composing) {
+                    if (!root.start.busy) { root.start-dismiss(); }
+                    return accept;
+                }
+            }
             if (root.on-start) {
                 return reject;
             }
