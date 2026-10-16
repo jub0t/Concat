@@ -119,20 +119,14 @@ Os **requisitos do sistema** e os tamanhos dos modelos opcionais estão no [site
 
 <p align="center">
  <a href="https://www.star-history.com/jub0t/concat">
-  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
-   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
-  </picture>
+  <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank#gh-light-mode-only" />
+  <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark#gh-dark-mode-only" />
  </a>
 </p>
 
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
- </picture>
+ <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right#gh-light-mode-only" />
+ <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right#gh-dark-mode-only" />
 </a>
 
 ## DMCA
