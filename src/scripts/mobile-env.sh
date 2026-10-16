@@ -27,6 +27,13 @@ case "$target" in
     sherpa=$workspace/vendor/sherpa-onnx/jniLibs/$abi
     [ -d "$sherpa" ] || { echo "no sherpa-onnx for $target: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
     echo "export SHERPA_ONNX_LIB_DIR='$sherpa'"
+    # The emulator's x86_64 build: ort publishes no ONNX Runtime for it,
+    # and sherpa-onnx's own (1.27, which serves the API ort asks for) is
+    # beside it, so ort links that one, and the APK carries it with the
+    # rest of the folder.
+    if [ "$target" = x86_64-linux-android ]; then
+      echo "export ORT_LIB_LOCATION='$sherpa' ORT_PREFER_DYNAMIC_LINK=1"
+    fi
 
     sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
     ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -1 || true)}}
