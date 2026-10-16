@@ -1554,15 +1554,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_export_ten_bit_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Export(ExportMsg::TenBitChanged(on)));
     }));
-    app.on_export_color_range_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Export(ExportMsg::ColorRangeChanged(index)));
-    }));
-    app.on_export_advanced_toggled(on_window!(|state, on: bool| {
-        state.handle(Msg::Export(ExportMsg::AdvancedToggled(on)));
-    }));
-    app.on_export_rate_mode_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Export(ExportMsg::RateModeChanged(index)));
-    }));
     app.on_export_bitrate_changed(on_window!(|state, text: SharedString| {
         state.handle(Msg::Export(ExportMsg::BitrateChanged(text.to_string())));
     }));

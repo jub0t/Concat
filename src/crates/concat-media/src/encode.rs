@@ -227,6 +227,12 @@ pub enum RateMode {
     /// Only the soft encoders support it; hardware encoders fall back to
     /// VBR because their rate control differs.
     Cbr,
+    /// A file's: `bitrate_kbps` is the average the encoder aims for, and a
+    /// busy passage may reach half again as much, so the size is known
+    /// before the render and a calm passage is not padded to the target.
+    /// What every editor's bitrate setting means, and what the export
+    /// sheet asks for.
+    Average,
 }
 
 impl RateMode {
@@ -235,11 +241,12 @@ impl RateMode {
         match self {
             RateMode::Vbr => "vbr",
             RateMode::Cbr => "cbr",
+            RateMode::Average => "average",
         }
     }
 
     /// Every mode, in the order a menu lists them.
-    pub const ALL: [RateMode; 2] = [RateMode::Vbr, RateMode::Cbr];
+    pub const ALL: [RateMode; 3] = [RateMode::Vbr, RateMode::Cbr, RateMode::Average];
 }
 
 /// Encoder settings.
@@ -604,6 +611,7 @@ fn open_video(
     let family = Family::of(encoder_name);
     let pixel_format = family.pixel_format(options.ten_bit);
     let cbr = options.rate_mode == RateMode::Cbr && options.bitrate_kbps > 0;
+    let average = options.rate_mode == RateMode::Average && options.bitrate_kbps > 0;
     let mut video = ffmpeg::codec::Context::new_with_codec(codec)
         .encoder()
         .video()
@@ -659,7 +667,7 @@ fn open_video(
     // The encoders steered by a bitrate alone take one whatever the mode:
     // the target in CBR, and in VBR the rate the CRF would come to.
     if family.steered_by_bitrate() {
-        let kbps = if cbr {
+        let kbps = if cbr || average {
             options.bitrate_kbps
         } else {
             implied_kbps(options.codec, options.crf, width, height, rate)
@@ -670,8 +678,19 @@ fn open_video(
         let fps = (f64::from(rate.numerator()) / f64::from(rate.denominator().max(1))).round();
         video.set_gop((fps.max(1.0) * 2.0) as u32);
     }
+    // An average, on the context as well as in each encoder's own words:
+    // the AV1 encoders read the target and the ceiling from there.
+    if average {
+        video.set_bit_rate(options.bitrate_kbps as usize * 1000);
+        video.set_max_bit_rate(options.bitrate_kbps as usize * 1500);
+    }
     let crf = options.crf.to_string();
     let bitrate = format!("{}k", options.bitrate_kbps);
+    // The average's ceiling, half again the target, and a buffer of two
+    // seconds' worth: room for a cut to a busy shot without the encoder
+    // starving the frames after it.
+    let peak = format!("{}k", options.bitrate_kbps * 3 / 2);
+    let window = format!("{}k", options.bitrate_kbps * 2);
     // One second of VBV, not two. With a looser buffer x264 can stay
     // well under b:v on calm content and never emit the padding that
     // makes a CBR a CBR; `bufsize == bitrate` is where it starts
@@ -705,9 +724,23 @@ fn open_video(
             "bufsize" => bufsize.as_str(),
             "x265-params" => "strict-cbr=1",
         },
+        "libx264" | "libx265" if average => ffmpeg::dict! {
+            "preset" => options.preset.as_str(),
+            "b" => bitrate.as_str(),
+            "maxrate" => peak.as_str(),
+            "bufsize" => window.as_str(),
+        },
         "libx264" | "libx265" => ffmpeg::dict! {
             "preset" => options.preset.as_str(),
             "crf" => crf.as_str(),
+        },
+        // The context carries the target and the ceiling (above); the
+        // encoder runs its own VBR to them.
+        "libsvtav1" if average => ffmpeg::dict! {
+            "preset" => &svt_preset(&options.preset).to_string(),
+        },
+        "libaom-av1" if average => ffmpeg::dict! {
+            "cpu-used" => "6",
         },
         "libsvtav1" => ffmpeg::dict! {
             "preset" => &svt_preset(&options.preset).to_string(),
@@ -718,6 +751,16 @@ fn open_video(
         "libaom-av1" => ffmpeg::dict! {
             "crf" => &options.crf.saturating_add(8).min(63).to_string(),
             "cpu-used" => "6",
+        },
+        // VideoToolbox steers by the context's bitrate when it is given no
+        // quality.
+        "hevc_videotoolbox" | "h264_videotoolbox" if average => ffmpeg::dict! {
+            "profile" => match (encoder_name, options.ten_bit) {
+                ("h264_videotoolbox", _) => "high",
+                (_, true) => "main10",
+                (_, false) => "main",
+            },
+            "allow_sw" => "1",
         },
         "hevc_videotoolbox" | "h264_videotoolbox" => ffmpeg::dict! {
             "q:v" => &videotoolbox_quality(options.crf).to_string(),
@@ -748,6 +791,13 @@ fn open_video(
             "maxrate" => bitrate.as_str(),
             "bufsize" => bufsize.as_str(),
         },
+        _ if family == Family::Nvenc && average => ffmpeg::dict! {
+            "preset" => "p5",
+            "rc" => "vbr",
+            "b" => bitrate.as_str(),
+            "maxrate" => peak.as_str(),
+            "bufsize" => window.as_str(),
+        },
         _ if family == Family::Nvenc => ffmpeg::dict! {
             "preset" => "p5",
             "rc" => "vbr",
@@ -761,6 +811,12 @@ fn open_video(
             "maxrate" => bitrate.as_str(),
             "bufsize" => bufsize.as_str(),
         },
+        _ if family == Family::Qsv && average => ffmpeg::dict! {
+            "preset" => "medium",
+            "b" => bitrate.as_str(),
+            "maxrate" => peak.as_str(),
+            "bufsize" => window.as_str(),
+        },
         _ if family == Family::Qsv => ffmpeg::dict! {
             "preset" => "medium",
             "global_quality" => &options.crf.clamp(1, 51).to_string(),
@@ -769,6 +825,12 @@ fn open_video(
             "quality" => "quality",
             "rc" => "cbr",
             "b" => bitrate.as_str(),
+        },
+        _ if family == Family::Amf && average => ffmpeg::dict! {
+            "quality" => "quality",
+            "rc" => "vbr_peak",
+            "b" => bitrate.as_str(),
+            "maxrate" => peak.as_str(),
         },
         _ if family == Family::Amf => ffmpeg::dict! {
             "quality" => "quality",
@@ -1797,6 +1859,62 @@ mod tests {
             assert!(
                 (f64::from(KBPS) * 0.7..=f64::from(KBPS) * 1.3).contains(&kbps),
                 "{codec:?} CBR at {KBPS} kb/s came out at {kbps:.0} kb/s"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An average-bitrate export, the export sheet's: busy pictures come
+    /// out near the target, so the size the sheet promised is the size
+    /// written, and calm ones well under it, not padded up to it as CBR
+    /// pads.
+    #[test]
+    fn an_average_export_keeps_near_its_target_and_does_not_pad() {
+        let dir =
+            std::env::temp_dir().join(format!("concat-media-abr-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        const KBPS: u32 = 2_000;
+        const FRAMES: u32 = 60;
+        let seconds = f64::from(FRAMES) / 30.0;
+        for codec in [VideoCodec::H264, VideoCodec::Hevc] {
+            let options = EncodeOptions {
+                codec,
+                preset: "ultrafast".to_owned(),
+                rate_mode: RateMode::Average,
+                bitrate_kbps: KBPS,
+                hardware: false,
+                ..EncodeOptions::default()
+            };
+            let rate_of = |noisy: bool| {
+                let path = dir.join(format!("{}-{noisy}.mp4", codec.name()));
+                let mut encoder = Encoder::create(&path, 320, 180, FrameRate::THIRTY, &options)
+                    .unwrap_or_else(|error| panic!("{codec:?} average opens: {error}"));
+                let mut frame = Frame::black(320, 180);
+                let mut state = 0x2545_F491_4F6C_DD1D_u64;
+                for _ in 0..FRAMES {
+                    if noisy {
+                        for byte in frame.pixels_mut() {
+                            state ^= state << 13;
+                            state ^= state >> 7;
+                            state ^= state << 17;
+                            *byte = state as u8;
+                        }
+                    }
+                    encoder.write_frame(&frame).expect("writes");
+                }
+                encoder.finish().expect("finishes");
+                std::fs::metadata(&path).expect("written").len() as f64 * 8.0 / 1000.0 / seconds
+            };
+            let busy = rate_of(true);
+            assert!(
+                (f64::from(KBPS) * 0.6..=f64::from(KBPS) * 1.6).contains(&busy),
+                "{codec:?} averaging {KBPS} kb/s came out at {busy:.0} kb/s on noise"
+            );
+            let calm = rate_of(false);
+            assert!(
+                calm < f64::from(KBPS) * 0.5,
+                "{codec:?} averaging {KBPS} kb/s padded a black picture to {calm:.0} kb/s"
             );
         }
         let _ = std::fs::remove_dir_all(&dir);

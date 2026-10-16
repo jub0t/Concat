@@ -158,10 +158,9 @@ pub const EXPORT_SHORT_SIDES: [u32; 4] = [2160, 1440, 1080, 720];
 /// compact dock: a phone, a tablet held upright, a desktop window squeezed
 /// to a corner. Four panes across less than this is four slivers.
 pub const COMPACT_WIDTH: f32 = 860.0;
-/// Megabits per second at 1080p30 for each quality tier, for the size
-/// estimate; and the CRF each tier renders at.
-pub(crate) const EXPORT_TIERS: [f32; 3] = [16.0, 8.0, 4.0];
-pub(crate) const EXPORT_CRF: [u8; 3] = [16, 20, 26];
+/// The quality an export's encoder falls back on were it given no
+/// bitrate: the export sheet always gives one.
+pub(crate) const EXPORT_CRF: u8 = 20;
 pub(crate) const AUDIO_BPS: f32 = 192_000.0;
 
 /// The frame shapes the launch screen offers, as the ratio behind each
