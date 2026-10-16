@@ -252,6 +252,18 @@ pub struct TranscriberStatus {
     pub models: Vec<ModelStatus>,
 }
 
+/// One timed word in a caption, relative to the window's start.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WordTiming {
+    /// Seconds from the window's start.
+    pub start: f64,
+    /// Seconds from the window's start.
+    pub end: f64,
+    /// The word itself.
+    pub word: String,
+}
+
 /// One caption, in seconds relative to the transcribed window's start.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -262,6 +274,9 @@ pub struct Segment {
     pub end: f64,
     /// What was said.
     pub text: String,
+    /// Timings for each word within the segment, when available.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<WordTiming>,
 }
 
 /// What to transcribe.
@@ -560,6 +575,42 @@ impl Transcriber {
     }
 }
 
+/// Breaks a transcribed segment into individual words with proportional timings,
+/// accounting for word length so each word has accurate timing within the spoken span.
+pub fn split_segment_words(text: &str, start: f64, end: f64) -> Vec<WordTiming> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() || end <= start {
+        return Vec::new();
+    }
+    let total_duration = end - start;
+    let total_chars: usize = words.iter().map(|w| w.chars().count().max(1)).sum();
+    if total_chars == 0 {
+        return Vec::new();
+    }
+
+    let mut result = Vec::with_capacity(words.len());
+    let mut current_time = start;
+
+    for (i, &word) in words.iter().enumerate() {
+        let char_weight = word.chars().count().max(1) as f64 / total_chars as f64;
+        let word_duration = (total_duration * char_weight).max(0.12);
+        let word_end = if i == words.len() - 1 {
+            end
+        } else {
+            (current_time + word_duration).min(end)
+        };
+
+        result.push(WordTiming {
+            start: current_time,
+            end: word_end,
+            word: word.to_owned(),
+        });
+        current_time = word_end;
+    }
+
+    result
+}
+
 /// Whisper marks silence and music with bracketed stage directions
 /// ("[BLANK_AUDIO]", "(upbeat music)"). Those are not captions, and neither
 /// is an empty or degenerate span.
@@ -567,7 +618,13 @@ fn keep_segment(start: f64, end: f64, text: String) -> Option<Segment> {
     if text.is_empty() || (text.starts_with('[') && text.ends_with(']')) {
         return None;
     }
-    (end > start).then_some(Segment { start, end, text })
+    let words = split_segment_words(&text, start, end);
+    (end > start).then_some(Segment {
+        start,
+        end,
+        text,
+        words,
+    })
 }
 
 #[cfg(test)]

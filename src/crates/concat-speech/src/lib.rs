@@ -22,7 +22,7 @@ pub mod chatterbox;
 pub mod transcribe;
 pub mod tts;
 
-pub use transcribe::Transcriber;
+pub use transcribe::{Segment, Transcriber, WordTiming};
 pub use tts::Speech;
 
 /// Whether the voices ask for the machine's own accelerator: CoreML, the

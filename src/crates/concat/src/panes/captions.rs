@@ -59,6 +59,8 @@ pub enum CaptionsMsg {
     ModelChanged(i32),
     PlacementChanged(i32),
     SizeChanged(i32),
+    /// 0 Sentence, 1 WordByWord (Dynamic pop), 2 Karaoke highlight
+    StyleChanged(i32),
     /// Run the pass the sheet describes.
     Begin,
     Cancel,
@@ -84,6 +86,8 @@ struct Subject {
     speed: f64,
     /// The look chosen when the run began.
     look: (f64, f64),
+    /// Caption style chosen: 0 Sentence, 1 WordByWord, 2 Karaoke.
+    style: usize,
     /// The transcriber model, and the thirty-second windows whisper reads
     /// the sound in: what the run's timing is kept by.
     model: String,
@@ -119,6 +123,8 @@ pub struct CaptionsPane {
     pub placement: usize,
     /// 0 small, 1 medium, 2 large.
     pub size: usize,
+    /// 0 Sentence, 1 WordByWord (Dynamic pop), 2 Karaoke highlight.
+    pub style: usize,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -174,6 +180,7 @@ impl CaptionsPane {
                 self.placement = (index.max(0) as usize).min(2);
             }
             CaptionsMsg::SizeChanged(index) => self.size = (index.max(0) as usize).min(2),
+            CaptionsMsg::StyleChanged(index) => self.style = (index.max(0) as usize).min(2),
             CaptionsMsg::Begin => {
                 if self.from_voice {
                     self.run_sound(studio);
@@ -201,21 +208,82 @@ impl CaptionsPane {
                         };
                         let look = subject.look;
                         let base = studio.prefs.title_style.clone();
-                        let commands: Vec<Command> = segments
-                            .into_iter()
-                            .filter_map(|segment| {
-                                let text = segment.text.trim().to_owned();
-                                (!text.is_empty()).then(|| {
-                                    caption_clip(
-                                        text,
-                                        subject.start + segment.start / subject.speed,
-                                        ((segment.end - segment.start) / subject.speed).max(0.2),
-                                        look,
-                                        base.as_ref(),
-                                    )
+                        let commands: Vec<Command> = match subject.style {
+                            // 1: Dynamic Word-by-Word (CapCut / TikTok viral short-form style)
+                            1 => segments
+                                .into_iter()
+                                .flat_map(|segment| {
+                                    let base_ref = base.as_ref();
+                                    segment.words.into_iter().filter_map(move |w| {
+                                        let text = w.word.trim().to_uppercase();
+                                        (!text.is_empty()).then(|| {
+                                            dynamic_word_clip(
+                                                text,
+                                                subject.start + w.start / subject.speed,
+                                                ((w.end - w.start) / subject.speed).max(0.16),
+                                                look,
+                                                base_ref,
+                                            )
+                                        })
+                                    })
                                 })
-                            })
-                            .collect();
+                                .collect(),
+                            // 2: Karaoke Highlight (sentence with active word emphasized)
+                            2 => segments
+                                .into_iter()
+                                .flat_map(|segment| {
+                                    let base_ref = base.as_ref();
+                                    let full_words: Vec<String> = segment
+                                        .words
+                                        .iter()
+                                        .map(|w| w.word.trim().to_owned())
+                                        .filter(|w| !w.is_empty())
+                                        .collect();
+                                    segment.words.into_iter().enumerate().filter_map(move |(idx, w)| {
+                                        let active = w.word.trim();
+                                        if active.is_empty() {
+                                            return None;
+                                        }
+                                        let mut text_line = String::new();
+                                        for (i, word) in full_words.iter().enumerate() {
+                                            if i > 0 {
+                                                text_line.push(' ');
+                                            }
+                                            if i == idx {
+                                                text_line.push('[');
+                                                text_line.push_str(&word.to_uppercase());
+                                                text_line.push(']');
+                                            } else {
+                                                text_line.push_str(word);
+                                            }
+                                        }
+                                        Some(karaoke_caption_clip(
+                                            text_line,
+                                            subject.start + w.start / subject.speed,
+                                            ((w.end - w.start) / subject.speed).max(0.18),
+                                            look,
+                                            base_ref,
+                                        ))
+                                    })
+                                })
+                                .collect(),
+                            // 0: Sentence / Phrase
+                            _ => segments
+                                .into_iter()
+                                .filter_map(|segment| {
+                                    let text = segment.text.trim().to_owned();
+                                    (!text.is_empty()).then(|| {
+                                        caption_clip(
+                                            text,
+                                            subject.start + segment.start / subject.speed,
+                                            ((segment.end - segment.start) / subject.speed).max(0.2),
+                                            look,
+                                            base.as_ref(),
+                                        )
+                                    })
+                                })
+                                .collect(),
+                        };
                         let count = commands.len();
                         self.open = false;
                         if count == 0 {
@@ -414,6 +482,7 @@ impl CaptionsPane {
             model,
             placement: 0,
             size: 1,
+            style: self.style,
             timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
@@ -452,14 +521,34 @@ impl CaptionsPane {
         let look = self.look();
         let mut at = f64::from(studio.playhead);
         let base = studio.prefs.title_style.clone();
-        let commands: Vec<Command> = lines
-            .into_iter()
-            .map(|(text, seconds)| {
-                let command = caption_clip(text, at, seconds, look, base.as_ref());
-                at += seconds;
-                command
-            })
-            .collect();
+        let commands: Vec<Command> = if self.style == 1 {
+            self.text
+                .split_whitespace()
+                .filter(|w| !w.is_empty())
+                .map(|word| {
+                    let seconds =
+                        (word.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(0.22, 1.2);
+                    let cmd = dynamic_word_clip(
+                        word.to_uppercase(),
+                        at,
+                        seconds,
+                        look,
+                        base.as_ref(),
+                    );
+                    at += seconds;
+                    cmd
+                })
+                .collect()
+        } else {
+            lines
+                .into_iter()
+                .map(|(text, seconds)| {
+                    let cmd = caption_clip(text, at, seconds, look, base.as_ref());
+                    at += seconds;
+                    cmd
+                })
+                .collect()
+        };
         let count = commands.len();
         self.open = false;
         studio.apply(Command::Batch { commands });
@@ -522,6 +611,7 @@ impl CaptionsPane {
             start: clip.start,
             speed: clip.speed,
             look: self.look(),
+            style: self.style,
             model,
             windows,
         });
@@ -564,6 +654,7 @@ impl CaptionsPane {
             model: self.model as i32,
             placement: self.placement as i32,
             size: self.size as i32,
+            style: self.style as i32,
             running: self.running,
             progress: self.pace.floor,
             ceiling: self.pace.ceiling,
@@ -761,6 +852,99 @@ fn caption_clip(
             font_family: "Hanken Grotesk".to_owned(),
             font_size,
             font_weight: 600.0,
+            ..TextStyle::default()
+        },
+    };
+    Command::AddTextClip {
+        track_id: None,
+        above: true,
+        start,
+        style: Some(style),
+        duration: Some(duration),
+        offset_y: Some(offset_y),
+    }
+}
+
+/// A high-energy dynamic word clip (CapCut / TikTok short-form style):
+/// bold, uppercase, vibrant contrast, thick border and shadow so it pops over any video footage.
+fn dynamic_word_clip(
+    text: String,
+    start: f64,
+    duration: f64,
+    look: (f64, f64),
+    base: Option<&TextStyle>,
+) -> Command {
+    let (offset_y, font_size) = look;
+    let dynamic_font_size = font_size * 1.25;
+    let style = match base {
+        Some(base) => TextStyle {
+            content: text,
+            font_size: dynamic_font_size,
+            font_weight: 800.0,
+            color: if base.color.is_empty() {
+                "#FFE600".to_owned()
+            } else {
+                base.color.clone()
+            },
+            stroke_width: 0.014,
+            stroke_color: "#000000".to_owned(),
+            shadow: true,
+            max_width: 0.0,
+            max_height: 0.0,
+            ..base.clone()
+        },
+        None => TextStyle {
+            content: text,
+            font_family: "Hanken Grotesk".to_owned(),
+            font_size: dynamic_font_size,
+            font_weight: 800.0,
+            color: "#FFE600".to_owned(),
+            stroke_width: 0.014,
+            stroke_color: "#000000".to_owned(),
+            shadow: true,
+            ..TextStyle::default()
+        },
+    };
+    Command::AddTextClip {
+        track_id: None,
+        above: true,
+        start,
+        style: Some(style),
+        duration: Some(duration),
+        offset_y: Some(offset_y),
+    }
+}
+
+/// A karaoke caption clip: the sentence line with the current word highlighted.
+fn karaoke_caption_clip(
+    text: String,
+    start: f64,
+    duration: f64,
+    look: (f64, f64),
+    base: Option<&TextStyle>,
+) -> Command {
+    let (offset_y, font_size) = look;
+    let style = match base {
+        Some(base) => TextStyle {
+            content: text,
+            font_size,
+            font_weight: 700.0,
+            stroke_width: 0.010,
+            stroke_color: "#000000".to_owned(),
+            shadow: true,
+            max_width: 0.0,
+            max_height: 0.0,
+            ..base.clone()
+        },
+        None => TextStyle {
+            content: text,
+            font_family: "Hanken Grotesk".to_owned(),
+            font_size,
+            font_weight: 700.0,
+            color: "#FFFFFF".to_owned(),
+            stroke_width: 0.010,
+            stroke_color: "#000000".to_owned(),
+            shadow: true,
             ..TextStyle::default()
         },
     };
