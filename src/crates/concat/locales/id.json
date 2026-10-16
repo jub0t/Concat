@@ -598,8 +598,6 @@
   "sysinfo.processor": "Prosesor",
   "sysinfo.renderer": "Perender",
   "sysinfo.toolchain": "Rantai alat",
-  "textPanel.applyToAll": "Apply to all",
-  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "Latar belakang",
   "textPanel.backgroundColor": "Warna latar belakang",
   "textPanel.backgroundOpacity": "Opasitas latar belakang",

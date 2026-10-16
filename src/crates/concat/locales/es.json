@@ -598,8 +598,6 @@
   "sysinfo.processor": "Procesador",
   "sysinfo.renderer": "Renderizador",
   "sysinfo.toolchain": "Herramientas de compilación",
-  "textPanel.applyToAll": "Apply to all",
-  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "Fondo",
   "textPanel.backgroundColor": "Color de fondo",
   "textPanel.backgroundOpacity": "Opacidad del fondo",

@@ -598,8 +598,6 @@
   "sysinfo.processor": "處理器",
   "sysinfo.renderer": "渲染器",
   "sysinfo.toolchain": "工具鏈",
-  "textPanel.applyToAll": "Apply to all",
-  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "背景",
   "textPanel.backgroundColor": "背景顏色",
   "textPanel.backgroundOpacity": "背景不透明度",

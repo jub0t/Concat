@@ -598,8 +598,6 @@
   "sysinfo.processor": "پردازنده",
   "sysinfo.renderer": "رندرر",
   "sysinfo.toolchain": "زنجیره ابزار (Toolchain)",
-  "textPanel.applyToAll": "Apply to all",
-  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "پس‌زمینه",
   "textPanel.backgroundColor": "رنگ پس‌زمینه",
   "textPanel.backgroundOpacity": "شفافیت پس‌زمینه",

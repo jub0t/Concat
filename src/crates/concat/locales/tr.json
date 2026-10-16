@@ -598,8 +598,6 @@
   "sysinfo.processor": "İşlemci",
   "sysinfo.renderer": "İşleyici",
   "sysinfo.toolchain": "Araç zinciri",
-  "textPanel.applyToAll": "Apply to all",
-  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "Arka plan",
   "textPanel.backgroundColor": "Arka plan rengi",
   "textPanel.backgroundOpacity": "Arka plan opaklığı",
