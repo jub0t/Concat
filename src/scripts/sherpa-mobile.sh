@@ -3,6 +3,7 @@
 # libraries k2-fsa publishes, which the app carries with it.
 #
 #   scripts/sherpa-mobile.sh aarch64-linux-android [out-dir]
+#   scripts/sherpa-mobile.sh x86_64-linux-android [out-dir]   (the emulator's, never shipped)
 #   scripts/sherpa-mobile.sh aarch64-apple-ios     [out-dir]
 #
 # The version is the one the lockfile resolved for sherpa-onnx-sys, so a
@@ -18,14 +19,17 @@
 # app bundle embeds; SHERPA_ONNX_LIB_DIR is its device slice.
 set -euo pipefail
 
-target=${1:?target triple: aarch64-linux-android or aarch64-apple-ios}
+target=${1:?target triple: aarch64-linux-android, x86_64-linux-android or aarch64-apple-ios}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
 version=$(grep -A1 'name = "sherpa-onnx-sys"' "$workspace/Cargo.lock" | sed -n 's/^version = "\(.*\)"/\1/p')
 release=https://github.com/k2-fsa/sherpa-onnx/releases/download
 
 case "$target" in
-  aarch64-linux-android)
+  aarch64-linux-android|x86_64-linux-android)
     out=${2:-$workspace/vendor/sherpa-onnx}
+    # The ABI's folder, as Android names it.
+    abi=arm64-v8a
+    [ "$target" = x86_64-linux-android ] && abi=x86_64
     ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
     if [ -z "$ndk" ]; then
       sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
@@ -40,14 +44,14 @@ case "$target" in
     tar -xjf "$out/sherpa-onnx-android.tar.bz2" -C "$out"
     rm "$out/sherpa-onnx-android.tar.bz2"
     # Only the ABI the app is built for ships; the rest is left behind.
-    find "$out/jniLibs" -mindepth 1 -maxdepth 1 -type d ! -name arm64-v8a -exec rm -rf {} +
+    find "$out/jniLibs" -mindepth 1 -maxdepth 1 -type d ! -name "$abi" -exec rm -rf {} +
     # The C API and its runtime are what the engine loads; the JNI and
     # C++ bindings are for other languages.
-    rm -f "$out"/jniLibs/arm64-v8a/libsherpa-onnx-jni.so "$out"/jniLibs/arm64-v8a/libsherpa-onnx-cxx-api.so
-    cp "$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" \
-      "$out/jniLibs/arm64-v8a/"
+    rm -f "$out/jniLibs/$abi/libsherpa-onnx-jni.so" "$out/jniLibs/$abi/libsherpa-onnx-cxx-api.so"
+    cp "$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot/usr/lib/$target/libc++_shared.so" \
+      "$out/jniLibs/$abi/"
     echo "sherpa-onnx for Android is in $out/jniLibs"
-    echo "  export SHERPA_ONNX_LIB_DIR=$out/jniLibs/arm64-v8a"
+    echo "  export SHERPA_ONNX_LIB_DIR=$out/jniLibs/$abi"
     ;;
   aarch64-apple-ios)
     out=${2:-$workspace/vendor/sherpa-onnx/ios}

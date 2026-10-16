@@ -3,6 +3,7 @@
 # the engine links.
 #
 #   scripts/ffmpeg-mobile.sh aarch64-linux-android [out-dir]
+#   scripts/ffmpeg-mobile.sh x86_64-linux-android [out-dir]   (the emulator's, never shipped)
 #   scripts/ffmpeg-mobile.sh aarch64-apple-ios     [out-dir]
 #   scripts/ffmpeg-mobile.sh aarch64-apple-ios-sim [out-dir]
 #
@@ -20,7 +21,7 @@
 # the desktop bundles have no place there.
 set -euo pipefail
 
-target=${1:?target triple: aarch64-linux-android, aarch64-apple-ios or aarch64-apple-ios-sim}
+target=${1:?target triple: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios or aarch64-apple-ios-sim}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
 out=${2:-$workspace/vendor/ffmpeg/$target}
 version=${FFMPEG_VERSION:-8.1}
@@ -62,7 +63,7 @@ common=(
 )
 
 case "$target" in
-  aarch64-linux-android)
+  aarch64-linux-android|x86_64-linux-android)
     ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
     if [ -z "$ndk" ]; then
       sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
@@ -72,11 +73,19 @@ case "$target" in
     host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
     bin=$ndk/toolchains/llvm/prebuilt/$host_tag/bin
     echo "Building FFmpeg $version for $target with NDK at $ndk (API $android_api)"
+    # The x86_64 build is the one CI's emulators can run, never shipped:
+    # FFmpeg's hand-written assembly is left out there, so the build needs
+    # no assembler, and its speed is nobody's concern.
+    if [ "$target" = aarch64-linux-android ]; then
+      arch=(--arch=aarch64 --cpu=armv8-a)
+    else
+      arch=(--arch=x86_64 --disable-x86asm)
+    fi
     (cd "$build" && "$src/configure" "${common[@]}" \
-      --target-os=android --arch=aarch64 --cpu=armv8-a \
+      --target-os=android "${arch[@]}" \
       --sysroot="$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot" \
-      --cc="$bin/aarch64-linux-android$android_api-clang" \
-      --cxx="$bin/aarch64-linux-android$android_api-clang++" \
+      --cc="$bin/$target$android_api-clang" \
+      --cxx="$bin/$target$android_api-clang++" \
       --ar="$bin/llvm-ar" --nm="$bin/llvm-nm" --ranlib="$bin/llvm-ranlib" --strip="$bin/llvm-strip" \
       --enable-jni --enable-mediacodec \
       --extra-cflags="-fno-omit-frame-pointer" \

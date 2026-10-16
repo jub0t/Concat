@@ -30,20 +30,18 @@ name: Build for phones
 # is ad-hoc signed: a tester signs it with their own Apple ID on the way
 # onto a phone (AltStore, Sideloadly, Xcode's Devices window all do this).
 #
-# No phone build passes unless it starts on a phone. The APK the Android
-# job uploads, the very file a release ships, is installed on an emulator
-# of Android 11 (API 30, where #312's preview failed) and of Android 15
-# (API 35, the SDK the app targets) and started there
-# (scripts/ci/smoke-android.sh). The APK is arm64 only, and the emulators
-# are x86_64 ones on Linux with KVM, which run arm64 code through the ARM
-# translation Google's x86_64 images carry from API 30 on: GitHub's arm64
-# Macs cannot run the emulator at all (no nested virtualisation, so HVF
-# fails with HV_UNSUPPORTED), and an x86_64 APK would be a different build
-# from the one that ships. Under that translation ONNX Runtime's CPU
-# detection crashes as the library loads, before any of the app's code
-# runs; the smoke reports that one crash as "not tested" with a warning
-# rather than failing (see smoke-android.sh), and a release's APK is then
-# started on a real phone by hand. The iPhone is tested the same way through the
+# No phone build passes unless it starts on a phone. The Android app is
+# installed on an emulator of Android 11 (API 30, where #312's preview
+# failed) and of Android 15 (API 35, the SDK the app targets) and started
+# there (scripts/ci/smoke-android.sh). The emulators are x86_64 ones on
+# Linux with KVM: GitHub's arm64 Macs cannot run the emulator at all (no
+# nested virtualisation, so HVF fails with HV_UNSUPPORTED). The APK that
+# ships is arm64 only, and under the ARM translation the x86_64 images
+# carry, ONNX Runtime's CPU detection crashed as the library loaded,
+# before any of the app's code, so it was never tested at all. So the
+# Android job also builds the same source for x86_64, an APK that never
+# leaves the run, and that is the one the emulators start natively. The
+# iPhone is tested the same way through the
 # iOS Simulator, which needs a build of its own for aarch64-apple-ios-sim,
 # made beside the device build and never shipped
 # (scripts/ci/smoke-ios.sh). release.yml waits on every job here, so a
@@ -101,9 +99,22 @@ env:
 
 jobs:
   android:
-    name: Android arm64
+    name: Android ${{ matrix.abi }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # arm64 is the APK that ships. x86_64 is the same source built for CI's
+    # emulators, which run x86_64 and could not start the arm64 one: the
+    # launch check below installs it, and it never leaves the run.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-linux-android
+            abi: arm64
+            ship: true
+          - target: x86_64-linux-android
+            abi: x86_64
+            ship: false
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -115,7 +126,7 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Concat $version for aarch64-linux-android"
+          echo "Building Concat $version for ${{ matrix.target }}"
       # The toolchain src/rust-toolchain.toml pins, installed by name, with
       # the phone's standard library.
       - name: The pinned toolchain
@@ -124,7 +135,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
-          targets: aarch64-linux-android
+          targets: ${{ matrix.target }}
       - uses: taiki-e/cache-cargo-install-action@7447f04c51f2ba27ca35e7f1e28fab848c5b3ba7 # v2.3.1
         with:
           tool: cargo-apk
@@ -143,25 +154,25 @@ jobs:
         id: ffmpeg
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: src/vendor/ffmpeg/aarch64-linux-android
-          key: ffmpeg-aarch64-linux-android-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+          path: src/vendor/ffmpeg/${{ matrix.target }}
+          key: ffmpeg-${{ matrix.target }}-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for Android
         if: steps.ffmpeg.outputs.cache-hit != 'true'
-        run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
+        run: src/scripts/ffmpeg-mobile.sh ${{ matrix.target }}
       - name: FFmpeg for Android (save)
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: src/vendor/ffmpeg/aarch64-linux-android
+          path: src/vendor/ffmpeg/${{ matrix.target }}
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
       - name: sherpa-onnx for Android
-        run: src/scripts/sherpa-mobile.sh aarch64-linux-android
+        run: src/scripts/sherpa-mobile.sh ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
-          key: aarch64-linux-android
+          key: ${{ matrix.target }}
 
       # A release APK has to be signed, and cargo-apk signs it as it builds,
       # so the build runs under a key made for the run. That key installs
@@ -183,8 +194,8 @@ jobs:
         working-directory: src
         run: |
           set -o pipefail
-          eval "$(scripts/mobile-env.sh aarch64-linux-android)"
-          cargo apk build --release -p concat-android 2>&1 | tee build.log
+          eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
+          cargo apk build --release -p concat-android --target ${{ matrix.target }} 2>&1 | tee build.log
 
       # A release's APK is signed over again with the repository's key, so
       # it installs over the build before it. Only a release asks (`sign`);
@@ -200,7 +211,7 @@ jobs:
       # the keystore's, which is what a key made with the keystore has).
       # A prompt on a runner is a step that waits for its timeout.
       - name: Sign with the repository's key
-        if: inputs.sign
+        if: inputs.sign && matrix.ship
         timeout-minutes: 10
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
@@ -239,7 +250,7 @@ jobs:
         run: |
           if [ -f src/build.log ]; then
             {
-              echo "### Build failed: Android arm64"
+              echo "### Build failed: Android ${{ matrix.abi }}"
               echo '```'
               tail -n 150 src/build.log
               echo '```'
@@ -253,18 +264,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir stage
-          cp src/target/release/apk/Concat.apk "stage/Concat-$VERSION-android-arm64.apk"
+          cp src/target/release/apk/Concat.apk "stage/Concat-$VERSION-android-${{ matrix.abi }}.apk"
           ls -l stage
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: Concat-android-arm64
+          # Concat-* is what a release publishes; the emulator's APK is
+          # named so it never is.
+          name: ${{ matrix.ship && 'Concat-android-arm64' || 'smoke-apk-android-x86_64' }}
           path: stage/*
           if-no-files-found: error
 
-  # The APK the job above uploaded, installed and started on an emulator;
-  # see the top of this file for why an x86_64 one. A release's run tests
-  # the APK signed with the repository's key, which is the one it ships.
+  # The x86_64 APK the job above built from the same source, installed and
+  # started on an emulator, which runs it natively: the arm64 one that
+  # ships ran there only through ARM translation, where ONNX Runtime's CPU
+  # detection crashed before any of the app's code, so it was never
+  # tested at all.
   android-smoke:
     name: Android smoke (API ${{ matrix.api }})
     needs: android
@@ -282,7 +297,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         timeout-minutes: 10
         with:
-          name: Concat-android-arm64
+          name: smoke-apk-android-x86_64
           path: apk
 
       # The emulator needs KVM, which the runner has but only root may
