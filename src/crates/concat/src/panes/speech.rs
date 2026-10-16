@@ -47,6 +47,8 @@ const DEFAULT_VOICE: i32 = 3;
 const DEFAULT_POCKET_VOICE: i32 = 1000;
 /// The default Chatterbox voice: the same recording, read by Chatterbox.
 const DEFAULT_CHATTERBOX_VOICE: i32 = 2000;
+/// The default Piper VITS voice: Indonesian News voice.
+const DEFAULT_VITS_VOICE: i32 = 3000;
 /// The speeds a voice can be asked for, as the rate multiplier the sheet's
 /// slider runs over; 1 is the voice's own.
 const SPEEDS: (f32, f32) = (0.5, 2.0);
@@ -60,7 +62,7 @@ const DEFAULT_PAUSES: f32 = 0.2;
 /// it has been timed: about what each took on a recent CPU.
 fn reading_pace(family: Family) -> f32 {
     match family {
-        Family::Kokoro => 0.35,
+        Family::Kokoro | Family::Vits => 0.35,
         Family::Pocket => 0.3,
         Family::Chatterbox => 1.6,
     }
@@ -358,7 +360,7 @@ impl SpeechPane {
             .per_unit
             .unwrap_or(reading_pace(self.family) / CHARS_PER_SECOND / self.rate());
         let mut plan = vec![(Stage::Loading, load)];
-        if self.family != Family::Kokoro {
+        if self.family != Family::Kokoro && self.family != Family::Vits {
             plan.push((Stage::Reading, 0.3));
         }
         plan.push((Stage::Working, chars * per_char));
@@ -442,7 +444,7 @@ impl SpeechPane {
     /// speakers.
     fn sample_voice(&self) -> Option<i32> {
         match self.family {
-            Family::Kokoro => None,
+            Family::Kokoro | Family::Vits => None,
             Family::Pocket => Some(POCKET_CLONE),
             Family::Chatterbox => Some(CHATTERBOX_CLONE),
         }
@@ -502,6 +504,7 @@ impl SpeechPane {
         let offered = self.offered();
         let default = match self.family {
             Family::Kokoro => DEFAULT_VOICE,
+            Family::Vits => DEFAULT_VITS_VOICE,
             Family::Pocket => DEFAULT_POCKET_VOICE,
             Family::Chatterbox => DEFAULT_CHATTERBOX_VOICE,
         };
@@ -534,7 +537,7 @@ impl SpeechPane {
         installed(&studio.settings.voices)
             .iter()
             .map(|model| match family_of(&model.id) {
-                Family::Kokoro => t("speech.builtInSpeakersFast"),
+                Family::Kokoro | Family::Vits => t("speech.builtInSpeakersFast"),
                 Family::Pocket => t("speech.anyVoiceRecording"),
                 Family::Chatterbox => t("speech.studioVoiceSlow"),
             })
@@ -586,7 +589,7 @@ impl SpeechPane {
             voice: self.voice as i32,
             model: self.model as i32,
             family: match self.family {
-                Family::Kokoro => 0,
+                Family::Kokoro | Family::Vits => 0,
                 Family::Pocket => 1,
                 Family::Chatterbox => 2,
             },
@@ -662,6 +665,19 @@ fn voice_label(name: &str) -> (String, String) {
         };
         return (title, t("speech.recordingComesPocketTts"));
     }
+    if let Some(rest) = name.strip_prefix("id_") {
+        let mut chars = rest.chars();
+        let title = match chars.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            None => String::new(),
+        };
+        let detail = [t("speech.indonesian"), t("speech.female")]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        return (title, detail);
+    }
     let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
     let mut chars = rest.chars();
     let title = match chars.next() {
@@ -727,7 +743,11 @@ mod tests {
         assert_eq!(voice_label("nova").0, "Nova");
         assert_eq!(voice_label("pocket_bria").0, "Bria");
         assert!(voice_label("pocket_bria").1.contains("Pocket"));
-        assert!(voice_label("pocket_clone").0.contains("clip"));
-        assert!(voice_label("chatterbox_clone").0.contains("clip"));
+        assert_eq!(voice_label("pocket_clone").0.contains("clip"), true);
+        assert_eq!(voice_label("chatterbox_clone").0.contains("clip"), true);
+        let (id_title, id_detail) = voice_label("id_news");
+        assert_eq!(id_title, "News");
+        assert!(id_detail.contains("Indonesian"));
+        assert!(id_detail.contains("female"));
     }
 }

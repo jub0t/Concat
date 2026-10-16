@@ -118,6 +118,27 @@ sha256 = "2f3b88823cbbb9bf0b2477ec8ae7b3fec417b3a87b6bb5f256dba66f2ad967cb"
 licence = "CC-BY-4.0"
 upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2"
 
+# Piper VITS for Indonesian. The weights are from Piper (rhasspy/piper-voices),
+# converted and packaged for sherpa-onnx by k2-fsa.
+[[model]]
+id = "vits-piper-id_ID-news_tts-medium-int8"
+family = "tts"
+file = "vits-piper-id_ID-news_tts-medium-int8.tar.bz2"
+bytes = 21046435
+sha256 = "d7315f6bf6b61e75cc4397a934b3372fd7a8223bccb96ed817f7283649eebd89"
+licence = "MIT"
+upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-id_ID-news_tts-medium-int8.tar.bz2"
+
+[[model]]
+id = "vits-piper-id_ID-news_tts-medium"
+family = "tts"
+file = "vits-piper-id_ID-news_tts-medium.tar.bz2"
+bytes = 67243848
+sha256 = "634b0169fe41c368e9fafe128f30647f9e0301e852ce503cd78146db524f1f12"
+licence = "MIT"
+upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-id_ID-news_tts-medium.tar.bz2"
+
+
 # ── Chatterbox ───────────────────────────────────────────────────────────
 # src/crates/concat-speech/src/chatterbox.rs. Resemble AI's Chatterbox
 # Turbo, the quantised ONNX export: nine files that make one bundle, each
