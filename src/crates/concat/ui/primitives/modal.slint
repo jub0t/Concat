@@ -509,7 +509,7 @@ export component DialogSection inherits VerticalLayout {
                 }
             }
 
-            // The same pill as the inspector's Switch, drawn from `on`
+            // The same switch as the inspector's, drawn from `on`
             // rather than holding a checked state of its own.
             if root.switchable: VerticalLayout {
                 alignment: center;
@@ -517,7 +517,7 @@ export component DialogSection inherits VerticalLayout {
                 Rectangle {
                     width: 30px;
                     height: 17px;
-                    border-radius: self.height / 2;
+                    border-radius: Theme.r-sm;
                     background: root.on ? Theme.accent : Theme.field-active;
 
                     animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
@@ -527,7 +527,7 @@ export component DialogSection inherits VerticalLayout {
                         y: (parent.height - self.height) / 2;
                         width: 13px;
                         height: 13px;
-                        border-radius: self.width / 2;
+                        border-radius: Theme.r-xs;
                         background: Theme.on-accent;
 
                         animate x { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }

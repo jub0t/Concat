@@ -535,7 +535,9 @@ export component Switch inherits Rectangle {
 
     width: 30px;
     height: 17px;
-    border-radius: self.height / 2;
+    // Softly squared, not a pill: the thumb's corners sit concentric with
+    // the track's, 2px in.
+    border-radius: Theme.r-sm;
     background: root.checked ? Theme.accent : Theme.field-active;
     opacity: root.enabled ? 1.0 : 0.45;
 
@@ -546,7 +548,7 @@ export component Switch inherits Rectangle {
         y: (parent.height - self.height) / 2;
         width: 13px;
         height: 13px;
-        border-radius: self.width / 2;
+        border-radius: Theme.r-xs;
         background: Theme.on-accent;
 
         animate x { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
