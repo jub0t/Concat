@@ -68,6 +68,9 @@ struct DropHandler {
     /// answer, so it is asked once.
     wayland: Option<crate::wayland_drop::Listener>,
     wayland_tried: bool,
+    /// Whether the window has been held to its screen yet: once, at its
+    /// first event.
+    fitted: bool,
     /// Where the pointer last was, in logical pixels of the window: winit
     /// says where it moved, and a press says only that it happened.
     cursor: Option<(f32, f32)>,
@@ -133,6 +136,7 @@ impl DropHandler {
             arrived: Default::default(),
             wayland: None,
             wayland_tried: false,
+            fitted: false,
             cursor: None,
             on_pressed_away: Box::new(on_pressed_away),
             edges: cfg!(not(any(
@@ -182,6 +186,12 @@ impl CustomApplicationHandler for DropHandler {
         slint_window: Option<&slint::Window>,
         event: &WindowEvent,
     ) -> EventResult {
+        if !self.fitted
+            && let Some(window) = winit_window
+        {
+            self.fitted = true;
+            fit_to_screen(window);
+        }
         if !self.wayland_tried
             && let Some(window) = winit_window
         {
@@ -500,6 +510,38 @@ pub fn minimize(window: &slint::Window) {
     }
     #[cfg(target_os = "android")]
     let _ = window;
+}
+
+/// Maximises a window that opened larger than its screen. The window asks
+/// for 1400 by 900 and may not shrink past 900 by 560, both in logical
+/// pixels, and a 1920 by 1080 laptop at 150 % has 1280 by 720 of them less
+/// its taskbar: the window opened past the screen's edges, with its corner
+/// handles out of reach, and could not be moved back or made smaller
+/// (#347). Maximised it fills the work area, taskbar and all, and the
+/// title strip's double-click restores it.
+/// macOS shrinks a window to its screen by itself, so there it is left be.
+#[cfg(not(target_os = "android"))]
+fn fit_to_screen(window: &WinitWindow) {
+    if cfg!(target_os = "macos") {
+        return;
+    }
+    let Some(monitor) = window.current_monitor() else {
+        return;
+    };
+    let (screen, size) = (monitor.size(), window.outer_size());
+    // A taskbar or a dock takes up to about a tenth of the height; winit
+    // knows the monitor and not its work area.
+    let room = f64::from(screen.height) * 0.9;
+    if size.width > screen.width || f64::from(size.height) > room {
+        log::info!(
+            "window: {}x{} does not fit the screen's {}x{}; maximised",
+            size.width,
+            size.height,
+            screen.width,
+            screen.height
+        );
+        window.set_maximized(true);
+    }
 }
 
 /// Whether the window is currently maximised, for the strip to pick the
