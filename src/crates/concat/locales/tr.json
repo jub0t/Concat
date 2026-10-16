@@ -232,6 +232,8 @@
   "export.cancelExport": "Dışa aktarmayı iptal et",
   "export.codec": "Kodek",
   "export.contents": "İçerik",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "{0} konumuna kaydedilemedi: {1}",
   "export.couldNotShowFile": "Dosya gösterilemedi: {0}",
   "export.destination": "Hedef",

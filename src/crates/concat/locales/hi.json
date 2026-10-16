@@ -232,6 +232,8 @@
   "export.cancelExport": "एक्सपोर्ट रद्द करें",
   "export.codec": "कोडेक",
   "export.contents": "सामग्री",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "{0} में सेव नहीं हो सका: {1}",
   "export.couldNotShowFile": "फ़ाइल नहीं दिखाई जा सकी: {0}",
   "export.destination": "गंतव्य",

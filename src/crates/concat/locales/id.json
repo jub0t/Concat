@@ -232,6 +232,8 @@
   "export.cancelExport": "Batalkan ekspor",
   "export.codec": "Kodek",
   "export.contents": "Isi",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "Tidak dapat menyimpan ke {0}: {1}",
   "export.couldNotShowFile": "Tidak dapat menampilkan file: {0}",
   "export.destination": "Tujuan",
