@@ -38,7 +38,7 @@ concurrency:
 jobs:
   mirror:
     name: Fill and publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Two gigabytes down and two up, which takes a runner well under an
     # hour; past three, something is stuck.
     timeout-minutes: 180

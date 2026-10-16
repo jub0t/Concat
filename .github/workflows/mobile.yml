@@ -93,7 +93,7 @@ env:
 jobs:
   android:
     name: Android arm64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       # The ref release.yml names, which is its tag: without one a run
@@ -259,7 +259,7 @@ jobs:
   android-smoke:
     name: Android smoke (API ${{ matrix.api }})
     needs: android
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false

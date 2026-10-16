@@ -34,7 +34,7 @@ concurrency:
 jobs:
   engine:
     name: Engine tests and lints
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The steps that can run long have timeouts of their own, 110 minutes
     # between them, so a stuck step is named by its own timeout; this is
     # for a job stuck anywhere else. A warm run takes about twenty minutes.
