@@ -119,14 +119,12 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 
 <p align="center">
  <a href="https://www.star-history.com/jub0t/concat">
-  <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank#gh-light-mode-only" />
-  <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark#gh-dark-mode-only" />
+  <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
  </a>
 </p>
 
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
- <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right#gh-light-mode-only" />
- <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right#gh-dark-mode-only" />
+ <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
 </a>
 
 ## DMCA
