@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.2.7"
 edition = "2024"
 rust-version = "1.93"
-license = "AGPL-3.0-or-later"  # + plugin exception, see LICENSE-EXCEPTIONS.md
+license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
 concat-core = { path = "crates/concat-core" }

@@ -1,6 +1,6 @@
 # Concat Contributor Licence Agreement
 
-**Version 1.1**
+**Version 1.2**
 
 Thank you for contributing to Concat. This agreement sets out the terms under
 which your contribution is accepted. It exists so that Concat's copyright stays
@@ -11,8 +11,8 @@ anyone who violates it.
 Everything you contribute stays yours, and stays available to you for any
 purpose, forever.
 
-By submitting a contribution to this project — as a pull request, patch, or any
-other form — you agree to the following.
+By submitting a contribution to this project (as a pull request, patch, or any
+other form), you agree to the following.
 
 ## 1. Definitions
 
@@ -43,13 +43,14 @@ the patent licences granted to you under this agreement terminate.
 ## 4. Right to license the work
 
 You agree that the Project may license your Contribution under
-AGPL-3.0-or-later, together with the exceptions in
-[`LICENSE-EXCEPTIONS.md`](LICENSE-EXCEPTIONS.md), as part of Concat.
+AGPL-3.0-or-later as part of Concat.
 
 The Project offers Concat under that licence only: not under commercial terms,
 and not under any other licence. Version 1.0 of this agreement also allowed
 other licence terms, including commercial ones; the Project does not use that
-permission, for contributions made under 1.0 or since.
+permission, for contributions made under 1.0 or since. Version 1.1 also
+allowed a plugin exception to the AGPL, in `LICENSE-EXCEPTIONS.md`; Concat
+no longer carries it.
 
 ## 5. Your representations
 
@@ -96,5 +97,5 @@ Signed-off-by: Your Name <your.email@example.com>
 Use your real name and a working email address. Signing off on a pull request
 indicates your agreement to this CLA for the contributions in it.
 
-*Small changes — typos, comment fixes, documentation wording — are accepted
+*Small changes (typos, comment fixes, documentation wording) are accepted
 without a sign-off.*

@@ -8,8 +8,8 @@ reporting what broke.
 
 Grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page
 and edit a real video with it. Real footage finds what no reading of the
-source does. A good bug report — what you did, what happened, your
-OS, the media you used — is worth more than most patches.
+source does. A good bug report (what you did, what happened, your
+OS, the media you used) is worth more than most patches.
 
 Longer-form discussion lives in
 [the contribution discussion](https://github.com/jub0t/Concat/discussions/3)
@@ -18,7 +18,7 @@ and on [Discord](https://discord.gg/DVuPfpXfqP).
 ## Before you write code
 
 Open an issue or drop into Discord first for anything beyond a small fix. Large
-areas are already in progress or intentionally deferred, and it is genuinely
+areas are already in progress or intentionally deferred, and it is
 no fun to review a big PR that has to be turned down for reasons that were
 invisible from outside.
 
@@ -39,7 +39,7 @@ Slint UI - is one Cargo workspace under `src/`.
 
 | Path | What lives there |
 |---|---|
-| `src/crates/` | The engine (core, media, render, export, project), the host layer (`concat-host`, `concat-speech`), the CLI, and `concat`, the Slint editor window |
+| `src/crates/` | The engine (core, media, render, effects, export, project), the host layer (`concat-host`, `concat-speech`), the API (`concat-api`, `concat-server`), the CLI, and `concat`, the Slint editor window |
 
 [`src/README.md`](src/README.md) explains how the crates fit together and
 where the sharp edges are. Read it before touching the engine.
@@ -54,7 +54,7 @@ cd src && cargo fmt --check && cargo clippy --all-targets -- -D warnings && carg
 
 If you added or changed text the interface shows, also run
 `python3 scripts/locales.py` so the string inventory follows; CI checks it.
-Translations live in one JSON file per language — see
+Translations live in one JSON file per language; see
 [`TRANSLATING.md`](TRANSLATING.md).
 
 If you added or changed a downloadable model, put it in
@@ -64,23 +64,21 @@ A maintainer then runs the *Mirror models* workflow, which fetches the model,
 records its digest in both places and publishes it to the mirror the app
 downloads from.
 
-Write what happens through the `log` facade — `log::info!`, `log::warn!`,
-`log::error!` — rather than to standard output or standard error. Every run
+Write what happens through the `log` facade (`log::info!`, `log::warn!`,
+`log::error!`) rather than to standard output or standard error. Every run
 writes `<app data>/logs/concat-<when>.log`, and a packaged build has no
 terminal for anything that goes anywhere else; `CONCAT_LOG=debug` turns the
 level up. See `src/crates/concat-host/src/logs.rs`.
 
-New source files need a licence header — see below. Match the style of the code
+New source files need a licence header (see below). Match the style of the code
 around you; the engine avoids cleverness on purpose.
 
 ## Licensing your contribution
 
-Concat is **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)), with a plugin exception
-so that Concat API plugins can carry their own licence
-([`LICENSE-EXCEPTIONS.md`](LICENSE-EXCEPTIONS.md)).
+Concat is **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)).
 
 Contributions are accepted under the CLA in [`CLA.md`](CLA.md). **You keep the
-copyright in your work** — the CLA is a licence, not an assignment. It exists so
+copyright in your work**: the CLA is a licence, not an assignment. It exists so
 that copyright in Concat stays centralised, which is what makes the AGPL
 enforceable against companies that take the code without honouring it.
 
@@ -101,7 +99,7 @@ Every source file starts with:
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 ```
 
-Keep your own copyright line if you want one — add it, don't replace what's
+Keep your own copyright line if you want one: add it, don't replace what's
 there.
 
 ### Third-party code
@@ -114,7 +112,7 @@ catch before a merge than after a release.
 ## Trademarks
 
 The code is free to fork. The Concat name and logo are not covered by the AGPL
-grant — see [`TRADEMARK.md`](TRADEMARK.md). Forks are welcome; please ship them
+grant; see [`TRADEMARK.md`](TRADEMARK.md). Forks are welcome; please ship them
 under your own name.
 
 ## Conduct
