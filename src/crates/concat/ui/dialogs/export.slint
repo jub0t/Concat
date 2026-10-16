@@ -693,6 +693,13 @@ export component ExportDialog inherits Rectangle {
     in property <ExportData> data;
     /// A finger drives it: the body scrolls under a drag as well as a wheel.
     in property <bool> phone;
+    /// How far the system's bars reach into the window (its
+    /// safe-area-insets; zero on a desk). The sheet's panel runs behind
+    /// them; its header, its body and its buttons stay inside (#353).
+    in property <length> inset-top;
+    in property <length> inset-bottom;
+    in property <length> inset-left;
+    in property <length> inset-right;
     /// The monitor's frame and where the playhead is, for the preview
     /// group; a scrub there seeks the cut.
     in property <image> preview-frame;
@@ -748,6 +755,11 @@ export component ExportDialog inherits Rectangle {
         TouchArea { }
 
         VerticalLayout {
+            padding-top: root.inset-top;
+            padding-bottom: root.inset-bottom;
+            padding-left: root.inset-left;
+            padding-right: root.inset-right;
+
             // ── the header ───────────────────────────────────────────────
             Rectangle {
                 height: 52px;

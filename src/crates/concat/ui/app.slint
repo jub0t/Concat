@@ -710,6 +710,10 @@ export component App inherits Window {
     }
 
     ExportDialog {
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         x: 0;
         y: 0;
         width: root.width;

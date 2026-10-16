@@ -1378,6 +1378,11 @@ export component NewProjectDialog inherits Modal {
                         current: root.data.size;
                         enabled: !root.data.busy;
                         block: root.narrow;
+                        // Five chips and the readout do not fit one line of
+                        // a phone held upright: 4K and Custom ran off the
+                        // edge out of reach (#356). Three to a row there,
+                        // as the frame rates wrap four.
+                        per-row: root.narrow ? 3 : 0;
                         changed(index) => { root.size-changed(index); }
                     }
 
