@@ -21,63 +21,20 @@
 //! interface needs - and Inter, which the title painter carries anyway,
 //! stands behind the machine's own for Cyrillic and Greek.
 //!
-//! The Noto faces are the static Regular instances from the notofonts
-//! releases, unhinted, cut with fonttools' `pyftsubset` to the script's
-//! basic block, Latin-1 and the general punctuation, U+25CC (the dotted
-//! circle the shaper puts under a mark with nothing to sit on) and every
-//! character the shipped locales use, with every layout feature kept so
-//! the joining and conjuncts still shape:
-//!
-//! ```text
-//! pyftsubset <face>-Regular.ttf --unicodes=<block>,U+0020-007E,U+00A0-00FF,U+2000-206F,U+25CC \
-//!     --text-file=<every locale's characters> --layout-features='*' --no-hinting \
-//!     --notdef-outline --name-IDs=0,1,2,3,4,5,6,13,14 --output-file=<face>-Concat.ttf
-//! ```
-//!
-//! Each face's release and the SHA-256 of its zip are on its constant
-//! below; the licence is `fonts/LICENSE-<face>.txt`, and
-//! THIRD_PARTY_NOTICES.md lists them.
+//! The Noto faces live in concat-text, which falls back on them for titles
+//! too; their sources, the way they were cut and their licences are on
+//! `concat_text::SCRIPT_FALLBACKS`, and THIRD_PARTY_NOTICES.md lists them.
 
 use std::sync::Arc;
 
 use slint::fontique_011::fontique::{self, FallbackKey, FamilyId, Language, Script};
 
-/// Noto Sans CJK SC, cut to the characters the interface falls back on:
-/// GB 2312, Big5 level 1, JIS X 0208, KS X 1001's Hangul, the kana, the
-/// CJK punctuation and fullwidth forms, and every character in the
-/// shipped locales, which the test below holds it to. Under three
-/// megabytes rather than sixteen. Japanese and Traditional Chinese read
-/// in the Simplified face's forms where the regions differ; on a machine
-/// with a font of its own for them, that font comes first.
-const CJK_FALLBACK: &[u8] = include_bytes!("../fonts/NotoSansCJKsc-Concat.otf");
-
-/// Noto Sans Arabic UI 2.011, for Arabic, Persian and Urdu: the UI cut,
-/// whose ascent and descent fit a line of Latin, where Noto Sans Arabic's
-/// would stand taller than the rows it is put in. Urdu reads in its
-/// Naskh-like forms, not Nastaliq; every Urdu letter is there. From
-/// https://github.com/notofonts/arabic/releases/download/NotoSansArabicUI-v2.011/NotoSansArabicUI-v2.011.zip
-/// (SHA-256 f775ee259557195721466e99ec0316bbcd897f0429e25955f5d9582ca1202ce7).
-const ARABIC_FALLBACK: &[u8] = include_bytes!("../fonts/NotoSansArabicUI-Concat.ttf");
-
-/// Noto Sans Hebrew 3.001. From
-/// https://github.com/notofonts/hebrew/releases/download/NotoSansHebrew-v3.001/NotoSansHebrew-v3.001.zip
-/// (SHA-256 df0a71814b4e63644cf40fcc4529111b61266b7a2dafbe95068b29a7520cc3cb).
-const HEBREW_FALLBACK: &[u8] = include_bytes!("../fonts/NotoSansHebrew-Concat.ttf");
-
-/// Noto Sans Devanagari 2.007, for Hindi. From
-/// https://github.com/notofonts/devanagari/releases/download/NotoSansDevanagari-v2.007/NotoSansDevanagari-v2.007.zip
-/// (SHA-256 820c7da45b1e63562cb41c0a8cac5d9a4202312043a3a040ed1325857ef469b1).
-const DEVANAGARI_FALLBACK: &[u8] = include_bytes!("../fonts/NotoSansDevanagari-Concat.ttf");
-
-/// Noto Sans Bengali 3.011. From
-/// https://github.com/notofonts/bengali/releases/download/NotoSansBengali-v3.011/NotoSansBengali-v3.011.zip
-/// (SHA-256 2aca24bf71665e66c32e14862ee58857dd8b8b07b6321ec7c96f3121ad6683b1).
-const BENGALI_FALLBACK: &[u8] = include_bytes!("../fonts/NotoSansBengali-Concat.ttf");
-
-/// Noto Sans Thai 2.002, the loopless face Thai interfaces are set in.
-/// From https://github.com/notofonts/thai/releases/download/NotoSansThai-v2.002/NotoSansThai-v2.002.zip
-/// (SHA-256 af889cc673fc714060ce5e4e088fbad32aa4c0571a19958efeaff128a22da485).
-const THAI_FALLBACK: &[u8] = include_bytes!("../fonts/NotoSansThai-Concat.ttf");
+const CJK_FALLBACK: &[u8] = concat_text::NOTO_SANS_CJK_SC;
+const ARABIC_FALLBACK: &[u8] = concat_text::NOTO_SANS_ARABIC_UI;
+const HEBREW_FALLBACK: &[u8] = concat_text::NOTO_SANS_HEBREW;
+const DEVANAGARI_FALLBACK: &[u8] = concat_text::NOTO_SANS_DEVANAGARI;
+const BENGALI_FALLBACK: &[u8] = concat_text::NOTO_SANS_BENGALI;
+const THAI_FALLBACK: &[u8] = concat_text::NOTO_SANS_THAI;
 
 /// A face the window falls back on, and the fallback lists it goes on: a
 /// script, and the locales fontique keeps a list of its own for under it
