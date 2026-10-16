@@ -2594,12 +2594,15 @@ impl Studio {
         };
         self.autosave.stop();
         let (path, document) = session.prepare_save(None);
+        // Capture the write order with the snapshot, not later when a
+        // worker happens to pick it up.
+        let ticket = projects::ticket();
         self.dirty = false;
-        spawn(
-            move || projects::save(&path, &document),
+        spawn_in_project(
+            move || projects::save_ordered(&path, &document, ticket),
             move |studio, _, _, result| match result {
-                Ok(()) if announce => studio.notify(&t("studio.projectSaved"), false),
-                Ok(()) => {}
+                Ok(_) if announce => studio.notify(&t("studio.projectSaved"), false),
+                Ok(_) => {}
                 Err(error) => {
                     studio.dirty = true;
                     studio.notify(&tf("studio.couldNotSave", &[&error]), true);
@@ -7220,11 +7223,32 @@ impl Studio {
     }
 
     /// Saves, then closes the session and returns to the launch screen.
-    pub fn close_project(&mut self) {
+    ///
+    /// A save that fails returns its reason and stops short of the close:
+    /// the session, its running jobs and the autosave timer are left as they
+    /// were, so a caller that was about to hide the window or quit can keep
+    /// it up rather than drop unsaved work on the floor. Not untouched, to be
+    /// exact - the close flushes a half-typed commit and pauses playback
+    /// before it saves, and a failed save leaves those two as done. What a
+    /// failure does not reach is the teardown: the worker cancellations, the
+    /// job lists, the autosave timer and the session itself.
+    pub fn close_project(&mut self) -> Result<(), String> {
         log::info!("project: closing {}", self.project_name);
         // Words still being typed land in the save, not on the floor.
         self.flush_commit();
         self.pause();
+        // Saved before the workers are cancelled: a close that cannot be
+        // written is not a close, and the jobs it would have stopped are
+        // not ours to throw away.
+        if let Some(session) = self.session.as_mut() {
+            let (path, document) = session.prepare_save(None);
+            let ticket = projects::ticket();
+            if let Err(error) = projects::save_ordered(&path, &document, ticket) {
+                log::warn!("project: could not be saved, not closing: {error}");
+                self.notify(&tf("studio.couldNotSave", &[&error]), true);
+                return Err(error);
+            }
+        }
         self.host.cutouts.cancel();
         self.host.enhancers.cancel();
         self.host.reversers.cancel();
@@ -7233,13 +7257,6 @@ impl Studio {
         self.cancel_merge();
         self.cutout_jobs.clear();
         self.region_job = None;
-        if let Some(session) = self.session.as_mut() {
-            let (path, document) = session.prepare_save(None);
-            if let Err(error) = projects::save(&path, &document) {
-                self.notify(&tf("studio.couldNotSave", &[&error]), true);
-                return;
-            }
-        }
         self.autosave.stop();
         if let Some(session) = self.session.as_ref() {
             self.host.open_projects.release(session.path());
@@ -7278,6 +7295,7 @@ impl Studio {
             .set_clips(std::path::PathBuf::new(), Vec::new());
         self.on_start = true;
         self.recents = projects::list(&self.host.dirs.config);
+        Ok(())
     }
 
     /// Posters for the recents that have none yet, decoded on a worker.

@@ -20,6 +20,7 @@ use concat_host::models::SourcePreference;
 use concat_host::updates::{self, Fixed, Installed, Release, Standing, Version};
 use slint::SharedString;
 
+use crate::close_window;
 use crate::host::{on_ui, spawn};
 use crate::i18n::{self, t, tf};
 use crate::panes::Msg;
@@ -426,15 +427,19 @@ impl SettingsPane {
                     Ok(Installed::InstallerRunning) => {
                         log::info!("update: the installer for {version} is running; closing");
                         studio.notify(&tf("settings.installerOpened", &[&version]), false);
-                        quit_for_switch();
+                        quit_for_switch(|| {});
                     }
                     Ok(Installed::Replaced) => {
+                        // The bundle on disk is already the new build; what
+                        // is left is to start it, and that waits on the
+                        // project being saved.
                         log::info!("update: {version} is in place; starting it");
-                        if let Err(error) = updates::relaunch() {
-                            log::warn!("update: could not arrange the start: {error}");
-                        }
                         studio.notify(&tf("settings.versionInstalled", &[&version]), false);
-                        quit_for_switch();
+                        quit_for_switch(|| {
+                            if let Err(error) = updates::relaunch() {
+                                log::warn!("update: could not arrange the start: {error}");
+                            }
+                        });
                     }
                     Ok(Installed::Opened) => {
                         studio.notify(&tf("settings.packageOpened", &[&version]), false);
@@ -838,15 +843,31 @@ fn fixed_note(why: Fixed) -> String {
     }
 }
 
-/// Closes the app on the event loop's next turn, the way File › Close
-/// Window does, so an installer can replace its files or the build put in
-/// place can start.
-fn quit_for_switch() {
-    on_ui(|studio, app, _| {
+/// Saves and closes the project, then quits - running `after`, the start of
+/// a build already replaced on disk, only once the project has been written.
+///
+/// A switch is only worth making if the save lands first. The relaunch of a
+/// replaced build used to be scheduled before the save, so a save that then
+/// failed started the new build over a window that still held the old
+/// session. Now a failed save starts nothing and quits nothing: the window
+/// stays up with `close_project`'s reason, and the bundle already on disk
+/// can be started by hand.
+fn quit_for_switch(after: impl FnOnce() + Send + 'static) {
+    on_ui(move |studio, app, models| {
         log::info!("close: quitting for a version switch");
-        studio.close_project();
-        slint::ComponentHandle::window(app).hide().ok();
-        slint::quit_event_loop().ok();
+        let outcome = close_window(
+            || studio.close_project(),
+            || {
+                after();
+                slint::ComponentHandle::window(app).hide().ok();
+                slint::quit_event_loop().ok();
+            },
+        );
+        if let Err(error) = outcome {
+            log::warn!("close: not switching, project could not be saved: {error}");
+            studio.refresh_art();
+            studio.publish(app, models);
+        }
     });
 }
 
