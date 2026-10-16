@@ -698,14 +698,12 @@ export component SettingsDialog inherits Modal {
                     ruled: false;
                     first: true;
                     title: I18n.t("settings.language");
-
                     // Native names: whoever is stranded in a language they
                     // cannot read must still recognise their own in this list.
-                    Select {
-                        options: root.languages;
-                        current: root.data.language;
-                        changed(index) => { root.language-changed(index); }
-                    }
+                    choices: root.languages;
+                    choice: root.data.language;
+                    open: false;
+                    chose(index) => { root.language-changed(index); }
                 }
 
                 // What the log records. Normal is what a bug report needs
@@ -717,18 +715,16 @@ export component SettingsDialog inherits Modal {
                     ruled: false;
                     title: I18n.t("settings.logLevel");
                     hint: I18n.t("settings.logLevelHint");
-
-                    Select {
-                        options: [
-                            I18n.t("settings.logErrors"),
-                            I18n.t("settings.logWarnings"),
-                            I18n.t("settings.logNormal"),
-                            I18n.t("settings.logDebug"),
-                            I18n.t("settings.logEverything"),
-                        ];
-                        current: root.data.log-level;
-                        changed(index) => { root.log-level-changed(index); }
-                    }
+                    choices: [
+                        I18n.t("settings.logErrors"),
+                        I18n.t("settings.logWarnings"),
+                        I18n.t("settings.logNormal"),
+                        I18n.t("settings.logDebug"),
+                        I18n.t("settings.logEverything"),
+                    ];
+                    choice: root.data.log-level;
+                    open: false;
+                    chose(index) => { root.log-level-changed(index); }
                 }
 
                 // Off, a delete leaves its hole and a trim moves one edge.
