@@ -97,8 +97,9 @@ env:
   ORT_INTEL_MAC_VERSION: 1.23.2
   # WiX for the Windows .msi, as a dotnet tool, pinned by version.
   WIX_VERSION: 6.0.2
-  # Oldest macOS the bundles run on. Apple silicon Macs all run newer than
-  # this; it is the Intel floor.
+  # Oldest macOS the bundles run on, unless a target sets its own
+  # (`macos-min` below): Apple silicon's. scripts/ci/check-min-os.sh lists
+  # every bundled library built for a newer one.
   MACOSX_DEPLOYMENT_TARGET: "12.0"
   # ggml (whisper.cpp's kernels) tunes itself to the machine it is built
   # on unless told otherwise, and these bundles run on other machines: a
@@ -137,6 +138,9 @@ jobs:
             os: macos-15-intel
             target: x86_64-apple-darwin
             sherpa: osx-x64
+            # The ONNX Runtime it ships (1.23.2, the last for Intel Macs)
+            # is built for 13.4 and dies at launch on 12 (#333).
+            macos-min: "13.4"
           # 22.04, not latest: the binary links the build machine's glibc,
           # so the oldest supported runner is what keeps it runnable on
           # older distributions.
@@ -180,6 +184,8 @@ jobs:
     # at most 155 minutes between them on any one target, so a stuck step
     # is named by its own timeout; this is for a job stuck anywhere else.
     timeout-minutes: 190
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-min || '12.0' }}
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -603,6 +609,12 @@ jobs:
             echo "the binary still loads libraries from outside the bundle" >&2
             exit 1
           fi
+
+          # Every library in the bundle against the floor it declares. A
+          # warning for now: Homebrew's FFmpeg is built for the runner's
+          # macOS, so every Mac bundle has some until FFmpeg is built here
+          # for the floor.
+          scripts/ci/check-min-os.sh "$app" "$MACOSX_DEPLOYMENT_TARGET"
 
       # Signed with the repository's Developer ID when it has one, and
       # notarised so Gatekeeper opens it without a warning; ad-hoc signed

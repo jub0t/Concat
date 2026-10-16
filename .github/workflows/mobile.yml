@@ -402,6 +402,13 @@ jobs:
       - name: Bundle
         run: src/scripts/ios-app.sh aarch64-apple-ios release
 
+      # Every framework in the app against the iOS it declares (#294). A
+      # warning until a run has shown what is there.
+      - name: Minimum iOS of everything in the app
+        run: |
+          app=src/target/aarch64-apple-ios/release/Concat.app
+          scripts/ci/check-min-os.sh "$app" "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")"
+
       # An .ipa is the bundle under Payload/ in a zip: the form every
       # sideloading tool and Xcode's Devices window take, re-signing it
       # with the tester's own identity on the way onto the phone. ditto
