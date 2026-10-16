@@ -5,6 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Field, Progress } from "../primitives/modal.slint";
+import { NumberField } from "../primitives/number-field.slint";
 import { Select } from "../primitives/select.slint";
 import { Switch } from "../inspector/controls.slint";
 import { PaneScroll } from "../workspace/pane.slint";
@@ -12,10 +13,9 @@ import { Fmt } from "../util.slint";
 
 // The export sheet.
 //
-// It states the format, asks where the file goes, offers three quality
-// presets and starts. The deciding number sits *on* each preset — what the
-// file will actually weigh — because that is the thing the choice hinges on,
-// and it belongs where the choice is made.
+// It states the format, asks where the file goes and at what bitrate, and
+// starts. What the file will weigh is on the Export button, because that is
+// the thing the bitrate decides.
 //
 // It covers the window and slides up from the bottom edge, and its groups
 // are laid out across the width rather than down it: three columns on a
@@ -41,14 +41,11 @@ export struct ExportData {
     /// rung - "1080 × 1920" on a 9:16 edit - with its names, and which
     /// rungs cannot be picked: every one but the timeline's own
     resolutions: [string],
-    resolution-details: [string],
-    resolution-disabled: [bool],
     rate: int,
     /// the rates offered, the timeline's own first, with its name under
     /// it; the export is at the timeline's rate unless another is picked
     rates: [string],
     rate-details: [string],
-    quality: int,
     /// index into the codec list: H.264, HEVC, AV1
     codec: int,
     /// Which of them this device can encode. A phone's chip may lack
@@ -66,21 +63,11 @@ export struct ExportData {
     deep-available: bool,
     /// "HDR (HLG)" or "HDR (PQ)": the timeline's own.
     hdr-label: string,
-    /// The bitrate the file is written at, in Mbps, as the field shows
-    /// it: "8", "7.5".
-    target: string,
-    /// What each choice aims for: "16 Mbps", "8 Mbps", "4 Mbps".
-    rate-high: string,
-    rate-balanced: string,
-    rate-small: string,
+    /// The bitrate the file is written at, in Mbps.
+    target: float,
     /// "HEVC 10-bit · hardware": what the file will be encoded as
     encoding: string,
-    /// What each preset would weigh. Three strings rather than a list: a Slint
-    /// struct cannot hold an array.
-    size-high: string,
-    size-balanced: string,
-    size-small: string,
-    /// What the chosen bitrate would weigh, the typed one included.
+    /// What the file will weigh at the bitrate.
     size-chosen: string,
     phase: ExportPhase,
     /// 0..1
@@ -130,64 +117,6 @@ component Fact inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
-    }
-}
-
-// One of the three quality presets. The estimate is on the card, in the accent
-// when the card is the chosen one, because it is what the choice is actually
-// being made on.
-component QualityCard inherits Rectangle {
-    in property <string> label;
-    in property <string> note;
-    in property <string> size;
-    in property <bool> current;
-
-    callback clicked();
-
-    horizontal-stretch: 1;
-    height: 72px;
-    border-radius: Theme.r;
-    border-width: 1px;
-    border-color: root.current ? Theme.accent
-        : touch.has-hover ? Theme.line-strong
-        : Theme.line;
-    background: root.current ? Theme.accent-soft : Theme.raised;
-
-    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-    VerticalLayout {
-        padding: 10px;
-        spacing: 1px;
-
-        Text {
-            text: root.label;
-            color: Theme.fg;
-            font-size: Theme.fs;
-            font-weight: Theme.weight-title;
-            overflow: elide;
-        }
-
-        Text {
-            text: root.note;
-            color: Theme.fg-dim;
-            font-size: Theme.fs-sm;
-            overflow: elide;
-        }
-
-        Rectangle { vertical-stretch: 1; }
-
-        Text {
-            text: "~" + root.size;
-            color: root.current ? Theme.accent : Theme.fg;
-            font-family: Theme.font-technical;
-            font-size: Theme.fs;
-            font-weight: Theme.weight-title;
-        }
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
     }
 }
 
@@ -341,8 +270,8 @@ component DestinationSection inherits DialogSection {
 component OutputSection inherits DialogSection {
     in property <ExportData> data;
 
-    callback resolution-changed(index: int);
     callback rate-changed(index: int);
+    callback bitrate-changed(mbps: float);
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
     callback hdr-changed(on: bool);
@@ -351,16 +280,18 @@ component OutputSection inherits DialogSection {
 
     DialogRow {
         label: I18n.t("export.resolution");
-        // The timeline's own size, and the ladder it sits on for scale:
-        // a 9:16 edit is 1080 × 1920, not 1920 × 1080, and it exports at
-        // the size it was cut at - the other rungs are shown and cannot be
-        // picked. https://github.com/jub0t/Concat/issues/109
-        Select {
-            current: root.data.resolution;
-            options: root.data.resolutions;
-            details: root.data.resolution-details;
-            disabled: root.data.resolution-disabled;
-            changed(index) => { root.resolution-changed(index); }
+        // The timeline's own size, which is the size it exports at: a
+        // 9:16 edit is 1080 × 1920. A fact, not a choice.
+        // https://github.com/jub0t/Concat/issues/109
+        HorizontalLayout {
+            alignment: end;
+            Text {
+                text: root.data.resolutions[root.data.resolution];
+                color: Theme.fg;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+            }
         }
     }
 
@@ -417,6 +348,28 @@ component OutputSection inherits DialogSection {
         }
     }
 
+    // The bitrate: what this frame and rate are uploaded at (YouTube's
+    // recommendation, which every platform takes) until it is dragged,
+    // stepped or typed to another. The encoder keeps to it as an average,
+    // so the size on the Export button is the size written.
+    DialogRow {
+        label: I18n.t("export.bitrate");
+        HorizontalLayout {
+            alignment: end;
+            NumberField {
+                width: 120px;
+                value: root.data.target;
+                minimum: 0.5;
+                maximum: 400;
+                step: 0.5;
+                precision: 1;
+                px-per-step: 4px;
+                unit: "Mbps";
+                changed(value) => { root.bitrate-changed(value); }
+            }
+        }
+    }
+
     // HDR is ten bits always, so the switch is for SDR alone.
     if !root.data.hdr && root.data.deep-available: DialogRow {
         label: I18n.t("export.tenBitColour");
@@ -428,58 +381,6 @@ component OutputSection inherits DialogSection {
                     checked: root.data.ten-bit;
                     toggled(on) => { root.ten-bit-changed(on); }
                 }
-            }
-        }
-    }
-}
-
-// The bitrate, as every editor asks for it: recommended for the frame and
-// the rate, twice that or half it, or a number typed. The encoder keeps to
-// an average, so the size on each card is the size written, give or take.
-component QualitySection inherits DialogSection {
-    in property <ExportData> data;
-
-    callback quality-changed(index: int);
-    callback bitrate-changed(text: string);
-
-    title: I18n.t("export.bitrate");
-
-    VerticalLayout {
-        spacing: 8px;
-
-        HorizontalLayout {
-            spacing: 6px;
-
-            QualityCard {
-                label: I18n.t("export.higher");
-                note: root.data.rate-high;
-                size: root.data.size-high;
-                current: root.data.quality == 0;
-                clicked => { root.quality-changed(0); }
-            }
-            QualityCard {
-                label: I18n.t("export.recommended");
-                note: root.data.rate-balanced;
-                size: root.data.size-balanced;
-                current: root.data.quality == 1;
-                clicked => { root.quality-changed(1); }
-            }
-            QualityCard {
-                label: I18n.t("export.lower");
-                note: root.data.rate-small;
-                size: root.data.size-small;
-                current: root.data.quality == 2;
-                clicked => { root.quality-changed(2); }
-            }
-        }
-
-        // The number the file is written at, whichever card set it; a
-        // number typed here is a bitrate of its own.
-        DialogRow {
-            label: I18n.t("export.targetBitrate");
-            Field {
-                value: root.data.target + " Mbps";
-                edited(text) => { root.bitrate-changed(text); }
             }
         }
     }
@@ -661,13 +562,11 @@ export component ExportDialog inherits Rectangle {
     callback closed();
     callback name-edited(name: string);
     callback browse();
-    callback resolution-changed(index: int);
     callback rate-changed(index: int);
-    callback quality-changed(index: int);
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
     callback hdr-changed(on: bool);
-    callback bitrate-changed(text: string);
+    callback bitrate-changed(mbps: float);
     callback begin();
     callback cancel();
     callback reveal();
@@ -799,24 +698,16 @@ export component ExportDialog inherits Rectangle {
                         }
                         if !root.running: OutputSection {
                             data: root.data;
-                            resolution-changed(index) => { root.resolution-changed(index); }
+                            bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                             rate-changed(index) => { root.rate-changed(index); }
                             codec-changed(index) => { root.codec-changed(index); }
                             ten-bit-changed(on) => { root.ten-bit-changed(on); }
                             hdr-changed(on) => { root.hdr-changed(on); }
                         }
-                        if !root.running: QualitySection {
-                            data: root.data;
-                            quality-changed(index) => { root.quality-changed(index); }
-                            bitrate-changed(text) => { root.bitrate-changed(text); }
-                        }
                     }
 
-                    // Two columns: what and where on the left with the
-                    // quality, how on the right.
                     // Two columns: the picture, what it is and where it
-                    // goes on the left with the quality; how on the right,
-                    // the advanced groups open.
+                    // goes on the left; how it is written on the right.
                     if !root.running && root.columns == 2: HorizontalLayout {
                         spacing: 12px;
 
@@ -838,11 +729,6 @@ export component ExportDialog inherits Rectangle {
                                 name-edited(name) => { root.name-edited(name); }
                                 browse => { root.browse(); }
                             }
-                            QualitySection {
-                                data: root.data;
-                                quality-changed(index) => { root.quality-changed(index); }
-                            bitrate-changed(text) => { root.bitrate-changed(text); }
-                            }
                         }
 
                         VerticalLayout {
@@ -851,7 +737,7 @@ export component ExportDialog inherits Rectangle {
                             OutputSection {
                                 first: true;
                                 data: root.data;
-                                resolution-changed(index) => { root.resolution-changed(index); }
+                                bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                                 rate-changed(index) => { root.rate-changed(index); }
                                 codec-changed(index) => { root.codec-changed(index); }
                                 ten-bit-changed(on) => { root.ten-bit-changed(on); }
@@ -860,9 +746,8 @@ export component ExportDialog inherits Rectangle {
                         }
                     }
 
-                    // Three columns: the picture and what it is; what
-                    // shape and where it goes; how good, the advanced
-                    // groups open under it.
+                    // Three columns: the picture and what it is; how it is
+                    // written; where it goes.
                     if !root.running && root.columns == 3: HorizontalLayout {
                         spacing: 12px;
 
@@ -886,28 +771,23 @@ export component ExportDialog inherits Rectangle {
                             OutputSection {
                                 first: true;
                                 data: root.data;
-                                resolution-changed(index) => { root.resolution-changed(index); }
+                                bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                                 rate-changed(index) => { root.rate-changed(index); }
                                 codec-changed(index) => { root.codec-changed(index); }
                                 ten-bit-changed(on) => { root.ten-bit-changed(on); }
                                 hdr-changed(on) => { root.hdr-changed(on); }
-                            }
-                            DestinationSection {
-                                data: root.data;
-                                phone: root.phone;
-                                name-edited(name) => { root.name-edited(name); }
-                                browse => { root.browse(); }
                             }
                         }
 
                         VerticalLayout {
                             alignment: start;
                             horizontal-stretch: 1;
-                            QualitySection {
+                            DestinationSection {
                                 first: true;
                                 data: root.data;
-                                quality-changed(index) => { root.quality-changed(index); }
-                            bitrate-changed(text) => { root.bitrate-changed(text); }
+                                phone: root.phone;
+                                name-edited(name) => { root.name-edited(name); }
+                                browse => { root.browse(); }
                             }
                         }
                     }

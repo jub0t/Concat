@@ -33,16 +33,13 @@ pub enum ExportMsg {
     /// The sheet is dismissed.
     Close,
     NameEdited(String),
-    ResolutionChanged(i32),
     RateChanged(i32),
-    QualityChanged(i32),
     CodecChanged(i32),
     TenBitChanged(bool),
     /// For an HDR timeline: written HDR (true), or tone-mapped to SDR.
     HdrChanged(bool),
-    /// The target bitrate field, in Mbps as typed: the bitrate becomes a
-    /// custom one.
-    BitrateChanged(String),
+    /// The target bitrate field, in Mbps: the bitrate becomes a custom one.
+    BitrateChanged(f32),
     /// Back to the form after a finished or failed render.
     Again,
     /// Pick the destination folder.
@@ -76,14 +73,15 @@ pub struct ExportPane {
     pub folder: String,
     pub resolution: usize,
     pub rate: usize,
-    /// The bitrate: 0 higher, 1 recommended, 2 lower, 3 the typed one.
-    pub quality: usize,
+    /// The bitrate is the typed one, not the recommended one for the
+    /// frame and the rate.
+    pub custom: bool,
     /// Index into `VideoCodec::ALL`.
     pub codec: usize,
     pub ten_bit: bool,
     /// An HDR timeline written tone-mapped to SDR rather than as it is.
     pub sdr: bool,
-    /// The typed bitrate in kbps, the one written when `quality` is 3.
+    /// The typed bitrate in kbps, the one written when `custom`.
     pub bitrate: u32,
     pub phase: ExportPhase,
     pub progress: f32,
@@ -103,7 +101,7 @@ impl Default for ExportPane {
             folder: home_folder("Movies"),
             resolution: 2,
             rate: 0,
-            quality: 1,
+            custom: false,
             codec: 0,
             ten_bit: false,
             sdr: false,
@@ -136,25 +134,8 @@ impl ExportPane {
             }
             ExportMsg::Close => self.open = false,
             ExportMsg::NameEdited(name) => self.name = name,
-            ExportMsg::ResolutionChanged(index) => {
-                // Only the timeline's own rung is taken; the sheet greys the
-                // rest, and this is the same rule for a caller that did not.
-                let index = index.max(0) as usize;
-                if index == Self::own_rung(studio) {
-                    self.resolution = index;
-                }
-            }
             ExportMsg::RateChanged(index) => {
                 self.rate = (index.max(0) as usize).min(Self::rates(studio).len() - 1);
-            }
-            ExportMsg::QualityChanged(index) => {
-                let index = (index.max(0) as usize).min(CUSTOM);
-                // The typed field starts from what the card had, so a
-                // custom bitrate is an edit of the last one, not 8 Mbps.
-                if index == CUSTOM && self.quality != CUSTOM {
-                    self.bitrate = self.target_kbps(studio, self.quality);
-                }
-                self.quality = index;
             }
             // A codec this device cannot encode is not taken: the picker
             // says so under it, and the choice before stands.
@@ -166,10 +147,10 @@ impl ExportPane {
             }
             ExportMsg::TenBitChanged(on) => self.ten_bit = on,
             ExportMsg::HdrChanged(on) => self.sdr = !on,
-            ExportMsg::BitrateChanged(text) => {
-                if let Some(kbps) = typed_kbps(&text) {
-                    self.bitrate = kbps;
-                    self.quality = CUSTOM;
+            ExportMsg::BitrateChanged(mbps) => {
+                if mbps.is_finite() {
+                    self.bitrate = ((mbps * 1000.0).round() as u32).clamp(500, 400_000);
+                    self.custom = true;
                 }
             }
             ExportMsg::Again => {
@@ -337,15 +318,16 @@ impl ExportPane {
         Self::frame_for(studio, short)
     }
 
-    /// The bitrate a choice aims for, in kbps. Recommended is what YouTube
-    /// asks uploads at for the frame - 5 Mbps at 720p, 8 at 1080p, 16 at
-    /// 1440p and 40 at 4K, half again above 30 fps - which every other
-    /// platform takes too, less for HEVC and AV1, which spend fewer bits
-    /// on the same picture, and a quarter more at ten bits. Higher is
-    /// twice it, a master to keep or to grade again; Lower half, a draft
-    /// or a message. Rounded to half a megabit, as a person would say it.
-    pub fn target_kbps(&self, studio: &Studio, choice: usize) -> u32 {
-        if choice >= CUSTOM {
+    /// The bitrate the file is written at, in kbps: the typed one, or the
+    /// one YouTube asks uploads at for the frame - 5 Mbps at 720p, 8 at
+    /// 1080p, 16 at 1440p and 40 at 4K, half again above 30 fps - which
+    /// every other platform takes too, less for HEVC and AV1, which spend
+    /// fewer bits on the same picture, and a quarter more at ten bits.
+    /// Rounded to half a megabit, as a person would say it. The
+    /// recommended one follows the frame, the rate and the codec until a
+    /// bitrate is typed.
+    pub fn target_kbps(&self, studio: &Studio) -> u32 {
+        if self.custom {
             return self.bitrate;
         }
         let (width, height) = self.size(studio);
@@ -360,14 +342,14 @@ impl ExportPane {
         };
         let motion = if fps > 30.5 { 1.5 } else { 1.0 };
         let deep = if self.deep(studio) { 1.25 } else { 1.0 };
-        let kbps = base * motion * self.codec(studio).size_factor() * deep * TIERS[choice];
+        let kbps = base * motion * self.codec(studio).size_factor() * deep;
         ((kbps / 500.0).round() * 500.0).max(500.0) as u32
     }
 
-    /// The file's size at one choice, in bytes: the bitrate is an average
-    /// the encoder keeps to, so this is what is written, give or take.
-    pub fn size_bytes(&self, studio: &Studio, choice: usize) -> f32 {
-        let video = self.target_kbps(studio, choice) as f32 * 1000.0;
+    /// The file's size, in bytes: the bitrate is an average the encoder
+    /// keeps to, so this is what is written, give or take.
+    pub fn size_bytes(&self, studio: &Studio) -> f32 {
+        let video = self.target_kbps(studio) as f32 * 1000.0;
         (video + AUDIO_BPS) * studio.duration().max(1.0) / 8.0
     }
 
@@ -460,7 +442,7 @@ impl ExportPane {
             codec: self.codec(studio),
             ten_bit: self.deep(studio),
             rate_mode: concat_media::RateMode::Average,
-            bitrate_kbps: self.target_kbps(studio, self.quality),
+            bitrate_kbps: self.target_kbps(studio),
             // Video range, what every player and every platform expects.
             color_range: ColorRange::Limited,
             hdr: self.hdr(studio),
@@ -571,26 +553,6 @@ impl ExportPane {
                     .collect();
                 ModelRc::new(VecModel::from(sizes))
             },
-            resolution_details: {
-                let names: Vec<SharedString> = Self::ladder(studio)
-                    .iter()
-                    .map(|rung| match rung {
-                        2160 => "4K".into(),
-                        1440 => "QHD".into(),
-                        1080 => "1080p".into(),
-                        720 => "720p".into(),
-                        _ => t("export.timelineSize").into(),
-                    })
-                    .collect();
-                ModelRc::new(VecModel::from(names))
-            },
-            resolution_disabled: {
-                let own = Self::own_rung(studio);
-                let off: Vec<bool> = (0..Self::ladder(studio).len())
-                    .map(|rung| rung != own)
-                    .collect();
-                ModelRc::new(VecModel::from(off))
-            },
             rate: self.rate as i32,
             rates: {
                 let names: Vec<SharedString> = Self::rates(studio)
@@ -605,7 +567,6 @@ impl ExportPane {
                 details[0] = t("export.timelineSize").into();
                 ModelRc::new(VecModel::from(details))
             },
-            quality: self.quality as i32,
             codec: concat_media::VideoCodec::ALL
                 .iter()
                 .position(|codec| *codec == self.codec(studio))
@@ -624,10 +585,7 @@ impl ExportPane {
                 _ => "HDR (HLG)",
             }
             .into(),
-            target: mbps_number(self.target_kbps(studio, self.quality)).into(),
-            rate_high: mbps(self.target_kbps(studio, 0)).into(),
-            rate_balanced: mbps(self.target_kbps(studio, 1)).into(),
-            rate_small: mbps(self.target_kbps(studio, 2)).into(),
+            target: self.target_kbps(studio) as f32 / 1000.0,
             encoding: {
                 // "HEVC 10-bit · hardware": the standard, the depth when it
                 // is the deeper one, and whether the platform's own encoder
@@ -652,10 +610,7 @@ impl ExportPane {
                 words.join(" ")
             }
             .into(),
-            size_high: bytes(self.size_bytes(studio, 0)).into(),
-            size_balanced: bytes(self.size_bytes(studio, 1)).into(),
-            size_small: bytes(self.size_bytes(studio, 2)).into(),
-            size_chosen: bytes(self.size_bytes(studio, self.quality)).into(),
+            size_chosen: bytes(self.size_bytes(studio)).into(),
             phase: self.phase,
             progress: self.progress,
             stage: self.stage.as_str().into(),
@@ -670,43 +625,10 @@ impl ExportPane {
                 slint::SharedString::new()
             },
             message: self.message.as_str().into(),
-            done_size: bytes(self.size_bytes(studio, self.quality)).into(),
+            done_size: bytes(self.size_bytes(studio)).into(),
             empty: clips == 0,
         }
     }
-}
-
-/// The bitrate choices as multiples of the recommended one: higher,
-/// recommended, lower. Index [`CUSTOM`] is the typed bitrate.
-const TIERS: [f32; 3] = [2.0, 1.0, 0.5];
-const CUSTOM: usize = 3;
-
-/// "8 Mbps", "7.5 Mbps": a bitrate as the sheet says it.
-fn mbps(kbps: u32) -> String {
-    format!("{} Mbps", mbps_number(kbps))
-}
-
-/// The number alone, for the field that takes it back: "8", "7.5".
-fn mbps_number(kbps: u32) -> String {
-    let value = kbps as f32 / 1000.0;
-    if (value - value.round()).abs() < 0.05 {
-        format!("{}", value.round() as u32)
-    } else {
-        format!("{value:.1}")
-    }
-}
-
-/// A typed bitrate in Mbps - "12", "7.5", "7,5 Mbps" - as kbps, between
-/// half a megabit and 400; `None` for nothing a number can be read from.
-fn typed_kbps(text: &str) -> Option<u32> {
-    let number: String = text
-        .trim()
-        .chars()
-        .map(|c| if c == ',' { '.' } else { c })
-        .take_while(|c| c.is_ascii_digit() || *c == '.')
-        .collect();
-    let value: f32 = number.parse().ok()?;
-    Some(((value * 1000.0).round() as u32).clamp(500, 400_000))
 }
 
 /// The typed name as the file's, or `None` for one that cannot be: empty
@@ -758,24 +680,5 @@ mod tests {
         assert_eq!(ExportPane::rate_name((25, 1)), "25 fps");
         assert_eq!(ExportPane::rate_name((15, 1)), "15 fps");
         assert_eq!(ExportPane::rate_name((12500, 1000)), "12.5 fps");
-    }
-
-    /// A bitrate reads back as a person would type it, and what is typed
-    /// is read the way it was meant: a decimal comma, a unit after it,
-    /// and nothing below half a megabit or past 400.
-    #[test]
-    fn a_bitrate_is_said_and_read_in_megabits() {
-        assert_eq!(mbps(8000), "8 Mbps");
-        assert_eq!(mbps(7500), "7.5 Mbps");
-        assert_eq!(mbps_number(40_000), "40");
-        assert_eq!(typed_kbps("12"), Some(12_000));
-        assert_eq!(typed_kbps("7,5 Mbps"), Some(7_500));
-        assert_eq!(typed_kbps(" 7.5 "), Some(7_500));
-        assert_eq!(typed_kbps("0.1"), Some(500));
-        assert_eq!(typed_kbps("9000"), Some(400_000));
-        assert_eq!(typed_kbps("Mbps"), None);
-        assert_eq!(typed_kbps(""), None);
-        // What the field shows is what it takes back.
-        assert_eq!(typed_kbps(&mbps(7500)), Some(7500));
     }
 }

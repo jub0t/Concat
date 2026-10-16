@@ -226,13 +226,11 @@ export component App inherits Window {
     callback export-closed();
     callback export-name-edited(name: string);
     callback export-browse();
-    callback export-resolution-changed(index: int);
     callback export-rate-changed(index: int);
-    callback export-quality-changed(index: int);
     callback export-codec-changed(index: int);
     callback export-ten-bit-changed(on: bool);
     callback export-hdr-changed(on: bool);
-    callback export-bitrate-changed(text: string);
+    callback export-bitrate-changed(mbps: float);
     callback export-start();
     callback export-cancel();
     callback export-reveal();
@@ -751,13 +749,11 @@ export component App inherits Window {
         closed => { root.export-closed(); }
         name-edited(name) => { root.export-name-edited(name); }
         browse => { root.export-browse(); }
-        resolution-changed(index) => { root.export-resolution-changed(index); }
         rate-changed(index) => { root.export-rate-changed(index); }
-        quality-changed(index) => { root.export-quality-changed(index); }
         codec-changed(index) => { root.export-codec-changed(index); }
         ten-bit-changed(on) => { root.export-ten-bit-changed(on); }
         hdr-changed(on) => { root.export-hdr-changed(on); }
-        bitrate-changed(text) => { root.export-bitrate-changed(text); }
+        bitrate-changed(mbps) => { root.export-bitrate-changed(mbps); }
         begin => { root.export-start(); }
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }

@@ -1536,14 +1536,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_export_name_edited(on_window!(|state, name: SharedString| {
         state.handle(Msg::Export(ExportMsg::NameEdited(name.to_string())));
     }));
-    app.on_export_resolution_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Export(ExportMsg::ResolutionChanged(index)));
-    }));
     app.on_export_rate_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Export(ExportMsg::RateChanged(index)));
-    }));
-    app.on_export_quality_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Export(ExportMsg::QualityChanged(index)));
     }));
     app.on_export_codec_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Export(ExportMsg::CodecChanged(index)));
@@ -1554,8 +1548,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_export_ten_bit_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Export(ExportMsg::TenBitChanged(on)));
     }));
-    app.on_export_bitrate_changed(on_window!(|state, text: SharedString| {
-        state.handle(Msg::Export(ExportMsg::BitrateChanged(text.to_string())));
+    app.on_export_bitrate_changed(on_window!(|state, mbps: f32| {
+        state.handle(Msg::Export(ExportMsg::BitrateChanged(mbps)));
     }));
     app.on_export_again(on_window!(|state| {
         state.handle(Msg::Export(ExportMsg::Again));
