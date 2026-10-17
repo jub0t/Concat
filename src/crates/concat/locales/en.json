@@ -319,6 +319,8 @@
   "phone.duplicate": "Duplicate",
   "phone.edit": "Edit",
   "phone.emptyLanes": "Tap Media below to bring in a video; it lands here.",
+  "phone.fromFiles": "Files",
+  "phone.fromPhotos": "Photos",
   "phone.importMedia": "Import media",
   "phone.looks": "Or a title in one of these looks:",
   "phone.more": "More",

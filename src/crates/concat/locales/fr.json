@@ -304,6 +304,8 @@
   "phone.duplicate": "Dupliquer",
   "phone.edit": "Modifier",
   "phone.emptyLanes": "Touchez Médias ci-dessous pour importer une vidéo ; elle arrivera ici.",
+  "phone.fromFiles": "Fichiers",
+  "phone.fromPhotos": "Photos",
   "phone.importMedia": "Importer des médias",
   "phone.looks": "Ou un titre dans l’un de ces styles :",
   "phone.more": "Plus",

@@ -39,6 +39,9 @@ mod gpu;
 mod grading;
 mod host;
 mod i18n;
+/// The iPhone's pickers and its way to Photos; see the module.
+#[cfg(target_os = "ios")]
+mod ios;
 mod meters;
 mod platform;
 /// What a phone's own crate installs before the window runs: the way to
@@ -181,6 +184,12 @@ pub(crate) fn close_window(
 
 /// [`run_with_project`], or [`smoke`] when `smoke` is set.
 fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
+    // What Import and a finished export reach on an iPhone. Android's own
+    // crate installs its; iOS runs this crate's binary, so it is here.
+    // https://github.com/jub0t/Concat/issues/332
+    #[cfg(target_os = "ios")]
+    ios::install();
+
     // The interface scale: a percent of the display's own, applied once
     // the window is up and kept through moves between monitors; see
     // `platform::apply_ui_scale`. https://github.com/jub0t/Concat/issues/320

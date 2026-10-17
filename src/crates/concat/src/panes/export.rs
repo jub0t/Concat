@@ -98,7 +98,14 @@ impl Default for ExportPane {
         Self {
             open: false,
             name: "Untitled".into(),
-            folder: home_folder("Movies"),
+            // An iPhone's sandbox has no Movies the app may make, as it has
+            // no Desktop (#299); Documents is the folder Files shows, and a
+            // finished export goes on to Photos from there.
+            folder: home_folder(if cfg!(target_os = "ios") {
+                "Documents/Exports"
+            } else {
+                "Movies"
+            }),
             resolution: 2,
             rate: 0,
             custom: false,

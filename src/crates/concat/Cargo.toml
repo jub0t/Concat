@@ -97,6 +97,20 @@ slint = { version = "1.18", default-features = false, features = [
     # embeds, so a preset card is drawn in its own face; see fonts.rs.
     "unstable-fontique-011",
 ] }
+# The system's pickers for Import and Photos for an export, through the
+# Objective-C runtime; see src/ios.rs. The versions Slint's winit backend
+# already builds on iOS, so nothing new is compiled for them.
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "block2",
+    "NSArray",
+    "NSError",
+    "NSObject",
+    "NSString",
+    "NSURL",
+] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 slint = { version = "1.18", default-features = false, features = [

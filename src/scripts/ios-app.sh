@@ -51,6 +51,12 @@ platform=iPhoneOS
 # this file alone, so it cannot be installed at runtime instead.
 # CADisableMinimumFrameDurationOnPhone lets an iPhone animate at a
 # ProMotion display's 120Hz rather than capping it at 60.
+# UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace put the app's
+# Documents - projects, Imported, Exports - in the Files app; without them
+# nothing the app wrote could be reached from outside it (#338).
+# NSPhotoLibraryAddUsageDescription is the question asked before a finished
+# export is added to Photos (crates/concat/src/ios.rs); the pickers need
+# no permission.
 cat > "$app/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -90,7 +96,10 @@ cat > "$app/Info.plist" <<PLIST
   </dict>
   <key>CADisableMinimumFrameDurationOnPhone</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
+  <key>UIFileSharingEnabled</key><true/>
+  <key>LSSupportsOpeningDocumentsInPlace</key><true/>
   <key>NSPhotoLibraryUsageDescription</key><string>Concat imports the clips you pick.</string>
+  <key>NSPhotoLibraryAddUsageDescription</key><string>Concat saves your finished videos to Photos.</string>
   <key>NSMicrophoneUsageDescription</key><string>Concat records voice-over.</string>
   <key>NSHumanReadableCopyright</key><string>AGPL-3.0-or-later. See THIRD_PARTY_NOTICES.md.</string>
 </dict>

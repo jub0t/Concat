@@ -304,6 +304,8 @@
   "phone.duplicate": "複製",
   "phone.edit": "編集",
   "phone.emptyLanes": "下の「メディア」をタップして動画を読み込むと、ここに置かれます。",
+  "phone.fromFiles": "ファイル",
+  "phone.fromPhotos": "写真",
   "phone.importMedia": "メディアを読み込む",
   "phone.looks": "または、次のスタイルでタイトルを追加:",
   "phone.more": "その他",

@@ -1132,6 +1132,7 @@ dependencies = [
 name = "concat"
 version = "0.2.7"
 dependencies = [
+ "block2 0.6.2",
  "concat-api",
  "concat-core",
  "concat-effects",
@@ -1147,6 +1148,8 @@ dependencies = [
  "image",
  "libc",
  "log",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
  "opener",
  "pollster",
  "rfd",
