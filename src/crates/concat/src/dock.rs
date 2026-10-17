@@ -14,13 +14,6 @@ pub const SEAT_MIN_H: f32 = 140.0;
 pub const SEAT_MIN_GRAB: f32 = 64.0;
 /// The gutter between the halves of a split, and the margin round the lot.
 pub const SEAT_GAP: f32 = 8.0;
-/// The VU meters' column needs only its ruler, its two bars and the
-/// padding round them: 26 + 14 + 14 and two gaps of 4, in 6px of padding
-/// a side (see meters-pane.slint).
-pub const METERS_MIN_W: f32 = 76.0;
-/// The meters' share of the bottom row in the default layout: a slim
-/// column beside the timeline, at its full height.
-const METERS_SHARE: f32 = 0.055;
 
 pub enum Dock {
     /// One view, filling its box.
@@ -135,6 +128,14 @@ impl Dock {
         }
         let (mut seen, mut path) = (0, Vec::new());
         walk(self, index, &mut seen, &mut path).then_some(path)
+    }
+
+    /// Whether a view of this kind is anywhere in the tree.
+    pub fn contains(&self, kind: PaneKind) -> bool {
+        match self {
+            Dock::Leaf(held) => *held == kind,
+            Dock::Split { first, second, .. } => first.contains(kind) || second.contains(kind),
+        }
     }
 
     pub fn kind_at(&self, index: usize) -> Option<PaneKind> {
@@ -273,13 +274,9 @@ pub fn default_dock() -> Dock {
                 second: Dock::leaf(PaneKind::Inspector),
             }),
         }),
-        // The timeline, and the VU meters in a slim column beside it.
-        second: Box::new(Dock::Split {
-            columns: true,
-            ratio: 1.0 - METERS_SHARE,
-            first: Dock::leaf(PaneKind::Timeline),
-            second: Dock::leaf(PaneKind::Meters),
-        }),
+        // The timeline, whose VU meters are a column at its own right edge
+        // (see vu-meter.slint) rather than a seat of their own.
+        second: Dock::leaf(PaneKind::Timeline),
     }
 }
 

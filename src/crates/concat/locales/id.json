@@ -301,7 +301,6 @@
   "mediaPane.videoEffects": "Efek Video",
   "meters.clipLight": "Lampu clipping: menyala merah saat mix mencapai skala penuh.",
   "meters.clipped": "Mix mengalami clipping: satu sampel mencapai skala penuh. Klik untuk menghapus.",
-  "meters.meters": "Meter",
   "meters.peak": "Puncak: tingkat paling keras yang dicapai sesaat terakhir, dalam dB di bawah skala penuh.",
   "modal.copied": "Disalin",
   "monitor.previewFailed": "Pratinjau gagal: {0}",

@@ -61,6 +61,8 @@ pub enum TimelineMsg {
     /// The tray's preview axis button: the monitor follows the pointer.
     /// A preference, remembered.
     TrimFollowChanged(bool),
+    /// The tray's meter button: the VU meters shown or put away.
+    MetersShownChanged(bool),
     PreviewAxisChanged(bool),
     /// The button's menu: whether the sound under the pointer plays too.
     PreviewAxisAudioChanged(bool),
@@ -144,6 +146,11 @@ impl TimelinePane {
             TimelineMsg::TrimFollowChanged(on) => {
                 studio.prefs.trim_follow = on;
                 studio.prefs.save(&studio.host.dirs);
+            }
+            TimelineMsg::MetersShownChanged(on) => {
+                studio.prefs.vu_meters = Some(on);
+                studio.prefs.save(&studio.host.dirs);
+                studio.wake_meters();
             }
             TimelineMsg::PreviewAxisChanged(on) => {
                 studio.prefs.preview_axis = on;

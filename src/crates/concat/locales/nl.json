@@ -301,7 +301,6 @@
   "mediaPane.videoEffects": "Video-effecten",
   "meters.clipLight": "Cliplampje: wordt rood als de mix volle schaal bereikt.",
   "meters.clipped": "De mix clipte: een sample bereikte volle schaal. Klik om te wissen.",
-  "meters.meters": "Niveaumeters",
   "meters.peak": "Piek: het luidste dat het laatste moment bereikte, in dB onder volle schaal.",
   "modal.copied": "Gekopieerd",
   "monitor.previewFailed": "Voorvertoning mislukt: {0}",

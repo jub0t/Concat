@@ -84,7 +84,7 @@ mod wayland_drop {
     }
 }
 
-use dock::{Dock, METERS_MIN_W, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
+use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell};
 use panes::Msg;
 use panes::captions::CaptionsMsg;
@@ -723,31 +723,16 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         let Some(path) = state.dock.split_path(held) else {
             return;
         };
-        // A side that is only the meters may be as narrow as its bars;
-        // every other seat keeps the width its controls need.
-        let narrow = |node: &Dock| matches!(node, Dock::Leaf(PaneKind::Meters));
-        let (first_narrow, second_narrow) = match state.dock.at(&path) {
-            Dock::Split { first, second, .. } => (narrow(first), narrow(second)),
-            Dock::Leaf(_) => (false, false),
-        };
         let Dock::Split { columns, ratio, .. } = state.dock.at_mut(&path) else {
             return;
         };
         let wanted = if *columns { SEAT_MIN_W } else { SEAT_MIN_H };
-        let side = |is_narrow: bool| {
-            if is_narrow && *columns {
-                METERS_MIN_W
-            } else if wanted * 2.0 <= extent {
-                wanted
-            } else {
-                SEAT_MIN_GRAB.min(extent / 2.0)
-            }
-        };
-        let (low, high) = (
-            side(first_narrow) / extent,
-            1.0 - side(second_narrow) / extent,
-        );
-        *ratio = (from + delta / extent).clamp(low, high.max(low));
+        let floor = if wanted * 2.0 <= extent {
+            wanted
+        } else {
+            SEAT_MIN_GRAB.min(extent / 2.0)
+        } / extent;
+        *ratio = (from + delta / extent).clamp(floor, 1.0 - floor);
     }));
 
     // ── the bin ──
@@ -939,6 +924,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     editor.on_trim_follow_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::TrimFollowChanged(on)));
+    }));
+    editor.on_meters_shown_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Timeline(TimelineMsg::MetersShownChanged(on)));
     }));
     editor.on_preview_axis_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::PreviewAxisChanged(on)));

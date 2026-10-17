@@ -301,7 +301,6 @@
   "mediaPane.videoEffects": "Efekty wideo",
   "meters.clipLight": "Wskaźnik przesterowania: zmienia kolor na czerwony, gdy miks osiąga pełną skalę.",
   "meters.clipped": "Miks się przesterował: próbka osiągnęła pełną skalę. Kliknij, aby wyczyścić.",
-  "meters.meters": "Wskaźniki",
   "meters.peak": "Szczyt: najgłośniejszy poziom z ostatniej chwili, w dB poniżej pełnej skali.",
   "modal.copied": "Skopiowano",
   "monitor.previewFailed": "Podgląd nie powiódł się: {0}",

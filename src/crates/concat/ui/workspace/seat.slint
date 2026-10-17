@@ -11,7 +11,6 @@ import { MediaPane, SourcePreview } from "media-pane.slint";
 import { PreviewPane } from "preview-pane.slint";
 import { TimelinePane } from "timeline-pane.slint";
 import { KeyframesPane } from "keyframes-pane.slint";
-import { MetersPane } from "meters-pane.slint";
 
 // One box of the workspace, showing whichever view its `kind` names.
 //
@@ -335,18 +334,6 @@ export component Seat inherits Rectangle {
         }
     }
 
-    if root.kind == PaneKind.meters: MetersPane {
-            x: 0;
-            y: 0;
-            width: root.width;
-            height: root.height;
-
-            pane-picked(kind) => { root.picked(kind); }
-            pane-seat: root.index;
-            pane-removable: Editor.seats.length > 1;
-            pane-removed => { root.removed(); }
-    }
-
     if root.kind == PaneKind.keyframes: KeyframesPane {
             x: 0;
             y: 0;
@@ -385,6 +372,7 @@ export component Seat inherits Rectangle {
             magnetic: Editor.magnetic;
             pan-mode: Editor.pan-mode;
             trim-follow: Editor.trim-follow;
+            meters-shown: Editor.meters-shown;
             preview-axis: Editor.preview-axis;
             preview-axis-audio: Editor.preview-axis-audio;
             selected-count: Editor.selected-count;
@@ -416,6 +404,7 @@ export component Seat inherits Rectangle {
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }
             trim-follow-changed(on) => { Editor.trim-follow-changed(on); }
+            meters-shown-changed(on) => { Editor.meters-shown-changed(on); }
             preview-axis-changed(on) => { Editor.preview-axis-changed(on); }
             preview-axis-audio-changed(on) => { Editor.preview-axis-audio-changed(on); }
             clip-verb(action) => { Editor.shortcut(action); }

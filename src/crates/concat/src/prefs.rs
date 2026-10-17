@@ -87,6 +87,10 @@ pub struct Preferences {
     /// default: a burst of sound on every pass of the pointer is a lot to
     /// ask of a room.
     pub preview_axis_audio: bool,
+    /// The VU meters at the timeline's right edge. `None` is shown: how
+    /// loud the cut plays is worth seeing before anyone thinks to ask, and
+    /// the tray's meter button puts them away.
+    pub vu_meters: Option<bool>,
     /// Where model downloads look first: a `SourcePreference` by name.
     /// Absent is automatic.
     pub download_source: Option<String>,
@@ -141,6 +145,11 @@ impl Default for VoiceoverPrefs {
 }
 
 impl Preferences {
+    /// Whether the timeline shows its VU meters; see `vu_meters`.
+    pub fn meters_shown(&self) -> bool {
+        self.vu_meters.unwrap_or(true)
+    }
+
     /// Which of `names` — the theme's accents, in its order — the remembered
     /// accent is. The first when nothing is remembered, and the first when
     /// the name is one the list no longer has: it is the default, and a

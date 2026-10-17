@@ -151,7 +151,6 @@ impl Studio {
         }
         source.playing = true;
         self.host.playback.play(source.time);
-        self.meters.wake();
         source.timer.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(16),
@@ -176,6 +175,7 @@ impl Studio {
                 });
             },
         );
+        self.wake_meters();
     }
 
     /// The monitor's timecode moved through the source.

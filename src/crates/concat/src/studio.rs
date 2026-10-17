@@ -2887,7 +2887,7 @@ impl Studio {
         self.playing = true;
         log::debug!("playback: playing from {:.3}s", self.playhead);
         self.host.playback.play(f64::from(self.playhead));
-        self.meters.wake();
+        self.wake_meters();
         // The clock is the audio device's. This looks at it far more often
         // than any timeline's frame rate and acts only when the frame under
         // it changes, so each frame is asked for within a few milliseconds of
@@ -7961,12 +7961,16 @@ impl Studio {
         let out = self.dock_layout();
         sync(&models.seats, out.seats);
         sync(&models.dividers, out.dividers);
+        // A timeline put back while something plays brings its meters
+        // with it; one taken away stops them at their next tick.
+        self.wake_meters();
     }
 
     /// The window is a phone's: the lanes keep the playhead at their middle
     /// and glide under it. See `platform::phone` and `TimelinePane::centred`.
     pub fn set_phone(&mut self, phone: bool) {
         self.lanes.centred = phone;
+        self.meters.phone = phone;
         let playhead = self.playhead;
         self.lanes.recentre(playhead);
     }
@@ -8235,6 +8239,7 @@ impl Studio {
         editor.set_snap(self.lanes.snap);
         editor.set_magnetic(self.prefs.magnetic);
         editor.set_trim_follow(self.prefs.trim_follow);
+        editor.set_meters_shown(self.prefs.meters_shown());
         editor.set_preview_axis(self.prefs.preview_axis);
         editor.set_preview_axis_audio(self.prefs.preview_axis_audio);
         editor.set_pan_mode(self.lanes.pan_mode);

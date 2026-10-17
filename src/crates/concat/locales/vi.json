@@ -301,7 +301,6 @@
   "mediaPane.videoEffects": "Hiệu ứng video",
   "meters.clipLight": "Đèn báo clip: chuyển đỏ khi mức trộn đạt toàn thang.",
   "meters.clipped": "Âm thanh bị vượt ngưỡng: một mẫu đã chạm mức tối đa. Nhấp để xóa cảnh báo.",
-  "meters.meters": "Đồng hồ mức âm thanh",
   "meters.peak": "Đỉnh: mức lớn nhất trong khoảnh khắc vừa qua, tính bằng dB dưới mức tối đa.",
   "modal.copied": "Đã sao chép",
   "monitor.previewFailed": "Xem trước thất bại: {0}",

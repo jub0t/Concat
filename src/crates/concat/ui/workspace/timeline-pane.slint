@@ -16,9 +16,10 @@ import { TimelineTabs } from "../timeline/tabs.slint";
 import { TimelineTray } from "../timeline/tray.slint";
 import { TrackHeaders } from "../timeline/track-header.slint";
 import { Lanes } from "../timeline/lanes.slint";
+import { VuMeter } from "../timeline/vu-meter.slint";
 
 // The timeline pane: tabs, tray, and then the lane grid — a fixed header
-// column beside the lanes themselves.
+// column beside the lanes themselves, and the VU meters at their far edge.
 //
 // No PaneHeader, unlike the other three panes. The timeline owns its whole
 // interior: a title strip above the tabs would be a third bar over a panel
@@ -55,6 +56,8 @@ export component TimelinePane inherits Rectangle {
     in property <bool> recording;
     in property <float> record-level;
     in property <bool> reversible;
+    /// The VU meters at the grid's right edge; the tray's meter button.
+    in property <bool> meters-shown: true;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
@@ -63,6 +66,7 @@ export component TimelinePane inherits Rectangle {
     callback trim-follow-changed(on: bool);
     callback preview-axis-changed(on: bool);
     callback preview-axis-audio-changed(on: bool);
+    callback meters-shown-changed(on: bool);
     /// The preview axis: the pointer over the lanes, and then not.
     callback hovered(seconds: float);
     callback hover-ended();
@@ -166,6 +170,9 @@ export component TimelinePane inherits Rectangle {
     property <length> headers-w: Math.max(0px,
         Math.min(root.header-width, root.width / 2));
     in property <length> ruler-height: 28px;
+    /// The meters' column: the ruler, two bars and their gaps, a few
+    /// pixels of air, and nothing when they are put away.
+    property <length> meters-w: root.meters-shown ? 60px : 0px;
 
     /// Clamped here rather than only where it is written, so a pane dragged
     /// taller than its own track stack cannot stay parked past the end. The
@@ -326,6 +333,7 @@ export component TimelinePane inherits Rectangle {
             freezable: root.freezable;
             recording: root.recording;
             record-level: root.record-level;
+            meters-shown: root.meters-shown;
 
             tool-changed(tool) => { root.tool-changed(tool); }
             snap-changed(snap) => { root.snap-changed(snap); }
@@ -333,6 +341,7 @@ export component TimelinePane inherits Rectangle {
             pan-changed(on) => { root.pan-changed(on); }
             trim-follow-changed(on) => { root.trim-follow-changed(on); }
             preview-axis-changed(on) => { root.preview-axis-changed(on); }
+            meters-shown-changed(on) => { root.meters-shown-changed(on); }
             axis-menu-requested(x) => {
                 // Under the button, in the pane's own coordinates: the tray
                 // sits some rows down the pane, and the menu element is the
@@ -408,7 +417,7 @@ export component TimelinePane inherits Rectangle {
             lanes := Lanes {
                 x: root.headers-w + 1px;
                 y: 0;
-                width: Math.max(0px, parent.width - root.headers-w - 1px);
+                width: Math.max(0px, parent.width - root.headers-w - 1px - root.meters-w);
                 height: parent.height;
 
                 tracks: root.tracks;
@@ -485,6 +494,17 @@ export component TimelinePane inherits Rectangle {
                 scrolled(offset) => {
                     root.scrolled(Math.max(0, (offset / 1px) * root.seconds-per-pixel));
                 }
+            }
+
+            // The VU meters, the height of the grid and outside the lanes'
+            // scroll: how loud the cut plays is not a place along it. Only
+            // built while shown, so a hidden meter is no element at all.
+            if root.meters-shown: VuMeter {
+                x: parent.width - root.meters-w;
+                y: 0;
+                width: root.meters-w;
+                height: parent.height;
+                ruler-height: root.ruler-height;
             }
         }
     }

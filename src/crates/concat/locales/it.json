@@ -301,7 +301,6 @@
   "mediaPane.videoEffects": "Effetti video",
   "meters.clipLight": "Spia di clip: diventa rossa quando il mix raggiunge il fondo scala.",
   "meters.clipped": "Il mix è andato in clip: un campione ha raggiunto il fondo scala. Fai clic per azzerare.",
-  "meters.meters": "Indicatori",
   "meters.peak": "Picco: il livello più alto raggiunto nell’ultimo istante, in dB sotto il fondo scala.",
   "modal.copied": "Copiato",
   "monitor.previewFailed": "Anteprima fallita: {0}",

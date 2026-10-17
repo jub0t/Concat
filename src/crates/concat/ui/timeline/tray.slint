@@ -183,6 +183,8 @@ export component TimelineTray inherits Rectangle {
     /// with the take's level beside it.
     in property <bool> recording;
     in property <float> record-level;
+    /// The VU meters at the lanes' right edge are shown.
+    in property <bool> meters-shown: true;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
@@ -209,6 +211,7 @@ export component TimelineTray inherits Rectangle {
     callback add-track(bottom: bool);
     callback fit();
     callback zoom(factor: float);
+    callback meters-shown-changed(on: bool);
 
     height: 40px;
     background: Theme.panel;
@@ -451,6 +454,18 @@ export component TimelineTray inherits Rectangle {
             label: I18n.t("common.zoomIn");
             icon-size: 14px;
             clicked => { root.zoom(1 / 1.4); }
+        }
+
+        Divider { }
+
+        // The VU meters, shown or put away. Last on the row, so it sits
+        // over the column it switches.
+        TrayButton {
+            glyph: Glyph.meter;
+            label: root.meters-shown ? I18n.t("tray.hideMeters") : I18n.t("tray.showMeters");
+            icon-size: 16px;
+            checked: root.meters-shown;
+            clicked => { root.meters-shown-changed(!root.meters-shown); }
         }
     }
 }
