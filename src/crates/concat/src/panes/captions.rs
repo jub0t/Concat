@@ -256,19 +256,7 @@ impl CaptionsPane {
         };
         let look = self.look();
         let base = studio.prefs.title_style.clone();
-        let commands: Vec<Command> = cues
-            .into_iter()
-            .filter(|cue| !cue.text.trim().is_empty())
-            .map(|cue| {
-                caption_clip(
-                    cue.text.trim().to_owned(),
-                    cue.start,
-                    (cue.end - cue.start).max(0.2),
-                    look,
-                    base.as_ref(),
-                )
-            })
-            .collect();
+        let commands = srt_commands(cues, look, base.as_ref());
         if commands.is_empty() {
             self.message = t("captions.noSubtitlesInFile");
             return;
@@ -511,6 +499,24 @@ impl CaptionsPane {
     }
 }
 
+/// Imported cues keep the file's timing, including captions shorter than
+/// generated speech segments. The title command applies the engine's minimum
+/// clip duration where needed.
+fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>) -> Vec<Command> {
+    cues.into_iter()
+        .filter(|cue| !cue.text.trim().is_empty())
+        .map(|cue| {
+            caption_clip(
+                cue.text.trim().to_owned(),
+                cue.start,
+                cue.end - cue.start,
+                look,
+                base,
+            )
+        })
+        .collect()
+}
+
 /// The lane whose titles are written out as captions: the selected
 /// title's, or None - every lane - when no title is selected.
 fn export_lane(studio: &Studio) -> Option<String> {
@@ -697,6 +703,40 @@ fn wrap_caption(sentence: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{script_captions, source_label};
+
+    #[test]
+    fn imported_srt_preserves_short_cues_and_multiline_text() {
+        let cues = concat_project::srt::parse(
+            "1\n00:00:01,000 --> 00:00:01,100\nOlá\nAção\n\n2\n00:00:02,000 --> 00:00:03,000\nFim\n",
+        ).unwrap();
+        let commands = super::srt_commands(cues.clone(), (0.35, 0.04), None);
+        let mut editor = concat_project::Editor::new();
+        editor
+            .apply(concat_project::Command::Batch { commands })
+            .unwrap();
+        let exported = concat_project::srt::write(&concat_project::srt::title_cues(
+            editor.project().active(),
+            None,
+        ));
+        assert_eq!(concat_project::srt::parse(&exported).unwrap(), cues);
+        assert!(editor.undo());
+        assert!(editor.project().active().clips.is_empty());
+        assert!(editor.redo());
+        assert_eq!(
+            concat_project::srt::title_cues(editor.project().active(), None).len(),
+            2
+        );
+    }
+
+    #[test]
+    fn imported_srt_ignores_empty_captions() {
+        let cues = vec![concat_project::srt::Cue {
+            start: 0.0,
+            end: 1.0,
+            text: "  ".into(),
+        }];
+        assert!(super::srt_commands(cues, (0.35, 0.04), None).is_empty());
+    }
 
     /// A clip in the voice list is its file and where it starts, in
     /// minutes and seconds, with hours once there are any.
