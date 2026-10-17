@@ -3603,6 +3603,10 @@ impl Studio {
         }
     }
 
+    fn volume_targets(&self) -> Vec<String> {
+        crate::batch_volume::targets(self.project(), &self.selection, |track| self.locked(track))
+    }
+
     pub fn sole_selection(&self) -> Option<String> {
         (self.selection.len() == 1).then(|| self.selection[0].clone())
     }
@@ -4565,7 +4569,10 @@ impl Studio {
     /// One field of the selected clip, on the echo. `clip_commit` turns the
     /// accumulated edits into commands.
     pub fn clip_set(&mut self, field: ClipField, value: f32) {
-        let ids = self.edit_targets();
+        let mut ids = self.edit_targets();
+        if ids.is_empty() && field == ClipField::Volume {
+            ids = self.volume_targets();
+        }
         if ids.is_empty() {
             return;
         }
@@ -8954,9 +8961,13 @@ impl Studio {
     }
 
     fn selected(&self) -> SelectedClipData {
-        // The one clip, or the first of a batch of titles: the panel shows
-        // its values and writes to all of them; see `edit_targets`.
-        let targets = self.edit_targets();
+        // Titles share their styling controls; a sound batch exposes volume
+        // alone, using the first unlocked clip as the displayed reference.
+        let mut targets = self.edit_targets();
+        let batch_volume = targets.is_empty();
+        if batch_volume {
+            targets = self.volume_targets();
+        }
         let Some(clip) = targets.first().and_then(|id| self.clip(id)) else {
             return SelectedClipData::default();
         };
@@ -8981,6 +8992,7 @@ impl Studio {
         SelectedClipData {
             present: true,
             batch: targets.len() as i32,
+            batch_volume,
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
@@ -10917,6 +10929,11 @@ mod tests {
         // A size is a size for every title in the batch.
         assert_eq!(batch_value(ClipField::FontSize, 0.08, 0.05, 0.02), 0.08);
         assert_eq!(relative_property(ClipField::FontSize), None);
+        // Volume is absolute: different starting gains land on the same level.
+        assert_eq!(relative_property(ClipField::Volume), None);
+        for current in [0.0, 0.25, 1.0, 2.0] {
+            assert_eq!(batch_value(ClipField::Volume, 0.5, 1.0, current), 0.5);
+        }
     }
 
     #[test]

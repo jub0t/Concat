@@ -212,8 +212,8 @@ export component PhoneEditor inherits Rectangle {
 
     property <bool> has-clip: Editor.selected-clip.present;
     property <ClipKind> kind: Editor.selected-clip.kind;
-    property <bool> is-video: root.kind == ClipKind.video;
-    property <bool> is-audio: root.kind == ClipKind.audio;
+    property <bool> is-video: !Editor.selected-clip.batch-volume && root.kind == ClipKind.video;
+    property <bool> is-audio: Editor.selected-clip.batch-volume || root.kind == ClipKind.audio;
     property <bool> is-image: root.kind == ClipKind.image;
     property <bool> is-text: root.kind == ClipKind.text;
     property <bool> is-layer: root.kind == ClipKind.filter;
@@ -743,7 +743,7 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "clip-layer";
                 clicked => { root.show("clip-layer", true); }
             }
-            if root.is-video || root.is-audio: ToolItem {
+            if (root.is-video || root.is-audio) && !Editor.selected-clip.batch-volume: ToolItem {
                 glyph: Glyph.clock;
                 label: I18n.t("common.speed");
                 current: root.sheet == "clip-speed";
@@ -1052,7 +1052,7 @@ export component PhoneEditor inherits Rectangle {
                 set(field, value) => { Editor.clip-set(field, value); }
                 commit => { Editor.clip-commit(); }
             }
-            ProcessorRows {
+            if !Editor.selected-clip.batch-volume: ProcessorRows {
                 applied: Editor.applied-audio;
                 params: Editor.audio-params;
                 add(id) => { Editor.chain-add(true, id); }
@@ -1062,7 +1062,7 @@ export component PhoneEditor inherits Rectangle {
                 }
                 commit => { Editor.clip-commit(); }
             }
-            PresetStack {
+            if !Editor.selected-clip.batch-volume: PresetStack {
                 noun: I18n.t("common.audioEffect");
                 library-title: I18n.t("configPane.audioEffects");
                 shelf: 2;

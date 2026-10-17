@@ -1592,7 +1592,7 @@ export component AudioPanel inherits VerticalLayout {
     /// The Source section has something to offer: a choice of audio track.
     /// A file's colour range used to sit here too and is the media's now,
     /// in the bin card's menu: it is a fact about the file, not the cut.
-    property <bool> choosing: root.audio-tracks.length > 1;
+    property <bool> choosing: !root.selected.batch-volume && root.audio-tracks.length > 1;
 
     callback set(field: ClipField, value: float);
     callback commit();
@@ -1657,7 +1657,7 @@ export component AudioPanel inherits VerticalLayout {
         if volume.open: SectionBody {
             Param {
                 label: I18n.t("common.level");
-                keyable: true;
+                keyable: !root.selected.batch-volume;
                 field: ClipField.volume;
                 rail: true;
                 value <=> root.level;
@@ -1678,7 +1678,7 @@ export component AudioPanel inherits VerticalLayout {
         }
     }
 
-    Section {
+    if !root.selected.batch-volume: Section {
         fades := SectionHeader {
             title: I18n.t("clipInspector.fades");
             collapsible: true;
@@ -1726,7 +1726,7 @@ export component AudioPanel inherits VerticalLayout {
     // Whether the voice keeps its pitch when the rate is not 1. Here and
     // not on the Speed tab: the rate is the clip's, but what it does to the
     // sound is the sound's business, beside the level it is mixed at.
-    Section {
+    if !root.selected.batch-volume: Section {
         SectionHeader {
             title: I18n.t("clipInspector.pitch");
         }
