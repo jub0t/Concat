@@ -34,7 +34,7 @@ use concat_vision::{
 };
 
 use crate::cutout::Progress;
-use crate::jobs::SingleFlight;
+use crate::jobs::{SingleFlight, Tripwire};
 
 /// One stroke to read.
 #[derive(Clone, Debug)]
@@ -75,6 +75,12 @@ impl RegionRequest {
             return store.is_empty();
         }
         !missing(&store, &self.ranges).is_empty()
+    }
+
+    /// Whether the app died while reading this stroke last time, so it is
+    /// not to be read again by itself. See [`Tripwire`].
+    pub fn tripped(&self) -> bool {
+        Tripwire::tripped(&self.dir())
     }
 }
 
@@ -188,6 +194,7 @@ impl Brushes {
         let Some(at) = request.stroke.at else {
             return Err("the stroke has no instant".to_owned());
         };
+        let _wire = Tripwire::arm(&request.dir());
         let mut store = MaskStore::open(&request.dir());
         let brush = self.brush(&cancel, progress)?;
         progress(Progress::Analysing(0.0));

@@ -110,9 +110,65 @@ impl Drop for Job {
     }
 }
 
+/// A file that says a job is running on the folder it names, removed
+/// when the job ends by any road the process survives: done, failed,
+/// cancelled. Left behind, it says the process died inside the job.
+///
+/// A job the window starts by itself whenever its work is outstanding -
+/// a smart stroke's regions - would otherwise start again on the next
+/// open and take the app down with it again: a project that closed the
+/// app every time it was opened, with the person's edits shut inside it.
+/// The window skips a tripped job and says so; the work is redone only
+/// when the person asks for it anew.
+pub struct Tripwire {
+    path: std::path::PathBuf,
+}
+
+impl Tripwire {
+    const FILE: &'static str = "running";
+
+    /// Marks `dir` as having a job running on it. A folder that cannot
+    /// be written to gets no mark, and the job runs unguarded.
+    pub fn arm(dir: &std::path::Path) -> Tripwire {
+        let path = dir.join(Self::FILE);
+        let _ = std::fs::create_dir_all(dir);
+        if let Err(error) = std::fs::write(&path, std::process::id().to_string()) {
+            log::warn!("could not mark {} as running: {error}", dir.display());
+        }
+        Tripwire { path }
+    }
+
+    /// Whether a job on `dir` was running when the process last died.
+    /// Only meaningful while no job on `dir` is running in this process.
+    pub fn tripped(dir: &std::path::Path) -> bool {
+        dir.join(Self::FILE).exists()
+    }
+}
+
+impl Drop for Tripwire {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tripwire_is_left_only_by_a_job_that_never_ended() {
+        let dir = std::env::temp_dir().join(format!("concat-tripwire-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        {
+            let _wire = Tripwire::arm(&dir);
+            assert!(Tripwire::tripped(&dir), "marked while it runs");
+        }
+        assert!(!Tripwire::tripped(&dir), "cleared when it ends");
+        // A process that dies inside the job runs no destructor.
+        std::mem::forget(Tripwire::arm(&dir));
+        assert!(Tripwire::tripped(&dir), "left by a job that never ended");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn refuses_a_second_concurrent_job() {

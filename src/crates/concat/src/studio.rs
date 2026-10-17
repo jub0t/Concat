@@ -958,6 +958,9 @@ pub struct Studio {
     /// release until the model has read what was under it, so the paint
     /// does not vanish before its answer arrives.
     pending_stroke: Option<(String, f32, bool)>,
+    /// Cutouts and smart strokes the app died working on, by their masks'
+    /// folder: not started again by themselves, and said once a session.
+    tripped_strokes: HashSet<std::path::PathBuf>,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -2165,6 +2168,7 @@ impl Studio {
             merge_job: None,
             region_job: None,
             pending_stroke: None,
+            tripped_strokes: HashSet::new(),
             host,
         };
         studio.handle(crate::panes::Msg::Settings(
@@ -5794,10 +5798,26 @@ impl Studio {
             .into_iter()
             .map(|(media_id, request)| (Self::analysis_key(&media_id, request.subject), request))
             .collect();
-        let Some((id, request)) = wanted
-            .into_iter()
-            .find(|(_, request)| Cutouts::outstanding(request) > 0)
-        else {
+        // One the app died analysing last time is skipped, and said once:
+        // starting it again by itself closed the app on every open.
+        let mut next = None;
+        for (id, request) in wanted {
+            if Cutouts::outstanding(&request) == 0 {
+                continue;
+            }
+            if Cutouts::tripped(&request) {
+                let dir =
+                    concat_vision::mask_dir(&request.project, &request.media_path, request.subject);
+                if self.tripped_strokes.insert(dir) {
+                    log::warn!("cutout: media the app closed while analysing is skipped");
+                    self.notify(&t("studio.removeBackgroundSkipped"), true);
+                }
+                continue;
+            }
+            next = Some((id, request));
+            break;
+        }
+        let Some((id, request)) = next else {
             return;
         };
         self.cutout_jobs.insert(id.clone(), (false, 0.0));
@@ -9148,6 +9168,7 @@ impl Studio {
         };
         let project = std::path::PathBuf::from(session.path());
         let mut next: Option<(String, RegionRequest)> = None;
+        let mut tripped = Vec::new();
         'clips: for clip in &self.timeline().clips {
             let Some(cutout) = clip.cutout.as_ref() else {
                 continue;
@@ -9173,10 +9194,24 @@ impl Studio {
                     ranges: vec![range],
                     stroke: stroke.clone(),
                 };
-                if request.outstanding() {
-                    next = Some((Self::analysis_key(&media.id, cutout.subject), request));
-                    break 'clips;
+                if !request.outstanding() {
+                    continue;
                 }
+                // The app died reading this one last time: reading it
+                // again by itself closed the app on every open, with the
+                // project shut inside. Painting the stroke again reads it.
+                if request.tripped() {
+                    tripped.push(request.dir());
+                    continue;
+                }
+                next = Some((Self::analysis_key(&media.id, cutout.subject), request));
+                break 'clips;
+            }
+        }
+        for dir in tripped {
+            if self.tripped_strokes.insert(dir) {
+                log::warn!("smart brush: a stroke the app closed while reading is skipped");
+                self.notify(&t("studio.smartBrushSkipped"), true);
             }
         }
         let Some((key, request)) = next else {

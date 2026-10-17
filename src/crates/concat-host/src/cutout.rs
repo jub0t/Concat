@@ -33,7 +33,7 @@ use concat_project::model::{MediaKind, Project, Subject};
 use concat_vision::segment::Kind;
 use concat_vision::{MASK_RATE, MaskStore, ModelId, Segmenter, mask_dir, models};
 
-use crate::jobs::SingleFlight;
+use crate::jobs::{SingleFlight, Tripwire};
 
 /// What one analysis covers.
 #[derive(Clone, Debug)]
@@ -198,6 +198,17 @@ impl Cutouts {
         wanted
     }
 
+    /// Where `request`'s masks are kept.
+    fn dir(request: &AnalyseRequest) -> PathBuf {
+        mask_dir(&request.project, &request.media_path, request.subject)
+    }
+
+    /// Whether the app died analysing `request` last time, so it is not to
+    /// be analysed again by itself. See [`Tripwire`].
+    pub fn tripped(request: &AnalyseRequest) -> bool {
+        Tripwire::tripped(&Self::dir(request))
+    }
+
     /// How many instants `request` still needs, without doing anything.
     /// A store made by a model the subject would not pick now needs all
     /// of them again.
@@ -240,6 +251,7 @@ impl Cutouts {
         if Self::outstanding(request) == usize::MAX {
             store.clear();
         }
+        let _wire = Tripwire::arm(&Self::dir(request));
 
         // The model the subject names, or for automatic the one the
         // store already records; the first frame decides otherwise.
