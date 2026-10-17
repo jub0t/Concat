@@ -15,6 +15,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -274,7 +275,11 @@ public class ConcatFiles extends Fragment {
                 os.write(buffer, 0, read);
             }
             return true;
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            // A provider that revokes its grant mid-copy throws a
+            // SecurityException, not an IOException; uncaught on this
+            // thread it closed the app and lost the rest of the pick.
+            Log.w(TAG, "could not copy " + uri + ": " + e);
             out.delete();
             return false;
         } finally {
