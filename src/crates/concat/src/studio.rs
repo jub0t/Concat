@@ -2053,6 +2053,10 @@ impl Studio {
     /// read off disk.
     pub fn new(host: Host) -> Self {
         let prefs = Preferences::load(&host.dirs);
+        let mut start = crate::panes::start::StartPane::default();
+        if let Some(location) = prefs.project_location() {
+            start.location = location.to_owned();
+        }
         // The remembered log level, unless this run's environment named
         // one: CONCAT_LOG is the louder ask.
         if concat_host::logs::environment_level().is_none()
@@ -2111,7 +2115,7 @@ impl Studio {
             activity_burst: None,
             toast: ToastState::default(),
             on_start: true,
-            start: crate::panes::start::StartPane::default(),
+            start,
             recents,
             posters: HashMap::new(),
             posters_pending: HashSet::new(),

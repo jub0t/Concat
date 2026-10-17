@@ -255,6 +255,8 @@ impl StartPane {
         self.busy = false;
         match opened {
             Ok(()) => {
+                studio.prefs.last_project_location = Some(self.location.clone());
+                studio.prefs.save(&studio.host.dirs);
                 self.composing = false;
                 self.error.clear();
             }

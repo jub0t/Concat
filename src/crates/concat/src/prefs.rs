@@ -24,6 +24,8 @@ pub const UI_SCALES: [u32; 6] = [100, 110, 125, 150, 175, 200];
 pub struct Preferences {
     /// The dark theme. `None` is the app's default, which is dark.
     pub dark: Option<bool>,
+    /// The parent folder of the last project created successfully.
+    pub last_project_location: Option<String>,
     /// The accent, by the lower-cased name the theme lists it under —
     /// "lime", "sky", ... — or as "#rrggbb" for a colour picked by hand.
     /// `None`, or a name no longer on the list, is the first one, which is
@@ -186,6 +188,13 @@ impl Default for ServerPrefs {
 pub const DEFAULT_LISTEN: &str = "127.0.0.1:7420";
 
 impl Preferences {
+    /// The remembered parent folder, if it is still a directory.
+    pub fn project_location(&self) -> Option<&str> {
+        self.last_project_location
+            .as_deref()
+            .filter(|location| std::path::Path::new(location).is_dir())
+    }
+
     /// Reads the file, or the defaults when there is none.
     pub fn load(dirs: &AppDirs) -> Self {
         std::fs::read(dirs.config.join(FILE))
@@ -208,6 +217,65 @@ impl Preferences {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_last_project_location_survives_loading_and_saving() {
+        let root =
+            std::env::temp_dir().join(format!("concat-project-location-{}", std::process::id()));
+        let location = root.join("my projects");
+        std::fs::create_dir_all(&location).unwrap();
+        let dirs = AppDirs::under(&root);
+        let location = location.to_string_lossy().into_owned();
+        std::fs::write(
+            dirs.config.join(FILE),
+            serde_json::to_vec(&serde_json::json!({
+                "dark": false,
+                "lastProjectLocation": location,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let prefs = Preferences::load(&dirs);
+        assert_eq!(prefs.dark, Some(false));
+        assert_eq!(prefs.project_location(), Some(location.as_str()));
+        prefs.save(&dirs);
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dirs.config.join(FILE)).unwrap()).unwrap();
+        assert_eq!(saved["lastProjectLocation"], location);
+        assert_eq!(
+            Preferences::load(&dirs).project_location(),
+            Some(location.as_str())
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn a_missing_or_non_directory_project_location_uses_the_default() {
+        let root = std::env::temp_dir().join(format!(
+            "concat-project-location-fallback-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let location = root.join("projects");
+        let prefs = Preferences {
+            last_project_location: Some(location.to_string_lossy().into_owned()),
+            ..Preferences::default()
+        };
+        assert_eq!(prefs.project_location(), None);
+        std::fs::create_dir(&location).unwrap();
+        assert_eq!(prefs.project_location(), location.to_str());
+        std::fs::remove_dir(&location).unwrap();
+        assert_eq!(prefs.project_location(), None);
+        std::fs::write(&location, "a file, not a folder").unwrap();
+        assert_eq!(prefs.project_location(), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn older_settings_have_no_remembered_project_location() {
+        let prefs: Preferences = serde_json::from_str(r#"{"dark": false}"#).unwrap();
+        assert_eq!(prefs.dark, Some(false));
+        assert_eq!(prefs.last_project_location, None);
+        assert_eq!(prefs.project_location(), None);
+    }
     const NAMES: [&str; 3] = ["Lime", "Sky", "Violet"];
 
     /// Nothing remembered is the first accent, which is the default.
