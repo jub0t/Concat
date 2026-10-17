@@ -59,8 +59,19 @@ impl Gpu {
             backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
+        // CONCAT_GPU=software opens the software rasteriser - WARP on
+        // Windows, lavapipe on Linux - in place of the GPU: the way round a
+        // driver that draws the whole window as coloured dots (#389, #242),
+        // and the way to tell that it is the driver. The window works on
+        // WARP; see `is_software`.
+        let software = std::env::var("CONCAT_GPU")
+            .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
+        if software {
+            log::warn!("CONCAT_GPU=software: the window draws on the software rasteriser");
+        }
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: software,
             ..Default::default()
         }))
         .ok()?;
