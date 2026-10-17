@@ -34,6 +34,72 @@ use slint::winit_030::winit::window::{Window as WinitWindow, WindowId};
 use slint::winit_030::{CustomApplicationHandler, EventResult};
 
 use crate::gpu::Gpu;
+
+/// The interface scale the person chose, as a percent of the display's
+/// own; 0 follows the display. See [`apply_ui_scale`].
+static UI_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Remembers the interface scale [`apply_ui_scale`] applies: a percent of
+/// the display's own scale, or `None` for the display's.
+pub fn set_ui_scale(percent: Option<u32>) {
+    UI_SCALE.store(percent.unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Scales `window` to the display's own scale times the chosen percent.
+///
+/// Not through SLINT_SCALE_FACTOR, as it was: Slint takes that as the
+/// whole factor, not a multiplier, and ignores the display's scale while
+/// it is set, so "100 %" made the interface smaller on a Windows laptop at
+/// 150 % and halved it on a Retina Mac, and moving the window to another
+/// monitor no longer rescaled it. The display's scale is winit's, which no
+/// dispatch here changes; this runs when the window first shows, when the
+/// choice changes, and after every move to a monitor of another scale. A
+/// SLINT_SCALE_FACTOR set by hand still wins, and then nothing is done.
+/// https://github.com/jub0t/Concat/issues/320
+#[cfg(not(target_os = "android"))]
+pub fn apply_ui_scale(window: &slint::Window) {
+    use slint::winit_030::WinitWindowAccessor;
+    if std::env::var_os("SLINT_SCALE_FACTOR").is_some() {
+        return;
+    }
+    let Some(native) = window.with_winit_window(|winit| winit.scale_factor()) else {
+        return;
+    };
+    let percent = UI_SCALE.load(std::sync::atomic::Ordering::Relaxed);
+    let chosen = if percent == 0 {
+        1.0
+    } else {
+        crate::prefs::Preferences::scale_factor(percent)
+    };
+    let factor = (native * chosen) as f32;
+    if (window.scale_factor() - factor).abs() < 1e-3 {
+        return;
+    }
+    log::info!("interface scale: the display's {native} times {chosen} is {factor}");
+    let physical = window.size();
+    window.dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {
+        scale_factor: factor,
+    });
+    window.dispatch_event(slint::platform::WindowEvent::Resized {
+        size: physical.to_logical(factor),
+    });
+}
+
+/// A phone sets its size the system's way; there is nothing to scale.
+#[cfg(target_os = "android")]
+pub fn apply_ui_scale(_window: &slint::Window) {}
+
+/// [`apply_ui_scale`] on the open window, once the event in hand is done:
+/// Slint applies a display's own scale as it handles the event, and the
+/// chosen percent goes on top of that afterwards.
+#[cfg(not(target_os = "android"))]
+fn reapply_ui_scale() {
+    slint::Timer::single_shot(std::time::Duration::ZERO, || {
+        crate::host::Shell::with(|_, app| {
+            apply_ui_scale(slint::ComponentHandle::window(&app));
+        });
+    });
+}
 /// The window's raw events, seen before Slint routes them. Two jobs:
 ///
 /// Dropped files. winit reports one path per event, in a burst, and the
@@ -199,6 +265,7 @@ impl CustomApplicationHandler for DropHandler {
             self.wayland = listen_for_wayland_drops(window, &self.arrived);
         }
         match event {
+            WindowEvent::ScaleFactorChanged { .. } => reapply_ui_scale(),
             WindowEvent::DroppedFile(path) => self.pending.push(path.clone()),
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = slint_window
