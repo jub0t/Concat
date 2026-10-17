@@ -63,6 +63,8 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_LibraryLoader",
   # machine.rs: the Windows version and the CPU's name.
   "Win32_System_Registry",
+  # jobs.rs: whether the process that left a mark is still running.
+  "Win32_System_Threading",
 ] }
 
 [lints]

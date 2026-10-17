@@ -46,6 +46,9 @@ pub enum SettingsMsg {
     PlayheadStopsChanged(bool),
     /// The proxies switch: whether large files get a smaller copy to play.
     ProxiesChanged(bool),
+    /// The GPU switch: on, the window and the compositor draw on the GPU;
+    /// off, in software. Read at the next launch.
+    GpuChanged(bool),
     /// The magnetic timeline switch; the tray's button is the same fact.
     MagneticChanged(bool),
     DownloadSourceChanged(i32),
@@ -280,6 +283,11 @@ impl SettingsPane {
                 // On, the media already in the project gets its proxies
                 // straight away (refresh_art's stamp holds the switch);
                 // off, playback reads the files from the next frame.
+            }
+            SettingsMsg::GpuChanged(on) => {
+                studio.prefs.software_gpu = !on;
+                studio.prefs.save(&studio.host.dirs);
+                studio.notify(&t("settings.gpuNextStart"), false);
             }
             SettingsMsg::MagneticChanged(on) => {
                 studio.prefs.magnetic = on;
@@ -772,6 +780,8 @@ impl SettingsPane {
                 .unwrap_or(2) as i32,
             playhead_stops: self.playhead_stops,
             proxies: studio.prefs.proxies,
+            gpu: !studio.prefs.software_gpu,
+            gpu_switchable: cfg!(any(windows, target_os = "linux")),
             magnetic: studio.prefs.magnetic,
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),

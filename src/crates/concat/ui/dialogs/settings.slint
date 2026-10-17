@@ -59,6 +59,10 @@ export struct SettingsData {
     playhead-stops: bool,
     /// large files get a smaller copy for playback
     proxies: bool,
+    /// the window and the compositor draw on the GPU, not in software
+    gpu: bool,
+    /// there is a software rasteriser to draw on instead: Windows, Linux
+    gpu-switchable: bool,
     /// the magnetic timeline: deleting and trimming close the gap
     magnetic: bool,
     /// where model downloads look first: automatic, Concat's mirror,
@@ -488,6 +492,7 @@ export component SettingsDialog inherits Modal {
     callback scale-changed(index: int);
     callback playhead-stops-changed(on: bool);
     callback proxies-changed(on: bool);
+    callback gpu-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
@@ -800,6 +805,20 @@ export component SettingsDialog inherits Modal {
                     on: root.data.proxies;
                     open: false;
                     switched(on) => { root.proxies-changed(on); }
+                }
+
+                // Off, the window and the compositor draw in software:
+                // slower, but out of the way of a graphics driver that
+                // closes the app. A launch that dies while starting turns
+                // it off by itself. Read when Concat starts. Only where
+                // there is a software rasteriser: WARP, lavapipe.
+                if root.data.gpu-switchable: DialogSection {
+                    title: I18n.t("settings.gpu");
+                    hint: I18n.t("settings.gpuHint");
+                    switchable: true;
+                    on: root.data.gpu;
+                    open: false;
+                    switched(on) => { root.gpu-changed(on); }
                 }
 
             }

@@ -720,6 +720,12 @@ impl WgpuCompositor {
     /// then every API wgpu was built with. `software_only` leaves the
     /// hardware adapters out.
     fn own_api_first(software_only: bool) -> Option<Self> {
+        // CONCAT_GPU=software - set by hand, or by a safe start after a
+        // launch the GPU's driver killed - keeps the compositor off the GPU
+        // too, so an export or a card does not meet that driver either.
+        let software_only = software_only
+            || std::env::var("CONCAT_GPU")
+                .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
         let own = if cfg!(target_vendor = "apple") {
             wgpu::Backends::METAL
         } else if cfg!(windows) {

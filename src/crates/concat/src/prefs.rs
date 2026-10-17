@@ -64,6 +64,11 @@ pub struct Preferences {
     /// may not take (an HDR one opened NVENC first), and the person who
     /// wants one for smoother playback turns it on in Settings.
     pub proxies: bool,
+    /// Drawing in software: the window and the compositor on the
+    /// platform's software rasteriser (WARP, lavapipe) instead of the GPU.
+    /// Set by itself when a launch died while starting (see `safe_start`),
+    /// and turned off again in Settings > General. Read at launch.
+    pub software_gpu: bool,
     /// The magnetic timeline: a delete and a trim close the gap they would
     /// leave, on the lane they happen on. Off by default, because a gap is
     /// sometimes the point; ⇧⌫ ripples either way.

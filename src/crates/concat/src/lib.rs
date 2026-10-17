@@ -204,6 +204,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }
     }
 
+    let (startup_mark, safe) = safe_start();
+
     // The shell doesn't exist yet - it needs the window the backend is about
     // to help create - but `Shell::with` is a no-op until `Shell::install`
     // runs, and by the time an OS drop can actually happen, it has. Import
@@ -251,6 +253,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // first thing the window says.
     let mut studio = Studio::new(host);
     studio.set_phone(phone);
+    if safe {
+        studio.notify(&i18n::t("start.safeMode"), false);
+    }
     studio.reload_packages(false);
     studio.watch_packages();
     let dark = studio.prefs.dark.unwrap_or(true);
@@ -1637,6 +1642,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_proxies_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::ProxiesChanged(on)));
     }));
+    app.on_settings_gpu_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::GpuChanged(on)));
+    }));
     app.on_settings_magnetic_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::MagneticChanged(on)));
     }));
@@ -2072,6 +2080,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         },
     );
 
+    // A launch that has run this long was not killed by its start; the
+    // mark goes, so the next one is not started safe for nothing.
+    let started = startup_mark.as_ref().map(|mark| mark.path().to_owned());
+    slint::Timer::single_shot(SAFE_AFTER, move || {
+        if let Some(path) = started {
+            let _ = std::fs::remove_file(path);
+        }
+    });
+
     let result = app.run();
     drop(reader_sweep);
     log::info!("close: event loop exited (ok={})", result.is_ok());
@@ -2081,9 +2098,52 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // anything else can end the process, and the exit says it failed.
     if let Err(error) = &result {
         log::error!("close: the window could not run: {error}");
+        // The mark stays: the next launch starts safe.
+        std::mem::forget(startup_mark);
         leave(1);
     }
+    drop(startup_mark);
     leave(0);
+}
+
+/// How long a launch runs before it counts as having started.
+const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Safe start: whether this launch draws on the software rasteriser
+/// because the last one died while starting, and the mark that says this
+/// one is starting.
+///
+/// Every recent release met a Windows driver that closed the app in its
+/// first seconds - a new one each time (#339, #378, #389, #242) - and a
+/// launch check on a CI machine meets none of them. A launch that dies
+/// before [`SAFE_AFTER`] leaves its mark; the next one finds it, draws on
+/// WARP or lavapipe instead of the GPU, and keeps doing so - a driver that
+/// killed one launch kills the next, and starting on the GPU every other
+/// time would crash every other time. Slower, and it opens. Settings >
+/// General's GPU switch goes back. Only on Windows and Linux, which have a
+/// software rasteriser to draw on; a Mac has none, and a phone's backend
+/// picks its own way to draw.
+fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
+    if !cfg!(any(windows, target_os = "linux")) {
+        return (None, false);
+    }
+    let Ok(dirs) = concat_host::AppDirs::locate() else {
+        return (None, false);
+    };
+    let mark = dirs.data.join("startup");
+    let mut preferences = prefs::Preferences::load(&dirs);
+    let safe = concat_host::jobs::Tripwire::tripped(&mark) && !preferences.software_gpu;
+    if safe {
+        log::warn!("start: the last launch closed while starting; drawing in software from now on");
+        preferences.software_gpu = true;
+        preferences.save(&dirs);
+    }
+    if preferences.software_gpu && std::env::var_os("CONCAT_GPU").is_none() {
+        // SAFETY: the process is single-threaded here, as for the scale
+        // above: nothing reads the environment concurrently.
+        unsafe { std::env::set_var("CONCAT_GPU", "software") };
+    }
+    (Some(concat_host::jobs::Tripwire::arm(&mark)), safe)
 }
 
 /// Ends the process with `code`, the log flushed first, and the threads
