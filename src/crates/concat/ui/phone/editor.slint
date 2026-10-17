@@ -32,7 +32,8 @@ import { PhoneSheet } from "sheet.slint";
 //
 //   - a bar with the way out, the project's name, Settings and Export;
 //   - the monitor, which takes whatever height the rest leaves;
-//   - the transport: where the playhead is, Play, undo and redo;
+//   - the transport: where the playhead is, a frame back, Play, a frame
+//     on, undo and redo;
 //   - the lanes, with the playhead held at their middle and the cut
 //     sliding under it - a drag scrubs and a throw glides on, two fingers
 //     pinch the zoom, a tap on a clip selects it where it is, a tap on
@@ -428,8 +429,18 @@ export component PhoneEditor inherits Rectangle {
     //
     // Where the playhead is on the leading edge, the view's way back
     // and the history's two steps on the trailing one, and Play in the
-    // middle of the row - placed against the whole row rather than laid
-    // out, so it stays under the thumb whatever the timecode's width.
+    // middle of the row with a frame back and a frame on either side of
+    // it - placed against the whole row rather than laid out, so they
+    // stay under the thumb whatever the timecode's width. Measured for a
+    // 360px screen, the narrowest phone in common use: the middle three
+    // and the trailing three meet with a few pixels to spare.
+    //
+    // The frame steps are for the cut a drag cannot land on: a finger
+    // lifting off the glass nudges the lanes a little, and a frame is a
+    // pixel or less at most zooms (#244). Held, they keep stepping.
+    property <int> frames: Math.round(Math.max(0, Editor.playhead) * Editor.frame-rate);
+    property <int> rate: Math.max(1, Math.round(Editor.frame-rate));
+
     Rectangle {
         x: 0;
         y: root.transport-y;
@@ -438,17 +449,29 @@ export component PhoneEditor inherits Rectangle {
 
         HorizontalLayout {
             padding-left: 16px;
-            padding-right: 8px;
-            spacing: 2px;
+            padding-right: 4px;
+            spacing: 0px;
 
-            Text {
+            // The playhead to the frame, since the buttons step by one,
+            // over the length of the cut.
+            VerticalLayout {
                 horizontal-stretch: 1;
-                text: Fmt.short-duration(Editor.playhead)
-                    + " / " + Fmt.short-duration(Editor.preview-duration);
-                color: Theme.fg;
-                font-family: Theme.font-technical;
-                font-size: Theme.fs-lg;
-                vertical-alignment: center;
+                alignment: center;
+                spacing: 1px;
+
+                Text {
+                    text: Fmt.short-duration(Math.floor(root.frames / root.rate))
+                        + ":" + Fmt.pad2(Math.mod(root.frames, root.rate));
+                    color: Theme.fg;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs-lg;
+                }
+                Text {
+                    text: Fmt.short-duration(Editor.preview-duration);
+                    color: Theme.fg-dim;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs-xs;
+                }
             }
 
             VerticalLayout {
@@ -456,7 +479,7 @@ export component PhoneEditor inherits Rectangle {
                 RoundButton {
                     glyph: Glyph.fit;
                     label: I18n.t("previewPane.fitFramePane");
-                    size: 40px;
+                    size: 36px;
                     icon-size: 16px;
                     clicked => { monitor.fit-view(); }
                 }
@@ -467,7 +490,7 @@ export component PhoneEditor inherits Rectangle {
                     glyph: Glyph.undo;
                     label: I18n.t("phone.undo");
                     enabled: Editor.can-undo;
-                    size: 40px;
+                    size: 36px;
                     icon-size: 17px;
                     clicked => { Editor.undo(); }
                 }
@@ -478,16 +501,28 @@ export component PhoneEditor inherits Rectangle {
                     glyph: Glyph.redo;
                     label: I18n.t("phone.redo");
                     enabled: Editor.can-redo;
-                    size: 40px;
+                    size: 36px;
                     icon-size: 17px;
                     clicked => { Editor.redo(); }
                 }
             }
         }
 
+        RoundButton {
+            x: play.x - self.width - 2px;
+            y: (parent.height - self.height) / 2;
+            size: 36px;
+            icon-size: 16px;
+            repeats: true;
+            enabled: root.frames > 0;
+            glyph: Glyph.step-back;
+            label: I18n.t("previewPane.previousFrame");
+            clicked => { Editor.step-frames(-1); }
+        }
+
         // The same size as its neighbours, and ten pixels of air above and
         // below: the fill is what makes it the one to reach for, not bulk.
-        RoundButton {
+        play := RoundButton {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             size: 40px;
@@ -496,6 +531,17 @@ export component PhoneEditor inherits Rectangle {
             glyph: Editor.playing ? Glyph.pause : Glyph.play;
             label: Editor.playing ? I18n.t("previewPane.pause") : I18n.t("previewPane.play");
             clicked => { Editor.play-toggled(); }
+        }
+
+        RoundButton {
+            x: play.x + play.width + 2px;
+            y: (parent.height - self.height) / 2;
+            size: 36px;
+            icon-size: 16px;
+            repeats: true;
+            glyph: Glyph.step-forward;
+            label: I18n.t("previewPane.nextFrame");
+            clicked => { Editor.step-frames(1); }
         }
     }
 

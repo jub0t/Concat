@@ -25,6 +25,10 @@ export component RoundButton inherits Rectangle {
     in property <bool> accent;
     in property <length> size: 44px;
     in property <length> icon-size: 18px;
+    /// Fires on the press rather than the release, and again and again
+    /// while held - after a beat, then a dozen times a second - the way
+    /// a step button or a keyboard's arrow does.
+    in property <bool> repeats;
 
     callback clicked();
 
@@ -49,7 +53,28 @@ export component RoundButton inherits Rectangle {
 
     touch := TouchArea {
         enabled: root.enabled;
-        clicked => { root.clicked(); }
+        clicked => {
+            if (!root.repeats) {
+                root.clicked();
+            }
+        }
+        pointer-event(event) => {
+            if (root.repeats && event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                held.fast = false;
+                root.clicked();
+            }
+        }
+    }
+
+    held := Timer {
+        property <bool> fast;
+        interval: self.fast ? 80ms : 400ms;
+        running: root.repeats && root.enabled && touch.pressed;
+        triggered => {
+            self.fast = true;
+            root.clicked();
+        }
     }
 }
 
