@@ -189,6 +189,46 @@ fn default_wgpu_surface_factory(
     }
 }
 
+/// Concat: the Android backend asks for the wgpu surface by name once a wgpu
+/// feature is on, and wgpu on Android is Vulkan alone. A phone with no
+/// Vulkan driver wgpu can use - and the API 30 emulator - got no window at
+/// all, and the app closed as it opened. So the wgpu surface is tried
+/// first and OpenGL ES, Skia's own surface on Android, after it, as
+/// `create_default_surface` falls back from one candidate to the next.
+#[cfg(all(target_os = "android", feature = "wgpu-30"))]
+fn android_wgpu_30_or_opengl_surface_factory(
+    context: &SkiaSharedContext,
+    window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Sync + Send>,
+    display_handle: Arc<dyn raw_window_handle::HasDisplayHandle + Sync + Send>,
+    size: PhysicalWindowSize,
+    requested_graphics_api: Option<RequestedGraphicsAPI>,
+) -> Result<Box<dyn Surface>, PlatformError> {
+    let wgpu = match surface_factory::<wgpu_30_surface::WGPUSurface>(
+        context,
+        window_handle.clone(),
+        display_handle.clone(),
+        size,
+        requested_graphics_api.clone(),
+    ) {
+        Ok(surface) => return Ok(surface),
+        Err(error) => error,
+    };
+    i_slint_core::debug_log!(
+        "Failed to initialize Skia wgpu surface: {wgpu} . Falling back to OpenGL ES"
+    );
+    surface_factory::<opengl_surface::OpenGLSurface>(
+        context,
+        window_handle,
+        display_handle,
+        size,
+        requested_graphics_api,
+    )
+    .map_err(|opengl| {
+        format!("Could not initialize any Skia surface. Tried wgpu: {wgpu}, opengl: {opengl}")
+            .into()
+    })
+}
+
 #[cfg(all(target_vendor = "apple", skia_backend_wgpu))]
 fn metal_wgpu_surface_factory(
     context: &SkiaSharedContext,
@@ -496,6 +536,10 @@ impl SkiaRenderer {
     pub fn default_wgpu_30(context: &SkiaSharedContext) -> Self {
         Self::new_with_surface_factory(
             context,
+            // Concat: on Android, OpenGL ES when wgpu's Vulkan opens nothing.
+            #[cfg(target_os = "android")]
+            android_wgpu_30_or_opengl_surface_factory,
+            #[cfg(not(target_os = "android"))]
             surface_factory::<wgpu_30_surface::WGPUSurface>,
             create_partial_renderer_state(None),
         )

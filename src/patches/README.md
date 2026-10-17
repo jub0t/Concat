@@ -28,4 +28,13 @@ changes, all marked `Concat:` in the source:
   default props, so text in a transparent, cached layer is greyscale
   rather than inheriting the window's subpixel order.
 
+And one for Android, marked the same way:
+
+- `lib.rs`, `default_wgpu_30` and `android_wgpu_30_or_opengl_surface_factory`:
+  Slint's Android backend asks for the wgpu surface by name once a wgpu
+  feature is on, and wgpu on Android is Vulkan alone, so a phone with no
+  Vulkan driver wgpu can use got no window and the app closed as it
+  opened. On Android the wgpu surface is tried first and OpenGL ES after
+  it, the way `create_default_surface` falls back on every other platform.
+
 Nothing else differs from the published crate.
