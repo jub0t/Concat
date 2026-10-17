@@ -28,7 +28,8 @@
 //! object model are downloaded on first use ([`models`] says where from);
 //! a small person model is compiled in so a cutout works with nothing
 //! downloaded at all. The renderer reads masks and never infers; the
-//! host infers and writes them.
+//! host infers and writes them. [`onnx`] says whether this machine can run
+//! the runtime at all, which an Intel Mac older than its runtime cannot.
 //!
 //! A mask is whatever shape its model answers in - square for the object
 //! model, the picture's own aspect for the person model - and every
@@ -45,6 +46,7 @@ pub mod brush;
 pub mod enhance;
 pub mod mask;
 pub mod models;
+pub mod onnx;
 #[cfg(feature = "infer")]
 pub mod runtime;
 #[cfg(feature = "infer")]

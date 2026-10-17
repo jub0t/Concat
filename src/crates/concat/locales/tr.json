@@ -577,6 +577,8 @@
   "studio.track": "Track {0}",
   "studio.undo": "Geri al",
   "studio.upgradedEffects": "Bu projedeki bazı efektler, yerlerini alan efektler olarak açılıyor: {0}. Değişikliği korumak için kaydedin.",
+  "sysinfo.aiFeatures": "Yapay zekâ özellikleri",
+  "sysinfo.aiNeedsMacos": "Kullanılamıyor: macOS {0} veya üstü gerekir",
   "sysinfo.application": "Uygulama",
   "sysinfo.build": "Derleme",
   "sysinfo.engine": "Motor",

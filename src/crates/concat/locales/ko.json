@@ -577,6 +577,8 @@
   "studio.track": "Track {0}",
   "studio.undo": "실행 취소",
   "studio.upgradedEffects": "이 프로젝트의 일부 효과는 이를 대체하는 효과로 열립니다: {0}. 변경 사항을 유지하려면 저장하세요.",
+  "sysinfo.aiFeatures": "AI 기능",
+  "sysinfo.aiNeedsMacos": "사용할 수 없음: macOS {0} 이상 필요",
   "sysinfo.application": "응용 프로그램",
   "sysinfo.build": "빌드",
   "sysinfo.engine": "엔진",

@@ -577,6 +577,8 @@
   "studio.track": "トラック {0}",
   "studio.undo": "元に戻す",
   "studio.upgradedEffects": "このプロジェクトの一部のエフェクトは、後継のエフェクトとして開かれます : {0}。変更を残すには保存してください。",
+  "sysinfo.aiFeatures": "AI 機能",
+  "sysinfo.aiNeedsMacos": "利用不可 : macOS {0} 以降が必要です",
   "sysinfo.application": "アプリケーション",
   "sysinfo.build": "ビルド",
   "sysinfo.engine": "エンジン",

@@ -3,7 +3,7 @@
 
 //! What Settings > About reports about this machine and this build.
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 
 pub fn os_description() -> String {
     #[cfg(target_os = "macos")]
@@ -77,7 +77,7 @@ pub fn os_description() -> String {
 /// from the report. Gathered once — every line of it is fixed for the life of
 /// the process — and handed over as a model that is never replaced.
 pub fn system_facts() -> Vec<(String, String)> {
-    vec![
+    let mut facts = vec![
         (
             t("sysinfo.application"),
             format!("Concat {}", env!("CARGO_PKG_VERSION")),
@@ -112,5 +112,16 @@ pub fn system_facts() -> Vec<(String, String)> {
             ),
         ),
         (t("sysinfo.toolchain"), env!("BUILD_RUSTC").into()),
-    ]
+    ];
+    // An Intel Mac older than the ONNX Runtime it carries runs everything
+    // but background removal, the smart brushes, Enhance and Chatterbox
+    // (#333). Each says so when asked; this says it once, where a person
+    // looks to see what their machine can do, and in the report they paste.
+    if let Some(why) = concat_vision::onnx::unavailable() {
+        facts.push((
+            t("sysinfo.aiFeatures"),
+            tf("sysinfo.aiNeedsMacos", &[&why.needs]),
+        ));
+    }
+    facts
 }

@@ -577,6 +577,8 @@
   "studio.track": "Traka {0}",
   "studio.undo": "Poništi",
   "studio.upgradedEffects": "Neki efekti u ovom projektu otvaraju se kao efekti koji ih zamjenjuju: {0}. Spremi da zadržiš promjenu.",
+  "sysinfo.aiFeatures": "AI značajke",
+  "sysinfo.aiNeedsMacos": "Nedostupno: potreban je macOS {0} ili noviji",
   "sysinfo.application": "Aplikacija",
   "sysinfo.build": "Build",
   "sysinfo.engine": "Pogon",

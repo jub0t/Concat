@@ -577,6 +577,8 @@
   "studio.track": "轨道 {0}",
   "studio.undo": "撤销",
   "studio.upgradedEffects": "此项目中的部分效果会以取代它们的效果打开：{0}。保存即可保留此更改。",
+  "sysinfo.aiFeatures": "AI 功能",
+  "sysinfo.aiNeedsMacos": "不可用：需要 macOS {0} 或更高版本",
   "sysinfo.application": "应用程序",
   "sysinfo.build": "构建",
   "sysinfo.engine": "引擎",

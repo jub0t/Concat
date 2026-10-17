@@ -27,6 +27,11 @@ bzip2 = "0.6"
 # pure-Rust regex backend, so no C library rides along. Behind `chatterbox`,
 # which the desktop app turns on: a gigabyte of model is not for a phone.
 ort = { workspace = true, optional = true }
+# Where ONNX Runtime is made ready, the one place for the cutout's models
+# and these: on an Intel Mac it is loaded at first use, and not at all on a
+# macOS older than it. concat-vision's manifest also picks the runtime API
+# version ort asks for, per target.
+concat-vision = { workspace = true, optional = true, features = ["infer"] }
 tokenizers = { version = "0.23", optional = true, default-features = false, features = ["fancy-regex"] }
 
 # What a run says about itself: which model loaded, how long a read took,
@@ -80,7 +85,7 @@ ort = { workspace = true, optional = true, features = ["coreml"] }
 ort = { workspace = true, optional = true, features = ["directml"] }
 
 [features]
-chatterbox = ["dep:ort", "dep:tokenizers"]
+chatterbox = ["dep:ort", "dep:tokenizers", "dep:concat-vision"]
 
 [lints]
 workspace = true

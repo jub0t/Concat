@@ -577,6 +577,8 @@
   "studio.track": "ٹریک {0}",
   "studio.undo": "واپس لیں",
   "studio.upgradedEffects": "اس پروجیکٹ کے کچھ ایفیکٹس اپنی جگہ لینے والے ایفیکٹس کے طور پر کھلتے ہیں: {0}۔ تبدیلی برقرار رکھنے کے لیے محفوظ کریں۔",
+  "sysinfo.aiFeatures": "اے آئی خصوصیات",
+  "sysinfo.aiNeedsMacos": "دستیاب نہیں: macOS {0} یا نیا درکار ہے",
   "sysinfo.application": "ایپلیکیشن",
   "sysinfo.build": "بلڈ",
   "sysinfo.engine": "انجن",

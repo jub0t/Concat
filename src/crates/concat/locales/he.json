@@ -577,6 +577,8 @@
   "studio.track": "ערוץ {0}",
   "studio.undo": "ביטול פעולה",
   "studio.upgradedEffects": "חלק מהאפקטים בפרויקט הזה נפתחים כאפקטים שמחליפים אותם: {0}. יש לשמור כדי לשמור על השינוי.",
+  "sysinfo.aiFeatures": "תכונות בינה מלאכותית",
+  "sysinfo.aiNeedsMacos": "לא זמינות: נדרש macOS {0} ואילך",
   "sysinfo.application": "יישום",
   "sysinfo.build": "גרסת בנייה",
   "sysinfo.engine": "מנוע",

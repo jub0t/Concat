@@ -42,5 +42,22 @@ ort = { workspace = true, optional = true, features = ["directml"] }
 [target.'cfg(target_os = "android")'.dependencies]
 ort = { workspace = true, optional = true, features = ["nnapi"] }
 
+# The ONNX Runtime API ort asks for: 27, served by the 1.28 every other
+# target links, everywhere but an Intel Mac.
+[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+ort = { workspace = true, optional = true, features = ["api-27"] }
+
+# An Intel Mac runs Microsoft's 1.23.2, the last ONNX Runtime built for it,
+# which serves API 23 at most: asked for 27 it hands back nothing and ort
+# panics on the first session. And that build needs macOS 13.4 - it calls
+# libc++'s floating-point to_chars, which macOS has from 13.3 - while the
+# app runs on 12. Linked at load time, it kept the whole app from starting
+# on 12 (#333). So there it is loaded at first use instead (`load-dynamic`),
+# from Contents/Frameworks, and only on a macOS it says it runs on; on an
+# older one the AI features say what they need and the rest of the app
+# works. See runtime::ready.
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+ort = { workspace = true, optional = true, features = ["api-23", "load-dynamic"] }
+
 [lints]
 workspace = true

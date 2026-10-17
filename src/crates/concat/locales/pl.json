@@ -577,6 +577,8 @@
   "studio.track": "Ścieżka {0}",
   "studio.undo": "Cofnij",
   "studio.upgradedEffects": "Niektóre efekty w tym projekcie otwierają się jako efekty, które je zastępują: {0}. Zapisz, aby zachować zmianę.",
+  "sysinfo.aiFeatures": "Funkcje AI",
+  "sysinfo.aiNeedsMacos": "Niedostępne: wymagają systemu macOS {0} lub nowszego",
   "sysinfo.application": "Aplikacja",
   "sysinfo.build": "Kompilacja",
   "sysinfo.engine": "Silnik",

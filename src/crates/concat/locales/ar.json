@@ -577,6 +577,8 @@
   "studio.track": "المسار {0}",
   "studio.undo": "تراجع",
   "studio.upgradedEffects": "تُفتح بعض التأثيرات في هذا المشروع على أنها التأثيرات التي حلّت محلها: {0}. احفظ للإبقاء على التغيير.",
+  "sysinfo.aiFeatures": "ميزات الذكاء الاصطناعي",
+  "sysinfo.aiNeedsMacos": "غير متاحة: تتطلب macOS {0} أو أحدث",
   "sysinfo.application": "التطبيق",
   "sysinfo.build": "البنية",
   "sysinfo.engine": "المحرّك",

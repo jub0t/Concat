@@ -577,6 +577,8 @@
   "studio.track": "Track {0}",
   "studio.undo": "Annulla",
   "studio.upgradedEffects": "Alcuni effetti di questo progetto si aprono come quelli che li sostituiscono: {0}. Salva per mantenere la modifica.",
+  "sysinfo.aiFeatures": "Funzioni IA",
+  "sysinfo.aiNeedsMacos": "Non disponibili: richiedono macOS {0} o successivo",
   "sysinfo.application": "Applicazione",
   "sysinfo.build": "Build",
   "sysinfo.engine": "Motore",

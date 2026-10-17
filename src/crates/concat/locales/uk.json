@@ -577,6 +577,8 @@
   "studio.track": "Доріжка {0}",
   "studio.undo": "Скасувати",
   "studio.upgradedEffects": "Деякі ефекти в цьому проєкті відкриваються як ті, що їх замінюють: {0}. Збережіть проєкт, щоб залишити зміну.",
+  "sysinfo.aiFeatures": "Функції ШІ",
+  "sysinfo.aiNeedsMacos": "Недоступні: потрібна macOS {0} або новіша",
   "sysinfo.application": "Програма",
   "sysinfo.build": "Збірка",
   "sysinfo.engine": "Рушій",

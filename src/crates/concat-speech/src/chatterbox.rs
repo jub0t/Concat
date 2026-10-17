@@ -192,12 +192,15 @@ pub fn installed(dir: &Path) -> bool {
 
 /// Fetches whatever of the bundle is not in `dir` yet, file by file, the
 /// mirror first and Resemble's upstream second, reporting the bytes of
-/// the whole as one download. Blocks: run it on its own thread.
+/// the whole as one download. Blocks: run it on its own thread. Nothing is
+/// fetched where ONNX Runtime cannot run: an Intel Mac older than its
+/// runtime is told so before a gigabyte comes down for nothing.
 pub fn download(
     dir: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(DownloadProgress),
 ) -> Result<(), String> {
+    concat_vision::runtime::ready()?;
     let total: u64 = FILES.iter().map(|file| file.bytes).sum();
     let mut before: u64 = 0;
     for file in FILES {
@@ -282,6 +285,7 @@ fn session(path: &Path, accelerated: bool) -> Result<Session, String> {
         .map(|count| count.get())
         .unwrap_or(1)
         .clamp(1, 8);
+    concat_vision::runtime::ready()?;
     let mut builder = Session::builder()
         .map_err(|error| format!("onnx runtime: {error}"))?
         .with_intra_threads(threads)

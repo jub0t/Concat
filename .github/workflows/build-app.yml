@@ -86,20 +86,16 @@ env:
   # shared build.
   ORT_VERSION: 1.28.0
   # And for Intel Macs, which neither ort nor Microsoft build for any more:
-  # the last release Microsoft made for them.
-  #
-  # NOTE: ort 2.0.0-rc.13 with its default features asks the runtime for
-  # API 27 (its `api-27` feature), and 1.23.2 serves API 23 and below, so
-  # on an Intel Mac the first ONNX session (a cutout, Chatterbox) should
-  # fail to get the API. That predates the pinning here, and wants a look
-  # on an Intel Mac: either an older `api-*` feature for ort, or no
-  # cutouts there.
+  # the last release Microsoft made for them. It serves API 23, which is
+  # what ort asks for there, and it is built for macOS 13.4, so it is not
+  # linked: the app loads it at first use, and not on an older macOS (see
+  # concat-vision's manifest and onnx.rs, and #333).
   ORT_INTEL_MAC_VERSION: 1.23.2
   # WiX for the Windows .msi, as a dotnet tool, pinned by version.
   WIX_VERSION: 6.0.2
-  # Oldest macOS the bundles run on, unless a target sets its own
-  # (`macos-min` below): Apple silicon's. scripts/ci/check-min-os.sh lists
-  # every bundled library built for a newer one.
+  # Oldest macOS the bundles run on. Apple silicon Macs all run newer than
+  # this; it is the Intel floor. scripts/ci/check-min-os.sh lists every
+  # bundled library built for a newer one.
   MACOSX_DEPLOYMENT_TARGET: "12.0"
   # ggml (whisper.cpp's kernels) tunes itself to the machine it is built
   # on unless told otherwise, and these bundles run on other machines: a
@@ -138,9 +134,6 @@ jobs:
             os: macos-15-intel
             target: x86_64-apple-darwin
             sherpa: osx-x64
-            # The ONNX Runtime it ships (1.23.2, the last for Intel Macs)
-            # is built for 13.4 and dies at launch on 12 (#333).
-            macos-min: "13.4"
           # 22.04, not latest: the binary links the build machine's glibc,
           # so the oldest supported runner is what keeps it runnable on
           # older distributions.
@@ -184,8 +177,6 @@ jobs:
     # at most 155 minutes between them on any one target, so a stuck step
     # is named by its own timeout; this is for a job stuck anywhere else.
     timeout-minutes: 190
-    env:
-      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-min || '12.0' }}
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -287,12 +278,14 @@ jobs:
           # target set, the check is folded away at compile time.)
           echo "RUSTFLAGS=-C link-arg=$(xcrun clang --print-file-name=libclang_rt.osx.a)" >> "$GITHUB_ENV"
 
-      # ONNX Runtime on an Intel Mac. ort ships no static build for
+      # ONNX Runtime on an Intel Mac. ort ships no build for
       # x86_64-apple-darwin, so the cutout's runtime is Microsoft's shared
-      # one, linked dynamically the way Linux does it, and bundled into
-      # Frameworks by dylibbundler along with FFmpeg's - the install name
-      # is @rpath, so the bundler is told where to look. Apple silicon
-      # keeps ort's static build.
+      # one - and that is built for macOS 13.4, while the app runs on 12.
+      # Linked at load time it closed the app at launch on 12 (#333), so
+      # it is not linked at all: ort is built with `load-dynamic` there,
+      # the bundle step copies the library into Frameworks, and the app
+      # opens it at the first cutout or Chatterbox read, on a macOS new
+      # enough for it. Apple silicon keeps ort's static build.
       - name: ONNX Runtime (Intel macOS)
         if: matrix.platform == 'macos' && matrix.arch == 'x86_64'
         run: |
@@ -301,12 +294,7 @@ jobs:
           scripts/ci/fetch.sh onnxruntime-osx-x86_64 onnxruntime.tgz
           tar -xzf onnxruntime.tgz
           test -f "$stem/lib/libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib"
-          ln -sf "libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib" "$stem/lib/libonnxruntime.dylib"
-          {
-            echo "ORT_LIB_LOCATION=$PWD/$stem/lib"
-            echo "ORT_PREFER_DYNAMIC_LINK=1"
-            echo "ORT_DIR=$PWD/$stem"
-          } >> "$GITHUB_ENV"
+          echo "ORT_MAC_DYLIB=$PWD/$stem/lib/libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib" >> "$GITHUB_ENV"
 
       # Thin LTO and sixteen codegen units for the Intel Mac, in place of the
       # app profile's fat LTO and one unit. The Intel runner is the slowest
@@ -600,8 +588,7 @@ jobs:
           dylibbundler -od -b \
             -x "$app/Contents/MacOS/concat" \
             -d "$app/Contents/Frameworks" \
-            -p @executable_path/../Frameworks \
-            ${ORT_DIR:+-s "$ORT_DIR/lib"}
+            -p @executable_path/../Frameworks
 
           # Nothing outside the bundle may remain: a load path into
           # Homebrew would break on a Mac without it.
@@ -610,11 +597,28 @@ jobs:
             exit 1
           fi
 
+          # ONNX Runtime is never linked at launch: on an Intel Mac it is
+          # loaded at first use from Frameworks, under the name the app
+          # looks for (concat-vision's onnx.rs), and on Apple silicon it is
+          # inside the binary. A link here is #333 back: the app closing at
+          # launch on every macOS older than the runtime.
+          if otool -L "$app/Contents/MacOS/concat" | grep libonnxruntime ; then
+            echo "the binary links ONNX Runtime at launch" >&2
+            exit 1
+          fi
+          lazy=()
+          if [ -n "${ORT_MAC_DYLIB:-}" ]; then
+            cp "$ORT_MAC_DYLIB" "$app/Contents/Frameworks/libonnxruntime.dylib"
+            lazy=(--lazy Contents/Frameworks/libonnxruntime.dylib)
+          fi
+
           # Every library in the bundle against the floor it declares. A
           # warning for now: Homebrew's FFmpeg is built for the runner's
           # macOS, so every Mac bundle has some until FFmpeg is built here
-          # for the floor.
-          scripts/ci/check-min-os.sh "$app" "$MACOSX_DEPLOYMENT_TARGET"
+          # for the floor. ONNX Runtime is listed apart, with the macOS it
+          # needs: the app reads that same field before loading it, and on
+          # an older one the AI features say so instead.
+          scripts/ci/check-min-os.sh "$app" "$MACOSX_DEPLOYMENT_TARGET" ${lazy[@]+"${lazy[@]}"}
 
       # Signed with the repository's Developer ID when it has one, and
       # notarised so Gatekeeper opens it without a warning; ad-hoc signed

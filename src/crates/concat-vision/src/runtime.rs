@@ -53,6 +53,38 @@ pub struct Output {
     pub data: Vec<f32>,
 }
 
+/// Makes ONNX Runtime ready for a first session, or says why it cannot
+/// run here. Every session goes through here first, Chatterbox's too, and
+/// so does every model download: a gigabyte fetched for a runtime that
+/// cannot run it is a gigabyte wasted.
+///
+/// Only an Intel Mac has anything to do. Its runtime is loaded now rather
+/// than at launch (see [`crate::onnx`]), and not at all on a macOS older
+/// than the one it is built for, where loading it is what closed the app.
+/// The answer is kept: neither changes while the process runs.
+pub fn ready() -> Result<(), String> {
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        static LOADED: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+        LOADED
+            .get_or_init(|| {
+                if let Some(why) = crate::onnx::unavailable() {
+                    return Err(why.to_string());
+                }
+                let library = crate::onnx::library();
+                // `commit` is false when an environment is already set,
+                // which is nothing to report: the library is loaded.
+                let _ = ort::init_from(&library)
+                    .map_err(|error| format!("could not load ONNX Runtime: {error}"))?
+                    .commit();
+                Ok(())
+            })
+            .clone()
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    Ok(())
+}
+
 /// A loaded model.
 pub struct Model {
     session: Session,
@@ -61,6 +93,7 @@ pub struct Model {
 impl Model {
     /// Loads a model from its bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Model, String> {
+        ready()?;
         let mut builder = Session::builder().map_err(|error| format!("onnx runtime: {error}"))?;
         builder = builder
             .with_execution_providers(accelerators())

@@ -577,6 +577,8 @@
   "studio.track": "Đường {0}",
   "studio.undo": "Hoàn tác",
   "studio.upgradedEffects": "Một số hiệu ứng trong dự án được mở bằng hiệu ứng thay thế: {0}. Hãy lưu để giữ thay đổi.",
+  "sysinfo.aiFeatures": "Tính năng AI",
+  "sysinfo.aiNeedsMacos": "Không khả dụng: cần macOS {0} trở lên",
   "sysinfo.application": "Ứng dụng",
   "sysinfo.build": "Bản dựng",
   "sysinfo.engine": "Bộ máy",

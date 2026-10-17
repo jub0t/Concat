@@ -577,6 +577,8 @@
   "studio.track": "軌道 {0}",
   "studio.undo": "復原",
   "studio.upgradedEffects": "此專案中的部分效果會以取代它們的效果開啟：{0}。儲存即可保留這項變更。",
+  "sysinfo.aiFeatures": "AI 功能",
+  "sysinfo.aiNeedsMacos": "無法使用：需要 macOS {0} 或更新版本",
   "sysinfo.application": "應用程式",
   "sysinfo.build": "建置",
   "sysinfo.engine": "引擎",

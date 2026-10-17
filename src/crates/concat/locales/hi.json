@@ -577,6 +577,8 @@
   "studio.track": "ट्रैक {0}",
   "studio.undo": "पहले जैसा करें",
   "studio.upgradedEffects": "इस प्रोजेक्ट के कुछ इफ़ेक्ट उन इफ़ेक्ट के रूप में खुलते हैं जो उनकी जगह आए हैं: {0}। बदलाव रखने के लिए सेव करें।",
+  "sysinfo.aiFeatures": "एआई सुविधाएँ",
+  "sysinfo.aiNeedsMacos": "उपलब्ध नहीं: macOS {0} या बाद का संस्करण चाहिए",
   "sysinfo.application": "ऐप्लिकेशन",
   "sysinfo.build": "बिल्ड",
   "sysinfo.engine": "इंजन",

@@ -577,6 +577,8 @@
   "studio.track": "ট্র্যাক {0}",
   "studio.undo": "আনডু",
   "studio.upgradedEffects": "এই প্রজেক্টের কিছু ইফেক্ট সেগুলোর বদলে আসা ইফেক্ট হিসেবে খোলে: {0}। পরিবর্তন রাখতে সংরক্ষণ করুন।",
+  "sysinfo.aiFeatures": "এআই বৈশিষ্ট্য",
+  "sysinfo.aiNeedsMacos": "উপলভ্য নয়: macOS {0} বা পরবর্তী সংস্করণ প্রয়োজন",
   "sysinfo.application": "অ্যাপ্লিকেশন",
   "sysinfo.build": "বিল্ড",
   "sysinfo.engine": "ইঞ্জিন",

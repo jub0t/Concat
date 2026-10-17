@@ -577,6 +577,8 @@
   "studio.track": "แทร็ก {0}",
   "studio.undo": "เลิกทำ",
   "studio.upgradedEffects": "เอฟเฟกต์บางรายการในโปรเจกต์นี้จะเปิดเป็นเอฟเฟกต์ที่มาแทน: {0} บันทึกเพื่อเก็บการเปลี่ยนแปลง",
+  "sysinfo.aiFeatures": "ฟีเจอร์ AI",
+  "sysinfo.aiNeedsMacos": "ใช้งานไม่ได้: ต้องใช้ macOS {0} ขึ้นไป",
   "sysinfo.application": "แอปพลิเคชัน",
   "sysinfo.build": "บิลด์",
   "sysinfo.engine": "เอนจิน",

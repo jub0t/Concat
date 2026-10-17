@@ -577,6 +577,8 @@
   "studio.track": "Track {0}",
   "studio.undo": "Rückgängig",
   "studio.upgradedEffects": "Einige Effekte in diesem Projekt öffnen sich als ihre Nachfolger: {0}. Speichere, um die Änderung zu behalten.",
+  "sysinfo.aiFeatures": "KI-Funktionen",
+  "sysinfo.aiNeedsMacos": "Nicht verfügbar: benötigt macOS {0} oder neuer",
   "sysinfo.application": "Anwendung",
   "sysinfo.build": "Build",
   "sysinfo.engine": "Engine",

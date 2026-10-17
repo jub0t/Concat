@@ -577,6 +577,8 @@
   "studio.track": "Faixa {0}",
   "studio.undo": "Desfazer",
   "studio.upgradedEffects": "Alguns efeitos deste projeto abrem como os que os substituem: {0}. Salve para manter a mudança.",
+  "sysinfo.aiFeatures": "Recursos de IA",
+  "sysinfo.aiNeedsMacos": "Indisponíveis: exigem macOS {0} ou posterior",
   "sysinfo.application": "Aplicativo",
   "sysinfo.build": "Build",
   "sysinfo.engine": "Motor",

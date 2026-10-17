@@ -386,12 +386,16 @@ impl Cutouts {
 /// [`crate::models`]. Whichever answers, the bytes are checked against the
 /// digest the table carries before anything is renamed into place, so a
 /// truncated or substituted file never becomes an installed model.
+///
+/// Nothing is fetched for a runtime that cannot run it: an Intel Mac older
+/// than its ONNX Runtime is told so here, before the download.
 pub(crate) fn fetch(
     id: ModelId,
     file: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(), String> {
+    concat_vision::runtime::ready()?;
     let spec = id.spec();
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)

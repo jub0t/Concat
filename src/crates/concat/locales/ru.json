@@ -577,6 +577,8 @@
   "studio.track": "Дорожка {0}",
   "studio.undo": "Отменить",
   "studio.upgradedEffects": "Некоторые эффекты проекта открываются как заменившие их: {0}. Сохраните проект, чтобы оставить изменение.",
+  "sysinfo.aiFeatures": "Функции ИИ",
+  "sysinfo.aiNeedsMacos": "Недоступны: нужна macOS {0} или новее",
   "sysinfo.application": "Приложение",
   "sysinfo.build": "Сборка",
   "sysinfo.engine": "Движок",

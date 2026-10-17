@@ -577,6 +577,8 @@
   "studio.track": "ترک {0}",
   "studio.undo": "واگرد",
   "studio.upgradedEffects": "برخی افکت‌های این پروژه به‌صورت افکت‌های جایگزینشان باز می‌شوند: {0}. برای نگه‌داشتن این تغییر ذخیره کنید.",
+  "sysinfo.aiFeatures": "قابلیت‌های هوش مصنوعی",
+  "sysinfo.aiNeedsMacos": "در دسترس نیست: macOS {0} یا جدیدتر لازم است",
   "sysinfo.application": "برنامه",
   "sysinfo.build": "ساخت",
   "sysinfo.engine": "موتور",

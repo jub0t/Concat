@@ -577,6 +577,8 @@
   "studio.track": "Trek {0}",
   "studio.undo": "Urungkan",
   "studio.upgradedEffects": "Beberapa efek di proyek ini dibuka sebagai efek penggantinya: {0}. Simpan untuk mempertahankan perubahan.",
+  "sysinfo.aiFeatures": "Fitur AI",
+  "sysinfo.aiNeedsMacos": "Tidak tersedia: memerlukan macOS {0} atau lebih baru",
   "sysinfo.application": "Aplikasi",
   "sysinfo.build": "Build",
   "sysinfo.engine": "Mesin",

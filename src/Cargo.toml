@@ -38,7 +38,12 @@ pollster = "0.4"
 # ONNX Runtime, for the cutout models. The binaries come prebuilt for every
 # target the app ships on, with the platform's own accelerator behind them:
 # CoreML on macOS and iOS, DirectML on Windows, NNAPI on Android.
-ort = "=2.0.0-rc.13"
+#
+# ort's default features less the API version, which is not one for every
+# target: the ONNX Runtime an Intel Mac gets is older than the others, and
+# a feature cannot be taken away per target, only added. concat-vision's
+# manifest adds it, and says why.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "tracing", "download-binaries", "tls-native", "copy-dylibs"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"

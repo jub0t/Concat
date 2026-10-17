@@ -602,6 +602,8 @@
   "studio.track": "Track {0}",
   "studio.undo": "Undo",
   "studio.upgradedEffects": "Some effects in this project open as the ones that replace them: {0}. Save to keep the change.",
+  "sysinfo.aiFeatures": "AI features",
+  "sysinfo.aiNeedsMacos": "Unavailable: needs macOS {0} or later",
   "sysinfo.application": "Application",
   "sysinfo.build": "Build",
   "sysinfo.engine": "Engine",

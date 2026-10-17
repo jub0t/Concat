@@ -577,6 +577,8 @@
   "studio.track": "Spoor {0}",
   "studio.undo": "Ongedaan maken",
   "studio.upgradedEffects": "Sommige effecten in dit project openen als de effecten die ze vervangen: {0}. Sla op om de wijziging te behouden.",
+  "sysinfo.aiFeatures": "AI-functies",
+  "sysinfo.aiNeedsMacos": "Niet beschikbaar: vereist macOS {0} of nieuwer",
   "sysinfo.application": "Toepassing",
   "sysinfo.build": "Build",
   "sysinfo.engine": "Engine",
