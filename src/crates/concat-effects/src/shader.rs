@@ -54,8 +54,11 @@ use crate::manifest::{MAX_CURVE_POINTS, MAX_SHRINK, Manifest, Param, ParamType, 
 /// and a title's reveal map at group 3.
 const EFFECT_HEAD: &str = r#"// ── the host's half of the contract; see concat-effects/src/shader.rs ──
 struct Frame {
-    /// The layer's size in pixels.
-    size: vec2<f32>,
+    /// The layer's size in pixels. Aligned to 16 so the block is 32 bytes:
+    /// OpenGL ES binds uniforms in whole 16s, and wgpu refuses a pipeline
+    /// whose uniform is not, so every effect failed on a phone with no
+    /// Vulkan. The offsets are unchanged.
+    @align(16) size: vec2<f32>,
     /// Seconds into the timeline.
     time: f32,
     /// How much of the effect to keep over the untouched layer.
@@ -1438,6 +1441,36 @@ impl Entry {
     }
 }
 
+/// Aligns `struct Params`' first field to 16, which makes the struct a
+/// whole number of 16 bytes without moving a field: OpenGL ES binds
+/// uniforms in whole 16s, and wgpu refused a one-knob effect's 4-byte
+/// `Params` there, so every effect and transition failed on a phone with
+/// no Vulkan. The buffer behind it is already padded to 16 (`stitch`'s
+/// span). A field the package aligned itself is left as it is.
+fn align_params(source: &mut String) {
+    let Some(open) = source.match_indices("struct").find_map(|(at, _)| {
+        // A declaration starts its line; a comment that names it does not.
+        let line = &source[source[..at].rfind('\n').map_or(0, |n| n + 1)..at];
+        if !line.trim().is_empty() {
+            return None;
+        }
+        let rest = &source[at + "struct".len()..];
+        let name = rest.trim_start();
+        let after = name.strip_prefix("Params")?;
+        if !after.starts_with(|c: char| c.is_whitespace() || c == '{') {
+            return None;
+        }
+        Some(source.len() - after.len() + after.find('{')?)
+    }) else {
+        return;
+    };
+    let first = &source[open + 1..];
+    let field = &first[..first.find(':').unwrap_or(first.len())];
+    if !field.contains("@align") {
+        source.insert_str(open + 1, " @align(16)");
+    }
+}
+
 /// Stitches a package `body` into the host's contract for `entry`, in the
 /// edition its manifest's format asks for, parses and validates the result
 /// with naga, and reads its `Params` struct for where each declared
@@ -1486,6 +1519,7 @@ fn stitch(
     source.push_str(body);
     source.push('\n');
     source.push_str(&host);
+    align_params(&mut source);
 
     let module =
         naga::front::wgsl::parse_str(&source).map_err(|error| error.emit_to_string(&source))?;

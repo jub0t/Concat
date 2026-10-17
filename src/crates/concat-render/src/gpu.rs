@@ -2560,8 +2560,9 @@ impl WgpuCompositor {
         let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("concat pass frame"),
             // size(vec2), time, intensity, clip_time, padded to Frame's own
-            // 8-byte alignment (from its vec2 member): 20 bytes rounds to 24.
-            size: 24,
+            // 16-byte alignment (OpenGL ES's, see concat-effects' Frame):
+            // 20 bytes rounds to 32.
+            size: 32,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
