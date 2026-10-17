@@ -459,8 +459,6 @@ impl std::fmt::Display for ReadError {
 fn accelerator() -> &'static str {
     if cfg!(target_os = "macos") {
         "CoreML"
-    } else if cfg!(target_os = "windows") {
-        "DirectML"
     } else {
         "the accelerator"
     }

@@ -142,17 +142,15 @@ fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
     Some(ort::ep::CoreML::default().build())
 }
 
-#[cfg(target_os = "windows")]
-fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
-    Some(ort::ep::DirectML::default().build())
-}
-
 #[cfg(target_os = "android")]
 fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
     Some(ort::ep::NNAPI::default().build())
 }
 
-#[cfg(not(any(target_vendor = "apple", target_os = "windows", target_os = "android")))]
+// Not DirectML on Windows: the bundle ships Microsoft's CPU build of the
+// runtime, which has no DirectML, and asking it for one crashed the second
+// session a process opened - an object cutout after a person one (#399).
+#[cfg(not(any(target_vendor = "apple", target_os = "android")))]
 fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
     None
 }
