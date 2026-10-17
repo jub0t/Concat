@@ -1118,7 +1118,21 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
         // and draws every word heavier than it does today.
         let dense = self.scale_factor.get() >= 1.5;
         font.set_subpixel(dense);
-        let lcd = self.canvas.top_props().pixel_geometry() != skia_safe::PixelGeometry::Unknown;
+        // Concat: through `Canvas::props`, not `top_props`. `top_props` calls
+        // `SkCanvas::getTopProps`, which returns `SkSurfaceProps` by value, and
+        // the generated binding passes the hidden return slot first and `this`
+        // second, where MSVC's C++ ABI takes `this` first. On Windows the call
+        // reads a vtable out of the return slot and constructs the props over
+        // the canvas: a crash at the first glyph drawn (jub0t/concat#365).
+        // `getProps` takes the props as an out-parameter, so its call is the
+        // same on every platform. It reports the base props, which is what the
+        // window's swapchain surface carries; a layer draws on a surface of
+        // its own with default props, so it reads greyscale as before, and
+        // Skia itself drops LCD coverage where a device cannot show it.
+        let lcd = self
+            .canvas
+            .props()
+            .is_some_and(|props| props.pixel_geometry() != skia_safe::PixelGeometry::Unknown);
         font.set_edging(if lcd {
             skia_safe::font::Edging::SubpixelAntiAlias
         } else {
