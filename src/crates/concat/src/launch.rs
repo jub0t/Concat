@@ -6,7 +6,8 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --version | --smoke]";
+const USAGE: &str =
+    "usage: concat [--project <PROJECT_DIRECTORY> | --version | --smoke | --whisper-cpu]";
 
 /// What one run of the binary was asked to do.
 #[derive(Debug, PartialEq, Eq)]
@@ -21,6 +22,14 @@ pub enum Launch {
     /// the window's models, and exit instead of entering the event loop.
     /// For CI, which has no one to close a window.
     Smoke,
+    /// Load whisper's CPU kernels the way the first transcription does,
+    /// print the CPU they run on and exit, before logging, the GPU or a
+    /// window. For CI on an emulated older CPU: where the kernels are one
+    /// module per CPU generation, ggml opens every one of them to ask it
+    /// whether it suits, and a module whose loading alone used an
+    /// instruction the CPU lacks would crash here, not at somebody's first
+    /// transcription (#388).
+    WhisperCpu,
 }
 
 /// No arguments preserves the launch screen; a project names its directory.
@@ -33,6 +42,8 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String>
         Launch::Version
     } else if option == "--smoke" {
         Launch::Smoke
+    } else if option == "--whisper-cpu" {
+        Launch::WhisperCpu
     } else if option == "--project" {
         let path = args
             .next()
@@ -73,8 +84,10 @@ mod tests {
     fn version_and_smoke_take_no_arguments() {
         assert_eq!(parse_strs(&["--version"]).unwrap(), Launch::Version);
         assert_eq!(parse_strs(&["--smoke"]).unwrap(), Launch::Smoke);
+        assert_eq!(parse_strs(&["--whisper-cpu"]).unwrap(), Launch::WhisperCpu);
         for args in [
             vec!["--version", "--smoke"],
+            vec!["--whisper-cpu", "--version"],
             vec!["--smoke", "--project", "one"],
             vec!["--version", "extra"],
             vec!["--project", "one", "--smoke"],

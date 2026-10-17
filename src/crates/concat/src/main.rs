@@ -27,6 +27,14 @@ fn main() -> Result<(), slint::PlatformError> {
         let _ = writeln!(std::io::stdout(), "concat {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    // Before the log and the window too: what this proves is that whisper's
+    // CPU kernels load on this CPU, and nothing else should be in the way.
+    if launch == Ok(Launch::WhisperCpu) {
+        use std::io::Write;
+        let cpu = concat_speech::transcribe::cpu_backend().map_err(slint::PlatformError::Other)?;
+        let _ = writeln!(std::io::stdout(), "whisper runs on {cpu}");
+        return Ok(());
+    }
     // A desktop's console is its standard error, which a packaged build
     // has wired to nowhere; hence the file underneath it.
     concat::open_logging(None);
@@ -47,6 +55,6 @@ fn main() -> Result<(), slint::PlatformError> {
             log::error!("smoke: could not start: {error}");
         }),
         // Answered above, before the log was opened.
-        Launch::Version => Ok(()),
+        Launch::Version | Launch::WhisperCpu => Ok(()),
     }
 }

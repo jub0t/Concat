@@ -40,8 +40,10 @@ tokenizers = { version = "0.23", optional = true, default-features = false, feat
 log = { version = "0.4", features = ["std"] }
 
 # Transcription: whisper.cpp in-process. Built from source by cmake at build
-# time; on macOS with Metal so the encoder runs on the GPU.
-whisper-rs = "0.16"
+# time; on macOS with Metal so the encoder runs on the GPU. `raw-api` for
+# ggml's backend registry: where whisper.cpp is a shared build, its CPU
+# kernels are loaded by hand (transcribe.rs, `cpu_backend`).
+whisper-rs = { version = "0.16", features = ["raw-api"] }
 
 # Text to speech: the official k2-fsa bindings. Linked statically on the
 # desktop Unixes, so the binary carries no extra dylibs.

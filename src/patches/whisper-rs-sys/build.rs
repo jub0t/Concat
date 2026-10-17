@@ -102,6 +102,23 @@ fn main() {
 
     println!("cargo:rerun-if-changed=wrapper.h");
 
+    // Concat: GGML_BACKEND_DL=ON in the environment builds whisper and ggml
+    // as shared libraries and each CPU backend as a module ggml loads at run
+    // time, picking the best one the CPU can run - with
+    // GGML_CPU_ALL_VARIANTS=ON, one per x86_64 generation. That is how one
+    // bundle runs AVX2 kernels on a Haswell and still starts on a Sandy
+    // Bridge (jub0t/concat#388, #193). The published build script only
+    // builds static libraries, so the switch was not there to turn.
+    // Watched, because a library built the other way would link wrong.
+    println!("cargo:rerun-if-env-changed=GGML_BACKEND_DL");
+    println!("cargo:rerun-if-env-changed=GGML_CPU_ALL_VARIANTS");
+    let backend_dl = env::var("GGML_BACKEND_DL").is_ok_and(|value| {
+        matches!(
+            value.to_ascii_uppercase().as_str(),
+            "ON" | "1" | "TRUE" | "YES"
+        )
+    });
+
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let whisper_root = out.join("whisper.cpp");
 
@@ -182,13 +199,25 @@ fn main() {
 
     config
         .profile("Release")
-        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("BUILD_SHARED_LIBS", if backend_dl { "ON" } else { "OFF" })
         .define("WHISPER_ALL_WARNINGS", "OFF")
         .define("WHISPER_ALL_WARNINGS_3RD_PARTY", "OFF")
         .define("WHISPER_BUILD_TESTS", "OFF")
         .define("WHISPER_BUILD_EXAMPLES", "OFF")
         .very_verbose(true)
         .pic(true);
+
+    // Concat: a module build cannot tune itself to the machine it is built
+    // on; ggml refuses the two together. The variants are the tuning.
+    // Off said outright otherwise: the forwarding below only passes what
+    // the environment holds, and an OUT_DIR configured with them on keeps
+    // them in its CMake cache, which then refuses the static build.
+    if backend_dl {
+        config.define("GGML_NATIVE", "OFF");
+    } else {
+        config.define("GGML_BACKEND_DL", "OFF");
+        config.define("GGML_CPU_ALL_VARIANTS", "OFF");
+    }
 
     if cfg!(target_os = "windows") {
         config.cxxflag("/utf-8");
@@ -303,6 +332,88 @@ fn main() {
     add_link_search_path(&out.join("build")).unwrap();
 
     println!("cargo:rustc-link-search=native={}", destination.display());
+    if backend_dl {
+        link_shared(&destination, &out);
+    } else {
+        link_static();
+    }
+
+    println!(
+        "cargo:WHISPER_CPP_VERSION={}",
+        get_whisper_cpp_version(&whisper_root)
+            .expect("Failed to read whisper.cpp CMake config")
+            .expect("Could not find whisper.cpp version declaration"),
+    );
+
+    // for whatever reason this file is generated during build and triggers cargo complaining
+    _ = std::fs::remove_file("bindings/javascript/package.json");
+}
+
+// Concat: the shared build's linking. Only whisper, ggml and ggml-base are
+// linked; every backend, the CPU's variants among them, is a module ggml
+// loads itself and is never linked. The import libraries are in lib/, and
+// on Windows the DLLs in bin/ - cargo puts native search paths inside the
+// target directory on PATH for `cargo run` and `cargo test`, so naming bin/
+// is what lets those find them.
+fn link_shared(destination: &std::path::Path, out: &std::path::Path) {
+    for dir in ["lib", "lib64", "bin"] {
+        if destination.join(dir).is_dir() {
+            println!("cargo:rustc-link-search=native={}", destination.join(dir).display());
+        }
+    }
+    println!("cargo:rustc-link-lib=dylib=whisper");
+    println!("cargo:rustc-link-lib=dylib=ggml");
+    println!("cargo:rustc-link-lib=dylib=ggml-base");
+    copy_runtime(destination, out);
+}
+
+// Concat: every runtime library of the shared build - whisper, ggml,
+// ggml-base and the backend modules - copied into the profile directory
+// (target/[<triple>/]<profile>/), beside the programs cargo builds there,
+// so a `cargo run` program finds its CPU backends next to itself, where
+// they are looked for. A release bundle is staged from OUT_DIR's own
+// install instead (build-app.yml): a build CI's cache satisfies does not
+// run this script again to make the copies. Symbolic links
+// (libwhisper.so.1 -> libwhisper.so.1.8.3) are copied as links.
+fn copy_runtime(destination: &std::path::Path, out: &std::path::Path) {
+    // OUT_DIR is <profile>/build/whisper-rs-sys-<hash>/out.
+    let Some(profile) = out.ancestors().nth(3) else {
+        println!("cargo:warning=no profile directory above {}", out.display());
+        return;
+    };
+    for dir in ["bin", "lib", "lib64"] {
+        let Ok(entries) = std::fs::read_dir(destination.join(dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let text = name.to_string_lossy();
+            let runtime = text.ends_with(".dll")
+                || text.ends_with(".dylib")
+                || text.ends_with(".so")
+                || text.contains(".so.");
+            let ours = text.contains("whisper") || text.contains("ggml");
+            if !runtime || !ours {
+                continue;
+            }
+            let from = entry.path();
+            let to = profile.join(&name);
+            let _ = std::fs::remove_file(&to);
+            let copied = match std::fs::read_link(&from) {
+                #[cfg(unix)]
+                Ok(target) => std::os::unix::fs::symlink(target, &to),
+                _ => std::fs::copy(&from, &to).map(|_| ()),
+            };
+            if let Err(error) = copied {
+                panic!("could not copy {} to {}: {error}", from.display(), to.display());
+            }
+        }
+    }
+}
+
+// The published crate's linking, unchanged, moved out of `main` so the
+// shared build can take its place (Concat).
+fn link_static() {
     if cfg!(feature = "intel-sycl") {
         println!("cargo:rustc-link-lib=whisper");
         println!("cargo:rustc-link-lib=ggml");
@@ -344,16 +455,6 @@ fn main() {
     if cfg!(feature = "intel-sycl") {
         println!("cargo:rustc-link-lib=ggml-sycl");
     }
-
-    println!(
-        "cargo:WHISPER_CPP_VERSION={}",
-        get_whisper_cpp_version(&whisper_root)
-            .expect("Failed to read whisper.cpp CMake config")
-            .expect("Could not find whisper.cpp version declaration"),
-    );
-
-    // for whatever reason this file is generated during build and triggers cargo complaining
-    _ = std::fs::remove_file("bindings/javascript/package.json");
 }
 
 // From https://github.com/alexcrichton/cc-rs/blob/fba7feded71ee4f63cfe885673ead6d7b4f2f454/src/lib.rs#L2462

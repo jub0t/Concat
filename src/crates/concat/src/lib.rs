@@ -2031,6 +2031,23 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // loop's end takes below, for the same reason - the engine's threads
     // are not waited on.
     if smoke {
+        // whisper's CPU kernels, which the x86_64 Windows and Linux bundles
+        // carry as modules beside the program, one per CPU generation, for
+        // ggml to choose from (#388). A bundle without them starts and
+        // fails at its first transcription, so the smoke run loads them.
+        // Not elsewhere: there they are linked in, and asking ggml for its
+        // devices would only bring Metal up on a Mac runner for nothing.
+        #[cfg(all(
+            target_arch = "x86_64",
+            any(target_os = "windows", target_os = "linux")
+        ))]
+        match concat_speech::transcribe::cpu_backend() {
+            Ok(cpu) => log::info!("smoke: whisper runs on {cpu}"),
+            Err(error) => {
+                log::error!("smoke: {error}");
+                leave(1);
+            }
+        }
         log::info!("smoke: ok");
         leave(0);
     }

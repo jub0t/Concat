@@ -12,7 +12,9 @@
 #       to open the NVIDIA driver's CUDA or NVENC libraries, which nothing
 #       should touch before a person asks for a hardware export. With
 #       --sde, `--version` again under Intel's emulator posing as an Ivy
-#       Bridge (AVX, no AVX2), the oldest CPU the x86_64 bundle promises.
+#       Bridge (AVX, no AVX2), the oldest CPU the x86_64 bundle promises,
+#       and `--whisper-cpu`, loading whisper's CPU kernels, posing as a
+#       Sandy Bridge.
 #
 #   smoke-linux.sh --container IMAGE DEB APPIMAGE
 #       The packages, in a clean IMAGE (ubuntu:22.04, debian:12) through
@@ -104,6 +106,14 @@ host() {
     # The emulator stops the program at the first instruction the chip
     # it poses as does not have, and says which.
     HOME=$(fresh_home) expect_ok "concat --version under SDE -ivb" 600 "$sde" -ivb -- "$bin" --version
+
+    # whisper's CPU kernels, one module per CPU generation: ggml opens
+    # every one to score it against the CPU before it keeps the best, so
+    # the Haswell and Ice Lake modules are loaded here too, on a Sandy
+    # Bridge - AVX without even F16C, like #318's i7-2600 - which must
+    # come out with the sandybridge module and no illegal instruction.
+    say "concat --whisper-cpu on an emulated Sandy Bridge"
+    HOME=$(fresh_home) expect_ok "concat --whisper-cpu under SDE -snb" 600 "$sde" -snb -- "$bin" --whisper-cpu
   fi
 }
 

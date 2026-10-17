@@ -44,6 +44,24 @@ vcruntime140*.dll              any
 msvcp140*.dll                  any
 concrt140.dll                  any
 
+# whisper's CPU kernels, one module per x86_64 generation, of which ggml
+# loads only the best one the CPU's CPUID says it can run (build-app.yml,
+# GGML_BACKEND_DL; concat-speech's `cpu_backend`). Those for Haswell and
+# newer, and AMD's Piledriver, are built for their generation as a whole
+# and never load on an older CPU. The ones an Ivy Bridge or a Sandy Bridge
+# loads - x64, sse42, sandybridge, ivybridge - have no row, so they may
+# hold none of it, and neither may whisper, ggml and ggml-base themselves.
+*ggml-cpu-piledriver.*         any
+*ggml-cpu-haswell.*            any
+*ggml-cpu-skylakex.*           any
+*ggml-cpu-cannonlake.*         any
+*ggml-cpu-cascadelake.*        any
+*ggml-cpu-icelake.*            any
+*ggml-cpu-cooperlake.*         any
+*ggml-cpu-zen4.*               any
+*ggml-cpu-alderlake.*          any
+*ggml-cpu-sapphirerapids.*     any
+
 # Concat itself. It holds dispatched code of its own - memchr, aho-corasick
 # and ring choose AVX2 or BMI2 paths at run time (ring's hand-written
 # cryptography is where mulx and rorx come from), and Skia carries its

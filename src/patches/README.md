@@ -38,3 +38,29 @@ And one for Android, marked the same way:
   it, the way `create_default_surface` falls back on every other platform.
 
 Nothing else differs from the published crate.
+
+## whisper-rs-sys 0.15.0
+
+whisper.cpp's Rust build. The published build script builds whisper and
+ggml as static libraries only, so ggml's CPU kernels are compiled for one
+instruction set: AVX2 crashed Sandy and Ivy Bridge machines at launch
+(jub0t/concat#193), and AVX alone made transcription some eight times
+slower everywhere else (#388). One change, marked `Concat:` in `build.rs`:
+
+- `GGML_BACKEND_DL=ON` in the environment builds whisper, ggml and
+  ggml-base as shared libraries and every backend as a module ggml loads
+  at run time, links the three libraries rather than the static archives,
+  and copies the runtime files into the profile directory for `cargo run`.
+  With `GGML_CPU_ALL_VARIANTS=ON` the CPU backend is one module per x86_64
+  generation, and ggml loads the best one the CPU can run; concat-speech's
+  `cpu_backend` tells it where to look. build-app.yml turns both on for the
+  x86_64 Windows and Linux bundles. Unset, the build is the published one.
+
+And the copy is smaller than the published crate: ggml's GPU backends that
+no build of Concat compiles (CANN, CUDA, Hexagon, HIP, MUSA, OpenCL, RPC,
+SYCL, Vulkan, WebGPU, zDNN, ZenDNN) are left out of
+`whisper.cpp/ggml/src`, so the crate's `cuda`, `hipblas`, `vulkan` and
+`intel-sycl` features no longer build. CMake only enters a backend's folder
+when that backend is turned on. `Cargo.lock` and the crate's registry
+metadata files are left out too. Nothing else differs from the published
+crate.

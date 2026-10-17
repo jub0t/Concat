@@ -134,6 +134,90 @@ unsafe extern "C" fn abort_when_set(user_data: *mut std::ffi::c_void) -> bool {
     unsafe { (*(user_data as *const AtomicBool)).load(Ordering::Relaxed) }
 }
 
+/// Makes sure whisper has a CPU to run on, and names that CPU.
+///
+/// A build linked whisper statically - every one but the x86_64 Windows and
+/// Linux bundles - has its CPU backend from the start. Those two link it as
+/// shared libraries, with the kernels in one module per x86_64 generation
+/// (ggml-cpu-sandybridge, -haswell, -icelake, ...), and ggml registers
+/// nothing until it is told where to look: it then scores every module it
+/// finds against the CPU and loads the best one. That is how the same
+/// bundle runs AVX2, FMA and F16C on a Haswell or a Ryzen - eight times as
+/// fast as the AVX-only build on a Ryzen 5 2600 (#388) - and still runs on
+/// a Sandy Bridge (#193, #318).
+///
+/// The modules are beside the program on Windows and in its lib/ folder on
+/// Linux; a `cargo test` binary is one folder further down, in deps/.
+/// Only those folders are searched - not the working directory, which ggml
+/// would otherwise also look in. ggml logs which module it chose.
+///
+/// Called once per process; later calls answer from the first.
+pub fn cpu_backend() -> Result<String, String> {
+    use whisper_rs::whisper_rs_sys as sys;
+
+    fn cpu() -> Option<String> {
+        // SAFETY: a lookup in ggml's registry of devices, which ggml
+        // guards itself; the description is a C string ggml owns for the
+        // life of the process.
+        unsafe {
+            let device = sys::ggml_backend_dev_by_type(
+                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_CPU,
+            );
+            if device.is_null() {
+                return None;
+            }
+            let description = sys::ggml_backend_dev_description(device);
+            Some(if description.is_null() {
+                "CPU".to_owned()
+            } else {
+                std::ffi::CStr::from_ptr(description)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+        }
+    }
+
+    static LOADED: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    LOADED
+        .get_or_init(|| {
+            if let Some(cpu) = cpu() {
+                return Ok(cpu);
+            }
+            let program = std::env::current_exe()
+                .map_err(|error| format!("could not find the program's folder: {error}"))?;
+            let beside = program.parent().unwrap_or(std::path::Path::new("."));
+            let mut folders = vec![beside.to_path_buf(), beside.join("lib")];
+            if beside.file_name().is_some_and(|name| name == "deps")
+                && let Some(profile) = beside.parent()
+            {
+                folders.push(profile.to_path_buf());
+            }
+            for folder in &folders {
+                // ggml reads the path as UTF-8 on every platform.
+                let Some(text) = folder.to_str() else {
+                    continue;
+                };
+                let Ok(path) = std::ffi::CString::new(text) else {
+                    continue;
+                };
+                // SAFETY: a NUL-terminated path that outlives the call.
+                unsafe { sys::ggml_backend_load_all_from_path(path.as_ptr()) };
+                if let Some(cpu) = cpu() {
+                    log::info!(
+                        "whisper: CPU kernels loaded from {}: {cpu}",
+                        folder.display()
+                    );
+                    return Ok(cpu);
+                }
+            }
+            Err(format!(
+                "whisper's CPU kernels (ggml-cpu-*) are missing from {} - reinstall Concat",
+                folders[0].display()
+            ))
+        })
+        .clone()
+}
+
 fn model_file(dirs: &AppDirs, id: &str) -> Result<PathBuf, String> {
     // Ids come from our own table; anything else is a bug, not input.
     known(id).ok_or_else(|| format!("unknown model {id:?}"))?;
@@ -373,6 +457,7 @@ impl Transcriber {
         if loaded.as_ref().map(|model| model.id.as_str()) != Some(request.model_id.as_str()) {
             // Load before overwriting: a failed load keeps the old model.
             progress(JobStage::Loading);
+            cpu_backend()?;
             let context =
                 WhisperContext::new_with_params(&model_path, WhisperContextParameters::default())
                     .map_err(|error| format!("could not load the model: {error}"))?;

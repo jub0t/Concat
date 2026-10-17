@@ -25,7 +25,9 @@
 # Not every one of those is a fault waiting to happen. A library that asks
 # the CPU what it has at run time and picks its kernels by the answer
 # carries AVX2 code it never runs on an older machine: FFmpeg's codecs and
-# scalers, ONNX Runtime's MLAS, sherpa-onnx. And a statically linked binary
+# scalers, ONNX Runtime's MLAS, sherpa-onnx. whisper's CPU kernels are one
+# module per CPU generation, of which ggml loads the one the CPU can run,
+# so the Haswell-and-newer modules are allowed what the rest are not. And a statically linked binary
 # carries such code too - memchr, aho-corasick, ring and Skia all dispatch
 # this way - so a count of zero is not what to expect from concat itself.
 # scripts/ci/isa-allow.txt says, per file, how much of each class is

@@ -18,7 +18,8 @@
 #    the first frame of the window, then the program leaves.
 # 4. With -Sde, `--version` again under Intel's emulator posing as an Ivy
 #    Bridge (AVX, nothing newer), which stops the program at the first
-#    instruction that chip does not have. x86_64 only.
+#    instruction that chip does not have; then `--whisper-cpu`, loading
+#    whisper's CPU kernels, posing as a Sandy Bridge. x86_64 only.
 #
 # concat.exe is a GUI program: it has no console, so it is judged by its
 # exit code and not by what it prints. Windows' error dialogs are turned
@@ -179,6 +180,14 @@ if ($Sde) {
   # The emulator's own folder too: it loads its pieces from beside itself.
   $path = (Split-Path $sdeExe) + ";" + $bare
   Expect-Ok "concat.exe --version under SDE -ivb" $sdeExe @("-ivb", "--", $exe, "--version") $path 600
+
+  # whisper's CPU kernels, one DLL per CPU generation: ggml loads every
+  # one to score it against the CPU before it keeps the best, so the
+  # Haswell and Ice Lake DLLs are loaded here too, on a Sandy Bridge - AVX
+  # without even F16C, like #318's i7-2600 - which must come out with the
+  # sandybridge DLL and no illegal instruction.
+  Say "concat.exe --whisper-cpu on an emulated Sandy Bridge"
+  Expect-Ok "concat.exe --whisper-cpu under SDE -snb" $sdeExe @("-snb", "--", $exe, "--whisper-cpu") $path 600
 }
 
 Say "ok"

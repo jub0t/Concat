@@ -142,6 +142,8 @@ incremental = false
 # bump it with Slint, re-applying the change.
 [patch.crates-io]
 i-slint-renderer-skia = { path = "patches/i-slint-renderer-skia" }
-# whisper.cpp's Rust build, as published, less the GPU backends no build
-# of Concat compiles. 0.15.0 exactly; bump it with whisper-rs.
+# whisper.cpp's Rust build, as published, able to build ggml as shared
+# libraries with one CPU backend per x86_64 generation chosen at run time
+# (see patches/README.md, and GGML_BACKEND_DL in build-app.yml). 0.15.0
+# exactly; bump it with whisper-rs, re-applying the change.
 whisper-rs-sys = { path = "patches/whisper-rs-sys" }

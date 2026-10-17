@@ -100,20 +100,11 @@ env:
   # ggml (whisper.cpp's kernels) tunes itself to the machine it is built
   # on unless told otherwise, and these bundles run on other machines: a
   # runner with AVX-512 or SVE would leave a binary that faults on a CPU
-  # without them. Off, ggml does not probe the runner - but its own
-  # instruction-set switches still default to on, which on x86_64 means
-  # AVX2 with FMA, F16C and BMI2: the whole CPU backend is compiled with
-  # /arch:AVX2 (or -mavx2) and the editor dies at launch with an illegal
-  # instruction on a Sandy Bridge or Ivy Bridge machine, which has AVX
-  # and nothing newer (#193). The baseline is AVX: every x86_64 CPU since
-  # 2011 runs it, and whisper on the CPU is somewhat slower for the rest.
-  # NEON on ARM, where these switches are not read. whisper-rs-sys
-  # forwards every GGML_* variable to CMake as a define.
+  # without them. Off, ggml does not probe the runner. whisper-rs-sys
+  # forwards every GGML_* variable to CMake as a define. The instruction
+  # sets each target's kernels are built for are the job's, by its `ggml`
+  # row in the matrix; see the job's `env`.
   GGML_NATIVE: "OFF"
-  GGML_AVX2: "OFF"
-  GGML_FMA: "OFF"
-  GGML_F16C: "OFF"
-  GGML_BMI2: "OFF"
 
 jobs:
   app:
@@ -134,6 +125,10 @@ jobs:
             os: macos-15-intel
             target: x86_64-apple-darwin
             sherpa: osx-x64
+            # No `ggml` row: built as 0.2.7 was, with no AVX2. This bundle
+            # runs on macOS 12 again, and so on the 2013 Mac Pro, whose Ivy
+            # Bridge has AVX and nothing newer; Intel Macs are about one
+            # download in a hundred, and slower captions there beat a crash.
           # 22.04, not latest: the binary links the build machine's glibc,
           # so the oldest supported runner is what keeps it runnable on
           # older distributions.
@@ -146,6 +141,7 @@ jobs:
             ort: x64
             nfpm: amd64
             appimage: x86_64
+            ggml: variants
           - platform: linux
             arch: aarch64
             os: ubuntu-22.04-arm
@@ -166,6 +162,7 @@ jobs:
             vc: x64
             inno: x64compatible
             wix: x64
+            ggml: variants
           # No Windows on ARM until its program starts: v0.2.7-rc.4's
           # concat.exe died with an access violation on `--version` (#326).
           # Its row was platform windows, arch aarch64, os windows-11-arm,
@@ -177,6 +174,42 @@ jobs:
     # at most 155 minutes between them on any one target, so a stuck step
     # is named by its own timeout; this is for a job stuck anywhere else.
     timeout-minutes: 190
+    env:
+      # What whisper's CPU kernels are built for on x86_64, by the matrix's
+      # `ggml` row. ggml's own switches default to AVX2 with FMA, F16C and
+      # BMI2, compiled into the whole CPU backend - and the editor died at
+      # launch with an illegal instruction on an Ivy Bridge, which has AVX
+      # and nothing newer (#193). 0.2.6 and 0.2.7 built with all four off,
+      # so those machines start, and every other one transcribed some
+      # eight times slower: 324 s for 43 s of sound on a Ryzen 5 2600, 40 s
+      # with AVX2 (#388). Two answers, by target:
+      #
+      # - `variants` (Windows and Linux x86_64): whisper and ggml are built
+      #   as shared libraries and the CPU backend as one module per x86_64
+      #   generation - ggml-cpu-x64, -sse42, -sandybridge, -haswell,
+      #   -skylakex, -icelake, -alderlake and more - shipped beside the
+      #   program. At the first transcription ggml scores each against the
+      #   CPU's CPUID and loads the best it can run (concat-speech's
+      #   `cpu_backend`), so a Haswell or a Ryzen gets AVX2 and FMA, and a
+      #   Sandy Bridge the AVX kernels it had. The modules are what the
+      #   whisper.cpp and llama.cpp projects ship their own x86 builds as.
+      #   The published whisper-rs-sys can only build static libraries;
+      #   src/patches/whisper-rs-sys adds the shared build, chosen by
+      #   GGML_BACKEND_DL. Nothing else in the bundle may hold AVX2: the
+      #   instruction-set scan allows it in the Haswell-and-newer modules
+      #   alone (scripts/ci/isa-allow.txt).
+      # - none (macOS x86_64): all four off, as before. It declares macOS 12,
+      #   which the 2013 Mac Pro runs, and that is an Ivy Bridge.
+      #
+      # Everything else is ARM, which reads none of these. The `haswell`
+      # answer - built for Haswell outright - is kept for a target that
+      # only runs on AVX2 machines.
+      GGML_BACKEND_DL: ${{ matrix.ggml == 'variants' && 'ON' || 'OFF' }}
+      GGML_CPU_ALL_VARIANTS: ${{ matrix.ggml == 'variants' && 'ON' || 'OFF' }}
+      GGML_AVX2: ${{ matrix.ggml == 'haswell' && 'ON' || 'OFF' }}
+      GGML_FMA: ${{ matrix.ggml == 'haswell' && 'ON' || 'OFF' }}
+      GGML_F16C: ${{ matrix.ggml == 'haswell' && 'ON' || 'OFF' }}
+      GGML_BMI2: ${{ matrix.ggml == 'haswell' && 'ON' || 'OFF' }}
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -698,6 +731,24 @@ jobs:
           cp "src/target/${{ matrix.target }}/app/concat" "stage/$name/concat"
           cp -a ffmpeg-dev/lib/*.so* "stage/$name/lib/"
           cp -a "$ORT_DIR"/lib/libonnxruntime.so* "stage/$name/lib/"
+          # whisper's shared libraries and its CPU modules, one per x86_64
+          # generation (the job's `env` says why), from where whisper-rs-sys
+          # installed them: libraries in lib/, modules in bin/. Its build
+          # also copies them beside the binary, for `cargo run`, but a build
+          # the cache satisfied does not run that script again, and the
+          # cache does not promise to keep loose files at the top of a
+          # profile. In lib/ the rpath finds the libraries and
+          # concat-speech's `cpu_backend` the modules.
+          if [ "${{ matrix.ggml }}" = variants ]; then
+            out=$(ls -dt "src/target/${{ matrix.target }}/app/build"/whisper-rs-sys-*/out/bin | head -1)
+            out=${out%/bin}
+            echo "whisper's build: $out"
+            cp -a "$out"/lib*/libwhisper.so* "$out"/lib*/libggml*.so* "$out"/bin/libggml-cpu-*.so "stage/$name/lib/"
+            for module in x64 sandybridge haswell; do
+              test -f "stage/$name/lib/libggml-cpu-$module.so" \
+                || { echo "libggml-cpu-$module.so is missing from the build" >&2; exit 1; }
+            done
+          fi
           cp assets/icons/concat_logo_256.png "stage/$name/concat.png"
           cat > "stage/$name/concat.desktop" <<DESKTOP
           [Desktop Entry]
@@ -923,6 +974,21 @@ jobs:
           # The sherpa-onnx runtime, set aside by the download step above.
           Copy-Item "$env:SHERPA_DLL_DIR\*.dll" $dir
           Copy-Item "$env:ORT_DIR\lib\*.dll" $dir
+          # whisper's DLLs and its CPU modules, one per x86_64 generation
+          # (the job's `env` says why), from the bin\ whisper-rs-sys
+          # installed them to; see the Linux stage for why not from beside
+          # the program. Beside concat.exe Windows finds the DLLs and
+          # concat-speech's `cpu_backend` the modules.
+          if ("${{ matrix.ggml }}" -eq "variants") {
+            $built = Get-ChildItem "src\target\${{ matrix.target }}\app\build\whisper-rs-sys-*\out\bin\ggml-cpu-x64.dll" |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if (-not $built) { throw "whisper-rs-sys installed no ggml-cpu-x64.dll" }
+            Write-Host "whisper's build: $($built.DirectoryName)"
+            Copy-Item "$($built.DirectoryName)\whisper.dll", "$($built.DirectoryName)\ggml*.dll" $dir
+            foreach ($module in "x64", "sandybridge", "haswell") {
+              if (-not (Test-Path "$dir\ggml-cpu-$module.dll")) { throw "ggml-cpu-$module.dll is missing from the build" }
+            }
+          }
           Copy-Item LICENSE, THIRD_PARTY_NOTICES.md $dir
           # The Visual C++ runtime DLLs anything in the folder imports, from
           # the newest redistributable folder Visual Studio carries.
