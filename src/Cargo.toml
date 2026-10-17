@@ -142,3 +142,6 @@ incremental = false
 # bump it with Slint, re-applying the change.
 [patch.crates-io]
 i-slint-renderer-skia = { path = "patches/i-slint-renderer-skia" }
+# whisper.cpp's Rust build, as published, less the GPU backends no build
+# of Concat compiles. 0.15.0 exactly; bump it with whisper-rs.
+whisper-rs-sys = { path = "patches/whisper-rs-sys" }
