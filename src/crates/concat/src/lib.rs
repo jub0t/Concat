@@ -1786,9 +1786,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                             state.seek(end);
                         }
                         "delete" => state.delete_selected(),
+                        // The selected clips, as the tray's button splits, or
+                        // everything under the playhead when none is.
                         "split" => {
                             let at = state.playhead;
-                            state.split_at(at, false);
+                            state.split_at(at, true);
                         }
                         "save" => state.save(true),
                         _ => {}

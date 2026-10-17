@@ -10249,9 +10249,12 @@ impl Studio {
     pub fn shortcut(&mut self, action: &str) {
         log::info!("shortcut: {action}");
         match action {
+            // The selected clips when there are any, as the tray's button
+            // and the menu split: the chord cut every track under the
+            // playhead whatever was selected, titles and music with it.
             "split" => {
                 let at = self.playhead;
-                self.split_at(at, false);
+                self.split_at(at, true);
             }
             "split-selected" => {
                 let at = self.playhead;
