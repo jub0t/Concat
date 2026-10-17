@@ -96,11 +96,12 @@ fn down(uv: vec2<f32>) -> vec4<f32> {
 
 /// The halo's colour at a tint: negative the deep red of a dense negative,
 /// positive the orange of a print, zero the red-orange of the stock.
+/// A straight line in the tint: red held full while green and blue rise with
+/// it, from the deep red at -100 through the red-orange at 0 to the orange at
+/// 100. Zero and 100 are the colours `fixtures.toml` was pinned with.
 fn halation_tint(t: f32) -> vec3<f32> {
-    // LAB EXPERIMENT: red-orange stock swapped for a cyan halo, to prove
-    // the package's own WGSL is what runs, not the built-in's.
-    _ = t;
-    return vec3<f32>(0.15, 0.75, 1.0);
+    let s = t / 100.0;
+    return vec3<f32>(1.0, 0.42 + 0.30 * s, 0.16 + 0.12 * s);
 }
 
 fn effect(uv: vec2<f32>) -> vec4<f32> {

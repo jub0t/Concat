@@ -1,14 +1,14 @@
 format = 2
 
 [effect]
-id = "lab.corona"
+id = "concat.corona"
 name = "Corona"
 version = 1
 kind = "effect"
 category = "Film"
 order = 151
 intensity = "amount"
-aliases = ["corona"]
+aliases = ["corona", "lab.corona"]
 description = "A cool blue-white corona gathered off the picture's blown highlights by a golden-angle spiral blur - built from nothing, not a port of the stock halation."
 
 [[param]]

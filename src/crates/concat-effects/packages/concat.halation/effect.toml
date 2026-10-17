@@ -1,14 +1,14 @@
 format = 2
 
 [effect]
-id = "lab.halation"
+id = "concat.halation"
 name = "Halation"
 version = 2
 kind = "effect"
 category = "Film"
 order = 150
 intensity = "amount"
-aliases = ["lab-halation"]
+aliases = ["lab-halation", "lab.halation"]
 description = "The red-orange halo film lays around its blown highlights, where light passes through the emulsion, scatters off the backing and comes back."
 
 [[param]]
