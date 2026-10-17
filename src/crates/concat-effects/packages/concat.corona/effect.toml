@@ -1,7 +1,7 @@
 format = 2
 
 [effect]
-id = "lab.corona"
+id = "concat.corona"
 name = "Corona"
 version = 1
 kind = "effect"
