@@ -744,6 +744,38 @@ pub fn install_export_publisher(publisher: ExportPublisher) {
     let _ = EXPORT_PUBLISHER.set(publisher);
 }
 
+/// Whether the app may record from the microphone, asking when it has not
+/// been told: on a phone, false puts the system's question up and comes
+/// back at once, and the answer is read the next time this is asked.
+/// Installed by the phone's own crate; see [`install_microphone_access`].
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub type MicrophoneAccess = Box<dyn Fn() -> bool + Send + Sync>;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static MICROPHONE_ACCESS: std::sync::OnceLock<MicrophoneAccess> = std::sync::OnceLock::new();
+
+/// Installs how a phone is asked for its microphone. Once; a second call
+/// is ignored.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn install_microphone_access(access: MicrophoneAccess) {
+    let _ = MICROPHONE_ACCESS.set(access);
+}
+
+/// Whether the microphone may be opened now. A desktop asks when the
+/// device opens, which is the system's business, so it is always yes here;
+/// a phone with nothing installed is too, and the device's own error says
+/// the rest.
+pub fn microphone_allowed() -> bool {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        MICROPHONE_ACCESS.get().is_none_or(|access| access())
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        true
+    }
+}
+
 /// Where a finished export ends up on this device when that is not the
 /// folder the export writes into: a phone's "Movies/Concat". None on a
 /// desktop, and on a phone too old to be asked, where the file stays where

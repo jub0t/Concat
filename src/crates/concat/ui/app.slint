@@ -28,6 +28,7 @@ import { RelinkDialog, RelinkData, MissingMediaItem } from "dialogs/relink.slint
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
+import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
 import { PaneKind, Panes } from "workspace/pane-switcher.slint";
@@ -62,7 +63,7 @@ export {
     SelectedClipData, SelectedTransitionData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
     TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     ChipOption, RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
-    CaptionsSheetData, SpeechSheetData,
+    CaptionsSheetData, SpeechSheetData, VoiceoverData,
 }
 
 export component App inherits Window {
@@ -321,6 +322,19 @@ export component App inherits Window {
     pure callback speech-insert-tag(text: string, tag: string, at: int) -> string;
     callback speech-begin();
     callback speech-cancel();
+
+    /// The voiceover panel; see VoiceoverPanel. Its meter and clock come
+    /// on the Editor global, from a timer.
+    in property <VoiceoverData> voiceover;
+    in property <[string]> voiceover-devices;
+    callback voiceover-closed();
+    callback voiceover-action(verb: string);
+    callback voiceover-device-changed(index: int);
+    callback voiceover-countdown-changed(on: bool);
+    callback voiceover-mute-changed(on: bool);
+    callback voiceover-gain-changed(db: float);
+    callback voiceover-prompt-edited(text: string);
+    callback voiceover-prompt-speed-changed(index: int);
 
     /// Takes focus back from whatever field holds it. The keyboard scope is
     /// where focus rests when nothing is being typed into, so giving it the
@@ -690,6 +704,37 @@ export component App inherits Window {
                 close-project => { root.app-menu-selected("close-project"); }
             }
         }
+    }
+
+    // The voiceover panel floats over the editor and under every sheet:
+    // it has no scrim, so the work beside it carries on, and a sheet put up
+    // while it is open - Export, Settings - covers it like the rest.
+    if !root.on-start: VoiceoverPanel {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        phone: root.phone;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        data: root.voiceover;
+        devices: root.voiceover-devices;
+        level: Editor.record-level;
+        rms: Editor.record-rms;
+        clipped: Editor.record-clipped;
+        seconds: Editor.record-seconds;
+        silent: Editor.record-silent;
+
+        closed => { root.voiceover-closed(); }
+        action(verb) => { root.voiceover-action(verb); }
+        device-changed(index) => { root.voiceover-device-changed(index); }
+        countdown-changed(on) => { root.voiceover-countdown-changed(on); }
+        mute-changed(on) => { root.voiceover-mute-changed(on); }
+        gain-changed(db) => { root.voiceover-gain-changed(db); }
+        prompt-edited(text) => { root.voiceover-prompt-edited(text); }
+        prompt-speed-changed(index) => { root.voiceover-prompt-speed-changed(index); }
     }
 
     // Declared last, and that is load-bearing: Slint paints siblings in

@@ -50,6 +50,8 @@ mod platform;
 /// `platform::publish_export`.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{ExportPublisher, FilePicker, install_export_publisher, install_file_picker};
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub use platform::{MicrophoneAccess, install_microphone_access};
 mod panes;
 mod prefs;
 mod presets;
@@ -95,6 +97,7 @@ use panes::settings::SettingsMsg;
 use panes::speech::SpeechMsg;
 use panes::start::StartMsg;
 use panes::timeline::TimelineMsg;
+use panes::voiceover::VoiceoverMsg;
 use studio::{ASPECTS, Models, OUTPUTS, RATES, SIZES, Studio};
 use ui::*;
 
@@ -359,6 +362,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.set_speech_samples(ModelRc::from(models.speech_samples.clone()));
         app.set_speech_sample_waves(ModelRc::from(models.speech_sample_waves.clone()));
         app.set_speech_sample_details(ModelRc::from(models.speech_sample_details.clone()));
+        app.set_voiceover_devices(ModelRc::from(models.voiceover_devices.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
         app.set_voices(ModelRc::from(models.voices.clone()));
@@ -1678,9 +1682,43 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         state.handle(Msg::Captions(CaptionsMsg::Open));
     }));
     editor.on_record_voiceover(on_window!(|state| {
-        state.handle(Msg::Voiceover(
-            crate::panes::voiceover::VoiceoverMsg::Toggle,
-        ));
+        state.handle(Msg::Voiceover(VoiceoverMsg::Toggle));
+    }));
+    app.on_voiceover_closed(on_window!(|state| {
+        state.handle(Msg::Voiceover(VoiceoverMsg::Close));
+    }));
+    app.on_voiceover_action(on_window!(|state, verb: SharedString| {
+        let msg = match verb.as_str() {
+            "record" => VoiceoverMsg::Record,
+            "pause" => VoiceoverMsg::Pause,
+            "resume" => VoiceoverMsg::Resume,
+            "stop" => VoiceoverMsg::Stop,
+            "retake" => VoiceoverMsg::Retake,
+            "retry" => VoiceoverMsg::Retry,
+            other => {
+                log::warn!("voiceover: no such action {other:?}");
+                return;
+            }
+        };
+        state.handle(Msg::Voiceover(msg));
+    }));
+    app.on_voiceover_device_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Voiceover(VoiceoverMsg::Device(index)));
+    }));
+    app.on_voiceover_countdown_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Voiceover(VoiceoverMsg::Countdown(on)));
+    }));
+    app.on_voiceover_mute_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Voiceover(VoiceoverMsg::Mute(on)));
+    }));
+    app.on_voiceover_gain_changed(on_window!(|state, db: f32| {
+        state.handle(Msg::Voiceover(VoiceoverMsg::Gain(db)));
+    }));
+    app.on_voiceover_prompt_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Voiceover(VoiceoverMsg::Prompt(text.to_string())));
+    }));
+    app.on_voiceover_prompt_speed_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Voiceover(VoiceoverMsg::PromptSpeed(index)));
     }));
     editor.on_speak(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Open));

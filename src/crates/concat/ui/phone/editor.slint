@@ -690,6 +690,17 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("phone.speak");
                 clicked => { Editor.speak(); }
             }
+            // The voiceover panel, which stands at the foot of the screen
+            // over this bar; the same press puts it away, or stops a take.
+            ToolItem {
+                glyph: Glyph.mic;
+                label: I18n.t("phone.voiceover");
+                current: Editor.recording;
+                clicked => {
+                    root.hide();
+                    Editor.record-voiceover();
+                }
+            }
             ToolItem {
                 glyph: Glyph.info;
                 label: I18n.t("phone.project");

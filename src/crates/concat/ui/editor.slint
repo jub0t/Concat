@@ -367,12 +367,24 @@ export global Editor {
     /// of the clip's own menu - see `clip-context`.
     callback captions();
     callback speak();
-    /// The tray's record button: starts a voiceover take, or stops it.
+    /// The tray's record button: opens the voiceover panel, closes it, or
+    /// stops the take it is running.
     callback record-voiceover();
-    /// A voiceover take is running.
+    /// A voiceover take is under way: counting in, recording or paused.
     in-out property <bool> recording;
-    /// The take's level, `0..1`, for the meter beside the button.
+    /// The microphone while the voiceover panel is open, as positions
+    /// along a meter, `0..1`: the peak (beside the tray's button too) and
+    /// the power. Set by a timer thirty times a second, not by a publish.
     in-out property <float> record-level;
+    in-out property <float> record-rms;
+    /// A sample reached the top lately: the panel's clip light.
+    in-out property <bool> record-clipped;
+    /// The take's length so far, pauses left out: the panel's clock and
+    /// what its teleprompter scrolls by.
+    in-out property <float> record-seconds;
+    /// The microphone has given nothing but silence since it opened: a
+    /// system that keeps it from the app tends to hand over zeros.
+    in-out property <bool> record-silent;
     callback add-track(bottom: bool);
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);

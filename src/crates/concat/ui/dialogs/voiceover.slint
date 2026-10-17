@@ -1,0 +1,593 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button } from "../primitives/modal.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { LevelMeter } from "../primitives/level-meter.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
+import { Rail, Switch } from "../inspector/controls.slint";
+import { Fmt } from "../util.slint";
+
+// The voiceover panel: what the tray's microphone opens.
+//
+// Not a sheet. A sheet puts a scrim over the editor, and a voiceover is
+// recorded over the editor - the picture rolling in the monitor, the
+// playhead crossing the lanes, a clip trimmed between takes - so the panel
+// floats beside the work instead, with nothing behind it held back. On a
+// desk it is a card that goes where its header is dragged and stays inside
+// the window; on a phone it is a sheet at the foot of the screen, over the
+// bar and the lanes, with the monitor left in view above it.
+//
+// Everything it shows is Rust's: the take's state, the microphones, the
+// choices, remembered between runs. The meter and the clock arrive on the
+// Editor global thirty times a second from a timer, not through this
+// struct, so a reading is not a publish of the whole window.
+export struct VoiceoverData {
+    open: bool,
+    /// 0 ready, 1 counting in, 2 recording, 3 paused.
+    phase: int,
+    /// Seconds left of the count-in.
+    count: int,
+    /// The microphone is being opened.
+    waiting: bool,
+    /// A microphone is open and listening.
+    ready: bool,
+    /// Which of the listed microphones it is.
+    device: int,
+    /// Three seconds counted in before a take.
+    countdown: bool,
+    /// The timeline is silent while a take records.
+    mute: bool,
+    /// The input gain, in decibels.
+    gain: float,
+    /// Why there is no microphone, or what last went wrong; empty when
+    /// all is well.
+    error: string,
+    /// There is a take to throw away and go again from: the one running,
+    /// or the one that landed last.
+    can-retake: bool,
+    /// The teleprompter's script.
+    prompt: string,
+    /// How fast it scrolls: 0 slow, 1 steady, 2 fast.
+    prompt-speed: int,
+}
+
+// The transport's middle button: round, the size of a thumb, and the one
+// thing on the panel worth reaching for blind. A red dot is Record and
+// Resume, as on every recorder; two bars are Pause.
+component TransportButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> dot;
+    in property <Glyph> glyph: Glyph.none;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    property <bool> lit: touch.has-hover && root.enabled;
+
+    width: 52px;
+    height: 52px;
+    border-radius: self.width / 2;
+    background: touch.pressed ? Theme.field-active : root.lit ? Theme.field-hover : Theme.field;
+    border-width: 1px;
+    border-color: root.lit ? Theme.line-strong : Theme.line;
+    opacity: root.enabled ? 1.0 : 0.45;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    if root.dot: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        border-radius: self.width / 2;
+        background: Theme.danger;
+    }
+    if !root.dot: Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.glyph;
+        size: 20px;
+        tint: Theme.fg;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A switch with its words before it, on the panel's own margins.
+component ChoiceRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+
+    callback toggled(on: bool);
+
+    spacing: 8px;
+    min-height: 26px;
+
+    Text {
+        horizontal-stretch: 1;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            checked: root.checked;
+            enabled: root.enabled;
+            toggled(on) => { root.toggled(on); }
+        }
+    }
+}
+
+export component VoiceoverPanel inherits Rectangle {
+    in property <VoiceoverData> data;
+    in property <[string]> devices;
+    in property <bool> phone;
+    in property <length> inset-top;
+    in property <length> inset-bottom;
+    in property <length> inset-left;
+    in property <length> inset-right;
+    /// The live feed: the meter's peak and power as positions along the
+    /// bar, the clip light, the take's length so far, and whether the
+    /// microphone has given nothing but silence since it opened.
+    in property <float> level;
+    in property <float> rms;
+    in property <bool> clipped;
+    in property <float> seconds;
+    in property <bool> silent;
+
+    callback closed();
+    /// The transport, by verb: record, pause, resume, stop, retake, retry.
+    callback action(verb: string);
+    callback device-changed(index: int);
+    callback countdown-changed(on: bool);
+    callback mute-changed(on: bool);
+    callback gain-changed(db: float);
+    callback prompt-edited(text: string);
+    callback prompt-speed-changed(index: int);
+
+    visible: root.data.open;
+
+    property <bool> taking: root.data.phase == 2 || root.data.phase == 3;
+    property <bool> busy: root.data.phase != 0;
+
+    // The script and the slider hold their own copies, seeded from the
+    // data the way the speech sheet's are: a TextInput or a Rail writes to
+    // the property it is bound to, which drops the binding.
+    property <string> draft;
+    property <bool> typing;
+    property <float> gain-v;
+    /// The script is shown: when there is one, or once asked for.
+    property <bool> show-prompt;
+    changed data => {
+        if (!root.typing) {
+            root.draft = root.data.prompt;
+        }
+        root.gain-v = root.data.gain;
+    }
+    init => {
+        root.draft = root.data.prompt;
+        root.gain-v = root.data.gain;
+    }
+
+    // Where the card sits on a desk: its home under the title strip at the
+    // right, over the inspector, moved by however far its header has been
+    // dragged - and kept wholly inside the window, the drag included, so
+    // pulling it back from an edge moves it at once.
+    property <length> card-w: root.phone ? root.width - root.inset-left - root.inset-right : 340px;
+    property <length> home-x: root.width - root.card-w - 16px - root.inset-right;
+    property <length> home-y: 48px + root.inset-top;
+    property <length> dx;
+    property <length> dy;
+    property <length> min-dx: 8px - root.home-x;
+    property <length> max-dx: root.width - root.card-w - 8px - root.home-x;
+    property <length> min-dy: 8px - root.home-y;
+    property <length> max-dy: root.height - card.height - 8px - root.home-y;
+
+    /// Lines a second the teleprompter climbs at, as pixels.
+    property <float> prompt-rate: root.data.prompt-speed == 0 ? 9
+        : root.data.prompt-speed == 2 ? 22 : 14;
+
+    card := Rectangle {
+        x: root.phone ? root.inset-left
+            : root.home-x + Math.max(root.min-dx, Math.min(root.max-dx, root.dx));
+        y: root.phone ? root.height - self.height - root.inset-bottom
+            : root.home-y + Math.max(root.min-dy, Math.min(root.max-dy, root.dy));
+        width: root.card-w;
+        height: body.preferred-height;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.line-strong;
+        // A phone's sheet stands on the foot of the screen: round at the
+        // top only.
+        border-top-left-radius: Theme.r-lg;
+        border-top-right-radius: Theme.r-lg;
+        border-bottom-left-radius: root.phone ? 0 : Theme.r-lg;
+        border-bottom-right-radius: root.phone ? 0 : Theme.r-lg;
+        drop-shadow-blur: 24px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000059;
+        clip: true;
+
+        // Swallows presses that land on the card, so they do not reach the
+        // lanes or the monitor underneath.
+        TouchArea { }
+
+        body := VerticalLayout {
+            padding-bottom: 14px;
+            spacing: 10px;
+
+            // ── the header, and what drags the card ──────────────────────
+            Rectangle {
+                height: 42px;
+
+                if !root.phone: TouchArea {
+                    mouse-cursor: move;
+                    moved => {
+                        if (self.pressed) {
+                            root.dx = Math.max(root.min-dx, Math.min(root.max-dx,
+                                root.dx + self.mouse-x - self.pressed-x));
+                            root.dy = Math.max(root.min-dy, Math.min(root.max-dy,
+                                root.dy + self.mouse-y - self.pressed-y));
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: Theme.pad;
+                    padding-right: 8px;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: Glyph.mic;
+                            size: 15px;
+                            tint: root.taking ? Theme.danger : Theme.fg;
+                        }
+                    }
+                    Text {
+                        text: I18n.t("voiceover.title");
+                        color: Theme.fg;
+                        font-size: Theme.fs-lg;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                    // What the take is doing, in a word, beside the title:
+                    // seen at a glance from across the window.
+                    if root.data.phase == 2: Text {
+                        text: I18n.t("voiceover.recording");
+                        color: Theme.danger;
+                        font-size: Theme.fs-sm;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                    if root.data.phase == 3: Text {
+                        text: I18n.t("voiceover.paused");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    IconButton {
+                        glyph: Glyph.close;
+                        label: root.taking ? I18n.t("voiceover.closeKeeps") : I18n.t("voiceover.close");
+                        clicked => { root.closed(); }
+                    }
+                }
+
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Theme.line;
+                }
+            }
+
+            // ── the microphone ───────────────────────────────────────────
+            VerticalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 8px;
+
+                // Said plainly, with the way out beside it: a microphone
+                // the system will not hand over is the commonest reason a
+                // voiceover does not work, and the fix is not in this app.
+                if root.data.error != "": Rectangle {
+                    border-radius: Theme.r;
+                    background: Theme.danger-soft;
+
+                    HorizontalLayout {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.data.error;
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            wrap: word-wrap;
+                            vertical-alignment: center;
+                        }
+                        if !root.data.ready: VerticalLayout {
+                            alignment: center;
+                            Button {
+                                label: I18n.t("voiceover.tryAgain");
+                                clicked => { root.action("retry"); }
+                            }
+                        }
+                    }
+                }
+                if root.data.error == "" && root.data.ready && root.silent: Text {
+                    text: I18n.t("voiceover.silent");
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+
+                Select {
+                    options: root.devices;
+                    current: root.data.device;
+                    glyph: Glyph.mic;
+                    placeholder: root.data.waiting ? I18n.t("voiceover.opening")
+                        : I18n.t("voiceover.noMicrophone");
+                    enabled: root.data.ready && !root.busy && root.devices.length > 0;
+                    changed(index) => { root.device-changed(index); }
+                }
+
+                // The meter: the power as the bar, the peak as its tick,
+                // and a light at the end for a sample that hit the top.
+                HorizontalLayout {
+                    spacing: 8px;
+                    height: 18px;
+
+                    LevelMeter {
+                        horizontal-stretch: 1;
+                        value: root.data.ready ? root.rms : 0;
+                        peak: root.data.ready ? root.level : -1;
+                        thickness: 8px;
+                    }
+                    Rectangle {
+                        width: 34px;
+                        border-radius: Theme.r-xs;
+                        background: root.clipped ? Theme.danger : Theme.well;
+                        accessible-role: text;
+                        accessible-label: root.clipped ? I18n.t("voiceover.clipping") : "";
+
+                        Text {
+                            text: I18n.t("voiceover.clip");
+                            color: root.clipped ? Theme.on-accent : Theme.fg-dim;
+                            font-size: Theme.fs-xs;
+                            font-weight: Theme.weight-title;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: I18n.t("voiceover.inputGain");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
+                    Rail {
+                        horizontal-stretch: 1;
+                        value <=> root.gain-v;
+                        minimum: -12;
+                        maximum: 18;
+                        step: 0.5;
+                        default-value: 0;
+                        enabled: root.data.ready;
+                        changed(v) => { root.gain-changed(v); }
+                    }
+                    Text {
+                        width: 52px;
+                        text: Fmt.decibels(root.gain-v);
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        font-family: Theme.font-technical;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // ── the clock, and the count-in over it ──────────────────────
+            Text {
+                text: root.data.phase == 1 ? "\{root.data.count}"
+                    : Fmt.short-duration(root.seconds) + "."
+                        + "\{Math.mod(Math.floor(root.seconds * 10), 10)}";
+                color: root.data.phase == 1 ? Theme.accent
+                    : root.data.phase == 2 ? Theme.fg
+                    : Theme.fg-muted;
+                font-size: 30px;
+                font-weight: Theme.weight-display;
+                font-family: Theme.font-technical;
+                horizontal-alignment: center;
+                accessible-role: text;
+            }
+
+            // ── the transport ────────────────────────────────────────────
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 12px;
+                alignment: center;
+
+                VerticalLayout {
+                    alignment: center;
+                    Button {
+                        glyph: Glyph.undo;
+                        label: I18n.t("voiceover.retake");
+                        ghost: true;
+                        enabled: root.data.can-retake;
+                        clicked => { root.action("retake"); }
+                    }
+                }
+
+                TransportButton {
+                    label: root.data.phase == 2 ? I18n.t("voiceover.pause")
+                        : root.data.phase == 3 ? I18n.t("voiceover.resume")
+                        : I18n.t("voiceover.record");
+                    dot: root.data.phase != 2;
+                    glyph: Glyph.pause;
+                    enabled: root.data.ready && root.data.phase != 1;
+                    clicked => {
+                        if (root.data.phase == 2) {
+                            root.action("pause");
+                        } else if (root.data.phase == 3) {
+                            root.action("resume");
+                        } else {
+                            root.action("record");
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    Button {
+                        glyph: Glyph.stop;
+                        label: root.data.phase == 1 ? I18n.t("common.cancel")
+                            : I18n.t("voiceover.stop");
+                        ghost: true;
+                        enabled: root.busy;
+                        clicked => { root.action("stop"); }
+                    }
+                }
+            }
+
+            // ── the choices ──────────────────────────────────────────────
+            VerticalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 2px;
+
+                ChoiceRow {
+                    label: I18n.t("voiceover.countIn");
+                    checked: root.data.countdown;
+                    enabled: !root.busy;
+                    toggled(on) => { root.countdown-changed(on); }
+                }
+                ChoiceRow {
+                    label: I18n.t("voiceover.muteTimeline");
+                    checked: root.data.mute;
+                    toggled(on) => { root.mute-changed(on); }
+                }
+            }
+
+            // ── the teleprompter ─────────────────────────────────────────
+            //
+            // The words to read, typed or pasted in before the take and
+            // climbing the box while it records, at a pace set beside it;
+            // a pause holds them where they are, since the clock they
+            // follow is the take's own.
+            // https://github.com/jub0t/Concat/issues/213
+            VerticalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    IconButton {
+                        glyph: root.show-prompt || root.data.prompt != "" ? Glyph.chevron-down : Glyph.chevron-right;
+                        label: I18n.t("voiceover.teleprompter");
+                        icon-size: 12px;
+                        clicked => {
+                            root.show-prompt = !(root.show-prompt || root.data.prompt != "");
+                        }
+                    }
+                    Text {
+                        text: I18n.t("voiceover.teleprompter");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if root.show-prompt || root.data.prompt != "": SegmentedControl {
+                        width: 150px;
+                        options: [
+                            I18n.t("voiceover.slow"),
+                            I18n.t("voiceover.steady"),
+                            I18n.t("voiceover.fast"),
+                        ];
+                        current: root.data.prompt-speed;
+                        changed(index) => { root.prompt-speed-changed(index); }
+                    }
+                }
+
+                if root.show-prompt || root.data.prompt != "": Rectangle {
+                    height: root.phone ? 96px : 120px;
+                    border-radius: Theme.r;
+                    background: Theme.well;
+                    border-width: 1px;
+                    border-color: script.has-focus ? Theme.accent : Theme.line;
+                    clip: true;
+
+                    script := TextInput {
+                        x: 10px;
+                        y: 8px;
+                        width: parent.width - 20px;
+                        height: parent.height - 16px;
+                        visible: !root.taking;
+                        enabled: !root.taking;
+                        text <=> root.draft;
+                        color: Theme.fg;
+                        font-size: Theme.fs-input;
+                        single-line: false;
+                        wrap: word-wrap;
+                        selection-background-color: Theme.accent;
+                        selection-foreground-color: Theme.on-accent;
+                        changed has-focus => { root.typing = self.has-focus; }
+                        edited => { root.prompt-edited(self.text); }
+                    }
+
+                    if !root.taking && root.draft == "" && !script.has-focus: Text {
+                        x: 10px;
+                        y: 8px;
+                        width: parent.width - 20px;
+                        text: I18n.t("voiceover.scriptPlaceholder");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-input;
+                        wrap: word-wrap;
+                    }
+
+                    // While a take runs: the script read-only, a third of
+                    // the way down to start with and climbing from there,
+                    // larger, so it reads from arm's length.
+                    if root.taking: Text {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        y: parent.height / 3
+                            - Math.min(root.seconds * root.prompt-rate * 1px, self.preferred-height);
+                        text: root.data.prompt;
+                        color: Theme.fg;
+                        font-size: 17px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}

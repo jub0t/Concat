@@ -103,6 +103,41 @@ pub struct Preferences {
     /// unless the Settings sheet was asked for more or less. CONCAT_LOG in
     /// the environment overrides it for one run.
     pub log_level: Option<String>,
+    /// How the voiceover panel was last set up.
+    #[serde(default)]
+    pub voiceover: VoiceoverPrefs,
+}
+
+/// The voiceover panel's choices, kept from one take to the next and one
+/// run to the next: a microphone picked once stays picked.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct VoiceoverPrefs {
+    /// The microphone, by the name the system gives it. None, or one that
+    /// is no longer plugged in, is the system's default.
+    pub device: Option<String>,
+    /// Three seconds counted in before a take starts. On by default: the
+    /// breath before the first word is what a count-in is for.
+    pub countdown: bool,
+    /// The timeline is silent while a take records, so the speakers do not
+    /// bleed into the microphone. On by default; off is for headphones.
+    pub mute: bool,
+    /// The input gain, in decibels.
+    pub gain_db: f32,
+    /// How fast the teleprompter scrolls: 0 slow, 1 steady, 2 fast.
+    pub prompt_speed: u8,
+}
+
+impl Default for VoiceoverPrefs {
+    fn default() -> Self {
+        VoiceoverPrefs {
+            device: None,
+            countdown: true,
+            mute: true,
+            gain_db: 0.0,
+            prompt_speed: 1,
+        }
+    }
 }
 
 impl Preferences {

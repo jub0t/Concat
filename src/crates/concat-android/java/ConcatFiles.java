@@ -3,12 +3,14 @@
 
 package app.concat.editor;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.Fragment;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -47,11 +49,15 @@ import java.util.List;
  * {@link #publishVideo} moves it into the phone's Movies through the
  * media store, where the gallery and every file manager show it.
  *
+ * And the microphone, for a voiceover: a permission granted while the
+ * app runs, asked for through the activity by {@link #askMicrophone}.
+ *
  * Compiled by build.rs with the SDK's javac and d8, and loaded at run time
  * from the dex inside the binary; see src/lib.rs.
  */
 public class ConcatFiles extends Fragment {
     private static final int REQUEST_PICK = 0xC0C4;
+    private static final int REQUEST_MICROPHONE = 0xC0C5;
     private static final String TAG = "concat-files";
 
     /**
@@ -133,6 +139,30 @@ public class ConcatFiles extends Fragment {
         file.delete();
         // The store may have renamed it: a second "name.mp4" is "name (1).mp4".
         return new String[] {folder + "/" + displayName(activity, uri), null};
+    }
+
+    /**
+     * Whether the app may record from the microphone. When it may not yet,
+     * the system's question is put up and false comes back at once; the
+     * answer is read the next time this is asked, which is the voiceover
+     * panel's Try again. From any thread.
+     */
+    public static boolean askMicrophone(final Activity activity) {
+        if (Build.VERSION.SDK_INT < 23) {
+            return true;
+        }
+        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+            return true;
+        }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                activity.requestPermissions(
+                        new String[] {Manifest.permission.RECORD_AUDIO}, REQUEST_MICROPHONE);
+            }
+        });
+        return false;
     }
 
     /** Registered from Rust: the picked files' paths, or none. */

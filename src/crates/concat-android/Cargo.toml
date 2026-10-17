@@ -57,6 +57,11 @@ target_sdk_version = 35
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
 
+# The voiceover. A permission the person grants while the app runs, so
+# the manifest only makes it askable; ConcatFiles.askMicrophone asks.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.RECORD_AUDIO"
+
 [package.metadata.android.application]
 label = "Concat"
 icon = "@mipmap/ic_launcher"

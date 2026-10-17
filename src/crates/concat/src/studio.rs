@@ -655,6 +655,8 @@ pub struct Models {
     pub speakers: Rc<VecModel<SharedString>>,
     pub speaker_details: Rc<VecModel<SharedString>>,
     pub speech_samples: Rc<VecModel<SharedString>>,
+    /// The microphones the voiceover panel lists.
+    pub voiceover_devices: Rc<VecModel<SharedString>>,
     pub speech_sample_waves: Rc<VecModel<SharedString>>,
     pub speech_sample_details: Rc<VecModel<SharedString>>,
     pub transcribers: Rc<VecModel<ModelData>>,
@@ -722,6 +724,7 @@ impl Models {
             speakers: Rc::new(VecModel::default()),
             speaker_details: Rc::new(VecModel::default()),
             speech_samples: Rc::new(VecModel::default()),
+            voiceover_devices: Rc::new(VecModel::default()),
             speech_sample_waves: Rc::new(VecModel::default()),
             speech_sample_details: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
@@ -9910,6 +9913,8 @@ impl Studio {
         );
         app.set_speech(self.speech.data(self));
         self.publish_source(app);
+        sync(&models.voiceover_devices, self.voiceover.device_rows());
+        app.set_voiceover(self.voiceover.data(self));
         editor.set_recording(self.voiceover.recording());
 
         let bar = self.menu_bar();

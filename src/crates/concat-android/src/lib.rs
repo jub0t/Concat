@@ -377,6 +377,40 @@ mod publisher {
     }
 }
 
+/// The microphone, for a voiceover.
+///
+/// Android grants it while the app runs, not at install, and an input
+/// stream opened without it hears only silence; so the voiceover panel
+/// asks here before it opens one, and the Java puts the system's question
+/// up when the answer is not yet yes.
+#[cfg(target_os = "android")]
+mod microphone {
+    use jni::{jni_sig, jni_str};
+    use slint::android::AndroidApp;
+
+    /// Hands the window's crate the way to ask.
+    pub fn install(app: &AndroidApp) {
+        let app = app.clone();
+        concat::install_microphone_access(Box::new(move || {
+            super::java::with_class(&app, |env, activity, class| {
+                env.call_static_method(
+                    class,
+                    jni_str!("askMicrophone"),
+                    jni_sig!("(Landroid/app/Activity;)Z"),
+                    &[activity.into()],
+                )?
+                .z()
+            })
+            .unwrap_or_else(|error| {
+                // Not knowing is not a no: the device is opened, and its
+                // own error, or its silence, says the rest.
+                log::warn!("could not ask for the microphone: {error}");
+                true
+            })
+        }));
+    }
+}
+
 /// Called by the activity's native glue; the name is the contract.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
@@ -392,6 +426,7 @@ fn android_main(app: slint::android::AndroidApp) {
     // After the backend, which seeds the JavaVM the Java is reached by.
     picker::install(&app);
     publisher::install(&app);
+    microphone::install(&app);
     if let Err(error) = concat::run() {
         log::error!("{error}");
     }
