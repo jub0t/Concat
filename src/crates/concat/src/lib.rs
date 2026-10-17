@@ -1305,6 +1305,18 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_enhance_set(on_window!(|state, on: bool| {
         state.clip_enhance_set(on);
     }));
+    editor.on_clip_enhance_size(on_window!(|state, index: i32| {
+        state.clip_enhance_size(index);
+    }));
+    editor.on_clip_enhance_strength(on_window!(|state, strength: f32| {
+        state.clip_enhance_strength(strength);
+    }));
+    editor.on_clip_enhance_preview(on_window!(|state| {
+        state.clip_enhance_preview();
+    }));
+    editor.on_clip_enhance_run(on_window!(|state| {
+        state.clip_enhance_run();
+    }));
     editor.on_transition_remove(on_window!(|state| {
         state.remove_transition();
     }));

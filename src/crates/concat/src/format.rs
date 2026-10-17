@@ -140,6 +140,20 @@ pub fn eta(seconds: f32) -> String {
     }
 }
 
+/// Seconds as a rough length of time, for an estimate given before the
+/// work starts: "40s", "12 min", "3 h 20 min". Rounded to the unit it is
+/// said in, for the reason [`eta`] is.
+pub fn span(seconds: f64) -> String {
+    if seconds < 59.5 {
+        tf("format.seconds", &[&format!("{:.0}", seconds.max(1.0))])
+    } else if seconds < 3570.0 {
+        tf("format.minutes", &[&format!("{:.0}", seconds / 60.0)])
+    } else {
+        let minutes = (seconds / 60.0).round() as u64;
+        tf("format.hoursMinutes", &[&(minutes / 60), &(minutes % 60)])
+    }
+}
+
 pub fn hex_of(colour: slint::Color) -> String {
     format!(
         "#{:02x}{:02x}{:02x}",
@@ -502,5 +516,16 @@ mod tests {
         assert_eq!(when_phrase(now), "just now");
         assert_eq!(when_phrase(now - 86_400_000 - 1000), "yesterday");
         assert_eq!(when_phrase(now - 3 * 86_400_000), "3 days ago");
+    }
+
+    #[test]
+    fn an_estimate_is_said_in_the_unit_that_fits_it() {
+        let _english = crate::i18n::language_lock();
+        assert_eq!(span(0.2), "1s");
+        assert_eq!(span(42.4), "42s");
+        assert_eq!(span(59.6), "1 min");
+        assert_eq!(span(12.0 * 60.0 + 10.0), "12 min");
+        assert_eq!(span(3600.0), "1 h 0 min");
+        assert_eq!(span(3.0 * 3600.0 + 20.0 * 60.0), "3 h 20 min");
     }
 }

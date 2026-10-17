@@ -110,6 +110,58 @@ pub struct Strip {
     pub height: i32,
 }
 
+/// One frame's middle through the Enhance model, before and after, for
+/// the inspector to show before a whole file is committed to.
+struct EnhancePreview {
+    /// The clip it was made for, and the file and size it was made from:
+    /// a preview of other settings or another file is not this one.
+    clip_id: String,
+    media_id: String,
+    factor: u32,
+    /// The plain enlargement and the model's full-strength answer, kept so
+    /// Strength re-blends them at once rather than running the model again.
+    plain: concat_core::Frame,
+    enhanced: concat_core::Frame,
+    before: slint::Image,
+    after: slint::Image,
+    /// The whole percent `after` is blended at.
+    after_percent: u32,
+    /// See `concat_host::enhance::Preview`.
+    tile_seconds: f64,
+    tiles_per_frame: usize,
+}
+
+/// The Enhance section's rows for one clip; see `Studio::enhance_readout`.
+#[derive(Default)]
+struct EnhanceReadout {
+    /// The Size row's segment: 0 Auto, 1 once, 2 twice, 3 four times.
+    size: i32,
+    /// What Auto comes to for this file.
+    auto: u32,
+    fits_2x: bool,
+    fits_4x: bool,
+    /// Why a size is greyed, or empty.
+    size_note: String,
+    /// Before, after and the estimate for a whole run, when a preview of
+    /// these settings is on hand.
+    preview: Option<(slint::Image, slint::Image, String)>,
+}
+
+impl EnhancePreview {
+    /// `after` blended at `strength`, unless it already is.
+    fn blend_at(&mut self, strength: f32) {
+        let percent = concat_host::enhance::strength_percent(strength);
+        if percent != self.after_percent {
+            self.after = image_of(&concat_vision::enhance::blend(
+                &self.enhanced,
+                &self.plain,
+                strength,
+            ));
+            self.after_percent = percent;
+        }
+    }
+}
+
 impl From<CachedStrip> for Strip {
     fn from(strip: CachedStrip) -> Self {
         Self {
@@ -948,6 +1000,19 @@ pub struct Studio {
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
+    /// The Enhance section's Size, in times larger, 0 for Auto, and its
+    /// Strength, 0 to 1. The window's rather than a clip's: they are what
+    /// the next run is made with, carried from clip to clip the way a
+    /// tool's settings are, and a copy already made is named by its own;
+    /// see `concat_host::enhance::target_for`.
+    enhance_size: u32,
+    enhance_strength: f32,
+    /// The last preview of a frame through the model, while the clip it
+    /// was made for is the one in the inspector.
+    enhance_preview: Option<EnhancePreview>,
+    /// A preview being made, for the clip by this id: whether the model is
+    /// still downloading, and how far along.
+    enhance_previewing: Option<(String, bool, f32)>,
     /// Reverse writing a clip's backwards copy, by clip: how far along.
     reverse_jobs: HashMap<String, f32>,
     /// A selection being rendered into one clip, with its own cancel flag.
@@ -2169,6 +2234,10 @@ impl Studio {
             painting: true,
             cutout_jobs: HashMap::new(),
             enhance_jobs: HashMap::new(),
+            enhance_size: 0,
+            enhance_strength: concat_host::enhance::DEFAULT_STRENGTH,
+            enhance_preview: None,
+            enhance_previewing: None,
             reverse_jobs: HashMap::new(),
             merge_job: None,
             region_job: None,
@@ -5889,10 +5958,11 @@ impl Studio {
     // an enhanced copy into the project's cache; the clip is then pointed
     // at the copy, as one undo step, and shows it wherever it showed the
     // original. The window's part is to start the job, keep the readout
-    // moving, and re-point the clip when the copy is whole.
+    // moving, and re-point the clip when the copy is whole. Before that,
+    // it holds the section's Size and Strength and runs a preview of the
+    // frame under the playhead, so the person can judge both - and see
+    // what the whole run will cost - before committing minutes to it.
 
-    /// Enhances the media of clip `id`: starts the job, unless one is
-    /// running, and says so.
     /// Writes one clip's sound as it plays - trimmed, at its speed, with its
     /// level, fades and effects baked in - to a WAV in the project's audio
     /// folder, and puts the file in the bin under Generated › Processed. A
@@ -6081,8 +6151,178 @@ impl Studio {
         }
     }
 
+    /// The Size row: 0 Auto, then once, twice and four times. A size this
+    /// clip cannot take is greyed in the row, and one carried here from a
+    /// smaller clip falls to the largest that fits; see
+    /// `concat_vision::enhance::factor_of`.
+    pub fn clip_enhance_size(&mut self, index: i32) {
+        self.enhance_size = match index {
+            1 => 1,
+            2 => 2,
+            3 => 4,
+            _ => 0,
+        };
+    }
+
+    /// The Strength row, 0 to 1: how much of the model's answer the copy
+    /// keeps. A preview on screen is re-blended at once, which is the
+    /// point of keeping both its halves.
+    pub fn clip_enhance_strength(&mut self, strength: f32) {
+        self.enhance_strength = strength.clamp(0.0, 1.0);
+        let strength = self.enhance_strength;
+        if let Some(preview) = self.enhance_preview.as_mut() {
+            preview.blend_at(strength);
+        }
+    }
+
+    /// "Enhance again": a clip that has a copy, enhanced anew from its
+    /// original with the section's settings as they are now. A copy those
+    /// settings already made is picked up at once rather than redone.
+    pub fn clip_enhance_run(&mut self) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        if self
+            .clip(&id)
+            .is_some_and(|clip| !self.locked(&clip.track_id))
+        {
+            self.enhance_clip(&id);
+        }
+    }
+
+    /// The file Enhance reads for `clip`: its original when it is showing,
+    /// or holding, a copy already - a second run restores the source, not
+    /// the first run's answer.
+    fn enhance_source(&self, clip: &Clip) -> Option<model::MediaItem> {
+        let id = clip
+            .enhanced
+            .as_ref()
+            .map_or(&clip.media_id, |link| &link.original);
+        self.project()
+            .media
+            .iter()
+            .find(|item| &item.id == id)
+            .cloned()
+    }
+
+    /// How many times larger `media` comes out at the section's Size.
+    fn enhance_factor(&self, media: &model::MediaItem) -> u32 {
+        concat_vision::enhance::factor_of(
+            self.enhance_size,
+            media.width.unwrap_or(0),
+            media.height.unwrap_or(0),
+        )
+    }
+
+    /// "Preview this frame": the middle of the frame of the selected clip
+    /// under the playhead, through the model at the section's Size, shown
+    /// before and after in the inspector. Seconds rather than minutes - a
+    /// few tiles, not a file - and nothing is written or re-pointed, so the
+    /// clip is as it was whatever comes of it.
+    pub fn clip_enhance_preview(&mut self) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        if self.enhance_previewing.is_some()
+            || !self.enhance_jobs.is_empty()
+            || self.host.enhancers.is_busy()
+        {
+            self.notify(&t("studio.enhanceAlreadyWorkOne"), true);
+            return;
+        }
+        let Some(clip) = self.clip(&id).cloned() else {
+            return;
+        };
+        if clip.kind != model::ClipKind::Video && clip.kind != model::ClipKind::Image {
+            return;
+        }
+        let Some(media) = self.enhance_source(&clip) else {
+            return;
+        };
+        if media.width.unwrap_or(0) == 0 || media.height.unwrap_or(0) == 0 {
+            self.notify(&t("studio.fileHasNoPicture"), true);
+            return;
+        }
+        let factor = self.enhance_factor(&media);
+        let seconds = if clip.kind == model::ClipKind::Image {
+            0.0
+        } else {
+            self.source_at_playhead(&clip)
+        };
+        let request = concat_host::enhance::PreviewRequest {
+            media_path: media.path.clone(),
+            seconds,
+            factor,
+        };
+        self.enhance_previewing = Some((id.clone(), false, 0.0));
+        let enhancers = Arc::clone(&self.host.enhancers);
+        let epoch = crate::host::project_epoch();
+        let media_id = media.id.clone();
+        spawn_in_project(
+            move || {
+                let mut last = -1.0f32;
+                let result = enhancers.preview(&request, &mut |progress| {
+                    // The model's download is the one slow part a preview
+                    // can have; the tiles themselves take seconds.
+                    if let concat_host::enhance::Progress::Fetching { received, total } = progress {
+                        let fraction = received as f32 / total.max(1) as f32;
+                        if fraction - last >= 0.01 {
+                            last = fraction;
+                            on_ui_in_project(epoch, move |studio, _, _| {
+                                if let Some(held) = studio.enhance_previewing.as_mut() {
+                                    held.1 = true;
+                                    held.2 = fraction;
+                                }
+                            });
+                        }
+                    }
+                });
+                (id, media_id, factor, result)
+            },
+            |studio, _, _, (clip_id, media_id, factor, result)| {
+                studio.enhance_previewing = None;
+                match result {
+                    Ok(preview) => {
+                        let mut made = EnhancePreview {
+                            clip_id,
+                            media_id,
+                            factor,
+                            before: image_of(&preview.plain),
+                            after: image_of(&preview.enhanced),
+                            after_percent: 100,
+                            plain: preview.plain,
+                            enhanced: preview.enhanced,
+                            tile_seconds: preview.tile_seconds,
+                            tiles_per_frame: preview.tiles_per_frame,
+                        };
+                        made.blend_at(studio.enhance_strength);
+                        studio.enhance_preview = Some(made);
+                    }
+                    Err(error) if error.contains("cancelled") => {}
+                    Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
+                }
+            },
+        );
+    }
+
+    /// The preview on screen for `clip` read from `media` at `factor`, if
+    /// the last one made is that.
+    fn enhance_preview_for(
+        &self,
+        clip: &Clip,
+        media: &model::MediaItem,
+        factor: u32,
+    ) -> Option<&EnhancePreview> {
+        self.enhance_preview.as_ref().filter(|preview| {
+            preview.clip_id == clip.id && preview.media_id == media.id && preview.factor == factor
+        })
+    }
+
     pub fn enhance_clip(&mut self, id: &str) {
-        if !self.enhance_jobs.is_empty() || self.host.enhancers.is_busy() {
+        if !self.enhance_jobs.is_empty()
+            || self.enhance_previewing.is_some()
+            || self.host.enhancers.is_busy()
+        {
             self.notify(&t("studio.enhanceAlreadyWorkOne"), true);
             return;
         }
@@ -6092,13 +6332,7 @@ impl Studio {
         if clip.kind != model::ClipKind::Video && clip.kind != model::ClipKind::Image {
             return;
         }
-        let Some(media) = self
-            .project()
-            .media
-            .iter()
-            .find(|item| item.id == clip.media_id)
-            .cloned()
-        else {
+        let Some(media) = self.enhance_source(&clip) else {
             return;
         };
         let Some(session) = self.session.as_ref() else {
@@ -6110,9 +6344,11 @@ impl Studio {
             self.notify(&t("studio.fileHasNoPicture"), true);
             return;
         }
-        let factor = concat_vision::enhance::factor_for(width, height);
+        let factor = self.enhance_factor(&media);
+        let strength = self.enhance_strength;
         let still = clip.kind == model::ClipKind::Image;
-        let Some(target) = concat_host::enhance::target_for(&project, &media.path, factor, still)
+        let Some(target) =
+            concat_host::enhance::target_for(&project, &media.path, factor, strength, still)
         else {
             self.notify(&tf("studio.couldNotRead", &[&media.path]), true);
             return;
@@ -6121,8 +6357,10 @@ impl Studio {
             media_path: media.path.clone(),
             still,
             factor,
+            strength,
             target,
         };
+        let percent = concat_host::enhance::strength_percent(strength);
         let clip_id = clip.id.clone();
         self.enhance_jobs.insert(clip_id.clone(), (false, 0.0));
         self.notify(
@@ -6154,10 +6392,13 @@ impl Studio {
                 });
                 (clip_id, result)
             },
-            |studio, _, _, (clip_id, result)| {
+            move |studio, _, _, (clip_id, result)| {
                 studio.enhance_jobs.remove(&clip_id);
+                // A cancelled or failed run leaves the clip as it was: the
+                // job writes under partial names and the clip is only
+                // re-pointed here, on a copy that is whole.
                 match result {
-                    Ok(path) => studio.adopt_enhanced(&clip_id, &path),
+                    Ok(path) => studio.adopt_enhanced(&clip_id, &path, factor, percent),
                     Err(error) if error.contains("cancelled") => {}
                     Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
                 }
@@ -6286,7 +6527,7 @@ impl Studio {
 
     /// Points clip `id` at the enhanced copy at `path`, probed the way an
     /// import is, and shows it.
-    fn adopt_enhanced(&mut self, id: &str, path: &std::path::Path) {
+    fn adopt_enhanced(&mut self, id: &str, path: &std::path::Path, factor: u32, percent: u32) {
         let summary = match media::probe(&path.to_string_lossy()) {
             Ok(summary) => summary,
             Err(error) => {
@@ -6295,13 +6536,11 @@ impl Studio {
             }
         };
         let mut item = summary.to_new_media();
-        // The bin names the copy after the original, marked, rather than
-        // after its cache file.
-        if let Some(original) = self
-            .clip(id)
-            .and_then(|clip| self.project().media.iter().find(|m| m.id == clip.media_id))
-        {
-            item.name = format!("{} (enhanced)", original.name);
+        // The bin names the copy after the original, marked with what it
+        // was made with - one file can have a copy for each setting -
+        // rather than after its cache file.
+        if let Some(original) = self.clip(id).and_then(|clip| self.enhance_source(clip)) {
+            item.name = format!("{} (enhanced {factor}x, {percent}%)", original.name);
         }
         self.apply(Command::ReplaceClipMedia {
             clip_id: id.to_owned(),
@@ -7302,6 +7541,8 @@ impl Studio {
         self.host.enhancers.cancel();
         self.host.reversers.cancel();
         self.enhance_jobs.clear();
+        self.enhance_preview = None;
+        self.enhance_previewing = None;
         self.reverse_jobs.clear();
         self.cancel_merge();
         self.cutout_jobs.clear();
@@ -9044,6 +9285,10 @@ impl Studio {
                 .get(&Self::analysis_key(&clip.media_id, cutout.subject))
                 .copied()
         });
+        let mut enhance = self.enhance_readout(clip);
+        let enhance_preview = enhance.preview.is_some();
+        let (enhance_before, enhance_after, enhance_estimate) =
+            enhance.preview.take().unwrap_or_default();
         SelectedClipData {
             present: true,
             batch: targets.len() as i32,
@@ -9166,7 +9411,97 @@ impl Studio {
             enhance_linked: clip.enhanced.is_some(),
             enhance_on: clip.enhanced.as_ref().is_some_and(|link| link.on)
                 || self.enhance_jobs.contains_key(&clip.id),
+            enhance_busy: !self.enhance_jobs.is_empty() || self.enhance_previewing.is_some(),
+            enhance_size: enhance.size,
+            enhance_auto: enhance.auto as i32,
+            enhance_fits_2x: enhance.fits_2x,
+            enhance_fits_4x: enhance.fits_4x,
+            enhance_size_note: enhance.size_note.into(),
+            enhance_strength: self.enhance_strength,
+            enhance_previewing: self
+                .enhance_previewing
+                .as_ref()
+                .is_some_and(|(id, _, _)| *id == clip.id),
+            enhance_preview_fetch: self
+                .enhance_previewing
+                .as_ref()
+                .filter(|(id, fetching, _)| *id == clip.id && *fetching)
+                .map(|(_, _, fraction)| *fraction)
+                .unwrap_or(-1.0),
+            enhance_preview,
+            enhance_before,
+            enhance_after,
+            enhance_estimate: enhance_estimate.into(),
         }
+    }
+
+    /// What the Enhance section shows for `clip` beyond its switch: the
+    /// sizes its file can take, the preview made for it at the section's
+    /// settings, if there is one, and what a whole run would cost.
+    fn enhance_readout(&self, clip: &Clip) -> EnhanceReadout {
+        let mut readout = EnhanceReadout::default();
+        let Some(media) = self.enhance_source(clip) else {
+            return readout;
+        };
+        let (width, height) = (media.width.unwrap_or(0), media.height.unwrap_or(0));
+        let limit = concat_vision::enhance::LONGEST_SIDE;
+        let factor = self.enhance_factor(&media);
+        readout.auto = concat_vision::enhance::factor_for(width, height);
+        readout.fits_2x = concat_vision::enhance::fits(width, height, 2);
+        readout.fits_4x = concat_vision::enhance::fits(width, height, 4);
+        // The row shows what will happen: Auto as Auto, and an ask this
+        // file cannot take as the size it falls to.
+        readout.size = match (self.enhance_size, factor) {
+            (0, _) => 0,
+            (_, 1) => 1,
+            (_, 2) => 2,
+            _ => 3,
+        };
+        readout.size_note = if !readout.fits_2x {
+            tf("studio.enhanceOnlyRestore", &[&width.max(height), &limit])
+        } else if !readout.fits_4x {
+            tf(
+                "studio.enhanceNoFourTimes",
+                &[&(width * 4), &(height * 4), &limit],
+            )
+        } else {
+            String::new()
+        };
+        readout.preview = self
+            .enhance_preview_for(clip, &media, factor)
+            .map(|preview| {
+                // The model's work on the whole file - every frame of it,
+                // not only the span the clip shows - at the warm tile time
+                // the preview measured.
+                let frames = if clip.kind == model::ClipKind::Image {
+                    1.0
+                } else {
+                    media.duration.unwrap_or(0.0) * media.frame_rate.unwrap_or(30.0)
+                };
+                let per_frame = preview.tile_seconds * preview.tiles_per_frame as f64;
+                let total = concat_host::enhance::estimate_seconds(
+                    preview.tile_seconds,
+                    preview.tiles_per_frame,
+                    frames,
+                );
+                let estimate = if clip.kind == model::ClipKind::Image {
+                    tf(
+                        "studio.enhanceEstimateStill",
+                        &[&crate::format::span(total)],
+                    )
+                } else {
+                    tf(
+                        "studio.enhanceEstimate",
+                        &[
+                            &crate::format::span(total),
+                            &format!("{:.0}", frames.max(1.0)),
+                            &format!("{per_frame:.1}"),
+                        ],
+                    )
+                };
+                (preview.before.clone(), preview.after.clone(), estimate)
+            });
+        readout
     }
 
     /// The source instant of `clip` under the playhead, held to the clip.

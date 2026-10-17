@@ -277,6 +277,12 @@ export global Editor {
     callback cutout-subject(index: int);
     callback cutout-clear();
     callback clip-enhance-set(on: bool);
+    /// The Enhance section's settings and its preview; see EnhancePanel.
+    /// `index` is 0 Auto, then 1x, 2x and 4x.
+    callback clip-enhance-size(index: int);
+    callback clip-enhance-strength(strength: float);
+    callback clip-enhance-preview();
+    callback clip-enhance-run();
     /// The transition riding into the selected clip; see VideoPanel.
     callback transition-remove();
     callback transition-duration-set(seconds: float);

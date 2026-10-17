@@ -1465,14 +1465,71 @@ export component VideoPanel inherits VerticalLayout {
     }
 }
 
+/// One half of Enhance's before and after: a label over the picture,
+/// fitted whole into a fixed height so the pair reads the same on a phone
+/// as in the desktop inspector, and nothing in the layout leans on the
+/// picture's own size.
+component PreviewHalf inherits VerticalLayout {
+    in property <string> label;
+    in property <image> source;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 4px;
+
+    Text {
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs-sm;
+    }
+    Rectangle {
+        height: 150px;
+        background: Theme.well;
+        border-radius: Theme.r-sm;
+        clip: true;
+
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.source;
+            image-fit: contain;
+        }
+    }
+}
+
 /// Enhance: the picture restored and enlarged by the model, into a copy the
 /// clip then shows. The header's tick starts it the first time; once there
 /// is a copy, it switches between the copy and the original without running
 /// the model again.
+///
+/// Below the tick, what the run is made with - Size and Strength - and a
+/// preview of the frame under the playhead at those settings, so the
+/// person judges the look, and what a whole run will cost, in seconds
+/// rather than after minutes of their machine. Strength is the answer to
+/// the waxen, "plastic" faces a full-strength enhancer is known for: it
+/// blends the model's answer back towards the original.
 export component EnhancePanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
 
     callback enhance-set(on: bool);
+    /// 0 Auto, 1 once, 2 twice, 3 four times.
+    callback enhance-size(index: int);
+    callback enhance-strength(strength: float);
+    callback enhance-preview();
+    /// A clip with a copy enhanced anew with the settings as they are.
+    callback enhance-run();
+
+    property <float> strength;
+
+    init => {
+        root.strength = root.selected.enhance-strength;
+    }
+    // Put back on every publish: a click on the row takes its binding, and
+    // the next clip's file may not take the size this one showed.
+    changed selected => {
+        root.strength = root.selected.enhance-strength;
+        sizes.current = root.selected.enhance-size;
+    }
 
     Section {
         first: true;
@@ -1494,6 +1551,77 @@ export component EnhancePanel inherits VerticalLayout {
                         ? I18n.t("clipInspector.enhanceShowingCopy")
                         : I18n.t("clipInspector.enhanceShowingOriginal"))
                     : I18n.t("clipInspector.enhanceExplain");
+            }
+
+            Row {
+                label: I18n.t("clipInspector.enhanceSize");
+                sizes := SegmentedControl {
+                    options: [
+                        I18n.t1("clipInspector.enhanceAuto", "\{root.selected.enhance-auto}x"),
+                        "1x",
+                        "2x",
+                        "4x",
+                    ];
+                    disabled: [
+                        false,
+                        false,
+                        !root.selected.enhance-fits-2x,
+                        !root.selected.enhance-fits-4x,
+                    ];
+                    current: root.selected.enhance-size;
+                    changed(index) => { root.enhance-size(index); }
+                }
+            }
+            if root.selected.enhance-size-note != "": Note {
+                text: root.selected.enhance-size-note;
+            }
+
+            Param {
+                label: I18n.t("clipInspector.enhanceStrength");
+                value <=> root.strength;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 0.75;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.enhance-strength(v); }
+            }
+            Note {
+                text: I18n.t("clipInspector.enhanceStrengthExplain");
+            }
+
+            Row {
+                Button {
+                    label: I18n.t("clipInspector.enhancePreview");
+                    enabled: !root.selected.enhance-busy;
+                    clicked => { root.enhance-preview(); }
+                }
+                if root.selected.enhance-linked: Button {
+                    label: I18n.t("clipInspector.enhanceAgain");
+                    enabled: !root.selected.enhance-busy;
+                    clicked => { root.enhance-run(); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if root.selected.enhance-previewing: Note {
+                text: root.selected.enhance-preview-fetch >= 0
+                    ? I18n.t1("clipInspector.fetchingTheModel",
+                        "\{Math.round(root.selected.enhance-preview-fetch * 100)}")
+                    : I18n.t("clipInspector.enhancePreviewing");
+            }
+
+            if root.selected.enhance-preview: PreviewHalf {
+                label: I18n.t("clipInspector.enhanceBefore");
+                source: root.selected.enhance-before;
+            }
+            if root.selected.enhance-preview: PreviewHalf {
+                label: I18n.t1("clipInspector.enhanceAfter", "\{Math.round(root.strength * 100)}");
+                source: root.selected.enhance-after;
+            }
+            if root.selected.enhance-preview: Note {
+                text: root.selected.enhance-estimate;
             }
         }
     }

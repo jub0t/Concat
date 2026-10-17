@@ -205,6 +205,10 @@ export component ConfigPane inherits Rectangle {
     callback cutout-clear();
     /// The Enhance switch: start it, or show the copy or the original.
     callback clip-enhance-set(on: bool);
+    callback clip-enhance-size(index: int);
+    callback clip-enhance-strength(strength: float);
+    callback clip-enhance-preview();
+    callback clip-enhance-run();
     callback transition-remove();
     callback transition-duration-set(seconds: float);
 
@@ -647,6 +651,10 @@ export component ConfigPane inherits Rectangle {
                 if root.showing == "Enhance": EnhancePanel {
                     selected: root.selected;
                     enhance-set(on) => { root.clip-enhance-set(on); }
+                    enhance-size(index) => { root.clip-enhance-size(index); }
+                    enhance-strength(strength) => { root.clip-enhance-strength(strength); }
+                    enhance-preview => { root.clip-enhance-preview(); }
+                    enhance-run => { root.clip-enhance-run(); }
                 }
 
                 if root.showing == "Adjust": AdjustPanel {

@@ -349,6 +349,32 @@ export struct SelectedClipData {
     enhance-linked: bool,
     /// The Enhance switch: the copy shown, or a run under way
     enhance-on: bool,
+    /// Enhance at work on some clip, a run or a preview: the model is one
+    /// model, so the section's buttons wait for it
+    enhance-busy: bool,
+    /// The Size row: 0 Auto, 1 once, 2 twice, 3 four times - what will
+    /// happen, so an ask this file cannot take shows as what it falls to.
+    /// `enhance-auto` is what Auto comes to here; a size that would pass
+    /// the longest-side limit is greyed, `enhance-size-note` saying why
+    enhance-size: int,
+    enhance-auto: int,
+    enhance-fits-2x: bool,
+    enhance-fits-4x: bool,
+    enhance-size-note: string,
+    /// The Strength row, 0 to 1: how much of the model's answer is kept
+    enhance-strength: float,
+    /// A preview of the frame under the playhead being made for this clip,
+    /// and how far the model's download is when that is what it waits on
+    /// (-1 when it is not)
+    enhance-previewing: bool,
+    enhance-preview-fetch: float,
+    /// The preview made for this clip at these settings: the middle of
+    /// the frame enlarged plainly and enhanced, and what a whole run would
+    /// take at the speed it measured
+    enhance-preview: bool,
+    enhance-before: image,
+    enhance-after: image,
+    enhance-estimate: string,
     /// Reverse writing this clip's backwards copy: -1 when it is not,
     /// else how far along
     reverse-progress: float,

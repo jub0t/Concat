@@ -18,6 +18,10 @@ export component SegmentedControl inherits Rectangle {
     in property <[Glyph]> icons;
     in-out property <int> current;
     in property <bool> enabled: true;
+    /// Segments that cannot be picked, by index: greyed, and refused
+    /// by a click or the arrow keys. Shorter than `options` is fine; a
+    /// segment past the end can be picked.
+    in property <[bool]> disabled;
 
     callback changed(index: int);
 
@@ -39,7 +43,7 @@ export component SegmentedControl inherits Rectangle {
     opacity: root.enabled ? 1.0 : 0.45;
 
     function select(index: int) {
-        if (index >= 0 && index < root.options.length) {
+        if (index >= 0 && index < root.options.length && !root.disabled[index]) {
             root.current = index;
             root.changed(index);
         }
@@ -93,7 +97,8 @@ export component SegmentedControl inherits Rectangle {
             width: parent.width;
             height: parent.height;
             text: option;
-            color: (index == root.current || segment.has-hover) ? Theme.fg : Theme.fg-muted;
+            color: root.disabled[index] ? Theme.fg-dim
+                : (index == root.current || segment.has-hover) ? Theme.fg : Theme.fg-muted;
             font-size: Theme.fs;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -110,7 +115,7 @@ export component SegmentedControl inherits Rectangle {
         }
 
         segment := TouchArea {
-            enabled: root.enabled;
+            enabled: root.enabled && !root.disabled[index];
             mouse-cursor: pointer;
             clicked => {
                 fs.focus();

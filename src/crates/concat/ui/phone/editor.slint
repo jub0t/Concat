@@ -14,8 +14,8 @@ import {
     CategoryPillBar, MediaCard, MediaItemData, PresetGrid, ShelfGrid, ShelfSearch,
 } from "../workspace/media-pane.slint";
 import {
-    AdjustPanel, AudioPanel, FilterPanel, Library, PresetStack, ProcessorRows, SpeedPanel,
-    VideoPanel,
+    AdjustPanel, AudioPanel, EnhancePanel, FilterPanel, Library, PresetStack, ProcessorRows,
+    SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
 import { RoundButton, ToolItem, ToolStrip } from "controls.slint";
@@ -252,6 +252,7 @@ export component PhoneEditor inherits Rectangle {
             : name == "clip-speed" ? I18n.t("common.speed")
             : name == "clip-audio" ? I18n.t("common.audio")
             : name == "clip-adjust" ? I18n.t("common.adjust")
+            : name == "clip-enhance" ? I18n.t("common.enhance")
             : name == "clip-layer" ? I18n.t("configPane.filter")
             : "";
     }
@@ -761,6 +762,14 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "clip-adjust";
                 clicked => { root.show("clip-adjust", true); }
             }
+            // The desk's Video > Enhance, on a sheet of its own: the same
+            // panel, settings, preview and all.
+            if root.is-picture: ToolItem {
+                glyph: Glyph.maximize;
+                label: I18n.t("common.enhance");
+                current: root.sheet == "clip-enhance";
+                clicked => { root.show("clip-enhance", true); }
+            }
             if root.is-picture || root.is-text: ToolItem {
                 glyph: Glyph.sparkle;
                 label: I18n.t("common.effects");
@@ -1091,6 +1100,15 @@ export component PhoneEditor inherits Rectangle {
             curve-point(key, point, x, y) => { Editor.curve-point(-1, key, point, x, y); }
             curve-remove(key, point) => { Editor.curve-remove(-1, key, point); }
             commit => { Editor.clip-commit(); }
+        }
+
+        if root.sheet == "clip-enhance": EnhancePanel {
+            selected: Editor.selected-clip;
+            enhance-set(on) => { Editor.clip-enhance-set(on); }
+            enhance-size(index) => { Editor.clip-enhance-size(index); }
+            enhance-strength(strength) => { Editor.clip-enhance-strength(strength); }
+            enhance-preview => { Editor.clip-enhance-preview(); }
+            enhance-run => { Editor.clip-enhance-run(); }
         }
 
         if root.sheet == "clip-text": TextPanel {
