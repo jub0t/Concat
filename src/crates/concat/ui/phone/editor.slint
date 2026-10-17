@@ -34,9 +34,11 @@ import { PhoneSheet } from "sheet.slint";
 //   - the monitor, which takes whatever height the rest leaves;
 //   - the transport: where the playhead is, Play, undo and redo;
 //   - the lanes, with the playhead held at their middle and the cut
-//     sliding under it - a drag scrubs, a tap on a clip selects it, a
-//     tap on empty lane lets go, a clip dragged moves (see `finger` in
-//     lanes.slint, and `centred` in the timeline pane on the Rust side);
+//     sliding under it - a drag scrubs and a throw glides on, two fingers
+//     pinch the zoom, a tap on a clip selects it where it is, a tap on
+//     empty lane lets go, a clip dragged moves (see `finger` in
+//     lanes.slint, `centred` in the timeline pane on the Rust side, and
+//     the glide beside it);
 //   - the bar of tools. With nothing selected it is the library's pages
 //     and the project's verbs; with a clip selected it is the clip's
 //     verbs, with a way back at its head.
@@ -164,8 +166,8 @@ component Fact inherits HorizontalLayout {
     }
 }
 
-/// A round chip over the lanes: the zoom, since a finger cannot pinch
-/// here - Slint sees one finger at a time.
+/// A round chip over the lanes: the zoom, for a thumb that has no second
+/// finger free to pinch with.
 component LaneChip inherits Rectangle {
     in property <Glyph> glyph;
     in property <string> label;
@@ -560,6 +562,8 @@ export component PhoneEditor inherits Rectangle {
                     Editor.blur();
                     Editor.scrubbed(seconds);
                 }
+                finger-held => { Editor.finger-held(); }
+                finger-lifted => { Editor.finger-lifted(); }
                 key-mark-moved(from, to) => { Editor.key-mark-moved(from, to); }
                 hovered(seconds) => { Editor.hovered(seconds); }
                 hover-ended => { Editor.hover-ended(); }

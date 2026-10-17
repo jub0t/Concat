@@ -818,6 +818,10 @@ pub struct Studio {
     pub playhead: f32,
     pub playing: bool,
     transport: slint::Timer,
+    /// The phone's lanes carrying on after a finger throws them, and the
+    /// beat that moves them while they do; see `panes::glide`.
+    coast: crate::panes::glide::Coast,
+    glide_beat: slint::Timer,
     /// The preview axis: the instant under the pointer while it crosses the
     /// lanes, which the monitor shows instead of the playhead's. None when
     /// the pointer is elsewhere, or the axis is off, or the cut is playing.
@@ -2170,6 +2174,8 @@ impl Studio {
             // ~20px a second: a ten-second cut fits a pane at its default width.
             playing: false,
             transport: slint::Timer::default(),
+            coast: crate::panes::glide::Coast::default(),
+            glide_beat: slint::Timer::default(),
             hover: None,
             hover_hush: slint::Timer::default(),
             clipboard: Vec::new(),
@@ -2864,6 +2870,7 @@ impl Studio {
     // ── playback ──
 
     pub fn play_toggle(&mut self) {
+        self.stop_glide();
         // The monitor's play button and Space play what it shows.
         if self.source.is_some() {
             self.source_toggle();
@@ -2970,6 +2977,88 @@ impl Studio {
         self.lanes.recentre(self.playhead);
         self.host.playback.seek(f64::from(self.playhead));
         self.request_preview();
+    }
+
+    // ── the phone's throw ──
+
+    /// A finger landed on the phone's lanes, or two began a pinch: a glide
+    /// still running stops where it is, the way a list does under a
+    /// thumb, and the scrubs from here are the new gesture's samples.
+    pub fn finger_held(&mut self) {
+        self.stop_glide();
+        self.coast.tracker.clear();
+        self.coast.tracking = true;
+    }
+
+    /// A scrub: the playhead goes to `seconds`, and while a finger is on
+    /// the phone's lanes, where it went is a sample of how fast they move.
+    pub fn scrub(&mut self, seconds: f32) {
+        self.seek(seconds.max(0.0));
+        if self.coast.tracking {
+            let at = self.coast.clock();
+            self.coast.tracker.push(at, f64::from(self.playhead));
+        }
+    }
+
+    /// The finger that dragged the phone's lanes along the cut has let go:
+    /// they carry on at its speed and run down, scrubbing as they go.
+    /// Nothing while playing - the transport owns the playhead then - and
+    /// nothing for a finger that stopped before it lifted.
+    pub fn finger_lifted(&mut self) {
+        let tracking = std::mem::replace(&mut self.coast.tracking, false);
+        if !tracking || self.playing || !self.lanes.centred {
+            return;
+        }
+        // Thrown in pixels, so the friction and the thresholds mean the
+        // same at every zoom; each step goes back to seconds at the zoom
+        // of the moment.
+        let per_pixel = f64::from(self.lanes.seconds_per_pixel.max(1e-6));
+        let speed = self.coast.tracker.velocity(self.coast.clock()) / per_pixel;
+        let Some(glide) = crate::panes::glide::Glide::thrown(speed) else {
+            return;
+        };
+        let limit = self.duration().max(self.playhead);
+        self.coast.glide = Some((glide, std::time::Instant::now(), limit));
+        // A beat a frame, only while it moves: nothing is drawn for a glide
+        // that is not running.
+        self.glide_beat.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(16),
+            || {
+                crate::host::Shell::with(|shell, app| {
+                    shell.studio.borrow_mut().glide_step();
+                    shell.studio.borrow_mut().refresh_art();
+                    shell.studio.borrow().publish_lanes(&app, &shell.models);
+                });
+            },
+        );
+    }
+
+    /// One beat of a glide: as far as it has run since the last, never
+    /// before the start of the cut or past `limit`, and the end of it
+    /// when it has slowed to nothing or reached either.
+    fn glide_step(&mut self) {
+        let Some((mut glide, since, limit)) = self.coast.glide else {
+            self.glide_beat.stop();
+            return;
+        };
+        let (moved, going) = glide.step(since.elapsed().as_secs_f64());
+        let per_pixel = f64::from(self.lanes.seconds_per_pixel);
+        let wanted = f64::from(self.playhead) + moved * per_pixel;
+        let limit = f64::from(limit);
+        let reached = wanted <= 0.0 || wanted >= limit;
+        self.seek(wanted.clamp(0.0, limit) as f32);
+        if going && !reached {
+            self.coast.glide = Some((glide, since, limit as f32));
+        } else {
+            self.stop_glide();
+        }
+    }
+
+    /// Ends a glide, if one is running.
+    pub fn stop_glide(&mut self) {
+        self.coast.glide = None;
+        self.glide_beat.stop();
     }
 
     // ── the preview axis ──

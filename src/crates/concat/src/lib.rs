@@ -969,7 +969,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         state.move_keys_at(from, to);
     }));
     editor.on_scrubbed(on_lanes!(|state, seconds: f32| {
-        state.seek(seconds.max(0.0));
+        state.scrub(seconds);
+    }));
+    editor.on_finger_held(on_lanes!(|state| {
+        state.finger_held();
+    }));
+    editor.on_finger_lifted(on_lanes!(|state| {
+        state.finger_lifted();
     }));
     editor.on_scrolled(on_lanes!(|state, seconds: f32| {
         state.handle(Msg::Timeline(TimelineMsg::Scrolled(seconds)));
@@ -1228,10 +1234,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
 
     // ── the monitor ──
     editor.on_seek(on_lanes!(|state, seconds: f32| {
+        state.stop_glide();
         state.pause();
         state.seek(seconds);
     }));
     editor.on_step_frames(on_lanes!(|state, frames: f32| {
+        state.stop_glide();
         state.pause();
         let fps = state.frame_rate().round().max(1.0);
         let at = (state.playhead * fps).round() + frames;

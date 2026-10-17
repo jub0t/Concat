@@ -396,6 +396,12 @@ export global Editor {
     /// decides which clips are worth publishing.
     callback lanes-resized(width: float);
     callback scrubbed(seconds: float);
+    /// A finger landed on a phone's lanes, or two began a pinch: a glide
+    /// still running stops.
+    callback finger-held();
+    /// The finger dragging a phone's lanes along the cut let go: they
+    /// carry on at its speed and run down.
+    callback finger-lifted();
     /// A ruler diamond was dragged: every key at `from` moves to `to`.
     callback key-mark-moved(from: float, to: float);
     callback clip-pressed(id: string, additive: bool, edge: int);

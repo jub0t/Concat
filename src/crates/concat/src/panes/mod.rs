@@ -16,6 +16,7 @@
 
 pub mod captions;
 pub mod export;
+pub mod glide;
 pub mod media_bin;
 pub mod monitor;
 pub mod pace;

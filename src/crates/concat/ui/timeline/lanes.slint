@@ -1148,6 +1148,12 @@ export component Lanes inherits Rectangle {
     callback scrolled(seconds: float);
     callback track-scrolled(pixels: length);
     callback zoomed(factor: float, anchor-seconds: float);
+    /// A finger landed on the lanes, or two began a pinch: whatever was
+    /// still gliding stops. Only with `finger`.
+    callback finger-held();
+    /// The finger that dragged the lanes along the cut let go, moving:
+    /// they carry on at its speed. Only with `finger`.
+    callback finger-lifted();
 
     /// A drag from the library is over the lanes at this moment and this
     /// place. Asked on every move of it, because the answer — the ghost below
@@ -1179,8 +1185,12 @@ export component Lanes inherits Rectangle {
     property <length> finger-x;
     property <length> finger-y;
     property <length> finger-last-y;
+    /// Which finger it is, as Slint numbers them; see `finger-up`.
+    property <int> finger-id;
 
-    function finger-down(x: length, y: length) {
+    function finger-down(x: length, y: length, id: int) {
+        root.finger-held();
+        root.finger-id = id;
         root.finger-axis = 0;
         root.finger-playhead = root.playhead;
         root.finger-x = x;
@@ -1206,6 +1216,23 @@ export component Lanes inherits Rectangle {
             root.track-scrolled(root.finger-last-y - y);
             root.finger-last-y = y;
         }
+    }
+    /// The surface the finger pressed has been let go of, by finger `id`;
+    /// true when that was a tap. A drag along the cut is thrown, and the
+    /// lanes glide on from where it let go.
+    ///
+    /// A second finger landing lets go of the first too: Slint releases
+    /// the first so a pinch can begin, and numbers that release with the
+    /// second finger's id - which is how it is told from a real lift, and
+    /// why it is neither a tap nor a throw.
+    function finger-up(id: int) -> bool {
+        if (id != root.finger-id) {
+            return false;
+        }
+        if (root.finger-axis == 1) {
+            root.finger-lifted();
+        }
+        return root.finger-axis == 0;
     }
 
     // ── scrolling at the edge ─────────────────────────────────────────
@@ -1261,6 +1288,34 @@ export component Lanes inherits Rectangle {
 
     background: Theme.lane;
     clip: true;
+
+    // Two fingers pinched, or a trackpad's pinch: the zoom, through the
+    // same `zoomed` the wheel and the buttons use, so it has their limits.
+    // Slint numbers the gesture as one scale since it began; each update
+    // is turned into the step since the last one, so the zoom moves with
+    // the fingers whatever it was when they landed. About the fingers'
+    // middle on a desk; a phone's lanes hold the playhead at theirs, and
+    // zoom about that (see `TimelinePane::recentre`).
+    //
+    // Under the wheel, not around it: every surface there turns a pinch
+    // down, and a pinch turned down falls through to what is beneath. A
+    // clip or the floor still has the first finger until the second lands.
+    pinch := ScaleRotateGestureHandler {
+        property <float> last-scale: 1;
+
+        started => {
+            self.last-scale = 1;
+            if (root.finger) {
+                root.finger-held();
+            }
+        }
+        updated => {
+            if (self.scale > 0 && self.last-scale > 0) {
+                root.zoomed(self.last-scale / self.scale, root.seconds-at(self.center.x));
+                self.last-scale = self.scale;
+            }
+        }
+    }
 
     // Ancestor of everything below, so a wheel the clips do not handle bubbles
     // up to here. A sibling would not see it.
@@ -1375,7 +1430,7 @@ export component Lanes inherits Rectangle {
                     self.to-x = self.mouse-x;
                     self.to-y = self.mouse-y;
                     if (root.finger) {
-                        root.finger-down(self.mouse-x, self.mouse-y);
+                        root.finger-down(self.mouse-x, self.mouse-y, event.touch-finger-id);
                     } else {
                         self.drawing = true;
                     }
@@ -1398,8 +1453,8 @@ export component Lanes inherits Rectangle {
                             root.stack-y(Math.min(self.from-y, self.to-y)),
                             root.stack-y(Math.max(self.from-y, self.to-y)),
                             self.additive);
-                    } else if (root.finger && root.finger-axis == 0
-                        && event.kind == PointerEventKind.up) {
+                    } else if (root.finger && event.kind == PointerEventKind.up
+                        && root.finger-up(event.touch-finger-id)) {
                         // A tap on an empty lane: the playhead goes there,
                         // and the empty band a press that never moved would
                         // have closed clears the selection.
@@ -1456,6 +1511,9 @@ export component Lanes inherits Rectangle {
             // clip by the last drag's distance.
             // https://github.com/jub0t/Concat/issues/247
             pressed(additive, edge) => {
+                if (root.finger) {
+                    root.finger-held();
+                }
                 root.press-scroll = root.scroll-left;
                 root.drag-seconds = 0;
                 root.drag-pixels = 0;
@@ -1482,7 +1540,17 @@ export component Lanes inherits Rectangle {
             }
             // Click anywhere on the timeline and the playhead goes there,
             // a clip included: it is selected and the playhead lands on it.
-            clicked(x) => { root.scrubbed(Math.max(0, root.seconds-at(self.x + x))); }
+            // Not under a finger: the lanes are held at the playhead there,
+            // and a tap that moved it would slide the whole cut half a
+            // screen to bring the clip to the middle - the clip tapped
+            // would leap away from the thumb that tapped it. A tap selects;
+            // the lanes stay where they were, the way they do in every
+            // phone editor.
+            clicked(x) => {
+                if (!root.finger) {
+                    root.scrubbed(Math.max(0, root.seconds-at(self.x + x)));
+                }
+            }
             hovered(x) => { root.hover-at(self.x + x); }
             hover-ended => { root.hover-off(); }
             context-requested => {
@@ -1667,9 +1735,9 @@ export component Lanes inherits Rectangle {
                         // The ruler slides with the lanes under a finger;
                         // a tap on it goes to the instant tapped.
                         if (event.kind == PointerEventKind.down) {
-                            root.finger-down(self.mouse-x, self.mouse-y);
+                            root.finger-down(self.mouse-x, self.mouse-y, event.touch-finger-id);
                         } else if (event.kind == PointerEventKind.up
-                            && root.finger-axis == 0) {
+                            && root.finger-up(event.touch-finger-id)) {
                             root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));
                         }
                         return;
