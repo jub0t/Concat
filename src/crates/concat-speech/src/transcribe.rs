@@ -386,8 +386,12 @@ impl Transcriber {
             .create_state()
             .map_err(|error| format!("could not start whisper: {error}"))?;
 
+        // Two hardware threads are left to the rest of the app: playback,
+        // the window and the decoders. On every one of a four-core
+        // machine's eight, whisper starved them, and the preview stuttered
+        // and its sound broke up for as long as a run went on (#388).
         let threads = std::thread::available_parallelism()
-            .map(|count| count.get().min(8))
+            .map(|count| count.get().saturating_sub(2).clamp(1, 8))
             .unwrap_or(4);
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(threads as i32);
@@ -435,9 +439,15 @@ impl Transcriber {
             });
         });
 
-        state
-            .full(params, &samples)
-            .map_err(|error| format!("transcription failed: {error}"))?;
+        // An abort ends whisper's run as an error of its own - "failed to
+        // encode", -6 - so a Cancel read as a failure, and the person was
+        // told transcription failed when they had stopped it (#388).
+        if let Err(error) = state.full(params, &samples) {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("transcription cancelled".to_owned());
+            }
+            return Err(format!("transcription failed: {error}"));
+        }
         if cancel.load(Ordering::Relaxed) {
             return Err("transcription cancelled".to_owned());
         }
