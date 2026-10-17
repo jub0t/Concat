@@ -27,6 +27,7 @@ pub mod editor;
 pub mod model;
 pub mod placement;
 pub mod speed;
+pub mod srt;
 
 pub use commands::{Command, CommandError, Outcome, consolidation_clips, why_not_merge};
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
