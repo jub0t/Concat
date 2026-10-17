@@ -865,6 +865,7 @@ fn quit_for_switch(after: impl FnOnce() + Send + 'static) {
         );
         if let Err(error) = outcome {
             log::warn!("close: not switching, project could not be saved: {error}");
+            studio.offer_quit_without_saving(error);
             studio.refresh_art();
             studio.publish(app, models);
         }

@@ -260,8 +260,9 @@ pub fn save(path: &str, document: &serde_json::Value) -> Result<(), String> {
 ///
 /// The temporary file is this call's own (`create_new`), so two saves -
 /// including ones in different processes on the same folder - never write one
-/// another's bytes, and the rename over the manifest is atomic on every
-/// platform. What a folder shared between processes does not get is the
+/// another's bytes, and the rename over the manifest is atomic on a local
+/// disk (not always on FAT or a network share, where it is still one call
+/// that replaces or fails). What a folder shared between processes does not get is the
 /// order: each process counts tickets on its own, so a stale snapshot in one
 /// process can still land after a newer document written by another.
 /// Ordering across processes would need a lock both honour, and a project
@@ -353,8 +354,24 @@ impl Temporary {
     fn commit(&mut self, manifest: &Path) -> Result<(), String> {
         // Closed first, so the name is free for Windows to replace.
         self.file.take();
-        std::fs::rename(&self.path, manifest)
-            .map_err(|error| format!("could not replace {}: {error}", manifest.display()))?;
+        // A scanner, a sync client or a backup tool holding the manifest a
+        // moment makes Windows refuse the replace (access denied, sharing
+        // violation). That passes; a close that failed on it would not.
+        let mut wait = std::time::Duration::from_millis(50);
+        let mut tries = 0;
+        loop {
+            match std::fs::rename(&self.path, manifest) {
+                Ok(()) => break,
+                Err(error) if tries < 5 && transient(&error) => {
+                    tries += 1;
+                    std::thread::sleep(wait);
+                    wait *= 2;
+                }
+                Err(error) => {
+                    return Err(format!("could not replace {}: {error}", manifest.display()));
+                }
+            }
+        }
         self.renamed = true;
         Ok(())
     }
@@ -369,6 +386,15 @@ impl Drop for Temporary {
             let _ = std::fs::remove_file(&self.path);
         }
     }
+}
+
+/// Whether a failed replace is another program holding the file for a
+/// moment: on Windows, access denied (5) or a sharing violation (32).
+/// Elsewhere a rename is not refused that way, so nothing is retried.
+fn transient(error: &std::io::Error) -> bool {
+    cfg!(windows)
+        && (error.kind() == std::io::ErrorKind::PermissionDenied
+            || matches!(error.raw_os_error(), Some(5 | 32)))
 }
 
 static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);

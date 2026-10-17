@@ -1886,6 +1886,11 @@ pub enum Confirm {
     RemoveTrack { track_id: String },
     /// Exporting over a file that is already at `path`.
     ReplaceExport { path: String },
+    /// Quitting though the project could not be saved, for `error`. A
+    /// close that cannot write the project keeps the window, and without
+    /// this a disk unplugged, full or read-only made a window that would
+    /// never close.
+    QuitWithoutSaving { error: String },
 }
 
 /// One clip on the clipboard: the clip as it was when copied, and the row
@@ -2257,6 +2262,11 @@ impl Studio {
                     crate::panes::export::ExportMsg::Overwrite,
                 ));
             }
+            Some(Confirm::QuitWithoutSaving { .. }) => {
+                log::warn!("close: quitting without saving, as asked");
+                self.release_project();
+                slint::quit_event_loop().ok();
+            }
             None => {}
         }
     }
@@ -2291,6 +2301,12 @@ impl Studio {
                 title: t("export.replaceFileTitle").into(),
                 message: tf("export.replaceFileMessage", &[path]).into(),
                 action: t("export.replace").into(),
+            },
+            Confirm::QuitWithoutSaving { error } => crate::ui::ConfirmData {
+                open: true,
+                title: t("close.unsavedTitle").into(),
+                message: tf("close.unsavedMessage", &[error]).into(),
+                action: t("close.quitWithoutSaving").into(),
             },
         }
     }
@@ -7269,6 +7285,19 @@ impl Studio {
                 return Err(error);
             }
         }
+        self.release_project();
+        Ok(())
+    }
+
+    /// Asks whether to quit though the project could not be saved: the
+    /// window's ways out call it when `close_project` refused.
+    pub fn offer_quit_without_saving(&mut self, error: String) {
+        self.confirm = Some(Confirm::QuitWithoutSaving { error });
+    }
+
+    /// Lets the open project go, unsaved: what `close_project` does once
+    /// the save has landed, and what quitting without saving does instead.
+    fn release_project(&mut self) {
         self.host.cutouts.cancel();
         self.host.enhancers.cancel();
         self.host.reversers.cancel();
@@ -7315,7 +7344,6 @@ impl Studio {
             .set_clips(std::path::PathBuf::new(), Vec::new());
         self.on_start = true;
         self.recents = projects::list(&self.host.dirs.config);
-        Ok(())
     }
 
     /// Posters for the recents that have none yet, decoded on a worker.
