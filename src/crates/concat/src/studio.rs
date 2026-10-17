@@ -3770,7 +3770,7 @@ impl Studio {
         self.inspector_jump = (
             self.inspector_jump.0 + 1,
             if video { "Effects" } else { "Audio" },
-            if video { "Effects" } else { "Sound" },
+            if video { "Effects" } else { "AudioEffects" },
         );
     }
 

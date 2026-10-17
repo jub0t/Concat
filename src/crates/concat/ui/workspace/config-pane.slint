@@ -275,8 +275,13 @@ export component ConfigPane inherits Rectangle {
     /// The sections of the current tab, as the dropdown lists them.
     property <[string]> sections: root.heading == "Video"
             ? (root.is-shape ? ["Basic"] : ["Basic", "Enhance", "Adjust"])
+        // Audio's chain library is a page of its own, beside the level,
+        // fades and treatments rather than under them, the way Video's
+        // Adjust sits beside its Basic. Named apart from Video's "Basic"
+        // and the Effects tab's "Effects", since `showing` picks the panel
+        // by this name alone.
         : root.heading == "Audio"
-            ? ["Sound"]
+            ? ["Sound", "AudioEffects"]
         : root.heading == "Effects" ? ["Effects"]
         : root.heading == "Text" ? ["Text"]
         : ["Layer"];
@@ -285,7 +290,7 @@ export component ConfigPane inherits Rectangle {
             ? (root.is-shape ? [I18n.t("configPane.basic")]
                 : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")])
         : root.heading == "Audio"
-            ? [I18n.t("configPane.sound")]
+            ? [I18n.t("configPane.basic"), I18n.t("configPane.audioEffects")]
         : root.heading == "Effects" ? [I18n.t("common.effects")]
         : root.heading == "Text" ? [I18n.t("common.text")]
         : [I18n.t("common.layer")];
@@ -322,8 +327,10 @@ export component ConfigPane inherits Rectangle {
         if (root.jump-tab == "Video") { root.tab = 0; }
         else if (root.jump-tab == "Audio") { root.tab = root.is-audio ? 0 : 1; }
         else if (root.jump-tab == "Effects") { root.tab = root.tabs.length - 1; }
-        // Enhance sits second in the Video tab for a video and a still alike.
-        root.pick-section(root.jump-section == "Enhance" ? 1 : 0);
+        // Enhance sits second in the Video tab for a video and a still
+        // alike, and Audio effects second in the Audio tab.
+        root.pick-section(root.jump-section == "Enhance" || root.jump-section == "AudioEffects"
+            ? 1 : 0);
     }
     changed jump-token => { root.jump(); }
     init => { root.jump(); }
@@ -716,6 +723,12 @@ export component ConfigPane inherits Rectangle {
                         }
                         commit => { root.clip-commit(); }
                     }
+                }
+
+                // The sound's chain and its library, on their own page
+                // rather than under everything Basic holds, where a long
+                // chain pushed the library off the bottom of the pane.
+                if root.showing == "AudioEffects": VerticalLayout {
                     PresetStack {
                         noun: I18n.t("common.audioEffect");
                         library-title: I18n.t("configPane.audioEffects");
