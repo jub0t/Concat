@@ -172,6 +172,7 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: "0"
           CONCAT_REQUIRE_GPU: "1"
         run: |
+          set -o pipefail
           status=0
           cargo nextest run --workspace --build-jobs 1 --profile ci 2>&1 | tee nextest-workspace.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-workspace.xml 2>/dev/null || true
@@ -192,6 +193,7 @@ jobs:
         timeout-minutes: 10
         working-directory: src
         run: |
+          set -o pipefail
           status=0
           cargo nextest run -p concat-server --features grpc --profile ci 2>&1 | tee nextest-grpc.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-grpc.xml 2>/dev/null || true
