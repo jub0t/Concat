@@ -1403,9 +1403,14 @@ fn paint(
     // where it is.
     let anchor_x = width as f32 / 2.0;
     let outer_left = match style.align {
-        Align::Left => anchor_x,
+        // A box wider than the half the anchored edge leaves would run
+        // off the canvas and its far end was never drawn: a left-aligned
+        // caption came out cut where a centred one did not. It slides back
+        // in instead, as far as the canvas allows; one that fits stays on
+        // its anchor.
+        Align::Left => anchor_x.min(width as f32 - outer_w).max(0.0),
         Align::Center => anchor_x - outer_w / 2.0,
-        Align::Right => anchor_x - outer_w,
+        Align::Right => (anchor_x - outer_w).max(0.0).min(width as f32 - outer_w),
     };
     let left = outer_left + pad_x;
     // The words are centred in a box taller than they are.
@@ -2349,6 +2354,37 @@ mod tests {
         let (first, last) = painted_span(&out.png);
         assert!(first < centre && last > centre);
         assert_eq!(out.block_dx, 0);
+    }
+
+    /// A sized box wider than half the canvas, aligned to an edge, would
+    /// start at the anchor and run off the canvas: its words were cut where
+    /// a centred one's were not. It slides back in whole.
+    #[test]
+    fn a_wide_box_aligned_to_an_edge_stays_on_the_canvas() {
+        let fonts = Fonts::new();
+        let (width, height) = (640, 360);
+        for align in [Align::Left, Align::Right] {
+            let mut wide = style("Escorpio - Casa 6 and Capricornio Cazimi");
+            wide.align = align;
+            wide.shadow = false;
+            wide.max_width = 0.8;
+            let out = render(&fonts, &wide, width, height).expect("renders");
+            assert!(!out.words.is_empty(), "{align:?}");
+            for word in &out.words {
+                assert!(
+                    word.x >= 0 && word.x as u32 + word.width <= width,
+                    "{align:?}: a word at {}..{} leaves the {width}-wide canvas",
+                    word.x,
+                    word.x as u32 + word.width
+                );
+            }
+            let half = out.block_width as i32 / 2;
+            let centre = width as i32 / 2 + out.block_dx;
+            assert!(
+                centre - half >= -1 && centre + half <= width as i32 + 1,
+                "{align:?}"
+            );
+        }
     }
 
     // ── scripts the style's face lacks ──
