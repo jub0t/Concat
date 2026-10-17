@@ -358,6 +358,34 @@ impl FrameRate {
             .then_some(Self(rate))
     }
 
+    /// The closest rate to `fps` a video can have, at the finest thousandth
+    /// of a frame per second that fits [`FrameRate::MAX_TERM`] - coarser
+    /// only where the numerator of a finer one would not.
+    ///
+    /// A container's `avg_frame_rate` is a statistic over the whole file: a
+    /// 138-second variable-rate recording comes out at
+    /// `764460000/12487247`, whose terms are far past what the frame
+    /// arithmetic counts in, while the rate the container holds beside it is
+    /// its timestamp grid, `90000/1`, which is not a rate at all. Rounded,
+    /// the average still says the pace the file was recorded at. `None` for
+    /// one no video has: zero, negative, not finite, or a rate whose
+    /// thousandths, hundredths, tenths and whole frames are all past
+    /// [`FrameRate::MAX_TERM`].
+    pub fn approximated(fps: f64) -> Option<Self> {
+        if !fps.is_finite() || fps <= 0.0 {
+            return None;
+        }
+        for factor in [1_000_i64, 100, 10, 1] {
+            // A rate past an i64 saturates rather than wraps, and a
+            // saturated one is past MAX_TERM, where `checked` refuses it.
+            let scaled = (fps * factor as f64).round() as i64;
+            if let Some(rate) = Self::checked(scaled, factor) {
+                return Some(rate);
+            }
+        }
+        None
+    }
+
     /// Builds a whole-number frame rate.
     pub fn from_int(fps: u32) -> Self {
         Self::new(Rational::from_int(i64::from(fps)))
@@ -453,6 +481,28 @@ mod tests {
             FrameRate::checked(60_000_000, 2_002_000),
             Some(FrameRate::NTSC_30),
             "large terms that reduce are a rate"
+        );
+    }
+
+    /// A rate written as a float - a container's `avg_frame_rate` for a
+    /// variable-rate file - comes back as the closest rate the frame
+    /// arithmetic takes, and nothing at all for one no video has.
+    #[test]
+    fn an_approximated_rate_is_the_closest_one_that_fits() {
+        assert_eq!(
+            FrameRate::approximated(61.219_258),
+            Some(FrameRate::new(Rational::new(61_219, 1_000))),
+            "a statistic keeps its thousandths"
+        );
+        assert_eq!(FrameRate::approximated(25.0), Some(FrameRate::PAL));
+        assert_eq!(FrameRate::approximated(0.0), None);
+        assert_eq!(FrameRate::approximated(-25.0), None);
+        assert_eq!(FrameRate::approximated(f64::NAN), None);
+        assert_eq!(FrameRate::approximated(f64::INFINITY), None);
+        assert_eq!(
+            FrameRate::approximated(1_500_000.0),
+            None,
+            "past whole frames there is no rate left to take"
         );
     }
 
