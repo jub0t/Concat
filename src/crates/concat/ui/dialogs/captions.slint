@@ -70,6 +70,8 @@ export component CaptionsDialog inherits Modal {
     callback size-changed(index: int);
     callback begin();
     callback cancel();
+    callback import-srt();
+    callback export-srt();
 
     property <bool> from-voice: root.data.from-voice;
 
@@ -334,6 +336,32 @@ export component CaptionsDialog inherits Modal {
                 label: root.from-voice ? I18n.t("captions.generateCaptions") : I18n.t("captions.addCaptions");
                 enabled: root.from-voice ? root.data.ready && root.data.source >= 0 : root.draft != "";
                 clicked => { root.begin(); }
+            }
+
+            // Captions as a SubRip file: one read in as titles with the
+            // look above, timed as the file says; or the timeline's titles
+            // written out, only the selected title's lane when one is
+            // selected.
+            if !root.data.running: HorizontalLayout {
+                spacing: 8px;
+
+                Button {
+                    horizontal-stretch: 1;
+                    block: true;
+                    ghost: true;
+                    glyph: Glyph.import;
+                    label: I18n.t("captions.importSrt");
+                    clicked => { root.import-srt(); }
+                }
+
+                Button {
+                    horizontal-stretch: 1;
+                    block: true;
+                    ghost: true;
+                    glyph: Glyph.export;
+                    label: I18n.t("captions.exportSrt");
+                    clicked => { root.export-srt(); }
+                }
             }
         }
     }
