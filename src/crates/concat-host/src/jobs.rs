@@ -213,14 +213,9 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("concat-tripwire-alive-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        // This test's own parent is running; pid 1 always is on a unix.
-        let running = if cfg!(unix) {
-            1
-        } else {
-            std::process::id() + 0
-        };
-        std::fs::write(dir.join("running"), running.to_string()).expect("writes");
+        // pid 1 is always running on a unix.
         if cfg!(unix) {
+            std::fs::write(dir.join("running"), "1").expect("writes");
             assert!(!Tripwire::tripped(&dir), "a live process's mark");
         }
         std::fs::write(dir.join("running"), "not a pid").expect("writes");
