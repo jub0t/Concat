@@ -67,6 +67,18 @@ const DEFAULT_PRESET: &str = "medium";
 /// build or the embedder is added; see [`VersionInfo::capabilities`].
 const CAPABILITIES: &[&str] = &["events"];
 
+/// The JSON Schema of [`Request`]: one alternative per method, each the
+/// object its params are with `method` naming it, and every type a request
+/// carries - an edit [`Command`] and all it holds - under `$defs`. The
+/// descriptions are this crate's and `concat_project`'s doc comments, so
+/// what a caller is told about a field is what its maintainer wrote next
+/// to it. Generated, never written by hand: a method or a command field
+/// added to the types is in the schema on the next build.
+#[cfg(feature = "schema")]
+pub fn request_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(Request)).unwrap_or_default()
+}
+
 /// Where a job's events go. Called from the job's thread, so a transport
 /// that writes them to a caller locks its writer inside.
 pub type EventSink = Arc<dyn Fn(Event) + Send + Sync>;

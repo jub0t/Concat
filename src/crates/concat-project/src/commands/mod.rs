@@ -44,6 +44,7 @@ pub(crate) use crate::model::ranges::{
 
 /// Which end of a clip a trim drags. The two are not symmetric: see
 /// [`Command::TrimClip`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrimEdge {
@@ -55,6 +56,7 @@ pub enum TrimEdge {
 }
 
 /// Which per-track toggle a [`Command::SetTrackFlag`] flips.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrackFlag {
@@ -65,6 +67,7 @@ pub enum TrackFlag {
 }
 
 /// Where one clip is going, in a multi-clip move.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipMove {
@@ -81,6 +84,7 @@ pub struct ClipMove {
 /// A partial update to one clip. Every field optional; `transition_in` and
 /// `text` are double-optional so "clear it" and "leave it alone" stay
 /// distinct on the wire (absent = untouched, null = cleared).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipPatch {
@@ -120,6 +124,7 @@ pub struct ClipPatch {
         with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<Crop>"))]
     pub crop: Option<Option<Crop>>,
     /// The mask, same three-way wire semantics as `crop`: absent leaves it
     /// alone, null takes it off, a value replaces it, tidied on the way in.
@@ -143,6 +148,7 @@ pub struct ClipPatch {
         with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<Transition>"))]
     pub transition_in: Option<Option<Transition>>,
     /// The title styling, same three-way wire semantics as `transition_in`.
     /// Setting a style also renames the clip after its first line.
@@ -151,6 +157,7 @@ pub struct ClipPatch {
         with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<TextStyle>"))]
     pub text: Option<Option<TextStyle>>,
     /// Which of the media's audio streams the clip plays, by stream index:
     /// absent leaves it alone, null goes back to the file's first, a value
@@ -160,6 +167,7 @@ pub struct ClipPatch {
         with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<u32>"))]
     pub audio_stream: Option<Option<u32>>,
     /// The clip's own background over the timeline's: absent leaves it
     /// alone, null goes back to following the timeline's, a value - black
@@ -194,6 +202,7 @@ mod double_option {
 }
 
 /// A media item as probed by the host, before the model mints its id.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewMedia {
@@ -241,6 +250,7 @@ pub struct NewMedia {
 /// fields. [`apply`] is the single place each variant's meaning lives; the
 /// notes here state the contract - clamps, tolerances, what gets minted -
 /// so a caller need not read `apply` to know what a command will do.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 // A clip patch carries a whole text style, which is the largest variant by

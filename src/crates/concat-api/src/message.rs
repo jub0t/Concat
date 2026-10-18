@@ -46,6 +46,7 @@ pub const API_VERSION: &str = "0.2";
 /// path [`Request::ProjectOpen`] took; the API keeps one session per folder
 /// and a method on a folder that is not open is an error, not a silent
 /// open, so a caller always knows what it is editing.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "method", rename_all_fields = "camelCase")]
 pub enum Request {
@@ -246,6 +247,7 @@ pub enum Request {
 }
 
 /// One template slot and the file that takes it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Fill {
@@ -257,6 +259,7 @@ pub struct Fill {
 
 /// How an export is rendered. Everything but the output is optional and
 /// defaults to what the window's sheet defaults to.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportSpec {

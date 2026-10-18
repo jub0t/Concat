@@ -17,6 +17,7 @@ concat-export = { path = "crates/concat-export" }
 concat-host = { path = "crates/concat-host" }
 concat-api = { path = "crates/concat-api" }
 concat-server = { path = "crates/concat-server" }
+concat-mcp = { path = "crates/concat-mcp" }
 concat-speech = { path = "crates/concat-speech" }
 concat-effects = { path = "crates/concat-effects" }
 concat-text = { path = "crates/concat-text" }
@@ -26,6 +27,10 @@ concat = { path = "crates/concat" }
 serde_json = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive", "env"] }
+# JSON Schemas for the API's request types, behind the `schema` features of
+# concat-project and concat-api: what concat-mcp hands an agent as each
+# tool's input schema, generated from the types so it cannot drift.
+schemars = "1"
 
 # The GPU compositor, behind concat-render's `gpu` feature. A heavy tree, which
 # is exactly why it is optional: engine-only work never pays for it. Pinned to

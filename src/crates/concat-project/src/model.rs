@@ -19,6 +19,7 @@ use serde_json::{Map, Value};
 
 /// What a piece of media is. A still is not a video with one frame: it has no
 /// intrinsic duration, so its length on a timeline is editorial.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaKind {
@@ -34,6 +35,7 @@ pub enum MediaKind {
 /// What made a media file, when it was the editor and not the user's
 /// import. The bin shelves such a file under Generated, by origin, and
 /// keeps it out of the import shelves.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaOrigin {
@@ -78,6 +80,7 @@ impl ClipKind {
 /// One audio stream of a media file, as the probe reported it. A screen
 /// recording keeps the desktop's sound and the microphone as two of these;
 /// a clip names the one it plays by `index`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioTrack {
@@ -108,6 +111,7 @@ pub struct AudioTrack {
 /// full crushes its shadows until it is read as `limited`. Set with
 /// `Command::SetMediaColorRange`; absent means the file's own tag is read.
 /// https://github.com/jub0t/Concat/issues/103
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ColorRange {
@@ -234,6 +238,7 @@ impl Default for Track {
 /// One applied audio filter or video effect: a catalogue id plus whatever
 /// parameters were set. The catalogues themselves (and the FFmpeg strings
 /// they build) live in the UI today; the model only stores the numbers.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppliedFilter {
@@ -264,6 +269,7 @@ fn yes() -> bool {
 }
 
 /// One key on one parameter of an applied effect; see `AppliedFilter::keys`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParamKey {
@@ -414,6 +420,7 @@ impl AppliedFilter {
 /// How a picture's background is taken away when there is no key colour
 /// to remove: a person mask found by the cutout model, alone or corrected
 /// by hand.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cutout {
@@ -431,6 +438,7 @@ pub struct Cutout {
 }
 
 /// The two ways a cutout decides what stays.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CutoutMode {
@@ -443,6 +451,7 @@ pub enum CutoutMode {
 /// What a cutout keeps: the person the matting model finds, the one
 /// thing the picture is of whatever it is, or whichever of those the
 /// analysis decides fits the footage.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Subject {
@@ -474,6 +483,7 @@ impl Subject {
 /// One brush stroke over a cutout: which tool, how wide, and where it went.
 /// Points are fractions of the source picture, `(0, 0)` its top-left, so a
 /// stroke survives a change of output size, a crop or a flip.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stroke {
@@ -491,6 +501,7 @@ pub struct Stroke {
 }
 
 /// The four brushes of a custom cutout.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BrushTool {
@@ -634,6 +645,7 @@ impl Stabilize {
 }
 
 /// A crop: what is taken off each edge, as fractions of the source.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Crop {
@@ -1014,6 +1026,7 @@ impl ClipMask {
 /// carry them and the document that stores them do not care which side of
 /// the clip a value ends up on, and only the thing that finally reads them
 /// does.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum KeyProperty {
@@ -1131,6 +1144,7 @@ impl KeyProperty {
 /// Serialised as a bare array: `"ease": [0.42, 0, 0.58, 1]`. Documents
 /// written before the curve editor spell it `"linear"` / `"in"` / `"out"` /
 /// `"inOut"` instead, and `from_value` still reads those.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 #[serde(transparent)]
 pub struct KeyEase(pub [f64; 4]);
@@ -1257,6 +1271,7 @@ pub struct ClipKey {
 pub const KEY_EPSILON: f64 = 0.002;
 
 /// One point of a speed curve.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpeedPoint {
@@ -1279,6 +1294,7 @@ pub struct Enhanced {
 }
 
 /// A transition on the cut into a clip.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transition {
@@ -1294,6 +1310,7 @@ pub struct Transition {
 /// left-aligned one by its block's left edge and a right-aligned one by its
 /// right edge. Typing more into a left-aligned title grows it to the right
 /// and leaves its left edge where it was, as alignment means everywhere.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextAlign {
@@ -1308,6 +1325,7 @@ pub enum TextAlign {
 
 /// Which figure a shape clip draws. The names are written into project
 /// files, so they are stable for ever.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShapeKind {
@@ -1361,6 +1379,7 @@ impl ShapeKind {
 /// How a shape clip is painted. Sizes are fractions of the frame's height,
 /// as a title's are, so a shape composed against 1080p is the same shape at
 /// 4K. A style arriving in a command needs only the fields it changes.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ShapeStyle {
@@ -1423,6 +1442,7 @@ impl Default for ShapeStyle {
 /// command needs only the fields it changes; the rest are the default's, so
 /// a caller can say `{ "content": "Hello" }` and get a title that looks like
 /// one the window would place.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TextStyle {
@@ -2404,6 +2424,7 @@ impl Default for Timeline {
 /// The colour a picture is in: SDR on Rec. 709, or HDR on Rec. 2020 with
 /// the hybrid log-gamma or the perceptual quantiser transfer. A timeline's
 /// is what it is output in; a media file's, what it was recorded in.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ColorSpace {
@@ -2437,6 +2458,7 @@ impl ColorSpace {
 /// rate, so a build that predates this reads the document it always did,
 /// and a document from such a build gives every timeline that block on the
 /// way in.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoSettings {

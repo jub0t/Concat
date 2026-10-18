@@ -19,6 +19,12 @@ serde_json.workspace = true
 png = "0.17"
 # A frame handed back inline crosses as text.
 base64 = "0.22"
+schemars = { workspace = true, optional = true }
+
+[features]
+# A JSON Schema for every request, generated from the types and their doc
+# comments: what concat-mcp gives an agent for each tool's arguments.
+schema = ["dep:schemars", "concat-project/schema"]
 
 [dev-dependencies]
 tempfile = "3"
