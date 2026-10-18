@@ -41,6 +41,7 @@ pub mod proxy;
 pub mod record;
 pub mod reverse;
 pub mod session;
+pub mod sounds;
 pub mod stabilize;
 pub mod templates;
 pub mod titles;

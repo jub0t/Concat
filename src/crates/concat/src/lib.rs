@@ -98,6 +98,7 @@ use panes::monitor::MonitorMsg;
 use panes::project::ProjectMsg;
 use panes::relink::RelinkMsg;
 use panes::settings::SettingsMsg;
+use panes::sounds::SoundsMsg;
 use panes::speech::SpeechMsg;
 use panes::start::StartMsg;
 use panes::timeline::TimelineMsg;
@@ -220,7 +221,20 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             Shell::with(|shell, app| {
                 {
                     let mut studio = shell.studio.borrow_mut();
-                    studio.handle(Msg::Media(MediaMsg::Import(paths)));
+                    // Sound files dropped while the library shows its
+                    // Audio page go into the user's own sounds, as its
+                    // Import would take them; anything else, or the page
+                    // not up, into the project's bin.
+                    let to_library = studio.sounds.shown
+                        && !paths.is_empty()
+                        && paths
+                            .iter()
+                            .all(|path| concat_host::sounds::is_sound(path));
+                    if to_library {
+                        studio.handle(Msg::Sounds(SoundsMsg::Import(paths)));
+                    } else {
+                        studio.handle(Msg::Media(MediaMsg::Import(paths)));
+                    }
                 }
                 shell.studio.borrow_mut().refresh_art();
                 shell.studio.borrow().publish(&app, &shell.models);
@@ -368,6 +382,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.set_speech_samples(ModelRc::from(models.speech_samples.clone()));
         app.set_speech_sample_waves(ModelRc::from(models.speech_sample_waves.clone()));
         app.set_speech_sample_details(ModelRc::from(models.speech_sample_details.clone()));
+        app.global::<Sounds>()
+            .set_mine(ModelRc::from(models.sounds_mine.clone()));
         app.set_voiceover_devices(ModelRc::from(models.voiceover_devices.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
@@ -1310,6 +1326,32 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.global::<SourcePreview>().on_closed(on_window!(|state| {
         state.close_source();
     }));
+
+    // ── the library's Audio page ──
+    {
+        let sounds = app.global::<Sounds>();
+        // The picker answers on a turn of its own, the way the bin's does;
+        // see `host::pick_files_then`.
+        sounds.on_import(|| {
+            host::pick_files_then(
+                i18n::t("sounds.importSounds"),
+                Some((i18n::t("common.audio"), &concat_host::sounds::EXTENSIONS)),
+                |studio, _, _, paths| studio.handle(Msg::Sounds(SoundsMsg::Import(paths))),
+            );
+        });
+        sounds.on_preview(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Sounds(SoundsMsg::Preview(id.to_string())));
+        }));
+        sounds.on_add(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Sounds(SoundsMsg::Add(id.to_string())));
+        }));
+        sounds.on_remove(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Sounds(SoundsMsg::Remove(id.to_string())));
+        }));
+        sounds.on_shown(on_window!(|state, on: bool| {
+            state.handle(Msg::Sounds(SoundsMsg::Shown(on)));
+        }));
+    }
     app.global::<SourcePreview>()
         .on_seek(on_window!(|state, seconds: f32| {
             state.source_seek(f64::from(seconds));

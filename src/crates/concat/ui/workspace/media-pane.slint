@@ -12,9 +12,14 @@ import { SearchField } from "../inspector/controls.slint";
 import { Select } from "../primitives/select.slint";
 import { Wave } from "../primitives/wave.slint";
 import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
+import { SourcePreview } from "source-preview.slint";
+import { Sounds, SoundList } from "audio-page.slint";
+
+export { SourcePreview }
 
 // The library pane: a strip of pages across the top, then a narrow category
-// sidebar and the browsing area beside it. Media is the bin; Text adds a
+// sidebar and the browsing area beside it. Media is the bin; Audio keeps
+// the user's own sounds across projects; Text adds a
 // title; Transitions, Effects and Filters each browse a catalogue;
 // Adjustments lays a layer that grades everything beneath it and keeps the
 // user's LUTs; Templates saves the project as one.
@@ -26,24 +31,6 @@ export enum MediaKind { video, audio, image }
 /// value here and not the absence of one. `speech` is the Generated group's
 /// shelf: what the editor read aloud, which the Media rows leave out.
 export enum MediaFilter { all, video, audio, images, speech, processed }
-
-/// The library file lent to the monitor and the speakers, published by
-/// Rust (see concat's source.rs): its card shows how far it has played,
-/// the monitor names it, and its transport runs through it.
-export global SourcePreview {
-    in property <bool> open;
-    in property <string> name;
-    /// The card's row, or -1.
-    in property <int> row: -1;
-    in property <float> time;
-    in property <float> duration;
-    in property <float> progress;
-    in property <bool> playing;
-    /// The monitor's chip was closed: the timeline has it back.
-    callback closed();
-    /// The monitor's timecode moved through the source.
-    callback seek(seconds: float);
-}
 
 /// One look a title can be given, as the Text page's Presets shelf shows
 /// it: enough of the style to draw the name in it. Published by Rust from
@@ -1808,6 +1795,12 @@ export component MediaPane inherits Rectangle {
     callback pane-removed();
 
     property <int> tab;
+    /// The Audio page is up, or not: a drop of sound files on the window
+    /// goes into the library while it is.
+    changed tab => { Sounds.shown(root.tab == 8); }
+    /// The Audio page's shelf: 0 = Mine.
+    property <int> audio-category;
+    property <bool> sounds-open: true;
     /// How far left the page strip can be pushed: nothing, while its chips
     /// fit. See `strip`.
     property <length> strip-floor: Math.min(0px, strip.width - strip.content-width);
@@ -1931,6 +1924,14 @@ export component MediaPane inherits Rectangle {
                             label: I18n.t("common.media");
                             current: root.tab == 0;
                             clicked => { root.tab = 0; }
+                        }
+                        // Beside Media, where CapCut keeps it: the page
+                        // number is the last one handed out, not the place.
+                        LibraryTab {
+                            glyph: Glyph.music;
+                            label: I18n.t("common.audio");
+                            current: root.tab == 8;
+                            clicked => { root.tab = 8; }
                         }
                         LibraryTab {
                             glyph: Glyph.text-mark;
@@ -2138,6 +2139,24 @@ export component MediaPane inherits Rectangle {
                             count: root.count-processed;
                             current: root.filter == MediaFilter.processed;
                             clicked => { root.narrow(MediaFilter.processed); }
+                        }
+                    }
+
+                    // Audio: the user's own sounds.
+                    if root.tab == 8: VerticalLayout {
+                        spacing: 1px;
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("sounds.sounds");
+                            open: root.sounds-open;
+                            toggled => { root.sounds-open = !root.sounds-open; }
+                        }
+                        if root.sounds-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("sounds.mine");
+                            count: Sounds.mine.length;
+                            current: root.audio-category == 0;
+                            clicked => { root.audio-category = 0; }
                         }
                     }
 
@@ -2451,6 +2470,34 @@ export component MediaPane inherits Rectangle {
                                 from-row, to-row, additive);
                         }
                     }
+                }
+
+                // Mine: the user's own sounds, copied in and kept across
+                // projects. The import is the page's head, and its rows
+                // are the sounds, newest first.
+                if root.tab == 8 && root.audio-category == 0: VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    ImportButton {
+                        label: I18n.t("sounds.importSounds");
+                        busy: Sounds.importing;
+                        clicked => { Sounds.import(); }
+                    }
+                    if Sounds.mine.length > 0: Text {
+                        text: I18n.t("sounds.mineHint");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    SoundList {
+                        items: Sounds.mine;
+                    }
+                }
+
+                if root.tab == 8 && root.audio-category == 0 && Sounds.mine.length == 0: Empty {
+                    glyph: Glyph.music;
+                    text: I18n.t("sounds.noSoundsYet");
                 }
 
                 if root.tab == 1 && root.text-category == 0: HorizontalLayout {

@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+/// The library file lent to the monitor and the speakers, published by
+/// Rust (see concat's source.rs): its card shows how far it has played,
+/// the monitor names it, and its transport runs through it.
+export global SourcePreview {
+    in property <bool> open;
+    in property <string> name;
+    /// The card's row, or -1.
+    in property <int> row: -1;
+    /// The Audio page's card playing, or empty for a file in the bin.
+    in property <string> card;
+    in property <float> time;
+    in property <float> duration;
+    in property <float> progress;
+    in property <bool> playing;
+    /// The monitor's chip was closed: the timeline has it back.
+    callback closed();
+    /// The monitor's timecode moved through the source.
+    callback seek(seconds: float);
+}

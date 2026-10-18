@@ -241,6 +241,33 @@ pub const WAVE_PITCH: f32 = 3.0;
 /// own; see `media_bin`.
 pub const WAVE_BAR: f32 = 2.0 / 3.0;
 
+/// An envelope already reduced to one peak a bar - a library sound's,
+/// read once at import - drawn the way [`wave_path`] draws a file's: bars
+/// about the centre line, each the leading `bar` of its pitch, in a 1x1
+/// box.
+pub fn bars_path(bars: &[f32], bar: f32) -> String {
+    /// See `wave_path`: silence is a hairline, not a gap.
+    const FLOOR: f32 = 0.024;
+    if bars.is_empty() {
+        return String::new();
+    }
+    let bar = bar.clamp(0.1, 1.0);
+    let pitch = 1.0 / bars.len() as f32;
+    let mut path = String::with_capacity(bars.len() * 56);
+    for (column, amplitude) in bars.iter().enumerate() {
+        let left = column as f32 * pitch;
+        let right = left + pitch * bar;
+        let amplitude = amplitude.clamp(0.0, 1.0).max(FLOOR);
+        let top = 0.5 - amplitude / 2.0;
+        let bottom = 0.5 + amplitude / 2.0;
+        path.push_str(&format!(
+            "M {left:.4} {top:.4} L {right:.4} {top:.4} \
+             L {right:.4} {bottom:.4} L {left:.4} {bottom:.4} Z "
+        ));
+    }
+    path
+}
+
 /// How many bars a span of `seconds` gets at `seconds_per_pixel`: one a
 /// [`WAVE_PITCH`], rounded up to the next sixteen so a zoom rebuilds the
 /// path at each step of that and not at every pixel, held to what

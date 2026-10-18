@@ -1,0 +1,236 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme, Fmt, Glyph, Icon, Payload } from "../primitives/primitives.slint";
+import { Wave } from "../primitives/wave.slint";
+import { SourcePreview } from "source-preview.slint";
+
+// The library's Audio page (#60): sounds of the user's own, kept across
+// projects. A sound is a row rather than a tile, the way every editor's
+// audio library lists them: what tells two sounds apart is a name and a
+// length, and a row gives both their room, with the envelope beside them.
+//
+// One global for the page's data and verbs, read by the desk's library
+// pane and the phone's sheet alike, so neither threads them through a
+// seat.
+
+/// One sound, as a row shows it.
+export struct SoundCardData {
+    /// Its card: the shelf, then the sound - `mine-…`. What a drag
+    /// carries and what every verb is given back.
+    id: string,
+    name: string,
+    /// seconds
+    duration: float,
+    /// The envelope as path commands in a 1x1 box, or empty.
+    wave: string,
+    /// A second line beside the length: a category, a licence.
+    detail: string,
+    /// "Remove from library" is offered: a sound of the user's own.
+    removable: bool,
+    /// On disk and ready to play or lay down. A sound that is not is
+    /// fetched on its first use.
+    ready: bool,
+    /// How far a fetch has got, `0..=1`, or below zero when none runs.
+    progress: float,
+}
+
+export global Sounds {
+    /// The Mine shelf: the user's own sounds, newest first.
+    in property <[SoundCardData]> mine;
+    /// Sounds are being copied in.
+    in property <bool> importing;
+
+    /// The Import button: the system's picker, for sound files.
+    callback import();
+    /// A row clicked: play it, or pause it when it is the one playing.
+    callback preview(id: string);
+    /// A row's plus: onto the timeline at the playhead, on the first lane
+    /// with room.
+    callback add(id: string);
+    /// "Remove from library": the copy deleted.
+    callback remove(id: string);
+    /// A library pane turned to the page or away from it: a drop of sound
+    /// files on the window goes into the library while it is up.
+    callback shown(on: bool);
+}
+
+// A small square button on a row: the plus, the cross.
+component RowButton inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <bool> danger;
+    in property <length> size: 22px;
+    callback clicked();
+
+    width: root.size;
+    height: root.size;
+    border-radius: Theme.r-xs;
+    background: touch.has-hover ? (root.danger ? Theme.danger : Theme.accent) : Theme.field;
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.glyph;
+        size: root.size * 0.5;
+        tint: touch.has-hover ? Theme.on-accent : Theme.fg-muted;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One sound: a play button on the audio colour, the name and the length,
+// the envelope, and the plus. A click anywhere plays it; a drag lays it on
+// the lanes; the plus lays it at the playhead. A sound of the user's own
+// has a cross, under the pointer, that takes it out of the library.
+export component SoundRow inherits Rectangle {
+    in property <SoundCardData> item;
+    /// A phone's row: taller, for a finger, and not a drag source - a
+    /// finger on a row is a scroll, and the sheet lies over the lanes.
+    in property <bool> touch-sized;
+
+    callback preview();
+    callback add();
+    callback remove();
+
+    property <bool> playing-row: SourcePreview.card == root.item.id && root.item.id != "";
+    property <bool> playing: root.playing-row && SourcePreview.playing;
+    property <string> payload: root.touch-sized || !root.item.ready ? ""
+        : "sound:\{root.item.id}:\{root.item.name}";
+
+    height: root.touch-sized ? 56px : 44px;
+    border-radius: Theme.r;
+    background: root.playing-row ? Theme.field-active
+        : card.has-hover ? Theme.field : Colors.transparent;
+    opacity: drag.dragging ? 0.45 : 1.0;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    drag := DragArea {
+        data: Payload.of(root.payload);
+        drag-image: Payload.preview(root.payload);
+        drag-image-offset-x: -8;
+        drag-image-offset-y: -4;
+        allow-copy: true;
+
+        card := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.preview(); }
+            double-clicked => { if (root.item.ready) { root.add(); } }
+
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 6px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: root.touch-sized ? 40px : 32px;
+                        height: self.width;
+                        border-radius: Theme.r-sm;
+                        background: Theme.kind-audio-well;
+
+                        Icon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            glyph: root.playing ? Glyph.pause
+                                : (card.has-hover || root.touch-sized) ? Glyph.play
+                                : Glyph.music;
+                            size: parent.width * 0.42;
+                            tint: Theme.kind-audio;
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 2px;
+
+                    Text {
+                        text: root.item.name;
+                        color: Theme.fg;
+                        font-size: root.touch-sized ? Theme.fs : Theme.fs-sm;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.item.detail == "" ? Fmt.short-duration(root.item.duration)
+                            : "\{Fmt.short-duration(root.item.duration)} · \{root.item.detail}";
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-xs;
+                        overflow: elide;
+                    }
+                }
+
+                if root.item.wave != "": VerticalLayout {
+                    alignment: center;
+                    Wave {
+                        width: root.touch-sized ? 56px : 64px;
+                        height: 22px;
+                        commands: root.item.wave;
+                        tint: root.playing-row ? Theme.kind-audio : Theme.kind-audio.with-alpha(0.6);
+                    }
+                }
+
+                if root.removable-shown: VerticalLayout {
+                    alignment: center;
+                    RowButton {
+                        glyph: Glyph.trash;
+                        danger: true;
+                        size: root.touch-sized ? 32px : 22px;
+                        clicked => { root.remove(); }
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    RowButton {
+                        glyph: Glyph.plus;
+                        size: root.touch-sized ? 32px : 22px;
+                        clicked => { root.add(); }
+                    }
+                }
+            }
+
+            // How far the one playing has got, as a line along its foot.
+            if root.playing-row: Rectangle {
+                x: 0;
+                y: parent.height - 2px;
+                width: parent.width * Math.clamp(SourcePreview.progress, 0, 1);
+                height: 2px;
+                background: Theme.accent;
+            }
+        }
+    }
+
+    /// The cross is shown under the pointer on a desk, where a permanent
+    /// one on every row is a list's worth of invitations to lose a sound,
+    /// and always on a phone, which has no pointer to be under.
+    property <bool> removable-shown: root.item.removable && (card.has-hover || root.touch-sized);
+}
+
+// The rows of a shelf, one under another.
+export component SoundList inherits VerticalLayout {
+    in property <[SoundCardData]> items;
+    in property <bool> touch-sized;
+    /// A row's sound went onto the timeline: a phone's sheet goes down.
+    callback added(id: string);
+
+    spacing: 2px;
+
+    for entry in root.items: SoundRow {
+        item: entry;
+        touch-sized: root.touch-sized;
+        preview => { Sounds.preview(entry.id); }
+        add => {
+            Sounds.add(entry.id);
+            root.added(entry.id);
+        }
+        remove => { Sounds.remove(entry.id); }
+    }
+}

@@ -22,6 +22,7 @@ import { TextPanel } from "../inspector/text-panel.slint";
 import { RoundButton, ToolItem, ToolStrip } from "controls.slint";
 import { PhoneSheet } from "sheet.slint";
 import { PhoneCanvas } from "canvas.slint";
+import { Sounds, SoundList } from "../workspace/audio-page.slint";
 
 // The editor as a phone shows it: one screen, held upright, driven by a
 // finger. Shown in place of the title strip and the dock wherever the
@@ -376,6 +377,7 @@ export component PhoneEditor inherits Rectangle {
 
     pure function sheet-title(name: string) -> string {
         return name == "media" ? I18n.t("common.media")
+            : name == "audio" ? I18n.t("common.audio")
             : name == "text" || name == "clip-text" ? I18n.t("common.text")
             : name == "effects" || name == "clip-effects" ? I18n.t("common.effects")
             : name == "filters" ? I18n.t("mediaPane.filters")
@@ -839,6 +841,13 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "media";
                 clicked => { root.show("media", false); }
             }
+            // Beside Media, as CapCut keeps it: the user's own sounds.
+            ToolItem {
+                glyph: Glyph.music;
+                label: I18n.t("common.audio");
+                current: root.sheet == "audio";
+                clicked => { root.show("audio", false); }
+            }
             ToolItem {
                 glyph: Glyph.text-mark;
                 label: I18n.t("common.text");
@@ -1119,6 +1128,30 @@ export component PhoneEditor inherits Rectangle {
                     Editor.media-activate(id);
                     root.hide();
                 }
+            }
+        }
+
+        // ── the user's own sounds: brought in from the phone's files,
+        // played with a tap, laid at the playhead with the plus ──
+        if root.sheet == "audio": VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+
+            SheetButton {
+                glyph: Glyph.import;
+                primary: true;
+                enabled: !Sounds.importing;
+                label: Sounds.importing ? I18n.t("mediaPane.importing") : I18n.t("sounds.importSounds");
+                clicked => { Sounds.import(); }
+            }
+            SheetNote {
+                text: Sounds.mine.length == 0
+                    ? I18n.t("sounds.noSoundsYet") : I18n.t("sounds.mineHintPhone");
+            }
+            SoundList {
+                items: Sounds.mine;
+                touch-sized: true;
+                added => { root.hide(); }
             }
         }
 

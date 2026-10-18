@@ -20,15 +20,18 @@ use concat_project::model::{MediaKind, Project};
 
 use crate::studio::Studio;
 use crate::ui::SourcePreview;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, SharedString};
 
 /// The file lent to the monitor and the speakers.
 pub struct Source {
     pub media_id: String,
     pub name: String,
     pub kind: MediaKind,
-    /// The bin's row for the file, for its card to show the playing line.
+    /// The bin's row for the file, for its card to show the playing line;
+    /// -1 for a sound from the Audio page.
     pub row: i32,
+    /// The Audio page's card for the file, or empty for one in the bin.
+    pub card: String,
     /// The scratch project flattened, as the monitor draws it.
     pub clips: Arc<Vec<concat_export::ExportClip>>,
     pub duration: f64,
@@ -65,6 +68,7 @@ impl Studio {
     pub fn preview_media(&mut self, media_id: &str, row: i32) {
         if let Some(source) = self.source.as_ref()
             && source.media_id == media_id
+            && source.card.is_empty()
         {
             if source.kind == MediaKind::Audio {
                 self.source_toggle();
@@ -109,6 +113,7 @@ impl Studio {
             name: media.name.clone(),
             kind: media.kind,
             row,
+            card: String::new(),
             clips,
             duration,
             time: 0.0,
@@ -118,6 +123,84 @@ impl Studio {
         if media.kind == MediaKind::Audio {
             self.source_toggle();
         }
+        self.request_preview();
+    }
+
+    /// A card on the Audio page was clicked: its sound plays through the
+    /// speakers as a sound from the bin does, without being in the bin, or
+    /// pauses when it is the one playing. `card` names it for its card's
+    /// playing line.
+    pub fn preview_file(&mut self, card: &str, name: &str, path: &std::path::Path) {
+        if let Some(source) = self.source.as_ref()
+            && source.card == card
+        {
+            self.source_toggle();
+            return;
+        }
+        let Some(project_dir) = self
+            .session
+            .as_ref()
+            .map(|session| std::path::PathBuf::from(session.path()))
+        else {
+            return;
+        };
+        let summary = match concat_host::media::probe(&path.to_string_lossy()) {
+            Ok(summary) => summary,
+            Err(error) => {
+                self.notify(&crate::host::probe_error(&error), true);
+                return;
+            }
+        };
+        // The scratch project with the file in its bin, under an id no
+        // real item has, and the one clip cut from it.
+        let mut scratch = self.project().clone();
+        scratch.media.retain(|item| item.path != summary.path);
+        let mut mint = IdMint::default();
+        mint.adopt_project(&scratch);
+        let Ok(Some(media_id)) = commands::apply(
+            &mut scratch,
+            &mut mint,
+            Command::AddMedia {
+                item: summary.to_new_media(),
+            },
+        )
+        .map(|outcome| outcome.created_id) else {
+            return;
+        };
+        let Some(scratch) = self::scratch(&scratch, &media_id) else {
+            return;
+        };
+        self.pause();
+        if let Some(old) = self.source.take() {
+            old.timer.stop();
+        }
+        let clips = Arc::new(concat_export::flatten::flatten_timeline_in(
+            &scratch,
+            None,
+            Some(&project_dir),
+        ));
+        let duration = scratch
+            .active()
+            .clips
+            .first()
+            .map_or(0.0, |clip| clip.duration);
+        self.host
+            .playback
+            .set_clips(project_dir, crate::studio::audio_specs(&clips));
+        self.host.playback.seek(0.0);
+        self.source = Some(Source {
+            media_id,
+            name: name.to_owned(),
+            kind: MediaKind::Audio,
+            row: -1,
+            card: card.to_owned(),
+            clips,
+            duration,
+            time: 0.0,
+            playing: false,
+            timer: slint::Timer::default(),
+        });
+        self.source_toggle();
         self.request_preview();
     }
 
@@ -202,6 +285,7 @@ impl Studio {
                 preview.set_open(true);
                 preview.set_name(source.name.as_str().into());
                 preview.set_row(source.row);
+                preview.set_card(source.card.as_str().into());
                 preview.set_time(source.time as f32);
                 preview.set_duration(source.duration as f32);
                 preview.set_playing(source.playing);
@@ -214,6 +298,7 @@ impl Studio {
             None => {
                 preview.set_open(false);
                 preview.set_row(-1);
+                preview.set_card(SharedString::new());
                 preview.set_playing(false);
             }
         }

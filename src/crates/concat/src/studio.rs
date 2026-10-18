@@ -674,6 +674,8 @@ pub struct Models {
     pub voiceover_devices: Rc<VecModel<SharedString>>,
     pub speech_sample_waves: Rc<VecModel<SharedString>>,
     pub speech_sample_details: Rc<VecModel<SharedString>>,
+    /// The Audio page's shelves.
+    pub sounds_mine: Rc<VecModel<crate::ui::SoundCardData>>,
     pub transcribers: Rc<VecModel<ModelData>>,
     pub voices: Rc<VecModel<ModelData>>,
     /// The Version page's releases, and beside each its day or that it
@@ -744,6 +746,7 @@ impl Models {
             voiceover_devices: Rc::new(VecModel::default()),
             speech_sample_waves: Rc::new(VecModel::default()),
             speech_sample_details: Rc::new(VecModel::default()),
+            sounds_mine: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
             voices: Rc::new(VecModel::default()),
             versions: Rc::new(VecModel::default()),
@@ -980,6 +983,8 @@ pub struct Studio {
     pub project_sheet: crate::panes::project::ProjectPane,
     pub captions: crate::panes::captions::CaptionsPane,
     pub speech: crate::panes::speech::SpeechPane,
+    /// The library's Audio page: the user's own sounds.
+    pub sounds: crate::panes::sounds::SoundsPane,
     /// A file from the library lent the monitor and the speakers; see
     /// `crate::source`.
     pub source: Option<crate::source::Source>,
@@ -2310,6 +2315,7 @@ impl Studio {
             project_sheet: crate::panes::project::ProjectPane::default(),
             captions: crate::panes::captions::CaptionsPane::default(),
             speech: crate::panes::speech::SpeechPane::default(),
+            sounds: crate::panes::sounds::SoundsPane::open(&host.dirs),
             source: None,
             meters: crate::meters::MeterFeed::default(),
             voiceover: crate::panes::voiceover::VoiceoverPane::default(),
@@ -3734,6 +3740,19 @@ impl Studio {
                 duration: LAYER_DURATION,
                 row: 0,
             }),
+            // A sound from the Audio page: not in the bin yet, so its card
+            // rides in `media` behind `sound:`, and the drop imports it.
+            "sound" => {
+                let (name, duration) = self.sound_summary(id)?;
+                Some(DropPlan {
+                    kind: ClipKind::Audio,
+                    label: name,
+                    media: format!("sound:{id}"),
+                    start: 0.0,
+                    duration: (duration as f32).max(MIN_DURATION),
+                    row: 0,
+                })
+            }
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
             "filter" => Some(DropPlan {
@@ -3790,6 +3809,10 @@ impl Studio {
         let Some(track_id) = self.row_track(plan.row).map(|track| track.id.clone()) else {
             return;
         };
+        if let Some(card) = plan.media.strip_prefix("sound:") {
+            self.place_card(card, Some(track_id), f64::from(plan.start));
+            return;
+        }
         let created = if plan.kind == ClipKind::Text {
             self.add_title(
                 Some(track_id),
@@ -3843,6 +3866,10 @@ impl Studio {
             return;
         };
         let start = f64::from(self.playhead.max(0.0));
+        if let Some(card) = plan.media.strip_prefix("sound:") {
+            self.place_card(card, None, start);
+            return;
+        }
         let created = if plan.kind == ClipKind::Text {
             self.add_title(None, start, f64::from(plan.duration), &plan.media)
         } else if plan.kind == ClipKind::Shape {
@@ -8391,6 +8418,11 @@ impl Studio {
                 pane.update(msg, self);
                 self.voiceover = pane;
             }
+            crate::panes::Msg::Sounds(msg) => {
+                let mut pane = std::mem::take(&mut self.sounds);
+                pane.update(msg, self);
+                self.sounds = pane;
+            }
             crate::panes::Msg::Relink(msg) => {
                 let mut pane = std::mem::take(&mut self.relink);
                 pane.update(msg, self);
@@ -10817,6 +10849,10 @@ impl Studio {
             self.speech.sample_detail_rows(self),
         );
         app.set_speech(self.speech.data(self));
+        // The Audio page.
+        sync(&models.sounds_mine, self.sounds.mine());
+        app.global::<crate::ui::Sounds>()
+            .set_importing(self.sounds.importing);
         self.publish_source(app);
         sync(&models.voiceover_devices, self.voiceover.device_rows());
         app.set_voiceover(self.voiceover.data(self));

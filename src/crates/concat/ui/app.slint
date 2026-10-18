@@ -20,6 +20,7 @@ import { Theme } from "theme/theme.slint";
 import { Bezier, Curves, Fmt, Focus, Payload } from "util.slint";
 import { EffectData } from "demo/effects-panel.slint";
 import { MediaFilter, MediaItemData, MediaKind, SourcePreview, TextPresetData } from "workspace/media-pane.slint";
+import { SoundCardData, Sounds } from "workspace/audio-page.slint";
 import { ContextMenu, MenuItemData, MenuRow } from "primitives/context-menu.slint";
 import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
 import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
@@ -64,7 +65,7 @@ export {
     SelectedClipData, SelectedTransitionData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
     TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     ChipOption, RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
-    CaptionsSheetData, SpeechSheetData, VoiceoverData,
+    CaptionsSheetData, SpeechSheetData, VoiceoverData, SoundCardData, Sounds,
 }
 
 export component App inherits Window {
