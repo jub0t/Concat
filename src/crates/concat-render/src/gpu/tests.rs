@@ -206,12 +206,18 @@ fn a_stabilized_frame_is_the_source_through_its_warp() {
     };
     let out = gpu.render(&plan(w, h, vec![turned.clone()]));
     let probe = |x: f32, y: f32| {
-        let (nx, ny) = ((x - w as f32 / 2.0) / h as f32, (y - h as f32 / 2.0) / h as f32);
+        let (nx, ny) = (
+            (x - w as f32 / 2.0) / h as f32,
+            (y - h as f32 / 2.0) / h as f32,
+        );
         let (mx, my) = (
             turned.warp.a * nx - turned.warp.b * ny,
             turned.warp.b * nx + turned.warp.a * ny,
         );
-        (mx * h as f32 + w as f32 / 2.0, my * h as f32 + h as f32 / 2.0)
+        (
+            mx * h as f32 + w as f32 / 2.0,
+            my * h as f32 + h as f32 / 2.0,
+        )
     };
     for (x, y) in [(52u32, 10u32), (10, 36), (48, 40), (40, 6)] {
         let (sx, sy) = probe(x as f32 + 0.5, y as f32 + 0.5);
@@ -231,7 +237,11 @@ fn a_stabilized_frame_is_the_source_through_its_warp() {
     let mut cropped = turned.clone();
     cropped.crop = Crop::of([0.1, 0.0, 0.2, 0.1]);
     cropped.flip_h = true;
-    assert_parity("stabilized and cropped", &plan(w, h, vec![cropped.clone()]), 0.99);
+    assert_parity(
+        "stabilized and cropped",
+        &plan(w, h, vec![cropped.clone()]),
+        0.99,
+    );
     let mut prepared = cropped;
     prepared.effects = vec![package("test.invert", INVERT, "", &[], 1.0)];
     let geometry = prepared.geometry(&source, w, h);

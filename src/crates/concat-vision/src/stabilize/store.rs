@@ -120,7 +120,10 @@ impl Motion {
             OnceLock::new();
         let file = motion_file(dir);
         let meta = std::fs::metadata(&file).ok()?;
-        let stamp = (meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), meta.len());
+        let stamp = (
+            meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            meta.len(),
+        );
         let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
         if let Ok(cache) = cache.lock()
             && let Some((modified, len, motion)) = cache.get(&file)
@@ -185,7 +188,10 @@ impl Motion {
 
     /// The text form.
     pub fn text(&self) -> String {
-        let mut out = format!("concat-stabilize {ANALYSIS_VERSION}\naspect {}\n", self.aspect);
+        let mut out = format!(
+            "concat-stabilize {ANALYSIS_VERSION}\naspect {}\n",
+            self.aspect
+        );
         for (from, to) in &self.covered {
             let _ = writeln!(out, "covered {from:.6} {to:.6}");
         }
@@ -248,7 +254,9 @@ impl Motion {
     /// and this one says how it was reached.
     pub fn merge(&mut self, run: &[FrameMotion], span: (f64, f64)) {
         for frame in run {
-            let index = self.frames.partition_point(|f| f.at < frame.at - SAME_FRAME);
+            let index = self
+                .frames
+                .partition_point(|f| f.at < frame.at - SAME_FRAME);
             match self.frames.get_mut(index) {
                 Some(existing) if (existing.at - frame.at).abs() <= SAME_FRAME => {
                     if existing.step == Step::Start && frame.step != Step::Start {
@@ -351,7 +359,10 @@ mod tests {
             aspect: 1.0,
             ..Motion::default()
         };
-        motion.merge(&[frame(1.0, Step::Start), frame(1.1, Step::Tracked)], (1.0, 1.1));
+        motion.merge(
+            &[frame(1.0, Step::Start), frame(1.1, Step::Tracked)],
+            (1.0, 1.1),
+        );
         motion.merge(
             &[
                 frame(0.8, Step::Start),

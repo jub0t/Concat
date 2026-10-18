@@ -245,9 +245,14 @@ fn a_shaky_shot_is_measured_and_held_still() {
         let (x0, y0) = camera(k - 1);
         let (x1, y1) = camera(k);
         let (dx, dy) = (frame.motion.tx * h, frame.motion.ty * h);
-        worst = worst.max((dx - (x1 - x0)).abs()).max((dy - (y1 - y0)).abs());
+        worst = worst
+            .max((dx - (x1 - x0)).abs())
+            .max((dy - (y1 - y0)).abs());
         assert!(frame.motion.angle().abs() < 0.002, "frame {k} turned");
-        assert!((frame.motion.scale() - 1.0).abs() < 0.002, "frame {k} zoomed");
+        assert!(
+            (frame.motion.scale() - 1.0).abs() < 0.002,
+            "frame {k} zoomed"
+        );
     }
     eprintln!("worst step error: {worst:.3} px");
     assert!(worst < 0.2, "a step measured {worst:.3} px off");
@@ -270,7 +275,10 @@ fn a_shaky_shot_is_measured_and_held_still() {
     // little of the path through.
     let (shaky, held) = (wobble(&plain[10..50]), wobble(&steady[10..50]));
     eprintln!("frame-to-frame difference: as shot {shaky:.2}, stabilized {held:.2}");
-    assert!(held < shaky * 0.35, "as shot {shaky:.2}, stabilized {held:.2}");
+    assert!(
+        held < shaky * 0.35,
+        "as shot {shaky:.2}, stabilized {held:.2}"
+    );
 
     // The monitor draws what the export wrote: the same frame, to within
     // what the encoder changed, and nowhere near the frame as shot.

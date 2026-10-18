@@ -239,8 +239,9 @@ fn analysis_size(request: &StabilizeRequest) -> Result<(u32, u32), String> {
     let (width, height) = match request.media_size.filter(|(w, h)| *w > 0 && *h > 0) {
         Some(size) => size,
         None => {
-            let decoder = Decoder::open(&request.media_path, &DecodeOptions::default().limited_to(1))
-                .map_err(|error| format!("{}: {error}", request.media_path))?;
+            let decoder =
+                Decoder::open(&request.media_path, &DecodeOptions::default().limited_to(1))
+                    .map_err(|error| format!("{}: {error}", request.media_path))?;
             (decoder.width(), decoder.height())
         }
     };

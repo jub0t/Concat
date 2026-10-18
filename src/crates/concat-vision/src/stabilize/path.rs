@@ -275,7 +275,10 @@ fn box_min(values: &[f64], radius: usize) -> Vec<f64> {
         .map(|i| {
             let from = i.saturating_sub(radius);
             let to = (i + radius + 1).min(n);
-            values[from..to].iter().copied().fold(f64::INFINITY, f64::min)
+            values[from..to]
+                .iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min)
         })
         .collect()
 }
@@ -290,7 +293,11 @@ pub fn correct(
     settings: &Settings,
 ) -> Correction {
     let interval = motion.interval();
-    let speed = if speed.is_finite() { speed.abs().max(1.0 / 16.0) } else { 1.0 };
+    let speed = if speed.is_finite() {
+        speed.abs().max(1.0 / 16.0)
+    } else {
+        1.0
+    };
     let sigma_source = sigma_seconds(settings.smoothness) * speed;
     let sigma_frames = sigma_source / interval;
     // The frames the clip shows, and the smoothing's reach either side,
@@ -485,7 +492,9 @@ mod tests {
         for (a, b) in line.iter().zip(&smoothed) {
             assert!((a - b).abs() < 1e-9, "a line through the ends stays a line");
         }
-        let wobble: Vec<f64> = (0..200).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        let wobble: Vec<f64> = (0..200)
+            .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+            .collect();
         let smoothed = gaussian(&wobble, 4.0);
         assert!(smoothed[20..180].iter().all(|v| v.abs() < 0.02));
     }
@@ -531,7 +540,11 @@ mod tests {
             let (x, _) = correction.at(at).apply((0.0, 0.0));
             assert!((x - offset).abs() < 0.2 / h, "frame {frame}: {} px", x * h);
         }
-        assert!((correction.shake * h - 2.0).abs() < 0.2, "{}", correction.shake * h);
+        assert!(
+            (correction.shake * h - 2.0).abs() < 0.2,
+            "{}",
+            correction.shake * h
+        );
     }
 
     /// A steady pan stays a pan: nothing to correct, nothing to zoom.

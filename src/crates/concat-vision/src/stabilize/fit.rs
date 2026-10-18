@@ -253,7 +253,10 @@ pub fn ransac(pairs: &[Pair], threshold: f64, min_inliers: usize) -> Option<Robu
         if !(0.75..=1.333).contains(&candidate.scale()) {
             continue;
         }
-        let count = agreeing(&candidate).iter().filter(|&&inlier| inlier).count();
+        let count = agreeing(&candidate)
+            .iter()
+            .filter(|&&inlier| inlier)
+            .count();
         if best.is_none_or(|(most, _)| count > most) {
             best = Some((count, candidate));
             // Enough draws that a clean pair was very likely among them:

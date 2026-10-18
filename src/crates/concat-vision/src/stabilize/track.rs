@@ -50,7 +50,9 @@ impl Gray {
         let data = frame
             .pixels()
             .chunks_exact(4)
-            .map(|px| 0.299 * f32::from(px[0]) + 0.587 * f32::from(px[1]) + 0.114 * f32::from(px[2]))
+            .map(|px| {
+                0.299 * f32::from(px[0]) + 0.587 * f32::from(px[1]) + 0.114 * f32::from(px[2])
+            })
             .collect();
         Gray {
             width,
@@ -74,8 +76,7 @@ impl Gray {
         let y0 = y.floor();
         let (fx, fy) = (x - x0, y - y0);
         let (x0, y0) = (x0 as isize, y0 as isize);
-        if x0 >= 0 && y0 >= 0 && (x0 as usize) + 1 < self.width && (y0 as usize) + 1 < self.height
-        {
+        if x0 >= 0 && y0 >= 0 && (x0 as usize) + 1 < self.width && (y0 as usize) + 1 < self.height {
             let at = y0 as usize * self.width + x0 as usize;
             let (a, b) = (self.data[at], self.data[at + 1]);
             let (c, d) = (self.data[at + self.width], self.data[at + self.width + 1]);
@@ -274,8 +275,7 @@ impl Pyramid {
                 let mut k = 0;
                 for dy in -RADIUS..=RADIUS {
                     for dx in -RADIUS..=RADIUS {
-                        let residual =
-                            window_i[k] - there.sample(qx + dx as f32, qy + dy as f32);
+                        let residual = window_i[k] - there.sample(qx + dx as f32, qy + dy as f32);
                         bx += residual * window_x[k];
                         by += residual * window_y[k];
                         k += 1;
@@ -553,7 +553,9 @@ impl Tracker {
             let handles: Vec<_> = self
                 .points
                 .chunks(chunk)
-                .map(|part| scope.spawn(move || part.iter().filter_map(|&p| one(p)).collect::<Vec<_>>()))
+                .map(|part| {
+                    scope.spawn(move || part.iter().filter_map(|&p| one(p)).collect::<Vec<_>>())
+                })
                 .collect();
             handles
                 .into_iter()
@@ -586,7 +588,11 @@ mod tests {
         }
         // Soft-edged squares, for corners proper: a lens never draws an
         // edge sharper than a pixel.
-        v + 25.0 * (3.0 * (x * std::f64::consts::PI / 23.0).sin() * (y * std::f64::consts::PI / 19.0).sin()).tanh()
+        v + 25.0
+            * (3.0
+                * (x * std::f64::consts::PI / 23.0).sin()
+                * (y * std::f64::consts::PI / 19.0).sin())
+            .tanh()
     }
 
     /// The scene seen through `camera` (normalised units): each pixel of
@@ -656,7 +662,11 @@ mod tests {
             "angle {}",
             found.angle().to_degrees()
         );
-        assert!((found.scale() - 1.02).abs() < 0.002, "scale {}", found.scale());
+        assert!(
+            (found.scale() - 1.02).abs() < 0.002,
+            "scale {}",
+            found.scale()
+        );
         assert!(((found.tx - camera.tx) * h as f64).abs() < 0.2);
         assert!(((found.ty - camera.ty) * h as f64).abs() < 0.2);
     }
@@ -701,7 +711,10 @@ mod tests {
             tracker.push(frame);
         }
         let each = started.elapsed().as_secs_f64() * 1000.0 / 31.0;
-        println!("{w}x{h}: {each:.2} ms a frame, {} tracks", tracker.points.len());
+        println!(
+            "{w}x{h}: {each:.2} ms a frame, {} tracks",
+            tracker.points.len()
+        );
     }
 
     #[test]
