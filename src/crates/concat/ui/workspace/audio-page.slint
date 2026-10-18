@@ -68,6 +68,16 @@ export global Sounds {
     in property <[SoundCardData]> mine;
     /// Sounds are being copied in.
     in property <bool> importing;
+    /// The Concat shelf: Concat's own sounds, narrowed to the category
+    /// picked, and where the shelf stands - 0 not asked for, 1 loading,
+    /// 2 listed, 3 coming soon (no list published yet), 4 unreachable.
+    in property <[SoundCardData]> concat;
+    in property <int> concat-state;
+    /// 0 All, then Whoosh, Impact, Riser, Ambience, Music.
+    in property <int> concat-category;
+    /// "Load Concat sounds", Refresh, Try again: the list fetched.
+    callback load-concat();
+    callback concat-category-changed(index: int);
 
     /// The Import button: the system's picker, for sound files.
     callback import();
@@ -125,7 +135,7 @@ export component SoundRow inherits Rectangle {
 
     property <bool> playing-row: SourcePreview.card == root.item.id && root.item.id != "";
     property <bool> playing: root.playing-row && SourcePreview.playing;
-    property <string> payload: root.touch-sized || !root.item.ready ? ""
+    property <string> payload: root.touch-sized ? ""
         : "sound:\{root.item.id}:\{root.item.name}";
 
     height: root.touch-sized ? 56px : 44px;
@@ -146,7 +156,7 @@ export component SoundRow inherits Rectangle {
         card := TouchArea {
             mouse-cursor: pointer;
             clicked => { root.preview(); }
-            double-clicked => { if (root.item.ready) { root.add(); } }
+            double-clicked => { root.add(); }
 
             HorizontalLayout {
                 padding-left: 6px;
@@ -165,6 +175,7 @@ export component SoundRow inherits Rectangle {
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                             glyph: root.playing ? Glyph.pause
+                                : !root.item.ready && root.item.progress < 0 && !card.has-hover ? Glyph.import
                                 : (card.has-hover || root.touch-sized) ? Glyph.play
                                 : Glyph.music;
                             size: parent.width * 0.42;
@@ -222,6 +233,15 @@ export component SoundRow inherits Rectangle {
                         clicked => { root.add(); }
                     }
                 }
+            }
+
+            // A download under way, as a line along its foot.
+            if root.item.progress >= 0: Rectangle {
+                x: 0;
+                y: parent.height - 2px;
+                width: parent.width * Math.clamp(root.item.progress, 0, 1);
+                height: 2px;
+                background: Theme.fg-muted;
             }
 
             // How far the one playing has got, as a line along its foot.

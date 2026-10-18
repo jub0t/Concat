@@ -10,6 +10,11 @@
 //! envelope of it - sixty-four bars, read once at import - so the shelf
 //! draws every card without decoding anything when it opens.
 //!
+//! Beside them, Concat's own sounds: a manifest read from the assets
+//! repository when the shelf is first asked for, and each sound fetched
+//! on first use into `<data>/sounds/`, checked against its digest; see
+//! `docs/AUDIO_LIBRARY.md`.
+//!
 //! Nothing here touches a project. A sound put on the timeline is copied
 //! again into that project's own folder by the window, so a project never
 //! points into the library and removing a sound from it breaks nothing.
@@ -276,6 +281,180 @@ fn now() -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
+// ── Concat's own sounds ─────────────────────────────────────────────────
+
+/// The Concat shelf's manifest, as `concatapp/assets/audio/manifest.json`
+/// has it; the schema is `docs/AUDIO_LIBRARY.md`.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Catalogue {
+    /// The format: 1.
+    #[serde(default)]
+    pub version: u32,
+    /// The sounds, in the order the shelf shows them.
+    #[serde(default)]
+    pub sounds: Vec<Listed>,
+}
+
+/// One sound of Concat's.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Listed {
+    /// Stable for ever: `[a-z0-9-]`.
+    pub id: String,
+    /// What the row shows.
+    pub name: String,
+    /// Whoosh, Impact, Riser, Ambience or Music.
+    #[serde(default)]
+    pub category: String,
+    /// The file's name in the repository's `audio/` folder.
+    pub file: String,
+    /// Seconds.
+    #[serde(default)]
+    pub duration: f64,
+    /// Its size, for the progress bar; 0 when not given.
+    #[serde(default)]
+    pub bytes: u64,
+    /// CC0-1.0, and nothing else is shown.
+    #[serde(default)]
+    pub license: String,
+    /// Where it was found.
+    #[serde(default)]
+    pub source: String,
+    /// Who made it, when known.
+    #[serde(default)]
+    pub author: String,
+    /// Lowercase hex: what the download must match.
+    #[serde(default)]
+    pub sha256: String,
+}
+
+impl Listed {
+    /// Whether the entry can be offered: a plain file name, an id of the
+    /// shape the cache keys on, a digest to check against, and CC0.
+    pub fn is_offered(&self) -> bool {
+        let license = self.license.to_ascii_uppercase();
+        !self.id.is_empty()
+            && self
+                .id
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            && is_plain_name(&self.file)
+            && self.sha256.len() == 64
+            && self.sha256.chars().all(|c| c.is_ascii_hexdigit())
+            && (license == "CC0" || license == "CC0-1.0")
+    }
+}
+
+impl Catalogue {
+    /// Read from the manifest's bytes, keeping only the entries that can be
+    /// offered.
+    pub fn parse(bytes: &[u8]) -> Result<Catalogue, String> {
+        let mut catalogue: Catalogue = serde_json::from_slice(bytes)
+            .map_err(|error| format!("the sound list is not readable: {error}"))?;
+        catalogue.sounds.retain(Listed::is_offered);
+        for sound in &mut catalogue.sounds {
+            sound.sha256.make_ascii_lowercase();
+        }
+        Ok(catalogue)
+    }
+
+    /// The sound by its id.
+    pub fn get(&self, id: &str) -> Option<&Listed> {
+        self.sounds.iter().find(|sound| sound.id == id)
+    }
+}
+
+/// Where Concat's sounds and their manifest are cached: `<data>/sounds/`.
+pub fn cache_dir(dirs: &AppDirs) -> PathBuf {
+    dirs.data.join("sounds")
+}
+
+/// The manifest as last fetched, when it has been.
+pub fn cached_catalogue(dirs: &AppDirs) -> Option<Catalogue> {
+    let bytes = std::fs::read(cache_dir(dirs).join("manifest.json")).ok()?;
+    Catalogue::parse(&bytes).ok()
+}
+
+/// Fetches the manifest, and keeps it for the sessions after. `Ok(None)`
+/// when there is none yet - the repository answers 404 until the pack is
+/// published - which the shelf says as "coming soon" rather than as an
+/// error.
+pub fn fetch_catalogue(dirs: &AppDirs) -> Result<Option<Catalogue>, String> {
+    use std::io::Read;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(15))
+        .timeout_read(std::time::Duration::from_secs(30))
+        .build();
+    let response = match agent.get(crate::models::SOUNDS_MANIFEST).call() {
+        Ok(response) => response,
+        Err(ureq::Error::Status(404, _)) => return Ok(None),
+        Err(error) => return Err(format!("the sound list did not answer: {error}")),
+    };
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .take(4 * 1024 * 1024)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("the sound list did not arrive: {error}"))?;
+    let catalogue = Catalogue::parse(&bytes)?;
+    let dir = cache_dir(dirs);
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::write(dir.join("manifest.json"), &bytes);
+    }
+    Ok(Some(catalogue))
+}
+
+/// Where `sound` is kept once downloaded: its digest's head in the name,
+/// so new bytes under the same name are a new file.
+pub fn cached_file(dirs: &AppDirs, sound: &Listed) -> PathBuf {
+    cache_dir(dirs).join(format!("{}-{}", &sound.sha256[..12], sound.file))
+}
+
+/// Downloads `sound` into the cache from the mirror, then the repository,
+/// and checks it against its digest; a file that does not match is
+/// deleted. Returns where it is. Blocks: a worker's.
+pub fn fetch_sound(
+    dirs: &AppDirs,
+    sound: &Listed,
+    cancel: &std::sync::atomic::AtomicBool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<PathBuf, String> {
+    let target = cached_file(dirs, sound);
+    if target.is_file() {
+        return Ok(target);
+    }
+    let dir = cache_dir(dirs);
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("could not create {}: {error}", dir.display()))?;
+    let partial = target.with_extension("partial");
+    let mut last = String::new();
+    for url in crate::models::sound_sources(&sound.file) {
+        match crate::models::download(
+            &url,
+            &partial,
+            sound.bytes,
+            cancel,
+            "cancelled",
+            progress,
+        ) {
+            Ok(_) => match crate::models::verify(&partial, &sound.sha256) {
+                Ok(()) => {
+                    std::fs::rename(&partial, &target).map_err(|error| {
+                        format!("could not keep {}: {error}", target.display())
+                    })?;
+                    return Ok(target);
+                }
+                Err(error) => {
+                    let _ = std::fs::remove_file(&partial);
+                    last = error;
+                }
+            },
+            Err(error) if error == "cancelled" => return Err(error),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,6 +518,30 @@ mod tests {
         std::fs::remove_file(dir.join("One.wav")).unwrap();
         assert!(Library::at(dir.clone()).sounds.is_empty(), "a missing copy is left out");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Only CC0 entries with a digest and a plain file name are offered.
+    #[test]
+    fn a_manifest_offers_only_what_it_can_check() {
+        let digest = "A".repeat(64);
+        let bytes = format!(
+            r#"{{"version":1,"sounds":[
+                {{"id":"whoosh-1","name":"Whoosh","category":"Whoosh","file":"w.ogg","duration":1.2,"license":"CC0-1.0","source":"s","sha256":"{digest}"}},
+                {{"id":"bad","name":"No digest","file":"x.ogg","license":"CC0"}},
+                {{"id":"paid","name":"Not CC0","file":"y.ogg","license":"CC-BY-4.0","sha256":"{digest}"}},
+                {{"id":"up","name":"Escapes","file":"../z.ogg","license":"CC0","sha256":"{digest}"}}
+            ]}}"#
+        );
+        let catalogue = Catalogue::parse(bytes.as_bytes()).expect("parses");
+        assert_eq!(catalogue.sounds.len(), 1);
+        let sound = catalogue.get("whoosh-1").unwrap();
+        assert_eq!(sound.sha256, "a".repeat(64), "digests compare in lowercase");
+        let dirs = AppDirs::under(Path::new("/cache"));
+        assert_eq!(
+            cached_file(&dirs, sound),
+            Path::new("/cache/sounds/aaaaaaaaaaaa-w.ogg")
+        );
+        assert!(Catalogue::parse(b"not json").is_err());
     }
 
     /// An index that names a file outside the folder is not believed.

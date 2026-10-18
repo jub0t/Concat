@@ -1798,10 +1798,12 @@ export component MediaPane inherits Rectangle {
     /// The Audio page is up, or not: a drop of sound files on the window
     /// goes into the library while it is.
     changed tab => { Sounds.shown(root.tab == 8); }
-    /// The Audio page's shelf: 0 = Mine, 10 = Voices, 11 = Styles.
+    /// The Audio page's shelf: 0 = Mine, 1 = Concat, 10 = Voices,
+    /// 11 = Styles.
     property <int> audio-category;
     property <bool> sounds-open: true;
     property <bool> voices-open: true;
+    property <bool> concat-open: true;
     /// How far left the page strip can be pushed: nothing, while its chips
     /// fit. See `strip`.
     property <length> strip-floor: Math.min(0px, strip.width - strip.content-width);
@@ -2159,6 +2161,28 @@ export component MediaPane inherits Rectangle {
                             current: root.audio-category == 0;
                             clicked => { root.audio-category = 0; }
                         }
+                        // Concat's own sounds, by category. The list is
+                        // fetched only when the shelf asks for it.
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("sounds.concat");
+                            open: root.concat-open;
+                            toggled => { root.concat-open = !root.concat-open; }
+                        }
+                        if root.concat-open: VerticalLayout {
+                            spacing: 1px;
+                            for label[index] in [I18n.t("sounds.all"), I18n.t("sounds.catWhoosh"),
+                                I18n.t("sounds.catImpact"), I18n.t("sounds.catRiser"),
+                                I18n.t("sounds.catAmbience"), I18n.t("sounds.catMusic")]: CategoryRow {
+                                height: 24px;
+                                label: label;
+                                current: root.audio-category == 1 && Sounds.concat-category == index;
+                                clicked => {
+                                    root.audio-category = 1;
+                                    Sounds.concat-category-changed(index);
+                                }
+                            }
+                        }
                         CategoryHeading {
                             height: 26px;
                             title: I18n.t("voices.voices");
@@ -2513,6 +2537,64 @@ export component MediaPane inherits Rectangle {
                     SoundList {
                         items: Sounds.mine;
                     }
+                }
+
+                // Concat's own sounds: offered, not fetched, until asked
+                // for - nothing goes online at startup - then listed, each
+                // downloaded the first time it is played or laid down.
+                if root.tab == 8 && root.audio-category == 1: VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    if Sounds.concat-state == 0 || Sounds.concat-state == 1: Text {
+                        text: I18n.t("sounds.loadConcatHint");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    if Sounds.concat-state == 0 || Sounds.concat-state == 1: ImportButton {
+                        label: I18n.t("sounds.loadConcat");
+                        busy-label: I18n.t("sounds.loading");
+                        busy: Sounds.concat-state == 1;
+                        glyph: Glyph.music;
+                        clicked => { Sounds.load-concat(); }
+                    }
+                    if Sounds.concat-state == 4: Text {
+                        text: I18n.t("sounds.offline");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    if Sounds.concat-state == 4: ImportButton {
+                        label: I18n.t("sounds.tryAgain");
+                        glyph: Glyph.reset;
+                        clicked => { Sounds.load-concat(); }
+                    }
+                    if Sounds.concat-state == 2: HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: I18n.t("sounds.concatHint");
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs-sm;
+                            wrap: word-wrap;
+                        }
+                        ImportButton {
+                            horizontal-stretch: 0;
+                            height: Theme.h;
+                            label: I18n.t("sounds.refresh");
+                            glyph: Glyph.reset;
+                            clicked => { Sounds.load-concat(); }
+                        }
+                    }
+                    if Sounds.concat-state == 2: SoundList {
+                        items: Sounds.concat;
+                    }
+                }
+
+                if root.tab == 8 && root.audio-category == 1 && Sounds.concat-state == 3: Empty {
+                    glyph: Glyph.music;
+                    text: I18n.t("sounds.comingSoon");
                 }
 
                 // Voices: the user's saved clones and the models' own

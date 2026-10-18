@@ -398,6 +398,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.global::<Sounds>()
             .set_voices_saved(ModelRc::from(models.voices_saved.clone()));
         app.global::<Sounds>()
+            .set_concat(ModelRc::from(models.sounds_concat.clone()));
+        app.global::<Sounds>()
             .set_voices_builtin(ModelRc::from(models.voices_builtin.clone()));
         app.global::<Sounds>()
             .set_styles(ModelRc::from(models.voice_styles.clone()));
@@ -1381,6 +1383,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             state.handle(Msg::Sounds(SoundsMsg::Shown(on)));
         }));
         // Voices: Text to speech on the voice or style clicked.
+        // Concat's own sounds: the list asked for by a click, never at
+        // startup.
+        sounds.on_load_concat(on_window!(|state| {
+            state.handle(Msg::Sounds(SoundsMsg::LoadConcat));
+        }));
+        sounds.on_concat_category_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Sounds(SoundsMsg::ConcatCategory(index)));
+        }));
         sounds.on_voice_open(on_window!(|state, id: SharedString| {
             state.open_voice(id.as_str());
         }));

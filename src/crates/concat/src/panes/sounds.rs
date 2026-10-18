@@ -20,8 +20,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
-use concat_host::sounds::{self, Library, Sound};
+use concat_host::sounds::{self, Catalogue, Library, Sound};
 use concat_project::Command;
 use slint::SharedString;
 
@@ -32,6 +34,35 @@ use crate::ui::{SoundCardData, VoiceCardData};
 
 /// The prefix of a card id on the Mine shelf.
 const MINE: &str = "mine-";
+/// The prefix of a card id on the Concat shelf.
+const CONCAT: &str = "concat-";
+
+/// The Concat shelf's categories, as the manifest names them; the sidebar
+/// shows them in the interface's language, after All.
+pub const CATEGORIES: [&str; 5] = ["Whoosh", "Impact", "Riser", "Ambience", "Music"];
+
+/// Where the Concat shelf stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ConcatState {
+    /// Not asked for: the shelf offers to load it.
+    #[default]
+    Idle,
+    Loading,
+    Ready,
+    /// The assets repository has no manifest yet.
+    Soon,
+    /// It could not be reached.
+    Offline,
+}
+
+/// What to do with a Concat sound once it has arrived.
+#[derive(Clone, Debug)]
+pub enum Then {
+    /// Play it.
+    Preview,
+    /// Lay it on this lane, or the first with room, at this moment.
+    Place(Option<String>, f64),
+}
 
 /// Everything that can happen to the Audio page.
 #[derive(Clone, Debug)]
@@ -49,6 +80,16 @@ pub enum SoundsMsg {
     /// Whether a library is showing the page, so a drop of sound files on
     /// the window goes into the library rather than the bin.
     Shown(bool),
+    /// "Load Concat sounds", or Refresh: the manifest fetched.
+    LoadConcat,
+    /// The manifest's worker is done: the list, none yet, or why not.
+    ConcatLoaded(Result<Option<Catalogue>, String>),
+    /// A category of the Concat shelf picked: 0 All, then [`CATEGORIES`].
+    ConcatCategory(i32),
+    /// A Concat sound's download, how far.
+    Fetching(String, f32),
+    /// A Concat sound's download is done.
+    Fetched(String, Result<PathBuf, String>),
 }
 
 /// The page's state.
@@ -60,6 +101,18 @@ pub struct SoundsPane {
     pub shown: bool,
     /// A sound import running.
     pub importing: bool,
+    /// Concat's sounds, once the manifest has been read, and where the
+    /// shelf stands.
+    pub catalogue: Catalogue,
+    pub concat: ConcatState,
+    /// The category shown: 0 All, then a row of [`CATEGORIES`].
+    pub category: usize,
+    /// Downloads running, by card: how far, and what to do once in.
+    fetching: HashMap<String, (f32, Then)>,
+    /// Stops the downloads when the window goes.
+    cancel: Arc<AtomicBool>,
+    /// Where the downloads go: the app's data folder.
+    dirs: Option<concat_host::AppDirs>,
     /// Each card's envelope as path commands, by card id: the cards are
     /// published on every frame of playback, and the path is the one
     /// expensive line of one.
@@ -69,8 +122,18 @@ pub struct SoundsPane {
 impl SoundsPane {
     /// The library as it is on this machine's disk.
     pub fn open(dirs: &concat_host::AppDirs) -> SoundsPane {
+        // The manifest as last fetched, if it ever was: the shelf is
+        // there from the first frame, and no request is made for it.
+        let catalogue = sounds::cached_catalogue(dirs);
         SoundsPane {
             library: Library::open(dirs),
+            concat: if catalogue.is_some() {
+                ConcatState::Ready
+            } else {
+                ConcatState::Idle
+            },
+            catalogue: catalogue.unwrap_or_default(),
+            dirs: Some(dirs.clone()),
             ..SoundsPane::default()
         }
     }
@@ -80,6 +143,69 @@ impl SoundsPane {
     pub fn update(&mut self, msg: SoundsMsg, studio: &mut Studio) {
         match msg {
             SoundsMsg::Shown(on) => self.shown = on,
+            SoundsMsg::LoadConcat => {
+                let Some(dirs) = self.dirs.clone() else {
+                    return;
+                };
+                if self.concat == ConcatState::Loading {
+                    return;
+                }
+                if self.concat != ConcatState::Ready {
+                    self.concat = ConcatState::Loading;
+                }
+                crate::host::spawn(
+                    move || sounds::fetch_catalogue(&dirs),
+                    |studio, _, _, result| {
+                        studio.handle(Msg::Sounds(SoundsMsg::ConcatLoaded(result)));
+                    },
+                );
+            }
+            SoundsMsg::ConcatLoaded(result) => match result {
+                Ok(Some(catalogue)) => {
+                    self.catalogue = catalogue;
+                    self.concat = ConcatState::Ready;
+                }
+                Ok(None) => self.concat = ConcatState::Soon,
+                Err(error) => {
+                    log::info!("sounds: the Concat list could not be fetched: {error}");
+                    // A list already on screen stays: the refresh failed,
+                    // not the shelf.
+                    if self.concat != ConcatState::Ready {
+                        self.concat = ConcatState::Offline;
+                    } else {
+                        studio.notify(&t("sounds.offline"), true);
+                    }
+                }
+            },
+            SoundsMsg::ConcatCategory(index) => {
+                self.category = (index.max(0) as usize).min(CATEGORIES.len());
+            }
+            SoundsMsg::Fetching(card, done) => {
+                if let Some((progress, _)) = self.fetching.get_mut(&card) {
+                    *progress = done;
+                }
+            }
+            SoundsMsg::Fetched(card, result) => {
+                let Some((_, then)) = self.fetching.remove(&card) else {
+                    return;
+                };
+                let name = self
+                    .listed(&card)
+                    .map(|sound| sound.name.clone())
+                    .unwrap_or_default();
+                match result {
+                    Ok(path) => match then {
+                        Then::Preview => studio.preview_file(&card, &name, &path),
+                        Then::Place(track_id, start) => {
+                            studio.place_sound(&name, &path, track_id, start);
+                        }
+                    },
+                    Err(error) if error == "cancelled" => {}
+                    Err(error) => {
+                        studio.notify(&tf("sounds.downloadFailed", &[&name, &error]), true);
+                    }
+                }
+            }
             SoundsMsg::Import(paths) => {
                 let (taken, refused): (Vec<PathBuf>, Vec<PathBuf>) =
                     paths.into_iter().partition(|path| sounds::is_sound(path));
@@ -129,11 +255,16 @@ impl SoundsPane {
             SoundsMsg::Preview(card) => {
                 if let Some((name, path)) = self.file_of(&card) {
                     studio.preview_file(&card, &name, &path);
+                } else {
+                    self.fetch(&card, Then::Preview);
                 }
             }
             SoundsMsg::Add(card) => {
+                let start = f64::from(studio.playhead.max(0.0));
                 if let Some((name, path)) = self.file_of(&card) {
-                    studio.place_sound(&name, &path, None, f64::from(studio.playhead.max(0.0)));
+                    studio.place_sound(&name, &path, None, start);
+                } else {
+                    self.fetch(&card, Then::Place(None, start));
                 }
             }
             SoundsMsg::Remove(card) => {
@@ -164,8 +295,13 @@ impl SoundsPane {
         }
     }
 
-    /// The name and the file a card stands for, when it is on disk.
+    /// The name and the file a card stands for, when it is on disk: a
+    /// sound of the user's own, or one of Concat's already downloaded.
     pub fn file_of(&self, card: &str) -> Option<(String, PathBuf)> {
+        if let Some(sound) = self.listed(card) {
+            let path = sounds::cached_file(self.dirs.as_ref()?, sound);
+            return path.is_file().then(|| (sound.name.clone(), path));
+        }
         let id = card.strip_prefix(MINE)?;
         let sound = self.library.get(id)?;
         Some((sound.name.clone(), self.library.path_of(sound)))
@@ -173,9 +309,75 @@ impl SoundsPane {
 
     /// A card as a payload names it, for a drop: its name and its length.
     pub fn summary(&self, card: &str) -> Option<(String, f64)> {
+        if let Some(sound) = self.listed(card) {
+            return Some((sound.name.clone(), sound.duration));
+        }
         let id = card.strip_prefix(MINE)?;
         let sound = self.library.get(id)?;
         Some((sound.name.clone(), sound.duration))
+    }
+
+    /// The Concat sound a card names.
+    fn listed(&self, card: &str) -> Option<&sounds::Listed> {
+        self.catalogue.get(card.strip_prefix(CONCAT)?)
+    }
+
+    /// Downloads a Concat sound on a worker, then does `then` with it. A
+    /// second ask while it comes only changes what is done with it.
+    pub fn fetch(&mut self, card: &str, then: Then) {
+        let (Some(sound), Some(dirs)) = (self.listed(card).cloned(), self.dirs.clone()) else {
+            return;
+        };
+        if let Some((_, held)) = self.fetching.get_mut(card) {
+            *held = then;
+            return;
+        }
+        self.fetching.insert(card.to_owned(), (0.0, then));
+        let cancel = Arc::clone(&self.cancel);
+        let (key, done) = (card.to_owned(), card.to_owned());
+        crate::host::spawn(
+            move || {
+                sounds::fetch_sound(&dirs, &sound, &cancel, &mut |received, total| {
+                    if total > 0 {
+                        let fraction = (received as f32 / total as f32).clamp(0.0, 1.0);
+                        let key = key.clone();
+                        crate::host::on_ui(move |studio, _, _| {
+                            studio.handle(Msg::Sounds(SoundsMsg::Fetching(key, fraction)));
+                        });
+                    }
+                })
+            },
+            move |studio, _, _, result| {
+                studio.handle(Msg::Sounds(SoundsMsg::Fetched(done, result)));
+            },
+        );
+    }
+
+    /// The Concat shelf's rows, narrowed to the category picked.
+    pub fn concat_rows(&self) -> Vec<SoundCardData> {
+        let category = self.category.checked_sub(1).and_then(|row| CATEGORIES.get(row));
+        let Some(dirs) = self.dirs.as_ref() else {
+            return Vec::new();
+        };
+        self.catalogue
+            .sounds
+            .iter()
+            .filter(|sound| category.is_none_or(|wanted| sound.category.eq_ignore_ascii_case(wanted)))
+            .map(|sound| {
+                let card = format!("{CONCAT}{}", sound.id);
+                let progress = self.fetching.get(&card).map_or(-1.0, |(done, _)| *done);
+                SoundCardData {
+                    ready: sounds::cached_file(dirs, sound).is_file(),
+                    id: card.into(),
+                    name: sound.name.as_str().into(),
+                    duration: sound.duration as f32,
+                    wave: SharedString::new(),
+                    detail: category_label(&sound.category).into(),
+                    removable: false,
+                    progress,
+                }
+            })
+            .collect()
     }
 
     /// The Mine shelf's cards.
@@ -209,6 +411,19 @@ impl SoundsPane {
             .entry(card.to_owned())
             .or_insert_with(|| crate::format::bars_path(bars, 0.7).into())
             .clone()
+    }
+}
+
+/// A category as the interface says it: one of the five in its language,
+/// or the manifest's own word.
+pub fn category_label(category: &str) -> String {
+    match category.to_ascii_lowercase().as_str() {
+        "whoosh" => t("sounds.catWhoosh"),
+        "impact" => t("sounds.catImpact"),
+        "riser" => t("sounds.catRiser"),
+        "ambience" => t("sounds.catAmbience"),
+        "music" => t("sounds.catMusic"),
+        _ => category.to_owned(),
     }
 }
 
@@ -318,6 +533,10 @@ impl Studio {
     pub fn place_card(&mut self, card: &str, track_id: Option<String>, start: f64) {
         if let Some((name, path)) = self.sounds.file_of(card) {
             self.place_sound(&name, &path, track_id, start);
+        } else {
+            // One of Concat's not downloaded yet: it lands where it was
+            // dropped once it is in.
+            self.sounds.fetch(card, Then::Place(track_id, start));
         }
     }
 

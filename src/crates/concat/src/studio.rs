@@ -677,6 +677,7 @@ pub struct Models {
     /// The Audio page's shelves.
     pub sounds_mine: Rc<VecModel<crate::ui::SoundCardData>>,
     pub voices_saved: Rc<VecModel<crate::ui::VoiceCardData>>,
+    pub sounds_concat: Rc<VecModel<crate::ui::SoundCardData>>,
     pub voices_builtin: Rc<VecModel<crate::ui::VoiceCardData>>,
     pub voice_styles: Rc<VecModel<crate::ui::VoiceCardData>>,
     pub transcribers: Rc<VecModel<ModelData>>,
@@ -751,6 +752,7 @@ impl Models {
             speech_sample_details: Rc::new(VecModel::default()),
             sounds_mine: Rc::new(VecModel::default()),
             voices_saved: Rc::new(VecModel::default()),
+            sounds_concat: Rc::new(VecModel::default()),
             voices_builtin: Rc::new(VecModel::default()),
             voice_styles: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
@@ -10890,6 +10892,19 @@ impl Studio {
         app.set_speech(self.speech.data(self));
         // The Audio page.
         sync(&models.sounds_mine, self.sounds.mine());
+        sync(&models.sounds_concat, self.sounds.concat_rows());
+        {
+            use crate::panes::sounds::ConcatState;
+            let page = app.global::<crate::ui::Sounds>();
+            page.set_concat_state(match self.sounds.concat {
+                ConcatState::Idle => 0,
+                ConcatState::Loading => 1,
+                ConcatState::Ready => 2,
+                ConcatState::Soon => 3,
+                ConcatState::Offline => 4,
+            });
+            page.set_concat_category(self.sounds.category as i32);
+        }
         app.global::<crate::ui::Sounds>()
             .set_importing(self.sounds.importing);
         let (saved, builtin, styles, ready) = self.voice_cards();
