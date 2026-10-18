@@ -231,7 +231,9 @@ export component ConfigPane inherits Rectangle {
     property <bool> is-audio: root.selected.kind == ClipKind.audio;
     /// A filter layer gets its own lone tab for the same reason a title does:
     /// it has no transform, no gain and no rate, and every other tab could
-    /// only say "nothing here".
+    /// only say "nothing here". What it does have - its strength, the colour
+    /// panel it grades everything beneath it with, and its chain - are the
+    /// tab's sections, so an adjustment layer is graded the way a clip is.
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
     property <[string]> tabs: root.selected.batch-volume ? ["Audio"] : root.is-text ? ["Text"]
         : root.is-layer ? ["Filter"]
@@ -284,7 +286,7 @@ export component ConfigPane inherits Rectangle {
             ? (root.selected.batch-volume ? ["Sound"] : ["Sound", "AudioEffects"])
         : root.heading == "Effects" ? ["Effects"]
         : root.heading == "Text" ? ["Text"]
-        : ["Layer"];
+        : ["Layer", "Adjust", "Effects"];
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
             ? (root.is-shape ? [I18n.t("configPane.basic")]
@@ -294,7 +296,7 @@ export component ConfigPane inherits Rectangle {
                 : [I18n.t("configPane.basic"), I18n.t("configPane.audioEffects")])
         : root.heading == "Effects" ? [I18n.t("common.effects")]
         : root.heading == "Text" ? [I18n.t("common.text")]
-        : [I18n.t("common.layer")];
+        : [I18n.t("common.layer"), I18n.t("common.adjust"), I18n.t("common.effects")];
 
     // Each tab remembers its own section, so flipping to Audio and back
     // lands on the colour panel you were adjusting. Assigned, never bound,
@@ -303,16 +305,19 @@ export component ConfigPane inherits Rectangle {
     property <int> section-audio;
     property <int> section-effects;
     property <int> section-text;
+    property <int> section-layer;
     property <int> section: root.heading == "Video" ? root.section-video
         : root.heading == "Audio" ? root.section-audio
         : root.heading == "Effects" ? root.section-effects
         : root.heading == "Text" ? root.section-text
+        : root.heading == "Filter" ? root.section-layer
         : 0;
     function pick-section(index: int) {
         if (root.heading == "Video") { root.section-video = index; }
         else if (root.heading == "Audio") { root.section-audio = index; }
         else if (root.heading == "Effects") { root.section-effects = index; }
         else if (root.heading == "Text") { root.section-text = index; }
+        else if (root.heading == "Filter") { root.section-layer = index; }
     }
 
     /// Which panel is up, resolved once rather than at each `if`: the same
@@ -325,6 +330,14 @@ export component ConfigPane inherits Rectangle {
     // was applied still opens on it.
     function jump() {
         if (root.jump-token == 0) { return; }
+        // A layer has the one tab: the library names the section - Adjust
+        // for a fresh adjustment layer, Effects for a look put on its chain.
+        if (root.is-layer) {
+            root.tab = 0;
+            root.section-layer = root.jump-section == "Adjust" ? 1
+                : root.jump-section == "Effects" ? 2 : 0;
+            return;
+        }
         if (root.jump-tab == "Video") { root.tab = 0; }
         else if (root.jump-tab == "Audio") { root.tab = root.is-audio ? 0 : 1; }
         else if (root.jump-tab == "Effects") { root.tab = root.tabs.length - 1; }

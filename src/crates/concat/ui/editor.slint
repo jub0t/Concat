@@ -127,8 +127,16 @@ export global Editor {
     in-out property <string> library-audition;
     callback library-apply-audio(effect-id: string);
     callback library-save-template();
-    /// Filters page: import `.cube` tables as looks of the user's own.
+    /// Adjustments page: import `.cube` tables as looks of the user's own,
+    /// which its LUTs shelf lists.
     callback library-import-lut();
+    /// Adjustments page: lay an adjustment layer at the playhead - the
+    /// colour panel's package at its defaults over everything beneath it -
+    /// called `label`, in the interface's language.
+    callback library-add-adjustment(label: string);
+    /// Adjustments page: a LUT onto the selected clip's chain, or with
+    /// nothing selected, laid at the playhead as a layer of its own.
+    callback library-apply-lut(lut-id: string, label: string);
     /// Effects and Filters pages: read the user's effects folder again, so
     /// a package written or dropped in while the app runs shows up without
     /// a restart, and one that will not load says why.
@@ -163,6 +171,11 @@ export global Editor {
     // clip's two chains with a row per parameter. See PresetStack.
     in-out property <[CatalogueEntryData]> catalogue-effects;
     in-out property <[CatalogueEntryData]> catalogue-filters;
+    /// The looks made from tables - the user's imported LUTs - which the
+    /// Adjustments page lists and the Filters page does not.
+    in-out property <[CatalogueEntryData]> catalogue-luts;
+    /// The adjustment layer's card: the colour panel's package at work.
+    in-out property <image> adjustment-art;
     in-out property <[CatalogueEntryData]> catalogue-audio;
     in-out property <[CatalogueEntryData]> catalogue-transitions;
     in-out property <[string]> effect-groups;

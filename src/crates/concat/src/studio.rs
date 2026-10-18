@@ -621,6 +621,8 @@ pub struct Models {
     /// The catalogue's shelves, one list per kind, and the shelf labels.
     pub catalogue_effects: Rc<VecModel<CatalogueEntryData>>,
     pub catalogue_filters: Rc<VecModel<CatalogueEntryData>>,
+    /// The looks made from tables, for the Adjustments page's LUTs shelf.
+    pub catalogue_luts: Rc<VecModel<CatalogueEntryData>>,
     pub catalogue_audio: Rc<VecModel<CatalogueEntryData>>,
     pub catalogue_transitions: Rc<VecModel<CatalogueEntryData>>,
     pub effect_groups: Rc<VecModel<SharedString>>,
@@ -706,6 +708,7 @@ impl Models {
             audio_effects: Rc::new(VecModel::default()),
             catalogue_effects: Rc::new(VecModel::default()),
             catalogue_filters: Rc::new(VecModel::default()),
+            catalogue_luts: Rc::new(VecModel::default()),
             catalogue_audio: Rc::new(VecModel::default()),
             catalogue_transitions: Rc::new(VecModel::default()),
             effect_groups: Rc::new(VecModel::default()),
@@ -1122,15 +1125,49 @@ fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
     }
 }
 
-/// A label for a catalogue id: "black-white" reads as "Black White".
+/// The card a package shows on a shelf: an author's own still from the
+/// package's folder, else the card drawn for it by its own shader; read
+/// once and kept.
+fn package_art(
+    package: &concat_effects::catalogue::Package,
+    look_art: &std::cell::RefCell<HashMap<String, slint::Image>>,
+    card_paths: &HashMap<String, std::path::PathBuf>,
+) -> slint::Image {
+    let id = package.id();
+    look_art
+        .borrow_mut()
+        .entry(id.to_owned())
+        .or_insert_with(|| {
+            package
+                .folder
+                .as_deref()
+                .and_then(|folder| slint::Image::load_from_path(&folder.join("preview.png")).ok())
+                .or_else(|| {
+                    let card = card_paths.get(id)?;
+                    slint::Image::load_from_path(card).ok()
+                })
+                .unwrap_or_default()
+        })
+        .clone()
+}
+
+/// A look made from a table - an imported `.cube`, or any package that
+/// carries a `[lut]` - which the Adjustments page's LUTs shelf lists and
+/// the Filters page does not.
+fn is_lut(package: &concat_effects::catalogue::Package) -> bool {
+    package.kind() == PackageKind::Filter && package.lut().is_some()
+}
+
 /// One kind's shelves for the inspector: the shelf labels, in catalogue
-/// order, and every package on them with the index of its shelf.
+/// order, and every package on them with the index of its shelf. Only the
+/// packages `keep` takes are shelved at all.
 fn shelves(
     kind: PackageKind,
     view: &LibraryView,
     favourites: &[String],
     look_art: &std::cell::RefCell<HashMap<String, slint::Image>>,
     card_paths: &HashMap<String, std::path::PathBuf>,
+    keep: impl Fn(&concat_effects::catalogue::Package) -> bool,
 ) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
     let mut groups: Vec<String> = Vec::new();
     let mut entries = Vec::new();
@@ -1139,7 +1176,7 @@ fn shelves(
         let meta = &package.manifest.effect;
         // The colour panel's own package: every picture clip can carry it,
         // and it has a tab, not a shelf.
-        if meta.id == ADJUST_ID {
+        if meta.id == ADJUST_ID || !keep(package) {
             continue;
         }
         let category = if meta.category.is_empty() {
@@ -1179,25 +1216,7 @@ fn shelves(
         if !shown {
             continue;
         }
-        // An author's own still from the package's folder, else the card
-        // drawn for the package by its own shader; read once and kept.
-        let art = look_art
-            .borrow_mut()
-            .entry(meta.id.clone())
-            .or_insert_with(|| {
-                package
-                    .folder
-                    .as_deref()
-                    .and_then(|folder| {
-                        slint::Image::load_from_path(&folder.join("preview.png")).ok()
-                    })
-                    .or_else(|| {
-                        let card = card_paths.get(&meta.id)?;
-                        slint::Image::load_from_path(card).ok()
-                    })
-                    .unwrap_or_default()
-            })
-            .clone();
+        let art = package_art(package, look_art, card_paths);
         entries.push(CatalogueEntryData {
             id: meta.id.as_str().into(),
             name: name.into(),
@@ -1311,6 +1330,13 @@ struct ShelfStamp {
 
 /// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
 const ADJUST_ID: &str = "concat.adjust";
+
+/// The kinds the colour panel grades: a picture, and a layer, which grades
+/// everything beneath it - an adjustment layer is a layer whose chain
+/// starts with the panel's own package.
+fn graded(kind: model::ClipKind) -> bool {
+    kind.is_visual() || kind == model::ClipKind::Layer
+}
 
 /// The ease a key put on at `at` inherits: that of whichever key it joins
 /// behind, so laying a run of keys down does not alternate between shapes.
@@ -3966,6 +3992,26 @@ impl Studio {
         self.place_at_playhead(&format!("filter:{id}:{label}"));
     }
 
+    /// Lays an adjustment layer at the playhead - the colour panel's own
+    /// package at its defaults, over everything beneath it, so it changes
+    /// nothing until a knob moves - called `label`, and opens the
+    /// inspector on its Adjust page, where those knobs are.
+    pub fn place_adjustment_layer(&mut self, label: &str) {
+        self.place_filter_layer(ADJUST_ID, label);
+        self.inspector_jump = (self.inspector_jump.0 + 1, "Layer", "Adjust");
+    }
+
+    /// A LUT from the Adjustments page: onto the selected clip's chain -
+    /// a picture, a title, a shape or a layer - the way an effect goes on;
+    /// with nothing selected, laid at the playhead as a layer of its own.
+    pub fn apply_lut(&mut self, id: &str, label: &str) {
+        if self.sole_selection().is_some() {
+            self.apply_catalogue(id, true);
+        } else {
+            self.place_filter_layer(id, label);
+        }
+    }
+
     /// A catalogue filter or effect, applied to the selected clip's chain.
     pub fn apply_catalogue(&mut self, id: &str, video: bool) {
         let Some(clip_id) = self.sole_selection() else {
@@ -3976,7 +4022,7 @@ impl Studio {
             return;
         };
         if video
-            && !(clip.kind.is_visual()
+            && !(graded(clip.kind)
                 || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
         {
             self.notify(&t("studio.selectVideoImageText"), true);
@@ -4370,7 +4416,7 @@ impl Studio {
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
         };
-        if !clip.kind.is_visual() {
+        if !graded(clip.kind) {
             return;
         }
         let entry = match clip
@@ -4434,7 +4480,7 @@ impl Studio {
     /// is outside it.
     fn adjust_point(&self) -> Option<(Clip, f64, Option<usize>)> {
         let (clip, at) = self.key_point()?;
-        if !clip.kind.is_visual() {
+        if !graded(clip.kind) {
             return None;
         }
         let entry = clip
@@ -8549,25 +8595,25 @@ impl Studio {
         true
     }
 
-    /// Imports one or more `.cube` tables as looks: each becomes a package
-    /// folder under `looks_dir` - a manifest that names the table, a shader
-    /// that reads it, the table (see `concat_effects::looks`) - and the
-    /// catalogue is rebuilt so the Filters page shows them, their cards
-    /// drawn by their own shaders.
     /// Asks for `.cube` files to import as looks. The dialog is asked with
-    /// the studio unborrowed, and the files come back to [`import_luts`];
-    /// see `host::after_dialog`.
+    /// the studio unborrowed - on a phone it is the system's picker, which
+    /// answers later - and the files come back to [`import_luts`]; see
+    /// `host::pick_files_then`.
     ///
     /// [`import_luts`]: Studio::import_luts
     pub fn import_lut() {
-        let (title, family) = (t("studio.importLut"), t("studio.lut"));
-        crate::host::after_dialog(
-            move || crate::platform::pick_files(&title, Some((family.as_str(), &["cube"]))),
+        crate::host::pick_files_then(
+            t("studio.importLut"),
+            Some((t("studio.lut"), &["cube"])),
             |studio, _, _, paths| studio.import_luts(paths),
         );
     }
 
-    /// Imports `.cube` files as looks, and says how many arrived.
+    /// Imports one or more `.cube` tables as looks: each becomes a package
+    /// folder under `looks_dir` - a manifest that names the table, a shader
+    /// that reads it, the table (see `concat_effects::looks`) - and the
+    /// catalogue is rebuilt so the Adjustments page's LUTs shelf shows
+    /// them, their cards drawn by their own shaders. Says how many arrived.
     pub fn import_luts(&mut self, paths: Vec<std::path::PathBuf>) {
         let dir = Self::looks_dir(&self.host.dirs);
         let mut imported = 0;
@@ -8593,8 +8639,7 @@ impl Studio {
         if self.reload_packages(false) > 0 {
             return;
         }
-        self.library[0].query.clear();
-        self.notify(&tf("studio.importedLooksFindThem", &[&imported]), false);
+        self.notify(&tf("studio.importedLutsFindThem", &[&imported]), false);
     }
 
     pub fn save_template(&mut self) {
@@ -9020,7 +9065,7 @@ impl Studio {
         sync(
             &models.adjust_params,
             match self.sole_selection().and_then(|id| self.clip(&id)) {
-                Some(clip) if clip.kind.is_visual() => {
+                Some(clip) if graded(clip.kind) => {
                     adjust_rows(&clip.video_effects, self.key_point().map(|(_, at)| at))
                 }
                 _ => Vec::new(),
@@ -9034,7 +9079,7 @@ impl Studio {
         let (visual_wheels, visual_curves) =
             clip.map_or_else(Default::default, |clip| chain_grading(&clip.video_effects));
         let (adjust_wheels, adjust_curves) = match (clip, Catalogue::builtin().get(ADJUST_ID)) {
-            (Some(clip), Some(package)) if clip.kind.is_visual() => grading_rows(
+            (Some(clip), Some(package)) if graded(clip.kind) => grading_rows(
                 package,
                 clip.video_effects
                     .iter()
@@ -10496,21 +10541,46 @@ impl Studio {
             favourites: starred.clone(),
         };
         if self.shelf_stamp.borrow().as_ref() != Some(&stamp) {
+            // The looks made from tables are the Adjustments page's, not
+            // the Filters page's.
             let (groups, entries) = shelves(
                 SHELF_KINDS[0],
                 &self.library[0],
                 starred,
                 &self.look_art,
                 &self.card_paths,
+                |package| !is_lut(package),
             );
             sync(&models.filter_groups, groups);
             sync(&models.catalogue_filters, entries);
+            // Every one of them, on every shelf: the user's own tables
+            // are one short list, browsed whole.
+            let every = LibraryView {
+                group: -1,
+                ..LibraryView::default()
+            };
+            let (_, entries) = shelves(
+                SHELF_KINDS[0],
+                &every,
+                starred,
+                &self.look_art,
+                &self.card_paths,
+                is_lut,
+            );
+            sync(&models.catalogue_luts, entries);
+            app.global::<Editor>().set_adjustment_art(
+                Catalogue::builtin()
+                    .get(ADJUST_ID)
+                    .map(|package| package_art(package, &self.look_art, &self.card_paths))
+                    .unwrap_or_default(),
+            );
             let (groups, entries) = shelves(
                 SHELF_KINDS[1],
                 &self.library[1],
                 starred,
                 &self.look_art,
                 &self.card_paths,
+                |_| true,
             );
             sync(&models.effect_groups, groups);
             sync(&models.catalogue_effects, entries);
@@ -10520,6 +10590,7 @@ impl Studio {
                 starred,
                 &self.look_art,
                 &self.card_paths,
+                |_| true,
             );
             sync(&models.audio_groups, groups);
             sync(&models.catalogue_audio, entries);
@@ -10529,6 +10600,7 @@ impl Studio {
                 starred,
                 &self.look_art,
                 &self.card_paths,
+                |_| true,
             );
             sync(&models.transition_groups, groups);
             sync(&models.catalogue_transitions, entries);

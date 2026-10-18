@@ -334,6 +334,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_audio_effects(ModelRc::from(models.audio_effects.clone()));
         editor.set_catalogue_effects(ModelRc::from(models.catalogue_effects.clone()));
         editor.set_catalogue_filters(ModelRc::from(models.catalogue_filters.clone()));
+        editor.set_catalogue_luts(ModelRc::from(models.catalogue_luts.clone()));
         editor.set_catalogue_audio(ModelRc::from(models.catalogue_audio.clone()));
         editor.set_catalogue_transitions(ModelRc::from(models.catalogue_transitions.clone()));
         editor.set_effect_groups(ModelRc::from(models.effect_groups.clone()));
@@ -830,6 +831,16 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_library_apply_filter(on_window!(
         |state, id: SharedString, label: SharedString| {
             state.place_filter_layer(id.as_str(), label.as_str());
+        }
+    ));
+    // The Adjustments page: a layer that grades everything beneath it,
+    // and a LUT onto the selected clip or, with none, as a layer.
+    editor.on_library_add_adjustment(on_window!(|state, label: SharedString| {
+        state.place_adjustment_layer(label.as_str());
+    }));
+    editor.on_library_apply_lut(on_window!(
+        |state, id: SharedString, label: SharedString| {
+            state.apply_lut(id.as_str(), label.as_str());
         }
     ));
     editor.on_library_audition_filter(on_window!(|state, id: SharedString| {
