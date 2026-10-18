@@ -2501,6 +2501,38 @@ impl Studio {
 
     /// Clip edges, the playhead and zero all pull, and the nearest inside
     /// the threshold wins.
+    /// How far a moving set of clips should shift so the nearest of its
+    /// edges - any clip's start or end - lands on a snap target: the
+    /// origin, the playhead, or an edge of a clip that is not moving. Zero
+    /// when nothing is in reach. A drag used to snap only the dragged
+    /// clip's start, so an end never met the next clip (reported on
+    /// Reddit), and a group could snap to where its own clips had been.
+    pub fn snap_shift(&self, edges: &[f32], threshold: f32, moving: &[&str]) -> f32 {
+        if !self.lanes.snap {
+            return 0.0;
+        }
+        let mut targets = vec![0.0, self.playhead];
+        for clip in &self.timeline().clips {
+            if moving.contains(&clip.id.as_str()) {
+                continue;
+            }
+            targets.push(clip.start as f32);
+            targets.push((clip.start + clip.duration) as f32);
+        }
+        let mut best = 0.0;
+        let mut best_distance = threshold;
+        for &edge in edges {
+            for &target in &targets {
+                let distance = (target - edge).abs();
+                if distance < best_distance {
+                    best = target - edge;
+                    best_distance = distance;
+                }
+            }
+        }
+        best
+    }
+
     pub fn snapped(&self, time: f32, threshold: f32, exclude: &str) -> f32 {
         if !self.lanes.snap {
             return time;
@@ -4593,8 +4625,19 @@ impl Studio {
                     return;
                 };
                 let threshold = 8.0 * self.lanes.seconds_per_pixel;
-                let snapped = self.snapped(anchor.start + seconds, threshold, primary);
-                let shift = snapped - anchor.start;
+                // Every moving clip's two edges, where the pointer would
+                // put them, and the shift that lands the nearest on a target.
+                let moving: Vec<&str> = origins.iter().map(|origin| origin.clip.as_str()).collect();
+                let edges: Vec<f32> = origins
+                    .iter()
+                    .filter_map(|origin| {
+                        let clip = self.clip(&origin.clip)?;
+                        let start = origin.start + seconds;
+                        Some([start, start + clip.duration as f32])
+                    })
+                    .flatten()
+                    .collect();
+                let shift = seconds + self.snap_shift(&edges, threshold, &moving);
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
                 let moves: Vec<ClipMove> = origins
