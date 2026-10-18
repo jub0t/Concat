@@ -2135,7 +2135,7 @@ fn light(level: u8) -> f64 {
 /// itself comes out exactly as it does over black.
 #[test]
 fn a_blurred_background_is_the_picture_covering_the_frame_blurred() {
-    let Some(mut gpu) = gpu() else { return };
+    let Some(mut gpu) = heavy_gpu() else { return };
     let blur = concat_effects::Catalogue::builtin()
         .get("concat.gaussian-blur")
         .expect("a built-in");
