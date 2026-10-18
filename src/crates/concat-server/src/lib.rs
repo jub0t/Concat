@@ -26,32 +26,76 @@
 //! easily as this one does. A server given no token mints one, 128 bits
 //! from the operating system's randomness, that only the process that
 //! started it knows; [`Server::token`] is how that process passes it on,
-//! to a page or a terminal. The token is compared in constant time,
-//! whichever transport carries it. The API writes only under the roots
-//! the server is given - the user's home unless told otherwise
-//! ([`Config::roots`]) - and a frame or an export is bounded in size.
-//! The JSON transport reads a line of at most [`json::MAX_LINE`] bytes,
-//! gives a caller [`json::AUTH_TIMEOUT`] to present its token, seats at
-//! most [`json::MAX_CONNECTIONS`] callers at once and hangs up on one
-//! that stops reading its replies. There is no encryption: a bind off
-//! loopback belongs behind something that provides it.
+//! to a page or a terminal. A token that is given must pass
+//! [`check_token`]: twenty characters at least, and not a repeated
+//! pattern. It is compared in constant time, whichever transport carries
+//! it, and an address that keeps presenting wrong ones waits longer each
+//! time ([`throttle`]). The API writes only under the roots the server is
+//! given - the user's home unless told otherwise ([`Config::roots`]) - and
+//! a frame or an export is bounded in size. The JSON transport reads a
+//! line of at most [`json::MAX_LINE`] bytes, gives a caller
+//! [`json::AUTH_TIMEOUT`] to present its token, holds nothing for a caller
+//! that has not, seats at most [`json::MAX_CONNECTIONS`] callers at once
+//! and hangs up on one that stops reading its replies. There is no
+//! encryption: a bind off loopback belongs behind something that provides
+//! it, and [`is_exposed`] is how a front end says so.
 
 mod hub;
 pub mod json;
+pub mod throttle;
 mod token;
 
 #[cfg(feature = "grpc")]
 pub mod grpc;
 
+use std::collections::BTreeMap;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use concat_api::{Api, EventSink};
+use concat_api::{Api, EventSink, Stopper};
 
 pub use hub::{Hub, Subscriber};
+pub use token::{MIN_BITS as MIN_TOKEN_BITS, MIN_CHARS as MIN_TOKEN_CHARS};
+
+/// A fresh token: 128 bits from the operating system's randomness, as 32
+/// hex digits. What a front end offers when asked for a new one.
+pub fn mint_token() -> Result<String, String> {
+    token::mint()
+}
+
+/// Refuses a chosen token that is short or repetitive enough to guess;
+/// the sentence says why. A minted token always passes.
+pub fn check_token(token: &str) -> Result<(), String> {
+    token::check(token)
+}
+
+/// Whether listening on `address` lets other machines in: anything but a
+/// loopback address. A front end warns when this is true; the server
+/// itself allows it, with a token, as a deliberate choice.
+pub fn is_exposed(address: &SocketAddr) -> bool {
+    !address.ip().is_loopback()
+}
+
+/// How long a stop waits on the connection that wakes a listener.
+const WAKE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The address a local caller connects to for a listener bound to
+/// `bound`: the same, except that the unspecified address is loopback.
+pub fn loopback(bound: SocketAddr) -> SocketAddr {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    match bound.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), bound.port())
+        }
+        IpAddr::V6(ip) if ip.is_unspecified() => {
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), bound.port())
+        }
+        _ => bound,
+    }
+}
 
 /// Where to listen, and who may connect.
 #[derive(Clone, Debug, Default)]
@@ -67,7 +111,7 @@ pub struct Config {
     /// empty means the server mints one at start, which only the process
     /// that started it can learn, through [`Server::token`]; that is the
     /// point, and it is why a bind off loopback needs no token set here
-    /// to be safe to make.
+    /// to be safe to make. One that is set must pass [`check_token`].
     pub token: Option<String>,
     /// The folders the API may write under: a created project, an
     /// instantiated template, an export, a preview file. Empty means the
@@ -86,7 +130,8 @@ pub fn home_root() -> Vec<PathBuf> {
 }
 
 impl Config {
-    /// Refuses a configuration this build or platform cannot serve.
+    /// Refuses a configuration this build or platform cannot serve, or a
+    /// token too weak to stand in front of it.
     pub fn check(&self) -> Result<(), String> {
         #[cfg(not(unix))]
         if self.socket.is_some() {
@@ -98,6 +143,9 @@ impl Config {
                 "this build has no gRPC: build concat-server with --features grpc".to_owned(),
             );
         }
+        if let Some(token) = self.token.as_deref().filter(|token| !token.is_empty()) {
+            check_token(token)?;
+        }
         Ok(())
     }
 }
@@ -106,6 +154,7 @@ impl Config {
 pub struct Server {
     hub: Hub,
     dispatcher: Option<JoinHandle<()>>,
+    stopper: Stopper,
     json: Option<SocketAddr>,
     socket: Option<PathBuf>,
     grpc: Option<SocketAddr>,
@@ -114,11 +163,14 @@ pub struct Server {
     stop: Arc<AtomicBool>,
     listeners: Vec<JoinHandle<()>>,
     connections: Connections,
+    seats: Arc<AtomicUsize>,
+    pending: Arc<AtomicUsize>,
 }
 
-/// Every open connection's way of being closed, so a stop reaches the
-/// threads blocked reading them.
-pub(crate) type Connections = Arc<Mutex<Vec<Box<dyn Fn() + Send>>>>;
+/// Every connection that is in, by number, with its way of being closed,
+/// so a stop reaches the threads blocked reading them. A connection takes
+/// itself out when it ends.
+pub(crate) type Connections = Arc<Mutex<BTreeMap<u64, Box<dyn Fn() + Send>>>>;
 
 impl Server {
     /// Binds every address in `config` and starts serving. `make` builds
@@ -148,7 +200,7 @@ impl Server {
             config.roots.clone()
         };
         let confined = roots.clone();
-        let (hub, dispatcher) = Hub::start(move |events| {
+        let (hub, dispatcher, stopper) = Hub::start(move |events| {
             let mut api = make(events)?;
             for transport in transports {
                 api.add_capability(transport);
@@ -157,11 +209,24 @@ impl Server {
             Ok(api)
         })?;
         let stop = Arc::new(AtomicBool::new(false));
-        let connections: Connections = Arc::new(Mutex::new(Vec::new()));
-        let seats = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let connections: Connections = Arc::new(Mutex::new(BTreeMap::new()));
+        let throttle = Arc::new(throttle::Throttle::default());
+        let door = json::Door {
+            hub: hub.clone(),
+            token: token.clone(),
+            stop: Arc::clone(&stop),
+            connections: Arc::clone(&connections),
+            seats: Arc::new(AtomicUsize::new(0)),
+            pending: Arc::new(AtomicUsize::new(0)),
+            throttle: Arc::clone(&throttle),
+            next_id: Arc::new(AtomicU64::new(1)),
+        };
+        // Built before the first bind, so a bind that fails drops a server
+        // that shuts down what it had already started.
         let mut server = Server {
             hub,
             dispatcher: Some(dispatcher),
+            stopper,
             json: None,
             socket: None,
             grpc: None,
@@ -170,40 +235,37 @@ impl Server {
             stop: Arc::clone(&stop),
             listeners: Vec::new(),
             connections: Arc::clone(&connections),
+            seats: Arc::clone(&door.seats),
+            pending: Arc::clone(&door.pending),
+        };
+        let could_not = |what: &str, error: &dyn std::fmt::Display| {
+            format!("could not listen on {what}: {error}")
         };
 
         if let Some(address) = config.json {
             let listener = TcpListener::bind(address)
-                .map_err(|error| format!("could not listen on {address}: {error}"))?;
+                .map_err(|error| could_not(&address.to_string(), &error))?;
             server.json = Some(
                 listener
                     .local_addr()
-                    .map_err(|error| format!("could not listen on {address}: {error}"))?,
+                    .map_err(|error| could_not(&address.to_string(), &error))?,
             );
-            server.listeners.push(json::serve_tcp(
-                listener,
-                server.hub.clone(),
-                server.token.clone(),
-                Arc::clone(&stop),
-                Arc::clone(&connections),
-                Arc::clone(&seats),
-            ));
+            server.listeners.push(
+                json::serve_tcp(listener, door.clone())
+                    .map_err(|error| could_not(&address.to_string(), &error))?,
+            );
         }
 
         #[cfg(unix)]
         if let Some(path) = config.socket {
+            let shown = path.display().to_string();
             let _ = std::fs::remove_file(&path);
             let listener = std::os::unix::net::UnixListener::bind(&path)
-                .map_err(|error| format!("could not listen on {}: {error}", path.display()))?;
-            server.listeners.push(json::serve_unix(
-                listener,
-                server.hub.clone(),
-                server.token.clone(),
-                Arc::clone(&stop),
-                Arc::clone(&connections),
-                Arc::clone(&seats),
-            ));
+                .map_err(|error| could_not(&shown, &error))?;
             server.socket = Some(path);
+            server.listeners.push(
+                json::serve_unix(listener, door.clone()).map_err(|error| could_not(&shown, &error))?,
+            );
         }
 
         #[cfg(feature = "grpc")]
@@ -213,10 +275,12 @@ impl Server {
                 server.hub.clone(),
                 server.token.clone(),
                 Arc::clone(&stop),
+                Arc::clone(&throttle),
             )?;
             server.grpc = Some(bound);
             server.listeners.push(thread);
         }
+        let _ = throttle;
 
         Ok(server)
     }
@@ -253,22 +317,58 @@ impl Server {
         &self.roots
     }
 
-    /// How many callers are connected.
+    /// How many JSON callers are in: connected, with the token presented.
     pub fn connections(&self) -> usize {
-        self.hub.subscribers()
+        self.seats.load(Ordering::SeqCst)
     }
 
-    /// Closes every listener and connection, waits for the jobs still
-    /// running, and returns when the API's thread has ended.
+    /// How many JSON connections are waiting to present their token.
+    pub fn pending(&self) -> usize {
+        self.pending.load(Ordering::SeqCst)
+    }
+
+    /// How many connections a stop would have to close.
+    #[cfg(test)]
+    pub(crate) fn registered(&self) -> usize {
+        self.connections.lock().map(|list| list.len()).unwrap_or(0)
+    }
+
+    /// Stops the server and returns once everything it started has ended:
+    /// the listeners and connections closed, the API's own jobs cancelled
+    /// and their threads finished, the API's thread gone.
     pub fn stop(mut self) {
-        self.shut();
+        self.close_doors();
+        self.finish();
     }
 
-    fn shut(&mut self) {
+    /// Stops the server without waiting for the API's thread: when this
+    /// returns the listeners are closed - the address may be bound again
+    /// at once - every connection is hung up and the API's jobs are told
+    /// to stop; the call in flight, if one is, and the jobs' last frame
+    /// are waited for on a thread of their own. For a window, whose event
+    /// loop must not wait on a render.
+    pub fn stop_detached(mut self) {
+        self.close_doors();
+        let dispatcher = self.dispatcher.take();
+        let _ = std::thread::Builder::new()
+            .name("concat server stop".to_owned())
+            .spawn(move || {
+                if let Some(dispatcher) = dispatcher {
+                    let _ = dispatcher.join();
+                }
+            });
+    }
+
+    /// Everything a stop does that cannot keep the caller waiting long:
+    /// the listeners joined, the connections hung up, the jobs cancelled
+    /// and the queue closed.
+    fn close_doors(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        // A blocked accept wakes for a connection; make one.
+        // A blocked accept wakes for a connection; make one - to loopback
+        // when the bind was to every interface, which Windows refuses to
+        // connect to and which would leave the join below waiting for ever.
         if let Some(address) = self.json {
-            let _ = TcpStream::connect(address);
+            let _ = TcpStream::connect_timeout(&loopback(address), WAKE_PATIENCE);
         }
         #[cfg(unix)]
         if let Some(path) = &self.socket {
@@ -276,13 +376,13 @@ impl Server {
         }
         #[cfg(feature = "grpc")]
         if let Some(address) = self.grpc {
-            let _ = TcpStream::connect(address);
+            let _ = TcpStream::connect_timeout(&loopback(address), WAKE_PATIENCE);
         }
         for thread in self.listeners.drain(..) {
             let _ = thread.join();
         }
         if let Ok(mut connections) = self.connections.lock() {
-            for close in connections.drain(..) {
+            for (_, close) in std::mem::take(&mut *connections) {
                 close();
             }
         }
@@ -290,7 +390,14 @@ impl Server {
         if let Some(path) = self.socket.take() {
             let _ = std::fs::remove_file(path);
         }
+        // Before the queue closes: the API's thread waits for its jobs as
+        // it ends, and a job told to stop ends at its next frame instead
+        // of its last.
+        self.stopper.cancel_all();
         self.hub.close();
+    }
+
+    fn finish(&mut self) {
         if let Some(dispatcher) = self.dispatcher.take() {
             let _ = dispatcher.join();
         }
@@ -300,7 +407,8 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         if self.dispatcher.is_some() {
-            self.shut();
+            self.close_doors();
+            self.finish();
         }
     }
 }
@@ -309,6 +417,9 @@ impl Drop for Server {
 pub(crate) mod tests {
     use super::*;
     use concat_api::AppDirs;
+
+    /// A token strong enough to be accepted, for tests that choose one.
+    pub(crate) const TOKEN: &str = "a test token, long and varied 7f3Q";
 
     /// A server over a scratch home, on loopback, on any free port.
     pub(crate) fn server(token: Option<&str>) -> (Server, tempfile::TempDir) {
@@ -330,8 +441,8 @@ pub(crate) mod tests {
 
     #[test]
     fn a_server_keeps_the_token_it_is_given_and_mints_one_otherwise() {
-        let (given, _scratch) = server(Some("open sesame"));
-        assert_eq!(given.token(), "open sesame");
+        let (given, _scratch) = server(Some(TOKEN));
+        assert_eq!(given.token(), TOKEN);
         let (minted, _scratch) = server(None);
         assert_eq!(minted.token().len(), 32);
         assert!(minted.token().bytes().all(|byte| byte.is_ascii_hexdigit()));
@@ -341,10 +452,68 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_weak_token_is_refused_before_anything_listens() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let dirs = AppDirs {
+            config: scratch.path().join("config"),
+            data: scratch.path().join("data"),
+        };
+        let config = Config {
+            json: Some("127.0.0.1:0".parse().expect("an address")),
+            token: Some("open sesame".to_owned()),
+            ..Config::default()
+        };
+        let refused = Server::start(config, move |events| Ok(Api::with_dirs(dirs, events)));
+        let Err(why) = refused else {
+            panic!("a weak token was taken");
+        };
+        assert!(why.contains("at least"), "{why}");
+    }
+
+    #[test]
+    fn exposure_is_anything_off_loopback() {
+        let exposed = |text: &str| is_exposed(&text.parse().expect("an address"));
+        assert!(!exposed("127.0.0.1:7420"));
+        assert!(!exposed("[::1]:7420"));
+        assert!(exposed("0.0.0.0:7420"));
+        assert!(exposed("[::]:7420"));
+        assert!(exposed("192.168.1.20:7420"));
+    }
+
+    #[test]
     fn a_server_stops_cleanly_with_nobody_connected() {
         let (server, _scratch) = server(None);
         assert!(server.json_addr().is_some());
         assert_eq!(server.connections(), 0);
         server.stop();
+    }
+
+    #[test]
+    fn a_server_on_every_interface_stops_too() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let dirs = AppDirs {
+            config: scratch.path().join("config"),
+            data: scratch.path().join("data"),
+        };
+        let config = Config {
+            json: Some("0.0.0.0:0".parse().expect("an address")),
+            roots: vec![scratch.path().to_path_buf()],
+            ..Config::default()
+        };
+        let server =
+            Server::start(config, move |events| Ok(Api::with_dirs(dirs, events))).expect("starts");
+        let bound = server.json_addr().expect("listening");
+        assert!(is_exposed(&bound));
+        assert!(loopback(bound).ip().is_loopback());
+        server.stop();
+    }
+
+    #[test]
+    fn a_detached_stop_frees_the_address_at_once() {
+        let (server, _scratch) = server(None);
+        let address = server.json_addr().expect("listening");
+        server.stop_detached();
+        let again = TcpListener::bind(address);
+        assert!(again.is_ok(), "{again:?}");
     }
 }

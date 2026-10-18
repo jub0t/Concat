@@ -19,7 +19,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use concat_api::{Api, ApiError, ErrorCode, Event, EventSink, Request, Response};
+use concat_api::{Api, ApiError, ErrorCode, Event, EventSink, Request, Response, Stopper};
 
 /// A way to hand an event to one caller. Returns false once the caller is
 /// gone, after which it is dropped.
@@ -43,7 +43,7 @@ impl Hub {
     /// fails, so does this.
     pub(crate) fn start(
         make: impl FnOnce(EventSink) -> Result<Api, String> + Send + 'static,
-    ) -> Result<(Hub, JoinHandle<()>), String> {
+    ) -> Result<(Hub, JoinHandle<()>, Stopper), String> {
         let (tasks, queue) = mpsc::channel::<Task>();
         let subscribers: Arc<Mutex<Vec<Subscriber>>> = Arc::new(Mutex::new(Vec::new()));
         let sink: EventSink = {
@@ -66,13 +66,13 @@ impl Hub {
                 }
             })
         };
-        let (made, ready) = mpsc::channel::<Result<(), String>>();
+        let (made, ready) = mpsc::channel::<Result<Stopper, String>>();
         let thread = std::thread::Builder::new()
             .name("concat api".to_owned())
             .spawn(move || {
                 let mut api = match make(sink) {
                     Ok(api) => {
-                        let _ = made.send(Ok(()));
+                        let _ = made.send(Ok(api.stopper()));
                         api
                     }
                     Err(error) => {
@@ -107,7 +107,7 @@ impl Hub {
                 api.finish();
             })
             .map_err(|error| format!("could not start the API's thread: {error}"))?;
-        ready
+        let stopper = ready
             .recv()
             .unwrap_or_else(|_| Err("the API's thread ended before it began".to_owned()))?;
         Ok((
@@ -116,6 +116,7 @@ impl Hub {
                 subscribers,
             },
             thread,
+            stopper,
         ))
     }
 
@@ -148,6 +149,14 @@ impl Hub {
     pub fn subscribe(&self, subscriber: Subscriber) {
         if let Ok(mut subscribers) = self.subscribers.lock() {
             subscribers.push(subscriber);
+        }
+    }
+
+    /// Forgets a subscriber at once, for a caller that has hung up: the
+    /// fan-out would only notice at the next event, which may be never.
+    pub fn unsubscribe(&self, subscriber: &Subscriber) {
+        if let Ok(mut subscribers) = self.subscribers.lock() {
+            subscribers.retain(|kept| !Arc::ptr_eq(kept, subscriber));
         }
     }
 

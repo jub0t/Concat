@@ -28,6 +28,7 @@
 //! once and the job reports through the [`EventSink`] the API was made
 //! with, from that thread, which is why the sink must be `Send + Sync`.
 
+mod job;
 pub mod message;
 pub mod rpc;
 
@@ -52,8 +53,8 @@ use concat_project::Command;
 use concat_project::model::VideoSettings;
 
 pub use message::{
-    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, PackageInfo, ParamInfo,
-    Picture, Reply, Request, Response, Started, VersionInfo, Written,
+    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, JobState, JobStatus,
+    PackageInfo, ParamInfo, Picture, Reply, Request, Response, Started, VersionInfo, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -162,8 +163,36 @@ pub struct Api {
     exporter: Exporter,
     events: EventSink,
     jobs: Jobs,
+    /// Every job's last known state and each running one's stop flag, fed
+    /// by the events on their way to `events`.
+    book: Arc<job::Book>,
     /// [`VersionInfo::capabilities`], in the order they were added.
     capabilities: Vec<String>,
+}
+
+/// A way to stop the jobs of one [`Api`] from any thread, without waiting
+/// for its thread to be free: what a server that is shutting down calls
+/// before it waits for that thread. Cheap to clone.
+#[derive(Clone)]
+pub struct Stopper {
+    book: Arc<job::Book>,
+    cutouts: Arc<Cutouts>,
+}
+
+impl Stopper {
+    /// Asks every job this API started to stop at its next frame - its
+    /// own and no other, even where the export slot is shared with a
+    /// window. Each then ends with [`ErrorCode::Cancelled`]. How many
+    /// were running.
+    pub fn cancel_all(&self) -> usize {
+        let running = self.book.cancel_all();
+        if running > 0 {
+            // A job still finding masks is in the analysis, not the
+            // render; the analysis is this API's own.
+            self.cutouts.cancel();
+        }
+        running
+    }
 }
 
 impl Api {
@@ -176,7 +205,16 @@ impl Api {
     /// An API over the given directories: a test's scratch, or an embedder
     /// with a home of its own.
     pub fn with_dirs(dirs: AppDirs, events: EventSink) -> Api {
+        let book = Arc::new(job::Book::default());
+        let events: EventSink = {
+            let book = Arc::clone(&book);
+            Arc::new(move |event: Event| {
+                book.record(&event);
+                events(event);
+            })
+        };
         Api {
+            book,
             titles: Titles::new(&dirs),
             cutouts: Arc::new(Cutouts::new(&dirs.data)),
             stabilizers: Arc::new(Stabilizers::new()),
@@ -205,6 +243,25 @@ impl Api {
         if !self.capabilities.iter().any(|known| known == name) {
             self.capabilities.push(name.to_owned());
         }
+    }
+
+    /// What stops this API's jobs from another thread; see [`Stopper`].
+    pub fn stopper(&self) -> Stopper {
+        Stopper {
+            book: Arc::clone(&self.book),
+            cutouts: Arc::clone(&self.cutouts),
+        }
+    }
+
+    /// [`Request::ExportStatus`].
+    pub fn job_status(&mut self, job: &str) -> Result<JobStatus, ApiError> {
+        self.jobs.reap(&self.book);
+        self.book.status(job).ok_or_else(|| {
+            ApiError::new(
+                ErrorCode::NotFound,
+                format!("no job {job}: it never ran, or ended long ago"),
+            )
+        })
     }
 
     /// The export slot, for an embedder that shares it with a window.
@@ -280,7 +337,7 @@ impl Api {
 
     /// How many jobs are still running.
     pub fn running(&mut self) -> usize {
-        self.jobs.reap();
+        self.jobs.reap(&self.book);
         self.jobs.threads.len()
     }
 
@@ -293,7 +350,7 @@ impl Api {
     /// Runs one request. The response is what the request is worth; a job
     /// it begins reports through the sink from then on.
     pub fn dispatch(&mut self, request: Request) -> Response {
-        self.jobs.reap();
+        self.jobs.reap(&self.book);
         self.run(request).into()
     }
 
@@ -346,6 +403,7 @@ impl Api {
                 self.cancel(&job)?;
                 Ok(Reply::Done(Done {}))
             }
+            Request::ExportStatus { job } => Ok(Reply::Job(self.job_status(&job)?)),
             Request::PreviewFrame {
                 path,
                 time,
@@ -603,6 +661,10 @@ impl Api {
             path: project_path,
             output: spec.output.clone(),
         };
+        self.book.start(
+            JobStatus::running(&started.job, &started.path, &started.output),
+            slot.cancel_handle(),
+        );
         let job = ExportJob {
             name: started.job.clone(),
             path: started.path.clone(),
@@ -613,17 +675,22 @@ impl Api {
             stabilizers: Arc::clone(&self.stabilizers),
             events: Arc::clone(&self.events),
         };
+        let book = Arc::clone(&self.book);
+        let name = started.job.clone();
         let thread = std::thread::Builder::new()
             .name(format!("export {}", started.job))
             .spawn(move || job.run(slot))
-            .map_err(|error| ApiError::failed(format!("could not start the export: {error}")))?;
+            .map_err(|error| {
+                book.abandon(&name);
+                ApiError::failed(format!("could not start the export: {error}"))
+            })?;
         self.jobs.threads.push((started.job.clone(), thread));
         Ok(started)
     }
 
     /// [`Request::ExportCancel`].
     pub fn cancel(&mut self, job: &str) -> Result<(), ApiError> {
-        self.jobs.reap();
+        self.jobs.reap(&self.book);
         if !self.jobs.threads.iter().any(|(name, _)| name == job) {
             return Err(ApiError::new(
                 ErrorCode::NotFound,
@@ -743,9 +810,16 @@ impl Jobs {
         format!("j{}", self.minted)
     }
 
-    /// Forgets the threads that have ended.
-    fn reap(&mut self) {
-        self.threads.retain(|(_, thread)| !thread.is_finished());
+    /// Forgets the threads that have ended. One that ended without its
+    /// last event - a panic in the render - is booked as failed.
+    fn reap(&mut self, book: &job::Book) {
+        self.threads.retain(|(name, thread)| {
+            let ended = thread.is_finished();
+            if ended {
+                book.abandon(name);
+            }
+            !ended
+        });
     }
 
     /// Waits for the rest.
@@ -1429,7 +1503,24 @@ mod tests {
             }
             other => panic!("ended with {other:?}"),
         }
+        drop(events);
         assert_eq!(api.running(), 0);
+        // Asked afterwards, by a caller who was not listening, the job
+        // says the same.
+        let status = match ok(api.dispatch(Request::ExportStatus {
+            job: "j1".to_owned(),
+        })) {
+            Reply::Job(status) => status,
+            _ => panic!("not a job's status"),
+        };
+        assert_eq!(status.state, JobState::Failed);
+        assert_eq!(status.path, path);
+        assert_eq!(status.error.map(|error| error.code), Some(ErrorCode::Failed));
+        let unknown = err(api.dispatch(Request::ExportStatus {
+            job: "j9".to_owned(),
+        }));
+        assert_eq!(unknown.code, ErrorCode::NotFound);
+        assert_eq!(api.stopper().cancel_all(), 0, "nothing left to stop");
     }
 
     #[test]
