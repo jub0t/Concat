@@ -31,6 +31,10 @@
 //! host infers and writes them. [`onnx`] says whether this machine can run
 //! the runtime at all, which an Intel Mac older than its runtime cannot.
 //!
+//! Stabilization is [`stabilize`]: the camera's movement measured by
+//! tracking corners from frame to frame, cached beside the masks, and the
+//! correction worked out from it live. Plain arithmetic, no model.
+//!
 //! A mask is whatever shape its model answers in - square for the object
 //! model, the picture's own aspect for the person model - and every
 //! position in one is a fraction of the source picture: `(0, 0)` its
@@ -51,6 +55,7 @@ pub mod onnx;
 pub mod runtime;
 #[cfg(feature = "infer")]
 pub mod segment;
+pub mod stabilize;
 pub mod store;
 pub mod strokes;
 

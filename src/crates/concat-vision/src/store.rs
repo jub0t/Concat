@@ -67,7 +67,7 @@ pub fn mask_file(dir: &Path, millis: u64) -> PathBuf {
 }
 
 /// FNV-1a 64, for names that outlive the process.
-fn fnv1a(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for &byte in bytes {
         hash ^= u64::from(byte);
