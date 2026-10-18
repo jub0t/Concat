@@ -298,6 +298,8 @@
   "mask.invert": "反転",
   "mask.linear": "リニア",
   "mask.mirror": "ミラー",
+  "mask.phoneDrag": "映像の上で形をドラッグすると移動し、ハンドルをドラッグするとサイズ・回転・ぼかしを変えられます。",
+  "mask.phoneHint": "形を選ぶと、映像の一部だけを残せます。",
   "mask.rectangle": "長方形",
   "mask.roundness": "角の丸み",
   "mask.row": "マスク · {0}",

@@ -7,7 +7,8 @@ import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Editor } from "../editor.slint";
 import { Lanes } from "../timeline/lanes.slint";
-import { ClipKind } from "../timeline/model.slint";
+import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
+import { Param, ParamFormat, SwitchRow } from "../inspector/controls.slint";
 import { PreviewPane } from "../workspace/preview-pane.slint";
 import { ContextMenu } from "../primitives/context-menu.slint";
 import {
@@ -140,6 +141,134 @@ component SheetNote inherits Text {
     wrap: word-wrap;
 }
 
+/// The phone's Mask: the shapes as a row of tiles to thumb along, the way
+/// every phone editor lays them out, and under it the numbers a finger
+/// cannot drag on the monitor - the softness, the turn, a rectangle's
+/// corners - and the invert. Where and how big is dragged on the monitor
+/// with the grips the stage draws; the sliders for those are the desk's.
+component PhoneMaskPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    property <int> mask: root.selected.mask;
+    property <float> feather: root.selected.mask-feather;
+    property <float> turn: root.selected.mask-rotation;
+    property <float> roundness: root.selected.mask-roundness;
+
+    function pick(index: int) {
+        root.set(ClipField.mask-shape, index);
+        root.commit();
+    }
+
+    spacing: 6px;
+
+    ToolStrip {
+        height: 74px;
+        ToolItem {
+            glyph: Glyph.close;
+            label: I18n.t("common.none");
+            current: root.mask < 0;
+            clicked => { root.pick(-1); }
+        }
+        ToolItem {
+            glyph: Glyph.mask-linear;
+            label: I18n.t("mask.linear");
+            current: root.mask == 0;
+            clicked => { root.pick(0); }
+        }
+        ToolItem {
+            glyph: Glyph.mask-mirror;
+            label: I18n.t("mask.mirror");
+            current: root.mask == 1;
+            clicked => { root.pick(1); }
+        }
+        ToolItem {
+            glyph: Glyph.mask-circle;
+            label: I18n.t("mask.circle");
+            current: root.mask == 2;
+            clicked => { root.pick(2); }
+        }
+        ToolItem {
+            glyph: Glyph.mask-rectangle;
+            label: I18n.t("mask.rectangle");
+            current: root.mask == 3;
+            clicked => { root.pick(3); }
+        }
+        ToolItem {
+            glyph: Glyph.mask-heart;
+            label: I18n.t("mask.heart");
+            current: root.mask == 4;
+            clicked => { root.pick(4); }
+        }
+        ToolItem {
+            glyph: Glyph.mask-star;
+            label: I18n.t("mask.star");
+            current: root.mask == 5;
+            clicked => { root.pick(5); }
+        }
+    }
+
+    if root.mask < 0: SheetNote {
+        text: I18n.t("mask.phoneHint");
+    }
+
+    if root.mask >= 0: SheetNote {
+        text: I18n.t("mask.phoneDrag");
+    }
+
+    if root.mask >= 0: SwitchRow {
+        label: I18n.t("mask.invert");
+        checked: root.selected.mask-invert;
+        toggled(on) => { root.set(ClipField.mask-invert, on ? 1 : 0); root.commit(); }
+    }
+
+    if root.mask >= 0: Param {
+        label: I18n.t("clipInspector.feather");
+        keyable: true;
+        field: ClipField.mask-feather;
+        value <=> root.feather;
+        minimum: 0;
+        maximum: 1;
+        step: 0.01;
+        default-value: 0;
+        fmt: ParamFormat.fraction;
+        unit: "%";
+        unit-scale: 100;
+        changed(v) => { root.set(ClipField.mask-feather, v); root.commit(); }
+    }
+
+    if root.mask >= 0: Param {
+        label: I18n.t("common.rotation");
+        keyable: true;
+        field: ClipField.mask-rotation;
+        value <=> root.turn;
+        minimum: -180;
+        maximum: 180;
+        step: 1;
+        default-value: 0;
+        fmt: ParamFormat.degrees;
+        unit: "°";
+        changed(v) => { root.set(ClipField.mask-rotation, v); root.commit(); }
+    }
+
+    if root.mask == 3: Param {
+        label: I18n.t("mask.roundness");
+        keyable: true;
+        field: ClipField.mask-roundness;
+        value <=> root.roundness;
+        minimum: 0;
+        maximum: 1;
+        step: 0.01;
+        default-value: 0;
+        fmt: ParamFormat.fraction;
+        unit: "%";
+        unit-scale: 100;
+        changed(v) => { root.set(ClipField.mask-roundness, v); root.commit(); }
+    }
+}
+
 /// One of the project's facts: the label, then the value against the
 /// trailing edge.
 component Fact inherits HorizontalLayout {
@@ -260,6 +389,7 @@ export component PhoneEditor inherits Rectangle {
             : name == "clip-adjust" ? I18n.t("common.adjust")
             : name == "clip-enhance" ? I18n.t("common.enhance")
             : name == "clip-layer" ? I18n.t("configPane.filter")
+            : name == "clip-mask" ? I18n.t("mask.title")
             : "";
     }
 
@@ -843,6 +973,13 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "clip-audio-effects";
                 clicked => { root.show("clip-audio-effects", true); }
             }
+            // CapCut's Mask, on a sheet of its own.
+            if root.is-picture: ToolItem {
+                glyph: Glyph.mask-circle;
+                label: I18n.t("mask.title");
+                current: root.sheet == "clip-mask";
+                clicked => { root.show("clip-mask", true); }
+            }
             if root.is-picture: ToolItem {
                 glyph: Glyph.sun;
                 label: I18n.t("common.adjust");
@@ -1112,9 +1249,17 @@ export component PhoneEditor inherits Rectangle {
         if root.sheet == "canvas": PhoneCanvas { own: false; }
         if root.sheet == "clip-canvas": PhoneCanvas { own: true; }
 
+        if root.sheet == "clip-mask": PhoneMaskPanel {
+            selected: Editor.selected-clip;
+            set(field, value) => { Editor.clip-set(field, value); }
+            commit => { Editor.clip-commit(); }
+        }
+
         if root.sheet == "clip-video": VideoPanel {
-            // Fit, Fill and the background have the Canvas sheet here.
+            // Fit, Fill and the background have the Canvas sheet here, and
+            // the mask its own tool and sheet.
             canvas: false;
+            mask-section: false;
             selected: Editor.selected-clip;
             applied: Editor.applied-visual;
             params: Editor.visual-params;

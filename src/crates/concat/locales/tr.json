@@ -298,6 +298,8 @@
   "mask.invert": "Ters çevir",
   "mask.linear": "Doğrusal",
   "mask.mirror": "Ayna",
+  "mask.phoneDrag": "Taşımak için şekli görüntü üzerinde sürükleyin; boyutlandırmak, döndürmek ve kenarını yumuşatmak için tutamaçlarını sürükleyin.",
+  "mask.phoneHint": "Görüntünün bir kısmını tutmak için bir şekil seçin.",
   "mask.rectangle": "Dikdörtgen",
   "mask.roundness": "Köşe yuvarlaklığı",
   "mask.row": "Maske · {0}",

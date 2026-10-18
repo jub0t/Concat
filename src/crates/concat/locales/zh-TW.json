@@ -298,6 +298,8 @@
   "mask.invert": "反轉",
   "mask.linear": "線性",
   "mask.mirror": "鏡面",
+  "mask.phoneDrag": "在畫面上拖曳形狀可移動它，拖曳控制點可調整大小、旋轉和羽化。",
+  "mask.phoneHint": "選擇一個形狀，只保留畫面的一部分。",
   "mask.rectangle": "矩形",
   "mask.roundness": "圓角",
   "mask.row": "遮罩 · {0}",

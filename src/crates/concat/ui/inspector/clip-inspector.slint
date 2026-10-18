@@ -1030,6 +1030,9 @@ export component VideoPanel inherits VerticalLayout {
     in property <int> brush-tool;
     in property <float> brush-size;
     in property <bool> painting;
+    /// Whether the Mask section is here: the phone gives the mask a tool
+    /// and a sheet of its own instead.
+    in property <bool> mask-section: true;
 
     callback set(field: ClipField, value: float);
     /// A control gesture finished: the accumulated change becomes one command.
@@ -1640,7 +1643,8 @@ export component VideoPanel inherits VerticalLayout {
     // the numbers below place, size, turn and soften it, each keyable.
     // Drawn on the picture as it is seen, so it moves with the clip; the
     // monitor shows its outline with grips to drag while this is open.
-    if root.selected.kind == ClipKind.video || root.selected.kind == ClipKind.image: Section {
+    if root.mask-section
+        && (root.selected.kind == ClipKind.video || root.selected.kind == ClipKind.image): Section {
         mask-header := SectionHeader {
             title: I18n.t("mask.title");
             collapsible: true;

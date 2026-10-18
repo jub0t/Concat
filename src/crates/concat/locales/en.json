@@ -298,6 +298,8 @@
   "mask.invert": "Invert",
   "mask.linear": "Linear",
   "mask.mirror": "Mirror",
+  "mask.phoneDrag": "Drag the shape on the picture to move it, and its handles to size, turn and soften it.",
+  "mask.phoneHint": "Pick a shape to keep part of the picture.",
   "mask.rectangle": "Rectangle",
   "mask.roundness": "Roundness",
   "mask.row": "Mask · {0}",

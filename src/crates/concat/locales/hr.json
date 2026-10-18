@@ -298,6 +298,8 @@
   "mask.invert": "Obrni",
   "mask.linear": "Linearna",
   "mask.mirror": "Zrcalo",
+  "mask.phoneDrag": "Povucite oblik po slici da ga pomaknete, a njegove ručke da mu promijenite veličinu, zakrenete ga i omekšate rub.",
+  "mask.phoneHint": "Odaberite oblik kako biste zadržali dio slike.",
   "mask.rectangle": "Pravokutnik",
   "mask.roundness": "Zaobljenost",
   "mask.row": "Maska · {0}",

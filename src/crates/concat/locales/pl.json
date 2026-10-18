@@ -298,6 +298,8 @@
   "mask.invert": "Odwróć",
   "mask.linear": "Liniowa",
   "mask.mirror": "Lustro",
+  "mask.phoneDrag": "Przeciągnij kształt na obrazie, aby go przesunąć, a jego uchwyty, aby zmienić rozmiar, obrócić go i zmiękczyć krawędź.",
+  "mask.phoneHint": "Wybierz kształt, aby zachować część obrazu.",
   "mask.rectangle": "Prostokąt",
   "mask.roundness": "Zaokrąglenie",
   "mask.row": "Maska · {0}",

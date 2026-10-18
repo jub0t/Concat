@@ -298,6 +298,8 @@
   "mask.invert": "Umkehren",
   "mask.linear": "Linear",
   "mask.mirror": "Spiegel",
+  "mask.phoneDrag": "Zieh die Form auf dem Bild, um sie zu verschieben, und ihre Griffe, um sie zu skalieren, zu drehen und ihre Kante weich zu machen.",
+  "mask.phoneHint": "Wähle eine Form, um einen Teil des Bildes zu behalten.",
   "mask.rectangle": "Rechteck",
   "mask.roundness": "Rundung",
   "mask.row": "Maske · {0}",

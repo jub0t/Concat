@@ -298,6 +298,8 @@
   "mask.invert": "Inverti",
   "mask.linear": "Lineare",
   "mask.mirror": "Specchio",
+  "mask.phoneDrag": "Trascina la forma sull'immagine per spostarla, e le sue maniglie per ridimensionarla, ruotarla e sfumarne il bordo.",
+  "mask.phoneHint": "Scegli una forma per tenere solo una parte dell'immagine.",
   "mask.rectangle": "Rettangolo",
   "mask.roundness": "Arrotondamento",
   "mask.row": "Maschera · {0}",

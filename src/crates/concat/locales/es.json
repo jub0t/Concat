@@ -298,6 +298,8 @@
   "mask.invert": "Invertir",
   "mask.linear": "Lineal",
   "mask.mirror": "Espejo",
+  "mask.phoneDrag": "Arrastra la forma sobre la imagen para moverla, y sus controles para cambiar su tamaño, girarla y difuminarla.",
+  "mask.phoneHint": "Elige una forma para conservar parte de la imagen.",
   "mask.rectangle": "Rectángulo",
   "mask.roundness": "Redondeo",
   "mask.row": "Máscara · {0}",

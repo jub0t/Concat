@@ -298,6 +298,8 @@
   "mask.invert": "Balik",
   "mask.linear": "Linier",
   "mask.mirror": "Cermin",
+  "mask.phoneDrag": "Seret bentuk di gambar untuk memindahkannya, dan seret pegangannya untuk mengubah ukuran, memutar, dan menghaluskan tepinya.",
+  "mask.phoneHint": "Pilih bentuk untuk mempertahankan sebagian gambar.",
   "mask.rectangle": "Persegi panjang",
   "mask.roundness": "Kebulatan sudut",
   "mask.row": "Masker · {0}",

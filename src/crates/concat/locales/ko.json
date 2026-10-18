@@ -298,6 +298,8 @@
   "mask.invert": "반전",
   "mask.linear": "선형",
   "mask.mirror": "미러",
+  "mask.phoneDrag": "화면에서 모양을 드래그하면 이동하고, 핸들을 드래그하면 크기, 회전, 페더를 바꿀 수 있습니다.",
+  "mask.phoneHint": "모양을 골라 화면의 일부만 남기세요.",
   "mask.rectangle": "직사각형",
   "mask.roundness": "모서리 둥글기",
   "mask.row": "마스크 · {0}",

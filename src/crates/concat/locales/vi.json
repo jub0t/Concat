@@ -298,6 +298,8 @@
   "mask.invert": "Đảo ngược",
   "mask.linear": "Tuyến tính",
   "mask.mirror": "Gương",
+  "mask.phoneDrag": "Kéo hình trên khung hình để di chuyển, và kéo các tay nắm để đổi kích thước, xoay và làm mềm viền.",
+  "mask.phoneHint": "Chọn một hình để giữ lại một phần hình ảnh.",
   "mask.rectangle": "Hình chữ nhật",
   "mask.roundness": "Độ bo góc",
   "mask.row": "Mặt nạ · {0}",

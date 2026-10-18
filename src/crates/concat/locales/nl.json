@@ -298,6 +298,8 @@
   "mask.invert": "Omkeren",
   "mask.linear": "Lineair",
   "mask.mirror": "Spiegel",
+  "mask.phoneDrag": "Sleep de vorm over het beeld om hem te verplaatsen, en zijn grepen om hem te vergroten of verkleinen, te draaien en zijn rand te verzachten.",
+  "mask.phoneHint": "Kies een vorm om een deel van het beeld te houden.",
   "mask.rectangle": "Rechthoek",
   "mask.roundness": "Afronding",
   "mask.row": "Masker · {0}",
