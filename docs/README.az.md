@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">Pulsuz, açıq mənbəli və çoxplatformalı CapCut əvəzedicisi.</h3>
+<h3 align="center">Pulsuz, açıq mənbəli və bütün platformalarda işləyən CapCut alternativi.</h3>
 
 <div align="center">
 
@@ -24,7 +24,7 @@
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · **🇦🇿 Azərbaycanca** · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> İngiliscə README-dən 18 oktyabr 2026-cı ildə tərcümə edilib. Aktual saxlanılan versiya ingiliscə olandır.
+> Bu mətn 18 oktyabr 2026-cı ildə ingiliscə README-dən tərcümə olunub. Ən aktual versiya ingiliscə README-dir.
 
 ## Ödənişli sponsorlar
 
@@ -33,7 +33,7 @@
     <td align="center">
       <a href="https://proxyon.io/?ref=concat"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/proxyon_sponsor_logo.png" alt="Proxyon" width="80" /></a><br />
       <a href="https://proxyon.io/?ref=concat"><b>Proxyon</b></a><br />
-      <sub>Developerlər üçün istifadə etdikcə ödə proxy-lər<br /><code>JUB0T</code> kodu ilə 20% endirim</sub>
+      <sub>Developerlər üçün istifadəyə görə ödənişli proxy xidməti<br /><code>JUB0T</code> kodu ilə 20% endirim</sub>
     </td>
   </tr>
 </table>
@@ -43,65 +43,65 @@
 
 ## Haqqında
 
-Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktoru və CapCut alternatividir. İnsanların CapCut-ı əslində nə üçün açdığını qarşılayır: avtomatik subtitrlər, mətndən nitqə, fonun silinməsi, açar kadr animasiyası, effektlər və yazılar, çoxtrekli montaj, 4K ixrac. Heç bir tələ olmadan: su nişanı yoxdur, hesab yoxdur, abunəlik yoxdur, yükləmə yoxdur.
+Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktorudur və CapCut-a alternativdir. İnsanların CapCut-dan ən çox istifadə etdiyi imkanların hamısı burada var: avtomatik subtitrlər, mətnin səsləndirilməsi, fonun silinməsi, açar kadrlarla animasiya, effektlər və yazılar, bir neçə trekdə montaj, 4K ixrac. Üstəlik heç bir gizli şərt yoxdur: nə su nişanı, nə hesab, nə abunəlik, nə də faylların serverə yüklənməsi.
 
-Hər şey GPU kompozitorlu doğma Rust mühərrikində lokal işləyir. Quraşdırın, videonu atın, kəsin. Subtitrlər, səslər və fon kəsimi üçün süni intellekt modelləri Parametrlərdən bir dəfə yüklənir və ondan sonra oflayn işləyir. Videolarınız heç vaxt diskinizdən çıxmır.
+Hər şey Rust ilə yazılmış öz mühərriki üzərində, birbaşa kompüterinizdə işləyir; görüntünün birləşdirilməsi (kompozitinq) GPU-da aparılır. Proqramı quraşdırın, videonuzu əlavə edin və montaja başlayın. Subtitr, səsləndirmə və fon silmə üçün süni intellekt modelləri Parametrlər bölməsindən bir dəfə cihazınıza endirilir, sonra internetsiz işləyir. Videolarınız heç vaxt kompüterinizdən kənara çıxmır.
 
-**Nə üçün uyğundur:** TikTok, Reels və Shorts, YouTube videoları, dərslər və ekran yazıları, podkast kəsikləri, memlar.
+**Nə üçün uyğundur:** TikTok, Reels və Shorts, YouTube videoları, dərslər və ekran yazıları, podkastlardan kəsiklər, memlər.
 
-**Maşınlar üçün də:** süni intellekt agentləri üçün daxili MCP serveri (`concat --mcp`, [quraşdırma](MCP.md)) və skriptlər üçün JSON-RPC API, beləliklə onlar da onunla video kəsə bilər.
+**Avtomatlaşdırma üçün də:** süni intellekt agentləri üçün daxili MCP serveri (`concat --mcp`, [quraşdırma](MCP.md)) və skriptlər üçün JSON-RPC API. Belə ki, onlar da Concat ilə video montaj edə bilər.
 
-## Əsas xüsusiyyətlər
+## Əsas imkanlar
 
-- 🚫 **Su nişanı yox. Hesab yox. Ödəniş divarı yox.** Heç vaxt.
-- 🔒 **100% lokal.** Heç nə yüklənmir. Oflayn işləyir.
-- 💬 **Avtomatik subtitrlər.** Lokal Whisper. Model ölçüsünü seçin, zaman xəttində stilləşdirilmiş subtitrlər alın.
-- 🗣️ **Mətndən nitqə + səs klonlama.** Pulsuz lokal səslər, ya da bir neçə saniyəlik yazıdan istənilən səs.
-- 🧍 **Fonun silinməsi.** İnsanlar, obyektlər, ya da maskanı özünüz çəkin.
-- 🎞️ **Açar kadrlar.** Mövqe, miqyas, fırlanma, şəffaflıq, səs səviyyəsi, effekt parametrləri. Daxili əyri redaktoru.
-- ✨ **100 effekt, filtr və keçid.** GPU ilə render olunur, önizləmədə canlı.
-- ✂️ **Sürətli kəsin.** Bölmə, kəsib qısaltma, ripple, birləşdirmə, kadrı dondurma, sürət. İstəsəniz maqnit zaman xətti.
-- 🎚️ **Çoxtrekli, çox zaman xətli.** Bir layihədə bir neçə montaj. Qarışdırma rejimləri, kəsmə, çevirmələr.
+- 🚫 **Su nişanı yoxdur. Hesab tələb olunmur. Pullu məhdudiyyət yoxdur.** Heç vaxt.
+- 🔒 **100% lokal.** Heç bir fayl serverə göndərilmir. İnternetsiz işləyir.
+- 💬 **Avtomatik subtitrlər.** Kompüterinizdə işləyən Whisper. Model ölçüsünü seçin, zaman xəttində hazır üslubu olan subtitrlər alın.
+- 🗣️ **Mətnin səsləndirilməsi və səs klonlama.** Pulsuz lokal səslər, ya da cəmi bir neçə saniyəlik səs yazısından klonlanmış istənilən səs.
+- 🧍 **Fonun silinməsi.** İnsanları və obyektləri avtomatik ayırır, istəsəniz maskanı özünüz çəkə bilərsiniz.
+- 🎞️ **Açar kadrlar.** Mövqe, miqyas, fırlanma, görünürlük, səs səviyyəsi və effekt parametrləri. Daxili əyri redaktoru ilə.
+- ✨ **100 effekt, filtr və keçid.** GPU-da render olunur, önizləmədə dərhal görünür.
+- ✂️ **Sürətli montaj.** Bölmə, kəsib qısaltma, boşluğu avtomatik bağlayan ripple redaktə, birləşdirmə, kadrı dondurma, sürət. İstəsəniz, maqnitli zaman xətti də var.
+- 🎚️ **Bir neçə trek, bir neçə zaman xətti.** Bir layihədə bir neçə montaj variantı. Qarışdırma rejimləri, kəsib çərçivələmə, çevirmə.
 - 📝 **Yazılar.** Şriftlər, kontur, kölgə, fon lövhəsi. Başlamaq üçün hazır şablonlar.
-- 🎙️ **Bir düymə ilə səs təmizləmə.** Küyün azaldılması, səsin yaxşılaşdırılması, səs gücünün tarazlanması. Üstəlik sincab, robot, telefon və digərləri.
-- 📤 **İxrac.** H.264, HEVC, AV1. 4K 60-a qədər, 10-bit rəng.
-- 🦀 **Doğma Rust mühərriki.** GPU kompozitoru, proxy-lər, aparat dekodlaması. 4K-da hamar gəzinti.
-- 🤖 **Skriptlə idarə oluna bilər.** Daxili MCP serveri sayəsində Claude və digər süni intellekt agentləri onunla montaj edə bilər ([bir sətirlə quraşdırma](MCP.md)), skriptlər üçün isə JSON-RPC API var. Mənbədən yığılan versiya buna gRPC və komanda sətri aləti əlavə edir.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 dil. Eyni tətbiq, eyni layihə faylları.
+- 🎙️ **Bir düymə ilə səs təmizləmə.** Küyü azaldır, nitqi aydınlaşdırır, səs gücünü bərabərləşdirir. Üstəlik sincab, robot, telefon və digər səs effektləri.
+- 📤 **İxrac.** H.264, HEVC, AV1. 4K 60 kadr/san-a qədər, 10-bit rəng.
+- 🦀 **Rust ilə yazılmış öz mühərriki.** GPU-da kompozitinq, proxy fayllar, aparat səviyyəsində dekodlama. 4K videolarda da zaman xətti boyunca axıcı hərəkət edin.
+- 🤖 **Skriptlərlə idarə oluna bilər.** Daxili MCP serveri sayəsində Claude və digər süni intellekt agentləri Concat ilə montaj edə bilər ([bir sətirlə quraşdırılır](MCP.md)), skriptlər üçün isə JSON-RPC API var. Mənbə kodundan yığılan versiyaya əlavə olaraq gRPC və komanda sətri aləti daxildir.
+- 🖥️ **macOS, Windows, Linux, Android.** 26 dil. Eyni proqram, eyni layihə faylları.
 
-## Yüklə
+## Yükləmə
 
-İki yol var:
+Concat-ı iki yolla əldə edə bilərsiniz:
 
-1. **[Veb sayt](https://concatenate.pages.dev/#download)** cihazınız üçün düzgün versiyanı verir. Buradan başlayın.
-2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** hər platforma üçün bütün versiyaları quraşdırıcılar, paketlər və yoxlama cəmləri ilə təqdim edir. Özünüz seçmək istədikdə.
+1. **[Veb sayt](https://concatenate.pages.dev/#download)** cihazınıza uyğun versiyanı avtomatik təklif edir. Buradan başlamağınız tövsiyə olunur.
+2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** bütün platformalar üçün bütün versiyaları quraşdırıcılar, paketlər və yoxlama cəmləri (checksum) ilə birlikdə təqdim edir. Versiyanı özünüz seçmək istəyirsinizsə, bura baxın.
 
-Concat **beta** mərhələsindədir: işləyir, amma hələ də kələ-kötür yerləri var. Birini tapanda [bildirin](https://github.com/jub0t/Concat/issues).
+Concat hələ **beta** mərhələsindədir: işləyir, amma hələ də bəzi çatışmazlıqları var. Problemlə qarşılaşsanız, [bizə bildirin](https://github.com/jub0t/Concat/issues).
 
 **Platformalar**
 
-- ✅ **Windows** · x86_64 (ARM versiyaları dayandırılıb, bax: [#326](https://github.com/jub0t/Concat/issues/326)). Quraşdırıcı və `.msi`. SmartScreen imzasız versiyanı dayandırsa: **More info** › **Run anyway**
-- ✅ **macOS** · Intel və Apple silicon. macOS imzasız versiyanı açmaqdan imtina etsə: `xattr -dr com.apple.quarantine /Applications/Concat.app`
-- ✅ **Linux** · x86_64 və ARM. `.deb`, `.rpm`, `.AppImage` və Arch paketi. Həmçinin **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** üzərində Flatpak: hər buraxılışın x86_64 `.deb` paketini bükən və onunla birgə yenilənən icma Flatpak deposu
+- ✅ **Windows** · x86_64 (ARM versiyalarının buraxılışı müvəqqəti dayandırılıb, bax: [#326](https://github.com/jub0t/Concat/issues/326)). Quraşdırıcı və `.msi` paketi. SmartScreen imzasız versiyanın açılmasının qarşısını alsa: **More info** › **Run anyway**
+- ✅ **macOS** · Intel və Apple silicon. macOS imzasız versiyanı açmaq istəməsə: `xattr -dr com.apple.quarantine /Applications/Concat.app`
+- ✅ **Linux** · x86_64 və ARM. `.deb`, `.rpm`, `.AppImage` və Arch paketi. Bundan əlavə, Flatpak versiyası da var: o, **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** icma deposundadır. Bu depo hər buraxılışın x86_64 `.deb` paketini Flatpak formatına salır və onunla birlikdə yenilənir
 - ✅ **Android** · telefonlar və planşetlər
-- ✅ **iOS / iPadOS** · iPhone və iPad, sideload ilə
+- ✅ **iOS / iPadOS** · iPhone və iPad, App Store-dan kənar quraşdırma (sideload) ilə
 
-✅ Dəstəklənir · 🚧 Üzərində işlənir · 🧪 Test olunacaq
+✅ Dəstəklənir · 🚧 Üzərində işlənir · 🧪 Test olunmalıdır
 
-**Sistem tələbləri** və əlavə model ölçüləri [veb saytdadır](https://concatenate.pages.dev/guides/system-requirements).
+**Sistem tələbləri** və əlavə model ölçüləri haqqında məlumat [veb saytdadır](https://concatenate.pages.dev/guides/system-requirements).
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
-## Necə töhfə vermək olar
+## Layihəyə necə töhfə vermək olar
 
 > [!IMPORTANT]
-> Töhfə verməyin ən yaxşı yolu [Releases](https://github.com/jub0t/Concat/releases) səhifəsindən bir versiya götürüb istifadə etməkdir: harada sındığını tapın və harada daha yaxşı ola biləcəyini deyin.
+> Ən faydalı töhfə [Releases](https://github.com/jub0t/Concat/releases) səhifəsindən son versiyanı yükləyib istifadə etməkdir: rastlaşdığınız xətaları bildirin və nəyin daha yaxşı ola biləcəyini təklif edin.
 >
-> Kod yazmağa hazırsınız? [CONTRIBUTING.md](../CONTRIBUTING.md) quraşdırmanı, ağacın strukturunu, işə salınacaq yoxlamaları və töhfələrin necə lisenziyalaşdırıldığını izah edir. Concat-ı skriptdən, servisdən və ya agentdən idarə edirsiniz? [Developer sənədləri](https://concatenate.pages.dev/docs) Concat API-ni və onun nəqliyyat protokollarını izah edir: JSON-RPC və gRPC; [docs/MCP.md](MCP.md) süni intellekt agentini MCP üzərindən qoşur. Layihə [bu müzakirədə](https://github.com/jub0t/Concat/discussions/3) elan edilib.
+> Kod yazmağa hazırsınız? [CONTRIBUTING.md](../CONTRIBUTING.md) mühitin qurulmasını, layihənin fayl strukturunu, işə salınmalı olan yoxlamaları və töhfələrin hansı lisenziya ilə qəbul edildiyini izah edir. Concat-ı skriptdən, servisdən və ya agentdən idarə etmək istəyirsiniz? [Developer sənədləri](https://concatenate.pages.dev/docs) Concat API-ni və onun əlaqə protokollarını, yəni JSON-RPC və gRPC-ni izah edir; [docs/MCP.md](MCP.md) isə süni intellekt agentini MCP vasitəsilə necə qoşmağı göstərir. Layihə ilk dəfə [bu müzakirədə](https://github.com/jub0t/Concat/discussions/3) elan olunub.
 > 
-> Töhfə verənlər Discord serverində `@Contributor` rolu ala bilər: sadəcə soruşun.
+> Töhfə verənlər Discord serverində `@Contributor` rolu ala bilər: sadəcə bunu istəyin.
 
-## Ulduz tarixçəsi
+## Ulduzların tarixçəsi
 
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
@@ -115,4 +115,4 @@ Concat **beta** mərhələsindədir: işləyir, amma hələ də kələ-kötür y
 
 ## DMCA
 
-Bu depodakı, onun buraxılışlarındakı və ya yaydığı paket ya da modeldəki nəyinsə müəllif hüququnuzu pozduğunu düşünürsünüzsə, [jub0trd@gmail.com](mailto:jub0trd@gmail.com) ünvanına aşağıdakıları ehtiva edən e-poçt göndərin: sahibi olduğunuz əsərin təsviri, pozuntu yaradan materialın burada göründüyü yerin linki, əlaqə məlumatlarınız, istifadəyə sizin, nümayəndənizin və ya qanunun icazə vermədiyinə vicdanla inandığınızı bildirən bəyanat, və yalan ifadəyə görə məsuliyyəti öz üzərinizə götürərək bildirişin doğru olduğunu və hüquq sahibi olduğunuzu ya da onun adından hərəkət etməyə səlahiyyətli olduğunuzu bildirən, fiziki və ya elektron imzanızla təsdiqlənmiş bəyanat. Etibarlı bildirişlər tez bir zamanda icra olunur, materialı silinən hər kəs isə eyni ünvana əks-bildiriş göndərə bilər.
+Bu depoda, onun buraxılışlarında və ya onun yaydığı hər hansı paket və ya modeldə müəllif hüququnuzun pozulduğunu düşünürsünüzsə, [jub0trd@gmail.com](mailto:jub0trd@gmail.com) ünvanına e-poçt göndərin. Müraciətdə aşağıdakılar olmalıdır: sizə məxsus əsərin təsviri; hüququ pozan materialın burada yerləşdiyi yerə keçid; əlaqə məlumatlarınız; bu istifadəyə sizin, nümayəndənizin və ya qanunun icazə vermədiyinə vicdanla inandığınızı bildirən bəyanat; həmçinin bildirişin doğru olduğunu və hüquq sahibi olduğunuzu və ya onun adından çıxış etməyə səlahiyyətiniz olduğunu yalan ifadəyə görə məsuliyyəti qəbul edərək təsdiq edən bəyanat. Müraciət fiziki və ya elektron imzanızla imzalanmalıdır. Düzgün tərtib olunmuş bildirişlərə tez bir zamanda baxılır. Materialı silinən şəxs eyni ünvana əks-bildiriş göndərə bilər.
