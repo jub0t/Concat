@@ -24,7 +24,7 @@ highlights=[
 "📤 **Izvoz.** H.264, HEVC, AV1. Do 4K 60, 10-bitna boja.",
 "🦀 **Nativni Rust motor.** GPU kompozitor, proxyji, hardversko dekodiranje. 4K se pregledava glatko.",
 "🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje gRPC i alat za naredbeni redak.",
-"🖥️ **macOS, Windows, Linux, Android.** 25 jezika. Ista aplikacija, iste datoteke projekta.",
+"🖥️ **macOS, Windows, Linux, Android.** 26 jezika. Ista aplikacija, iste datoteke projekta.",
 ],
 download_h="Preuzimanje", two_ways="Dva ulaza:",
 website="Web-stranica", website_text="daje vam pravu inačicu za vaše računalo. Počnite ovdje.",

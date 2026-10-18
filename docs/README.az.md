@@ -22,7 +22,7 @@
   <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · **🇦🇿 Azərbaycan dili** · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · **🇦🇿 Azərbaycanca** · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
 > İngiliscə README-dən 18 oktyabr 2026-cı ildə tərcümə edilib. Aktual saxlanılan versiya ingiliscə olandır.
 
@@ -43,7 +43,7 @@
 
 ## Haqqında
 
-Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktoru və CapCut alternatividir. İnsanların CapCut-ı əslində nə üçün açdığını qarşılayır: avtomatik subtitrlər, mətndən nitqə, fonun silinməsi, açar kadr animasiyası, effektlər və yazılar, çoxtrekli montaj, 4K eksport. Heç bir tələ olmadan: su nişanı yoxdur, hesab yoxdur, abunəlik yoxdur, yükləmə yoxdur.
+Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktoru və CapCut alternatividir. İnsanların CapCut-ı əslində nə üçün açdığını qarşılayır: avtomatik subtitrlər, mətndən nitqə, fonun silinməsi, açar kadr animasiyası, effektlər və yazılar, çoxtrekli montaj, 4K ixrac. Heç bir tələ olmadan: su nişanı yoxdur, hesab yoxdur, abunəlik yoxdur, yükləmə yoxdur.
 
 Hər şey GPU kompozitorlu doğma Rust mühərrikində lokal işləyir. Quraşdırın, videonu atın, kəsin. Subtitrlər, səslər və fon kəsimi üçün süni intellekt modelləri Parametrlərdən bir dəfə yüklənir və ondan sonra oflayn işləyir. Videolarınız heç vaxt diskinizdən çıxmır.
 
@@ -64,10 +64,10 @@ Hər şey GPU kompozitorlu doğma Rust mühərrikində lokal işləyir. Quraşd�
 - 🎚️ **Çoxtrekli, çox zaman xətli.** Bir layihədə bir neçə montaj. Qarışdırma rejimləri, kəsmə, çevirmələr.
 - 📝 **Yazılar.** Şriftlər, kontur, kölgə, fon lövhəsi. Başlamaq üçün hazır şablonlar.
 - 🎙️ **Bir düymə ilə səs təmizləmə.** Küyün azaldılması, səsin yaxşılaşdırılması, səs gücünün tarazlanması. Üstəlik sincab, robot, telefon və digərləri.
-- 📤 **Eksport.** H.264, HEVC, AV1. 4K 60-a qədər, 10-bit rəng.
+- 📤 **İxrac.** H.264, HEVC, AV1. 4K 60-a qədər, 10-bit rəng.
 - 🦀 **Doğma Rust mühərriki.** GPU kompozitoru, proxy-lər, aparat dekodlaması. 4K-da hamar gəzinti.
 - 🤖 **Skriptlə idarə oluna bilər.** Daxili MCP serveri sayəsində Claude və digər süni intellekt agentləri onunla montaj edə bilər ([bir sətirlə quraşdırma](MCP.md)), skriptlər üçün isə JSON-RPC API var. Mənbədən yığılan versiya buna gRPC və komanda sətri aləti əlavə edir.
-- 🖥️ **macOS, Windows, Linux, Android.** 25 dil. Eyni tətbiq, eyni layihə faylları.
+- 🖥️ **macOS, Windows, Linux, Android.** 26 dil. Eyni tətbiq, eyni layihə faylları.
 
 ## Yüklə
 

@@ -24,7 +24,7 @@ highlights=[
 "📤 **내보내기.** H.264, HEVC, AV1. 최대 4K 60, 10비트 색상.",
 "🦀 **네이티브 Rust 엔진.** GPU 컴포지터, 프록시, 하드웨어 디코딩. 4K도 부드럽게 스크러빙.",
 "🤖 **스크립트 가능.** 스크립트와 AI 에이전트가 영상을 편집할 수 있는 JSON-RPC API. 소스에서 빌드하면 gRPC와 명령줄 도구가 추가됩니다.",
-"🖥️ **macOS, Windows, Linux, Android.** 25개 언어. 같은 앱, 같은 프로젝트 파일.",
+"🖥️ **macOS, Windows, Linux, Android.** 26개 언어. 같은 앱, 같은 프로젝트 파일.",
 ],
 download_h="다운로드", two_ways="두 가지 길:",
 website="웹사이트", website_text="가 당신의 기기에 맞는 빌드를 건네줍니다. 여기서 시작하세요.",

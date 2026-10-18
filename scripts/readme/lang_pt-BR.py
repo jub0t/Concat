@@ -24,7 +24,7 @@ highlights=[
 "📤 **Exportação.** H.264, HEVC, AV1. Até 4K 60, cor de 10 bits.",
 "🦀 **Motor nativo em Rust.** Compositor na GPU, proxies, decodificação por hardware. O 4K navega suavemente.",
 "🤖 **Automatizável.** Uma API JSON-RPC com a qual scripts e agentes de IA podem cortar vídeo. Compilando a partir do código-fonte, você ganha também gRPC e uma ferramenta de linha de comando.",
-"🖥️ **macOS, Windows, Linux, Android.** 25 idiomas. O mesmo app, os mesmos arquivos de projeto.",
+"🖥️ **macOS, Windows, Linux, Android.** 26 idiomas. O mesmo app, os mesmos arquivos de projeto.",
 ],
 download_h="Download", two_ways="Dois caminhos:",
 website="O site", website_text="entrega a build certa para a sua máquina. Comece por aqui.",

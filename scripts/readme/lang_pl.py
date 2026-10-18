@@ -24,7 +24,7 @@ highlights=[
 "📤 **Eksport.** H.264, HEVC, AV1. Do 4K 60, kolor 10-bitowy.",
 "🦀 **Natywny silnik w Rust.** Kompozytor na GPU, proxy, sprzętowe dekodowanie. Nawet 4K przewija się płynnie.",
 "🤖 **Skryptowalny.** API w JSON-RPC, przez które skrypty i agenci AI mogą montować wideo. Wersja zbudowana ze źródeł dodaje gRPC i narzędzie wiersza poleceń.",
-"🖥️ **macOS, Windows, Linux, Android.** 25 języków. Ta sama aplikacja, te same pliki projektów.",
+"🖥️ **macOS, Windows, Linux, Android.** 26 języków. Ta sama aplikacja, te same pliki projektów.",
 ],
 download_h="Pobieranie", two_ways="Dwie drogi:",
 website="Strona internetowa", website_text="poda ci właściwą wersję dla twojego komputera. Zacznij tutaj.",
