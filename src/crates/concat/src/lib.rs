@@ -1828,8 +1828,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
 
     // ── the tray's sound and word tools ──
+    // The tray's panel buttons are toggles: a press opens the panel, or
+    // puts it away when it is up.
     editor.on_captions(on_window!(|state| {
-        state.handle(Msg::Captions(CaptionsMsg::Open));
+        let msg = if state.captions.open {
+            CaptionsMsg::Close
+        } else {
+            CaptionsMsg::Open
+        };
+        state.handle(Msg::Captions(msg));
     }));
     editor.on_record_voiceover(on_window!(|state| {
         state.handle(Msg::Voiceover(VoiceoverMsg::Toggle));
@@ -1871,7 +1878,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         state.handle(Msg::Voiceover(VoiceoverMsg::PromptSpeed(index)));
     }));
     editor.on_speak(on_window!(|state| {
-        state.handle(Msg::Speech(SpeechMsg::Open));
+        let msg = if state.speech.open {
+            SpeechMsg::Close
+        } else {
+            SpeechMsg::Open
+        };
+        state.handle(Msg::Speech(msg));
     }));
 
     app.on_captions_closed(on_window!(|state| {

@@ -397,12 +397,15 @@ export component TimelineTray inherits Rectangle {
             glyph: Glyph.text-mark;
             label: I18n.t("tray.generateCaptions");
             icon-size: 16px;
+            // On while the panel is up; a second press puts it away.
+            checked: Editor.captions-open;
             clicked => { root.captions(); }
         }
         TrayButton {
             glyph: Glyph.volume;
             label: I18n.t("tray.textToSpeech");
             icon-size: 16px;
+            checked: Editor.speech-open;
             clicked => { root.speak(); }
         }
         // A voiceover: the picture rolls from the playhead and the words go
@@ -412,6 +415,7 @@ export component TimelineTray inherits Rectangle {
             label: root.recording ? I18n.t("tray.stopRecording") : I18n.t("tray.recordVoiceover");
             icon-size: 16px;
             idle: root.recording ? Theme.danger : Theme.fg;
+            checked: Editor.voiceover-open && !root.recording;
             clicked => { root.record-voiceover(); }
         }
         if root.recording: LevelMeter {

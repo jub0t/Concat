@@ -242,6 +242,11 @@ pub struct VoiceoverPane {
 impl VoiceoverPane {
     /// Whether a take is under way, counted in or paused: the tray's
     /// button reads Stop.
+    /// Whether the panel is up, for the tray button that opens and closes it.
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
     pub fn recording(&self) -> bool {
         self.phase != Phase::Ready
     }

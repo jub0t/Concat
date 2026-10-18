@@ -10432,6 +10432,9 @@ impl Studio {
         sync(&models.voiceover_devices, self.voiceover.device_rows());
         app.set_voiceover(self.voiceover.data(self));
         editor.set_recording(self.voiceover.recording());
+        editor.set_captions_open(self.captions.open);
+        editor.set_speech_open(self.speech.open);
+        editor.set_voiceover_open(self.voiceover.is_open());
 
         let bar = self.menu_bar();
         app.set_app_menu_height(Self::menu_height(&bar));

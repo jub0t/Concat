@@ -376,6 +376,10 @@ export global Editor {
     callback record-voiceover();
     /// A voiceover take is under way: counting in, recording or paused.
     in-out property <bool> recording;
+    /// Which of the tray's panels are up, so their buttons read as on.
+    in-out property <bool> captions-open;
+    in-out property <bool> speech-open;
+    in-out property <bool> voiceover-open;
     /// The microphone while the voiceover panel is open, as positions
     /// along a meter, `0..1`: the peak (beside the tray's button too) and
     /// the power. Set by a timer thirty times a second, not by a publish.
