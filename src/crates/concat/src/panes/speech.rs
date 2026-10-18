@@ -147,6 +147,9 @@ impl SpeechPane {
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: SpeechMsg, studio: &mut Studio) {
         match msg {
+            // A reading in progress is shown as it is when the panel is
+            // asked for again: closing it never stopped the reading.
+            SpeechMsg::Open if self.running => self.open = true,
             SpeechMsg::Open => {
                 let title = studio
                     .sole_selection()
@@ -266,7 +269,14 @@ impl SpeechPane {
                     }
                     // Asked for: the sheet is already on its way down.
                     Err(error) if error.contains("cancel") => self.open = false,
-                    Err(error) => self.message = error,
+                    // Closed while it ran: the panel is not there to say
+                    // it, so the notice does, and the panel too next time.
+                    Err(error) => {
+                        if !self.open {
+                            studio.notify(&error, true);
+                        }
+                        self.message = error;
+                    }
                 }
             }
         }

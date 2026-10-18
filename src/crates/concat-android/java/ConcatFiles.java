@@ -85,14 +85,34 @@ public class ConcatFiles extends Fragment {
         if (folder == null) {
             return new String[] {null, "this phone has no media store to put it in"};
         }
+        return publish(activity, path, "video/mp4", folder,
+                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY));
+    }
+
+    /**
+     * {@link #publishVideo} for a small file that is not a video - a
+     * subtitle file - of MIME type {@code mime}: moved into the phone's
+     * Download/Concat, which every file manager shows, under its own name
+     * or "name (1)" where that is taken. The same two strings come back.
+     */
+    public static String[] publishDocument(Activity activity, String path, String mime) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return new String[] {null, "this phone has no media store to put it in"};
+        }
+        return publish(activity, path, mime, Environment.DIRECTORY_DOWNLOADS + "/Concat",
+                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY));
+    }
+
+    /** Moves the file at {@code path} into {@code collection}, under {@code folder}. */
+    private static String[] publish(
+            Activity activity, String path, String mime, String folder, Uri collection) {
         File file = new File(path);
         ContentResolver resolver = activity.getContentResolver();
         ContentValues values = new ContentValues();
-        values.put(MediaStore.Video.Media.DISPLAY_NAME, file.getName());
-        values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-        values.put(MediaStore.Video.Media.RELATIVE_PATH, folder);
-        values.put(MediaStore.Video.Media.IS_PENDING, 1);
-        Uri collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, file.getName());
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, folder);
+        values.put(MediaStore.MediaColumns.IS_PENDING, 1);
         Uri uri;
         try {
             uri = resolver.insert(collection, values);
@@ -118,7 +138,7 @@ public class ConcatFiles extends Fragment {
             out.close();
             out = null;
             values.clear();
-            values.put(MediaStore.Video.Media.IS_PENDING, 0);
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0);
             resolver.update(uri, values, null, null);
         } catch (Exception e) {
             try {
@@ -168,8 +188,12 @@ public class ConcatFiles extends Fragment {
     /** Registered from Rust: the picked files' paths, or none. */
     public static native void filesPicked(String[] paths);
 
-    /** Shows the picker. From any thread; the fragment is added on the UI thread. */
-    public static void pick(final Activity activity) {
+    /**
+     * Shows the picker, offering the MIME types in {@code types} - comma
+     * separated, "video/*,audio/*" - or every file when it is empty. From
+     * any thread; the fragment is added on the UI thread.
+     */
+    public static void pick(final Activity activity, final String types) {
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -183,7 +207,9 @@ public class ConcatFiles extends Fragment {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"video/*", "audio/*", "image/*"});
+                if (types != null && !types.isEmpty()) {
+                    intent.putExtra(Intent.EXTRA_MIME_TYPES, types.split(","));
+                }
                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 try {
                     fragment.startActivityForResult(intent, REQUEST_PICK);

@@ -31,6 +31,7 @@ mod ui {
     slint::include_modules!();
 }
 
+mod batch_volume;
 mod chips;
 mod dock;
 mod fonts;
@@ -50,7 +51,9 @@ mod platform;
 /// phone shows it. See `platform::pick_files_async` and
 /// `platform::publish_export`.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub use platform::{ExportPublisher, FilePicker, install_export_publisher, install_file_picker};
+pub use platform::{
+    ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
+};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
 mod panes;
@@ -1897,6 +1900,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_captions_cancel(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Cancel));
+    }));
+    app.on_captions_import_srt(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ImportSrt));
+    }));
+    app.on_captions_export_srt(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ExportSrt));
     }));
     app.on_speech_closed(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Close));

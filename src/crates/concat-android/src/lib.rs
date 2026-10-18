@@ -220,7 +220,7 @@ mod picker {
     /// Hands the window's crate a picker that runs on this activity.
     pub fn install(app: &AndroidApp) {
         let app = app.clone();
-        concat::install_file_picker(Box::new(move |on_picked| {
+        concat::install_file_picker(Box::new(move |kinds, on_picked| {
             let previous = PENDING
                 .lock()
                 .map(|mut slot| slot.replace(on_picked))
@@ -231,7 +231,7 @@ mod picker {
                 // it got nothing rather than left waiting for ever.
                 previous(Vec::new());
             }
-            if let Err(error) = pick(&app) {
+            if let Err(error) = pick(&app, &kinds) {
                 log::error!("could not show the document picker: {error}");
                 if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
                     pending(Vec::new());
@@ -240,16 +240,42 @@ mod picker {
         }));
     }
 
-    fn pick(app: &AndroidApp) -> jni::errors::Result<()> {
+    fn pick(app: &AndroidApp, kinds: &concat::PickKinds) -> jni::errors::Result<()> {
+        let types = mime_types(kinds).join(",");
         super::java::with_class(app, |env, activity, class| {
+            let types = env.new_string(&types)?;
             env.call_static_method(
                 class,
                 jni_str!("pick"),
-                jni_sig!("(Landroid/app/Activity;)V"),
-                &[activity.into()],
+                jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)V"),
+                &[activity.into(), (&types).into()],
             )?;
             Ok(())
         })
+    }
+
+    /// The picker's MIME types for what is asked: media by its families,
+    /// and none at all - every file - for anything else. A subtitle or a
+    /// font is typed so variously by the phone's providers
+    /// (application/x-subrip, text/plain, application/octet-stream...)
+    /// that a list would hide the very file asked for; what is picked is
+    /// read for what it is, and a wrong file says so.
+    pub(super) fn mime_types(kinds: &concat::PickKinds) -> Vec<&'static str> {
+        match kinds {
+            concat::PickKinds::Media {
+                video,
+                audio,
+                image,
+            } => [
+                (*video, "video/*"),
+                (*audio, "audio/*"),
+                (*image, "image/*"),
+            ]
+            .into_iter()
+            .filter_map(|(on, kind)| on.then_some(kind))
+            .collect(),
+            concat::PickKinds::Files(_) => Vec::new(),
+        }
     }
 
     /// `ConcatFiles.filesPicked`, on whichever thread the Java copied on.
@@ -318,9 +344,11 @@ mod publisher {
             }
         };
         let app = app.clone();
+        let documents = app.clone();
         concat::install_export_publisher(concat::ExportPublisher {
             folder,
             publish: Box::new(move |path| publish(&app, path)),
+            publish_document: Box::new(move |path, mime| publish_document(&documents, path, mime)),
         });
     }
 
@@ -346,7 +374,7 @@ mod publisher {
     /// `ConcatFiles.publishVideo`: the file's path under the phone's
     /// storage once it is in Movies, or why it could not be moved.
     fn publish(app: &AndroidApp, path: &Path) -> Result<String, String> {
-        let answer = super::java::with_class(app, |env, activity, class| {
+        answer(super::java::with_class(app, |env, activity, class| {
             let path = env.new_string(path.to_string_lossy())?;
             let answer = env
                 .call_static_method(
@@ -356,19 +384,51 @@ mod publisher {
                     &[activity.into(), (&path).into()],
                 )?
                 .l()?;
-            let answer = env.cast_local::<JObjectArray<JString>>(answer)?;
-            let mut out = Vec::new();
-            for index in 0..answer.len(env)? {
-                let item = answer.get_element(env, index)?;
-                out.push(if item.is_null() {
-                    None
-                } else {
-                    Some(item.mutf8_chars(env)?.to_string())
-                });
-            }
-            Ok(out)
-        })
-        .map_err(|error| format!("could not reach the phone's media store: {error}"))?;
+            strings(env, answer)
+        }))
+    }
+
+    /// `ConcatFiles.publishDocument`: the file's path under the phone's
+    /// storage once it is in Download/Concat, or why it could not be moved.
+    fn publish_document(app: &AndroidApp, path: &Path, mime: &str) -> Result<String, String> {
+        answer(super::java::with_class(app, |env, activity, class| {
+            let path = env.new_string(path.to_string_lossy())?;
+            let mime = env.new_string(mime)?;
+            let answer = env
+                .call_static_method(
+                    class,
+                    jni_str!("publishDocument"),
+                    jni_sig!("(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;"),
+                    &[activity.into(), (&path).into(), (&mime).into()],
+                )?
+                .l()?;
+            strings(env, answer)
+        }))
+    }
+
+    /// A Java `String[]` as Rust's, a null element as None.
+    fn strings<'local>(
+        env: &mut jni::Env<'local>,
+        answer: jni::objects::JObject<'local>,
+    ) -> jni::errors::Result<Vec<Option<String>>> {
+        let answer = env.cast_local::<JObjectArray<JString>>(answer)?;
+        let mut out = Vec::new();
+        for index in 0..answer.len(env)? {
+            let item = answer.get_element(env, index)?;
+            out.push(if item.is_null() {
+                None
+            } else {
+                Some(item.mutf8_chars(env)?.to_string())
+            });
+        }
+        Ok(out)
+    }
+
+    /// What `publishVideo` and `publishDocument` answer: where the file is
+    /// now, or why it is still where it was.
+    fn answer(answer: jni::errors::Result<Vec<Option<String>>>) -> Result<String, String> {
+        let answer =
+            answer.map_err(|error| format!("could not reach the phone's media store: {error}"))?;
         match answer.as_slice() {
             [Some(path), _] => Ok(path.clone()),
             [None, Some(why)] => Err(why.clone()),

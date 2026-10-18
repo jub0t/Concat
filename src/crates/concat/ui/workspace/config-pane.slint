@@ -233,7 +233,7 @@ export component ConfigPane inherits Rectangle {
     /// it has no transform, no gain and no rate, and every other tab could
     /// only say "nothing here".
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
-    property <[string]> tabs: root.is-text ? ["Text"]
+    property <[string]> tabs: root.selected.batch-volume ? ["Audio"] : root.is-text ? ["Text"]
         : root.is-layer ? ["Filter"]
         : root.is-shape ? ["Video"]
         : root.is-image ? ["Video", "Effects"]
@@ -241,7 +241,7 @@ export component ConfigPane inherits Rectangle {
         : ["Video", "Audio", "Effects"];
     /// The same tabs in the interface's language. `tabs` stays English,
     /// because the panels are picked by comparing against it.
-    property <[string]> tabs-shown: root.is-text ? [I18n.t("common.text")]
+    property <[string]> tabs-shown: root.selected.batch-volume ? [I18n.t("common.audio")] : root.is-text ? [I18n.t("common.text")]
         : root.is-layer ? [I18n.t("configPane.filter")]
         : root.is-shape ? [I18n.t("configPane.vectorImage")]
         : root.is-image ? [I18n.t("common.video"), I18n.t("common.effects")]
@@ -281,7 +281,7 @@ export component ConfigPane inherits Rectangle {
         // and the Effects tab's "Effects", since `showing` picks the panel
         // by this name alone.
         : root.heading == "Audio"
-            ? ["Sound", "AudioEffects"]
+            ? (root.selected.batch-volume ? ["Sound"] : ["Sound", "AudioEffects"])
         : root.heading == "Effects" ? ["Effects"]
         : root.heading == "Text" ? ["Text"]
         : ["Layer"];
@@ -290,7 +290,8 @@ export component ConfigPane inherits Rectangle {
             ? (root.is-shape ? [I18n.t("configPane.basic")]
                 : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")])
         : root.heading == "Audio"
-            ? [I18n.t("configPane.basic"), I18n.t("configPane.audioEffects")]
+            ? (root.selected.batch-volume ? [I18n.t("configPane.basic")]
+                : [I18n.t("configPane.basic"), I18n.t("configPane.audioEffects")])
         : root.heading == "Effects" ? [I18n.t("common.effects")]
         : root.heading == "Text" ? [I18n.t("common.text")]
         : [I18n.t("common.layer")];
@@ -703,7 +704,7 @@ export component ConfigPane inherits Rectangle {
                     // A sound clip's speed, under its level and fades: one
                     // knob is not a page of its own. A picture's sound
                     // rides the picture's, set under Video › Basic.
-                    if root.is-audio: SpeedPanel {
+                    if root.is-audio && !root.selected.batch-volume: SpeedPanel {
                         first: false;
                         selected: root.selected;
                         set(field, value) => { root.clip-set(field, value); }
@@ -713,7 +714,7 @@ export component ConfigPane inherits Rectangle {
                     // they are chain links like any other, but they are the
                     // ones a sound clip usually needs, so they get a switch
                     // rather than a search.
-                    ProcessorRows {
+                    if !root.selected.batch-volume: ProcessorRows {
                         applied: root.applied-audio;
                         params: root.audio-params;
                         add(id) => { root.chain-add(true, id); }
@@ -729,7 +730,7 @@ export component ConfigPane inherits Rectangle {
                 // rather than under everything Basic holds, where a long
                 // chain pushed the library off the bottom of the pane.
                 if root.showing == "AudioEffects": VerticalLayout {
-                    PresetStack {
+                    if !root.selected.batch-volume: PresetStack {
                         noun: I18n.t("common.audioEffect");
                         library-title: I18n.t("configPane.audioEffects");
                         shelf: 2;

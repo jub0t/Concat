@@ -3823,6 +3823,10 @@ impl Studio {
         }
     }
 
+    fn volume_targets(&self) -> Vec<String> {
+        crate::batch_volume::targets(self.project(), &self.selection, |track| self.locked(track))
+    }
+
     pub fn sole_selection(&self) -> Option<String> {
         (self.selection.len() == 1).then(|| self.selection[0].clone())
     }
@@ -4785,7 +4789,12 @@ impl Studio {
     /// One field of the selected clip, on the echo. `clip_commit` turns the
     /// accumulated edits into commands.
     pub fn clip_set(&mut self, field: ClipField, value: f32) {
-        let ids = self.edit_targets();
+        let mut ids = self.edit_targets();
+        // A batch of sounds takes the level alone; see `batch_volume`.
+        let batch_volume = ids.is_empty() && field == ClipField::Volume;
+        if batch_volume {
+            ids = self.volume_targets();
+        }
         if ids.is_empty() {
             return;
         }
@@ -4825,9 +4834,24 @@ impl Studio {
                     .unwrap_or(value),
                 _ => value,
             };
+            // The clip as the document has it, for a batch level: a drag's
+            // every step is read against where it started, not against
+            // the last step, so a ride's shape is not worn down on the way.
+            let original = batch_volume
+                .then(|| {
+                    self.session
+                        .as_ref()
+                        .and_then(|session| session.project().active().clip(&id))
+                        .cloned()
+                })
+                .flatten();
             let Some(clip) = self.echo_clip_mut(&id) else {
                 continue;
             };
+            if let Some(original) = original {
+                crate::batch_volume::set_level(clip, &original, value, at);
+                continue;
+            }
             let text = clip.text.get_or_insert_with(TextStyle::default);
             match field {
                 ClipField::Scale => {
@@ -9533,9 +9557,13 @@ impl Studio {
     }
 
     fn selected(&self) -> SelectedClipData {
-        // The one clip, or the first of a batch of titles: the panel shows
-        // its values and writes to all of them; see `edit_targets`.
-        let targets = self.edit_targets();
+        // Titles share their styling controls; a sound batch exposes volume
+        // alone, using the first unlocked clip as the displayed reference.
+        let mut targets = self.edit_targets();
+        let batch_volume = targets.is_empty();
+        if batch_volume {
+            targets = self.volume_targets();
+        }
         let Some(clip) = targets.first().and_then(|id| self.clip(id)) else {
             return SelectedClipData::default();
         };
@@ -9564,6 +9592,7 @@ impl Studio {
         SelectedClipData {
             present: true,
             batch: targets.len() as i32,
+            batch_volume,
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
@@ -11704,6 +11733,11 @@ mod tests {
         // A size is a size for every title in the batch.
         assert_eq!(batch_value(ClipField::FontSize, 0.08, 0.05, 0.02), 0.08);
         assert_eq!(relative_property(ClipField::FontSize), None);
+        // Volume is absolute: different starting gains land on the same level.
+        assert_eq!(relative_property(ClipField::Volume), None);
+        for current in [0.0, 0.25, 1.0, 2.0] {
+            assert_eq!(batch_value(ClipField::Volume, 0.5, 1.0, current), 0.5);
+        }
     }
 
     #[test]
@@ -11739,5 +11773,94 @@ mod tests {
         );
         assert_eq!(place_in(&after, 2.5), 0.25);
         assert_eq!(place_in(&after, 12.0), 1.0, "held to the end");
+    }
+
+    /// A batch level lands on every clip as the inspector commits it - one
+    /// batch of each clip's commands - and one undo takes all of it back:
+    /// the plain clip's level and the keyed clip's whole ride, with no key
+    /// left behind at the playhead.
+    #[test]
+    fn a_batch_level_is_one_undo_step_for_every_clip() {
+        use concat_project::model::{KeyEase, KeyProperty, MediaKind};
+        let mut editor = concat_project::Editor::new();
+        let media_id = editor
+            .apply(Command::AddMedia {
+                item: concat_project::commands::NewMedia {
+                    path: "/a.wav".to_owned(),
+                    name: "a.wav".to_owned(),
+                    duration: Some(10.0),
+                    kind: MediaKind::Audio,
+                    width: None,
+                    height: None,
+                    frame_rate: None,
+                    frame_rate_fraction: None,
+                    video_codec: None,
+                    audio_codec: Some("pcm".to_owned()),
+                    has_audio: true,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                    color_space: Default::default(),
+                },
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let track_id = editor.project().active().tracks[0].id.clone();
+        let mut ids = Vec::new();
+        for start in [0.0, 20.0] {
+            let id = editor
+                .apply(Command::AddClip {
+                    media_id: media_id.clone(),
+                    track_id: track_id.clone(),
+                    start,
+                    ripple: false,
+                })
+                .expect("adds")
+                .created_id
+                .expect("id");
+            ids.push(id);
+        }
+        // The second rides: full, then faded out.
+        for (at, value) in [(0.0, 1.0), (1.0, 0.0)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: ids[1].clone(),
+                    property: KeyProperty::Volume,
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        editor.end_gesture();
+        let document = editor.project().clone();
+
+        let mut commands = Vec::new();
+        for id in &ids {
+            let before = document.active().clip(id).expect("clip");
+            let mut after = before.clone();
+            crate::batch_volume::set_level(&mut after, before, 0.5, 0.0);
+            commands.extend(super::clip_commands(id, before, &after));
+        }
+        editor.apply(Command::Batch { commands }).expect("applies");
+        let clip = |editor: &concat_project::Editor, id: &str| {
+            editor.project().active().clip(id).expect("clip").clone()
+        };
+        assert_eq!(clip(&editor, &ids[0]).volume, 0.5);
+        let keyed = clip(&editor, &ids[1]);
+        let ride: Vec<f64> = keyed
+            .keys_on(KeyProperty::Volume)
+            .map(|key| key.value)
+            .collect();
+        assert_eq!(ride, vec![0.5, 0.0], "the ride moved, no key was added");
+
+        assert!(editor.undo());
+        for id in &ids {
+            assert_eq!(
+                clip(&editor, id),
+                *document.active().clip(id).expect("clip"),
+                "one undo puts {id} back"
+            );
+        }
     }
 }

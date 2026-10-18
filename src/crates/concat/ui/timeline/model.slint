@@ -326,6 +326,8 @@ export struct SelectedClipData {
     /// how many clips the panel writes to: one, or every selected title
     /// when several are selected together, shown by the first's values
     batch: int,
+    /// Only the volume control is available for this selection.
+    batch-volume: bool,
     id: string,
     /// the output frame's size, so a fraction can be shown in pixels
     frame-width: int,

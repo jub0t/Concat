@@ -14,6 +14,15 @@ import { Select } from "select.slint";
 // and shown by a property. Everything under it keeps existing — a modal is a
 // scrim over the app, not a replacement for it — which is why the scrim takes
 // pointer events rather than merely painting over them.
+//
+// Or, `floating`, no scrim at all: a card over the editor that the work
+// beside it carries on under, the way the voiceover panel floats - for a
+// tool that is used beside the timeline rather than instead of it, whose
+// job may run for minutes (Captions, Text to speech). Nothing behind it is
+// held back; the card goes where its header is dragged, stays wholly
+// inside the window, and keeps where it was put for as long as the window
+// is open. Its × is always there: closing it does not stop a job, which
+// keeps running and is shown again when it is opened again.
 export component Modal inherits Rectangle {
     in property <bool> open;
     in property <string> title;
@@ -39,17 +48,35 @@ export component Modal inherits Rectangle {
     in property <length> inset-bottom;
     in property <length> inset-left;
     in property <length> inset-right;
+    /// A card over a live editor rather than a sheet over a scrim; see
+    /// above. Never with `fill`: a phone keeps its sheet.
+    in property <bool> floating;
+    /// Where a floating card starts, from the window's top right corner:
+    /// under the title strip, over the inspector. Two cards are given
+    /// different homes so they do not open exactly on top of each other.
+    in property <length> home-right: 16px;
+    in property <length> home-top: 48px;
 
     callback closed();
+    /// A floating card was pressed on its header: it wants to be in front.
+    callback raised();
 
     visible: root.open;
+    // A card opened comes to the front.
+    changed open => {
+        if (root.open) {
+            root.raised();
+        }
+    }
     // Dark rather than blurred: Slint has no backdrop filter, and a scrim that
     // only dims is honest about that where a fake blur would not be.
-    background: root.fill ? Theme.panel : Theme.overlay;
+    background: root.floating ? Colors.transparent
+        : root.fill ? Theme.panel : Theme.overlay;
 
     // Declared first, so the surface and everything in it sits above and takes
     // its own presses. A click that lands here landed outside the dialog.
-    TouchArea {
+    // A floating card has none: a click beside it is a click on the editor.
+    if !root.floating: TouchArea {
         clicked => {
             if (root.dismissable) {
                 root.closed();
@@ -61,9 +88,24 @@ export component Modal inherits Rectangle {
     property <length> room-w: root.width - root.inset-left - root.inset-right;
     property <length> room-h: root.height - root.inset-top - root.inset-bottom;
 
+    // A floating card's place: its home, moved by however far its header
+    // has been dragged, and held inside the window - the drag included, so
+    // pulling it back from an edge moves it at once, and a window made
+    // smaller brings it along.
+    property <length> home-x: root.width - surface.width - root.home-right - root.inset-right;
+    property <length> home-y: root.home-top + root.inset-top;
+    property <length> dx;
+    property <length> dy;
+    property <length> min-dx: root.inset-left + 8px - root.home-x;
+    property <length> max-dx: root.width - root.inset-right - surface.width - 8px - root.home-x;
+    property <length> min-dy: root.inset-top + 8px - root.home-y;
+    property <length> max-dy: root.height - root.inset-bottom - surface.height - 8px - root.home-y;
+
     surface := Rectangle {
-        x: root.inset-left + (root.room-w - self.width) / 2;
-        y: root.inset-top + (root.room-h - self.height) / 2;
+        x: root.floating ? root.home-x + Math.max(root.min-dx, Math.min(root.max-dx, root.dx))
+            : root.inset-left + (root.room-w - self.width) / 2;
+        y: root.floating ? root.home-y + Math.max(root.min-dy, Math.min(root.max-dy, root.dy))
+            : root.inset-top + (root.room-h - self.height) / 2;
         // Filling, the room inside the bars. Otherwise never wider or taller
         // than that room less a margin: a phone held upright is narrower than
         // any sheet's width, and a sheet that runs off both edges cannot be
@@ -77,15 +119,38 @@ export component Modal inherits Rectangle {
         border-width: root.fill ? 0px : 1px;
         border-color: Theme.line-strong;
         border-radius: root.fill ? 0px : Theme.r-xl;
+        // Lifted off the editor it floats over, as the voiceover card is.
+        drop-shadow-blur: root.floating ? 24px : 0px;
+        drop-shadow-offset-y: root.floating ? 6px : 0px;
+        drop-shadow-color: root.floating ? #00000059 : Colors.transparent;
         clip: true;
 
         // Swallows presses that land on the dialog, so they do not reach the
-        // scrim underneath and dismiss it.
+        // scrim underneath and dismiss it - or, floating, the lanes and the
+        // monitor under the card.
         TouchArea { }
 
         body := VerticalLayout {
             Rectangle {
                 height: 42px;
+
+                // What drags a floating card, under the title and the ×.
+                if root.floating: TouchArea {
+                    mouse-cursor: move;
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down) {
+                            root.raised();
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.dx = Math.max(root.min-dx, Math.min(root.max-dx,
+                                root.dx + self.mouse-x - self.pressed-x));
+                            root.dy = Math.max(root.min-dy, Math.min(root.max-dy,
+                                root.dy + self.mouse-y - self.pressed-y));
+                        }
+                    }
+                }
 
                 Rectangle {
                     x: 0;
@@ -115,8 +180,9 @@ export component Modal inherits Rectangle {
 
                     // Gone, not disabled, while a job is running: there is no
                     // safe answer to pressing it, so it should not be there to
-                    // press.
-                    if root.dismissable: VerticalLayout {
+                    // press. A floating card's always is: closing it leaves
+                    // the job running, to be seen again when it is opened.
+                    if root.dismissable || root.floating: VerticalLayout {
                         alignment: center;
                         Rectangle {
                             width: 26px;

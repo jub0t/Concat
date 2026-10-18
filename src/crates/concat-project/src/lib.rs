@@ -27,6 +27,7 @@ pub mod editor;
 pub mod model;
 pub mod placement;
 pub mod speed;
+pub mod srt;
 
 pub use commands::{
     Command, CommandError, Outcome, PlayheadSide, consolidation_clips, delete_to_playhead,

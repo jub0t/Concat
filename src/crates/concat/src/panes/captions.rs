@@ -12,11 +12,16 @@
 //! one undo step.
 //! The transcriber runs on a worker and reports as
 //! [`CaptionsMsg::Progress`], ending as [`CaptionsMsg::Finished`].
+//!
+//! The sheet also reads a SubRip file in as captions, with the same look,
+//! and writes the timeline's captions out as one.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_project::Command;
-use concat_project::model::TextStyle;
+use concat_project::model::{ClipKind, TextStyle};
+use concat_project::srt;
 use concat_speech::JobStage;
 use concat_speech::transcribe::Segment;
 
@@ -61,6 +66,14 @@ pub enum CaptionsMsg {
     Progress(JobStage),
     /// The transcriber's worker is done: what was said, or why not.
     Finished(Result<Vec<Segment>, String>),
+    /// Asks for a SubRip file to read in.
+    ImportSrt,
+    /// The SubRip file chosen: its cues as captions.
+    ImportSrtFrom(PathBuf),
+    /// Asks where to write the captions as SubRip.
+    ExportSrt,
+    /// Where they go.
+    ExportSrtTo(PathBuf),
 }
 
 /// The clip a transcription is running over, as the finished segments
@@ -91,8 +104,13 @@ pub struct CaptionsPane {
     pub from_voice: bool,
     /// The clip whose voice is transcribed: one with sound, chosen from the
     /// timeline's. Kept while the switch is off, so turning it back on
-    /// returns to the same clip.
+    /// returns to the same clip. The panel floats over a live editor, so
+    /// a clip with sound selected since is the one shown and run instead;
+    /// see [`Self::subject_clip`].
     pub clip: Option<String>,
+    /// The sole selection when [`Self::clip`] was chosen - opened on, or
+    /// picked from the list - so a later selection can be told from it.
+    chosen_with: Option<String>,
     /// The script's words.
     pub text: String,
     /// Row in the installed transcriber list.
@@ -117,6 +135,9 @@ impl CaptionsPane {
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: CaptionsMsg, studio: &mut Studio) {
         match msg {
+            // A run in progress is shown as it is, however the panel is
+            // asked for again: closing it never stopped the run.
+            CaptionsMsg::Open | CaptionsMsg::OpenOnClip(_) if self.running => self.open = true,
             CaptionsMsg::Open => {
                 let selected = studio.sole_selection();
                 self.open_on(studio, selected, false);
@@ -134,6 +155,7 @@ impl CaptionsPane {
                         .is_some_and(|id| sources.iter().any(|s| &s.id == id))
                 {
                     self.clip = sources.first().map(|source| source.id.clone());
+                    self.chosen_with = studio.sole_selection();
                 }
             }
             CaptionsMsg::SourceChanged(index) => {
@@ -142,6 +164,7 @@ impl CaptionsPane {
                     .and_then(|index| sources(studio).into_iter().nth(index))
                 {
                     self.clip = Some(source.id);
+                    self.chosen_with = studio.sole_selection();
                     self.message.clear();
                 }
             }
@@ -204,9 +227,165 @@ impl CaptionsPane {
                     }
                     // Asked for: the sheet is already on its way down.
                     Err(error) if error.contains("cancel") => self.open = false,
-                    Err(error) => self.message = error,
+                    // Closed while it ran: the panel is not there to say
+                    // it, so the notice does, and the panel too next time.
+                    Err(error) => {
+                        if !self.open {
+                            studio.notify(&error, true);
+                        }
+                        self.message = error;
+                    }
                 }
             }
+            // Asked with the studio unborrowed, on a turn of its own; see
+            // `host::after_dialog`.
+            CaptionsMsg::ImportSrt => crate::host::pick_files_then(
+                t("captions.importSrt"),
+                Some((t("captions.subRipSubtitles"), &["srt"])),
+                |studio, _, _, paths| {
+                    if let Some(path) = paths.into_iter().next() {
+                        studio.handle(Msg::Captions(CaptionsMsg::ImportSrtFrom(path)));
+                    }
+                },
+            ),
+            CaptionsMsg::ImportSrtFrom(path) => self.import_srt(studio, &path),
+            CaptionsMsg::ExportSrt => self.ask_export_srt(studio),
+            CaptionsMsg::ExportSrtTo(path) => self.export_srt(studio, &path),
+        }
+    }
+
+    /// A SubRip file's cues as captions where the file times them, with
+    /// the sheet's look: one batch, one undo step. A file that is not
+    /// UTF-8 is read as best it can be.
+    fn import_srt(&mut self, studio: &mut Studio, path: &Path) {
+        let cues = std::fs::read(path)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                srt::parse(&String::from_utf8_lossy(&bytes)).map_err(|error| error.to_string())
+            });
+        let cues = match cues {
+            Ok(cues) => cues,
+            Err(error) => {
+                log::warn!("captions: could not read {}: {error}", path.display());
+                self.message = tf("captions.couldNotReadSubtitles", &[&error]);
+                return;
+            }
+        };
+        let look = self.look();
+        let base = studio.prefs.title_style.clone();
+        let commands = srt_commands(cues, look, base.as_ref());
+        if commands.is_empty() {
+            self.message = t("captions.noSubtitlesInFile");
+            return;
+        }
+        let count = commands.len();
+        self.open = false;
+        studio.apply(Command::Batch { commands });
+        studio.notify(&tf("captions.addedCaptions", &[&count]), false);
+    }
+
+    /// Asks where to write the captions, offering the project's folder
+    /// and its name. A phone has no such dialog: the file is written
+    /// beside the project under a name nothing there has, and handed to
+    /// the phone to put where its file manager shows it.
+    fn ask_export_srt(&mut self, studio: &mut Studio) {
+        if export_lane(studio).is_none() {
+            self.message = t("captions.noCaptionsToExport");
+            return;
+        }
+        let name = format!("{}.srt", file_stem(studio));
+        // No project, no project folder: Documents, as anywhere else a
+        // file is written with nothing better to offer.
+        let folder = studio
+            .session
+            .as_ref()
+            .map(|session| PathBuf::from(session.path()))
+            .unwrap_or_else(|| PathBuf::from(crate::studio::home_folder("Documents")));
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            let path = unique_path(&folder, &name);
+            self.export_srt(studio, &path);
+            return;
+        }
+        let title = t("captions.exportSrt");
+        let family = t("captions.subRipSubtitles");
+        crate::host::after_dialog(
+            move || {
+                let chosen = crate::platform::save_file(
+                    &title,
+                    &folder,
+                    &name,
+                    (family.as_str(), &["srt"]),
+                )?;
+                Some(
+                    if chosen
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("srt"))
+                    {
+                        chosen
+                    } else {
+                        chosen.with_extension("srt")
+                    },
+                )
+            },
+            |studio, _, _, path| studio.handle(Msg::Captions(CaptionsMsg::ExportSrtTo(path))),
+        );
+    }
+
+    /// Writes the captions to `path` as SubRip, and says how many and
+    /// where - on a phone, once the phone has put the file where it shows
+    /// it.
+    fn export_srt(&mut self, studio: &mut Studio, path: &Path) {
+        let Some(lane) = export_lane(studio) else {
+            self.message = t("captions.noCaptionsToExport");
+            return;
+        };
+        let cues = srt::title_cues(studio.timeline(), Some(&lane.track_id));
+        if let Err(error) = std::fs::write(path, srt::write(&cues)) {
+            log::warn!("captions: could not write {}: {error}", path.display());
+            self.message = tf("captions.couldNotWriteSubtitles", &[&error]);
+            return;
+        }
+        log::info!(
+            "captions: wrote {} cue(s) to {}",
+            cues.len(),
+            path.display()
+        );
+        self.open = false;
+        let count = cues.len();
+        // Which lane was written goes without saying when it was the
+        // selected title's, or the only lane with titles; otherwise the
+        // notice says it was the busiest, and how to pick another.
+        let busiest = lane.busiest && srt::title_lanes(studio.timeline()) > 1;
+        let say = move |studio: &mut Studio, place: &str| {
+            let key = if busiest {
+                "captions.exportedBusiestLane"
+            } else {
+                "captions.exportedCaptions"
+            };
+            studio.notify(&tf(key, &[&count, &place]), false);
+        };
+        let written = path.to_path_buf();
+        let handed = crate::platform::publish_document(
+            path.to_path_buf(),
+            "application/x-subrip",
+            move |result| {
+                crate::host::on_ui(move |studio, _, _| match result {
+                    Ok(place) => say(studio, &place),
+                    Err(error) => {
+                        log::warn!("captions: could not publish {}: {error}", written.display());
+                        studio.notify(
+                            &tf(
+                                "captions.couldNotPublishSubtitles",
+                                &[&written.display(), &error],
+                            ),
+                            true,
+                        );
+                    }
+                });
+            },
+        );
+        if !handed {
+            say(studio, &path.display().to_string());
         }
     }
 
@@ -229,12 +408,28 @@ impl CaptionsPane {
             open: true,
             from_voice,
             clip,
+            chosen_with: studio.sole_selection(),
             model,
             placement: 0,
             size: 1,
             timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
+    }
+
+    /// The clip the panel transcribes, and the one its list shows - the
+    /// same answer for both, so it never runs a clip it is not showing.
+    /// The editor stays live under the panel: a clip with sound selected
+    /// since the panel's clip was chosen is the one meant now, and is
+    /// taken. Otherwise the chosen clip while it is still on the timeline
+    /// with sound, and none - nothing to run - when it is not.
+    fn subject_clip(&self, studio: &Studio, sources: &[Source]) -> Option<String> {
+        follow_selection(
+            studio.sole_selection(),
+            self.chosen_with.as_deref(),
+            self.clip.as_deref(),
+            |id| sources.iter().any(|source| source.id == id),
+        )
     }
 
     /// A caption's look, by the sheet's rows: where it sits and its size.
@@ -272,7 +467,12 @@ impl CaptionsPane {
     /// The sheet's clip through the transcriber on a worker, reporting into
     /// the sheet as it goes.
     fn run_sound(&mut self, studio: &mut Studio) {
-        let Some(clip) = self.clip.as_ref().and_then(|id| studio.clip(id)).cloned() else {
+        // The clip the panel shows, and no other: see `subject_clip`.
+        let Some(clip) = self
+            .subject_clip(studio, &sources(studio))
+            .and_then(|id| studio.clip(&id))
+            .cloned()
+        else {
             self.message = t("captions.clipNoLongerTimeline");
             return;
         };
@@ -346,9 +546,8 @@ impl CaptionsPane {
             Vec::new()
         };
         let source = self
-            .clip
-            .as_ref()
-            .and_then(|id| sources.iter().position(|source| &source.id == id))
+            .subject_clip(studio, &sources)
+            .and_then(|id| sources.iter().position(|source| source.id == id))
             .map_or(-1, |index| index as i32);
         let labels: Vec<slint::SharedString> = sources
             .into_iter()
@@ -378,6 +577,115 @@ impl CaptionsPane {
             message: self.message.as_str().into(),
         }
     }
+}
+
+/// Imported cues keep the file's timing, including captions shorter than
+/// generated speech segments. The title command applies the engine's minimum
+/// clip duration where needed.
+fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>) -> Vec<Command> {
+    cues.into_iter()
+        .filter(|cue| !cue.text.trim().is_empty())
+        .map(|cue| {
+            caption_clip(
+                cue.text.trim().to_owned(),
+                cue.start,
+                cue.end - cue.start,
+                look,
+                base,
+            )
+        })
+        .collect()
+}
+
+/// The lane an SRT export writes out.
+struct ExportLane {
+    track_id: String,
+    /// Chosen as the lane with the most titles, not by a selected title.
+    busiest: bool,
+}
+
+/// The lane whose titles are written out as captions: the selected
+/// title's; or with no title selected, the lane with the most titles -
+/// captions come many to a lane, a title card one or two, and nothing
+/// else in the document tells them apart (see `srt::busiest_title_lane`).
+/// None when the timeline has no title.
+fn export_lane(studio: &Studio) -> Option<ExportLane> {
+    let selected = studio
+        .sole_selection()
+        .and_then(|id| studio.clip(&id))
+        .filter(|clip| clip.kind == ClipKind::Text)
+        .map(|clip| clip.track_id.clone());
+    match selected {
+        Some(track_id) => Some(ExportLane {
+            track_id,
+            busiest: false,
+        }),
+        None => srt::busiest_title_lane(studio.timeline()).map(|track_id| ExportLane {
+            track_id,
+            busiest: true,
+        }),
+    }
+}
+
+/// The name an export is offered under: the project's, as one file name,
+/// or "captions" with no project or no usable name.
+fn file_stem(studio: &Studio) -> String {
+    let name = studio
+        .session
+        .as_ref()
+        .map(|session| session.settings().name)
+        .unwrap_or_default();
+    let stem: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let stem = stem.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    if stem.is_empty() {
+        "captions".to_owned()
+    } else {
+        stem.to_owned()
+    }
+}
+
+/// `name` in `dir`, or `name (2)`, `name (3)`... until nothing there is
+/// written over.
+fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+    (2..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|path| !path.exists())
+        .unwrap_or(first)
+}
+
+/// [`CaptionsPane::subject_clip`] with the studio taken out: `selected`
+/// the sole selection, `chosen_with` the selection when `clip` was chosen,
+/// and `sounds` whether a clip is on the timeline with sound.
+fn follow_selection(
+    selected: Option<String>,
+    chosen_with: Option<&str>,
+    clip: Option<&str>,
+    sounds: impl Fn(&str) -> bool,
+) -> Option<String> {
+    if let Some(selected) = selected.filter(|id| sounds(id))
+        && Some(selected.as_str()) != chosen_with
+    {
+        return Some(selected);
+    }
+    clip.filter(|id| sounds(id)).map(str::to_owned)
 }
 
 /// A clip on the timeline whose voice can be captioned, as the sheet's
@@ -556,6 +864,74 @@ fn wrap_caption(sentence: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{script_captions, source_label};
+
+    #[test]
+    fn imported_srt_preserves_short_cues_and_multiline_text() {
+        let cues = concat_project::srt::parse(
+            "1\n00:00:01,000 --> 00:00:01,100\nOlá\nAção\n\n2\n00:00:02,000 --> 00:00:03,000\nFim\n",
+        ).unwrap();
+        let commands = super::srt_commands(cues.clone(), (0.35, 0.04), None);
+        let mut editor = concat_project::Editor::new();
+        editor
+            .apply(concat_project::Command::Batch { commands })
+            .unwrap();
+        let exported = concat_project::srt::write(&concat_project::srt::title_cues(
+            editor.project().active(),
+            None,
+        ));
+        assert_eq!(concat_project::srt::parse(&exported).unwrap(), cues);
+        assert!(editor.undo());
+        assert!(editor.project().active().clips.is_empty());
+        assert!(editor.redo());
+        assert_eq!(
+            concat_project::srt::title_cues(editor.project().active(), None).len(),
+            2
+        );
+    }
+
+    /// The panel floats over a live editor: a clip with sound selected
+    /// since the panel's clip was chosen is the one it shows and runs; a
+    /// pick from its list holds until the selection moves again; and a
+    /// chosen clip gone from the timeline is not run unseen.
+    #[test]
+    fn the_captioned_clip_follows_a_new_selection_of_a_clip_with_sound() {
+        let sounds = |id: &str| ["a", "b", "c"].contains(&id);
+        let follow = |selected: Option<&str>, chosen_with: Option<&str>, clip: Option<&str>| {
+            super::follow_selection(selected.map(str::to_owned), chosen_with, clip, sounds)
+        };
+        // Opened on A, A still selected: A.
+        assert_eq!(
+            follow(Some("a"), Some("a"), Some("a")).as_deref(),
+            Some("a")
+        );
+        // B selected on the timeline since: B.
+        assert_eq!(
+            follow(Some("b"), Some("a"), Some("a")).as_deref(),
+            Some("b")
+        );
+        // C picked from the list with B selected: C, until the selection moves.
+        assert_eq!(
+            follow(Some("b"), Some("b"), Some("c")).as_deref(),
+            Some("c")
+        );
+        // A title selected - no sound - leaves the choice alone.
+        assert_eq!(
+            follow(Some("t"), Some("b"), Some("c")).as_deref(),
+            Some("c")
+        );
+        // The chosen clip deleted: nothing to run, rather than a clip unseen.
+        assert_eq!(follow(None, None, Some("gone")), None);
+    }
+
+    #[test]
+    fn imported_srt_ignores_empty_captions() {
+        let cues = vec![concat_project::srt::Cue {
+            start: 0.0,
+            end: 1.0,
+            text: "  ".into(),
+        }];
+        assert!(super::srt_commands(cues, (0.35, 0.04), None).is_empty());
+    }
 
     /// A clip in the voice list is its file and where it starts, in
     /// minutes and seconds, with hours once there are any.

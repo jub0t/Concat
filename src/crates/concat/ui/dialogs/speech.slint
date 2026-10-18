@@ -26,6 +26,10 @@ import { Fmt } from "../util.slint";
 // from a title the script is the title's words; opened from the menu it is
 // whatever you type. While it runs the sheet is the progress report, with a
 // clock beside it.
+//
+// On a desk it is a card floating over the editor (see Modal.floating), so
+// the timeline stays in reach while a read runs; closed, the read goes on,
+// and opened again the card shows it. On a phone it is a sheet.
 
 export struct SpeechSheetData {
     open: bool,

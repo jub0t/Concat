@@ -35,6 +35,7 @@ use objc2::{MainThreadMarker, MainThreadOnly, class, define_class, msg_send};
 use objc2_foundation::{NSArray, NSError, NSString, NSURL};
 
 use crate::i18n::t;
+use crate::platform::PickKinds;
 
 #[link(name = "PhotosUI", kind = "framework")]
 #[link(name = "Photos", kind = "framework")]
@@ -73,6 +74,19 @@ type Picked = Box<dyn FnOnce(Vec<PathBuf>) + Send>;
 /// The pick in flight, waiting for a picker to answer.
 static PENDING: Mutex<Option<Picked>> = Mutex::new(None);
 
+/// What the pick in flight asked for: media, which comes from Photos or
+/// Files, or files by extension - subtitles, fonts - which only Files has.
+static WANTED: Mutex<Option<PickKinds>> = Mutex::new(None);
+
+/// What the pick in flight asked for; every kind of media when unsaid.
+fn wanted() -> PickKinds {
+    WANTED
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .unwrap_or_else(|| PickKinds::of(None))
+}
+
 thread_local! {
     /// The pickers' delegate. A view controller holds its delegate weakly,
     /// so something else has to; one for the life of the app, made on the
@@ -84,7 +98,7 @@ thread_local! {
 /// Installs the iPhone's picker and its export publisher into the window's
 /// crate. Before the window runs; see `platform::install_file_picker`.
 pub fn install() {
-    crate::platform::install_file_picker(Box::new(|on_picked| {
+    crate::platform::install_file_picker(Box::new(|kinds, on_picked| {
         let previous = PENDING
             .lock()
             .map(|mut slot| slot.replace(on_picked))
@@ -95,9 +109,19 @@ pub fn install() {
             // got nothing rather than left waiting for ever.
             previous(Vec::new());
         }
+        // Files by extension, and sound, are not in Photos: straight to
+        // Files.
+        let files_only = match &kinds {
+            PickKinds::Files(_) => true,
+            PickKinds::Media { video, image, .. } => !video && !image,
+        };
+        if let Ok(mut slot) = WANTED.lock() {
+            *slot = Some(kinds);
+        }
         // `pick_files_async` is called from the event loop, which on iOS
         // is the main thread; UIKit is not to be touched from any other.
         let shown = match MainThreadMarker::new() {
+            Some(mtm) if files_only => show_files(mtm),
             Some(mtm) => choose(mtm),
             None => Err("asked for a picker off the main thread"),
         };
@@ -109,6 +133,7 @@ pub fn install() {
     crate::platform::install_export_publisher(crate::platform::ExportPublisher {
         folder: "Photos".into(),
         publish: Box::new(save_to_photos),
+        publish_document: Box::new(|path, _mime| keep_in_exports(path)),
     });
 }
 
@@ -302,9 +327,22 @@ fn show_photos(mtm: MainThreadMarker) -> Result<(), &'static str> {
         let config: Retained<AnyObject> = msg_send![config, init];
         let _: () = msg_send![&config, setSelectionLimit: 0isize];
         let _: () = msg_send![&config, setPreferredAssetRepresentationMode: 1isize];
-        let videos: Retained<AnyObject> = msg_send![class!(PHPickerFilter), videosFilter];
-        let images: Retained<AnyObject> = msg_send![class!(PHPickerFilter), imagesFilter];
-        let both = NSArray::from_retained_slice(&[videos, images]);
+        // Photos holds videos and pictures; a pick for sound alone never
+        // comes here (`install` goes straight to Files for it).
+        let (video, image) = match wanted() {
+            PickKinds::Media { video, image, .. } => (video, image),
+            PickKinds::Files(_) => (false, false),
+        };
+        let mut filters: Vec<Retained<AnyObject>> = Vec::new();
+        if video || !image {
+            let videos: Retained<AnyObject> = msg_send![class!(PHPickerFilter), videosFilter];
+            filters.push(videos);
+        }
+        if image || !video {
+            let images: Retained<AnyObject> = msg_send![class!(PHPickerFilter), imagesFilter];
+            filters.push(images);
+        }
+        let both = NSArray::from_retained_slice(&filters);
         let filter: Retained<AnyObject> =
             msg_send![class!(PHPickerFilter), anyFilterMatchingSubfilters: &*both];
         let _: () = msg_send![&config, setFilter: &*filter];
@@ -318,18 +356,52 @@ fn show_photos(mtm: MainThreadMarker) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// The document picker: videos, sounds and pictures from Files - iCloud
-/// Drive, the phone, a USB drive, anything a file provider offers. The
-/// picker copies each into the app's tmp/ (`asCopy`), so nothing needs a
-/// security-scoped bookmark to be read.
+/// The document picker: what the pick asked for from Files - iCloud
+/// Drive, the phone, a USB drive, anything a file provider offers. Media
+/// by its families; anything else - a subtitle, a font - by the type its
+/// extension names, which for one the system has never heard of is a
+/// type made from the extension, and still matches a file that has it.
+/// The picker copies each into the app's tmp/ (`asCopy`), so nothing
+/// needs a security-scoped bookmark to be read.
 fn show_files(mtm: MainThreadMarker) -> Result<(), &'static str> {
     let top = top_view_controller()?;
     let delegate = PickDelegate::shared(mtm);
     // SAFETY: UIKit and UniformTypeIdentifiers on the main thread.
     unsafe {
         let mut types = Vec::new();
-        for identifier in ["public.movie", "public.audio", "public.image"] {
-            let identifier = NSString::from_str(identifier);
+        match wanted() {
+            PickKinds::Media {
+                video,
+                audio,
+                image,
+            } => {
+                for (on, identifier) in [
+                    (video, "public.movie"),
+                    (audio, "public.audio"),
+                    (image, "public.image"),
+                ] {
+                    if !on {
+                        continue;
+                    }
+                    let identifier = NSString::from_str(identifier);
+                    let kind: Option<Retained<AnyObject>> =
+                        msg_send![class!(UTType), typeWithIdentifier: &*identifier];
+                    types.extend(kind);
+                }
+            }
+            PickKinds::Files(extensions) => {
+                for extension in extensions {
+                    let extension = NSString::from_str(&extension);
+                    let kind: Option<Retained<AnyObject>> =
+                        msg_send![class!(UTType), typeWithFilenameExtension: &*extension];
+                    types.extend(kind);
+                }
+            }
+        }
+        if types.is_empty() {
+            // Nothing the system could name: any file at all, rather than
+            // a picker with nothing in it.
+            let identifier = NSString::from_str("public.item");
             let kind: Option<Retained<AnyObject>> =
                 msg_send![class!(UTType), typeWithIdentifier: &*identifier];
             types.extend(kind);
@@ -465,6 +537,30 @@ fn adopt(from: &Path, name: &str) -> Option<PathBuf> {
             None
         }
     }
+}
+
+/// Moves a written document - a subtitle file - into Documents/Exports,
+/// beside the exported videos, under its own name or `name (2)` where that
+/// is taken; and answers with where Files shows it: On My iPhone, Concat,
+/// Exports.
+fn keep_in_exports(from: &Path) -> Result<String, String> {
+    let home = std::env::home_dir().ok_or("no home folder to keep it in")?;
+    let dir = home.join("Documents").join("Exports");
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let name = from
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or("the file has no name")?;
+    let to = unique(&dir, &name);
+    if std::fs::rename(from, &to).is_err() {
+        std::fs::copy(from, &to).map_err(|error| error.to_string())?;
+        let _ = std::fs::remove_file(from);
+    }
+    let kept = to
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or(name);
+    Ok(format!("Concat › Exports › {kept}"))
 }
 
 /// `name`, or `name (2)`, `name (3)`... until nothing is overwritten.

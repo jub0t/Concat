@@ -176,6 +176,9 @@ export component App inherits Window {
     /// area, on a phone and in any window too narrow for it to float as a
     /// card with room around it.
     property <bool> sheets-fill: root.phone || root.width < 600px;
+    /// Which floating tool card is in front: "captions" or "speech". The
+    /// one opened or grabbed last; Escape closes it first.
+    property <string> front-tool: "captions";
 
     /// The File / Edit / View menus. Built in Rust like every other menu here,
     /// because what belongs on them depends on the project.
@@ -302,6 +305,8 @@ export component App inherits Window {
     callback captions-size-changed(index: int);
     callback captions-begin();
     callback captions-cancel();
+    callback captions-import-srt();
+    callback captions-export-srt();
 
     in property <SpeechSheetData> speech;
     in property <[string]> speech-models;
@@ -481,14 +486,6 @@ export component App inherits Window {
             if (event.text == Key.Escape) {
                 if (root.confirm.open) { root.confirm-dismissed(); return accept; }
                 if (root.relink.open) { root.relink-dismiss(); return accept; }
-                if (root.speech.open) {
-                    if (!root.speech.running) { root.speech-closed(); }
-                    return accept;
-                }
-                if (root.captions.open) {
-                    if (!root.captions.running) { root.captions-closed(); }
-                    return accept;
-                }
                 if (root.project-sheet.open) { root.project-closed(); return accept; }
                 if (root.settings.open) { root.settings-closed(); return accept; }
                 if (root.export.open) {
@@ -497,6 +494,18 @@ export component App inherits Window {
                 }
                 if (root.start.composing) {
                     if (!root.start.busy) { root.start-dismiss(); }
+                    return accept;
+                }
+                // The tool cards, under the sheets: the one in front first.
+                // A floating card closes with its job running, which goes
+                // on and is there again when it is opened; a phone's sheet
+                // busy with a job keeps itself, as its × is gone.
+                if (root.speech.open && (root.front-tool == "speech" || !root.captions.open)) {
+                    if (!root.sheets-fill || !root.speech.running) { root.speech-closed(); }
+                    return accept;
+                }
+                if (root.captions.open) {
+                    if (!root.sheets-fill || !root.captions.running) { root.captions-closed(); }
                     return accept;
                 }
             }
@@ -619,6 +628,91 @@ export component App inherits Window {
         gain-changed(db) => { root.voiceover-gain-changed(db); }
         prompt-edited(text) => { root.voiceover-prompt-edited(text); }
         prompt-speed-changed(index) => { root.voiceover-prompt-speed-changed(index); }
+    }
+
+    // Captions and Text to speech: cards floating over the editor on a
+    // desk, like the voiceover panel and under every sheet, so the
+    // timeline, the playhead and the selection stay in reach while they
+    // are open and a job runs. Whichever was opened or grabbed last is in
+    // front, and is the one Escape closes. On a phone, or a window too
+    // narrow for a card beside the work, they stay the sheets they were,
+    // over everything.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        z: root.sheets-fill ? 1 : 0;
+
+        CaptionsDialog {
+            fill: root.sheets-fill;
+            floating: !root.sheets-fill;
+            z: root.front-tool == "captions" ? 1 : 0;
+            raised => { root.front-tool = "captions"; }
+            inset-top: root.safe-area-insets.top;
+            inset-bottom: root.safe-area-insets.bottom;
+            inset-left: root.safe-area-insets.left;
+            inset-right: root.safe-area-insets.right;
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            data: root.captions;
+            models: root.caption-models;
+
+            closed => { root.captions-closed(); }
+            voice-toggled(on) => { root.captions-voice-toggled(on); }
+            source-changed(index) => { root.captions-source-changed(index); }
+            text-edited(text) => { root.captions-text-edited(text); }
+            model-changed(index) => { root.captions-model-changed(index); }
+            placement-changed(index) => { root.captions-placement-changed(index); }
+            size-changed(index) => { root.captions-size-changed(index); }
+            begin => { root.captions-begin(); }
+            cancel => { root.captions-cancel(); }
+            import-srt => { root.captions-import-srt(); }
+            export-srt => { root.captions-export-srt(); }
+        }
+
+        SpeechDialog {
+            fill: root.sheets-fill;
+            floating: !root.sheets-fill;
+            // Its own home, a step in from the captions card's, so the two
+            // do not open exactly on top of each other.
+            home-right: 44px;
+            home-top: 76px;
+            z: root.front-tool == "speech" ? 1 : 0;
+            raised => { root.front-tool = "speech"; }
+            inset-top: root.safe-area-insets.top;
+            inset-bottom: root.safe-area-insets.bottom;
+            inset-left: root.safe-area-insets.left;
+            inset-right: root.safe-area-insets.right;
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            data: root.speech;
+            models: root.speech-models;
+            model-details: root.speech-model-details;
+            voices: root.speech-voices;
+            voice-details: root.speech-voice-details;
+            samples: root.speech-samples;
+            sample-waves: root.speech-sample-waves;
+            sample-details: root.speech-sample-details;
+
+            closed => { root.speech-closed(); }
+            text-edited(text) => { root.speech-text-edited(text); }
+            voice-changed(index) => { root.speech-voice-changed(index); }
+            model-changed(index) => { root.speech-model-changed(index); }
+            speed-changed(value) => { root.speech-speed-changed(value); }
+            quality-changed(index) => { root.speech-quality-changed(index); }
+            pauses-changed(value) => { root.speech-pauses-changed(value); }
+            reference-start-changed(seconds) => { root.speech-reference-start-changed(seconds); }
+            use-sample-changed(on) => { root.speech-use-sample-changed(on); }
+            sample-changed(index) => { root.speech-sample-changed(index); }
+            insert-tag(text, tag, at) => { return root.speech-insert-tag(text, tag, at); }
+            begin => { root.speech-begin(); }
+            cancel => { root.speech-cancel(); }
+        }
     }
 
     // Declared last, and that is load-bearing: Slint paints siblings in
@@ -807,64 +901,6 @@ export component App inherits Window {
         dismissed => { root.confirm-dismissed(); }
     }
 
-
-    CaptionsDialog {
-        fill: root.sheets-fill;
-        inset-top: root.safe-area-insets.top;
-        inset-bottom: root.safe-area-insets.bottom;
-        inset-left: root.safe-area-insets.left;
-        inset-right: root.safe-area-insets.right;
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height;
-        data: root.captions;
-        models: root.caption-models;
-
-        closed => { root.captions-closed(); }
-        voice-toggled(on) => { root.captions-voice-toggled(on); }
-        source-changed(index) => { root.captions-source-changed(index); }
-        text-edited(text) => { root.captions-text-edited(text); }
-        model-changed(index) => { root.captions-model-changed(index); }
-        placement-changed(index) => { root.captions-placement-changed(index); }
-        size-changed(index) => { root.captions-size-changed(index); }
-        begin => { root.captions-begin(); }
-        cancel => { root.captions-cancel(); }
-    }
-
-    SpeechDialog {
-        fill: root.sheets-fill;
-        inset-top: root.safe-area-insets.top;
-        inset-bottom: root.safe-area-insets.bottom;
-        inset-left: root.safe-area-insets.left;
-        inset-right: root.safe-area-insets.right;
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height;
-        data: root.speech;
-        models: root.speech-models;
-        model-details: root.speech-model-details;
-        voices: root.speech-voices;
-        voice-details: root.speech-voice-details;
-        samples: root.speech-samples;
-        sample-waves: root.speech-sample-waves;
-        sample-details: root.speech-sample-details;
-
-        closed => { root.speech-closed(); }
-        text-edited(text) => { root.speech-text-edited(text); }
-        voice-changed(index) => { root.speech-voice-changed(index); }
-        model-changed(index) => { root.speech-model-changed(index); }
-        speed-changed(value) => { root.speech-speed-changed(value); }
-        quality-changed(index) => { root.speech-quality-changed(index); }
-        pauses-changed(value) => { root.speech-pauses-changed(value); }
-        reference-start-changed(seconds) => { root.speech-reference-start-changed(seconds); }
-        use-sample-changed(on) => { root.speech-use-sample-changed(on); }
-        sample-changed(index) => { root.speech-sample-changed(index); }
-        insert-tag(text, tag, at) => { return root.speech-insert-tag(text, tag, at); }
-        begin => { root.speech-begin(); }
-        cancel => { root.speech-cancel(); }
-    }
 
     // Over the workspace and both sheets, under the menus. A tooltip has to
     // clear the pane it belongs to — panes clip — and it has no business over
