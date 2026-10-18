@@ -13,7 +13,7 @@ import { Select } from "../primitives/select.slint";
 import { Wave } from "../primitives/wave.slint";
 import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
 import { SourcePreview } from "source-preview.slint";
-import { Sounds, SoundList } from "audio-page.slint";
+import { Sounds, SoundList, VoiceList } from "audio-page.slint";
 
 export { SourcePreview }
 
@@ -1798,9 +1798,10 @@ export component MediaPane inherits Rectangle {
     /// The Audio page is up, or not: a drop of sound files on the window
     /// goes into the library while it is.
     changed tab => { Sounds.shown(root.tab == 8); }
-    /// The Audio page's shelf: 0 = Mine.
+    /// The Audio page's shelf: 0 = Mine, 10 = Voices, 11 = Styles.
     property <int> audio-category;
     property <bool> sounds-open: true;
+    property <bool> voices-open: true;
     /// How far left the page strip can be pushed: nothing, while its chips
     /// fit. See `strip`.
     property <length> strip-floor: Math.min(0px, strip.width - strip.content-width);
@@ -2158,6 +2159,25 @@ export component MediaPane inherits Rectangle {
                             current: root.audio-category == 0;
                             clicked => { root.audio-category = 0; }
                         }
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("voices.voices");
+                            open: root.voices-open;
+                            toggled => { root.voices-open = !root.voices-open; }
+                        }
+                        if root.voices-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("voices.voices");
+                            count: Sounds.voices-saved.length;
+                            current: root.audio-category == 10;
+                            clicked => { root.audio-category = 10; }
+                        }
+                        if root.voices-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("voices.styles");
+                            current: root.audio-category == 11;
+                            clicked => { root.audio-category = 11; }
+                        }
                     }
 
                     if root.tab == 1: VerticalLayout {
@@ -2492,6 +2512,24 @@ export component MediaPane inherits Rectangle {
                     }
                     SoundList {
                         items: Sounds.mine;
+                    }
+                }
+
+                // Voices: the user's saved clones and the models' own
+                // speakers, or the styles; a click opens Text to speech
+                // on one.
+                if root.tab == 8 && root.audio-category >= 10: VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    if root.audio-category == 10: Text {
+                        text: I18n.t("voices.hint");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    VoiceList {
+                        styles: root.audio-category == 11;
                     }
                 }
 

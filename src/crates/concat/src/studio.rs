@@ -676,6 +676,9 @@ pub struct Models {
     pub speech_sample_details: Rc<VecModel<SharedString>>,
     /// The Audio page's shelves.
     pub sounds_mine: Rc<VecModel<crate::ui::SoundCardData>>,
+    pub voices_saved: Rc<VecModel<crate::ui::VoiceCardData>>,
+    pub voices_builtin: Rc<VecModel<crate::ui::VoiceCardData>>,
+    pub voice_styles: Rc<VecModel<crate::ui::VoiceCardData>>,
     pub transcribers: Rc<VecModel<ModelData>>,
     pub voices: Rc<VecModel<ModelData>>,
     /// The Version page's releases, and beside each its day or that it
@@ -747,6 +750,9 @@ impl Models {
             speech_sample_waves: Rc::new(VecModel::default()),
             speech_sample_details: Rc::new(VecModel::default()),
             sounds_mine: Rc::new(VecModel::default()),
+            voices_saved: Rc::new(VecModel::default()),
+            voices_builtin: Rc::new(VecModel::default()),
+            voice_styles: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
             voices: Rc::new(VecModel::default()),
             versions: Rc::new(VecModel::default()),
@@ -2319,7 +2325,7 @@ impl Studio {
             drop: None,
             project_sheet: crate::panes::project::ProjectPane::default(),
             captions: crate::panes::captions::CaptionsPane::default(),
-            speech: crate::panes::speech::SpeechPane::default(),
+            speech: crate::panes::speech::SpeechPane::with_saved(&host.dirs),
             sounds: crate::panes::sounds::SoundsPane::open(&host.dirs),
             source: None,
             meters: crate::meters::MeterFeed::default(),
@@ -10886,6 +10892,11 @@ impl Studio {
         sync(&models.sounds_mine, self.sounds.mine());
         app.global::<crate::ui::Sounds>()
             .set_importing(self.sounds.importing);
+        let (saved, builtin, styles, ready) = self.voice_cards();
+        sync(&models.voices_saved, saved);
+        sync(&models.voices_builtin, builtin);
+        sync(&models.voice_styles, styles);
+        app.global::<crate::ui::Sounds>().set_voices_ready(ready);
         self.publish_source(app);
         sync(&models.voiceover_devices, self.voiceover.device_rows());
         app.set_voiceover(self.voiceover.data(self));

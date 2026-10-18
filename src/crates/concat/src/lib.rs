@@ -395,6 +395,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.set_speech_sample_details(ModelRc::from(models.speech_sample_details.clone()));
         app.global::<Sounds>()
             .set_mine(ModelRc::from(models.sounds_mine.clone()));
+        app.global::<Sounds>()
+            .set_voices_saved(ModelRc::from(models.voices_saved.clone()));
+        app.global::<Sounds>()
+            .set_voices_builtin(ModelRc::from(models.voices_builtin.clone()));
+        app.global::<Sounds>()
+            .set_styles(ModelRc::from(models.voice_styles.clone()));
         app.set_voiceover_devices(ModelRc::from(models.voiceover_devices.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
@@ -1374,6 +1380,40 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         sounds.on_shown(on_window!(|state, on: bool| {
             state.handle(Msg::Sounds(SoundsMsg::Shown(on)));
         }));
+        // Voices: Text to speech on the voice or style clicked.
+        sounds.on_voice_open(on_window!(|state, id: SharedString| {
+            state.open_voice(id.as_str());
+        }));
+        sounds.on_voice_remove(on_window!(|state, id: SharedString| {
+            state.forget_voice(id.as_str());
+        }));
+    }
+    // Text to speech keeps the sample it reads in as a voice of the
+    // user's own, with a name and a picture.
+    app.on_speech_save_name_edited(on_window!(|state, name: SharedString| {
+        state.handle(Msg::Speech(SpeechMsg::SaveNameEdited(name.to_string())));
+    }));
+    app.on_speech_pick_picture(|| {
+        host::pick_files_then(
+            i18n::t("speech.picture"),
+            Some((
+                i18n::t("speech.picture"),
+                &concat_host::voices::PICTURE_EXTENSIONS,
+            )),
+            |studio, _, _, paths| {
+                if let Some(path) = paths.into_iter().next() {
+                    studio.handle(Msg::Speech(SpeechMsg::PicturePicked(path)));
+                }
+            },
+        );
+    });
+    app.on_speech_save_voice(on_window!(|state| {
+        state.handle(Msg::Speech(SpeechMsg::SaveVoice));
+    }));
+    app.on_speech_clear_style(on_window!(|state| {
+        state.handle(Msg::Speech(SpeechMsg::ClearStyle));
+    }));
+    {
     }
     app.global::<SourcePreview>()
         .on_seek(on_window!(|state, seconds: f32| {

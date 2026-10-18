@@ -28,7 +28,7 @@ use slint::SharedString;
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::studio::Studio;
-use crate::ui::SoundCardData;
+use crate::ui::{SoundCardData, VoiceCardData};
 
 /// The prefix of a card id on the Mine shelf.
 const MINE: &str = "mine-";
@@ -220,6 +220,93 @@ fn display_name(path: &Path) -> String {
 }
 
 impl Studio {
+    /// The Voices shelf: the user's saved clones, the speakers of the voice
+    /// models on disk, and the styles; and whether any model is on disk.
+    pub fn voice_cards(&self) -> (Vec<VoiceCardData>, Vec<VoiceCardData>, Vec<VoiceCardData>, bool) {
+        use crate::panes::speech::{STYLES, letter_avatar, voice_names};
+        let saved = self
+            .speech
+            .saved
+            .iter()
+            .map(|voice| VoiceCardData {
+                id: format!("saved-{}", voice.id).into(),
+                name: voice.name.as_str().into(),
+                detail: t("speech.savedVoice").into(),
+                avatar: self.speech.saved_avatar(voice),
+                removable: true,
+            })
+            .collect();
+        let models = crate::panes::settings::installed(&self.settings.voices);
+        let families: Vec<_> = models
+            .iter()
+            .map(|model| concat_speech::tts::family_of(&model.id))
+            .collect();
+        let builtin = self
+            .speech
+            .speakers
+            .iter()
+            .filter(|speaker| {
+                families.contains(&speaker.family) && !concat_speech::tts::is_clone(speaker.id)
+            })
+            .map(|speaker| {
+                let (name, detail) = voice_names(&speaker.name);
+                VoiceCardData {
+                    id: format!("builtin-{}", speaker.id).into(),
+                    avatar: letter_avatar(&name),
+                    name: name.into(),
+                    detail: detail.into(),
+                    removable: false,
+                }
+            })
+            .collect();
+        let catalogue = concat_effects::Catalogue::builtin();
+        let styles = STYLES
+            .iter()
+            .enumerate()
+            .map(|(row, style)| {
+                let name = t(style.key);
+                let effects: Vec<String> = style
+                    .effects
+                    .iter()
+                    .filter_map(|id| catalogue.get(id))
+                    .map(|package| package.manifest.effect.name.clone())
+                    .collect();
+                VoiceCardData {
+                    id: format!("style-{row}").into(),
+                    avatar: letter_avatar(&name),
+                    name: name.into(),
+                    detail: effects.join(" + ").into(),
+                    removable: false,
+                }
+            })
+            .collect();
+        (saved, builtin, styles, !models.is_empty())
+    }
+
+    /// A card on the Voices shelf clicked: Text to speech on it.
+    pub fn open_voice(&mut self, card: &str) {
+        use crate::panes::speech::{SpeechMsg, VoiceChoice};
+        let choice = if let Some(id) = card.strip_prefix("saved-") {
+            VoiceChoice::Saved(id.to_owned())
+        } else if let Some(id) = card.strip_prefix("builtin-").and_then(|id| id.parse().ok()) {
+            VoiceChoice::Builtin(id)
+        } else if let Some(row) = card.strip_prefix("style-").and_then(|row| row.parse().ok()) {
+            VoiceChoice::Style(row)
+        } else {
+            return;
+        };
+        self.handle(Msg::Speech(SpeechMsg::OpenWith(choice)));
+    }
+
+    /// A saved voice's bin on the Voices shelf.
+    pub fn forget_voice(&mut self, card: &str) {
+        if let Some(id) = card.strip_prefix("saved-") {
+            self.handle(Msg::Speech(crate::panes::speech::SpeechMsg::ForgetVoice(
+                id.to_owned(),
+            )));
+        }
+    }
+
     /// What a `sound:` payload's card is, for the drop's plan: its name
     /// and length.
     pub fn sound_summary(&self, card: &str) -> Option<(String, f64)> {

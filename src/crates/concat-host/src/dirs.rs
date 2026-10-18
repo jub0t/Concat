@@ -103,7 +103,7 @@ impl AppDirs {
 
 /// The folders under `data`, each named where it is made: models, caches
 /// and logs. What is not listed is the settings', and stays in `config`.
-const DATA_FOLDERS: [&str; 8] = [
+const DATA_FOLDERS: [&str; 9] = [
     "cutout-models",  // concat-vision, models.rs
     "whisper-models", // concat-speech, transcribe.rs
     "tts-models",     // concat-speech, tts.rs
@@ -112,6 +112,7 @@ const DATA_FOLDERS: [&str; 8] = [
     "updates",        // updates.rs
     "logs",           // logs.rs
     "audio",          // sounds.rs: the Audio page's own sounds; see `library`
+    "voices",         // voices.rs: saved cloned voices; see `library`
 ];
 
 /// Moves what an older build kept under `from` - Windows kept models and

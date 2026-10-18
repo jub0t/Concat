@@ -20,7 +20,7 @@ import { Theme } from "theme/theme.slint";
 import { Bezier, Curves, Fmt, Focus, Payload } from "util.slint";
 import { EffectData } from "demo/effects-panel.slint";
 import { MediaFilter, MediaItemData, MediaKind, SourcePreview, TextPresetData } from "workspace/media-pane.slint";
-import { SoundCardData, Sounds } from "workspace/audio-page.slint";
+import { SoundCardData, Sounds, VoiceCardData } from "workspace/audio-page.slint";
 import { ContextMenu, MenuItemData, MenuRow } from "primitives/context-menu.slint";
 import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
 import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
@@ -65,7 +65,7 @@ export {
     SelectedClipData, SelectedTransitionData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
     TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     ChipOption, RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
-    CaptionsSheetData, SpeechSheetData, VoiceoverData, SoundCardData, Sounds,
+    CaptionsSheetData, SpeechSheetData, VoiceoverData, SoundCardData, Sounds, VoiceCardData,
 }
 
 export component App inherits Window {
@@ -348,6 +348,10 @@ export component App inherits Window {
     pure callback speech-insert-tag(text: string, tag: string, at: int) -> string;
     callback speech-begin();
     callback speech-cancel();
+    callback speech-save-name-edited(name: string);
+    callback speech-pick-picture();
+    callback speech-save-voice();
+    callback speech-clear-style();
 
     /// The voiceover panel; see VoiceoverPanel. Its meter and clock come
     /// on the Editor global, from a timer.
@@ -738,6 +742,10 @@ export component App inherits Window {
             insert-tag(text, tag, at) => { return root.speech-insert-tag(text, tag, at); }
             begin => { root.speech-begin(); }
             cancel => { root.speech-cancel(); }
+            save-name-edited(name) => { root.speech-save-name-edited(name); }
+            pick-picture => { root.speech-pick-picture(); }
+            save-voice => { root.speech-save-voice(); }
+            clear-style => { root.speech-clear-style(); }
         }
     }
 

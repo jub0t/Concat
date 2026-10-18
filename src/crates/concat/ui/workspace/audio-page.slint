@@ -5,6 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme, Fmt, Glyph, Icon, Payload } from "../primitives/primitives.slint";
 import { Wave } from "../primitives/wave.slint";
 import { SourcePreview } from "source-preview.slint";
+import { Avatar, AvatarData } from "../primitives/avatar.slint";
 
 // The library's Audio page (#60): sounds of the user's own, kept across
 // projects. A sound is a row rather than a tile, the way every editor's
@@ -36,7 +37,33 @@ export struct SoundCardData {
     progress: float,
 }
 
+/// One voice on the Voices shelf: a built-in speaker, a saved clone, or
+/// a style.
+export struct VoiceCardData {
+    /// `builtin-<voice>`, `saved-<id>` or `style-<row>`: what a click
+    /// opens Text to speech on.
+    id: string,
+    name: string,
+    /// "American · female", "Your voice", the effects of a style.
+    detail: string,
+    avatar: AvatarData,
+    /// A saved clone, which can be deleted.
+    removable: bool,
+}
+
 export global Sounds {
+    /// The Voices shelf: the user's saved clones, the speakers of the
+    /// voice models on disk, and the styles.
+    in property <[VoiceCardData]> voices-saved;
+    in property <[VoiceCardData]> voices-builtin;
+    in property <[VoiceCardData]> styles;
+    /// A voice model is on disk, so the built-in voices can be heard.
+    in property <bool> voices-ready;
+    /// A voice clicked: Text to speech opens on it.
+    callback voice-open(id: string);
+    /// A saved voice deleted.
+    callback voice-remove(id: string);
+
     /// The Mine shelf: the user's own sounds, newest first.
     in property <[SoundCardData]> mine;
     /// Sounds are being copied in.
@@ -232,5 +259,145 @@ export component SoundList inherits VerticalLayout {
             root.added(entry.id);
         }
         remove => { Sounds.remove(entry.id); }
+    }
+}
+
+// One voice: who it is, in a circle - a picture, or a letter in a colour -
+// its name, and a line under it. A click opens Text to speech on it; a
+// saved voice of the user's own has a bin, under the pointer.
+export component VoiceRow inherits Rectangle {
+    in property <VoiceCardData> item;
+    in property <bool> touch-sized;
+
+    callback open();
+    callback remove();
+
+    height: root.touch-sized ? 56px : 44px;
+    border-radius: Theme.r;
+    background: card.has-hover ? Theme.field : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    card := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.open(); }
+
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 8px;
+
+            VerticalLayout {
+                alignment: center;
+                Avatar {
+                    data: root.item.avatar;
+                    size: root.touch-sized ? 40px : 32px;
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 2px;
+
+                Text {
+                    text: root.item.name;
+                    color: Theme.fg;
+                    font-size: root.touch-sized ? Theme.fs : Theme.fs-sm;
+                    overflow: elide;
+                }
+                if root.item.detail != "": Text {
+                    text: root.item.detail;
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-xs;
+                    overflow: elide;
+                }
+            }
+
+            if root.item.removable && (card.has-hover || root.touch-sized): VerticalLayout {
+                alignment: center;
+                RowButton {
+                    glyph: Glyph.trash;
+                    danger: true;
+                    size: root.touch-sized ? 32px : 22px;
+                    clicked => { root.remove(); }
+                }
+            }
+        }
+    }
+}
+
+// A heading over a run of rows on the Voices shelf.
+component ShelfHeading inherits Text {
+    color: Theme.fg-muted;
+    font-size: Theme.fs-sm;
+    font-weight: Theme.weight-title;
+}
+
+// The Voices shelf: the user's own voices, then the built-in ones, or the
+// styles. Opening one is a click; on a phone the sheet goes down with it.
+export component VoiceList inherits VerticalLayout {
+    /// The Styles shelf rather than the voices.
+    in property <bool> styles;
+    in property <bool> touch-sized;
+    callback opened(id: string);
+
+    spacing: 2px;
+
+    if !root.styles: ShelfHeading { text: I18n.t("voices.yours"); }
+    if !root.styles && Sounds.voices-saved.length == 0: Text {
+        text: I18n.t("voices.noneSavedYet");
+        color: Theme.fg-dim;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+    if !root.styles: VerticalLayout {
+        spacing: 2px;
+        for entry in Sounds.voices-saved: VoiceRow {
+            item: entry;
+            touch-sized: root.touch-sized;
+            open => {
+                Sounds.voice-open(entry.id);
+                root.opened(entry.id);
+            }
+            remove => { Sounds.voice-remove(entry.id); }
+        }
+    }
+    if !root.styles: Rectangle { height: 8px; }
+    if !root.styles: ShelfHeading { text: I18n.t("voices.builtIn"); }
+    if !root.styles && !Sounds.voices-ready: Text {
+        text: I18n.t("voices.noModel");
+        color: Theme.fg-dim;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+    if !root.styles: VerticalLayout {
+        spacing: 2px;
+        for entry in Sounds.voices-builtin: VoiceRow {
+            item: entry;
+            touch-sized: root.touch-sized;
+            open => {
+                Sounds.voice-open(entry.id);
+                root.opened(entry.id);
+            }
+        }
+    }
+
+    if root.styles: Text {
+        text: I18n.t("voices.stylesHint");
+        color: Theme.fg-muted;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+    if root.styles: VerticalLayout {
+        spacing: 2px;
+        for entry in Sounds.styles: VoiceRow {
+            item: entry;
+            touch-sized: root.touch-sized;
+            open => {
+                Sounds.voice-open(entry.id);
+                root.opened(entry.id);
+            }
+        }
     }
 }

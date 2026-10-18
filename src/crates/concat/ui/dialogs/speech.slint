@@ -4,7 +4,7 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
+import { Button, CopyChip, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import { AvatarData } from "../primitives/avatar.slint";
@@ -81,6 +81,14 @@ export struct SpeechSheetData {
     estimate: string,
     /// Why the last run failed, when it did.
     message: string,
+    /// The style the speech lands in, by name, or empty for none: its
+    /// effects go on the clip.
+    style: string,
+    /// What the sample is to be saved as, and the picture's file name.
+    save-name: string,
+    save-picture: string,
+    /// A save running.
+    saving: bool,
 }
 
 // A list of recordings to pick a voice from, each drawn as its waveform
@@ -257,6 +265,13 @@ export component SpeechDialog inherits Modal {
     pure callback insert-tag(text: string, tag: string, at: int) -> string;
     callback begin();
     callback cancel();
+    /// The sample kept as a voice of the user's own: its name typed, a
+    /// picture asked for, the save itself.
+    callback save-name-edited(name: string);
+    callback pick-picture();
+    callback save-voice();
+    /// The style taken off.
+    callback clear-style();
 
     open: root.data.open;
     title: I18n.t("speech.textToSpeech");
@@ -432,6 +447,29 @@ export component SpeechDialog inherits Modal {
                 }
             }
 
+            // A style from the Audio page: effects the speech lands with,
+            // named here so the read is not a surprise, and taken off with
+            // the cross.
+            if root.data.style != "": DialogRow {
+                label: I18n.t("speech.style");
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Text {
+                        text: root.data.style;
+                        color: Theme.fg;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        glyph: Glyph.close;
+                        square: true;
+                        ghost: true;
+                        clicked => { root.clear-style(); }
+                    }
+                }
+            }
+
             // Chatterbox ships no recording of anyone's, so its named voices
             // are Pocket's two, borrowed while Pocket is on disk. With
             // neither there is nothing to read with but a sample.
@@ -571,6 +609,29 @@ export component SpeechDialog inherits Modal {
                     font-size: Theme.fs-sm;
                     vertical-alignment: center;
                     horizontal-alignment: right;
+                }
+            }
+
+            // Kept: the few seconds the model listens to, saved under a
+            // name - and a picture, if one is given - into the voice list
+            // of every project and the Audio page's Voices.
+            if root.samples.length > 0: DialogRow {
+                label: I18n.t("speech.saveThisVoice");
+                Field {
+                    value: root.data.save-name;
+                    placeholder: I18n.t("speech.voiceName");
+                    edited(text) => { root.save-name-edited(text); }
+                }
+                Button {
+                    label: root.data.save-picture != "" ? root.data.save-picture : I18n.t("speech.picture");
+                    glyph: Glyph.image;
+                    ghost: true;
+                    clicked => { root.pick-picture(); }
+                }
+                Button {
+                    label: I18n.t("speech.save");
+                    enabled: root.data.save-name != "" && !root.data.saving;
+                    clicked => { root.save-voice(); }
                 }
             }
         }
