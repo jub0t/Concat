@@ -8151,6 +8151,9 @@ impl Studio {
                     log::info!("{swept} stale proxies swept from {}", project_dir.display());
                 }
                 self.session = Some(session);
+                // The relink dialog belongs to the project that opened it;
+                // this project's own check follows below.
+                self.relink = Default::default();
                 crate::host::next_project_epoch();
                 self.forget_art();
                 self.art_failed.clear();
@@ -8256,6 +8259,46 @@ impl Studio {
         }
     }
 
+    /// Looks for media the open project can no longer find, and opens the
+    /// relink dialog on whatever is missing that the user has not already
+    /// dismissed.
+    ///
+    /// Runs when the window is brought back to the front - the moment a
+    /// person returns from moving a file - since the check
+    /// [`Studio::open_project`] makes cannot see a file that went away
+    /// afterwards: the bin and the timeline keep the item, the preview
+    /// only fails to read it, and nothing else would say why.
+    ///
+    /// Returns whether the dialog changed, so the caller publishes only
+    /// when there is something new to show.
+    pub fn check_missing_media(&mut self) -> bool {
+        if self.on_start || self.session.is_none() {
+            return false;
+        }
+        let missing = self
+            .session
+            .as_ref()
+            .map(|session| session.project().missing_media())
+            .unwrap_or_default();
+        let before: Vec<String> = self
+            .relink
+            .items
+            .iter()
+            .map(|item| item.id.clone())
+            .collect();
+        let was_open = self.relink.open;
+        self.handle(crate::panes::Msg::Relink(
+            crate::panes::relink::RelinkMsg::Recheck(missing),
+        ));
+        let after: Vec<String> = self
+            .relink
+            .items
+            .iter()
+            .map(|item| item.id.clone())
+            .collect();
+        self.relink.open != was_open || before != after
+    }
+
     /// Clears all cached artwork and waveforms from the current project.
     pub fn clear_project_cache(&mut self) {
         let Some(path) = self
@@ -8349,6 +8392,9 @@ impl Studio {
         self.captions.pace = Default::default();
         self.speech.running = false;
         self.speech.pace = Default::default();
+        // No dialog about files the project that just closed could not
+        // find stays up over the launch screen.
+        self.relink = Default::default();
         self.source = None;
         // A take running as the project closes stops, keeping its file;
         // the next project's speakers are not left silent.

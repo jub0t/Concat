@@ -190,7 +190,10 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
     let level = match inner.as_str() {
         "Select" | "Band" | "Zoomed" | "ZoomIn" | "ZoomOut" | "ZoomToFit" | "PageChanged"
         | "Restore" | "Reset" | "Opened" | "Closed" | "SnapToggled" | "MagneticToggled"
-        | "UpdatesFetched" => Debug,
+        | "UpdatesFetched"
+        // Every return to the front asks what is missing; only what it
+        // finds - the dialog opening - is worth a line of its own.
+        | "Recheck" => Debug,
         _ => Info,
     };
     Some(Activity {

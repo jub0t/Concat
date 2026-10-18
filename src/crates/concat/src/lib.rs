@@ -252,6 +252,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         // See the handler in platform.rs for why this is a raw event and
         // not a TouchArea.
         || Shell::with(|_, app| app.invoke_blur()),
+        // Back at the front, after Explorer or Finder: a file moved out
+        // from under an open project is noticed here, and the relink
+        // dialog opens on it. See `Studio::check_missing_media`.
+        || {
+            Shell::with(|shell, app| {
+                let changed = shell.studio.borrow_mut().check_missing_media();
+                if changed {
+                    shell.studio.borrow().publish(&app, &shell.models);
+                }
+            });
+        },
     )?;
 
     let host = match Host::start(gpu) {
