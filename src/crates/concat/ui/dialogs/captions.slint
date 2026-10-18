@@ -11,7 +11,7 @@ import { Switch } from "../inspector/controls.slint";
 
 // Captions: what the tray's Captions tool opens.
 //
-// Two sheets in one, and a switch between them: "Use voice from timeline".
+// Two sheets in one, and a switch between them: "Use Sample Voice".
 // On, the words are a clip's: one picked from the timeline's clips that
 // have sound, through the transcriber, cut to the words' own timing. Off,
 // they are a script typed here, one title per sentence at reading pace,
@@ -32,7 +32,7 @@ import { Switch } from "../inspector/controls.slint";
 
 export struct CaptionsSheetData {
     open: bool,
-    /// "Use voice from timeline": the words come from a clip's sound.
+    /// "Use Sample Voice": the words come from a clip's sound.
     from-voice: bool,
     /// The timeline's clips with sound, by file and start.
     sources: [string],
@@ -103,66 +103,6 @@ export component CaptionsDialog inherits Modal {
     init => { root.draft = root.data.text; }
 
     VerticalLayout {
-        // The switch, above both halves. A row of its own rather than a
-        // DialogRow, whose label column is too narrow for the words.
-        if !root.data.running: HorizontalLayout {
-            padding-left: 14px;
-            padding-right: 14px;
-            padding-top: 14px;
-            spacing: 10px;
-
-            Text {
-                horizontal-stretch: 1;
-                text: I18n.t("captions.useVoiceFromTimeline");
-                color: Theme.fg;
-                font-size: Theme.fs;
-                vertical-alignment: center;
-                wrap: word-wrap;
-            }
-
-            VerticalLayout {
-                alignment: center;
-                Switch {
-                    checked: root.from-voice;
-                    toggled(on) => { root.voice-toggled(on); }
-                }
-            }
-        }
-
-        if !root.data.running && root.from-voice: DialogSection {
-            first: true;
-            title: I18n.t("common.transcriber");
-
-            DialogRow {
-                label: I18n.t("common.audio");
-                Select {
-                    options: root.data.sources;
-                    current: root.data.source;
-                    placeholder: I18n.t("captions.noVoiceOnTimeline");
-                    enabled: root.data.sources.length > 0;
-                    changed(index) => { root.source-changed(index); }
-                }
-            }
-
-            DialogRow {
-                label: I18n.t("common.model");
-                Select {
-                    options: root.models;
-                    current: root.data.model;
-                    placeholder: I18n.t("common.noneInstalled");
-                    enabled: root.models.length > 0;
-                    changed(index) => { root.model-changed(index); }
-                }
-            }
-
-            if !root.data.ready: Text {
-                text: I18n.t("captions.downloadTranscriberModelFirst");
-                color: Theme.fg-muted;
-                font-size: Theme.fs-sm;
-                wrap: word-wrap;
-            }
-        }
-
         if !root.data.running && !root.from-voice: DialogSection {
             first: true;
             title: I18n.t("common.script");
@@ -211,6 +151,68 @@ export component CaptionsDialog inherits Modal {
                     color: Theme.fg-dim;
                     font-size: Theme.fs-lg;
                 }
+            }
+        }
+
+        // The switch, under the script it stands in for: off, the words
+        // are typed above it; on, they come from a clip's voice, chosen
+        // under it. A row of its own rather than a DialogRow, whose label
+        // column is too narrow for the words.
+        if !root.data.running: HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            padding-top: 14px;
+            spacing: 10px;
+
+            Text {
+                horizontal-stretch: 1;
+                text: I18n.t("captions.transcribeClipVoice");
+                color: Theme.fg;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    checked: root.from-voice;
+                    toggled(on) => { root.voice-toggled(on); }
+                }
+            }
+        }
+
+        if !root.data.running && root.from-voice: DialogSection {
+            first: true;
+            title: I18n.t("common.transcriber");
+
+            DialogRow {
+                label: I18n.t("common.audio");
+                Select {
+                    options: root.data.sources;
+                    current: root.data.source;
+                    placeholder: I18n.t("captions.noVoiceOnTimeline");
+                    enabled: root.data.sources.length > 0;
+                    changed(index) => { root.source-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("common.model");
+                Select {
+                    options: root.models;
+                    current: root.data.model;
+                    placeholder: I18n.t("common.noneInstalled");
+                    enabled: root.models.length > 0;
+                    changed(index) => { root.model-changed(index); }
+                }
+            }
+
+            if !root.data.ready: Text {
+                text: I18n.t("captions.downloadTranscriberModelFirst");
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
             }
         }
 

@@ -4,7 +4,7 @@
 //! The captions sheet: the tray's Captions tool, as a form and then as a
 //! progress report.
 //!
-//! One switch says what it captions: "Use voice from timeline", on, takes
+//! One switch says what it captions: "Use Sample Voice", on, takes
 //! the words from a clip with sound, chosen in the sheet from the clips on
 //! the timeline that have any; off, from a script typed in it. It opens on
 //! when a clip with sound is selected, or when a clip's menu opened it on
@@ -51,7 +51,7 @@ pub enum CaptionsMsg {
     /// A clip's menu: the sheet on that clip's voice.
     OpenOnClip(String),
     Close,
-    /// The "Use voice from timeline" switch.
+    /// The "Use Sample Voice" switch.
     VoiceToggled(bool),
     /// Row in the list of clips with sound.
     SourceChanged(i32),
@@ -99,7 +99,7 @@ const WINDOW_SECONDS_PER_MB: f32 = 1.0 / 160.0;
 #[derive(Default)]
 pub struct CaptionsPane {
     pub open: bool,
-    /// "Use voice from timeline": the words come from [`Self::clip`]'s sound
+    /// "Use Sample Voice": the words come from [`Self::clip`]'s sound
     /// when on, from [`Self::text`] when off.
     pub from_voice: bool,
     /// The clip whose voice is transcribed: one with sound, chosen from the
