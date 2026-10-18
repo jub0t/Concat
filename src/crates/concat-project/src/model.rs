@@ -605,6 +605,140 @@ impl Crop {
     }
 }
 
+/// What fills the frame where the picture does not reach: the bars either
+/// side of a wide shot in a tall frame, or the margin round a picture
+/// scaled down. Nothing - black, as every project was before there was a
+/// choice - a blurred, enlarged copy of the clip's own frame, a colour, or
+/// a still from the bin.
+///
+/// A timeline carries one ([`Timeline::background`]) and a clip may carry
+/// its own over it ([`Clip::background`]); which clips have one at all is
+/// [`Timeline::background_of`]'s to say.
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Background {
+    /// Black: nothing drawn behind the picture.
+    #[default]
+    None,
+    /// The clip's own frame, enlarged to cover the whole frame and blurred.
+    Blur {
+        /// How soft, `0..=1`: a blur of a twelfth of the frame's shorter
+        /// side at one.
+        amount: f64,
+    },
+    /// One flat colour, `#rrggbb`.
+    Color {
+        /// The colour, as a title's colours are written.
+        color: String,
+    },
+    /// A still from the bin, enlarged to cover the frame.
+    Image {
+        /// The bin item. One that has gone, or none yet, draws nothing.
+        media_id: String,
+    },
+}
+
+impl Background {
+    /// How soft a blur starts: soft enough that the copy behind reads as
+    /// colour and light rather than as a second picture.
+    pub const DEFAULT_BLUR: f64 = 0.5;
+
+    /// True for black, the background that draws nothing.
+    pub fn is_none(&self) -> bool {
+        *self == Background::None
+    }
+
+    /// The amount held to `0..=1` and a colour that is not `#rrggbb` turned
+    /// to black: what the document reader and every command make of a value
+    /// before it is kept. A still naming no media stays one - the kind is
+    /// chosen and the still not yet - and draws nothing.
+    pub fn tidy(self) -> Background {
+        match self {
+            Background::Blur { amount } => Background::Blur {
+                amount: if amount.is_finite() {
+                    amount.clamp(0.0, 1.0)
+                } else {
+                    Background::DEFAULT_BLUR
+                },
+            },
+            Background::Color { color } => Background::Color {
+                color: match rgb_of(&color) {
+                    Some([r, g, b]) => format!("#{r:02x}{g:02x}{b:02x}"),
+                    None => "#000000".to_owned(),
+                },
+            },
+            other => other,
+        }
+    }
+
+    /// The colour's channels, for a colour background whose colour reads.
+    pub fn rgb(&self) -> Option<[u8; 3]> {
+        match self {
+            Background::Color { color } => rgb_of(color),
+            _ => None,
+        }
+    }
+}
+
+/// `#rrggbb` (or `#rrggbbaa`, its alpha ignored) as three channels.
+fn rgb_of(hex: &str) -> Option<[u8; 3]> {
+    let digits = hex.trim().strip_prefix('#')?;
+    if !(digits.len() == 6 || digits.len() == 8) || !digits.is_ascii() {
+        return None;
+    }
+    let channel = |at: usize| u8::from_str_radix(&digits[at..at + 2], 16).ok();
+    Some([channel(0)?, channel(2)?, channel(4)?])
+}
+
+/// The two ways a picture can be sized to the frame in one go.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Framing {
+    /// The whole picture in the frame, as large as it goes: bars where the
+    /// shapes differ. Every picture's size before it is touched.
+    Fit,
+    /// The frame covered, the picture centred and cut at the edges that
+    /// overhang it.
+    Fill,
+}
+
+/// The scale over the fitted size at which a `picture` (its pixels, after
+/// the crop) turned by `rotation` degrees fits in or covers `frame`,
+/// centred. Scale one is contain-fitted unturned, which is what a picture
+/// is drawn at before it is scaled ([`Clip::scale`]); a turn asks more of a
+/// fill and less of a fit, since a turned rectangle's corners reach
+/// further.
+pub fn framing_scale(
+    framing: Framing,
+    picture: (f64, f64),
+    frame: (f64, f64),
+    rotation: f64,
+) -> Option<f64> {
+    let (cw, ch) = picture;
+    let (width, height) = frame;
+    if !(cw > 0.0 && ch > 0.0 && width > 0.0 && height > 0.0 && rotation.is_finite()) {
+        return None;
+    }
+    let fit = (width / cw).min(height / ch);
+    let (fw, fh) = (cw * fit, ch * fit);
+    let turn = rotation.to_radians();
+    let (cos, sin) = (turn.cos().abs(), turn.sin().abs());
+    let scale = match framing {
+        // The turned picture's bounding box inside the frame.
+        Framing::Fit => (width / (fw * cos + fh * sin)).min(height / (fw * sin + fh * cos)),
+        // The frame, turned into the picture's own axes, inside the picture.
+        Framing::Fill => ((width * cos + height * sin) / fw).max((width * sin + height * cos) / fh),
+    };
+    // Rounded to a millionth, so a fit of an unturned picture is exactly
+    // the one it has always been drawn at, not a hair under.
+    let scale = (scale * 1e6).round() / 1e6;
+    Some(scale.clamp(ranges::MIN_SCALE, ranges::MAX_SCALE))
+}
+
 /// Which property a user-set key belongs to.
 ///
 /// Five of the six are the picture's; the sixth is the mix's. They are one
@@ -1104,7 +1238,7 @@ pub(crate) mod wire {
     use serde::{Deserialize, Deserializer};
     use serde_json::Value;
 
-    use super::{ClipKind, ColorSpace, MediaKind, ParamKey, ShapeKind, TextAlign};
+    use super::{Background, ClipKind, ColorSpace, MediaKind, ParamKey, ShapeKind, TextAlign};
 
     /// The entries of a list that parse, in order; not a list at all is
     /// an empty one.
@@ -1190,6 +1324,16 @@ pub(crate) mod wire {
     pub fn text_align<'de, D: Deserializer<'de>>(deserializer: D) -> Result<TextAlign, D::Error> {
         let value = Value::deserialize(deserializer)?;
         Ok(serde_json::from_value(value).unwrap_or(TextAlign::Center))
+    }
+
+    /// A background that parses, tidied, or black for one this build does
+    /// not know - a kind from a newer build opens as no background rather
+    /// than not at all.
+    pub fn background<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Background, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value::<Background>(value)
+            .map(Background::tidy)
+            .unwrap_or_default())
     }
 
     /// A shape by name, a square for one this build does not know.
@@ -1365,6 +1509,14 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub shape: Option<ShapeStyle>,
+    /// What fills the frame behind this clip's picture, over the
+    /// timeline's [`Timeline::background`]: None follows the timeline's,
+    /// and `Some(Background::None)` is black under a timeline that has one.
+    /// Only a picture on the lowest picture lane has a background at all;
+    /// see [`Timeline::background_of`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub background: Option<Background>,
     /// Fields this build does not know, kept so a document written by a
     /// newer or a different build round-trips through this one intact.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
@@ -1461,6 +1613,7 @@ impl Clip {
             enhanced: None,
             text: None,
             shape: None,
+            background: None,
             extra: Map::new(),
         }
     }
@@ -1534,6 +1687,7 @@ impl Clip {
         }
         self.text = self.text.take().map(TextStyle::tidy);
         self.shape = self.shape.take().map(ShapeStyle::tidy);
+        self.background = self.background.take().map(Background::tidy);
         if self.muted == Some(false) {
             self.muted = None;
         }
@@ -1550,6 +1704,63 @@ impl Clip {
             KeyProperty::Rotation => self.rotation,
             KeyProperty::Opacity => self.opacity,
             KeyProperty::Volume => self.volume,
+        }
+    }
+
+    /// The scale at which this clip's picture, from media `width` by
+    /// `height` and through its crop, fits in or covers a `frame`, turned as
+    /// it is at `at` (`0..=1` of the clip); see [`framing_scale`]. None for a
+    /// clip that is not a picture, or a size nobody knows.
+    pub fn framing_scale(
+        &self,
+        framing: Framing,
+        media: (Option<u32>, Option<u32>),
+        frame: (u32, u32),
+        at: f64,
+    ) -> Option<f64> {
+        if !self.kind.is_visual() {
+            return None;
+        }
+        let (width, height) = (f64::from(media.0?), f64::from(media.1?));
+        let crop = self.crop.unwrap_or_default().tidy();
+        let picture = (
+            width * (1.0 - crop.left - crop.right),
+            height * (1.0 - crop.top - crop.bottom),
+        );
+        let rotation = if self.is_keyed(KeyProperty::Rotation) {
+            self.value_at(KeyProperty::Rotation, at)
+        } else {
+            self.rotation
+        };
+        framing_scale(
+            framing,
+            picture,
+            (f64::from(frame.0), f64::from(frame.1)),
+            rotation,
+        )
+    }
+
+    /// Writes a keyable property the way an edit means it: the constant
+    /// while the property has no keys, and once it rides, a key at `at`
+    /// (`0..=1` of the clip), with the ease of the key behind it. A keyed
+    /// property no longer reads its constant, so writing that would change
+    /// nothing anyone could see.
+    pub fn write_at(&mut self, property: KeyProperty, value: f64, at: f64) {
+        if self.is_keyed(property) {
+            let ease = self
+                .keys_on(property)
+                .rfind(|key| key.at < at)
+                .map_or(KeyEase::LINEAR, |key| key.ease);
+            self.set_key(property, at, value, ease);
+            return;
+        }
+        match property {
+            KeyProperty::Scale => self.scale = value,
+            KeyProperty::OffsetX => self.offset_x = value,
+            KeyProperty::OffsetY => self.offset_y = value,
+            KeyProperty::Rotation => self.rotation = value,
+            KeyProperty::Opacity => self.opacity = value,
+            KeyProperty::Volume => self.volume = value,
         }
     }
 
@@ -1800,6 +2011,14 @@ pub struct Timeline {
     /// what a second timeline is for.
     #[serde(default)]
     pub video: VideoSettings,
+    /// What fills the frame behind the pictures on the lowest picture lane,
+    /// where they do not reach it; see [`Timeline::background_of`]. The
+    /// timeline's rather than [`VideoSettings`]' because that is the four
+    /// numbers a frame is, copied and compared everywhere, and this names
+    /// media. Black, and left out of the document, until one is chosen.
+    #[serde(default, skip_serializing_if = "Background::is_none")]
+    #[serde(deserialize_with = "wire::background")]
+    pub background: Background,
     /// The lanes, top to bottom. Never empty - `RemoveTrack` keeps a floor
     /// of one.
     #[serde(deserialize_with = "wire::list")]
@@ -1824,6 +2043,7 @@ impl Default for Timeline {
             id: String::new(),
             name: "Timeline".to_owned(),
             video: VideoSettings::default(),
+            background: Background::None,
             tracks: Vec::new(),
             clips: Vec::new(),
             extra: Map::new(),
@@ -2035,6 +2255,7 @@ impl Project {
                 id: "TL1".to_owned(),
                 name: "Timeline 1".to_owned(),
                 video,
+                background: Background::None,
                 tracks: (1..=4)
                     .map(|number| Track {
                         id: format!("T{number}"),
@@ -2160,6 +2381,46 @@ impl Timeline {
     /// The track with this id, or None if it was removed.
     pub fn track(&self, track_id: &str) -> Option<&Track> {
         self.tracks.iter().find(|track| track.id == track_id)
+    }
+
+    /// The lane whose pictures have a background: the lowest lane holding a
+    /// video or a still - the main picture of the cut, where CapCut has its
+    /// main track. Lowest rather than simply the first lane, so a cut whose
+    /// bottom lane holds only music still has one. None for a timeline
+    /// without a picture.
+    pub fn background_lane(&self) -> Option<&str> {
+        self.tracks
+            .iter()
+            .find(|track| {
+                self.clips
+                    .iter()
+                    .any(|clip| clip.track_id == track.id && clip.kind.is_visual())
+            })
+            .map(|track| track.id.as_str())
+    }
+
+    /// What fills the frame behind `clip`: its own background, else the
+    /// timeline's, for a video or a still on [`Timeline::background_lane`];
+    /// None for any other clip, and for one whose background is black.
+    /// Titles, shapes and pictures on the lanes above sit over the frame the
+    /// main picture and its background have already filled, so they never
+    /// have one of their own.
+    pub fn background_of<'a>(&'a self, clip: &'a Clip) -> Option<&'a Background> {
+        self.background_on(clip, self.background_lane())
+    }
+
+    /// [`Timeline::background_of`] with the lane found once, by
+    /// [`Timeline::background_lane`], for a caller asking of every clip.
+    pub fn background_on<'a>(
+        &'a self,
+        clip: &'a Clip,
+        lane: Option<&str>,
+    ) -> Option<&'a Background> {
+        if !clip.kind.is_visual() || lane != Some(clip.track_id.as_str()) {
+            return None;
+        }
+        let background = clip.background.as_ref().unwrap_or(&self.background);
+        (!background.is_none()).then_some(background)
     }
 
     /// Where the last clip ends. Zero for an empty timeline.

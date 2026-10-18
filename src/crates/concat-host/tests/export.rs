@@ -860,6 +860,145 @@ fn crop_and_flips_reach_the_picture() {
         );
 }
 
+/// A background fills the bars of a wide picture in a tall frame - a
+/// colour, or the picture itself enlarged and blurred - and the monitor
+/// shows what the export writes: the paused monitor's frame, drawn from the
+/// same flattened clips, agrees with the file at every point checked. A
+/// fill then takes the bars away altogether.
+#[test]
+fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
+    use concat_project::model::{Background, Framing};
+    let scratch = Scratch::new("background");
+    let path = scratch.path().join("quadrants.mp4");
+    quadrants(&path);
+    let [red, green, blue, yellow] = QUADRANTS;
+    let black = [0, 0, 0];
+    let (width, height) = (90, 160);
+
+    let mut studio = Studio::new(scratch.path(), "Background", video(width, height, 30, 1));
+    let media = studio.import(&path);
+    let clip = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id: media,
+            start: 0.0,
+        })
+        .expect("the clip has an id");
+    let timeline_id = studio.project().active_timeline_id.clone();
+    // The picture is 90x51 across the middle of the frame: its quadrants
+    // either side of (0.5, 0.5), the bars above 0.34 and below 0.66.
+    let picture = [
+        ((0.25, 0.42), red),
+        ((0.75, 0.42), green),
+        ((0.25, 0.58), blue),
+        ((0.75, 0.58), yellow),
+    ];
+    let monitor = |studio: &Studio| {
+        let request = concat_export::PreviewFrameRequest {
+            time: 1.0,
+            width,
+            height,
+            rate_num: 30,
+            rate_den: 1,
+            clips: studio.session.flattened_clips(),
+            color_space: Default::default(),
+        };
+        let pixels =
+            concat_export::preview_frame(&concat_media::ReaderPool::with_defaults(), &request)
+                .expect("the monitor draws the frame");
+        Frame::from_rgba(width, height, pixels).expect("a whole frame")
+    };
+    let agree = |label: &str, exported: &Exported, shown: &Frame| {
+        for y in [0.1, 0.25, 0.42, 0.58, 0.75, 0.9] {
+            for x in [0.1, 0.25, 0.4, 0.6, 0.75, 0.9] {
+                let file = exported.colour_at_point(1.0, x, y);
+                let [r, g, b, _] = shown
+                    .pixel(
+                        (f64::from(width) * x) as u32,
+                        (f64::from(height) * y) as u32,
+                    )
+                    .expect("inside the frame");
+                assert!(
+                    file.iter()
+                        .zip([r, g, b])
+                        .all(|(file, shown)| file.abs_diff(shown) <= 24),
+                    "{label}: at ({x}, {y}) the file is {file:?} and the monitor {:?}",
+                    [r, g, b]
+                );
+            }
+        }
+    };
+
+    let plain = studio.export("no background");
+    plain.expect_colours(1.0, &picture);
+    plain.expect_colours(1.0, &[((0.5, 0.1), black), ((0.5, 0.9), black)]);
+    agree("no background", &plain, &monitor(&studio));
+
+    let set = |studio: &mut Studio, background: Background| {
+        studio.apply(Command::SetTimelineBackground {
+            timeline_id: timeline_id.clone(),
+            background,
+        });
+    };
+    let teal = [30, 160, 140];
+    set(
+        &mut studio,
+        Background::Color {
+            color: "#1ea08c".to_owned(),
+        },
+    );
+    let coloured = studio.export("a colour background");
+    coloured.expect_colours(1.0, &picture);
+    coloured.expect_colours(1.0, &[((0.5, 0.1), teal), ((0.5, 0.9), teal)]);
+    agree("a colour background", &coloured, &monitor(&studio));
+
+    // Enlarged to cover the frame, the picture's middle third fills it:
+    // the left quadrants on the left, the right ones on the right, red and
+    // green above, blue and yellow below, a little softened.
+    set(&mut studio, Background::Blur { amount: 0.3 });
+    let blurred = studio.export("a blurred background");
+    blurred.expect_colours(1.0, &picture);
+    blurred.expect_colours(
+        1.0,
+        &[
+            ((0.15, 0.1), red),
+            ((0.85, 0.1), green),
+            ((0.15, 0.9), blue),
+            ((0.85, 0.9), yellow),
+        ],
+    );
+    agree("a blurred background", &blurred, &monitor(&studio));
+
+    // The clip's own black over the timeline's blur.
+    studio.apply(Command::UpdateClip {
+        clip_id: clip.clone(),
+        patch: ClipPatch {
+            background: Some(Some(Background::None)),
+            ..ClipPatch::default()
+        },
+    });
+    studio
+        .export("the clip's own black")
+        .expect_colours(1.0, &[((0.5, 0.1), black), ((0.5, 0.9), black)]);
+
+    // Filled, the picture is the frame: no bars to fill.
+    studio.apply(Command::FrameClip {
+        clip_id: clip,
+        framing: Framing::Fill,
+        at: 0.0,
+    });
+    let filled = studio.export("filled");
+    filled.expect_colours(
+        1.0,
+        &[
+            ((0.4, 0.1), red),
+            ((0.6, 0.1), green),
+            ((0.4, 0.9), blue),
+            ((0.6, 0.9), yellow),
+        ],
+    );
+    agree("filled", &filled, &monitor(&studio));
+}
+
 /// Three seconds of one flat colour, silent.
 fn solid(path: &Path, colour: [u8; 3]) {
     let options = EncodeOptions {

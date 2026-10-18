@@ -15,10 +15,12 @@
 
 use std::path::Path;
 
-use concat_project::model::{ClipKind as ModelClipKind, KeyProperty, Project, Timeline};
+use concat_project::model::{
+    Background, ClipKind as ModelClipKind, KeyProperty, MediaKind, Project, Timeline,
+};
 
 use crate::chains::audio_filter_chain;
-use crate::{ClipKind, ExportClip, ExportKey, TransitionSpec};
+use crate::{ClipKind, ExportBackdrop, ExportClip, ExportKey, TransitionSpec};
 
 /// Flattens one timeline of `project` for the exporter - the active one
 /// when `timeline_id` is `None`. Text clips are excluded (they rasterise
@@ -39,6 +41,8 @@ pub fn flatten_timeline_in(
     let Some(timeline) = pick_timeline(project, timeline_id) else {
         return Vec::new();
     };
+    // Found once: asked of every clip, it is a walk of every clip.
+    let lane = timeline.background_lane();
 
     timeline
         .clips
@@ -133,6 +137,9 @@ pub fn flatten_timeline_in(
                 media_height: media.height,
                 media_duration: media.duration,
                 has_audio: Some(media.has_audio),
+                backdrop: timeline
+                    .background_on(clip, lane)
+                    .and_then(|background| backdrop_of(project, background)),
                 cutout: clip.cutout.clone(),
                 mask_dir: match (&clip.cutout, project_dir) {
                     (Some(cutout), Some(dir)) => {
@@ -146,6 +153,26 @@ pub fn flatten_timeline_in(
             })
         })
         .collect()
+}
+
+/// A background as it is drawn: a blur and a colour as they are, a still
+/// found in the bin. None for black, and for a still that is no longer in
+/// the bin or is not a still - a background that cannot be drawn is no
+/// background, never a failed frame.
+fn backdrop_of(project: &Project, background: &Background) -> Option<ExportBackdrop> {
+    match background {
+        Background::None => None,
+        Background::Blur { amount } => Some(ExportBackdrop::Blur { amount: *amount }),
+        Background::Color { .. } => background.rgb().map(|rgb| ExportBackdrop::Colour { rgb }),
+        Background::Image { media_id } => project
+            .media_by_id(media_id)
+            .filter(|item| item.kind == MediaKind::Image)
+            .map(|item| ExportBackdrop::Image {
+                path: item.path.clone(),
+                width: item.width,
+                height: item.height,
+            }),
+    }
 }
 
 /// The timeline to flatten: the named one, or the document's active one,

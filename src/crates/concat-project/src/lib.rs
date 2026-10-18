@@ -283,6 +283,288 @@ mod tests {
         assert!(loaded.project().media[0].color_space.is_sdr());
     }
 
+    /// A document from before backgrounds opens with none, on the timeline
+    /// and on every clip, and a project that never chooses one writes the
+    /// document it always wrote. One that does choose one reads it back,
+    /// and a kind from a newer build opens as none rather than failing the
+    /// load.
+    #[test]
+    fn a_background_is_absent_until_chosen_and_round_trips() {
+        use crate::model::Background;
+        let (mut editor, _, clip_id) = fixture();
+        let document = editor.to_document(&settings());
+        let timeline = &document["timelines"][0];
+        assert!(timeline.get("background").is_none(), "{timeline}");
+        assert!(timeline["clips"][0].get("background").is_none());
+        let loaded = Editor::from_document(&document).expect("loads");
+        assert!(loaded.project().active().background.is_none());
+        assert_eq!(loaded.project().active().clips[0].background, None);
+
+        let timeline_id = editor.project().active_timeline_id.clone();
+        editor
+            .apply(Command::SetTimelineBackground {
+                timeline_id: timeline_id.clone(),
+                background: Background::Blur { amount: 3.0 },
+            })
+            .expect("sets");
+        assert_eq!(
+            editor.project().active().background,
+            Background::Blur { amount: 1.0 },
+            "held to 0..=1"
+        );
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    background: Some(Some(Background::Color {
+                        color: "#FF8000".to_owned(),
+                    })),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("sets");
+        let mut document = editor.to_document(&settings());
+        assert_eq!(
+            document["timelines"][0]["background"],
+            json!({ "kind": "blur", "amount": 1.0 })
+        );
+        assert_eq!(
+            document["timelines"][0]["clips"][0]["background"],
+            json!({ "kind": "color", "color": "#ff8000" })
+        );
+        let loaded = Editor::from_document(&document).expect("loads");
+        assert_eq!(loaded.project(), editor.project());
+
+        document["timelines"][0]["background"] = json!({ "kind": "hologram", "depth": 4 });
+        document["timelines"][0]["clips"][0]["background"] = json!({ "kind": "hologram" });
+        let loaded = Editor::from_document(&document).expect("loads");
+        assert!(loaded.project().active().background.is_none());
+        assert_eq!(loaded.project().active().clips[0].background, None);
+
+        // Null on the wire is "follow the timeline's" again.
+        let follow: Command = serde_json::from_value(json!({
+            "op": "updateClip",
+            "clipId": clip_id,
+            "patch": { "background": null }
+        }))
+        .expect("parses");
+        assert!(editor.apply(follow).expect("applies").applied);
+        assert_eq!(editor.project().active().clips[0].background, None);
+    }
+
+    /// Only a picture on the lowest lane that holds pictures has a
+    /// background: its own over the timeline's, black meaning black. A
+    /// title, a picture on a lane above, and a lane of music underneath
+    /// change nothing.
+    #[test]
+    fn the_background_belongs_to_the_lowest_picture_lane() {
+        use crate::model::Background;
+        let mut editor = Editor::new();
+        let video = editor
+            .apply(media("/a.mp4", 10.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let Command::AddMedia { mut item } = media("/song.mp3", 10.0, true) else {
+            unreachable!()
+        };
+        item.kind = MediaKind::Audio;
+        item.width = None;
+        item.height = None;
+        let song = editor
+            .apply(Command::AddMedia { item })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let tracks: Vec<String> = editor
+            .project()
+            .active()
+            .tracks
+            .iter()
+            .map(|track| track.id.clone())
+            .collect();
+        let add = |editor: &mut Editor, media_id: &str, track: usize| {
+            editor
+                .apply(Command::AddClip {
+                    media_id: media_id.to_owned(),
+                    track_id: tracks[track].clone(),
+                    start: 0.0,
+                    ripple: false,
+                })
+                .expect("adds")
+                .created_id
+                .expect("id")
+        };
+        let music = add(&mut editor, &song, 0);
+        let main = add(&mut editor, &video, 1);
+        let overlay = add(&mut editor, &video, 2);
+        let timeline_id = editor.project().active_timeline_id.clone();
+        editor
+            .apply(Command::SetTimelineBackground {
+                timeline_id,
+                background: Background::Blur { amount: 0.5 },
+            })
+            .expect("sets");
+
+        let timeline = editor.project().active();
+        assert_eq!(timeline.background_lane(), Some(tracks[1].as_str()));
+        let of = |id: &str| timeline.background_of(timeline.clip(id).expect("a clip"));
+        assert_eq!(of(&main), Some(&Background::Blur { amount: 0.5 }));
+        assert_eq!(of(&overlay), None);
+        assert_eq!(of(&music), None);
+
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: main.clone(),
+                patch: ClipPatch {
+                    background: Some(Some(Background::None)),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("sets");
+        let timeline = editor.project().active();
+        assert_eq!(
+            timeline.background_of(timeline.clip(&main).expect("a clip")),
+            None,
+            "the clip's own black wins over the timeline's blur"
+        );
+    }
+
+    /// Fit is the size every picture starts at; fill covers the frame. A
+    /// wide shot in a tall frame fills at the frame's height over the
+    /// picture's fitted height, and both centre and unstretch the picture
+    /// as one undo step.
+    #[test]
+    fn fit_and_fill_size_a_picture_to_the_frame() {
+        use crate::model::{Framing, VideoSettings};
+        let (mut editor, _, clip_id) = fixture();
+        let timeline_id = editor.project().active_timeline_id.clone();
+        editor
+            .apply(Command::SetTimelineVideo {
+                timeline_id,
+                video: VideoSettings {
+                    width: 1080,
+                    height: 1920,
+                    ..VideoSettings::default()
+                },
+            })
+            .expect("goes vertical");
+        editor
+            .apply(Command::SetClipTransform {
+                clip_id: clip_id.clone(),
+                scale: Some(0.5),
+                offset_x: Some(0.2),
+                offset_y: None,
+                rotation: None,
+                stretch_x: Some(1.5),
+                stretch_y: None,
+            })
+            .expect("moves");
+        editor.end_gesture();
+
+        let frame = |framing| Command::FrameClip {
+            clip_id: clip_id.clone(),
+            framing,
+            at: 0.0,
+        };
+        assert!(editor.apply(frame(Framing::Fill)).expect("fills").applied);
+        let clip = &editor.project().active().clips[0];
+        // 1920x1080 fitted into 1080x1920 is 1080x607.5; covering the
+        // frame's 1920 rows takes 1920 / 607.5.
+        assert!((clip.scale - 1920.0 / 607.5).abs() < 1e-5, "{}", clip.scale);
+        assert_eq!((clip.offset_x, clip.offset_y), (0.0, 0.0));
+        assert_eq!((clip.stretch_x, clip.stretch_y), (1.0, 1.0));
+
+        editor.apply(frame(Framing::Fit)).expect("fits");
+        assert_eq!(editor.project().active().clips[0].scale, 1.0);
+
+        editor.undo();
+        editor.undo();
+        let clip = &editor.project().active().clips[0];
+        assert_eq!((clip.scale, clip.offset_x, clip.stretch_x), (0.5, 0.2, 1.5));
+    }
+
+    /// A scale with keys keeps them: the fill lands as a key where the
+    /// playhead is, and the keys either side ride on as they were.
+    #[test]
+    fn a_fill_on_a_keyed_scale_is_a_key() {
+        use crate::model::{Framing, KeyEase, KeyProperty};
+        let (mut editor, _, clip_id) = fixture();
+        for (at, value) in [(0.0, 1.0), (1.0, 2.0)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: clip_id.clone(),
+                    property: KeyProperty::Scale,
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        editor
+            .apply(Command::FrameClip {
+                clip_id: clip_id.clone(),
+                framing: Framing::Fill,
+                at: 0.5,
+            })
+            .expect("fills");
+        let clip = &editor.project().active().clips[0];
+        let keys: Vec<(f64, f64)> = clip
+            .keys_on(KeyProperty::Scale)
+            .map(|key| (key.at, key.value))
+            .collect();
+        // A 16:9 picture in a 16:9 frame already covers it.
+        assert_eq!(keys, vec![(0.0, 1.0), (0.5, 1.0), (1.0, 2.0)]);
+        assert_eq!(clip.scale, 1.0, "the constant under the keys is untouched");
+    }
+
+    /// A turned picture fills further and fits smaller, and a crop is what
+    /// is sized: a picture cropped to a square fills a square frame at one.
+    #[test]
+    fn framing_follows_the_turn_and_the_crop() {
+        use crate::model::{Framing, framing_scale};
+        let sixteen_nine = (1920.0, 1080.0);
+        let square = (1000.0, 1000.0);
+        assert_eq!(
+            framing_scale(Framing::Fit, sixteen_nine, square, 0.0),
+            Some(1.0)
+        );
+        assert_eq!(
+            framing_scale(Framing::Fill, sixteen_nine, square, 0.0),
+            Some(1.777_778)
+        );
+        // On its side, the 1000x562.5 fitted picture is 562.5 wide: it
+        // fits as it was and fills at 1000 / 562.5.
+        assert_eq!(
+            framing_scale(Framing::Fit, sixteen_nine, square, 90.0),
+            Some(1.0)
+        );
+        assert_eq!(
+            framing_scale(Framing::Fill, sixteen_nine, square, 90.0),
+            Some(1.777_778)
+        );
+        let turned = framing_scale(Framing::Fit, square, square, 45.0).expect("a size");
+        assert!((turned - 1.0 / 2f64.sqrt()).abs() < 1e-6, "{turned}");
+        assert_eq!(framing_scale(Framing::Fill, (0.0, 1.0), square, 0.0), None);
+
+        let mut clip = crate::model::Clip::blank("c", "t", ClipKind::Video, "c", 0.0, 1.0);
+        clip.crop = Some(crate::model::Crop {
+            left: 0.21875,
+            top: 0.0,
+            right: 0.21875,
+            bottom: 0.0,
+        });
+        assert_eq!(
+            clip.framing_scale(Framing::Fill, (Some(1920), Some(1080)), (1000, 1000), 0.0),
+            Some(1.0)
+        );
+        clip.kind = ClipKind::Text;
+        assert_eq!(
+            clip.framing_scale(Framing::Fill, (Some(1920), Some(1080)), (1000, 1000), 0.0),
+            None
+        );
+    }
+
     /// Editor with one media item and one clip at [0, 10) on track one.
     fn fixture() -> (Editor, String, String) {
         let mut editor = Editor::new();

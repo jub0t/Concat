@@ -226,6 +226,53 @@ pub struct ExportClip {
     /// it back through `reveal_order()`.
     #[serde(skip)]
     pub reveal_map: Option<Arc<RevealMap>>,
+    /// What fills the frame behind the picture where it does not reach, as
+    /// the flattener resolved it - the clip's own background or its
+    /// timeline's, for a picture on the lowest picture lane; absent for
+    /// black and for every other clip. See `Timeline::background_of`.
+    #[serde(default)]
+    pub backdrop: Option<ExportBackdrop>,
+}
+
+/// A clip's background, resolved for drawing: the document's
+/// `Background` with its colour read and its still found in the bin.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ExportBackdrop {
+    /// The clip's own picture, enlarged to cover the frame and blurred.
+    Blur {
+        /// How soft, `0..=1`: a Gaussian of a twelfth of the frame's
+        /// shorter side at one.
+        amount: f64,
+    },
+    /// One opaque colour.
+    Colour {
+        /// Its channels.
+        rgb: [u8; 3],
+    },
+    /// A still, enlarged to cover the frame.
+    Image {
+        /// The file.
+        path: String,
+        /// Its pixel width, where the bin knows it: what it is decoded at.
+        width: Option<u32>,
+        /// Its pixel height.
+        height: Option<u32>,
+    },
+}
+
+impl ExportBackdrop {
+    /// The blur's spread, in pixels of a `width` by `height` frame, at
+    /// `amount`: a twelfth of the shorter side at the most, so the same
+    /// amount is the same softness at every size the frame is drawn at -
+    /// the monitor's quarter and the export's whole alike.
+    pub fn sigma(amount: f64, width: u32, height: u32) -> f32 {
+        (amount.clamp(0.0, 1.0) * f64::from(width.min(height)) / 12.0) as f32
+    }
 }
 
 impl ExportClip {
@@ -277,6 +324,7 @@ impl ExportClip {
             mask_dir: String::new(),
             highlighted: false,
             reveal_map: None,
+            backdrop: None,
         }
     }
 }
@@ -1308,6 +1356,89 @@ fn shapes_at(
     }
 }
 
+/// `layers` with every picture's background beneath it, in a `width` by
+/// `height` frame: the one place the export and the monitor both put
+/// backgrounds in, so the two cannot draw them two ways. A picture that
+/// already hides the whole frame gets none - `opaque` says whose pixels
+/// have no holes to see one through - and a still that cannot be read is
+/// no background rather than a failed frame.
+fn with_backdrops(
+    layers: Vec<PlannedLayer>,
+    backdrops: &HashMap<ClipId, ExportBackdrop>,
+    opaque: impl Fn(ClipId) -> bool,
+    pool: &concat_media::ReaderPool,
+    (width, height): (u32, u32),
+) -> Vec<PlannedLayer> {
+    if backdrops.is_empty() {
+        return layers;
+    }
+    let mut out = Vec::with_capacity(layers.len() + 1);
+    for layer in layers {
+        let drawn = backdrops
+            .get(&layer.clip)
+            .filter(|_| !layer.covers(width, height, opaque(layer.clip)))
+            .and_then(|backdrop| backdrop_of(backdrop, pool, (width, height)))
+            .and_then(|backdrop| layer.backdrop(&backdrop, width, height, blur_pass));
+        out.extend(drawn);
+        out.push(layer);
+    }
+    out
+}
+
+/// A clip's background as the frame plan draws it, at a `width` by
+/// `height` frame: the blur's spread in that frame's pixels, a still read
+/// through the pool at a size that covers it.
+fn backdrop_of(
+    backdrop: &ExportBackdrop,
+    pool: &concat_media::ReaderPool,
+    (width, height): (u32, u32),
+) -> Option<concat_render::Backdrop> {
+    match backdrop {
+        ExportBackdrop::Blur { amount } => Some(concat_render::Backdrop::Blur {
+            sigma: ExportBackdrop::sigma(*amount, width, height),
+        }),
+        ExportBackdrop::Colour { rgb } => Some(concat_render::Backdrop::Colour(*rgb)),
+        ExportBackdrop::Image {
+            path,
+            width: still_width,
+            height: still_height,
+        } => {
+            // Read at the size that covers the frame, its own shape kept;
+            // the frame's when the bin never learnt the still's.
+            let size = match (still_width, still_height) {
+                (Some(w), Some(h)) if *w > 0 && *h > 0 => {
+                    let cover =
+                        (f64::from(width) / f64::from(*w)).max(f64::from(height) / f64::from(*h));
+                    (
+                        ((f64::from(*w) * cover).round() as u32).max(2),
+                        ((f64::from(*h) * cover).round() as u32).max(2),
+                    )
+                }
+                _ => (width, height),
+            };
+            let request = concat_media::FrameRequest::new(path, Rational::ZERO, size.0, size.1)
+                .as_still(true)
+                .at_any_size(true);
+            match pool.frame(&request) {
+                Ok(still) => Some(concat_render::Backdrop::Image(still)),
+                Err(error) => {
+                    log::debug!("background image {path}: {error}");
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// The Gaussian blur's pass at `radius` pixels: the package every blurred
+/// background is drawn with, so it blurs exactly as the effect does.
+fn blur_pass(radius: f32) -> Option<ShaderPass> {
+    Catalogue::builtin().get("concat.gaussian-blur")?.pass(
+        &BTreeMap::from([("radius".to_owned(), f64::from(radius))]),
+        None,
+    )
+}
+
 /// A stack already drawn, as a layer over the whole frame on the lowest
 /// track: texel for pixel, since it is the frame's own size.
 fn ground_layer(ground: Frame) -> PlannedLayer {
@@ -1472,6 +1603,7 @@ fn render_picture(
         reveal_maps,
         cutouts,
         highlight: _,
+        backdrops,
     } = build_timeline(request, rate, visible, transitions);
 
     let options = EncodeOptions {
@@ -1640,7 +1772,13 @@ fn render_picture(
             time,
             width: request.width,
             height: request.height,
-            layers,
+            layers: with_backdrops(
+                layers,
+                &backdrops,
+                |clip| !stills.contains(&clip) && !cutouts.contains_key(&clip),
+                &sought,
+                (request.width, request.height),
+            ),
             treatments: Vec::new(),
             output: output_of(request.color_space),
         };
@@ -2077,6 +2215,7 @@ pub fn preview_sources_of(
         reveal_maps,
         cutouts,
         highlight,
+        backdrops,
     } = &plan.built;
     let highlight = *highlight;
     let time = quantise(seconds, rate);
@@ -2138,7 +2277,13 @@ pub fn preview_sources_of(
         time,
         width: plan.width,
         height: plan.height,
-        layers,
+        layers: with_backdrops(
+            layers,
+            backdrops,
+            |clip| !stills.contains(&clip) && !cutouts.contains_key(&clip),
+            pool,
+            (plan.width, plan.height),
+        ),
         treatments: Vec::new(),
         output: plan.output,
     };

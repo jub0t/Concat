@@ -13,9 +13,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, ColorSpace, Crop, CustomFont, Cutout,
-    CutoutMode, Enhanced, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project,
-    ShapeStyle, SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
+    AppliedFilter, AudioTrack, Background, Clip, ClipKind, ColorRange, ColorSpace, Crop,
+    CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty, MediaItem, MediaKind,
+    MediaOrigin, Project, ShapeStyle, SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition,
+    VideoSettings,
 };
 
 mod audio;
@@ -150,6 +151,15 @@ pub struct ClipPatch {
         skip_serializing_if = "Option::is_none"
     )]
     pub audio_stream: Option<Option<u32>>,
+    /// The clip's own background over the timeline's: absent leaves it
+    /// alone, null goes back to following the timeline's, a value - black
+    /// included - is the clip's own. See `Clip::background`.
+    #[serde(
+        default,
+        with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub background: Option<Option<Background>>,
 }
 
 /// `Option<Option<T>>` over JSON: absent → None, null → Some(None).
@@ -621,6 +631,22 @@ pub enum Command {
         #[serde(default)]
         stretch_y: Option<f64>,
     },
+    /// Sizes a picture to the frame in one step: fitted whole inside it,
+    /// or covering it, centred either way and unstretched (see
+    /// [`crate::model::framing_scale`]; a turned picture is sized as turned).
+    /// A scale or a position with keys gets a key at `at` rather than a new
+    /// constant, the way every edit of a keyed property lands, so the rest
+    /// of the ride is left as it was. A no-op for a clip that is not a video
+    /// or a still, or whose media's size is unknown.
+    FrameClip {
+        /// The clip to size. An unknown id is a no-op.
+        clip_id: String,
+        /// Fit or fill.
+        framing: Framing,
+        /// Where in the clip, `0..=1`, a keyed property takes its key.
+        #[serde(default)]
+        at: f64,
+    },
     /// Pulls a video clip's sound out into its own audio clip on a free
     /// lane (minting one if none is free), muting the video and moving its
     /// audio filters to the sound. A no-op unless the clip is an unmuted
@@ -675,6 +701,15 @@ pub enum Command {
         timeline_id: String,
         /// The frame and the rate, together.
         video: VideoSettings,
+    },
+    /// Sets what fills a timeline's frame behind the pictures on its lowest
+    /// picture lane; see `Timeline::background_of`. Tidied first: an amount
+    /// held to `0..=1`, a colour that does not read made black.
+    SetTimelineBackground {
+        /// The timeline. An unknown id is a no-op.
+        timeline_id: String,
+        /// The background.
+        background: Background,
     },
     /// Renames a timeline tab. Whitespace-only names are ignored so a tab
     /// can never end up blank; unknown ids are tolerated.
@@ -991,6 +1026,10 @@ impl Command {
                         .iter()
                         .flatten()
                         .any(|tr| bad([tr.duration]))
+                    || matches!(
+                        patch.background,
+                        Some(Some(Background::Blur { amount })) if !amount.is_finite()
+                    )
                     || patch.text.iter().flatten().any(|style| {
                         bad([
                             style.font_size,
@@ -1005,6 +1044,11 @@ impl Command {
                     })
             }
             Command::SetClipSpeed { speed, .. } => bad([*speed]),
+            Command::FrameClip { at, .. } => bad([*at]),
+            Command::SetTimelineBackground {
+                background: Background::Blur { amount },
+                ..
+            } => bad([*amount]),
             Command::SetClipTransform {
                 scale,
                 offset_x,
@@ -1102,7 +1146,8 @@ pub fn apply(
         | Command::ClearEffectKey { .. }
         | Command::ClearEffectKeys { .. }
         | Command::SetClipSpeedCurve { .. }
-        | Command::SetClipTransform { .. }) => properties::apply(project, mint, command),
+        | Command::SetClipTransform { .. }
+        | Command::FrameClip { .. }) => properties::apply(project, mint, command),
         command @ (Command::DetachAudio { .. } | Command::ReattachAudio { .. }) => {
             audio::apply(project, mint, command)
         }
@@ -1111,6 +1156,7 @@ pub fn apply(
         | Command::SetTrackFlag { .. }) => tracks::apply(project, mint, command),
         command @ (Command::AddTimeline
         | Command::SetTimelineVideo { .. }
+        | Command::SetTimelineBackground { .. }
         | Command::RemoveTimeline { .. }
         | Command::RenameTimeline { .. }
         | Command::SelectTimeline { .. }

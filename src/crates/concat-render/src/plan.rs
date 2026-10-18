@@ -289,6 +289,199 @@ impl PlannedLayer {
     }
 }
 
+/// What fills the frame behind a picture where the picture does not reach
+/// it - the bars beside a wide shot in a tall frame - as a compositor draws
+/// it: one more layer, beneath the picture's own, built by
+/// [`PlannedLayer::backdrop`]. Nothing here is new to the compositors, so
+/// the monitor and the export cannot draw it two ways.
+#[derive(Clone, Debug)]
+pub enum Backdrop {
+    /// The picture itself, run through its effects, enlarged to cover the
+    /// frame and blurred: a Gaussian of `sigma` output pixels.
+    Blur {
+        /// The blur's spread, in pixels of the output frame.
+        sigma: f32,
+    },
+    /// One opaque colour.
+    Colour([u8; 3]),
+    /// A still, enlarged to cover the frame.
+    Image(Arc<Frame>),
+}
+
+impl PlannedLayer {
+    /// True when the picture is certain to hide everything beneath it: drawn
+    /// whole and solid, unturned, and placed over the entire frame. What
+    /// spares a picture that already fills the frame a background nobody
+    /// would see. `opaque` is the caller's word that the pixels themselves
+    /// have no holes - a still may, and so may a cutout or any effect,
+    /// which is why a layer with effects is never taken to cover.
+    pub fn covers(&self, width: u32, height: u32, opaque: bool) -> bool {
+        let Some(source) = &self.source else {
+            return false;
+        };
+        if !opaque
+            || self.weight() < 1.0
+            || !self.effects.is_empty()
+            || self.mask.is_some()
+            || !self.transitions.is_empty()
+            || self.blend != Blend::Normal
+        {
+            return false;
+        }
+        let geometry = self.geometry(source, width, height);
+        if geometry.rotation != 0.0 {
+            return false;
+        }
+        let half = (
+            geometry.fitted.0 as f32 * geometry.scale.0 / 2.0,
+            geometry.fitted.1 as f32 * geometry.scale.1 / 2.0,
+        );
+        // Half a pixel either way: a picture whose edge lands inside the
+        // last pixel still covers its centre, which is all a sampler reads.
+        geometry.centre.0 - half.0 <= 0.5
+            && geometry.centre.0 + half.0 >= width as f32 - 0.5
+            && geometry.centre.1 - half.1 <= 0.5
+            && geometry.centre.1 + half.1 >= height as f32 - 0.5
+    }
+
+    /// The layer `backdrop` draws as under this one, in a `width` by
+    /// `height` frame, or None where it has nothing to draw with - a blur
+    /// of a layer with no picture yet.
+    ///
+    /// It covers the frame, centred, whatever the picture's own scale,
+    /// position and turn: the background stays put while the picture moves
+    /// over it. It belongs to the picture all the same: it is on the
+    /// picture's track, as strong as the picture is at this frame, and goes
+    /// through the picture's fades and wipes, so a dissolve or a fade to
+    /// black takes the background with the picture rather than leaving it
+    /// behind. `blur` makes the Gaussian pass for a radius in the picture's
+    /// own pixels; the plan is a description and knows no package.
+    pub fn backdrop(
+        &self,
+        backdrop: &Backdrop,
+        width: u32,
+        height: u32,
+        blur: impl FnOnce(f32) -> Option<ShaderPass>,
+    ) -> Option<PlannedLayer> {
+        let mut layer = PlannedLayer {
+            transform: Transform::default(),
+            mask: None,
+            blend: Blend::Normal,
+            ..self.clone()
+        };
+        let (picture, effects) = match backdrop {
+            Backdrop::Blur { sigma } => {
+                let source = self.source.clone()?;
+                let cover = cover_of(&layer, &source, width, height);
+                // The spread asked for on screen, in the pixels the blur
+                // runs at: the picture's fitted size, before the cover
+                // enlarges it.
+                let radius = sigma / cover;
+                let mut effects = self.effects.clone();
+                if radius >= 0.5 {
+                    effects.extend(blur(radius));
+                }
+                (source, effects)
+            }
+            Backdrop::Colour([r, g, b]) => {
+                let mut solid = Frame::black(16, 16);
+                solid.fill([*r, *g, *b, 255]);
+                layer.crop = Crop::NONE;
+                layer.flip_h = false;
+                layer.flip_v = false;
+                (Arc::new(solid), Vec::new())
+            }
+            Backdrop::Image(still) => {
+                layer.crop = Crop::NONE;
+                layer.flip_h = false;
+                layer.flip_v = false;
+                (Arc::clone(still), Vec::new())
+            }
+        };
+        let cover = cover_of(&layer, &picture, width, height);
+        // A colour stretches to the frame's shape; a picture keeps its own.
+        let stretch = match backdrop {
+            Backdrop::Colour(_) => {
+                let fitted = layer.geometry(&picture, width, height).fitted;
+                (
+                    f64::from(width) / f64::from(fitted.0) / f64::from(cover),
+                    f64::from(height) / f64::from(fitted.1) / f64::from(cover),
+                )
+            }
+            _ => (1.0, 1.0),
+        };
+        // Two pixels over on the shorter side: the fit centres by whole
+        // pixels, and a cover that met the edge exactly could leave a hair
+        // of black along it.
+        let over = 1.0 + 2.0 / width.min(height).max(1) as f64;
+        layer.transform = Transform {
+            scale: f64::from(cover) * over,
+            stretch_x: stretch.0,
+            stretch_y: stretch.1,
+            ..Transform::default()
+        };
+        layer.transitions = self.backdrop_transitions(&layer, &picture, width, height);
+        layer.source = Some(picture);
+        layer.effects = effects;
+        Some(layer)
+    }
+
+    /// This layer's transitions as they fall on `backdrop` drawn from
+    /// `picture`: the fades as they are, and each wipe's edge moved to where
+    /// it crosses the frame over the picture, since the background is wider
+    /// than the picture and its own `u` runs across more of the frame.
+    fn backdrop_transitions(
+        &self,
+        backdrop: &PlannedLayer,
+        picture: &Frame,
+        width: u32,
+        height: u32,
+    ) -> Vec<Transition> {
+        let wiped = self
+            .transitions
+            .iter()
+            .any(|transition| matches!(transition, Transition::Wipe { .. }));
+        let Some(source) = self.source.as_ref().filter(|_| wiped) else {
+            return self.transitions.clone();
+        };
+        let span = |layer: &PlannedLayer, frame: &Frame| {
+            let geometry = layer.geometry(frame, width, height);
+            let wide = geometry.fitted.0 as f32 * geometry.scale.0;
+            (geometry.centre.0 - wide / 2.0, wide.max(1e-3))
+        };
+        let (own_left, own_wide) = span(self, source);
+        let (left, wide) = span(backdrop, picture);
+        let across = |u: f32| ((own_left + u * own_wide - left) / wide).clamp(0.0, 1.0);
+        self.transitions
+            .iter()
+            .map(|transition| match *transition {
+                Transition::Wipe {
+                    uncovered,
+                    from_right: false,
+                } => Transition::Wipe {
+                    uncovered: across(uncovered),
+                    from_right: false,
+                },
+                Transition::Wipe {
+                    uncovered,
+                    from_right: true,
+                } => Transition::Wipe {
+                    uncovered: 1.0 - across(1.0 - uncovered),
+                    from_right: true,
+                },
+                fade => fade,
+            })
+            .collect()
+    }
+}
+
+/// How much larger than its fitted size `picture` must be drawn, through
+/// `layer`'s crop, to cover a `width` by `height` frame.
+fn cover_of(layer: &PlannedLayer, picture: &Frame, width: u32, height: u32) -> f32 {
+    let fitted = Geometry::of(layer, picture.width(), picture.height(), width, height).fitted;
+    (width as f32 / fitted.0 as f32).max(height as f32 / fitted.1 as f32)
+}
+
 /// Where a layer's picture comes from and where it lands: the arithmetic
 /// both compositors share, so a picture cannot be placed two ways.
 ///
@@ -715,6 +908,28 @@ mod tests {
         assert_eq!(cropped.source_of(0.0, 0.0, false, false), (24.5, -0.5));
         assert_eq!(cropped.source_of(1.0, 0.0, true, false), (24.5, -0.5));
         assert_eq!(cropped.uv_of(1.0, 1.0, false, false), (0.75, 1.0));
+    }
+
+    /// A picture covers the frame only drawn whole and solid over every
+    /// pixel of it: a wide picture in a wide frame does, in a tall one only
+    /// once it is scaled to fill, and never at half strength, turned, with
+    /// effects, or when its pixels may have holes.
+    #[test]
+    fn a_picture_covers_the_frame_only_solid_and_whole() {
+        let mut layer = PlannedLayer::picture(a_clip(), Arc::new(Frame::black(64, 36)));
+        assert!(layer.covers(64, 36, true));
+        assert!(!layer.covers(64, 36, false), "a still may have holes");
+        assert!(!layer.covers(36, 64, true));
+        layer.transform.scale = 3.2;
+        assert!(layer.covers(36, 64, true), "filled");
+        layer.transform.offset_y = 0.1;
+        assert!(!layer.covers(36, 64, true), "moved off an edge");
+        layer.transform.offset_y = 0.0;
+        layer.transform.rotation = 2.0;
+        assert!(!layer.covers(36, 64, true));
+        layer.transform.rotation = 0.0;
+        layer.opacity = 0.5;
+        assert!(!layer.covers(36, 64, true));
     }
 
     /// Fades compose into one map of the colour and wipes into one edge a

@@ -15,7 +15,7 @@ use concat_core::timeline::{Blend, Transform};
 use super::*;
 use crate::CpuCompositor;
 use crate::metrics::ssim;
-use crate::plan::{Crop, Transition, detached_clip};
+use crate::plan::{Backdrop, Crop, Transition, detached_clip};
 
 fn gpu() -> Option<WgpuCompositor> {
     let compositor = WgpuCompositor::new();
@@ -1852,5 +1852,196 @@ fn the_largest_frame_is_what_the_device_holds() {
     assert_eq!(
         gpu.max_side(),
         concat_core::frame::MAX_SIDE.min(gpu.device.limits().max_texture_dimension_2d)
+    );
+}
+
+// ── backgrounds ──
+
+/// A wide picture, red on its left half and blue on its right, the way a
+/// landscape shot sits in a vertical frame.
+fn halves(width: u32, height: u32) -> Frame {
+    let mut frame = Frame::transparent(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let colour = if x < width / 2 {
+                [255, 0, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            };
+            frame.set_pixel(x, y, colour);
+        }
+    }
+    frame
+}
+
+/// The standard normal's distribution function, by Abramowitz and
+/// Stegun's 7.1.26: to a few parts in ten million, far finer than a
+/// frame's eight bits.
+fn normal_cdf(x: f64) -> f64 {
+    let z = x.abs() / std::f64::consts::SQRT_2;
+    let t = 1.0 / (1.0 + 0.327_591_1 * z);
+    let poly = t
+        * (0.254_829_592
+            + t * (-0.284_496_736
+                + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+    let erf = 1.0 - poly * (-z * z).exp();
+    if x >= 0.0 {
+        0.5 * (1.0 + erf)
+    } else {
+        0.5 * (1.0 - erf)
+    }
+}
+
+/// An output level back to light, the inverse of the resolve's 1/2.4.
+fn light(level: u8) -> f64 {
+    (f64::from(level) / 255.0).powf(2.4)
+}
+
+/// A blurred background is the picture enlarged to cover the frame and
+/// blurred by the spread asked for, beneath the picture and nowhere over
+/// it: in the bars of a wide red-and-blue picture in a tall frame, the
+/// light along a row is the step from red to blue at the frame's middle,
+/// blurred by a Gaussian of `sigma` output pixels, while the picture
+/// itself comes out exactly as it does over black.
+#[test]
+fn a_blurred_background_is_the_picture_covering_the_frame_blurred() {
+    let Some(mut gpu) = gpu() else { return };
+    let blur = concat_effects::Catalogue::builtin()
+        .get("concat.gaussian-blur")
+        .expect("a built-in");
+    let (width, height) = (90, 160);
+    let sigma = 12.0;
+    let picture = layer(halves(64, 36));
+    let backdrop = picture
+        .backdrop(&Backdrop::Blur { sigma }, width, height, |radius| {
+            blur.pass(
+                &BTreeMap::from([("radius".to_owned(), f64::from(radius))]),
+                None,
+            )
+        })
+        .expect("a picture to blur");
+    assert_eq!(backdrop.effects.len(), 1, "the blur, and only the blur");
+
+    let alone = gpu.render(&plan(width, height, vec![picture.clone()]));
+    let over = gpu.render(&plan(width, height, vec![backdrop, picture]));
+
+    // 64x36 fitted into 90 across is 90x51, from row 54: the picture.
+    for y in 58..100 {
+        for x in 0..width {
+            assert_eq!(
+                over.pixel(x, y),
+                alone.pixel(x, y),
+                "the picture at {x},{y}"
+            );
+        }
+    }
+    // Above and below it, the bars: black alone, the blurred step over it.
+    let mut worst = 0.0f64;
+    for y in [10, 30, 130, 150] {
+        assert_eq!(alone.pixel(45, y), Some([0, 0, 0, 255]), "a bar alone");
+        for x in 0..width {
+            let blue = normal_cdf((f64::from(x) + 0.5 - f64::from(width) / 2.0) / f64::from(sigma));
+            let [r, g, b, a] = over.pixel(x, y).expect("in the frame");
+            assert_eq!((g, a), (0, 255), "at {x},{y}");
+            for (got, want) in [(light(r), 1.0 - blue), (light(b), blue)] {
+                worst = worst.max((got - want).abs());
+                assert!(
+                    (got - want).abs() < 0.02,
+                    "at {x},{y}: light {got:.4} where the blurred step is {want:.4}"
+                );
+            }
+        }
+    }
+    eprintln!("blurred background: worst {worst:.4} of light off the Gaussian step");
+}
+
+/// A colour background fills the bars with the colour, exactly, and a
+/// still covers the frame in its own shape: a tall still behind a wide
+/// picture in a wide frame fills the bars from its middle band.
+#[test]
+fn a_colour_or_a_still_fills_the_bars() {
+    let Some(mut gpu) = gpu() else { return };
+    let (width, height) = (90, 160);
+    let picture = layer(halves(64, 36));
+    let none = |_| None;
+    let colour = picture
+        .backdrop(&Backdrop::Colour([10, 200, 90]), width, height, none)
+        .expect("a colour");
+    let frame = gpu.render(&plan(width, height, vec![colour, picture.clone()]));
+    for (x, y) in [(0, 0), (89, 0), (45, 20), (0, 159), (89, 159), (45, 140)] {
+        assert_eq!(frame.pixel(x, y), Some([10, 200, 90, 255]), "at {x},{y}");
+    }
+    assert_eq!(frame.pixel(20, 80), Some([255, 0, 0, 255]));
+    assert_eq!(frame.pixel(70, 80), Some([0, 0, 255, 255]));
+
+    // A still of three bands, top to bottom, twice as tall as it is wide:
+    // covering the 90x160 frame it is 90 across and 180 down, so the frame
+    // shows the middle band whole and the outer two cut short.
+    let mut still = Frame::transparent(20, 40);
+    for y in 0..40 {
+        for x in 0..20 {
+            let band = match y {
+                0..10 => [255, 255, 0, 255],
+                10..30 => [0, 255, 255, 255],
+                _ => [255, 0, 255, 255],
+            };
+            still.set_pixel(x, y, band);
+        }
+    }
+    let image = picture
+        .backdrop(&Backdrop::Image(Arc::new(still)), width, height, none)
+        .expect("a still");
+    let frame = gpu.render(&plan(width, height, vec![image, picture]));
+    assert_eq!(frame.pixel(45, 40), Some([0, 255, 255, 255]));
+    assert_eq!(frame.pixel(45, 120), Some([0, 255, 255, 255]));
+    assert_eq!(frame.pixel(45, 2), Some([255, 255, 0, 255]));
+    assert_eq!(frame.pixel(45, 157), Some([255, 0, 255, 255]));
+}
+
+/// The background goes with its picture through a wipe: halfway, the half
+/// of the frame the picture has gone from is black, bars and all, and the
+/// edge crosses the bars where it crosses the picture.
+#[test]
+fn a_background_is_wiped_with_its_picture() {
+    let Some(mut gpu) = gpu() else { return };
+    let (width, height) = (90, 160);
+    let mut picture = layer(halves(64, 36));
+    picture.transitions = vec![Transition::Wipe {
+        uncovered: 0.5,
+        from_right: false,
+    }];
+    let colour = picture
+        .backdrop(&Backdrop::Colour([0, 255, 0]), width, height, |_| None)
+        .expect("a colour");
+    let frame = gpu.render(&plan(width, height, vec![colour, picture]));
+    assert_eq!(
+        frame.pixel(20, 80),
+        Some([255, 0, 0, 255]),
+        "the picture's kept half"
+    );
+    assert_eq!(
+        frame.pixel(70, 80),
+        Some([0, 0, 0, 255]),
+        "the picture's wiped half"
+    );
+    assert_eq!(
+        frame.pixel(20, 20),
+        Some([0, 255, 0, 255]),
+        "the bar's kept half"
+    );
+    assert_eq!(
+        frame.pixel(70, 20),
+        Some([0, 0, 0, 255]),
+        "the bar's wiped half"
+    );
+    assert_eq!(
+        frame.pixel(43, 20),
+        Some([0, 255, 0, 255]),
+        "the edge is the picture's"
+    );
+    assert_eq!(
+        frame.pixel(47, 20),
+        Some([0, 0, 0, 255]),
+        "the edge is the picture's"
     );
 }

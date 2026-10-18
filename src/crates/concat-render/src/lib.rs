@@ -31,8 +31,8 @@ pub use compositor::Compositor;
 pub use gpu::WgpuCompositor;
 pub use metrics::ssim;
 pub use plan::{
-    Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition, detached_clip,
-    plan_frame,
+    Backdrop, Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition,
+    detached_clip, plan_frame,
 };
 #[cfg(test)]
 pub(crate) use reference::CpuCompositor;
