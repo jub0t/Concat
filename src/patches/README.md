@@ -1,6 +1,6 @@
 # Patched dependencies
 
-Crates copied from crates.io with one change each, applied through the
+Crates copied from crates.io with the changes documented below, applied through the
 workspace's `[patch.crates-io]`. Each is the published version the
 `Cargo.lock` names, so an upgrade is: copy the new version in, re-apply
 the change, and read it again.
@@ -62,5 +62,27 @@ SYCL, Vulkan, WebGPU, zDNN, ZenDNN) are left out of
 `whisper.cpp/ggml/src`, so the crate's `cuda`, `hipblas`, `vulkan` and
 `intel-sycl` features no longer build. CMake only enters a backend's folder
 when that backend is turned on. `Cargo.lock` and the crate's registry
-metadata files are left out too. Nothing else differs from the published
-crate.
+metadata files are left out too.
+
+The bundled whisper.cpp 1.8.3 also carries the upstream timestamp fix
+[c33c5618b72bb345df029b730b36bc0e369845a3](https://github.com/ggml-org/whisper.cpp/commit/c33c5618b72bb345df029b730b36bc0e369845a3)
+(whisper.cpp #2279, MIT licence), backported without changes to
+`whisper.cpp/src/whisper.cpp`. The upstream commit linked above contains
+the complete original diff.
+
+The old segment parser skipped consecutive timestamp tokens after a
+segment and reused its end as the next segment's start. Captions after a
+pause could therefore begin at the end of the preceding caption, covering
+the silence. The corrected parser uses the last consecutive timestamp as
+the next start. The upstream patch also preserves these tokens when
+printing special tokens and flushes realtime output consistently.
+
+This changes the common segment parser for every Whisper model and
+language; no model download, decoding option or application setting changes.
+It does not guarantee exact alignment, remove leading silence from the
+first caption, or add word timestamps or word-by-word animation. The
+existing shared-library build and CPU backend selection are unchanged.
+
+Apart from the changes documented here, the copy matches the published
+crate. When refreshing it, check whether the new whisper.cpp already
+includes this fix before reapplying it.
