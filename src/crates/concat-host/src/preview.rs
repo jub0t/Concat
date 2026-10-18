@@ -372,6 +372,17 @@ impl Monitor {
         );
     }
 
+    /// Forgets the kept plan, so the next frame builds it again: for when
+    /// something the plan read from the project folder - a stabilized
+    /// clip's measured movement - has changed under a clip list that has
+    /// not.
+    pub fn forget_plan(&self) {
+        *self
+            .plan
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
     /// Forgets every cached frame, reader and plan, for when the project
     /// closes.
     pub fn clear(&self) {

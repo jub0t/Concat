@@ -8,7 +8,8 @@
 //! window talks to: it opens a project folder as a [`session::Session`],
 //! keeps the recents list, caches waveforms and filmstrips beside the
 //! project, composites the paused monitor's true frame, plays the audible
-//! clips, finds the masks behind cutouts, packs templates, and holds the
+//! clips, finds the masks behind cutouts, measures the camera shake stabilized
+//! clips take out, packs templates, and holds the
 //! one-at-a-time slots for long jobs.
 //!
 //! The window calls these functions in-process, and the doctrine is that
@@ -39,6 +40,7 @@ pub mod proxy;
 pub mod record;
 pub mod reverse;
 pub mod session;
+pub mod stabilize;
 pub mod templates;
 pub mod titles;
 pub mod updates;
@@ -51,6 +53,7 @@ pub use jobs::{Job, SingleFlight};
 pub use projects::ProjectInfo;
 pub use reverse::{ReverseRequest, Reversers};
 pub use session::{EditorView, Session, SettingsView};
+pub use stabilize::{StabilizeRequest, Stabilizers};
 pub use titles::{TitleClip, Titles};
 
 /// The one scheduler every decode for the screen goes through: the
