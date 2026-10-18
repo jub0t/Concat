@@ -12,11 +12,16 @@
 //! one undo step.
 //! The transcriber runs on a worker and reports as
 //! [`CaptionsMsg::Progress`], ending as [`CaptionsMsg::Finished`].
+//!
+//! The sheet also reads a SubRip file in as captions, with the same look,
+//! and writes the timeline's captions out as one.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_project::Command;
-use concat_project::model::TextStyle;
+use concat_project::model::{ClipKind, TextStyle};
+use concat_project::srt;
 use concat_speech::JobStage;
 use concat_speech::transcribe::Segment;
 
@@ -61,6 +66,14 @@ pub enum CaptionsMsg {
     Progress(JobStage),
     /// The transcriber's worker is done: what was said, or why not.
     Finished(Result<Vec<Segment>, String>),
+    /// Asks for a SubRip file to read in.
+    ImportSrt,
+    /// The SubRip file chosen: its cues as captions.
+    ImportSrtFrom(PathBuf),
+    /// Asks where to write the captions as SubRip.
+    ExportSrt,
+    /// Where they go.
+    ExportSrtTo(PathBuf),
 }
 
 /// The clip a transcription is running over, as the finished segments
@@ -206,6 +219,112 @@ impl CaptionsPane {
                     Err(error) if error.contains("cancel") => self.open = false,
                     Err(error) => self.message = error,
                 }
+            }
+            // Asked with the studio unborrowed, on a turn of its own; see
+            // `host::after_dialog`.
+            CaptionsMsg::ImportSrt => crate::host::pick_files_then(
+                t("captions.importSrt"),
+                Some((t("captions.subRipSubtitles"), &["srt"])),
+                |studio, _, _, paths| {
+                    if let Some(path) = paths.into_iter().next() {
+                        studio.handle(Msg::Captions(CaptionsMsg::ImportSrtFrom(path)));
+                    }
+                },
+            ),
+            CaptionsMsg::ImportSrtFrom(path) => self.import_srt(studio, &path),
+            CaptionsMsg::ExportSrt => self.ask_export_srt(studio),
+            CaptionsMsg::ExportSrtTo(path) => self.export_srt(studio, &path),
+        }
+    }
+
+    /// A SubRip file's cues as captions where the file times them, with
+    /// the sheet's look: one batch, one undo step. A file that is not
+    /// UTF-8 is read as best it can be.
+    fn import_srt(&mut self, studio: &mut Studio, path: &Path) {
+        let cues = std::fs::read(path)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                srt::parse(&String::from_utf8_lossy(&bytes)).map_err(|error| error.to_string())
+            });
+        let cues = match cues {
+            Ok(cues) => cues,
+            Err(error) => {
+                log::warn!("captions: could not read {}: {error}", path.display());
+                self.message = tf("captions.couldNotReadSubtitles", &[&error]);
+                return;
+            }
+        };
+        let look = self.look();
+        let base = studio.prefs.title_style.clone();
+        let commands = srt_commands(cues, look, base.as_ref());
+        if commands.is_empty() {
+            self.message = t("captions.noSubtitlesInFile");
+            return;
+        }
+        let count = commands.len();
+        self.open = false;
+        studio.apply(Command::Batch { commands });
+        studio.notify(&tf("captions.addedCaptions", &[&count]), false);
+    }
+
+    /// Asks where to write the captions, offering the project's folder; a
+    /// phone, with no such dialog, writes them there.
+    fn ask_export_srt(&mut self, studio: &mut Studio) {
+        if srt::title_cues(studio.timeline(), export_lane(studio).as_deref()).is_empty() {
+            self.message = t("captions.noCaptionsToExport");
+            return;
+        }
+        let Some(folder) = studio
+            .session
+            .as_ref()
+            .map(|session| PathBuf::from(session.path()))
+        else {
+            return;
+        };
+        let title = t("captions.exportSrt");
+        let family = t("captions.subRipSubtitles");
+        crate::host::after_dialog(
+            move || {
+                if cfg!(any(target_os = "android", target_os = "ios")) {
+                    return Some(folder.join("captions.srt"));
+                }
+                let chosen = crate::platform::save_file(
+                    &title,
+                    &folder,
+                    "captions.srt",
+                    (family.as_str(), &["srt"]),
+                )?;
+                Some(
+                    if chosen
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("srt"))
+                    {
+                        chosen
+                    } else {
+                        chosen.with_extension("srt")
+                    },
+                )
+            },
+            |studio, _, _, path| studio.handle(Msg::Captions(CaptionsMsg::ExportSrtTo(path))),
+        );
+    }
+
+    /// Writes the captions to `path` as SubRip.
+    fn export_srt(&mut self, studio: &mut Studio, path: &Path) {
+        let cues = srt::title_cues(studio.timeline(), export_lane(studio).as_deref());
+        match std::fs::write(path, srt::write(&cues)) {
+            Ok(()) => {
+                log::info!(
+                    "captions: wrote {} cue(s) to {}",
+                    cues.len(),
+                    path.display()
+                );
+                self.open = false;
+                studio.notify(&tf("captions.exportedCaptions", &[&cues.len()]), false);
+            }
+            Err(error) => {
+                log::warn!("captions: could not write {}: {error}", path.display());
+                self.message = tf("captions.couldNotWriteSubtitles", &[&error]);
             }
         }
     }
@@ -378,6 +497,34 @@ impl CaptionsPane {
             message: self.message.as_str().into(),
         }
     }
+}
+
+/// Imported cues keep the file's timing, including captions shorter than
+/// generated speech segments. The title command applies the engine's minimum
+/// clip duration where needed.
+fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>) -> Vec<Command> {
+    cues.into_iter()
+        .filter(|cue| !cue.text.trim().is_empty())
+        .map(|cue| {
+            caption_clip(
+                cue.text.trim().to_owned(),
+                cue.start,
+                cue.end - cue.start,
+                look,
+                base,
+            )
+        })
+        .collect()
+}
+
+/// The lane whose titles are written out as captions: the selected
+/// title's, or None - every lane - when no title is selected.
+fn export_lane(studio: &Studio) -> Option<String> {
+    studio
+        .sole_selection()
+        .and_then(|id| studio.clip(&id))
+        .filter(|clip| clip.kind == ClipKind::Text)
+        .map(|clip| clip.track_id.clone())
 }
 
 /// A clip on the timeline whose voice can be captioned, as the sheet's
@@ -556,6 +703,40 @@ fn wrap_caption(sentence: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{script_captions, source_label};
+
+    #[test]
+    fn imported_srt_preserves_short_cues_and_multiline_text() {
+        let cues = concat_project::srt::parse(
+            "1\n00:00:01,000 --> 00:00:01,100\nOlá\nAção\n\n2\n00:00:02,000 --> 00:00:03,000\nFim\n",
+        ).unwrap();
+        let commands = super::srt_commands(cues.clone(), (0.35, 0.04), None);
+        let mut editor = concat_project::Editor::new();
+        editor
+            .apply(concat_project::Command::Batch { commands })
+            .unwrap();
+        let exported = concat_project::srt::write(&concat_project::srt::title_cues(
+            editor.project().active(),
+            None,
+        ));
+        assert_eq!(concat_project::srt::parse(&exported).unwrap(), cues);
+        assert!(editor.undo());
+        assert!(editor.project().active().clips.is_empty());
+        assert!(editor.redo());
+        assert_eq!(
+            concat_project::srt::title_cues(editor.project().active(), None).len(),
+            2
+        );
+    }
+
+    #[test]
+    fn imported_srt_ignores_empty_captions() {
+        let cues = vec![concat_project::srt::Cue {
+            start: 0.0,
+            end: 1.0,
+            text: "  ".into(),
+        }];
+        assert!(super::srt_commands(cues, (0.35, 0.04), None).is_empty());
+    }
 
     /// A clip in the voice list is its file and where it starts, in
     /// minutes and seconds, with hours once there are any.
