@@ -7,9 +7,13 @@
 //! Two processes editing one folder each save their own document over the
 //! other's, and the last save wins whatever it lost. So a process that
 //! opens a project takes `concat.lock` in its folder: a file it holds an
-//! exclusive operating-system lock on (`flock` on Unix, `LockFileEx` on
-//! Windows, through [`std::fs::File::try_lock`]), with its process id, its
-//! role and when it started written inside for whoever is refused.
+//! exclusive operating-system lock on (`flock` on Unix, through
+//! [`std::fs::File::try_lock`]; `LockFileEx` on Windows), with its process
+//! id, its role and when it started written inside for whoever is refused.
+//!
+//! Windows enforces a lock on the bytes it covers - nobody else can read
+//! them - so there the lock is one byte far past the words, not the whole
+//! file, and the words stay readable to the process that is refused.
 //!
 //! The lock is the operating system's, not the file's: it lives exactly
 //! as long as the process's handle, so a process that crashes or is killed
@@ -101,7 +105,7 @@ impl ProjectLock {
                 }
                 Err(error) => return Err(could_not(&error)),
             };
-            match file.try_lock() {
+            match try_lock(&file, true) {
                 Ok(()) => {}
                 Err(TryLockError::WouldBlock) => return Err(LockError::Held(owner_in(&mut file))),
                 Err(TryLockError::Error(error)) => return Err(could_not(&error)),
@@ -127,7 +131,9 @@ impl ProjectLock {
                 path,
             });
         }
-        Err(could_not(&"another process kept taking and letting go of it"))
+        Err(could_not(
+            &"another process kept taking and letting go of it",
+        ))
     }
 
     /// The lock file.
@@ -140,7 +146,7 @@ impl ProjectLock {
     pub fn holder(folder: &Path) -> Option<Owner> {
         let path = folder.join(FILE);
         let mut file = File::open(&path).ok()?;
-        match file.try_lock_shared() {
+        match try_lock(&file, false) {
             Ok(()) => None,
             Err(TryLockError::WouldBlock) => {
                 let owner = owner_in(&mut file);
@@ -158,8 +164,71 @@ impl Drop for ProjectLock {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
         if let Some(file) = self.file.take() {
-            let _ = file.unlock();
+            unlock(&file);
         }
+    }
+}
+
+/// Locks `file` without waiting: exclusively, or shared with other readers.
+#[cfg(not(windows))]
+fn try_lock(file: &File, exclusive: bool) -> Result<(), TryLockError> {
+    if exclusive {
+        file.try_lock()
+    } else {
+        file.try_lock_shared()
+    }
+}
+
+#[cfg(not(windows))]
+fn unlock(file: &File) {
+    let _ = file.unlock();
+}
+
+/// The byte a Windows lock covers: past anything the file will ever hold,
+/// so the words before it stay readable.
+#[cfg(windows)]
+const LOCKED_BYTE: u32 = u32::MAX;
+
+/// Locks `file` without waiting: exclusively, or shared with other readers.
+#[cfg(windows)]
+fn try_lock(file: &File, exclusive: bool) -> Result<(), TryLockError> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_LOCK_VIOLATION};
+    use windows_sys::Win32::Storage::FileSystem::{
+        LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
+    };
+    let mut flags = LOCKFILE_FAIL_IMMEDIATELY;
+    if exclusive {
+        flags |= LOCKFILE_EXCLUSIVE_LOCK;
+    }
+    // SAFETY: the handle is `file`'s and open for as long as the call; the
+    // OVERLAPPED is zeroed apart from the offset, as LockFileEx wants.
+    let locked = unsafe {
+        let mut at: windows_sys::Win32::System::IO::OVERLAPPED = std::mem::zeroed();
+        at.Anonymous.Anonymous.Offset = LOCKED_BYTE;
+        LockFileEx(file.as_raw_handle(), flags, 0, 1, 0, &mut at)
+    };
+    if locked != 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(code) if code == ERROR_LOCK_VIOLATION as i32 || code == ERROR_IO_PENDING as i32 => {
+            Err(TryLockError::WouldBlock)
+        }
+        _ => Err(TryLockError::Error(error)),
+    }
+}
+
+#[cfg(windows)]
+fn unlock(file: &File) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::UnlockFileEx;
+    // SAFETY: as for the lock.
+    unsafe {
+        let mut at: windows_sys::Win32::System::IO::OVERLAPPED = std::mem::zeroed();
+        at.Anonymous.Anonymous.Offset = LOCKED_BYTE;
+        UnlockFileEx(file.as_raw_handle(), 0, 1, 0, &mut at);
     }
 }
 
@@ -204,7 +273,11 @@ mod tests {
         let lock = ProjectLock::acquire(scratch.path(), "window").expect("taken");
         let text = std::fs::read_to_string(lock.path()).expect("written");
         assert!(text.starts_with(&format!("{}\nwindow\n", std::process::id())));
-        assert_eq!(ProjectLock::holder(scratch.path()), None, "ours is not another's");
+        assert_eq!(
+            ProjectLock::holder(scratch.path()),
+            None,
+            "ours is not another's"
+        );
         drop(lock);
         assert!(!scratch.path().join(FILE).exists(), "the file goes with it");
         let again = ProjectLock::acquire(scratch.path(), "api").expect("free again");
