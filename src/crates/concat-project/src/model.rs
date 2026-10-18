@@ -823,6 +823,7 @@ pub fn framing_scale(
 
 /// Which shape a clip's mask keeps. The names are written into project
 /// files, so they are stable for ever.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MaskShape {
@@ -875,6 +876,7 @@ impl MaskShape {
 /// Its numbers other than the shape and the invert can be keyed, as the
 /// placement's can (`KeyProperty::MaskX` and on); a keyed number's keys
 /// replace the constant here.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ClipMask {

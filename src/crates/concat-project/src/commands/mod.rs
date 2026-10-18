@@ -135,6 +135,7 @@ pub struct ClipPatch {
         with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<ClipMask>"))]
     pub mask: Option<Option<ClipMask>>,
     /// Wholesale replacement of the audio filter chain - the UI sends the
     /// full list, not a diff.

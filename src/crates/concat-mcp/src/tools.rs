@@ -59,6 +59,8 @@ pub enum Action {
     Captions,
     /// `export.status` until the job ends or the time is up.
     ExportWait,
+    /// `updateClip` with only a mask.
+    Mask,
     /// `preview.frame`, as an image.
     PreviewFrame,
 }
@@ -264,6 +266,12 @@ pub fn catalogue() -> Vec<Tool> {
             "addClip",
         ),
         command(
+            "clips_add_sequence",
+            "Place clips end to end",
+            "Lays several media items (`mediaIds`, from the bin, in order) end to end starting at `start` seconds, each its media's length (5 s for a still), in one undoable step. With no `trackId` they go on the lowest lane free for the whole run; on a named lane, `ripple: true` makes room as a drop does. `createdId` is the last clip's id; `timeline_read` lists the rest.",
+            "addClipsInSequence",
+        ),
+        command(
             "clip_trim",
             "Trim a clip",
             "Moves one edge of a clip by `delta` seconds of timeline: `edge` \"start\" with a positive delta shortens it from the head (the picture does not slide), \"end\" with a positive delta lengthens it. A clip is never shorter than 1/60 s or longer than its media allows. `ripple: true` closes or opens the gap behind it on that lane.",
@@ -291,8 +299,35 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "clip_update",
             "Change a clip",
-            "Changes only the fields given in `patch`: volume (gain, 1 is unchanged, may exceed 1), fadeIn/fadeOut (seconds), opacity (0-1), muted, flipH/flipV, blend, crop (fractions off each edge, null to remove), videoEffects and filters (the whole chain: a list of {id, params}; ids from `effects_list`), transitionIn ({id, duration} on the cut into the clip, null to remove), text (a title's style, null to remove) and audioStream.",
+            "Changes only the fields given in `patch`: volume (gain, 1 is unchanged, may exceed 1), fadeIn/fadeOut (seconds), opacity (0-1), muted, flipH/flipV, blend, crop (fractions off each edge, null to remove), videoEffects and filters (the whole chain: a list of {id, params}; ids from `effects_list`), transitionIn ({id, duration} on the cut into the clip, null to remove), text (a title's style, null to remove), mask (see `clip_mask`), background (the clip's own background, null to follow the timeline's) and audioStream.",
             "updateClip",
+        ),
+        Tool {
+            name: "clip_mask",
+            title: "Mask a clip",
+            description: "Keeps part of a clip's picture with a shape, or with `mask: null` takes the mask off. `shape` is linear, mirror, circle, rectangle, heart or star; `x`/`y` move its centre as fractions of the picture's width/height (positive right/down); `width`/`height` are fractions of the picture's shorter side; `rotation` in degrees; `roundness` (rectangle corners) and `feather` (edge softness) 0-1; `invert` keeps the outside. Fields left out take the default circle's. Animate it with `keyframe_set` on maskX, maskY, maskWidth, maskHeight, maskRotation, maskRoundness or maskFeather.",
+            read_only: false,
+            destructive: false,
+            idempotent: true,
+            action: Action::Mask,
+        },
+        command(
+            "clip_stabilize",
+            "Stabilize a clip",
+            "Takes the camera's shake out of a video clip, or with `stabilize: null` stops. `smoothness` 0-1 (low keeps pans and removes jitter, high leaves only the slowest moves), `maxZoom` (at least 1) is how far the picture may be enlarged to hide the moving edges, `tripod: true` locks the frame entirely. The shake is measured when the clip is previewed or exported.",
+            "setClipStabilize",
+        ),
+        command(
+            "clip_frame",
+            "Fit or fill the frame",
+            "Sizes a picture to the frame in one step: `framing` \"fit\" shows all of it (bars where the shapes differ), \"fill\" covers the frame and crops the overhang. Where the clip's scale is keyframed, the key goes at `at` (a fraction of the clip, 0-1).",
+            "frameClip",
+        ),
+        command(
+            "timeline_background",
+            "Set the background",
+            "Sets what shows behind pictures that do not cover the frame, on a whole timeline (`timelineId` from `timeline_read`): `{\"kind\": \"none\"}` (black), `{\"kind\": \"blur\", \"amount\": 0-1}` (the clip itself, enlarged and blurred), `{\"kind\": \"color\", \"color\": \"#rrggbb\"}` or `{\"kind\": \"image\", \"mediaId\": ...}`. One clip's own background is `clip_update`'s `background`.",
+            "setTimelineBackground",
         ),
         command(
             "clip_transform",
@@ -324,7 +359,7 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "keyframe_set",
             "Set a keyframe",
-            "Animates a clip: puts a key on `property` (scale, offsetX, offsetY, rotation, opacity or volume) at `at`, a fraction of the clip's length from 0 (its start) to 1 (its end), holding `value` in the property's own units - the number the inspector shows. A key already within a hair of `at` is replaced. `ease` is how the value is approached: [x1, y1, x2, y2] like a CSS cubic-bezier, linear when absent.",
+            "Animates a clip: puts a key on `property` (scale, offsetX, offsetY, rotation, opacity, volume, or a mask's maskX, maskY, maskWidth, maskHeight, maskRotation, maskRoundness, maskFeather) at `at`, a fraction of the clip's length from 0 (its start) to 1 (its end), holding `value` in the property's own units - the number the inspector shows. A key already within a hair of `at` is replaced. `ease` is how the value is approached: [x1, y1, x2, y2] like a CSS cubic-bezier, linear when absent.",
             "setClipKey",
         ),
         command(
@@ -558,6 +593,21 @@ fn input_schema(schemas: &Schemas, tool: &Tool) -> Option<Value> {
             Some(schema)
         }
         Action::PreviewFrame => schemas.method("preview.frame"),
+        Action::Mask => {
+            let update = schemas.command("updateClip")?;
+            let mut mask = schemas.def("ClipMask")?;
+            mask["type"] = json!(["object", "null"]);
+            mask["description"] = json!("The shape and its numbers, or null to take the mask off.");
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": update.pointer("/properties/path")?.clone(),
+                    "clipId": update.pointer("/properties/clipId")?.clone(),
+                    "mask": mask,
+                },
+                "required": ["path", "clipId", "mask"],
+            }))
+        }
         Action::Captions => {
             let path = schemas.method("project.get")?.pointer("/properties/path")?.clone();
             let mut style = schemas.def("TextStyle")?;
@@ -649,7 +699,29 @@ fn run(tool: &Tool, arguments: Value, context: Context<'_>) -> Result<Outcome, A
         }
         Action::ExportWait => export_wait(arguments, backend, context.cancelled, context.progress),
         Action::PreviewFrame => preview(arguments, backend),
+        Action::Mask => {
+            let result = backend.call(mask(arguments)?)?;
+            Ok(Outcome::json(summary::view(&result)))
+        }
     }
+}
+
+/// `clip_mask`: a clip patch with only its mask.
+fn mask(mut arguments: Value) -> Result<Request, ApiError> {
+    let invalid = |why: &str| ApiError::invalid(format!("invalid arguments: {why}"));
+    let fields = arguments
+        .as_object_mut()
+        .ok_or_else(|| invalid("the arguments are an object"))?;
+    let path = fields.remove("path").ok_or_else(|| invalid("missing field `path`"))?;
+    let clip = fields.remove("clipId").ok_or_else(|| invalid("missing field `clipId`"))?;
+    let mask = fields.remove("mask").ok_or_else(|| invalid("missing field `mask`"))?;
+    if let Some(unknown) = fields.keys().next() {
+        return Err(invalid(&format!("unknown field `{unknown}`")));
+    }
+    edit(
+        "updateClip",
+        json!({ "path": path, "clipId": clip, "patch": { "mask": mask } }),
+    )
 }
 
 /// `captions_add`: one batch of titles.
@@ -848,6 +920,11 @@ mod tests {
             ("effect_layer_add", json!({ "path": "/tmp/Cut", "start": 0.0, "duration": 2.0, "effectId": "concat.warm", "name": "Warm", "trackId": null })),
             ("effect_key_set", json!({ "path": "/tmp/Cut", "clipId": "c1", "entry": 0, "key": "amount", "at": 0.5, "value": 0.8 })),
             ("track_add", json!({ "path": "/tmp/Cut", "bottom": false })),
+            ("clips_add_sequence", json!({ "path": "/tmp/Cut", "mediaIds": ["m1", "m2"], "start": 0.0 })),
+            ("clip_mask", json!({ "path": "/tmp/Cut", "clipId": "c1", "mask": { "shape": "heart", "width": 0.5, "feather": 0.1, "invert": true } })),
+            ("clip_stabilize", json!({ "path": "/tmp/Cut", "clipId": "c1", "stabilize": { "smoothness": 0.7, "maxZoom": 1.2, "tripod": false } })),
+            ("clip_frame", json!({ "path": "/tmp/Cut", "clipId": "c1", "framing": "fill" })),
+            ("timeline_background", json!({ "path": "/tmp/Cut", "timelineId": "tl1", "background": { "kind": "blur", "amount": 0.5 } })),
             ("effects_list", json!({ "kind": "transition" })),
             ("template_list", json!({})),
             ("template_instantiate", json!({ "template": "/t", "location": "/tmp", "name": "From", "fills": [{ "mediaId": "m1", "file": "/tmp/a.mp4" }] })),
@@ -900,6 +977,7 @@ mod tests {
                     request("export.status", sample)
                 }
                 Action::PreviewFrame => request("preview.frame", sample.clone()),
+                Action::Mask => mask(sample.clone()),
             };
             let built = built.unwrap_or_else(|error| panic!("{name}: {error}"));
             // Back again: the request as the API writes it fits the API's
