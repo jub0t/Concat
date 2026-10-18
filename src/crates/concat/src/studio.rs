@@ -47,6 +47,8 @@ use concat_project::{Command, PlayheadSide};
 mod backdrop;
 mod consolidate;
 use consolidate::MergeJob;
+mod masking;
+use masking::{MaskFrame, MaskGrip};
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 use crate::dock::{
@@ -508,6 +510,14 @@ pub enum Gesture {
         rotation: f64,
         centre: (f64, f64),
         from: f64,
+    },
+    /// A grip of the selected clip's mask dragged: the mask as the press
+    /// found it, placed in the frame, and the press in frame pixels.
+    StageMask {
+        clip: String,
+        grip: MaskGrip,
+        frame: MaskFrame,
+        from: (f64, f64),
     },
     /// A brush on the stage: the stroke so far, in source fractions for
     /// the command it becomes and in stage fractions for the line drawn
@@ -1277,6 +1287,13 @@ fn key_field_of(property: model::KeyProperty) -> ClipField {
         model::KeyProperty::Rotation => ClipField::Rotation,
         model::KeyProperty::Opacity => ClipField::Opacity,
         model::KeyProperty::Volume => ClipField::Volume,
+        model::KeyProperty::MaskX => ClipField::MaskX,
+        model::KeyProperty::MaskY => ClipField::MaskY,
+        model::KeyProperty::MaskWidth => ClipField::MaskWidth,
+        model::KeyProperty::MaskHeight => ClipField::MaskHeight,
+        model::KeyProperty::MaskRotation => ClipField::MaskRotation,
+        model::KeyProperty::MaskRoundness => ClipField::MaskRoundness,
+        model::KeyProperty::MaskFeather => ClipField::MaskFeather,
     }
 }
 
@@ -1363,6 +1380,10 @@ fn knob_range(property: model::KeyProperty) -> (f64, f64) {
         model::KeyProperty::Rotation => (-180.0, 180.0),
         model::KeyProperty::Opacity => (0.0, 1.0),
         model::KeyProperty::Volume => (-60.0, 24.0),
+        model::KeyProperty::MaskX | model::KeyProperty::MaskY => (-1.0, 1.0),
+        model::KeyProperty::MaskWidth | model::KeyProperty::MaskHeight => (0.01, 4.0),
+        model::KeyProperty::MaskRotation => (-180.0, 180.0),
+        model::KeyProperty::MaskRoundness | model::KeyProperty::MaskFeather => (0.0, 1.0),
     }
 }
 
@@ -1414,6 +1435,12 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
         model::KeyProperty::Rotation => clip.rotation = value,
         model::KeyProperty::Opacity => clip.opacity = value,
         model::KeyProperty::Volume => clip.volume = value,
+        // The mask's numbers are the mask's; a number turned on a clip
+        // with none puts one on, the shape a new one starts as.
+        mask => clip
+            .mask
+            .get_or_insert_with(model::ClipMask::default)
+            .set(mask, value),
     }
 }
 
@@ -1510,6 +1537,9 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
     }
     if after.crop != before.crop {
         patch.crop = Some(after.crop);
+    }
+    if after.mask != before.mask {
+        patch.mask = Some(after.mask);
     }
     commands.extend(key_commands(id, before, after));
     if after.text != before.text {
@@ -4767,6 +4797,7 @@ impl Studio {
             | Gesture::StageStretch { .. }
             | Gesture::TextWidth { .. }
             | Gesture::TextHeight { .. }
+            | Gesture::StageMask { .. }
             | Gesture::Paint { .. } => {}
         }
         self.gesture = gesture;
@@ -4864,6 +4895,7 @@ impl Studio {
             | Gesture::StageStretch { .. }
             | Gesture::TextWidth { .. }
             | Gesture::TextHeight { .. }
+            | Gesture::StageMask { .. }
             | Gesture::Paint { .. }) => {
                 self.gesture = other;
             }
@@ -5006,6 +5038,43 @@ impl Studio {
                 ClipField::StabilizeTripod => {
                     if let Some(stabilize) = clip.stabilize.as_mut() {
                         stabilize.tripod = value != 0.0;
+                    }
+                }
+                // The shape's place in the picker, or below zero for none.
+                // A new shape keeps where the mask was, its turn, softness
+                // and invert, and takes the new shape's own size.
+                ClipField::MaskShape => {
+                    let shape = (value >= 0.0)
+                        .then(|| model::MaskShape::ALL.get(value as usize).copied())
+                        .flatten();
+                    clip.mask = shape.map(|shape| match clip.mask {
+                        Some(held) if held.shape == shape => held,
+                        Some(held) => model::ClipMask {
+                            x: held.x,
+                            y: held.y,
+                            rotation: held.rotation,
+                            roundness: held.roundness,
+                            feather: held.feather,
+                            invert: held.invert,
+                            ..model::ClipMask::of(shape)
+                        },
+                        None => model::ClipMask::of(shape),
+                    });
+                }
+                ClipField::MaskInvert => {
+                    if let Some(mask) = clip.mask.as_mut() {
+                        mask.invert = value != 0.0;
+                    }
+                }
+                ClipField::MaskX
+                | ClipField::MaskY
+                | ClipField::MaskWidth
+                | ClipField::MaskHeight
+                | ClipField::MaskRotation
+                | ClipField::MaskRoundness
+                | ClipField::MaskFeather => {
+                    if let Some(property) = Self::key_property_of(field) {
+                        write_keyable(clip, property, model::ClipMask::clamp(property, value), at);
                     }
                 }
                 ClipField::Volume => {
@@ -5559,19 +5628,59 @@ impl Studio {
             .into_iter()
             .map(|clip| {
                 let footprint = self.footprint(clip);
-                StageItemData {
+                let selected = self.selection.iter().any(|id| id == &clip.id);
+                let mut item = StageItemData {
                     id: clip.id.as_str().into(),
                     kind: kind_of(clip),
-                    selected: self.selection.iter().any(|id| id == &clip.id),
+                    selected,
                     cx: footprint.cx as f32,
                     cy: footprint.cy as f32,
                     w: footprint.w as f32,
                     h: footprint.h as f32,
                     rotation: footprint.rotation as f32,
                     scale: clip.scale as f32,
+                    mask: -1,
+                    ..Default::default()
+                };
+                // The mask's outline and grips, on the one clip selected.
+                if selected
+                    && self.selection.len() == 1
+                    && let Some(frame) = self.mask_frame(clip)
+                {
+                    let grips = frame.grips().map(|grip| frame.fraction(grip));
+                    item.mask = model::MaskShape::ALL
+                        .iter()
+                        .position(|shape| *shape == frame.mask.shape)
+                        .map_or(-1, |index| index as i32);
+                    item.mask_path = frame.outline().into();
+                    (item.mask_cx, item.mask_cy) = grips[0];
+                    (item.mask_wx, item.mask_wy) = grips[1];
+                    (item.mask_hx, item.mask_hy) = grips[2];
+                    (item.mask_kx, item.mask_ky) = grips[3];
+                    (item.mask_rx, item.mask_ry) = grips[4];
+                    (item.mask_fx, item.mask_fy) = grips[5];
                 }
+                item
             })
             .collect()
+    }
+
+    /// The clip's mask placed in the frame at the playhead, its keyed
+    /// numbers at their ride's values; None for a clip with no mask or one
+    /// that is not a picture.
+    fn mask_frame(&self, clip: &Clip) -> Option<MaskFrame> {
+        let held = clip.mask.filter(|_| clip.kind.is_visual())?;
+        let at = place_in(clip, self.playhead);
+        let mut mask = held;
+        for property in model::KeyProperty::MASK {
+            mask.set(property, shown(clip, property, at));
+        }
+        Some(MaskFrame::new(
+            mask,
+            &self.footprint(clip),
+            self.output_size(),
+            (clip.stretch_x, clip.stretch_y),
+        ))
     }
 
     /// The topmost picture under a frame point, skipping locked lanes the
@@ -5683,8 +5792,26 @@ impl Studio {
         if self.locked(&clip.track_id) {
             return;
         }
-        let footprint = self.footprint(&clip);
         let (width, height) = self.output_size();
+        // A grip of the mask: the mask is what moves, not the picture.
+        if let Some(grip) = MaskGrip::of(grip) {
+            let Some(frame) = self.mask_frame(&clip) else {
+                return;
+            };
+            self.flush_commit();
+            self.begin_echo();
+            self.gesture = Gesture::StageMask {
+                clip: id.to_owned(),
+                grip,
+                frame,
+                from: (
+                    f64::from(x) * f64::from(width),
+                    f64::from(y) * f64::from(height),
+                ),
+            };
+            return;
+        }
+        let footprint = self.footprint(&clip);
         let centre = (
             footprint.cx * f64::from(width),
             footprint.cy * f64::from(height),
@@ -5992,6 +6119,32 @@ impl Studio {
                     clip.text.get_or_insert_with(TextStyle::default).max_height = next;
                 }
             }
+            Gesture::StageMask {
+                clip,
+                grip,
+                frame,
+                from,
+            } => {
+                let to = (x * f64::from(width), y * f64::from(height));
+                let mut next = frame.dragged(*grip, *from, to);
+                if snap && *grip == MaskGrip::Rotate {
+                    next.rotation = (next.rotation / 15.0).round() * 15.0;
+                }
+                let start = frame.mask;
+                let playhead = self.playhead;
+                if let Some(clip) = self.echo_clip_mut(clip) {
+                    let at = place_in(clip, playhead);
+                    // Only the numbers the grip moves: a keyed one the drag
+                    // left alone must not gain a key here.
+                    for property in model::KeyProperty::MASK {
+                        if let (Some(value), Some(was)) = (next.get(property), start.get(property))
+                            && value != was
+                        {
+                            write_keyable(clip, property, value, at);
+                        }
+                    }
+                }
+            }
             Gesture::StageRotate {
                 clip,
                 rotation,
@@ -6038,6 +6191,7 @@ impl Studio {
             Gesture::StageScale { clip, .. }
             | Gesture::StageRotate { clip, .. }
             | Gesture::StageStretch { clip, .. }
+            | Gesture::StageMask { clip, .. }
             | Gesture::TextWidth { clip, .. } => vec![clip],
             Gesture::Paint {
                 clip,
@@ -6106,6 +6260,16 @@ impl Studio {
             // snaps back to the ride the document still holds.
             // https://github.com/jub0t/Concat/issues/228
             commands.extend(key_commands(&id, before, after));
+            // A mask's grips move its numbers that hold still.
+            if after.mask != before.mask {
+                commands.push(Command::UpdateClip {
+                    clip_id: id.clone(),
+                    patch: ClipPatch {
+                        mask: Some(after.mask),
+                        ..Default::default()
+                    },
+                });
+            }
             // A title's wrap width, from its side grips.
             if after.text != before.text {
                 commands.push(Command::UpdateClip {
@@ -9022,6 +9186,13 @@ impl Studio {
             ClipField::Rotation => model::KeyProperty::Rotation,
             ClipField::Opacity => model::KeyProperty::Opacity,
             ClipField::Volume => model::KeyProperty::Volume,
+            ClipField::MaskX => model::KeyProperty::MaskX,
+            ClipField::MaskY => model::KeyProperty::MaskY,
+            ClipField::MaskWidth => model::KeyProperty::MaskWidth,
+            ClipField::MaskHeight => model::KeyProperty::MaskHeight,
+            ClipField::MaskRotation => model::KeyProperty::MaskRotation,
+            ClipField::MaskRoundness => model::KeyProperty::MaskRoundness,
+            ClipField::MaskFeather => model::KeyProperty::MaskFeather,
             _ => return None,
         })
     }
@@ -9134,6 +9305,11 @@ impl Studio {
         };
         let mut rows = Vec::new();
         for property in model::KeyProperty::ALL {
+            // The mask's numbers are rows only while there is a mask, or
+            // keys left from one: seven rows of nothing otherwise.
+            if property.is_mask() && clip.mask.is_none() && !clip.is_keyed(property) {
+                continue;
+            }
             // The same ranges and units as the inspector's knobs. The level
             // knob speaks decibels, floored where silence is.
             let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
@@ -9197,6 +9373,76 @@ impl Studio {
                         ParamFormat::Gain,
                         "",
                         1.0,
+                    ),
+                    model::KeyProperty::MaskX => (
+                        tf("mask.row", &[&t("common.positionX")]),
+                        -1.0,
+                        1.0,
+                        0.005,
+                        0.0,
+                        ParamFormat::Centred,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::MaskY => (
+                        tf("mask.row", &[&t("common.positionY")]),
+                        -1.0,
+                        1.0,
+                        0.005,
+                        0.0,
+                        ParamFormat::Centred,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::MaskWidth => (
+                        tf("mask.row", &[&t("common.width")]),
+                        0.01,
+                        4.0,
+                        0.01,
+                        0.66,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::MaskHeight => (
+                        tf("mask.row", &[&t("common.height")]),
+                        0.01,
+                        4.0,
+                        0.01,
+                        0.66,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::MaskRotation => (
+                        tf("mask.row", &[&t("common.rotation")]),
+                        -180.0,
+                        180.0,
+                        1.0,
+                        0.0,
+                        ParamFormat::Degrees,
+                        "°",
+                        1.0,
+                    ),
+                    model::KeyProperty::MaskRoundness => (
+                        tf("mask.row", &[&t("mask.roundness")]),
+                        0.0,
+                        1.0,
+                        0.01,
+                        0.0,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::MaskFeather => (
+                        tf("mask.row", &[&t("clipInspector.feather")]),
+                        0.0,
+                        1.0,
+                        0.01,
+                        0.0,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
                     ),
                 };
             let to_knob = |value: f64| knob_value(property, value);
@@ -9892,6 +10138,18 @@ impl Studio {
             crop_top: clip.crop.map(|crop| crop.top as f32).unwrap_or(0.0),
             crop_right: clip.crop.map(|crop| crop.right as f32).unwrap_or(0.0),
             crop_bottom: clip.crop.map(|crop| crop.bottom as f32).unwrap_or(0.0),
+            mask: clip
+                .mask
+                .and_then(|mask| model::MaskShape::ALL.iter().position(|s| *s == mask.shape))
+                .map_or(-1, |index| index as i32),
+            mask_invert: clip.mask.is_some_and(|mask| mask.invert),
+            mask_x: shown(clip, model::KeyProperty::MaskX, at) as f32,
+            mask_y: shown(clip, model::KeyProperty::MaskY, at) as f32,
+            mask_width: shown(clip, model::KeyProperty::MaskWidth, at) as f32,
+            mask_height: shown(clip, model::KeyProperty::MaskHeight, at) as f32,
+            mask_rotation: shown(clip, model::KeyProperty::MaskRotation, at) as f32,
+            mask_roundness: shown(clip, model::KeyProperty::MaskRoundness, at) as f32,
+            mask_feather: shown(clip, model::KeyProperty::MaskFeather, at) as f32,
             fade_in: clip.fade_in as f32,
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),

@@ -106,6 +106,82 @@ impl Editor {
         changed
     }
 
+    /// Turns a link to one of 0.2.4's three mask effects - Mask: Circle,
+    /// Rectangle and Linear, retired in 0.2.5 with the old effect format
+    /// and nothing in their place (#239) - into the clip's own mask, as
+    /// the document is read, like [`Editor::upgrade_links`]. Their knobs
+    /// and the keys on them carry over into the mask's terms; the first
+    /// enabled one on a clip with no mask of its own is taken, and any
+    /// other stays a link to an effect that is not installed. Returns the
+    /// ids of the effects that were turned into masks.
+    pub fn upgrade_mask_effects(&mut self) -> Vec<String> {
+        use std::sync::Arc;
+        let mut upgraded: Vec<String> = Vec::new();
+        for timeline in &mut self.project.timelines {
+            for index in 0..timeline.clips.len() {
+                let clip = &timeline.clips[index];
+                if clip.mask.is_some() || !clip.kind.is_visual() {
+                    continue;
+                }
+                let Some(entry) = clip
+                    .video_effects
+                    .iter()
+                    .position(|link| link.enabled && old_mask(&link.id).is_some())
+                else {
+                    continue;
+                };
+                // The old masks measured some knobs against the frame's
+                // width or height and some against its shorter side; the
+                // media's own shape stands in for the frame's.
+                let (width, height) = self
+                    .project
+                    .media
+                    .iter()
+                    .find(|item| item.id == clip.media_id)
+                    .and_then(|item| Some((f64::from(item.width?), f64::from(item.height?))))
+                    .filter(|(w, h)| *w > 0.0 && *h > 0.0)
+                    .unwrap_or((16.0, 9.0));
+                let short = width.min(height);
+                let (wide, tall) = (width / short, height / short);
+                let link = clip.video_effects[entry].clone();
+                let Some(shape) = old_mask(&link.id) else {
+                    continue;
+                };
+                let mut mask = crate::model::ClipMask::of(shape);
+                mask.invert = link.params.get("invert").copied().unwrap_or(0.0) >= 0.5;
+                if shape == crate::model::MaskShape::Linear {
+                    // A vertical edge keeping what is left of it: the line
+                    // turned a quarter back.
+                    mask.rotation = -90.0;
+                }
+                let mut keys: Vec<crate::model::ClipKey> = Vec::new();
+                for (param, property, fallback, convert) in
+                    old_mask_knobs(shape, wide, tall).into_iter().flatten()
+                {
+                    let value = link.params.get(param).copied().unwrap_or(fallback);
+                    mask.set(property, convert(value));
+                    keys.extend(link.keys_on(param).iter().map(|key| crate::model::ClipKey {
+                        property,
+                        at: key.at,
+                        value: crate::model::ClipMask::clamp(property, convert(key.value)),
+                        ease: key.ease,
+                    }));
+                }
+                if !upgraded.contains(&link.id) {
+                    upgraded.push(link.id.clone());
+                }
+                let timeline = Arc::make_mut(timeline);
+                let clip = Arc::make_mut(&mut timeline.clips[index]);
+                clip.video_effects.remove(entry);
+                clip.mask = Some(mask.tidy());
+                for key in keys {
+                    clip.set_key(key.property, key.at, key.value, key.ease);
+                }
+            }
+        }
+        upgraded
+    }
+
     /// Takes off the clip fields earlier versions wrote and this one no
     /// longer reads - 0.2.4's `reverse` flag and its preset animations -
     /// as the document is read, the way [`Editor::upgrade_links`] does: not
@@ -368,4 +444,171 @@ pub struct RetiredFields {
     pub reversed: Vec<String>,
     /// Clips an earlier version moved with a preset animation.
     pub animated: Vec<String>,
+}
+
+/// The shape one of 0.2.4's mask effects keeps, by its package id.
+fn old_mask(id: &str) -> Option<crate::model::MaskShape> {
+    use crate::model::MaskShape;
+    match id {
+        "concat.mask-circle" => Some(MaskShape::Circle),
+        "concat.mask-rectangle" => Some(MaskShape::Rectangle),
+        "concat.mask-linear" => Some(MaskShape::Linear),
+        _ => None,
+    }
+}
+
+/// One knob of an old mask effect: its name, the mask number it becomes,
+/// its old default, and how its value turns into that number's.
+type OldKnob = (
+    &'static str,
+    crate::model::KeyProperty,
+    f64,
+    Box<dyn Fn(f64) -> f64>,
+);
+
+/// The knobs of the old mask effect of `shape` and how each carries over,
+/// for a picture `wide` and `tall` in its shorter side. The arithmetic is
+/// the old shaders' (0.2.4's `concat.mask-*/effect.wgsl`): a circle's size
+/// was its diameter in the shorter side, a rectangle's width and height
+/// fractions of the frame's own, the feathers bands of the shorter side
+/// (the line's of the width), the centres fractions of the frame from its
+/// corner. A mask measures from the picture's centre, in its shorter side,
+/// and its feather is a band of half the shorter side.
+fn old_mask_knobs(shape: crate::model::MaskShape, wide: f64, tall: f64) -> [Option<OldKnob>; 5] {
+    use crate::model::{KeyProperty, MaskShape};
+    let centre = |value: f64| value / 100.0 - 0.5;
+    match shape {
+        MaskShape::Circle => [
+            Some((
+                "size",
+                KeyProperty::MaskWidth,
+                50.0,
+                Box::new(|v| v / 100.0),
+            )),
+            Some((
+                "size",
+                KeyProperty::MaskHeight,
+                50.0,
+                Box::new(|v| v / 100.0),
+            )),
+            Some((
+                "feather",
+                KeyProperty::MaskFeather,
+                10.0,
+                Box::new(|v| v / 100.0),
+            )),
+            Some(("x", KeyProperty::MaskX, 50.0, Box::new(centre))),
+            Some(("y", KeyProperty::MaskY, 50.0, Box::new(centre))),
+        ],
+        MaskShape::Rectangle => [
+            Some((
+                "width",
+                KeyProperty::MaskWidth,
+                50.0,
+                Box::new(move |v| v / 100.0 * wide),
+            )),
+            Some((
+                "height",
+                KeyProperty::MaskHeight,
+                50.0,
+                Box::new(move |v| v / 100.0 * tall),
+            )),
+            Some((
+                "feather",
+                KeyProperty::MaskFeather,
+                10.0,
+                Box::new(|v| v / 100.0),
+            )),
+            Some(("x", KeyProperty::MaskX, 50.0, Box::new(centre))),
+            Some(("y", KeyProperty::MaskY, 50.0, Box::new(centre))),
+        ],
+        _ => [
+            Some(("position", KeyProperty::MaskX, 50.0, Box::new(centre))),
+            Some((
+                "feather",
+                KeyProperty::MaskFeather,
+                20.0,
+                Box::new(move |v| v / 50.0 * wide),
+            )),
+            None,
+            None,
+            None,
+        ],
+    }
+}
+
+#[cfg(test)]
+mod mask_upgrade_tests {
+    use super::*;
+    use crate::model::{AppliedFilter, ClipKind, KeyEase, KeyProperty, MaskShape};
+
+    fn with_link(link: AppliedFilter, size: (u32, u32)) -> Editor {
+        let mut editor = Editor::new();
+        editor.project.media.push(crate::model::MediaItem {
+            id: "m1".into(),
+            width: Some(size.0),
+            height: Some(size.1),
+            ..Default::default()
+        });
+        let timeline = std::sync::Arc::make_mut(&mut editor.project.timelines[0]);
+        let track = timeline.tracks[0].id.clone();
+        let mut clip = Clip::blank("c1", track, ClipKind::Video, "Mirror", 0.0, 4.0);
+        clip.media_id = "m1".into();
+        clip.video_effects = vec![AppliedFilter::new("concat.mono"), link];
+        timeline.clips.push(std::sync::Arc::new(clip));
+        editor
+    }
+
+    /// 0.2.4's Mask: Circle on a clip opens as the clip's own circle,
+    /// the same size, softness and place, and the link goes; its keys
+    /// carry over as the mask's.
+    #[test]
+    fn an_old_circle_mask_opens_as_the_clips_mask() {
+        let mut link = AppliedFilter::new("concat.mask-circle");
+        link.params.insert("size".into(), 40.0);
+        link.params.insert("feather".into(), 20.0);
+        link.params.insert("x".into(), 75.0);
+        link.params.insert("invert".into(), 1.0);
+        link.set_key("y", 0.0, 50.0, KeyEase::LINEAR);
+        link.set_key("y", 1.0, 25.0, KeyEase::LINEAR);
+        let mut editor = with_link(link, (1920, 1080));
+        assert_eq!(editor.upgrade_mask_effects(), vec!["concat.mask-circle"]);
+        let clip = &editor.project.timelines[0].clips[0];
+        let mask = clip.mask.expect("a mask");
+        assert_eq!(mask.shape, MaskShape::Circle);
+        assert!((mask.width - 0.4).abs() < 1e-9 && (mask.height - 0.4).abs() < 1e-9);
+        assert!((mask.feather - 0.2).abs() < 1e-9);
+        assert!((mask.x - 0.25).abs() < 1e-9 && mask.y == 0.0);
+        assert!(mask.invert);
+        assert_eq!(clip.video_effects, vec![AppliedFilter::new("concat.mono")]);
+        assert!((clip.value_at(KeyProperty::MaskY, 1.0) + 0.25).abs() < 1e-9);
+        // Done once: a second read finds nothing to do.
+        assert!(editor.upgrade_mask_effects().is_empty());
+    }
+
+    /// A rectangle's width and height were the frame's own fractions; on
+    /// a wide picture they become the shorter side's. The line was a
+    /// vertical edge keeping the left.
+    #[test]
+    fn an_old_rectangle_and_line_keep_their_shape_on_a_wide_picture() {
+        let mut link = AppliedFilter::new("concat.mask-rectangle");
+        link.params.insert("width".into(), 50.0);
+        link.params.insert("height".into(), 50.0);
+        let mut editor = with_link(link, (200, 100));
+        editor.upgrade_mask_effects();
+        let mask = editor.project.timelines[0].clips[0].mask.expect("a mask");
+        assert!((mask.width - 1.0).abs() < 1e-9, "half of 200 is 100");
+        assert!((mask.height - 0.5).abs() < 1e-9, "half of 100 is 50");
+
+        let mut editor = with_link(AppliedFilter::new("concat.mask-linear"), (200, 100));
+        editor.upgrade_mask_effects();
+        let mask = editor.project.timelines[0].clips[0].mask.expect("a mask");
+        assert_eq!(mask.shape, MaskShape::Linear);
+        assert_eq!(mask.rotation, -90.0);
+        assert_eq!(mask.x, 0.0);
+        assert!(
+            (mask.feather - 0.8).abs() < 1e-9,
+            "a fifth of 200 is 40, of 50"
+        );
+    }
 }

@@ -62,6 +62,9 @@ pub(super) fn apply(
                 let crop = crop.map(Crop::tidy).filter(|crop| !crop.is_none());
                 applied |= assign(&mut clip.crop, crop);
             }
+            if let Some(mask) = patch.mask {
+                applied |= assign(&mut clip.mask, mask.map(ClipMask::tidy));
+            }
             if let Some(filters) = patch.filters {
                 applied |= assign(&mut clip.filters, filters);
             }
@@ -203,6 +206,7 @@ pub(super) fn apply(
                 // same value at a different instant.
                 KeyProperty::Volume => value.max(0.0),
                 KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => value,
+                mask => ClipMask::clamp(mask, value),
             };
             let before = clip.keys.clone();
             clip.set_key(property, at, value, ease);

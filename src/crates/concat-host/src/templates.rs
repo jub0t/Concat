@@ -326,6 +326,7 @@ pub fn instantiate(
     // project does: its links read as links to the stand-ins.
     let catalogue = concat_effects::Catalogue::builtin();
     editor.upgrade_links(|link| catalogue.upgrade(link));
+    editor.upgrade_mask_effects();
     if !fills.is_empty() {
         editor
             .apply(Command::Batch {

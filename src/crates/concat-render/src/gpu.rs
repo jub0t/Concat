@@ -33,6 +33,7 @@
 use std::collections::HashMap;
 
 use concat_core::frame::Frame;
+use concat_core::mask::MaskUniform;
 use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
@@ -59,6 +60,10 @@ struct Vertex {
     /// `0..1` across the picture as it is seen: what the mask is sampled
     /// at and what the wipes measure.
     pic: [f32; 2],
+    /// The layer's shape mask, packed; see `MaskUniform` and `MASK_WGSL`.
+    shape_a: [f32; 4],
+    shape_b: [f32; 4],
+    shape_c: [f32; 4],
 }
 
 /// Vertex data as raw bytes. `Vertex` is `repr(C)` and all `f32`, so its byte
@@ -74,6 +79,95 @@ fn as_bytes(vertices: &[Vertex]) -> &[u8] {
     }
 }
 
+/// A layer's shape mask, per fragment: `concat_core::mask::coverage` line
+/// for line, which the CPU reference calls and the tests hold this to.
+/// `a` is the shape's code, the invert, the feather band and the corner
+/// radius; `b` the centre and the half box; `c` the turn's cosine and sine
+/// and the picture's sides over its shorter one.
+const MASK_WGSL: &str = r#"
+fn mask_sign(value: f32) -> f32 {
+    return select(select(0.0, -1.0, value < 0.0), 1.0, value > 0.0);
+}
+
+fn mask_ellipse(p: vec2<f32>, r: vec2<f32>) -> f32 {
+    let k0 = length(p / r);
+    let k1 = length(p / (r * r));
+    if (k1 <= 1e-9) {
+        return -min(r.x, r.y);
+    }
+    return k0 * (k0 - 1.0) / k1;
+}
+
+fn mask_box(p: vec2<f32>, half: vec2<f32>, radius: f32) -> f32 {
+    let q = abs(p) - half + vec2<f32>(radius, radius);
+    return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+fn mask_heart(p: vec2<f32>) -> f32 {
+    let x = abs(p.x);
+    let y = p.y;
+    if (y + x > 1.0) {
+        return length(vec2<f32>(x - 0.25, y - 0.75)) - sqrt(2.0) / 4.0;
+    }
+    let m = max(x + y, 0.0) * 0.5;
+    let a = vec2<f32>(x, y - 1.0);
+    let b = vec2<f32>(x - m, y - m);
+    return sqrt(min(dot(a, a), dot(b, b))) * mask_sign(x - y);
+}
+
+fn mask_star(x: f32, y: f32) -> f32 {
+    let k1 = vec2<f32>(0.809017, -0.58778524);
+    let k2 = vec2<f32>(-0.809017, -0.58778524);
+    let inner = 0.45;
+    var p = vec2<f32>(abs(x), y);
+    p = p - max(dot(k1, p), 0.0) * 2.0 * k1;
+    p = p - max(dot(k2, p), 0.0) * 2.0 * k2;
+    p.x = abs(p.x);
+    p.y = p.y - 1.0;
+    let ba = vec2<f32>(inner * -k1.y, inner * k1.x - 1.0);
+    let h = clamp(dot(p, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(p - ba * h) * mask_sign(p.y * ba.x - p.x * ba.y);
+}
+
+fn mask_distance(code: f32, p: vec2<f32>, half: vec2<f32>, radius: f32) -> f32 {
+    let shape = i32(round(code));
+    if (shape == 1) {
+        return p.y;
+    }
+    if (shape == 2) {
+        return abs(p.y) - half.y;
+    }
+    if (shape == 3) {
+        return mask_ellipse(p, half);
+    }
+    if (shape == 4) {
+        return mask_box(p, half, radius);
+    }
+    if (shape == 5) {
+        let side = 0.6035534;
+        let mid = 0.5517767;
+        let q = vec2<f32>(p.x / half.x * side, mid - p.y / half.y * mid);
+        return mask_heart(q) * min(half.x / side, half.y / mid);
+    }
+    if (shape == 6) {
+        return mask_star(p.x / half.x, -p.y / half.y) * min(half.x, half.y);
+    }
+    return -1.0;
+}
+
+fn mask_coverage(a: vec4<f32>, b: vec4<f32>, c: vec4<f32>, pic: vec2<f32>) -> f32 {
+    if (a.x < 0.5) {
+        return 1.0;
+    }
+    let dx = (pic.x - 0.5 - b.x) * c.z;
+    let dy = (pic.y - 0.5 - b.y) * c.w;
+    let p = vec2<f32>(dx * c.x + dy * c.y, -dx * c.y + dy * c.x);
+    let d = mask_distance(a.x, p, b.zw, a.w);
+    let kept = 1.0 - smoothstep(-a.z * 0.5, a.z * 0.5, d);
+    return select(kept, 1.0 - kept, a.y > 0.5);
+}
+"#;
+
 const SHADER: &str = r#"
 struct VsIn {
     @location(0) position: vec2<f32>,
@@ -83,6 +177,9 @@ struct VsIn {
     @location(4) offset: vec3<f32>,
     @location(5) edges: vec2<f32>,
     @location(6) pic: vec2<f32>,
+    @location(7) shape_a: vec4<f32>,
+    @location(8) shape_b: vec4<f32>,
+    @location(9) shape_c: vec4<f32>,
 }
 
 struct VsOut {
@@ -93,6 +190,9 @@ struct VsOut {
     @location(3) offset: vec3<f32>,
     @location(4) edges: vec2<f32>,
     @location(5) pic: vec2<f32>,
+    @location(6) @interpolate(flat) shape_a: vec4<f32>,
+    @location(7) @interpolate(flat) shape_b: vec4<f32>,
+    @location(8) @interpolate(flat) shape_c: vec4<f32>,
 }
 
 @vertex
@@ -105,6 +205,9 @@ fn vs_main(in: VsIn) -> VsOut {
     out.offset = in.offset;
     out.edges = in.edges;
     out.pic = in.pic;
+    out.shape_a = in.shape_a;
+    out.shape_b = in.shape_b;
+    out.shape_c = in.shape_c;
     return out;
 }
 
@@ -124,7 +227,9 @@ fn shade(in: VsOut) -> vec4<f32> {
     let mask = textureSample(mask_texture, mask_sampler, in.pic);
     // The wipes: a pixel past the moving edge is not drawn at all.
     let kept = select(0.0, 1.0, in.pic.x < in.edges.x && in.pic.x >= in.edges.y);
-    let alpha = colour.a * in.opacity * mask.a * kept;
+    // The shape mask, multiplied in with the matte, the wipes and the rest.
+    let shaped = mask_coverage(in.shape_a, in.shape_b, in.shape_c, in.pic);
+    let alpha = colour.a * in.opacity * mask.a * kept * shaped;
     // The fades: the colour scaled and offset.
     let shaded = colour.rgb * in.scale + in.offset;
     return vec4<f32>(shaded, alpha);
@@ -869,7 +974,7 @@ impl WgpuCompositor {
         let budget = pool_budget_for(device.adapter_info().device_type);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat compositor"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{MASK_WGSL}{SHADER}").into()),
         });
 
         let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -983,7 +1088,8 @@ impl WgpuCompositor {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![
                 0 => Float32x2, 1 => Float32x2, 2 => Float32, 3 => Float32,
-                4 => Float32x3, 5 => Float32x2, 6 => Float32x2
+                4 => Float32x3, 5 => Float32x2, 6 => Float32x2,
+                7 => Float32x4, 8 => Float32x4, 9 => Float32x4
             ],
         };
 
@@ -1508,6 +1614,7 @@ impl WgpuCompositor {
             flips,
             opacity,
             layer.shading(),
+            layer.shape_uniform(&geometry),
             plan.width,
             plan.height,
         ));
@@ -1556,6 +1663,9 @@ impl WgpuCompositor {
                 offset: [0.0; 3],
                 edges: [2.0, -1.0],
                 pic: [u, v],
+                shape_a: MaskUniform::NONE.a,
+                shape_b: MaskUniform::NONE.b,
+                shape_c: MaskUniform::NONE.c,
             }
         };
         let vertices = [
@@ -1596,6 +1706,9 @@ impl WgpuCompositor {
             offset: [0.0; 3],
             edges: [2.0, -1.0],
             pic: [u, v],
+            shape_a: MaskUniform::NONE.a,
+            shape_b: MaskUniform::NONE.b,
+            shape_c: MaskUniform::NONE.c,
         };
         vertices.extend_from_slice(&[
             corner(-1.0, 1.0, 0.0, 0.0),
@@ -3272,6 +3385,7 @@ impl WgpuCompositor {
         (flip_h, flip_v): (bool, bool),
         opacity: f32,
         shading: Shading,
+        shape: MaskUniform,
         out_width: u32,
         out_height: u32,
     ) -> [Vertex; 6] {
@@ -3299,6 +3413,9 @@ impl WgpuCompositor {
                 offset: shading.offset,
                 edges: [shading.left_edge, shading.right_edge],
                 pic: [u, v],
+                shape_a: shape.a,
+                shape_b: shape.b,
+                shape_c: shape.c,
             }
         };
 

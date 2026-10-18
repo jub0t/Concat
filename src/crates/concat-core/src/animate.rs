@@ -14,6 +14,7 @@
 //! This is the one place the per-frame arithmetic lives; the plan asks the
 //! clip, and the clip asks here.
 
+use crate::mask::ShapeMask;
 use crate::timeline::Transform;
 
 /// How a key is approached from the one before it: a CSS timing function,
@@ -244,6 +245,58 @@ pub struct Animation {
     /// clip - so it is a track here and not a second mechanism somewhere
     /// else. Nothing in the compositor reads it; the mixer does.
     pub volume: Track,
+    /// The mask's numbers, when they ride. Unlike the placement's these
+    /// are absolute - a key is the value itself, not a factor or an
+    /// addition - since a mask is the clip's own and has no preset to be
+    /// relative for.
+    pub mask: MaskTracks,
+}
+
+/// The keys of a mask's numbers; see [`ShapeMask`] for what each is.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct MaskTracks {
+    /// The centre across.
+    pub x: Track,
+    /// The centre down.
+    pub y: Track,
+    /// The box's width.
+    pub width: Track,
+    /// The box's height.
+    pub height: Track,
+    /// The turn, in degrees.
+    pub rotation: Track,
+    /// The corners' roundness.
+    pub roundness: Track,
+    /// The edge's softness.
+    pub feather: Track,
+}
+
+impl MaskTracks {
+    /// True when no number has a key.
+    pub fn is_empty(&self) -> bool {
+        self.x.is_empty()
+            && self.y.is_empty()
+            && self.width.is_empty()
+            && self.height.is_empty()
+            && self.rotation.is_empty()
+            && self.roundness.is_empty()
+            && self.feather.is_empty()
+    }
+
+    /// `base` at `x`, a fraction of the clip: each keyed number its ride's
+    /// value there, the rest as they are.
+    pub fn mask_at(&self, base: ShapeMask, x: f64) -> ShapeMask {
+        ShapeMask {
+            x: self.x.value_at(x, base.x),
+            y: self.y.value_at(x, base.y),
+            width: self.width.value_at(x, base.width).max(0.001),
+            height: self.height.value_at(x, base.height).max(0.001),
+            rotation: self.rotation.value_at(x, base.rotation),
+            roundness: self.roundness.value_at(x, base.roundness).clamp(0.0, 1.0),
+            feather: self.feather.value_at(x, base.feather).clamp(0.0, 1.0),
+            ..base
+        }
+    }
 }
 
 impl Animation {
@@ -255,6 +308,7 @@ impl Animation {
             && self.rotation.is_empty()
             && self.opacity.is_empty()
             && self.volume.is_empty()
+            && self.mask.is_empty()
     }
 
     /// The clip's transform at `x`, a fraction of its length.
@@ -341,6 +395,33 @@ mod tests {
         assert_eq!(animation.opacity_at(0.8, 0.9), 0.8);
         assert!(!animation.is_empty());
         assert!(Animation::default().is_empty());
+    }
+
+    #[test]
+    fn a_mask_rides_its_keys_absolutely() {
+        let mut animation = Animation::default();
+        animation.mask.width = Track::new(vec![
+            key(0.0, 0.2, Ease::LINEAR),
+            key(1.0, 0.6, Ease::LINEAR),
+        ]);
+        animation.mask.feather = Track::new(vec![
+            key(0.0, 0.0, Ease::LINEAR),
+            key(0.5, 2.0, Ease::LINEAR),
+        ]);
+        assert!(!animation.is_empty());
+        let base = ShapeMask {
+            width: 5.0,
+            x: 0.1,
+            ..ShapeMask::default()
+        };
+        let mid = animation.mask.mask_at(base, 0.5);
+        assert!(
+            (mid.width - 0.4).abs() < 1e-12,
+            "the key, not a factor on 5"
+        );
+        assert_eq!(mid.x, 0.1, "an unkeyed number is the base's");
+        assert_eq!(mid.feather, 1.0, "held to its range");
+        assert!((animation.mask.mask_at(base, 0.25).feather - 1.0).abs() < 1e-12);
     }
 
     #[test]

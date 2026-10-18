@@ -53,6 +53,15 @@ export enum Glyph {
     sticker,
     /// a shape clip's badge: a triangle, a square and a circle
     shapes,
+    /// the mask shapes, as the picker shows them: a line keeping what is
+    /// above it, two lines a band runs between, a circle, a rectangle, a
+    /// heart and a star
+    mask-linear,
+    mask-mirror,
+    mask-circle,
+    mask-rectangle,
+    mask-heart,
+    mask-star,
     chevron-right,
     sparkle,
     eye,
@@ -279,6 +288,35 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"
             + " M14 3v4a2 2 0 0 0 2 2h4 M8 13h.01 M16 13h.01 M10 16s.8 1 2 1c1.3 0 2-1 2-1";
+    }
+
+    // The mask shapes. A line with the side it keeps marked above it;
+    // two lines, the band a mirror keeps; then lucide's circle, a wide
+    // lucide-style rounded rectangle, lucide/heart and lucide/star.
+    if root.glyph == Glyph.mask-linear: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 14h18 M8 9l4-4l4 4 M12 5v6";
+    }
+    if root.glyph == Glyph.mask-mirror: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 7h18 M3 17h18 M12 10v4";
+    }
+    if root.glyph == Glyph.mask-circle: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0";
+    }
+    if root.glyph == Glyph.mask-rectangle: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 5h14a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z";
+    }
+    if root.glyph == Glyph.mask-heart: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2"
+            + "-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z";
+    }
+    if root.glyph == Glyph.mask-star: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26Z";
     }
 
     // lucide/shapes

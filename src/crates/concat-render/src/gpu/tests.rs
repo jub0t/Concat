@@ -434,6 +434,128 @@ fn every_kind_of_layer_matches_the_cpu_reference() {
     assert_parity("faded and wiped", &plan(64, 48, vec![cut]), 0.99);
 }
 
+/// A feathered circle on a white picture over black, read in the working
+/// space where white is one: the light is the coverage. Whole in the
+/// middle, half on the edge, nothing past the band - and the same number
+/// the CPU's definition gives at each pixel's centre.
+#[test]
+fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
+    use concat_core::mask::{MaskShape, ShapeMask};
+    let Some(mut gpu) = gpu() else { return };
+    let mut circle = layer(solid(100, 100, [255, 255, 255, 255]));
+    let shape = ShapeMask {
+        shape: MaskShape::Circle,
+        width: 0.6,
+        height: 0.6,
+        feather: 0.4,
+        ..ShapeMask::default()
+    };
+    circle.shape = Some(shape);
+    let drawn = working(&mut gpu, &plan(100, 100, vec![circle]));
+    let at = |x: usize, y: usize| drawn[y * 100 + x][0];
+    let expected = |x: usize, y: usize| {
+        shape.coverage(
+            (x as f32 + 0.5) / 100.0,
+            (y as f32 + 0.5) / 100.0,
+            100.0,
+            100.0,
+            0.01,
+        )
+    };
+    // The middle, a band inside the edge, the edge, and past the band.
+    assert!((at(50, 50) - 1.0).abs() < 0.01, "middle {}", at(50, 50));
+    assert!(
+        (at(50 + 19, 50) - 1.0).abs() < 0.01,
+        "inside {}",
+        at(69, 50)
+    );
+    assert!((at(80, 50) - 0.5).abs() < 0.06, "edge {}", at(80, 50));
+    assert!((at(50, 80) - 0.5).abs() < 0.06, "edge {}", at(50, 80));
+    assert!(at(50 + 41, 50) < 0.01, "outside {}", at(91, 50));
+    assert!(at(2, 2) < 0.001, "corner {}", at(2, 2));
+    for (x, y) in [(75, 50), (80, 50), (85, 50), (50, 72), (64, 64), (71, 71)] {
+        let (got, want) = (at(x, y), expected(x, y));
+        assert!(
+            (got - want).abs() < 0.01,
+            "({x}, {y}): gpu {got}, cpu {want}"
+        );
+    }
+}
+
+/// Every shape against the CPU reference: turned, moved, feathered and
+/// inverted, on a picture that is itself placed, cropped and carrying a
+/// cutout's matte - the masks multiply.
+#[test]
+fn shape_masks_match_the_cpu_reference() {
+    use concat_core::mask::{MaskShape, ShapeMask};
+    for shape in MaskShape::ALL {
+        for invert in [false, true] {
+            let mut masked = layer(gradient(64, 48));
+            masked.transform = Transform {
+                scale: 0.9,
+                rotation: 12.0,
+                offset_x: 0.05,
+                ..Transform::default()
+            };
+            masked.crop = Crop::of([0.1, 0.0, 0.05, 0.1]);
+            // A stabilized clip's correction: the mask is on the picture
+            // as corrected, so it holds still with it.
+            masked.warp = Warp {
+                a: 1.06,
+                b: 0.03,
+                tx: 0.02,
+                ty: -0.01,
+            };
+            masked.shape = Some(ShapeMask {
+                shape,
+                x: 0.05,
+                y: -0.04,
+                width: 0.7,
+                height: 0.5,
+                rotation: 20.0,
+                roundness: 0.5,
+                feather: 0.15,
+                invert,
+            });
+            let mut matte = Frame::transparent(16, 16);
+            for y in 0..16u32 {
+                for x in 0..16u32 {
+                    let a = if x < 3 { 0 } else { 255 };
+                    matte.set_pixel(x, y, [255, 255, 255, a]);
+                }
+            }
+            masked.mask = Some(Arc::new(matte));
+            assert_parity(
+                &format!("{shape:?} mask, inverted {invert}"),
+                &plan(64, 48, vec![layer(solid(64, 48, [0, 60, 0, 255])), masked]),
+                0.98,
+            );
+        }
+    }
+}
+
+/// A masked picture never counts as covering the frame, and its canvas
+/// background is drawn whole behind it - the mask cuts the picture, not
+/// what stands behind it.
+#[test]
+fn a_masked_pictures_background_is_whole() {
+    use concat_core::mask::ShapeMask;
+    let mut masked = layer(solid(64, 48, [200, 0, 0, 255]));
+    assert!(masked.covers(64, 48, true));
+    masked.shape = Some(ShapeMask::default());
+    assert!(!masked.covers(64, 48, true));
+    let behind = masked
+        .backdrop(&Backdrop::Colour([0, 0, 255]), 64, 48, |_| None)
+        .expect("a colour always draws");
+    assert!(behind.shape.is_none());
+    let Some(mut gpu) = gpu() else { return };
+    let frame = gpu.render(&plan(64, 48, vec![behind, masked]));
+    let corner = frame.pixel(1, 1).expect("a pixel");
+    let middle = frame.pixel(32, 24).expect("a pixel");
+    assert!(corner[2] > 200 && corner[0] < 30, "blue behind: {corner:?}");
+    assert!(middle[0] > 180 && middle[2] < 30, "red kept: {middle:?}");
+}
+
 /// What cannot be drawn is not drawn, the same way on both sides: a
 /// layer with a NaN opacity, one far outside the frame, one with no
 /// picture, and an opacity past one is one.

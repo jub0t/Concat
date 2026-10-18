@@ -13,7 +13,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Background, Clip, ClipKind, ColorRange, ColorSpace, Crop,
+    AppliedFilter, AudioTrack, Background, Clip, ClipKind, ClipMask, ColorRange, ColorSpace, Crop,
     CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty, MediaItem, MediaKind,
     MediaOrigin, Project, ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track,
     Transition, VideoSettings,
@@ -121,6 +121,16 @@ pub struct ClipPatch {
         skip_serializing_if = "Option::is_none"
     )]
     pub crop: Option<Option<Crop>>,
+    /// The mask, same three-way wire semantics as `crop`: absent leaves it
+    /// alone, null takes it off, a value replaces it, tidied on the way in.
+    /// Its keys are the clip's own (`setClipKey` with `maskX` and on), and
+    /// stay when it is taken off, for a mask put back on to ride again.
+    #[serde(
+        default,
+        with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mask: Option<Option<ClipMask>>,
     /// Wholesale replacement of the audio filter chain - the UI sends the
     /// full list, not a diff.
     pub filters: Option<Vec<AppliedFilter>>,
@@ -1051,6 +1061,17 @@ impl Command {
                         .iter()
                         .flatten()
                         .any(|crop| bad([crop.left, crop.top, crop.right, crop.bottom]))
+                    || patch.mask.iter().flatten().any(|mask| {
+                        bad([
+                            mask.x,
+                            mask.y,
+                            mask.width,
+                            mask.height,
+                            mask.rotation,
+                            mask.roundness,
+                            mask.feather,
+                        ])
+                    })
                     || patch.filters.as_deref().is_some_and(bad_chain)
                     || patch.video_effects.as_deref().is_some_and(bad_chain)
                     || patch

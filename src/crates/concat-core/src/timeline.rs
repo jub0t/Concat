@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use crate::animate::Animation;
 use crate::arena::{Arena, Id};
+use crate::mask::ShapeMask;
 use crate::retime::SpeedCurve;
 use crate::time::{FrameRate, Rational, TimeRange};
 
@@ -100,6 +101,9 @@ pub struct Clip {
     /// first frame shown for the length of the dissolve, where other
     /// editors show "repeated frames".
     pub hold: bool,
+    /// The shape that keeps part of the picture, when one does; its
+    /// numbers ride the animation's mask tracks.
+    pub mask: Option<ShapeMask>,
 }
 
 /// How a layer's colour meets what is beneath it.
@@ -222,6 +226,7 @@ impl Clip {
             animation: None,
             blend: Blend::Normal,
             hold: false,
+            mask: None,
         }
     }
 
@@ -241,6 +246,16 @@ impl Clip {
             Some(animation) => animation.transform_at(self.transform, self.fraction_at(time)),
             None => self.transform,
         }
+    }
+
+    /// The mask at `time`: the clip's own, its keyed numbers at their
+    /// ride's values. None for a clip with no mask.
+    pub fn mask_at(&self, time: Rational) -> Option<ShapeMask> {
+        let mask = self.mask?;
+        Some(match &self.animation {
+            Some(animation) => animation.mask.mask_at(mask, self.fraction_at(time)),
+            None => mask,
+        })
     }
 
     /// The opacity at `time`, before the fade ramps: the clip's own, scaled

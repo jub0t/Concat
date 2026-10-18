@@ -1102,13 +1102,37 @@ export component VideoPanel inherits VerticalLayout {
     property <float> crop-right;
     property <float> crop-bottom;
     property <float> feather;
+    property <float> mask-x;
+    property <float> mask-y;
+    property <float> mask-width;
+    property <float> mask-height;
+    property <float> mask-rotation;
+    property <float> mask-roundness;
+    property <float> mask-feather;
     property <float> smoothness;
     property <float> max-zoom;
+    /// The mask's shape, as the picker orders them: -1 for none.
+    property <int> mask: root.selected.mask;
+    property <[string]> mask-names: [
+        I18n.t("mask.linear"),
+        I18n.t("mask.mirror"),
+        I18n.t("mask.circle"),
+        I18n.t("mask.rectangle"),
+        I18n.t("mask.heart"),
+        I18n.t("mask.star")
+    ];
 
     function seed() {
         root.feather = root.selected.cutout-feather;
         root.smoothness = root.selected.stabilize-smoothness;
         root.max-zoom = root.selected.stabilize-max-zoom;
+        root.mask-x = root.selected.mask-x;
+        root.mask-y = root.selected.mask-y;
+        root.mask-width = root.selected.mask-width;
+        root.mask-height = root.selected.mask-height;
+        root.mask-rotation = root.selected.mask-rotation;
+        root.mask-roundness = root.selected.mask-roundness;
+        root.mask-feather = root.selected.mask-feather;
         root.scale = root.selected.scale;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
@@ -1607,6 +1631,182 @@ export component VideoPanel inherits VerticalLayout {
                         root.commit();
                     }
                 }
+            }
+        }
+    }
+
+    // The mask: a shape that keeps part of the picture, CapCut's Mask.
+    // The row of shapes picks one - the first, None, takes it off - and
+    // the numbers below place, size, turn and soften it, each keyable.
+    // Drawn on the picture as it is seen, so it moves with the clip; the
+    // monitor shows its outline with grips to drag while this is open.
+    if root.selected.kind == ClipKind.video || root.selected.kind == ClipKind.image: Section {
+        mask-header := SectionHeader {
+            title: I18n.t("mask.title");
+            collapsible: true;
+            summary: root.mask < 0 ? I18n.t("common.none")
+                : root.mask-names[Math.min(root.mask, root.mask-names.length - 1)]
+                    + (root.selected.mask-invert ? " · " + I18n.t("mask.invert") : "");
+        }
+
+        if mask-header.open: SectionBody {
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 4px;
+                ToolButton {
+                    glyph: Glyph.close;
+                    label: I18n.t("common.none");
+                    checked: root.mask < 0;
+                    clicked => { root.set(ClipField.mask-shape, -1); root.commit(); }
+                }
+                ToolButton {
+                    glyph: Glyph.mask-linear;
+                    label: root.mask-names[0];
+                    checked: root.mask == 0;
+                    clicked => { root.set(ClipField.mask-shape, 0); root.commit(); }
+                }
+                ToolButton {
+                    glyph: Glyph.mask-mirror;
+                    label: root.mask-names[1];
+                    checked: root.mask == 1;
+                    clicked => { root.set(ClipField.mask-shape, 1); root.commit(); }
+                }
+                ToolButton {
+                    glyph: Glyph.mask-circle;
+                    label: root.mask-names[2];
+                    checked: root.mask == 2;
+                    clicked => { root.set(ClipField.mask-shape, 2); root.commit(); }
+                }
+                ToolButton {
+                    glyph: Glyph.mask-rectangle;
+                    label: root.mask-names[3];
+                    checked: root.mask == 3;
+                    clicked => { root.set(ClipField.mask-shape, 3); root.commit(); }
+                }
+                ToolButton {
+                    glyph: Glyph.mask-heart;
+                    label: root.mask-names[4];
+                    checked: root.mask == 4;
+                    clicked => { root.set(ClipField.mask-shape, 4); root.commit(); }
+                }
+                ToolButton {
+                    glyph: Glyph.mask-star;
+                    label: root.mask-names[5];
+                    checked: root.mask == 5;
+                    clicked => { root.set(ClipField.mask-shape, 5); root.commit(); }
+                }
+            }
+
+            if root.mask >= 0: SwitchRow {
+                label: I18n.t("mask.invert");
+                checked: root.selected.mask-invert;
+                toggled(on) => { root.set(ClipField.mask-invert, on ? 1 : 0); root.commit(); }
+            }
+
+            if root.mask >= 0: Param {
+                label: I18n.t("common.positionX");
+                keyable: true;
+                field: ClipField.mask-x;
+                value <=> root.mask-x;
+                minimum: -1;
+                maximum: 1;
+                step: 0.005;
+                default-value: 0;
+                fmt: ParamFormat.centred;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-x, v); root.commit(); }
+            }
+
+            if root.mask >= 0: Param {
+                label: I18n.t("common.positionY");
+                keyable: true;
+                field: ClipField.mask-y;
+                value <=> root.mask-y;
+                minimum: -1;
+                maximum: 1;
+                step: 0.005;
+                default-value: 0;
+                fmt: ParamFormat.centred;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-y, v); root.commit(); }
+            }
+
+            // A line has no size, and a mirror only its thickness.
+            if root.mask >= 2: Param {
+                label: I18n.t("common.width");
+                keyable: true;
+                field: ClipField.mask-width;
+                value <=> root.mask-width;
+                minimum: 0.01;
+                maximum: 4;
+                step: 0.01;
+                default-value: 0.66;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-width, v); root.commit(); }
+            }
+
+            if root.mask >= 1: Param {
+                label: root.mask == 1 ? I18n.t("mask.thickness") : I18n.t("common.height");
+                keyable: true;
+                field: ClipField.mask-height;
+                value <=> root.mask-height;
+                minimum: 0.01;
+                maximum: 4;
+                step: 0.01;
+                default-value: root.mask == 1 ? 0.33 : 0.66;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-height, v); root.commit(); }
+            }
+
+            if root.mask >= 0: Param {
+                label: I18n.t("common.rotation");
+                keyable: true;
+                field: ClipField.mask-rotation;
+                value <=> root.mask-rotation;
+                minimum: -180;
+                maximum: 180;
+                step: 1;
+                default-value: 0;
+                fmt: ParamFormat.degrees;
+                unit: "°";
+                changed(v) => { root.set(ClipField.mask-rotation, v); root.commit(); }
+            }
+
+            if root.mask == 3: Param {
+                label: I18n.t("mask.roundness");
+                keyable: true;
+                field: ClipField.mask-roundness;
+                value <=> root.mask-roundness;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 0;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-roundness, v); root.commit(); }
+            }
+
+            if root.mask >= 0: Param {
+                label: I18n.t("clipInspector.feather");
+                keyable: true;
+                field: ClipField.mask-feather;
+                value <=> root.mask-feather;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 0;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-feather, v); root.commit(); }
             }
         }
     }

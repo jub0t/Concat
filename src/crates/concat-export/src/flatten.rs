@@ -142,6 +142,9 @@ pub fn flatten_timeline_in(
                     .background_on(clip, lane)
                     .and_then(|background| backdrop_of(project, background)),
                 cutout: clip.cutout.clone(),
+                // Pictures only: a mask on a clip that is all sound would
+                // keep part of nothing.
+                mask: clip.mask.filter(|_| kind != ClipKind::Audio),
                 mask_dir: match (&clip.cutout, project_dir) {
                     (Some(cutout), Some(dir)) => {
                         concat_vision::mask_dir(dir, &media.path, cutout.subject)
@@ -213,6 +216,9 @@ pub fn export_base(clip: &concat_project::model::Clip, property: KeyProperty) ->
         // A factor's neutral is one; an addition's is zero.
         KeyProperty::Scale | KeyProperty::Opacity | KeyProperty::Volume => 1.0,
         KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => 0.0,
+        // The mask travels whole, as `ExportClip::mask`, and its keys
+        // replace its numbers; it never asks for a base.
+        mask => clip.constant(mask),
     }
 }
 
@@ -346,6 +352,63 @@ mod tests {
             .expect("applies effect");
         let flat = flatten_timeline(editor.project(), None);
         assert_eq!(flat[0].effects, vec![AppliedFilter::new("concat.mono")]);
+    }
+
+    /// A clip's mask and its keys reach the engine's clip, which plans
+    /// the monitor's frames and the export's alike: one path, so the two
+    /// cannot draw different masks.
+    #[test]
+    fn a_mask_and_its_keys_reach_the_engine() {
+        use concat_core::time::Rational;
+        use concat_project::model::{ClipMask, KeyEase, MaskShape};
+        let (mut editor, _, clip_id) = project_with_clip();
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    mask: Some(Some(ClipMask {
+                        feather: 0.2,
+                        ..ClipMask::of(MaskShape::Heart)
+                    })),
+                    ..Default::default()
+                },
+            })
+            .expect("masks");
+        for (at, value) in [(0.0, -0.2), (1.0, 0.2)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: clip_id.clone(),
+                    property: KeyProperty::MaskX,
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        let flat = flatten_timeline(editor.project(), None);
+        let mask = flat[0].mask.expect("the mask rides along");
+        assert_eq!(mask.shape, MaskShape::Heart);
+        assert!(flat[0].animation.iter().any(|key| key.property == "maskX"));
+
+        let mut clip = concat_core::timeline::Clip::new(
+            concat_core::timeline::MediaRef::new("a.mp4"),
+            Rational::ZERO,
+            Rational::from_int(10),
+        );
+        clip.mask = Some(mask.engine());
+        clip.animation = crate::resolve::animation_of(&flat[0].animation);
+        let start = clip.mask_at(Rational::ZERO).expect("a mask");
+        let middle = clip.mask_at(Rational::from_int(5)).expect("a mask");
+        assert!((start.x + 0.2).abs() < 1e-12);
+        assert!(middle.x.abs() < 1e-12);
+        assert_eq!(middle.shape, concat_core::mask::MaskShape::Heart);
+        assert!((middle.feather - 0.2).abs() < 1e-12);
+        // The placement is untouched by the mask's keys.
+        assert!(
+            clip.animation
+                .as_ref()
+                .is_some_and(|a| a.offset_x.is_empty())
+        );
     }
 
     #[test]

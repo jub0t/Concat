@@ -183,6 +183,13 @@ export enum ClipField {
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
     audio-track,
+    /// the mask: its shape as a place in the picker, below zero for none;
+    /// whether it keeps the outside; and its numbers, each keyable - the
+    /// centre as fractions of the picture from its middle, the box in the
+    /// picture's shorter side, the turn in degrees, the corners' roundness
+    /// and the edge's softness 0..1
+    mask-shape, mask-invert,
+    mask-x, mask-y, mask-width, mask-height, mask-rotation, mask-roundness, mask-feather,
 }
 
 /// One keyable property's state at the playhead, as the inspector needs it.
@@ -237,11 +244,11 @@ export global Keyframes {
         return { field: field, keyed: false, here: false, prev: false, next: false };
     }
 
-    /// This field's row. Slint has no lookup and the list is six long, so
-    /// the order Rust publishes them in *is* the index; `blank` covers the
-    /// moment before the first publish.
+    /// This field's row. Slint has no lookup and the list is thirteen
+    /// long, so the order Rust publishes them in *is* the index; `blank`
+    /// covers the moment before the first publish.
     pure public function row(field: ClipField) -> ClipKeyData {
-        if (Keyframes.rows.length < 6) {
+        if (Keyframes.rows.length < 13) {
             return Keyframes.blank(field);
         }
         return field == ClipField.scale ? Keyframes.rows[0]
@@ -250,6 +257,13 @@ export global Keyframes {
             : field == ClipField.rotation ? Keyframes.rows[3]
             : field == ClipField.opacity ? Keyframes.rows[4]
             : field == ClipField.volume ? Keyframes.rows[5]
+            : field == ClipField.mask-x ? Keyframes.rows[6]
+            : field == ClipField.mask-y ? Keyframes.rows[7]
+            : field == ClipField.mask-width ? Keyframes.rows[8]
+            : field == ClipField.mask-height ? Keyframes.rows[9]
+            : field == ClipField.mask-rotation ? Keyframes.rows[10]
+            : field == ClipField.mask-roundness ? Keyframes.rows[11]
+            : field == ClipField.mask-feather ? Keyframes.rows[12]
             : Keyframes.blank(field);
     }
 }
@@ -374,6 +388,18 @@ export struct SelectedClipData {
     crop-top: float,
     crop-right: float,
     crop-bottom: float,
+    /// the mask: its shape as a place in the picker (linear, mirror,
+    /// circle, rectangle, heart, star), -1 for none; whether it is
+    /// inverted; and its numbers at the playhead - see ClipField.mask-x
+    mask: int,
+    mask-invert: bool,
+    mask-x: float,
+    mask-y: float,
+    mask-width: float,
+    mask-height: float,
+    mask-rotation: float,
+    mask-roundness: float,
+    mask-feather: float,
     fade-in: float,
     fade-out: float,
 
@@ -514,6 +540,25 @@ export struct StageItemData {
     rotation: float,
     /// The clip's scale, for the readout under the box.
     scale: float,
+    /// The selected clip's mask, when it has one and is the only one
+    /// selected: its shape as a place in the picker (-1 for none), its
+    /// outline as path commands on a thousand-unit box over the frame, and
+    /// its grips' centres in fractions of the frame - the middle, the
+    /// width's, the height's, the corner's, the turn's and the feather's.
+    mask: int,
+    mask-path: string,
+    mask-cx: float,
+    mask-cy: float,
+    mask-wx: float,
+    mask-wy: float,
+    mask-hx: float,
+    mask-hy: float,
+    mask-kx: float,
+    mask-ky: float,
+    mask-rx: float,
+    mask-ry: float,
+    mask-fx: float,
+    mask-fy: float,
 }
 
 /// One snap guide across the stage while a picture is dragged: the line the

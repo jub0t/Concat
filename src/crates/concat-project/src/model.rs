@@ -806,9 +806,210 @@ pub fn framing_scale(
     Some(scale.clamp(ranges::MIN_SCALE, ranges::MAX_SCALE))
 }
 
+/// Which shape a clip's mask keeps. The names are written into project
+/// files, so they are stable for ever.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MaskShape {
+    /// The part of the picture on one side of a line through the centre.
+    Linear,
+    /// A band along a line through the centre: the line mirrored.
+    Mirror,
+    /// An ellipse; a circle when its box is square. The default, and what
+    /// the reader falls back to.
+    #[default]
+    Circle,
+    /// A box, its corners rounded by the mask's `roundness`.
+    Rectangle,
+    /// A heart, point down.
+    Heart,
+    /// A five-pointed star, point up.
+    Star,
+}
+
+impl MaskShape {
+    /// Every shape, in the order the pickers list them.
+    pub const ALL: [MaskShape; 6] = [
+        MaskShape::Linear,
+        MaskShape::Mirror,
+        MaskShape::Circle,
+        MaskShape::Rectangle,
+        MaskShape::Heart,
+        MaskShape::Star,
+    ];
+
+    /// The engine's shape.
+    pub fn engine(self) -> concat_core::mask::MaskShape {
+        use concat_core::mask::MaskShape as Engine;
+        match self {
+            MaskShape::Linear => Engine::Linear,
+            MaskShape::Mirror => Engine::Mirror,
+            MaskShape::Circle => Engine::Circle,
+            MaskShape::Rectangle => Engine::Rectangle,
+            MaskShape::Heart => Engine::Heart,
+            MaskShape::Star => Engine::Star,
+        }
+    }
+}
+
+/// A shape that keeps part of a clip's picture: CapCut's Mask. Drawn over
+/// the picture as it is seen - after the crop and the flips, before the
+/// placement - so it moves, scales and turns with the clip, and multiplies
+/// with the cutout's matte and everything else that weighs the picture.
+///
+/// Its numbers other than the shape and the invert can be keyed, as the
+/// placement's can (`KeyProperty::MaskX` and on); a keyed number's keys
+/// replace the constant here.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClipMask {
+    /// What it keeps.
+    #[serde(deserialize_with = "wire::mask_shape")]
+    pub shape: MaskShape,
+    /// The centre's offset from the picture's centre, as a fraction of the
+    /// picture's width; positive is right.
+    pub x: f64,
+    /// The same down the picture's height; positive is down.
+    pub y: f64,
+    /// The box's width, as a fraction of the picture's shorter side - the
+    /// unit that keeps a circle round on any aspect.
+    pub width: f64,
+    /// The box's height, on the same terms; a mirror's thickness.
+    pub height: f64,
+    /// Clockwise degrees about the mask's centre.
+    pub rotation: f64,
+    /// How round a rectangle's corners are, `0..=1`.
+    pub roundness: f64,
+    /// How soft the edge is, `0..=1`: one fades across half the picture's
+    /// shorter side.
+    pub feather: f64,
+    /// Keeps the outside of the shape instead of the inside.
+    #[serde(skip_serializing_if = "is_false")]
+    pub invert: bool,
+}
+
+impl Default for ClipMask {
+    fn default() -> Self {
+        ClipMask::of(MaskShape::Circle)
+    }
+}
+
+impl ClipMask {
+    /// The smallest a mask's box may be, each way.
+    pub const MIN_SIZE: f64 = 0.01;
+    /// The largest, each way: four times the shorter side covers the
+    /// longest side of any picture a person would mask.
+    pub const MAX_SIZE: f64 = 4.0;
+    /// How far off the picture's centre a mask may be moved, in its sides.
+    pub const MAX_OFFSET: f64 = 2.0;
+
+    /// A mask of `shape` at the size and place a new one starts from: in
+    /// the middle, two thirds of the shorter side across - a band a third
+    /// thick, a rectangle a little wider than tall.
+    pub fn of(shape: MaskShape) -> ClipMask {
+        let (width, height) = match shape {
+            MaskShape::Linear => (1.0, 1.0),
+            MaskShape::Mirror => (1.0, 0.33),
+            MaskShape::Rectangle => (0.8, 0.5),
+            MaskShape::Circle | MaskShape::Heart | MaskShape::Star => (0.66, 0.66),
+        };
+        ClipMask {
+            shape,
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+            rotation: 0.0,
+            roundness: 0.0,
+            feather: 0.0,
+            invert: false,
+        }
+    }
+
+    /// A number held to the range its field may hold; see [`Self::tidy`].
+    /// What a key on that number is held to as well.
+    pub fn clamp(property: KeyProperty, value: f64) -> f64 {
+        match property {
+            KeyProperty::MaskX | KeyProperty::MaskY => {
+                value.clamp(-Self::MAX_OFFSET, Self::MAX_OFFSET)
+            }
+            KeyProperty::MaskWidth | KeyProperty::MaskHeight => {
+                value.clamp(Self::MIN_SIZE, Self::MAX_SIZE)
+            }
+            KeyProperty::MaskRoundness | KeyProperty::MaskFeather => value.clamp(0.0, 1.0),
+            // A turn is a turn however many times round; a key past one is
+            // a spin, so neither is wrapped.
+            _ => value,
+        }
+    }
+
+    /// The number a keyable property names, or None for a property that
+    /// is not the mask's.
+    pub fn get(&self, property: KeyProperty) -> Option<f64> {
+        Some(match property {
+            KeyProperty::MaskX => self.x,
+            KeyProperty::MaskY => self.y,
+            KeyProperty::MaskWidth => self.width,
+            KeyProperty::MaskHeight => self.height,
+            KeyProperty::MaskRotation => self.rotation,
+            KeyProperty::MaskRoundness => self.roundness,
+            KeyProperty::MaskFeather => self.feather,
+            _ => return None,
+        })
+    }
+
+    /// Sets the number a keyable property names, held to its range. A
+    /// property that is not the mask's changes nothing.
+    pub fn set(&mut self, property: KeyProperty, value: f64) {
+        if !value.is_finite() {
+            return;
+        }
+        let value = Self::clamp(property, value);
+        match property {
+            KeyProperty::MaskX => self.x = value,
+            KeyProperty::MaskY => self.y = value,
+            KeyProperty::MaskWidth => self.width = value,
+            KeyProperty::MaskHeight => self.height = value,
+            KeyProperty::MaskRotation => self.rotation = value,
+            KeyProperty::MaskRoundness => self.roundness = value,
+            KeyProperty::MaskFeather => self.feather = value,
+            _ => {}
+        }
+    }
+
+    /// Every number back in its range, a number that is not one replaced
+    /// by a new mask's.
+    pub fn tidy(self) -> ClipMask {
+        let fresh = ClipMask::of(self.shape);
+        let mut out = self;
+        for property in KeyProperty::MASK {
+            let value = self.get(property).filter(|value| value.is_finite());
+            let value = value.or_else(|| fresh.get(property)).unwrap_or(0.0);
+            out.set(property, value);
+        }
+        out
+    }
+
+    /// The engine's mask with these numbers.
+    pub fn engine(&self) -> concat_core::mask::ShapeMask {
+        concat_core::mask::ShapeMask {
+            shape: self.shape.engine(),
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+            rotation: self.rotation,
+            roundness: self.roundness,
+            feather: self.feather,
+            invert: self.invert,
+        }
+    }
+}
+
 /// Which property a user-set key belongs to.
 ///
-/// Five of the six are the picture's; the sixth is the mix's. They are one
+/// Five of the first six are the picture's placement and the sixth is the
+/// mix's; the seven after them are the mask's numbers. They are one
 /// enum because a key is a key - the panel that sets them, the commands that
 /// carry them and the document that stores them do not care which side of
 /// the clip a value ends up on, and only the thing that finally reads them
@@ -828,6 +1029,20 @@ pub enum KeyProperty {
     Opacity,
     /// `Clip::volume`.
     Volume,
+    /// `ClipMask::x`.
+    MaskX,
+    /// `ClipMask::y`.
+    MaskY,
+    /// `ClipMask::width`.
+    MaskWidth,
+    /// `ClipMask::height`.
+    MaskHeight,
+    /// `ClipMask::rotation`.
+    MaskRotation,
+    /// `ClipMask::roundness`.
+    MaskRoundness,
+    /// `ClipMask::feather`.
+    MaskFeather,
 }
 
 impl KeyProperty {
@@ -841,6 +1056,13 @@ impl KeyProperty {
             KeyProperty::Rotation => "rotation",
             KeyProperty::Opacity => "opacity",
             KeyProperty::Volume => "volume",
+            KeyProperty::MaskX => "maskX",
+            KeyProperty::MaskY => "maskY",
+            KeyProperty::MaskWidth => "maskWidth",
+            KeyProperty::MaskHeight => "maskHeight",
+            KeyProperty::MaskRotation => "maskRotation",
+            KeyProperty::MaskRoundness => "maskRoundness",
+            KeyProperty::MaskFeather => "maskFeather",
         }
     }
 
@@ -853,19 +1075,49 @@ impl KeyProperty {
             "rotation" => KeyProperty::Rotation,
             "opacity" => KeyProperty::Opacity,
             "volume" => KeyProperty::Volume,
+            "maskX" => KeyProperty::MaskX,
+            "maskY" => KeyProperty::MaskY,
+            "maskWidth" => KeyProperty::MaskWidth,
+            "maskHeight" => KeyProperty::MaskHeight,
+            "maskRotation" => KeyProperty::MaskRotation,
+            "maskRoundness" => KeyProperty::MaskRoundness,
+            "maskFeather" => KeyProperty::MaskFeather,
             _ => return None,
         })
     }
 
     /// Every property that can be keyed, in the order a panel lists them.
-    pub const ALL: [KeyProperty; 6] = [
+    pub const ALL: [KeyProperty; 13] = [
         KeyProperty::Scale,
         KeyProperty::OffsetX,
         KeyProperty::OffsetY,
         KeyProperty::Rotation,
         KeyProperty::Opacity,
         KeyProperty::Volume,
+        KeyProperty::MaskX,
+        KeyProperty::MaskY,
+        KeyProperty::MaskWidth,
+        KeyProperty::MaskHeight,
+        KeyProperty::MaskRotation,
+        KeyProperty::MaskRoundness,
+        KeyProperty::MaskFeather,
     ];
+
+    /// The mask's numbers: the properties a clip's mask carries.
+    pub const MASK: [KeyProperty; 7] = [
+        KeyProperty::MaskX,
+        KeyProperty::MaskY,
+        KeyProperty::MaskWidth,
+        KeyProperty::MaskHeight,
+        KeyProperty::MaskRotation,
+        KeyProperty::MaskRoundness,
+        KeyProperty::MaskFeather,
+    ];
+
+    /// Whether this is one of the mask's numbers.
+    pub fn is_mask(self) -> bool {
+        KeyProperty::MASK.contains(&self)
+    }
 }
 
 /// How a key is approached from the one before it: a CSS timing function's
@@ -1305,7 +1557,9 @@ pub(crate) mod wire {
     use serde::{Deserialize, Deserializer};
     use serde_json::Value;
 
-    use super::{Background, ClipKind, ColorSpace, MediaKind, ParamKey, ShapeKind, TextAlign};
+    use super::{
+        Background, ClipKind, ColorSpace, MaskShape, MediaKind, ParamKey, ShapeKind, TextAlign,
+    };
 
     /// The entries of a list that parse, in order; not a list at all is
     /// an empty one.
@@ -1405,6 +1659,12 @@ pub(crate) mod wire {
 
     /// A shape by name, a square for one this build does not know.
     pub fn shape_kind<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ShapeKind, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value(value).unwrap_or_default())
+    }
+
+    /// A mask's shape, or a circle for one this build does not know.
+    pub fn mask_shape<'de, D: Deserializer<'de>>(deserializer: D) -> Result<MaskShape, D::Error> {
         let value = Value::deserialize(deserializer)?;
         Ok(serde_json::from_value(value).unwrap_or_default())
     }
@@ -1534,6 +1794,10 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub cutout: Option<Cutout>,
+    /// The shape that keeps part of the picture; see [`ClipMask`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub mask: Option<ClipMask>,
     /// The camera's shake taken out; see [`Stabilize`]. None is off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
@@ -1675,6 +1939,7 @@ impl Clip {
             blend: String::new(),
             crop: None,
             cutout: None,
+            mask: None,
             stabilize: None,
             filters: Vec::new(),
             video_effects: Vec::new(),
@@ -1732,6 +1997,7 @@ impl Clip {
             .map(Crop::tidy)
             .filter(|crop| !crop.is_none());
         self.cutout = self.cutout.take().map(Cutout::tidy);
+        self.mask = self.mask.take().map(ClipMask::tidy);
         self.stabilize = self.stabilize.take().map(Stabilize::tidy);
         if let Some(transition) = self.transition_in.as_mut() {
             transition.duration = finite(transition.duration, 1.0).max(MIN_TRANSITION);
@@ -1750,6 +2016,7 @@ impl Clip {
                     key.value.clamp(-MAX_OFFSET, MAX_OFFSET)
                 }
                 KeyProperty::Rotation => key.value,
+                mask => ClipMask::clamp(mask, key.value),
             };
         }
         self.sort_keys();
@@ -1777,6 +2044,13 @@ impl Clip {
             KeyProperty::Rotation => self.rotation,
             KeyProperty::Opacity => self.opacity,
             KeyProperty::Volume => self.volume,
+            // A clip with no mask answers with a new one's numbers, so a
+            // panel opening on it shows what the first shape will start at.
+            mask => self
+                .mask
+                .unwrap_or_default()
+                .get(mask)
+                .unwrap_or_default(),
         }
     }
 
@@ -1834,6 +2108,9 @@ impl Clip {
             KeyProperty::Rotation => self.rotation = value,
             KeyProperty::Opacity => self.opacity = value,
             KeyProperty::Volume => self.volume = value,
+            // The mask's numbers are the mask's; a number written on a
+            // clip with none puts one on, the shape a new one starts as.
+            mask => self.mask.get_or_insert_with(ClipMask::default).set(mask, value),
         }
     }
 

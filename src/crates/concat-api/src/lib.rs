@@ -1214,6 +1214,50 @@ mod tests {
         assert_eq!(recents[0].name, "Round trip");
     }
 
+    /// A clip's mask over the wire, as a caller writes it: put on through
+    /// `updateClip`'s patch, its numbers keyed through `setClipKey`, and
+    /// read back in the project the reply carries (#239).
+    #[test]
+    fn a_mask_is_set_and_keyed_through_the_api() {
+        let (mut api, scratch, _) = api();
+        let path = project(&mut api, &scratch, "Masked");
+        let added = view(ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddMedia {
+                item: still("/nowhere/still.png"),
+            }),
+        })));
+        let placed = view(ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddClipAtFirstFree {
+                media_id: added.created_id.expect("minted"),
+                start: 0.0,
+            }),
+        })));
+        let clip_id = placed.project.active().clips[0].id.clone();
+        for command in [
+            json!({ "op": "updateClip", "clipId": clip_id,
+                    "patch": { "mask": { "shape": "star", "feather": 0.3, "invert": true } } }),
+            json!({ "op": "setClipKey", "clipId": clip_id, "property": "maskWidth",
+                    "at": 0.0, "value": 0.2 }),
+            json!({ "op": "setClipKey", "clipId": clip_id, "property": "maskWidth",
+                    "at": 1.0, "value": 1.2 }),
+        ] {
+            let request: Request = serde_json::from_value(json!({
+                "method": "edit.apply", "path": path, "command": command
+            }))
+            .expect("parses");
+            ok(api.dispatch(request));
+        }
+        let got = view(ok(api.dispatch(Request::ProjectGet { path })));
+        let clip = &got.project.active().clips[0];
+        let mask = clip.mask.expect("a mask");
+        assert_eq!(mask.shape, concat_project::model::MaskShape::Star);
+        assert!(mask.invert && (mask.feather - 0.3).abs() < 1e-12);
+        let width = clip.value_at(concat_project::model::KeyProperty::MaskWidth, 0.5);
+        assert!((width - 0.7).abs() < 1e-12, "the key rides: {width}");
+    }
+
     #[test]
     fn a_refusal_is_the_command_layers_sentence_with_its_code() {
         let (mut api, scratch, _) = api();

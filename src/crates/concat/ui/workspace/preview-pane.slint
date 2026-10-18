@@ -461,6 +461,109 @@ component StageItem inherits Rectangle {
     }
 }
 
+/// The selected clip's mask over it: the shape's outline, traced in Rust
+/// from the distance the compositor draws, and its grips - the middle to
+/// move it, the right edge for its width, the bottom for its height, the
+/// corner for both, the round handle below to turn it and the one above,
+/// at the feather's outer edge, to soften it. Numbered from 20, after the
+/// clip's own grips; see `masking::MaskGrip`.
+component MaskItem inherits Rectangle {
+    in property <StageItemData> item;
+
+    callback grip-pressed(grip: int, x: float, y: float);
+    callback dragged(x: float, y: float, snap: bool);
+    callback released();
+
+    background: transparent;
+
+    // A dark line under a light one, so the outline reads over any picture.
+    Path {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        commands: root.item.mask-path;
+        stroke: Theme.stage;
+        stroke-width: 3px;
+    }
+    Path {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        commands: root.item.mask-path;
+        stroke: #ffffff;
+        stroke-width: 1.25px;
+    }
+
+    Grip {
+        turn: true;
+        at-x: root.item.mask-cx * root.width;
+        at-y: root.item.mask-cy * root.height;
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.move;
+        pressed(x, y) => { root.grip-pressed(20, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    // A line has no width and no height; a band only its thickness.
+    if root.item.mask >= 2: Grip {
+        at-x: root.item.mask-wx * root.width;
+        at-y: root.item.mask-wy * root.height;
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.ew-resize;
+        pressed(x, y) => { root.grip-pressed(21, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    if root.item.mask >= 1: Grip {
+        at-x: root.item.mask-hx * root.width;
+        at-y: root.item.mask-hy * root.height;
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.ns-resize;
+        pressed(x, y) => { root.grip-pressed(22, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    if root.item.mask >= 2: Grip {
+        at-x: root.item.mask-kx * root.width;
+        at-y: root.item.mask-ky * root.height;
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.nwse-resize;
+        pressed(x, y) => { root.grip-pressed(23, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    Grip {
+        turn: true;
+        at-x: root.item.mask-rx * root.width;
+        at-y: root.item.mask-ry * root.height;
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.grab;
+        pressed(x, y) => { root.grip-pressed(24, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    // The feather's handle: a hollow ring, unlike the others.
+    feather := Grip {
+        turn: true;
+        at-x: root.item.mask-fx * root.width;
+        at-y: root.item.mask-fy * root.height;
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.ns-resize;
+        background: transparent;
+        border-width: 2px;
+        border-color: Theme.accent;
+        pressed(x, y) => { root.grip-pressed(25, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+}
+
 /// One snap line, dashed by hand: Slint's Path strokes have no dash pattern,
 /// so the line is a run of short rectangles along the axis it marks. Thin and
 /// in the accent, the same as the box it is guiding.
@@ -601,6 +704,17 @@ component StageOverlay inherits Rectangle {
         width: root.width;
         height: root.height;
         if entry.selected: StageItem {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            item: entry;
+            grip-pressed(grip, x, y) => { root.grip-pressed(entry.id, grip, x, y); }
+            dragged(x, y, snap) => { root.dragged(x, y, snap); }
+            released => { root.released(); }
+        }
+        // Over the clip's own box, so a mask grip on its edge wins.
+        if entry.selected && entry.mask >= 0 && !root.painting: MaskItem {
             x: 0;
             y: 0;
             width: parent.width;

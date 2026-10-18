@@ -15,6 +15,7 @@
 use std::borrow::Cow;
 
 use concat_core::frame::{BYTES_PER_PIXEL, Frame};
+use concat_core::mask::{self, MaskUniform};
 use concat_core::shader::{ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
@@ -96,6 +97,7 @@ fn draw(output: &mut Frame, plan: &FramePlan, layer: &PlannedLayer) {
     let weigh = Weighing {
         shading: layer.shading(),
         mask: layer.mask.as_deref(),
+        shape: layer.shape_uniform(&geometry),
         opacity,
         blend: layer.blend,
     };
@@ -134,6 +136,7 @@ fn prepare(source: &Frame, geometry: &Geometry, flip_h: bool, flip_v: bool) -> F
 struct Weighing<'a> {
     shading: Shading,
     mask: Option<&'a Frame>,
+    shape: MaskUniform,
     opacity: f32,
     blend: Blend,
 }
@@ -154,6 +157,7 @@ impl Weighing<'_> {
             );
             alpha *= sample_bilinear(mask, mx, my)[3] / 255.0;
         }
+        alpha *= mask::coverage(&self.shape, u, v);
         if alpha <= 0.0 {
             return;
         }

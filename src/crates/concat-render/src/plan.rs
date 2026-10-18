@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use concat_core::frame::{Frame, Signal};
+use concat_core::mask::{MaskUniform, ShapeMask};
 use concat_core::shader::ShaderPass;
 use concat_core::time::Rational;
 use concat_core::timeline::{Blend, ClipId, Timeline, TrackKind, Transform};
@@ -282,6 +283,11 @@ pub struct PlannedLayer {
     /// picture whatever its own size: what a cutout leaves. `None` keeps
     /// the picture whole.
     pub mask: Option<Arc<Frame>>,
+    /// The clip's shape mask at this frame: a circle, a band, a heart that
+    /// keeps part of the picture, drawn analytically over it and multiplied
+    /// with `mask`, the crop and everything else that weighs the picture.
+    /// `None` keeps it whole.
+    pub shape: Option<ShapeMask>,
     /// What the cuts at either end do to the picture at this frame.
     pub transitions: Vec<Transition>,
     /// How the layer's colour meets what is beneath it.
@@ -311,6 +317,7 @@ impl PlannedLayer {
             transform: Transform::default(),
             effects: Vec::new(),
             mask: None,
+            shape: None,
             transitions: Vec::new(),
             blend: Blend::Normal,
             opacity: 1.0,
@@ -326,6 +333,21 @@ impl PlannedLayer {
         } else {
             0.0
         }
+    }
+
+    /// The shape mask packed for the compositor, over the placement
+    /// `geometry` gives: the picture's fitted size for its aspect, and one
+    /// output pixel in its shorter side as the narrowest edge. The one
+    /// place both compositors get it from, so the two cannot differ on it.
+    pub fn shape_uniform(&self, geometry: &Geometry) -> MaskUniform {
+        let Some(shape) = &self.shape else {
+            return MaskUniform::NONE;
+        };
+        let (width, height) = (geometry.fitted.0 as f32, geometry.fitted.1 as f32);
+        let (scale_x, scale_y) = geometry.scale;
+        // One output pixel, in the picture's shorter side as it is drawn.
+        let shown = (width * scale_x).min(height * scale_y).max(1.0);
+        shape.uniform(width, height, 1.0 / shown)
     }
 
     /// The transitions folded; see [`Shading`].
@@ -383,6 +405,7 @@ impl PlannedLayer {
             || self.weight() < 1.0
             || !self.effects.is_empty()
             || self.mask.is_some()
+            || self.shape.is_some()
             || !self.transitions.is_empty()
             || self.blend != Blend::Normal
         {
@@ -428,6 +451,9 @@ impl PlannedLayer {
         let mut layer = PlannedLayer {
             transform: Transform::default(),
             mask: None,
+            // The picture's shape mask is the picture's: the background
+            // fills the frame behind it, and shows where the mask cuts.
+            shape: None,
             blend: Blend::Normal,
             ..self.clone()
         };
@@ -796,6 +822,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
             transform: clip.transform_at(time),
             effects: Vec::new(),
             mask: None,
+            shape: clip.mask_at(time),
             transitions: Vec::new(),
             blend: clip.blend,
             // The fade ramp multiplies in here, so the compositor only ever
