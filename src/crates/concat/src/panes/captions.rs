@@ -104,8 +104,13 @@ pub struct CaptionsPane {
     pub from_voice: bool,
     /// The clip whose voice is transcribed: one with sound, chosen from the
     /// timeline's. Kept while the switch is off, so turning it back on
-    /// returns to the same clip.
+    /// returns to the same clip. The panel floats over a live editor, so
+    /// a clip with sound selected since is the one shown and run instead;
+    /// see [`Self::subject_clip`].
     pub clip: Option<String>,
+    /// The sole selection when [`Self::clip`] was chosen - opened on, or
+    /// picked from the list - so a later selection can be told from it.
+    chosen_with: Option<String>,
     /// The script's words.
     pub text: String,
     /// Row in the installed transcriber list.
@@ -130,6 +135,9 @@ impl CaptionsPane {
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: CaptionsMsg, studio: &mut Studio) {
         match msg {
+            // A run in progress is shown as it is, however the panel is
+            // asked for again: closing it never stopped the run.
+            CaptionsMsg::Open | CaptionsMsg::OpenOnClip(_) if self.running => self.open = true,
             CaptionsMsg::Open => {
                 let selected = studio.sole_selection();
                 self.open_on(studio, selected, false);
@@ -147,6 +155,7 @@ impl CaptionsPane {
                         .is_some_and(|id| sources.iter().any(|s| &s.id == id))
                 {
                     self.clip = sources.first().map(|source| source.id.clone());
+                    self.chosen_with = studio.sole_selection();
                 }
             }
             CaptionsMsg::SourceChanged(index) => {
@@ -155,6 +164,7 @@ impl CaptionsPane {
                     .and_then(|index| sources(studio).into_iter().nth(index))
                 {
                     self.clip = Some(source.id);
+                    self.chosen_with = studio.sole_selection();
                     self.message.clear();
                 }
             }
@@ -217,7 +227,14 @@ impl CaptionsPane {
                     }
                     // Asked for: the sheet is already on its way down.
                     Err(error) if error.contains("cancel") => self.open = false,
-                    Err(error) => self.message = error,
+                    // Closed while it ran: the panel is not there to say
+                    // it, so the notice does, and the panel too next time.
+                    Err(error) => {
+                        if !self.open {
+                            studio.notify(&error, true);
+                        }
+                        self.message = error;
+                    }
                 }
             }
             // Asked with the studio unborrowed, on a turn of its own; see
@@ -391,12 +408,28 @@ impl CaptionsPane {
             open: true,
             from_voice,
             clip,
+            chosen_with: studio.sole_selection(),
             model,
             placement: 0,
             size: 1,
             timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
+    }
+
+    /// The clip the panel transcribes, and the one its list shows - the
+    /// same answer for both, so it never runs a clip it is not showing.
+    /// The editor stays live under the panel: a clip with sound selected
+    /// since the panel's clip was chosen is the one meant now, and is
+    /// taken. Otherwise the chosen clip while it is still on the timeline
+    /// with sound, and none - nothing to run - when it is not.
+    fn subject_clip(&self, studio: &Studio, sources: &[Source]) -> Option<String> {
+        follow_selection(
+            studio.sole_selection(),
+            self.chosen_with.as_deref(),
+            self.clip.as_deref(),
+            |id| sources.iter().any(|source| source.id == id),
+        )
     }
 
     /// A caption's look, by the sheet's rows: where it sits and its size.
@@ -434,7 +467,12 @@ impl CaptionsPane {
     /// The sheet's clip through the transcriber on a worker, reporting into
     /// the sheet as it goes.
     fn run_sound(&mut self, studio: &mut Studio) {
-        let Some(clip) = self.clip.as_ref().and_then(|id| studio.clip(id)).cloned() else {
+        // The clip the panel shows, and no other: see `subject_clip`.
+        let Some(clip) = self
+            .subject_clip(studio, &sources(studio))
+            .and_then(|id| studio.clip(&id))
+            .cloned()
+        else {
             self.message = t("captions.clipNoLongerTimeline");
             return;
         };
@@ -508,9 +546,8 @@ impl CaptionsPane {
             Vec::new()
         };
         let source = self
-            .clip
-            .as_ref()
-            .and_then(|id| sources.iter().position(|source| &source.id == id))
+            .subject_clip(studio, &sources)
+            .and_then(|id| sources.iter().position(|source| source.id == id))
             .map_or(-1, |index| index as i32);
         let labels: Vec<slint::SharedString> = sources
             .into_iter()
@@ -632,6 +669,23 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
         .map(|n| dir.join(format!("{stem} ({n}){ext}")))
         .find(|path| !path.exists())
         .unwrap_or(first)
+}
+
+/// [`CaptionsPane::subject_clip`] with the studio taken out: `selected`
+/// the sole selection, `chosen_with` the selection when `clip` was chosen,
+/// and `sounds` whether a clip is on the timeline with sound.
+fn follow_selection(
+    selected: Option<String>,
+    chosen_with: Option<&str>,
+    clip: Option<&str>,
+    sounds: impl Fn(&str) -> bool,
+) -> Option<String> {
+    if let Some(selected) = selected.filter(|id| sounds(id))
+        && Some(selected.as_str()) != chosen_with
+    {
+        return Some(selected);
+    }
+    clip.filter(|id| sounds(id)).map(str::to_owned)
 }
 
 /// A clip on the timeline whose voice can be captioned, as the sheet's
@@ -833,6 +887,40 @@ mod tests {
             concat_project::srt::title_cues(editor.project().active(), None).len(),
             2
         );
+    }
+
+    /// The panel floats over a live editor: a clip with sound selected
+    /// since the panel's clip was chosen is the one it shows and runs; a
+    /// pick from its list holds until the selection moves again; and a
+    /// chosen clip gone from the timeline is not run unseen.
+    #[test]
+    fn the_captioned_clip_follows_a_new_selection_of_a_clip_with_sound() {
+        let sounds = |id: &str| ["a", "b", "c"].contains(&id);
+        let follow = |selected: Option<&str>, chosen_with: Option<&str>, clip: Option<&str>| {
+            super::follow_selection(selected.map(str::to_owned), chosen_with, clip, sounds)
+        };
+        // Opened on A, A still selected: A.
+        assert_eq!(
+            follow(Some("a"), Some("a"), Some("a")).as_deref(),
+            Some("a")
+        );
+        // B selected on the timeline since: B.
+        assert_eq!(
+            follow(Some("b"), Some("a"), Some("a")).as_deref(),
+            Some("b")
+        );
+        // C picked from the list with B selected: C, until the selection moves.
+        assert_eq!(
+            follow(Some("b"), Some("b"), Some("c")).as_deref(),
+            Some("c")
+        );
+        // A title selected - no sound - leaves the choice alone.
+        assert_eq!(
+            follow(Some("t"), Some("b"), Some("c")).as_deref(),
+            Some("c")
+        );
+        // The chosen clip deleted: nothing to run, rather than a clip unseen.
+        assert_eq!(follow(None, None, Some("gone")), None);
     }
 
     #[test]

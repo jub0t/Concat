@@ -23,6 +23,12 @@ import { Switch } from "../inspector/controls.slint";
 // the sheet is the progress report: a transcription knows how far through
 // the sound it is, so it gets a real bar and not a sweep. The language is
 // the transcriber's to work out.
+//
+// On a desk it is a card floating over the editor (see Modal.floating): the
+// timeline stays live under it, so the clip it transcribes follows the
+// selection - a clip with sound selected is the one shown and run. Closed,
+// a transcription goes on, and opened again the card shows it. On a phone
+// it is a sheet.
 
 export struct CaptionsSheetData {
     open: bool,
