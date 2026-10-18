@@ -724,6 +724,7 @@
   "voiceover.pause": "Pausa",
   "voiceover.paused": "En pausa",
   "voiceover.permission": "Concat necesita tu permiso para usar el micrófono. Concédelo cuando se te pida y luego pulsa Reintentar.",
+  "voiceover.playheadHeld": "El cabezal se queda con la toma. Detén la toma para moverlo.",
   "voiceover.record": "Grabar",
   "voiceover.recording": "Grabando",
   "voiceover.resume": "Reanudar",

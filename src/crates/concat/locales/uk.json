@@ -724,6 +724,7 @@
   "voiceover.pause": "Пауза",
   "voiceover.paused": "На паузі",
   "voiceover.permission": "Concat потрібен ваш дозвіл на використання мікрофона. Дозвольте, коли з'явиться запит, а потім натисніть «Спробувати ще раз».",
+  "voiceover.playheadHeld": "Курсор відтворення лишається з дублем. Зупиніть дубль, щоб його посунути.",
   "voiceover.record": "Записати",
   "voiceover.recording": "Іде запис",
   "voiceover.resume": "Продовжити",

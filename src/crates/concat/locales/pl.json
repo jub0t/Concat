@@ -724,6 +724,7 @@
   "voiceover.pause": "Wstrzymaj",
   "voiceover.paused": "Wstrzymano",
   "voiceover.permission": "Concat potrzebuje twojej zgody na użycie mikrofonu. Zezwól, gdy pojawi się pytanie, a potem naciśnij Spróbuj ponownie.",
+  "voiceover.playheadHeld": "Głowica odtwarzania pozostaje przy nagraniu. Zatrzymaj nagranie, aby ją przesunąć.",
   "voiceover.record": "Nagrywaj",
   "voiceover.recording": "Nagrywanie",
   "voiceover.resume": "Wznów",

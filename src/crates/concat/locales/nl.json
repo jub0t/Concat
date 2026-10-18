@@ -724,6 +724,7 @@
   "voiceover.pause": "Pauzeren",
   "voiceover.paused": "Gepauzeerd",
   "voiceover.permission": "Concat heeft je toestemming nodig om de microfoon te gebruiken. Sta het toe als erom gevraagd wordt en druk dan op Opnieuw proberen.",
+  "voiceover.playheadHeld": "De afspeelkop blijft bij de opname. Stop de opname om hem te verplaatsen.",
   "voiceover.record": "Opnemen",
   "voiceover.recording": "Bezig met opnemen",
   "voiceover.resume": "Hervatten",

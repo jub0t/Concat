@@ -724,6 +724,7 @@
   "voiceover.pause": "Pauza",
   "voiceover.paused": "Pauzirano",
   "voiceover.permission": "Concat treba tvoje dopuštenje za korištenje mikrofona. Dopusti kad te pita, a zatim pritisni Pokušaj ponovno.",
+  "voiceover.playheadHeld": "Glava reprodukcije ostaje uz snimku. Zaustavite snimku da biste je pomaknuli.",
   "voiceover.record": "Snimi",
   "voiceover.recording": "Snimanje",
   "voiceover.resume": "Nastavi",

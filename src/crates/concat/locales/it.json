@@ -724,6 +724,7 @@
   "voiceover.pause": "Pausa",
   "voiceover.paused": "In pausa",
   "voiceover.permission": "Concat ha bisogno del tuo permesso per usare il microfono. Concedilo quando richiesto, poi premi Riprova.",
+  "voiceover.playheadHeld": "La testina resta con la ripresa. Interrompi la ripresa per spostarla.",
   "voiceover.record": "Registra",
   "voiceover.recording": "Registrazione in corso",
   "voiceover.resume": "Riprendi",

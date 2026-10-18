@@ -724,6 +724,7 @@
   "voiceover.pause": "Tạm dừng",
   "voiceover.paused": "Đã tạm dừng",
   "voiceover.permission": "Concat cần bạn cho phép sử dụng micrô. Hãy cho phép khi được hỏi, rồi nhấn Thử lại.",
+  "voiceover.playheadHeld": "Đầu phát đi theo bản thu. Dừng bản thu để di chuyển nó.",
   "voiceover.record": "Ghi âm",
   "voiceover.recording": "Đang ghi âm",
   "voiceover.resume": "Tiếp tục",

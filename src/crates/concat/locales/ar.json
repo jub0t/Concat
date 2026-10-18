@@ -724,6 +724,7 @@
   "voiceover.pause": "إيقاف مؤقت",
   "voiceover.paused": "متوقف مؤقتًا",
   "voiceover.permission": "يحتاج Concat إلى إذنك لاستخدام الميكروفون. اسمح به عند السؤال، ثم اضغط إعادة المحاولة.",
+  "voiceover.playheadHeld": "يبقى مؤشر التشغيل مع التسجيل. أوقف التسجيل لتحريكه.",
   "voiceover.record": "تسجيل",
   "voiceover.recording": "جارٍ التسجيل",
   "voiceover.resume": "استئناف",

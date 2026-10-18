@@ -724,6 +724,7 @@
   "voiceover.pause": "Pause",
   "voiceover.paused": "Paused",
   "voiceover.permission": "Concat needs your permission to use the microphone. Allow it when asked, then press Try again.",
+  "voiceover.playheadHeld": "The playhead stays with the take. Stop the take to move it.",
   "voiceover.record": "Record",
   "voiceover.recording": "Recording",
   "voiceover.resume": "Resume",

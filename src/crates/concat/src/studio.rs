@@ -2878,6 +2878,13 @@ impl Studio {
 
     pub fn play_toggle(&mut self) {
         self.stop_glide();
+        // A voiceover take owns the transport while it runs: Space, the
+        // monitor's button and the keymap's play pause or resume the take
+        // and the picture together, never the picture alone.
+        if let Some(msg) = self.voiceover.on_play() {
+            self.handle(crate::panes::Msg::Voiceover(msg));
+            return;
+        }
         // The monitor's play button and Space play what it shows.
         if self.source.is_some() {
             self.source_toggle();
@@ -2956,6 +2963,14 @@ impl Studio {
     }
 
     pub fn pause(&mut self) {
+        // The picture stopped from anywhere - a seek, a step, an edit -
+        // stops the take with it. The panel's own pause comes through here
+        // with the pane taken out of the studio, so it is not sent back.
+        let at_end = self.playhead >= self.duration();
+        if let Some(msg) = self.voiceover.on_pause(at_end) {
+            self.handle(crate::panes::Msg::Voiceover(msg));
+            return;
+        }
         if self.playing {
             log::debug!("playback: paused at {:.3}s", self.playhead);
         }
@@ -2974,6 +2989,15 @@ impl Studio {
     /// lets it, which is the default, so the ruler can be clicked beyond the
     /// last clip and something placed at the playhead there.
     pub fn seek(&mut self, seconds: f32) {
+        // The playhead belongs to a voiceover take until it stops: moved
+        // under it, the words would land away from the frames they were
+        // spoken to.
+        if let Some(first) = self.voiceover.on_seek() {
+            if first {
+                self.notify(&t("voiceover.playheadHeld"), false);
+            }
+            return;
+        }
         // The timeline was clicked: it has the monitor back.
         self.close_source();
         self.playhead = seconds.max(0.0);

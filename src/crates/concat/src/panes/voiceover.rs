@@ -125,6 +125,67 @@ enum Phase {
     Paused,
 }
 
+/// What a transport verb from anywhere but the panel - Space, the
+/// monitor's Play, the keymap's play, a click on the ruler - becomes while
+/// a take is under way. The picture and the take are one run: a verb that
+/// moved one without the other would leave the words out of step with
+/// the frames they were spoken to, so it moves both or neither.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Hold {
+    /// No take: the verb does what it always does.
+    Free,
+    /// Pause the take, and the picture with it.
+    Pause,
+    /// Carry the take on, and the picture with it.
+    Resume,
+    /// Call off the count-in.
+    CancelCount,
+    /// Not now: the playhead belongs to the take until it stops.
+    Refuse,
+}
+
+impl Phase {
+    /// Play or pause, toggled.
+    fn on_play(self) -> Hold {
+        match self {
+            Phase::Ready => Hold::Free,
+            Phase::Counting(_) => Hold::CancelCount,
+            Phase::Recording => Hold::Pause,
+            Phase::Paused => Hold::Resume,
+        }
+    }
+
+    /// The picture stopped from elsewhere - before a seek, a step, an
+    /// edit. At the end of the cut it stops by itself and the take records
+    /// on, with nothing more to be out of step with.
+    fn on_pause(self, at_end: bool) -> Hold {
+        match self {
+            Phase::Recording if !at_end => Hold::Pause,
+            _ => Hold::Free,
+        }
+    }
+
+    /// The playhead moved from elsewhere. A paused take resumes from where
+    /// it was held, so moving the playhead meanwhile would only be undone.
+    fn on_seek(self) -> Hold {
+        match self {
+            Phase::Recording | Phase::Paused => Hold::Refuse,
+            _ => Hold::Free,
+        }
+    }
+}
+
+impl Hold {
+    fn msg(self) -> Option<VoiceoverMsg> {
+        match self {
+            Hold::Free | Hold::Refuse => None,
+            Hold::Pause => Some(VoiceoverMsg::Pause),
+            Hold::Resume => Some(VoiceoverMsg::Resume),
+            Hold::CancelCount => Some(VoiceoverMsg::Stop),
+        }
+    }
+}
+
 /// The take being recorded.
 struct Running {
     path: PathBuf,
@@ -173,6 +234,9 @@ pub struct VoiceoverPane {
     meter: Option<slint::Timer>,
     /// Beats the count-in.
     countdown: Option<slint::Timer>,
+    /// A seek this take refused has been explained already: a drag along
+    /// the ruler asks dozens of times, and once is enough to be told.
+    told: bool,
 }
 
 impl VoiceoverPane {
@@ -180,6 +244,27 @@ impl VoiceoverPane {
     /// button reads Stop.
     pub fn recording(&self) -> bool {
         self.phase != Phase::Ready
+    }
+
+    /// What Play becomes while a take is under way: the panel's own verb,
+    /// or None to play as usual. See [`Hold`].
+    pub fn on_play(&self) -> Option<VoiceoverMsg> {
+        self.phase.on_play().msg()
+    }
+
+    /// What stopping the picture becomes; `at_end` is the playhead at the
+    /// end of the cut.
+    pub fn on_pause(&self, at_end: bool) -> Option<VoiceoverMsg> {
+        self.phase.on_pause(at_end).msg()
+    }
+
+    /// Whether a seek is refused now, and whether to say why: Some(true)
+    /// the first time in a take, Some(false) after.
+    pub fn on_seek(&mut self) -> Option<bool> {
+        if self.phase.on_seek() != Hold::Refuse {
+            return None;
+        }
+        Some(!std::mem::replace(&mut self.told, true))
     }
 
     /// Applies one message.
@@ -322,6 +407,16 @@ impl VoiceoverPane {
         self.meter = None;
         self.opened = None;
         self.error = None;
+        // An iPhone records only with its audio session set to play and
+        // record together; left as it is, the microphone hands over
+        // silence. Set before the device opens, and a failure said
+        // plainly rather than a take of nothing.
+        #[cfg(target_os = "ios")]
+        if let Err(error) = crate::ios::record_alongside_playback() {
+            log::warn!("voiceover: the audio session would not record: {error}");
+            self.error = Some(tf("voiceover.failed", &[&error]));
+            return;
+        }
         if !crate::platform::microphone_allowed() {
             self.error = Some(t("voiceover.permission"));
             return;
@@ -443,6 +538,7 @@ impl VoiceoverPane {
         }
         log::info!("voiceover: recording from {:.3}s", studio.playhead);
         self.error = None;
+        self.told = false;
         let start = f64::from(studio.playhead.max(0.0));
         // The picture rolls under the words, without its sound unless the
         // panel says otherwise. At the end of the cut there is nothing to
@@ -705,4 +801,49 @@ fn meter() -> slint::Timer {
         },
     );
     timer
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn play_moves_the_take_and_the_picture_together() {
+        assert_eq!(Phase::Ready.on_play(), Hold::Free);
+        assert_eq!(Phase::Counting(2).on_play(), Hold::CancelCount);
+        assert_eq!(Phase::Recording.on_play(), Hold::Pause);
+        assert_eq!(Phase::Paused.on_play(), Hold::Resume);
+    }
+
+    #[test]
+    fn a_pause_from_elsewhere_pauses_the_take_too_until_the_cut_ends() {
+        assert_eq!(Phase::Recording.on_pause(false), Hold::Pause);
+        // At the end the picture has stopped by itself; the take records on.
+        assert_eq!(Phase::Recording.on_pause(true), Hold::Free);
+        assert_eq!(Phase::Paused.on_pause(false), Hold::Free);
+        assert_eq!(Phase::Ready.on_pause(false), Hold::Free);
+        assert_eq!(Phase::Counting(3).on_pause(false), Hold::Free);
+    }
+
+    #[test]
+    fn the_playhead_stays_put_while_a_take_holds_it() {
+        assert_eq!(Phase::Recording.on_seek(), Hold::Refuse);
+        assert_eq!(Phase::Paused.on_seek(), Hold::Refuse);
+        // A count-in has nothing recorded yet: the take starts wherever
+        // the playhead is when it ends.
+        assert_eq!(Phase::Counting(1).on_seek(), Hold::Free);
+        assert_eq!(Phase::Ready.on_seek(), Hold::Free);
+    }
+
+    #[test]
+    fn a_refused_seek_is_explained_once_a_take() {
+        let mut pane = VoiceoverPane::default();
+        assert_eq!(pane.on_seek(), None);
+        pane.phase = Phase::Recording;
+        assert_eq!(pane.on_seek(), Some(true));
+        assert_eq!(pane.on_seek(), Some(false));
+        pane.phase = Phase::Paused;
+        assert_eq!(pane.on_seek(), Some(false));
+        assert!(matches!(pane.on_play(), Some(VoiceoverMsg::Resume)));
+    }
 }

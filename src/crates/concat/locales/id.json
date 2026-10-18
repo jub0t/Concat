@@ -724,6 +724,7 @@
   "voiceover.pause": "Jeda",
   "voiceover.paused": "Dijeda",
   "voiceover.permission": "Concat memerlukan izin Anda untuk menggunakan mikrofon. Izinkan saat diminta, lalu tekan Coba lagi.",
+  "voiceover.playheadHeld": "Playhead tetap mengikuti rekaman. Hentikan rekaman untuk memindahkannya.",
   "voiceover.record": "Rekam",
   "voiceover.recording": "Merekam",
   "voiceover.resume": "Lanjutkan",

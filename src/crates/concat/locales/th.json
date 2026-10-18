@@ -724,6 +724,7 @@
   "voiceover.pause": "หยุดชั่วคราว",
   "voiceover.paused": "หยุดชั่วคราวอยู่",
   "voiceover.permission": "Concat ต้องได้รับอนุญาตจากคุณเพื่อใช้ไมโครโฟน อนุญาตเมื่อระบบถาม แล้วกด ลองอีกครั้ง",
+  "voiceover.playheadHeld": "หัวเล่นอยู่กับเทค หยุดเทคก่อนเพื่อย้ายหัวเล่น",
   "voiceover.record": "อัดเสียง",
   "voiceover.recording": "กำลังอัดเสียง",
   "voiceover.resume": "ทำต่อ",

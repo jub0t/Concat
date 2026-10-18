@@ -724,6 +724,7 @@
   "voiceover.pause": "مکث",
   "voiceover.paused": "متوقف",
   "voiceover.permission": "Concat برای استفاده از میکروفون به اجازهٔ شما نیاز دارد. وقتی پرسیده شد اجازه دهید، سپس «تلاش دوباره» را بزنید.",
+  "voiceover.playheadHeld": "نشانگر پخش با برداشت می‌ماند. برای جابه‌جا کردنش، برداشت را متوقف کنید.",
   "voiceover.record": "ضبط",
   "voiceover.recording": "در حال ضبط",
   "voiceover.resume": "ادامه",

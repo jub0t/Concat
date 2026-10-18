@@ -724,6 +724,7 @@
   "voiceover.pause": "Пауза",
   "voiceover.paused": "На паузе",
   "voiceover.permission": "Concat нужно ваше разрешение на использование микрофона. Разрешите его, когда появится запрос, затем нажмите «Повторить».",
+  "voiceover.playheadHeld": "Указатель воспроизведения следует за дублем. Остановите дубль, чтобы его сдвинуть.",
   "voiceover.record": "Записать",
   "voiceover.recording": "Идёт запись",
   "voiceover.resume": "Продолжить",

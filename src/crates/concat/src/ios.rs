@@ -39,7 +39,34 @@ use crate::i18n::t;
 #[link(name = "PhotosUI", kind = "framework")]
 #[link(name = "Photos", kind = "framework")]
 #[link(name = "UniformTypeIdentifiers", kind = "framework")]
+#[link(name = "AVFAudio", kind = "framework")]
 unsafe extern "C" {}
+
+/// Sets the app's audio session to play and record at once, for a
+/// voiceover: the microphone open while the timeline plays. An iPhone's
+/// session plays only until told otherwise, and an input opened under it
+/// hears silence. The timeline goes on playing from the speaker rather
+/// than the earpiece the category would otherwise pick, and a Bluetooth
+/// headset's microphone may be the input. Asked each time the voiceover
+/// panel opens; setting what is already set costs nothing.
+pub fn record_alongside_playback() -> Result<(), String> {
+    /// AVAudioSessionCategoryOptions: DefaultToSpeaker | AllowBluetooth.
+    const OPTIONS: usize = 0x8 | 0x4;
+    let class = AnyClass::get(c"AVAudioSession").ok_or("this device has no audio session")?;
+    // SAFETY: `sharedInstance` takes nothing and returns the app's session;
+    // the two setters take what their selectors name and report through
+    // the trailing error, which `error: _` turns into the Result.
+    let session: Option<Retained<AnyObject>> = unsafe { msg_send![class, sharedInstance] };
+    let session = session.ok_or("this device has no audio session")?;
+    // The category constant's value is its own name.
+    let category = NSString::from_str("AVAudioSessionCategoryPlayAndRecord");
+    let set: Result<(), Retained<NSError>> =
+        unsafe { msg_send![&session, setCategory: &*category, withOptions: OPTIONS, error: _] };
+    set.map_err(|error| error.localizedDescription().to_string())?;
+    let active: Result<(), Retained<NSError>> =
+        unsafe { msg_send![&session, setActive: true, error: _] };
+    active.map_err(|error| error.localizedDescription().to_string())
+}
 
 type Picked = Box<dyn FnOnce(Vec<PathBuf>) + Send>;
 
@@ -220,7 +247,11 @@ fn choose(_mtm: MainThreadMarker) -> Result<(), &'static str> {
             message: message,
             preferredStyle: style
         ];
-        let actions: [(String, isize, fn(MainThreadMarker) -> Result<(), &'static str>); 3] = [
+        let actions: [(
+            String,
+            isize,
+            fn(MainThreadMarker) -> Result<(), &'static str>,
+        ); 3] = [
             (t("phone.fromPhotos"), 0, show_photos),
             (t("phone.fromFiles"), 0, show_files),
             (t("common.cancel"), 1, |_| Err("cancelled")),
@@ -250,7 +281,8 @@ fn choose(_mtm: MainThreadMarker) -> Result<(), &'static str> {
             let _: () = msg_send![&alert, addAction: &*action];
         }
         let none: Option<&Block<dyn Fn()>> = None;
-        let _: () = msg_send![&top, presentViewController: &*alert, animated: true, completion: none];
+        let _: () =
+            msg_send![&top, presentViewController: &*alert, animated: true, completion: none];
     }
     Ok(())
 }
@@ -280,7 +312,8 @@ fn show_photos(mtm: MainThreadMarker) -> Result<(), &'static str> {
         let picker: Retained<AnyObject> = msg_send![picker, initWithConfiguration: &*config];
         let _: () = msg_send![&picker, setDelegate: &*delegate];
         let none: Option<&Block<dyn Fn()>> = None;
-        let _: () = msg_send![&top, presentViewController: &*picker, animated: true, completion: none];
+        let _: () =
+            msg_send![&top, presentViewController: &*picker, animated: true, completion: none];
     }
     Ok(())
 }
@@ -302,14 +335,14 @@ fn show_files(mtm: MainThreadMarker) -> Result<(), &'static str> {
             types.extend(kind);
         }
         let types = NSArray::from_retained_slice(&types);
-        let picker: Allocated<AnyObject> =
-            msg_send![class!(UIDocumentPickerViewController), alloc];
+        let picker: Allocated<AnyObject> = msg_send![class!(UIDocumentPickerViewController), alloc];
         let picker: Retained<AnyObject> =
             msg_send![picker, initForOpeningContentTypes: &*types, asCopy: true];
         let _: () = msg_send![&picker, setAllowsMultipleSelection: true];
         let _: () = msg_send![&picker, setDelegate: &*delegate];
         let none: Option<&Block<dyn Fn()>> = None;
-        let _: () = msg_send![&top, presentViewController: &*picker, animated: true, completion: none];
+        let _: () =
+            msg_send![&top, presentViewController: &*picker, animated: true, completion: none];
     }
     Ok(())
 }
@@ -349,7 +382,11 @@ fn photos_picked(results: &NSArray<AnyObject>) {
             let provider: Retained<AnyObject> = msg_send![&result, itemProvider];
             let movie = NSString::from_str("public.movie");
             let has_movie: bool = msg_send![&provider, hasItemConformingToTypeIdentifier: &*movie];
-            let kind = if has_movie { movie } else { NSString::from_str("public.image") };
+            let kind = if has_movie {
+                movie
+            } else {
+                NSString::from_str("public.image")
+            };
             let suggested: Option<Retained<NSString>> = msg_send![&provider, suggestedName];
             let suggested = suggested.map(|name| name.to_string());
             let tally = Arc::clone(&tally);
@@ -458,9 +495,8 @@ fn save_to_photos(path: &Path) -> Result<String, String> {
     const ADD_ONLY: isize = 1;
     // SAFETY: Photos' class methods, from any thread; the block is called
     // once, from a queue of Photos'.
-    let mut status: isize = unsafe {
-        msg_send![class!(PHPhotoLibrary), authorizationStatusForAccessLevel: ADD_ONLY]
-    };
+    let mut status: isize =
+        unsafe { msg_send![class!(PHPhotoLibrary), authorizationStatusForAccessLevel: ADD_ONLY] };
     if status == 0 {
         let (tx, rx) = std::sync::mpsc::channel();
         let handler = RcBlock::new(move |answer: isize| {

@@ -724,6 +724,7 @@
   "voiceover.pause": "বিরতি",
   "voiceover.paused": "বিরতিতে",
   "voiceover.permission": "মাইক্রোফোন ব্যবহারের জন্য Concat-এর আপনার অনুমতি দরকার। জিজ্ঞাসা করা হলে অনুমতি দিন, তারপর আবার চেষ্টা করুন চাপুন।",
+  "voiceover.playheadHeld": "প্লেহেড টেকের সাথেই থাকে। এটি সরাতে টেকটি থামান।",
   "voiceover.record": "রেকর্ড করুন",
   "voiceover.recording": "রেকর্ড হচ্ছে",
   "voiceover.resume": "চালিয়ে যান",

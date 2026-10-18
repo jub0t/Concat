@@ -39,10 +39,10 @@ mod gpu;
 mod grading;
 mod host;
 mod i18n;
-mod keymap;
 /// The iPhone's pickers and its way to Photos; see the module.
 #[cfg(target_os = "ios")]
 mod ios;
+mod keymap;
 mod meters;
 mod platform;
 /// What a phone's own crate installs before the window runs: the way to

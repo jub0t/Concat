@@ -95,37 +95,38 @@ impl Studio {
         // The peaks playback kept while nobody was reading them belong to
         // some earlier moment; the first tick is to show this one.
         let _ = self.host.playback.take_levels();
-        self.meters.timer.start(slint::TimerMode::Repeated, TICK, || {
-            crate::host::Shell::with(|shell, app| {
-                let mut studio = shell.studio.borrow_mut();
-                let rolling = studio.rolling();
-                let shown = studio.meters_shown();
-                let (left, right) = studio.host.playback.take_levels();
-                let feed = &mut studio.meters;
-                if !shown {
-                    // Put away mid-play: the bars drop to the floor now,
-                    // so they are not found standing where they were when
-                    // the meters are shown again, and the timer stops.
-                    feed.left = Side::default();
-                    feed.right = Side::default();
+        self.meters
+            .timer
+            .start(slint::TimerMode::Repeated, TICK, || {
+                crate::host::Shell::with(|shell, app| {
+                    let mut studio = shell.studio.borrow_mut();
+                    let rolling = studio.rolling();
+                    let shown = studio.meters_shown();
+                    let (left, right) = studio.host.playback.take_levels();
+                    let feed = &mut studio.meters;
+                    if !shown {
+                        // Put away mid-play: the bars drop to the floor now,
+                        // so they are not found standing where they were when
+                        // the meters are shown again, and the timer stops.
+                        feed.left = Side::default();
+                        feed.right = Side::default();
+                        feed.publish(&app);
+                        feed.timer.stop();
+                        return;
+                    }
+                    feed.left.tick(left, TICK.as_secs_f32());
+                    feed.right.tick(right, TICK.as_secs_f32());
+                    feed.clipped |= left >= 1.0 || right >= 1.0;
                     feed.publish(&app);
-                    feed.timer.stop();
-                    return;
-                }
-                feed.left.tick(left, TICK.as_secs_f32());
-                feed.right.tick(right, TICK.as_secs_f32());
-                feed.clipped |= left >= 1.0 || right >= 1.0;
-                feed.publish(&app);
-                if !rolling && feed.left.quiet() && feed.right.quiet() {
-                    feed.timer.stop();
-                }
+                    if !rolling && feed.left.quiet() && feed.right.quiet() {
+                        feed.timer.stop();
+                    }
+                });
             });
-        });
     }
 }
 
 impl MeterFeed {
-
     /// The clip light was clicked.
     pub fn clear_clip(&mut self, app: &crate::ui::App) {
         self.clipped = false;

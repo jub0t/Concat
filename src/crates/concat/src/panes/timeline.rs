@@ -363,7 +363,11 @@ mod tests {
         let mut view = pane(1000.0, 10.0, 0.1);
         let before = (20.0 - view.scroll_left) / view.seconds_per_pixel;
         pinch(&mut view, &[1.1, 1.3, 1.25, 2.0], 20.0);
-        assert!((view.seconds_per_pixel - 0.05).abs() < 1e-6, "{}", view.seconds_per_pixel);
+        assert!(
+            (view.seconds_per_pixel - 0.05).abs() < 1e-6,
+            "{}",
+            view.seconds_per_pixel
+        );
         let after = (20.0 - view.scroll_left) / view.seconds_per_pixel;
         assert!((before - after).abs() < 1e-2, "{before} {after}");
         // Spread past the closest zoom and back: held at the limit, and

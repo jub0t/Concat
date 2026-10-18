@@ -153,7 +153,10 @@ impl Glide {
         let to = Self::distance(self.speed, elapsed);
         let moved = to - self.travelled;
         self.travelled = to;
-        (moved, Self::speed_at(self.speed, elapsed).abs() >= MIN_SPEED)
+        (
+            moved,
+            Self::speed_at(self.speed, elapsed).abs() >= MIN_SPEED,
+        )
     }
 }
 
@@ -282,7 +285,10 @@ mod tests {
         }
         // It covers nearly all of speed × TAU, and in about a second and
         // a half: ln(3000 / 20) × TAU.
-        assert!(total > 0.99 * 3000.0 * TAU && total <= 3000.0 * TAU, "{total}");
+        assert!(
+            total > 0.99 * 3000.0 * TAU && total <= 3000.0 * TAU,
+            "{total}"
+        );
         assert!((90..=100).contains(&frames), "{frames}");
     }
 

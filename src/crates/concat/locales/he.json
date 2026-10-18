@@ -724,6 +724,7 @@
   "voiceover.pause": "השהיה",
   "voiceover.paused": "מושהה",
   "voiceover.permission": "Concat צריך הרשאה להשתמש במיקרופון. יש לאשר כשתופיע הבקשה, ואז ללחוץ על ניסיון חוזר.",
+  "voiceover.playheadHeld": "סמן ההפעלה נשאר עם הטייק. עצרו את הטייק כדי להזיז אותו.",
   "voiceover.record": "הקלטה",
   "voiceover.recording": "מקליט",
   "voiceover.resume": "המשך",

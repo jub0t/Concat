@@ -724,6 +724,7 @@
   "voiceover.pause": "Pause",
   "voiceover.paused": "Pausiert",
   "voiceover.permission": "Concat braucht deine Erlaubnis, das Mikrofon zu verwenden. Erlaube es, wenn du gefragt wirst, und drücke dann Erneut versuchen.",
+  "voiceover.playheadHeld": "Der Abspielkopf bleibt bei der Aufnahme. Beende die Aufnahme, um ihn zu bewegen.",
   "voiceover.record": "Aufnehmen",
   "voiceover.recording": "Aufnahme läuft",
   "voiceover.resume": "Fortsetzen",

@@ -724,6 +724,7 @@
   "voiceover.pause": "暫停",
   "voiceover.paused": "已暫停",
   "voiceover.permission": "Concat 需要你的許可才能使用麥克風。出現詢問時請允許，然後按「重試」。",
+  "voiceover.playheadHeld": "播放頭跟隨目前的錄音。停止錄音後才能移動它。",
   "voiceover.record": "錄製",
   "voiceover.recording": "正在錄製",
   "voiceover.resume": "繼續",
