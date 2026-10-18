@@ -635,10 +635,7 @@ impl SettingsPane {
         // stays on and the server waits for it, rather than the switch
         // flipping off at the first keystroke.
         if !prefs.token.is_empty() && concat_server::check_token(&prefs.token).is_err() {
-            self.server_error = tf(
-                "settings.tokenTooWeak",
-                &[&concat_server::MIN_TOKEN_CHARS],
-            );
+            self.server_error = tf("settings.tokenTooWeak", &[&concat_server::MIN_TOKEN_CHARS]);
             return;
         }
         let started = prefs

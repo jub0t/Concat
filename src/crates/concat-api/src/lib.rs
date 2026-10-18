@@ -187,7 +187,13 @@ impl OpenProjects {
                     // one, which nobody can save over anyway.
                     Err(lock::LockError::Io(_)) => None,
                 };
-                open.insert(key, Claim { holder, _lock: lock });
+                open.insert(
+                    key,
+                    Claim {
+                        holder,
+                        _lock: lock,
+                    },
+                );
                 Ok(())
             }
         }
@@ -1593,7 +1599,10 @@ mod tests {
         };
         assert_eq!(status.state, JobState::Failed);
         assert_eq!(status.path, path);
-        assert_eq!(status.error.map(|error| error.code), Some(ErrorCode::Failed));
+        assert_eq!(
+            status.error.map(|error| error.code),
+            Some(ErrorCode::Failed)
+        );
         let unknown = err(api.dispatch(Request::ExportStatus {
             job: "j9".to_owned(),
         }));
@@ -1750,12 +1759,24 @@ mod tests {
         let window = lock::ProjectLock::acquire(Path::new(&path), "window").expect("the window");
         let refused = err(api.dispatch(Request::ProjectOpen { path: path.clone() }));
         assert_eq!(refused.code, ErrorCode::Refused);
-        assert!(refused.message.contains("a Concat window (process"), "{}", refused.message);
-        assert!(refused.message.contains("concat --mcp window"), "{}", refused.message);
+        assert!(
+            refused.message.contains("a Concat window (process"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            refused.message.contains("concat --mcp window"),
+            "{}",
+            refused.message
+        );
         drop(window);
         ok(api.dispatch(Request::ProjectOpen { path: path.clone() }));
 
         let refused = err(other.dispatch(Request::ProjectOpen { path: path.clone() }));
-        assert!(refused.message.contains("another Concat process"), "{}", refused.message);
+        assert!(
+            refused.message.contains("another Concat process"),
+            "{}",
+            refused.message
+        );
     }
 }

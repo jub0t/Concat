@@ -229,9 +229,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     // not up, into the project's bin.
                     let to_library = studio.sounds.shown
                         && !paths.is_empty()
-                        && paths
-                            .iter()
-                            .all(|path| concat_host::sounds::is_sound(path));
+                        && paths.iter().all(|path| concat_host::sounds::is_sound(path));
                     if studio.on_start {
                         // On the launch screen there is no project to
                         // import into: a dropped project opens, and media
@@ -1423,8 +1421,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_speech_clear_style(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::ClearStyle));
     }));
-    {
-    }
+    {}
     app.global::<SourcePreview>()
         .on_seek(on_window!(|state, seconds: f32| {
             state.source_seek(f64::from(seconds));

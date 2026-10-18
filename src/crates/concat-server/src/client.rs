@@ -86,7 +86,9 @@ impl Client {
         self.next_id += 1;
         let line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
         let gone = |error: &dyn std::fmt::Display| {
-            ApiError::failed(format!("the connection to the Concat server failed: {error}"))
+            ApiError::failed(format!(
+                "the connection to the Concat server failed: {error}"
+            ))
         };
         writeln!(self.writer, "{line}").map_err(|error| gone(&error))?;
         self.writer.flush().map_err(|error| gone(&error))?;

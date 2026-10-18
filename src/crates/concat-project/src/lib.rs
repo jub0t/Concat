@@ -4099,7 +4099,11 @@ mod tests {
             );
         }
         assert!(editor.undo(), "undoes");
-        assert_eq!(editor.project().active().clips.len(), before, "one undo step");
+        assert_eq!(
+            editor.project().active().clips.len(),
+            before,
+            "one undo step"
+        );
     }
 
     #[test]

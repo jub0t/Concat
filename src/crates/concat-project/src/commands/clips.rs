@@ -73,7 +73,12 @@ pub(super) fn apply(
         } => {
             let items = media_ids
                 .iter()
-                .map(|id| project.media_by_id(id).cloned().ok_or(CommandError::MediaGone))
+                .map(|id| {
+                    project
+                        .media_by_id(id)
+                        .cloned()
+                        .ok_or(CommandError::MediaGone)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             if items.is_empty() {
                 return Ok(Outcome {

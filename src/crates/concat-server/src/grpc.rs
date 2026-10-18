@@ -160,7 +160,8 @@ pub(crate) fn serve(
                     return;
                 };
                 let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
-                let service = ConcatServer::with_interceptor(Service { hub }, bearer(token, throttle));
+                let service =
+                    ConcatServer::with_interceptor(Service { hub }, bearer(token, throttle));
                 let stopped = async move {
                     while !stop.load(Ordering::SeqCst) {
                         tokio::time::sleep(Duration::from_millis(100)).await;

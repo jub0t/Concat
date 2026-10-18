@@ -30,8 +30,7 @@ use concat_project::commands::ClipPatch;
 use concat_project::model::{AppliedFilter, ClipKind, MediaItem, MediaOrigin};
 use concat_speech::JobStage;
 use concat_speech::tts::{
-    CHATTERBOX_CLONE, Family, POCKET_CLONE, Reference, VoiceInfo, family_of, is_clone,
-    voice_family,
+    CHATTERBOX_CLONE, Family, POCKET_CLONE, Reference, VoiceInfo, family_of, is_clone, voice_family,
 };
 use slint::SharedString;
 
@@ -726,7 +725,11 @@ impl SpeechPane {
         self.offered()
             .iter()
             .map(|speaker| voice_label(&speaker.name).0.into())
-            .chain(self.saved_rows().iter().map(|voice| voice.name.as_str().into()))
+            .chain(
+                self.saved_rows()
+                    .iter()
+                    .map(|voice| voice.name.as_str().into()),
+            )
             .chain(self.clone_row().then(|| t("speech.cloneFromSample").into()))
             .collect()
     }
@@ -737,7 +740,11 @@ impl SpeechPane {
         self.offered()
             .iter()
             .map(|speaker| voice_label(&speaker.name).1.into())
-            .chain(self.saved_rows().iter().map(|_| t("speech.savedVoice").into()))
+            .chain(
+                self.saved_rows()
+                    .iter()
+                    .map(|_| t("speech.savedVoice").into()),
+            )
             .chain(
                 self.clone_row()
                     .then(|| t("speech.fromRecordingInBin").into()),
@@ -764,7 +771,11 @@ impl SpeechPane {
                     picture: picture.unwrap_or_default(),
                 }
             })
-            .chain(self.saved_rows().iter().map(|voice| self.saved_avatar(voice)))
+            .chain(
+                self.saved_rows()
+                    .iter()
+                    .map(|voice| self.saved_avatar(voice)),
+            )
             .chain(self.clone_row().then(|| crate::ui::AvatarData {
                 letter: "+".into(),
                 hue: -1,

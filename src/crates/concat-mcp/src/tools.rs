@@ -481,7 +481,9 @@ impl Outcome {
             .and_then(|code| code.as_str().map(str::to_owned))
             .unwrap_or_default();
         Outcome {
-            content: vec![json!({ "type": "text", "text": format!("{} (code: {code})", error.message) })],
+            content: vec![
+                json!({ "type": "text", "text": format!("{} (code: {code})", error.message) }),
+            ],
             structured: Some(json!({ "error": { "code": code, "message": error.message } })),
             is_error: true,
         }
@@ -609,7 +611,10 @@ fn input_schema(schemas: &Schemas, tool: &Tool) -> Option<Value> {
             }))
         }
         Action::Captions => {
-            let path = schemas.method("project.get")?.pointer("/properties/path")?.clone();
+            let path = schemas
+                .method("project.get")?
+                .pointer("/properties/path")?
+                .clone();
             let mut style = schemas.def("TextStyle")?;
             style["description"] = json!(
                 "The look every caption shares, as a title's style; only the fields that differ from the default are needed. Its content is replaced by each caption's text."
@@ -712,9 +717,15 @@ fn mask(mut arguments: Value) -> Result<Request, ApiError> {
     let fields = arguments
         .as_object_mut()
         .ok_or_else(|| invalid("the arguments are an object"))?;
-    let path = fields.remove("path").ok_or_else(|| invalid("missing field `path`"))?;
-    let clip = fields.remove("clipId").ok_or_else(|| invalid("missing field `clipId`"))?;
-    let mask = fields.remove("mask").ok_or_else(|| invalid("missing field `mask`"))?;
+    let path = fields
+        .remove("path")
+        .ok_or_else(|| invalid("missing field `path`"))?;
+    let clip = fields
+        .remove("clipId")
+        .ok_or_else(|| invalid("missing field `clipId`"))?;
+    let mask = fields
+        .remove("mask")
+        .ok_or_else(|| invalid("missing field `mask`"))?;
     if let Some(unknown) = fields.keys().next() {
         return Err(invalid(&format!("unknown field `{unknown}`")));
     }
@@ -730,14 +741,18 @@ fn captions(mut arguments: Value) -> Result<Request, ApiError> {
     let fields = arguments
         .as_object_mut()
         .ok_or_else(|| invalid("the arguments are an object"))?;
-    let path = fields.remove("path").ok_or_else(|| invalid("missing field `path`"))?;
+    let path = fields
+        .remove("path")
+        .ok_or_else(|| invalid("missing field `path`"))?;
     let captions = match fields.remove("captions") {
         Some(Value::Array(captions)) if !captions.is_empty() => captions,
         _ => return Err(invalid("`captions` is a list of {start, end, text}")),
     };
     let offset = match fields.remove("offsetY") {
         None | Some(Value::Null) => 0.35,
-        Some(value) => value.as_f64().ok_or_else(|| invalid("`offsetY` is a number"))?,
+        Some(value) => value
+            .as_f64()
+            .ok_or_else(|| invalid("`offsetY` is a number"))?,
     };
     let style = match fields.remove("style") {
         None | Some(Value::Null) => json!({
@@ -794,12 +809,17 @@ fn export_wait(
     cancelled: &AtomicBool,
     progress: Option<&dyn Fn(f64, f64, String)>,
 ) -> Result<Outcome, ApiError> {
-    let timeout = match arguments.as_object_mut().and_then(|fields| fields.remove("timeoutSeconds")) {
+    let timeout = match arguments
+        .as_object_mut()
+        .and_then(|fields| fields.remove("timeoutSeconds"))
+    {
         None | Some(Value::Null) => WAIT_DEFAULT,
         Some(value) => value
             .as_f64()
             .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
-            .ok_or_else(|| ApiError::invalid("invalid arguments: `timeoutSeconds` is a number of seconds"))?
+            .ok_or_else(|| {
+                ApiError::invalid("invalid arguments: `timeoutSeconds` is a number of seconds")
+            })?
             .min(WAIT_LONGEST),
     };
     let status = request("export.status", arguments)?;
@@ -837,7 +857,10 @@ fn export_wait(
             return Ok(Outcome::json(current));
         }
         if cancelled.load(Ordering::Relaxed) {
-            return Err(ApiError::new(ErrorCode::Cancelled, "stopped waiting; the export goes on"));
+            return Err(ApiError::new(
+                ErrorCode::Cancelled,
+                "stopped waiting; the export goes on",
+            ));
         }
         if Instant::now() >= until {
             current["note"] = json!("still running: call export_wait again, or export_status");
@@ -849,7 +872,9 @@ fn export_wait(
 
 /// `preview_frame`: the picture as an image, or the file written.
 fn preview(mut arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, ApiError> {
-    let wants_file = arguments.get("output").is_some_and(|output| !output.is_null());
+    let wants_file = arguments
+        .get("output")
+        .is_some_and(|output| !output.is_null());
     let sized = ["width", "height"]
         .iter()
         .all(|key| arguments.get(*key).is_some_and(|value| !value.is_null()));
@@ -857,12 +882,24 @@ fn preview(mut arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, A
         // The timeline's own frame, fitted within PREVIEW_SIDE.
         let path = arguments.get("path").cloned().unwrap_or(Value::Null);
         let view = backend.call(request("project.get", json!({ "path": path }))?)?;
-        let width = view.pointer("/settings/width").and_then(Value::as_f64).unwrap_or(1920.0);
-        let height = view.pointer("/settings/height").and_then(Value::as_f64).unwrap_or(1080.0);
+        let width = view
+            .pointer("/settings/width")
+            .and_then(Value::as_f64)
+            .unwrap_or(1920.0);
+        let height = view
+            .pointer("/settings/height")
+            .and_then(Value::as_f64)
+            .unwrap_or(1080.0);
         let scale = (PREVIEW_SIDE / width.max(height)).min(1.0);
         if let Some(fields) = arguments.as_object_mut() {
-            fields.insert("width".to_owned(), json!(((width * scale).round() as u32).max(1)));
-            fields.insert("height".to_owned(), json!(((height * scale).round() as u32).max(1)));
+            fields.insert(
+                "width".to_owned(),
+                json!(((width * scale).round() as u32).max(1)),
+            );
+            fields.insert(
+                "height".to_owned(),
+                json!(((height * scale).round() as u32).max(1)),
+            );
         }
     }
     let time = arguments.get("time").cloned().unwrap_or(Value::Null);
@@ -878,7 +915,9 @@ fn preview(mut arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, A
                 "text": format!("The frame at {time} s, {}×{}.", result["width"], result["height"]),
             }),
         ],
-        structured: Some(json!({ "width": result["width"], "height": result["height"], "time": time })),
+        structured: Some(
+            json!({ "width": result["width"], "height": result["height"], "time": time }),
+        ),
         is_error: false,
     })
 }
@@ -893,46 +932,124 @@ mod tests {
         vec![
             ("concat_version", json!({})),
             ("project_list", json!({})),
-            ("project_create", json!({ "location": "/tmp", "name": "Cut", "video": { "width": 1080, "height": 1920, "rateNum": 30, "rateDen": 1 } })),
+            (
+                "project_create",
+                json!({ "location": "/tmp", "name": "Cut", "video": { "width": 1080, "height": 1920, "rateNum": 30, "rateDen": 1 } }),
+            ),
             ("project_open", json!({ "path": "/tmp/Cut" })),
             ("project_save", json!({ "path": "/tmp/Cut" })),
             ("project_close", json!({ "path": "/tmp/Cut", "save": true })),
             ("timeline_read", json!({ "path": "/tmp/Cut" })),
             ("project_get", json!({ "path": "/tmp/Cut" })),
-            ("project_set_video", json!({ "path": "/tmp/Cut", "video": { "width": 1920, "height": 1080, "rateNum": 30000, "rateDen": 1001 } })),
+            (
+                "project_set_video",
+                json!({ "path": "/tmp/Cut", "video": { "width": 1920, "height": 1080, "rateNum": 30000, "rateDen": 1001 } }),
+            ),
             ("media_probe", json!({ "path": "/tmp/a.mp4" })),
-            ("media_import", json!({ "path": "/tmp/Cut", "file": "/tmp/a.mp4" })),
-            ("edit_apply", json!({ "path": "/tmp/Cut", "command": { "op": "addTrack" } })),
+            (
+                "media_import",
+                json!({ "path": "/tmp/Cut", "file": "/tmp/a.mp4" }),
+            ),
+            (
+                "edit_apply",
+                json!({ "path": "/tmp/Cut", "command": { "op": "addTrack" } }),
+            ),
             ("edit_undo", json!({ "path": "/tmp/Cut" })),
             ("edit_redo", json!({ "path": "/tmp/Cut" })),
-            ("clip_add", json!({ "path": "/tmp/Cut", "mediaId": "m1", "trackId": "t1", "start": 2.5 })),
-            ("clip_trim", json!({ "path": "/tmp/Cut", "clipId": "c1", "edge": "end", "delta": -1.0, "ripple": true })),
-            ("clips_split", json!({ "path": "/tmp/Cut", "clipIds": ["c1"], "time": 3.0 })),
-            ("clips_move", json!({ "path": "/tmp/Cut", "moves": [{ "clipId": "c1", "start": 0.0, "trackId": "t2" }] })),
-            ("clips_remove", json!({ "path": "/tmp/Cut", "clipIds": ["c1"], "ripple": false })),
-            ("clip_update", json!({ "path": "/tmp/Cut", "clipId": "c1", "patch": { "volume": 0.5, "crop": null, "transitionIn": { "id": "cross-fade", "duration": 0.5 }, "videoEffects": [{ "id": "concat.warm", "params": { "amount": 0.4 } }] } })),
-            ("clip_transform", json!({ "path": "/tmp/Cut", "clipId": "c1", "scale": 1.2, "rotation": 15.0 })),
-            ("clip_speed", json!({ "path": "/tmp/Cut", "clipId": "c1", "speed": 0.5 })),
-            ("title_add", json!({ "path": "/tmp/Cut", "start": 1.0, "duration": 3.0, "above": true, "style": { "content": "Hello", "fontSize": 0.08, "align": "left" }, "offsetY": -0.3 })),
-            ("captions_add", json!({ "path": "/tmp/Cut", "captions": [{ "start": 0.0, "end": 1.5, "text": "Hi" }], "style": { "color": "#ffff00" }, "offsetY": 0.3 })),
-            ("keyframe_set", json!({ "path": "/tmp/Cut", "clipId": "c1", "property": "scale", "at": 0.0, "value": 1.0, "ease": [0.42, 0.0, 0.58, 1.0] })),
-            ("keyframe_clear", json!({ "path": "/tmp/Cut", "clipId": "c1", "property": "opacity", "at": 1.0 })),
-            ("effect_layer_add", json!({ "path": "/tmp/Cut", "start": 0.0, "duration": 2.0, "effectId": "concat.warm", "name": "Warm", "trackId": null })),
-            ("effect_key_set", json!({ "path": "/tmp/Cut", "clipId": "c1", "entry": 0, "key": "amount", "at": 0.5, "value": 0.8 })),
+            (
+                "clip_add",
+                json!({ "path": "/tmp/Cut", "mediaId": "m1", "trackId": "t1", "start": 2.5 }),
+            ),
+            (
+                "clip_trim",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "edge": "end", "delta": -1.0, "ripple": true }),
+            ),
+            (
+                "clips_split",
+                json!({ "path": "/tmp/Cut", "clipIds": ["c1"], "time": 3.0 }),
+            ),
+            (
+                "clips_move",
+                json!({ "path": "/tmp/Cut", "moves": [{ "clipId": "c1", "start": 0.0, "trackId": "t2" }] }),
+            ),
+            (
+                "clips_remove",
+                json!({ "path": "/tmp/Cut", "clipIds": ["c1"], "ripple": false }),
+            ),
+            (
+                "clip_update",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "patch": { "volume": 0.5, "crop": null, "transitionIn": { "id": "cross-fade", "duration": 0.5 }, "videoEffects": [{ "id": "concat.warm", "params": { "amount": 0.4 } }] } }),
+            ),
+            (
+                "clip_transform",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "scale": 1.2, "rotation": 15.0 }),
+            ),
+            (
+                "clip_speed",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "speed": 0.5 }),
+            ),
+            (
+                "title_add",
+                json!({ "path": "/tmp/Cut", "start": 1.0, "duration": 3.0, "above": true, "style": { "content": "Hello", "fontSize": 0.08, "align": "left" }, "offsetY": -0.3 }),
+            ),
+            (
+                "captions_add",
+                json!({ "path": "/tmp/Cut", "captions": [{ "start": 0.0, "end": 1.5, "text": "Hi" }], "style": { "color": "#ffff00" }, "offsetY": 0.3 }),
+            ),
+            (
+                "keyframe_set",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "property": "scale", "at": 0.0, "value": 1.0, "ease": [0.42, 0.0, 0.58, 1.0] }),
+            ),
+            (
+                "keyframe_clear",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "property": "opacity", "at": 1.0 }),
+            ),
+            (
+                "effect_layer_add",
+                json!({ "path": "/tmp/Cut", "start": 0.0, "duration": 2.0, "effectId": "concat.warm", "name": "Warm", "trackId": null }),
+            ),
+            (
+                "effect_key_set",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "entry": 0, "key": "amount", "at": 0.5, "value": 0.8 }),
+            ),
             ("track_add", json!({ "path": "/tmp/Cut", "bottom": false })),
-            ("clips_add_sequence", json!({ "path": "/tmp/Cut", "mediaIds": ["m1", "m2"], "start": 0.0 })),
-            ("clip_mask", json!({ "path": "/tmp/Cut", "clipId": "c1", "mask": { "shape": "heart", "width": 0.5, "feather": 0.1, "invert": true } })),
-            ("clip_stabilize", json!({ "path": "/tmp/Cut", "clipId": "c1", "stabilize": { "smoothness": 0.7, "maxZoom": 1.2, "tripod": false } })),
-            ("clip_frame", json!({ "path": "/tmp/Cut", "clipId": "c1", "framing": "fill" })),
-            ("timeline_background", json!({ "path": "/tmp/Cut", "timelineId": "tl1", "background": { "kind": "blur", "amount": 0.5 } })),
+            (
+                "clips_add_sequence",
+                json!({ "path": "/tmp/Cut", "mediaIds": ["m1", "m2"], "start": 0.0 }),
+            ),
+            (
+                "clip_mask",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "mask": { "shape": "heart", "width": 0.5, "feather": 0.1, "invert": true } }),
+            ),
+            (
+                "clip_stabilize",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "stabilize": { "smoothness": 0.7, "maxZoom": 1.2, "tripod": false } }),
+            ),
+            (
+                "clip_frame",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "framing": "fill" }),
+            ),
+            (
+                "timeline_background",
+                json!({ "path": "/tmp/Cut", "timelineId": "tl1", "background": { "kind": "blur", "amount": 0.5 } }),
+            ),
             ("effects_list", json!({ "kind": "transition" })),
             ("template_list", json!({})),
-            ("template_instantiate", json!({ "template": "/t", "location": "/tmp", "name": "From", "fills": [{ "mediaId": "m1", "file": "/tmp/a.mp4" }] })),
-            ("export_start", json!({ "path": "/tmp/Cut", "output": "/tmp/cut.mp4", "crf": 23, "codec": "h264" })),
+            (
+                "template_instantiate",
+                json!({ "template": "/t", "location": "/tmp", "name": "From", "fills": [{ "mediaId": "m1", "file": "/tmp/a.mp4" }] }),
+            ),
+            (
+                "export_start",
+                json!({ "path": "/tmp/Cut", "output": "/tmp/cut.mp4", "crf": 23, "codec": "h264" }),
+            ),
             ("export_status", json!({ "job": "j1" })),
             ("export_wait", json!({ "job": "j1", "timeoutSeconds": 5 })),
             ("export_cancel", json!({ "job": "j1" })),
-            ("preview_frame", json!({ "path": "/tmp/Cut", "time": 1.5, "width": 320, "height": 180 })),
+            (
+                "preview_frame",
+                json!({ "path": "/tmp/Cut", "time": 1.5, "width": 320, "height": 180 }),
+            ),
         ]
     }
 
@@ -942,7 +1059,10 @@ mod tests {
         let listed = toolbox.list();
         let samples = samples();
         assert_eq!(listed.len(), samples.len(), "a sample for every tool");
-        let mut names: Vec<&str> = listed.iter().filter_map(|tool| tool["name"].as_str()).collect();
+        let mut names: Vec<&str> = listed
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), listed.len(), "unique names");
@@ -953,7 +1073,12 @@ mod tests {
                 "{name}"
             );
             assert_eq!(tool["inputSchema"]["type"], "object", "{name}");
-            assert!(tool["description"].as_str().is_some_and(|text| text.len() > 40), "{name}");
+            assert!(
+                tool["description"]
+                    .as_str()
+                    .is_some_and(|text| text.len() > 40),
+                "{name}"
+            );
         }
     }
 
@@ -973,7 +1098,9 @@ mod tests {
                 Action::Captions => captions(sample.clone()),
                 Action::ExportWait => {
                     let mut sample = sample.clone();
-                    sample.as_object_mut().map(|fields| fields.remove("timeoutSeconds"));
+                    sample
+                        .as_object_mut()
+                        .map(|fields| fields.remove("timeoutSeconds"));
                     request("export.status", sample)
                 }
                 Action::PreviewFrame => request("preview.frame", sample.clone()),
@@ -998,6 +1125,9 @@ mod tests {
         assert_eq!(error.code, ErrorCode::Invalid);
         let missing = request("project.open", json!({}));
         assert!(missing.expect_err("refused").message.contains("path"));
-        assert!(captions(json!({ "path": "/p", "captions": [{ "start": 2, "end": 1, "text": "x" }] })).is_err());
+        assert!(
+            captions(json!({ "path": "/p", "captions": [{ "start": 2, "end": 1, "text": "x" }] }))
+                .is_err()
+        );
     }
 }

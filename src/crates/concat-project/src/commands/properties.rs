@@ -143,10 +143,7 @@ pub(super) fn apply(
             })
         }
 
-        Command::SetClipStabilize {
-            clip_id,
-            stabilize,
-        } => {
+        Command::SetClipStabilize { clip_id, stabilize } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {
                 return Ok(Outcome::default());

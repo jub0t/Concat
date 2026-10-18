@@ -30,7 +30,9 @@ pub const BARS: usize = 64;
 
 /// The extensions the library takes: sound files, the way the bin's
 /// import names them. A video's soundtrack is not a library sound.
-pub const EXTENSIONS: [&str; 9] = ["mp3", "wav", "aac", "m4a", "flac", "ogg", "opus", "aif", "aiff"];
+pub const EXTENSIONS: [&str; 9] = [
+    "mp3", "wav", "aac", "m4a", "flac", "ogg", "opus", "aif", "aiff",
+];
 
 /// One sound in the library.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -428,19 +430,11 @@ pub fn fetch_sound(
     let partial = target.with_extension("partial");
     let mut last = String::new();
     for url in crate::models::sound_sources(&sound.file) {
-        match crate::models::download(
-            &url,
-            &partial,
-            sound.bytes,
-            cancel,
-            "cancelled",
-            progress,
-        ) {
+        match crate::models::download(&url, &partial, sound.bytes, cancel, "cancelled", progress) {
             Ok(_) => match crate::models::verify(&partial, &sound.sha256) {
                 Ok(()) => {
-                    std::fs::rename(&partial, &target).map_err(|error| {
-                        format!("could not keep {}: {error}", target.display())
-                    })?;
+                    std::fs::rename(&partial, &target)
+                        .map_err(|error| format!("could not keep {}: {error}", target.display()))?;
                     return Ok(target);
                 }
                 Err(error) => {
@@ -508,7 +502,11 @@ mod tests {
         }
         let reopened = Library::at(dir.clone());
         assert_eq!(
-            reopened.sounds.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            reopened
+                .sounds
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>(),
             ["b", "a"]
         );
         assert_eq!(reopened.get("a").unwrap().bars.len(), BARS);
@@ -516,7 +514,10 @@ mod tests {
         library.remove("b").unwrap();
         assert!(!dir.join("Two.wav").exists());
         std::fs::remove_file(dir.join("One.wav")).unwrap();
-        assert!(Library::at(dir.clone()).sounds.is_empty(), "a missing copy is left out");
+        assert!(
+            Library::at(dir.clone()).sounds.is_empty(),
+            "a missing copy is left out"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

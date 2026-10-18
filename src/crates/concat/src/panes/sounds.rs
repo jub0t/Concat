@@ -210,10 +210,7 @@ impl SoundsPane {
                 let (taken, refused): (Vec<PathBuf>, Vec<PathBuf>) =
                     paths.into_iter().partition(|path| sounds::is_sound(path));
                 if let Some(path) = refused.first() {
-                    studio.notify(
-                        &tf("sounds.notASound", &[&display_name(path)]),
-                        true,
-                    );
+                    studio.notify(&tf("sounds.notASound", &[&display_name(path)]), true);
                 }
                 if taken.is_empty() {
                     return;
@@ -355,14 +352,19 @@ impl SoundsPane {
 
     /// The Concat shelf's rows, narrowed to the category picked.
     pub fn concat_rows(&self) -> Vec<SoundCardData> {
-        let category = self.category.checked_sub(1).and_then(|row| CATEGORIES.get(row));
+        let category = self
+            .category
+            .checked_sub(1)
+            .and_then(|row| CATEGORIES.get(row));
         let Some(dirs) = self.dirs.as_ref() else {
             return Vec::new();
         };
         self.catalogue
             .sounds
             .iter()
-            .filter(|sound| category.is_none_or(|wanted| sound.category.eq_ignore_ascii_case(wanted)))
+            .filter(|sound| {
+                category.is_none_or(|wanted| sound.category.eq_ignore_ascii_case(wanted))
+            })
             .map(|sound| {
                 let card = format!("{CONCAT}{}", sound.id);
                 let progress = self.fetching.get(&card).map_or(-1.0, |(done, _)| *done);
@@ -437,7 +439,14 @@ fn display_name(path: &Path) -> String {
 impl Studio {
     /// The Voices shelf: the user's saved clones, the speakers of the voice
     /// models on disk, and the styles; and whether any model is on disk.
-    pub fn voice_cards(&self) -> (Vec<VoiceCardData>, Vec<VoiceCardData>, Vec<VoiceCardData>, bool) {
+    pub fn voice_cards(
+        &self,
+    ) -> (
+        Vec<VoiceCardData>,
+        Vec<VoiceCardData>,
+        Vec<VoiceCardData>,
+        bool,
+    ) {
         use crate::panes::speech::{STYLES, letter_avatar, voice_names};
         let saved = self
             .speech

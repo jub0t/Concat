@@ -74,9 +74,8 @@ impl Listing {
 /// was there in one step: written beside it and renamed over it, so a
 /// reader sees the old file or the new one and never half of either.
 pub fn write(path: &Path, listing: &Listing) -> Result<(), String> {
-    let could_not = |error: &dyn std::fmt::Display| {
-        format!("could not write {}: {error}", path.display())
-    };
+    let could_not =
+        |error: &dyn std::fmt::Display| format!("could not write {}: {error}", path.display());
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| could_not(&error))?;
     }
@@ -151,13 +150,19 @@ mod tests {
         let path = path_in(&scratch.path().join("config"));
         assert_eq!(read(&path), Ok(None));
         let listing = Listing::new("0.0.0.0:7420".parse().expect("an address"), "t0ken");
-        assert_eq!(listing.address, "127.0.0.1:7420".parse().expect("an address"));
+        assert_eq!(
+            listing.address,
+            "127.0.0.1:7420".parse().expect("an address")
+        );
         write(&path, &listing).expect("writes");
         assert_eq!(read(&path), Ok(Some(listing.clone())));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).expect("there").permissions().mode();
+            let mode = std::fs::metadata(&path)
+                .expect("there")
+                .permissions()
+                .mode();
             assert_eq!(mode & 0o777, 0o600, "{mode:o}");
         }
         // Someone else's listing stays.

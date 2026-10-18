@@ -163,7 +163,12 @@ fn read(
         let message = match serde_json::from_str::<Value>(&line) {
             Ok(message) => message,
             Err(error) => {
-                output.send(&failure(Value::Null, code::PARSE, &format!("not JSON: {error}"), None));
+                output.send(&failure(
+                    Value::Null,
+                    code::PARSE,
+                    &format!("not JSON: {error}"),
+                    None,
+                ));
                 continue;
             }
         };
@@ -178,7 +183,10 @@ fn read(
             ));
             continue;
         };
-        let method = message.get("method").and_then(Value::as_str).map(str::to_owned);
+        let method = message
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let id = message.remove("id");
         let params = message.remove("params").unwrap_or(Value::Null);
         match (method, id) {
@@ -374,7 +382,12 @@ impl Server {
         cancelled: &AtomicBool,
     ) -> Value {
         let Some(name) = params.get("name").and_then(Value::as_str) else {
-            return failure(id.clone(), code::INVALID_PARAMS, "tools/call names a tool", None);
+            return failure(
+                id.clone(),
+                code::INVALID_PARAMS,
+                "tools/call names a tool",
+                None,
+            );
         };
         let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
         if !(arguments.is_object() || arguments.is_null()) {

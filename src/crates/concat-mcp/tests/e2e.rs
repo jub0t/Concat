@@ -96,8 +96,14 @@ impl Agent {
     /// A tool's result: its structured content when it has some, its text
     /// otherwise. Fails on a protocol error.
     fn tool(&mut self, name: &str, arguments: Value) -> Value {
-        let (_, reply) = self.ask("tools/call", json!({ "name": name, "arguments": arguments }));
-        let result = reply.get("result").unwrap_or_else(|| panic!("{name}: {reply}")).clone();
+        let (_, reply) = self.ask(
+            "tools/call",
+            json!({ "name": name, "arguments": arguments }),
+        );
+        let result = reply
+            .get("result")
+            .unwrap_or_else(|| panic!("{name}: {reply}"))
+            .clone();
         assert_eq!(result["isError"], false, "{name}: {result}");
         result
     }
@@ -135,12 +141,22 @@ fn an_agent_edits_previews_and_exports_a_project_headless() {
     assert_eq!(welcome["protocolVersion"], "2025-06-18");
     assert_eq!(welcome["serverInfo"]["name"], "concat");
     assert!(welcome["capabilities"]["tools"].is_object());
-    assert!(welcome["instructions"].as_str().is_some_and(|text| text.contains("project")));
+    assert!(
+        welcome["instructions"]
+            .as_str()
+            .is_some_and(|text| text.contains("project"))
+    );
     agent.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
 
     let (_, listed) = agent.ask("tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().expect("tools");
-    for name in ["project_create", "edit_apply", "title_add", "preview_frame", "export_wait"] {
+    for name in [
+        "project_create",
+        "edit_apply",
+        "title_add",
+        "preview_frame",
+        "export_wait",
+    ] {
         let tool = tools
             .iter()
             .find(|tool| tool["name"] == name)
@@ -197,10 +213,16 @@ fn an_agent_edits_previews_and_exports_a_project_headless() {
         .expect("clips")
         .clone();
     assert_eq!(clips.len(), 3, "{read}");
-    let first = clips.iter().find(|clip| clip["id"] == title).expect("the title");
+    let first = clips
+        .iter()
+        .find(|clip| clip["id"] == title)
+        .expect("the title");
     assert_eq!(first["text"], "Hello, agent");
     assert_eq!(first["keyframed"], json!(["opacity"]));
-    assert_eq!(keyed["structuredContent"]["timeline"], read["structuredContent"]["timeline"]);
+    assert_eq!(
+        keyed["structuredContent"]["timeline"],
+        read["structuredContent"]["timeline"]
+    );
 
     // A wrong argument is the agent's to correct: a tool error, not a
     // protocol one.
@@ -209,7 +231,10 @@ fn an_agent_edits_previews_and_exports_a_project_headless() {
         json!({ "name": "clip_speed", "arguments": { "path": path, "clipId": title, "speed": "fast" } }),
     );
     assert_eq!(wrong["result"]["isError"], true, "{wrong}");
-    let (_, unknown) = agent.ask("tools/call", json!({ "name": "make_it_pop", "arguments": {} }));
+    let (_, unknown) = agent.ask(
+        "tools/call",
+        json!({ "name": "make_it_pop", "arguments": {} }),
+    );
     assert_eq!(unknown["error"]["code"], -32602);
 
     let undone = agent.tool("edit_undo", json!({ "path": path }));
@@ -218,24 +243,35 @@ fn an_agent_edits_previews_and_exports_a_project_headless() {
         .and_then(|clips| clips.iter().find(|clip| clip["id"] == title))
         .expect("the title")
         .clone();
-    assert!(after_undo.get("keyframed").is_none(), "the key is undone: {after_undo}");
+    assert!(
+        after_undo.get("keyframed").is_none(),
+        "the key is undone: {after_undo}"
+    );
 
     let frame = agent.tool("preview_frame", json!({ "path": path, "time": 0.25 }));
     let image = &frame["content"][0];
     assert_eq!(image["type"], "image");
     assert_eq!(image["mimeType"], "image/png");
     assert!(
-        image["data"].as_str().is_some_and(|data| data.starts_with("iVBORw0KGgo")),
+        image["data"]
+            .as_str()
+            .is_some_and(|data| data.starts_with("iVBORw0KGgo")),
         "a PNG"
     );
-    assert_eq!(frame["structuredContent"]["width"], 320, "the timeline's own size fits");
+    assert_eq!(
+        frame["structuredContent"]["width"], 320,
+        "the timeline's own size fits"
+    );
 
     agent.tool("project_save", json!({ "path": path }));
     let saved = std::fs::read_to_string(Path::new(&path).join("concat.json")).expect("saved");
     assert!(saved.contains("Hello, agent"));
 
     let output = home.join("agent.mp4").to_string_lossy().into_owned();
-    let started = agent.tool("export_start", json!({ "path": path, "output": output, "preset": "ultrafast" }));
+    let started = agent.tool(
+        "export_start",
+        json!({ "path": path, "output": output, "preset": "ultrafast" }),
+    );
     let job = started["structuredContent"]["job"].clone();
     assert_eq!(job, "j1");
     let (notes, waited) = agent.ask(
@@ -292,11 +328,18 @@ fn a_modern_client_discovers_and_is_told_which_versions_are_spoken() {
             .as_array()
             .is_some_and(|versions| versions.contains(&json!("2026-07-28")))
     );
-    assert_eq!(result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"], "concat");
+    assert_eq!(
+        result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        "concat"
+    );
 
     let (_, listed) = agent.ask("tools/list", json!({ "_meta": meta("2026-07-28") }));
     assert_eq!(listed["result"]["resultType"], "complete");
-    assert!(listed["result"]["tools"].as_array().is_some_and(|tools| tools.len() > 20));
+    assert!(
+        listed["result"]["tools"]
+            .as_array()
+            .is_some_and(|tools| tools.len() > 20)
+    );
 
     let (_, refused) = agent.ask("tools/list", json!({ "_meta": meta("1900-01-01") }));
     assert_eq!(refused["error"]["code"], -32022);

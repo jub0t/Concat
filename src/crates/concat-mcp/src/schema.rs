@@ -115,7 +115,11 @@ impl Schemas {
                     continue;
                 };
                 let body = compact(def.clone());
-                pending.extend(references(&body).into_iter().filter(|other| !defs.contains_key(other)));
+                pending.extend(
+                    references(&body)
+                        .into_iter()
+                        .filter(|other| !defs.contains_key(other)),
+                );
                 defs.insert(name, body);
             }
             schema["$defs"] = Value::Object(defs);
@@ -153,9 +157,13 @@ fn compact(schema: Value) -> Value {
         Value::Object(object) => Value::Object(
             object
                 .into_iter()
-                .filter(|(key, value)| !(key == "default" && (value.is_object() || value.is_array())))
+                .filter(|(key, value)| {
+                    !(key == "default" && (value.is_object() || value.is_array()))
+                })
                 .map(|(key, value)| match (key.as_str(), value) {
-                    ("description", Value::String(text)) => (key, Value::String(first_sentence(&text))),
+                    ("description", Value::String(text)) => {
+                        (key, Value::String(first_sentence(&text)))
+                    }
                     (_, value) => (key, compact(value)),
                 })
                 .collect(),
@@ -186,16 +194,13 @@ fn alternatives(schema: &Value) -> Vec<Value> {
 /// The constant an alternative's tag property holds.
 fn tag_of<'a>(variant: &'a Value, tag: &str) -> Option<&'a str> {
     let property = variant.pointer(&format!("/properties/{tag}"))?;
-    property
-        .get("const")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            property
-                .get("enum")
-                .and_then(Value::as_array)
-                .and_then(|values| values.first())
-                .and_then(Value::as_str)
-        })
+    property.get("const").and_then(Value::as_str).or_else(|| {
+        property
+            .get("enum")
+            .and_then(Value::as_array)
+            .and_then(|values| values.first())
+            .and_then(Value::as_str)
+    })
 }
 
 /// An alternative without its tag: the property and its requirement.
@@ -206,7 +211,9 @@ fn without(mut variant: Value, tag: &str) -> Value {
     if let Some(required) = variant.get_mut("required").and_then(Value::as_array_mut) {
         required.retain(|name| name.as_str() != Some(tag));
         if required.is_empty() {
-            variant.as_object_mut().map(|object| object.remove("required"));
+            variant
+                .as_object_mut()
+                .map(|object| object.remove("required"));
         }
     }
     if variant.get("properties").is_none() {
@@ -220,7 +227,10 @@ fn add_required(schema: &mut Value, name: &str, property: Value) {
     schema["properties"][name] = property;
     let mut names = vec![json!(name)];
     if let Some(Value::Array(rest)) = schema.get_mut("required").map(Value::take) {
-        names.extend(rest.into_iter().filter(|other| other.as_str() != Some(name)));
+        names.extend(
+            rest.into_iter()
+                .filter(|other| other.as_str() != Some(name)),
+        );
     }
     schema["required"] = Value::Array(names);
 }
@@ -248,7 +258,10 @@ fn inline(
                 && let Some(name) = reference.strip_prefix("#/$defs/")
             {
                 let name = name.to_owned();
-                if SHARED.contains(&name.as_str()) || stack.contains(&name) || !defs.contains_key(&name) {
+                if SHARED.contains(&name.as_str())
+                    || stack.contains(&name)
+                    || !defs.contains_key(&name)
+                {
                     kept.insert(name);
                     return Value::Object(object);
                 }
@@ -389,7 +402,11 @@ pub(crate) fn check(schema: &Value, value: &Value, root: &Value, at: &str) -> Re
                 .iter()
                 .filter(|choice| check(choice, value, root, at).is_ok())
                 .count();
-            let ok = if key == "oneOf" { fitting == 1 } else { fitting >= 1 };
+            let ok = if key == "oneOf" {
+                fitting == 1
+            } else {
+                fitting >= 1
+            };
             if !ok {
                 let why: Vec<String> = choices
                     .iter()
@@ -417,7 +434,9 @@ mod tests {
         assert!(schemas.method("project.nope").is_none());
         let set_video = schemas.method("project.setVideo").expect("a method");
         assert!(
-            set_video.pointer("/properties/video/properties/width").is_some(),
+            set_video
+                .pointer("/properties/video/properties/width")
+                .is_some(),
             "VideoSettings inlined: {set_video}"
         );
         assert!(!set_video.to_string().contains("$ref"));
@@ -427,7 +446,10 @@ mod tests {
     fn a_command_carries_the_project_path() {
         let schemas = Schemas::generate();
         let trim = schemas.command("trimClip").expect("a command");
-        assert_eq!(trim.pointer("/properties/path/type"), Some(&json!("string")));
+        assert_eq!(
+            trim.pointer("/properties/path/type"),
+            Some(&json!("string"))
+        );
         assert!(trim["properties"].get("op").is_none());
         let required = trim["required"].as_array().expect("required");
         assert!(required.contains(&json!("path")) && required.contains(&json!("clipId")));
@@ -462,7 +484,12 @@ mod tests {
             Some(&json!("#/$defs/Command"))
         );
         let command = batch.pointer("/$defs/Command").expect("carried");
-        assert!(command.get("oneOf").or_else(|| command.get("anyOf")).is_some());
+        assert!(
+            command
+                .get("oneOf")
+                .or_else(|| command.get("anyOf"))
+                .is_some()
+        );
         let sample = json!({
             "path": "/p",
             "commands": [

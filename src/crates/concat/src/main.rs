@@ -47,7 +47,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     .and_then(|word| concat_mcp::Mode::parse(&word))
             })
             .unwrap_or_default();
-        let _ =concat_host::logs::open_console(None);
+        let _ = concat_host::logs::open_console(None);
         return concat_mcp::run(mode).map_err(|error| {
             log::error!("mcp: {error}");
             slint::PlatformError::Other(error)

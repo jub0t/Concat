@@ -104,7 +104,11 @@ mod tests {
     fn a_weak_token_is_refused_and_a_minted_one_is_not() {
         for _ in 0..64 {
             let minted = mint().expect("mints");
-            assert!(check(&minted).is_ok(), "{minted}: {}", estimated_bits(&minted));
+            assert!(
+                check(&minted).is_ok(),
+                "{minted}: {}",
+                estimated_bits(&minted)
+            );
         }
         for weak in [
             "",

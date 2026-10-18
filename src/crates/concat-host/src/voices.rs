@@ -124,7 +124,12 @@ pub fn save(
     };
     let samples = concat_media::AudioDecoder::open(source, &options)
         .and_then(|mut decoder| decoder.collect_f32())
-        .map_err(|error| format!("could not read the voice from {}: {error}", source.display()))?;
+        .map_err(|error| {
+            format!(
+                "could not read the voice from {}: {error}",
+                source.display()
+            )
+        })?;
     // A second is the least a voice can be told from.
     if samples.len() < SAMPLE_RATE as usize {
         return Err(format!(
@@ -195,7 +200,10 @@ fn copy_picture(path: &Path, folder: &Path) -> Result<String, String> {
         .map_err(|error| format!("could not read {}: {error}", path.display()))?
         .len();
     if size > PICTURE_CAP {
-        return Err(format!("{} is too large for a voice's picture", path.display()));
+        return Err(format!(
+            "{} is too large for a voice's picture",
+            path.display()
+        ));
     }
     let file = format!("picture.{extension}");
     std::fs::copy(path, folder.join(&file))
@@ -252,8 +260,14 @@ mod tests {
         let picture = dir.join("face.PNG");
         std::fs::write(&picture, b"png").unwrap();
 
-        let voice = save(&dir.join("voices"), " Narrator ", &source, 0.5, Some(&picture))
-            .expect("saves");
+        let voice = save(
+            &dir.join("voices"),
+            " Narrator ",
+            &source,
+            0.5,
+            Some(&picture),
+        )
+        .expect("saves");
         assert_eq!(voice.name, "Narrator");
         assert!(voice.sample().is_file());
         assert_eq!(voice.picture.as_deref(), Some("picture.png"));
@@ -262,7 +276,10 @@ mod tests {
         assert_eq!(listed[0].id, voice.id);
         assert!(listed[0].picture_path().unwrap().is_file());
 
-        assert!(save(&dir.join("voices"), "  ", &source, 0.0, None).is_err(), "a name is needed");
+        assert!(
+            save(&dir.join("voices"), "  ", &source, 0.0, None).is_err(),
+            "a name is needed"
+        );
         assert!(
             save(&dir.join("voices"), "Late", &source, 2.5, None).is_err(),
             "half a second is too little"

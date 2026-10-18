@@ -91,12 +91,16 @@ pub fn open(mode: Mode) -> Result<Box<dyn Backend>, String> {
 /// Where the window's server is, and its token: the environment's if it
 /// names them, the window's listing otherwise.
 fn locate() -> Result<(SocketAddr, String), String> {
-    let address = std::env::var("CONCAT_API_ADDRESS").ok().filter(|text| !text.is_empty());
-    let token = std::env::var("CONCAT_API_TOKEN").ok().filter(|text| !text.is_empty());
+    let address = std::env::var("CONCAT_API_ADDRESS")
+        .ok()
+        .filter(|text| !text.is_empty());
+    let token = std::env::var("CONCAT_API_TOKEN")
+        .ok()
+        .filter(|text| !text.is_empty());
     if let (Some(address), Some(token)) = (&address, &token) {
-        let address = address
-            .parse()
-            .map_err(|_| format!("CONCAT_API_ADDRESS {address:?} is not an address like 127.0.0.1:7420"))?;
+        let address = address.parse().map_err(|_| {
+            format!("CONCAT_API_ADDRESS {address:?} is not an address like 127.0.0.1:7420")
+        })?;
         return Ok((address, token.clone()));
     }
     if address.is_some() != token.is_some() {
@@ -123,9 +127,8 @@ impl Window {
     /// Connects to the window's server.
     pub fn find() -> Result<Window, String> {
         let (address, token) = locate()?;
-        let client = Client::connect(address, &token, PATIENCE).map_err(|error| {
-            format!("{error} (if the window has closed, its listing is stale)")
-        })?;
+        let client = Client::connect(address, &token, PATIENCE)
+            .map_err(|error| format!("{error} (if the window has closed, its listing is stale)"))?;
         Ok(Window { client })
     }
 
@@ -140,7 +143,11 @@ impl Window {
 impl Backend for Window {
     fn call(&mut self, request: Request) -> Result<Value, ApiError> {
         match self.client.call(&request) {
-            Err(error) if error.message.starts_with("the connection to the Concat server") => {
+            Err(error)
+                if error
+                    .message
+                    .starts_with("the connection to the Concat server") =>
+            {
                 let again = Window::find().map_err(|why| {
                     ApiError::failed(format!(
                         "{} - and reconnecting failed: {why}",

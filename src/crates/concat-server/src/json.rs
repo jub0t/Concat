@@ -427,8 +427,7 @@ impl Outbox {
             .name(format!("concat json {id} out"))
             .spawn(move || {
                 for message in messages {
-                    if writeln!(writer, "{}", message.to_json()).is_err()
-                        || writer.flush().is_err()
+                    if writeln!(writer, "{}", message.to_json()).is_err() || writer.flush().is_err()
                     {
                         // Gone, or stalled past the write timeout: hang up
                         // so the reader ends too, and drop the queue so
@@ -567,7 +566,10 @@ mod tests {
         assert!(late.closed());
         drop(seated);
         // A seat given back is taken again.
-        assert!(eventually(|| server.connections() == 0), "the seats come back");
+        assert!(
+            eventually(|| server.connections() == 0),
+            "the seats come back"
+        );
         let _back = Client::connect(&server);
         server.stop();
     }
@@ -628,7 +630,9 @@ mod tests {
             let client = Client::connect(&server);
             drop(client);
         }
-        assert!(eventually(|| server.registered() == 0 && server.connections() == 0));
+        assert!(eventually(
+            || server.registered() == 0 && server.connections() == 0
+        ));
         assert_eq!(server.hub().subscribers(), 0, "nobody left subscribed");
         server.stop();
     }
@@ -659,7 +663,10 @@ mod tests {
         assert_eq!(reply["id"], 2);
         // A clean slate: one more wrong token is forgiven again.
         let mut slip = Client::reach(&server);
-        assert_eq!(slip.auth("still not it, sorry")["error"]["message"], "wrong token");
+        assert_eq!(
+            slip.auth("still not it, sorry")["error"]["message"],
+            "wrong token"
+        );
         let _ = Client::connect(&server);
         server.stop();
     }

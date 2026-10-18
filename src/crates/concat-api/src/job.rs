@@ -204,10 +204,7 @@ mod tests {
             path: "/p".to_owned(),
             error: ApiError::new(ErrorCode::Cancelled, "The export was cancelled"),
         });
-        assert_eq!(
-            book.status("j1").expect("known").state,
-            JobState::Cancelled
-        );
+        assert_eq!(book.status("j1").expect("known").state, JobState::Cancelled);
     }
 
     #[test]

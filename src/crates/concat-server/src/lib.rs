@@ -274,7 +274,8 @@ impl Server {
                 .map_err(|error| could_not(&shown, &error))?;
             server.socket = Some(path);
             server.listeners.push(
-                json::serve_unix(listener, door.clone()).map_err(|error| could_not(&shown, &error))?,
+                json::serve_unix(listener, door.clone())
+                    .map_err(|error| could_not(&shown, &error))?,
             );
         }
 
