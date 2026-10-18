@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Solo questo computer",
   "settings.thisVersion": "questa versione",
   "settings.token": "Token",
+  "settings.tokenTooWeak": "In attesa di un token più forte: almeno {0} caratteri e nessuno schema ripetuto. Oppure lascialo vuoto, o premi Nuovo token.",
   "settings.unpacking": "Estrazione…",
   "settings.upToDate": "Concat {0} è l'ultima versione.",
   "settings.updateAvailable": "Concat {0} è disponibile. Questa è la {1}.",

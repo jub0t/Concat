@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "המחשב הזה בלבד",
   "settings.thisVersion": "הגרסה הזו",
   "settings.token": "אסימון",
+  "settings.tokenTooWeak": "ממתין לאסימון חזק יותר: לפחות {0} תווים, ולא תבנית חוזרת. או השאירו ריק, או לחצו על אסימון חדש.",
   "settings.unpacking": "פורס…",
   "settings.upToDate": "Concat {0} היא הגרסה האחרונה.",
   "settings.updateAvailable": "Concat {0} יצא. זו גרסה {1}.",

@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "เครื่องนี้เท่านั้น",
   "settings.thisVersion": "เวอร์ชันนี้",
   "settings.token": "โทเค็น",
+  "settings.tokenTooWeak": "กำลังรอโทเค็นที่แข็งแรงกว่า: อย่างน้อย {0} อักขระ และไม่ใช่รูปแบบซ้ำ ๆ หรือเว้นว่างไว้ หรือกดโทเค็นใหม่",
   "settings.unpacking": "กำลังแตกไฟล์…",
   "settings.upToDate": "Concat {0} เป็นรุ่นล่าสุดแล้ว",
   "settings.updateAvailable": "Concat {0} ออกแล้ว ตอนนี้ใช้ {1}",

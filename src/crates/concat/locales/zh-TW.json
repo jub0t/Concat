@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "僅限本機",
   "settings.thisVersion": "目前版本",
   "settings.token": "權杖",
+  "settings.tokenTooWeak": "正在等待更強的權杖：至少 {0} 個字元，且不是重複的模式。也可以留空，或按「產生新權杖」。",
   "settings.unpacking": "正在解壓縮…",
   "settings.upToDate": "Concat {0} 已是最新版本。",
   "settings.updateAvailable": "Concat {0} 已發布。目前版本為 {1}。",

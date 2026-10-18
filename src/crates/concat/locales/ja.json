@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "このコンピューターのみ",
   "settings.thisVersion": "このバージョン",
   "settings.token": "トークン",
+  "settings.tokenTooWeak": "より強いトークンを待っています：{0} 文字以上で、繰り返しのパターンでないもの。空のままにするか、「新しいトークン」を押してください。",
   "settings.unpacking": "展開中…",
   "settings.upToDate": "Concat {0} が最新のリリースです。",
   "settings.updateAvailable": "Concat {0} が公開されています。現在は {1} です。",

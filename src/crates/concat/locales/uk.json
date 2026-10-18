@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Лише цей комп’ютер",
   "settings.thisVersion": "ця версія",
   "settings.token": "Токен",
+  "settings.tokenTooWeak": "Потрібен надійніший токен: щонайменше {0} символів і без шаблону, що повторюється. Або залиште поле порожнім, або натисніть «Новий токен».",
   "settings.unpacking": "Розпакування…",
   "settings.upToDate": "Concat {0} — найновіший випуск.",
   "settings.updateAvailable": "Вийшов Concat {0}. Зараз встановлено {1}.",

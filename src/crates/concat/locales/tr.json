@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Yalnızca bu bilgisayar",
   "settings.thisVersion": "bu sürüm",
   "settings.token": "Belirteç",
+  "settings.tokenTooWeak": "Daha güçlü bir belirteç bekleniyor: en az {0} karakter ve tekrarlanan bir desen değil. Ya boş bırakın ya da Yeni belirteç'e basın.",
   "settings.unpacking": "Açılıyor…",
   "settings.upToDate": "Concat {0} en son sürüm.",
   "settings.updateAvailable": "Concat {0} çıktı. Bu sürüm {1}.",

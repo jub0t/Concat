@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "이 컴퓨터만",
   "settings.thisVersion": "이 버전",
   "settings.token": "토큰",
+  "settings.tokenTooWeak": "더 강한 토큰을 기다리는 중: {0}자 이상이고 반복되는 패턴이 아니어야 합니다. 비워 두거나 새 토큰을 누르세요.",
   "settings.unpacking": "압축 해제 중…",
   "settings.upToDate": "Concat {0}이(가) 최신 릴리스입니다.",
   "settings.updateAvailable": "Concat {0}이(가) 나왔습니다. 현재 버전은 {1}입니다.",

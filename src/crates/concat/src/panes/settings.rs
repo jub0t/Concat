@@ -614,14 +614,27 @@ impl SettingsPane {
     /// takes effect; a bind that fails turns the switch back off and says
     /// why on the page.
     fn apply_server(&mut self, studio: &mut Studio) {
+        // Detached: the address is free again when this returns, and a
+        // call or an export the old server was in the middle of is
+        // cancelled and finished off the event loop, not waited for on it.
         if let Some(server) = studio.host.server.take() {
-            server.stop();
+            server.stop_detached();
         }
         self.server_error.clear();
         let exporter = studio.host.exporter.clone();
         let open_projects = studio.host.open_projects.clone();
         let prefs = &studio.prefs.server;
         if !prefs.enabled {
+            return;
+        }
+        // A token being typed is weak until it is long enough; the switch
+        // stays on and the server waits for it, rather than the switch
+        // flipping off at the first keystroke.
+        if !prefs.token.is_empty() && concat_server::check_token(&prefs.token).is_err() {
+            self.server_error = tf(
+                "settings.tokenTooWeak",
+                &[&concat_server::MIN_TOKEN_CHARS],
+            );
             return;
         }
         let started = prefs
@@ -958,6 +971,12 @@ const LOG_LEVELS: [log::LevelFilter; 5] = [
 ];
 
 pub fn new_token() -> String {
+    // The server's own minting, from the operating system's randomness.
+    // The hasher's seed below is the fallback for a platform where that
+    // fails, which none the app ships on does.
+    if let Ok(token) = concat_server::mint_token() {
+        return token;
+    }
     use std::hash::{BuildHasher, Hasher};
     let word = |salt: u64| {
         let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();

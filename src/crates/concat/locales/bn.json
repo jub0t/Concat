@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "শুধু এই কম্পিউটার",
   "settings.thisVersion": "এই সংস্করণ",
   "settings.token": "টোকেন",
+  "settings.tokenTooWeak": "আরও শক্ত টোকেনের অপেক্ষায়: অন্তত {0}টি অক্ষর, আর কোনো পুনরাবৃত্ত ধাঁচ নয়। অথবা ফাঁকা রাখুন, কিংবা নতুন টোকেন চাপুন।",
   "settings.unpacking": "আনপ্যাক করা হচ্ছে…",
   "settings.upToDate": "Concat {0} সর্বশেষ রিলিজ।",
   "settings.updateAvailable": "Concat {0} বেরিয়েছে। এটি {1}।",

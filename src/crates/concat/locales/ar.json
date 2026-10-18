@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "هذا الجهاز فقط",
   "settings.thisVersion": "هذا الإصدار",
   "settings.token": "الرمز المميّز",
+  "settings.tokenTooWeak": "بانتظار رمز مميّز أقوى: {0} حرفًا على الأقل، ولا يكون نمطًا متكررًا. أو اتركه فارغًا، أو اضغط «رمز مميّز جديد».",
   "settings.unpacking": "جارٍ فك الحزمة…",
   "settings.upToDate": "Concat {0} هو أحدث إصدار.",
   "settings.updateAvailable": "صدر Concat {0}. الإصدار الحالي {1}.",

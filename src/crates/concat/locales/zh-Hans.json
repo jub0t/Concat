@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "仅限本机",
   "settings.thisVersion": "当前版本",
   "settings.token": "令牌",
+  "settings.tokenTooWeak": "正在等待更强的令牌：至少 {0} 个字符，且不是重复的模式。也可以留空，或按“生成新令牌”。",
   "settings.unpacking": "正在解包…",
   "settings.upToDate": "Concat {0} 已是最新版本。",
   "settings.updateAvailable": "Concat {0} 已发布。当前版本为 {1}。",

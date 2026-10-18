@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Chỉ máy này",
   "settings.thisVersion": "phiên bản này",
   "settings.token": "Mã thông báo",
+  "settings.tokenTooWeak": "Đang chờ một mã thông báo mạnh hơn: ít nhất {0} ký tự và không phải một mẫu lặp lại. Hoặc để trống, hoặc nhấn Mã thông báo mới.",
   "settings.unpacking": "Đang giải nén…",
   "settings.upToDate": "Concat {0} là bản phát hành mới nhất.",
   "settings.updateAvailable": "Concat {0} đã được phát hành. Phiên bản hiện tại là {1}.",

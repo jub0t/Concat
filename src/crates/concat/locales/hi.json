@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "सिर्फ़ यही कंप्यूटर",
   "settings.thisVersion": "यह वर्शन",
   "settings.token": "टोकन",
+  "settings.tokenTooWeak": "मज़बूत टोकन की प्रतीक्षा: कम से कम {0} अक्षर, और कोई दोहराया हुआ पैटर्न नहीं। या इसे खाली छोड़ दें, या नया टोकन दबाएँ।",
   "settings.unpacking": "अनपैक हो रहा है…",
   "settings.upToDate": "Concat {0} नवीनतम रिलीज़ है।",
   "settings.updateAvailable": "Concat {0} आ गया है। यह {1} है।",

@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Cette machine seulement",
   "settings.thisVersion": "cette version",
   "settings.token": "Jeton",
+  "settings.tokenTooWeak": "En attente d’un jeton plus solide : au moins {0} caractères, et pas un motif répété. Ou laissez-le vide, ou appuyez sur Nouveau jeton.",
   "settings.unpacking": "Décompression…",
   "settings.upToDate": "Concat {0} est la dernière version.",
   "settings.updateAvailable": "Concat {0} est sorti. Ceci est la {1}.",

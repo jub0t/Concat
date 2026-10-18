@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Alleen deze computer",
   "settings.thisVersion": "deze versie",
   "settings.token": "Token",
+  "settings.tokenTooWeak": "Wacht op een sterker token: minstens {0} tekens, en geen herhalend patroon. Of laat het leeg, of druk op Nieuw token.",
   "settings.unpacking": "Uitpakken…",
   "settings.upToDate": "Concat {0} is de nieuwste release.",
   "settings.updateAvailable": "Concat {0} is uit. Dit is {1}.",

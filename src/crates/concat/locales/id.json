@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Hanya komputer ini",
   "settings.thisVersion": "versi ini",
   "settings.token": "Token",
+  "settings.tokenTooWeak": "Menunggu token yang lebih kuat: minimal {0} karakter, dan bukan pola yang berulang. Atau biarkan kosong, atau tekan Token baru.",
   "settings.unpacking": "Mengekstrak…",
   "settings.upToDate": "Concat {0} adalah rilis terbaru.",
   "settings.updateAvailable": "Concat {0} sudah tersedia. Ini versi {1}.",

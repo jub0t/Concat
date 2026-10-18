@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "صرف یہی کمپیوٹر",
   "settings.thisVersion": "یہ ورژن",
   "settings.token": "ٹوکن",
+  "settings.tokenTooWeak": "زیادہ مضبوط ٹوکن کا انتظار: کم از کم {0} حروف، اور کوئی دہرایا ہوا نمونہ نہیں۔ یا اسے خالی چھوڑ دیں، یا نیا ٹوکن دبائیں۔",
   "settings.unpacking": "کھولا جا رہا ہے…",
   "settings.upToDate": "Concat {0} تازہ ترین ورژن ہے۔",
   "settings.updateAvailable": "Concat {0} آ گیا ہے۔ موجودہ ورژن {1} ہے۔",

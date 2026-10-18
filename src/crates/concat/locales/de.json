@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Nur dieser Rechner",
   "settings.thisVersion": "diese Version",
   "settings.token": "Token",
+  "settings.tokenTooWeak": "Wartet auf ein stärkeres Token: mindestens {0} Zeichen und kein sich wiederholendes Muster. Oder leer lassen oder „Neues Token“ drücken.",
   "settings.unpacking": "Wird entpackt…",
   "settings.upToDate": "Concat {0} ist die neueste Version.",
   "settings.updateAvailable": "Concat {0} ist erschienen. Dies ist {1}.",

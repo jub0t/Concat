@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "Samo ovo računalo",
   "settings.thisVersion": "ova verzija",
   "settings.token": "Token",
+  "settings.tokenTooWeak": "Čeka se jači token: najmanje {0} znakova i bez uzorka koji se ponavlja. Ili ga ostavite praznim, ili pritisnite Novi token.",
   "settings.unpacking": "Raspakiranje…",
   "settings.upToDate": "Concat {0} je najnovije izdanje.",
   "settings.updateAvailable": "Concat {0} je izašao. Ovo je {1}.",

@@ -486,6 +486,7 @@
   "settings.thisComputerOnly": "فقط همین دستگاه",
   "settings.thisVersion": "این نسخه",
   "settings.token": "توکن (Token)",
+  "settings.tokenTooWeak": "در انتظار توکنی قوی‌تر: دست‌کم {0} نویسه، و نه یک الگوی تکراری. یا خالی بگذارید، یا «Token جدید» را بزنید.",
   "settings.unpacking": "در حال بازکردن بسته…",
   "settings.upToDate": "Concat {0} آخرین نسخه است.",
   "settings.updateAvailable": "Concat {0} منتشر شده است. این نسخه {1} است.",
