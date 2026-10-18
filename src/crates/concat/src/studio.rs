@@ -3678,6 +3678,23 @@ impl Studio {
         Some(plan)
     }
 
+    /// The bin's selection, in the bin's order, when `media_id` is one card
+    /// of a selection of several: what a drag of that card carries.
+    fn dragged_selection(&self, media_id: &str) -> Option<Vec<String>> {
+        let held = &self.media.selected;
+        if held.len() < 2 || !held.contains(media_id) {
+            return None;
+        }
+        Some(
+            self.project()
+                .media
+                .iter()
+                .filter(|item| held.contains(&item.id))
+                .map(|item| item.id.clone())
+                .collect(),
+        )
+    }
+
     /// Commits a plan that has a lane, and selects what it made.
     pub fn place(&mut self, plan: &DropPlan) {
         let Some(track_id) = self.row_track(plan.row).map(|track| track.id.clone()) else {
@@ -3705,6 +3722,16 @@ impl Studio {
                 duration: Some(f64::from(plan.duration)),
                 effect_id: plan.media.clone(),
                 name: plan.label.clone(),
+            })
+        } else if let Some(media_ids) = self.dragged_selection(&plan.media) {
+            // A card dragged out of a selection in the bin brings the whole
+            // selection, laid end to end from the drop, in the bin's order.
+            // Only the dragged card used to land (reported on Reddit).
+            self.apply(Command::AddClipsInSequence {
+                media_ids,
+                track_id: Some(track_id),
+                start: f64::from(plan.start),
+                ripple: true,
             })
         } else {
             self.apply(Command::AddClip {

@@ -3881,6 +3881,41 @@ mod tests {
     }
 
     #[test]
+    fn a_sequence_lands_end_to_end_on_one_lane_and_undoes_as_one() {
+        let (mut editor, media_id, _) = fixture();
+        let before = editor.project().active().clips.len();
+        let first = editor
+            .apply(Command::AddClipsInSequence {
+                media_ids: vec![media_id.clone(), media_id.clone(), media_id.clone()],
+                track_id: None,
+                start: 20.0,
+                ripple: false,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let timeline = editor.project().active();
+        let lane = timeline.clip(&first).expect("exists").track_id.clone();
+        let mut run: Vec<_> = timeline
+            .clips
+            .iter()
+            .filter(|clip| clip.start >= 20.0)
+            .collect();
+        run.sort_by(|a, b| a.start.total_cmp(&b.start));
+        assert_eq!(run.len(), 3);
+        assert!((run[0].start - 20.0).abs() < 1e-9);
+        for pair in run.windows(2) {
+            assert_eq!(pair[0].track_id, lane, "one lane");
+            assert!(
+                (pair[1].start - (pair[0].start + pair[0].duration)).abs() < 1e-9,
+                "each starts where the one before ends"
+            );
+        }
+        assert!(editor.undo(), "undoes");
+        assert_eq!(editor.project().active().clips.len(), before, "one undo step");
+    }
+
+    #[test]
     fn add_at_first_free_takes_the_lowest_empty_lane_or_opens_one() {
         let (mut editor, media_id, _) = fixture();
         // Track one is occupied for [0, 10), so the same span lands on two.

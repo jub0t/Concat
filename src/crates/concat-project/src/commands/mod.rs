@@ -303,6 +303,25 @@ pub enum Command {
         /// Timeline position in seconds, floored at 0.
         start: f64,
     },
+    /// Several bin items one after another on one lane, as one step: what
+    /// a selection of cards dragged from the bin, or added at the playhead,
+    /// lands as. Each clip starts where the one before it ends. Naming a
+    /// lane puts the run there, each clip placed as [`Command::AddClip`]
+    /// places one with the same `ripple`; without one, the run goes on the
+    /// lowest lane free for its whole length, a new one when none is.
+    AddClipsInSequence {
+        /// The bin items, in the order they are laid down.
+        media_ids: Vec<String>,
+        /// The lane, or None for the lowest one free for the whole run.
+        #[serde(default)]
+        track_id: Option<String>,
+        /// Where the first clip starts, in seconds, floored at 0.
+        start: f64,
+        /// On a named lane, make room as a drop does rather than take the
+        /// nearest gap.
+        #[serde(default)]
+        ripple: bool,
+    },
     /// Places a title: a clip with no media behind it, named after the
     /// text's first line, minting a "c" id.
     AddTextClip {
@@ -956,9 +975,9 @@ impl Command {
             Command::AddMedia { item }
             | Command::FillSlot { item, .. }
             | Command::ConsolidateClips { item, .. } => bad(item.duration) || bad(item.frame_rate),
-            Command::AddClip { start, .. } | Command::AddClipAtFirstFree { start, .. } => {
-                bad([*start])
-            }
+            Command::AddClip { start, .. }
+            | Command::AddClipAtFirstFree { start, .. }
+            | Command::AddClipsInSequence { start, .. } => bad([*start]),
             Command::AddShapeClip {
                 start,
                 duration,
@@ -1136,6 +1155,7 @@ pub fn apply(
         | Command::SetMediaColorRange { .. }) => media::apply(project, mint, command),
         command @ (Command::AddClip { .. }
         | Command::AddClipAtFirstFree { .. }
+        | Command::AddClipsInSequence { .. }
         | Command::AddTextClip { .. }
         | Command::AddShapeClip { .. }
         | Command::AddLayerClip { .. }

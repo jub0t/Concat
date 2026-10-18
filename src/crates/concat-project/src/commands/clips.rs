@@ -65,6 +65,55 @@ pub(super) fn apply(
             })
         }
 
+        Command::AddClipsInSequence {
+            media_ids,
+            track_id,
+            start,
+            ripple,
+        } => {
+            let items = media_ids
+                .iter()
+                .map(|id| project.media_by_id(id).cloned().ok_or(CommandError::MediaGone))
+                .collect::<Result<Vec<_>, _>>()?;
+            if items.is_empty() {
+                return Ok(Outcome {
+                    created_id: None,
+                    applied: false,
+                });
+            }
+            let start = start.max(0.0);
+            let total: f64 = items.iter().map(clip_length).sum();
+            let timeline = project.active_mut();
+            let track_id = match track_id {
+                Some(id) if timeline.track(&id).is_none() => return Err(CommandError::TrackGone),
+                Some(id) => id,
+                None => first_free_track(timeline, start, total)
+                    .unwrap_or_else(|| fresh_track(timeline, mint)),
+            };
+            let mut at = start;
+            let mut first = None;
+            for media in &items {
+                let place = if ripple {
+                    ripple_room_for(timeline, &track_id, at, media)
+                } else {
+                    timeline.nearest_free_start(&track_id, at, clip_length(media), &[])
+                };
+                let id = mint.next("c");
+                timeline.clips.push(Arc::new(default_clip(
+                    id.clone(),
+                    track_id.clone(),
+                    media,
+                    place,
+                )));
+                first.get_or_insert(id);
+                at = place + clip_length(media);
+            }
+            Ok(Outcome {
+                created_id: first,
+                applied: true,
+            })
+        }
+
         Command::AddTextClip {
             track_id,
             start,
