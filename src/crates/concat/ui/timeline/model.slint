@@ -251,6 +251,51 @@ export global Keyframes {
     }
 }
 
+/// One background, as a panel shows it: the timeline's, or the selected
+/// clip's own over it.
+export struct BackdropData {
+    /// 0 black, 1 blur, 2 colour, 3 a still; a clip's is -1 while it
+    /// follows the timeline's
+    mode: int,
+    /// how soft a blur is, 0..1
+    amount: float,
+    /// a colour background's colour, and the same as text
+    colour: color,
+    /// the still's row in Backdrop.stills, -1 when it is not one of them
+    still: int,
+}
+
+/// What fills the frame behind the main picture, and Fit and Fill.
+///
+/// A global, as Keyframes is, because three places ask the same questions
+/// of it - the Details panel for the timeline's, the Video panel for a
+/// clip's, and the phone - and none of them should be threaded to.
+export global Backdrop {
+    /// The active timeline's background.
+    in property <BackdropData> timeline;
+    /// The selected clip's own, when it has one to have.
+    in property <BackdropData> clip;
+    /// The selected clip is a video or a still on the lowest lane that
+    /// holds a picture: the clips a background is drawn behind.
+    in property <bool> clip-has;
+    /// Fit and Fill can size the selection: one picture whose size is known.
+    in property <bool> can-frame;
+    /// The bin's stills, by name, for a still background.
+    in property <[string]> stills;
+
+    /// Picks the kind, the timeline's or the selected clip's: `mode` as in
+    /// BackdropData, a clip's -1 going back to the timeline's.
+    callback set-mode(clip: bool, mode: int);
+    /// A blur's softness, as a knob turns it.
+    callback set-amount(clip: bool, amount: float);
+    callback set-colour(clip: bool, colour: color);
+    /// A still, by its row in `stills`.
+    callback set-still(clip: bool, row: int);
+    /// Sizes the selected picture to the frame: whole inside it, or
+    /// covering it.
+    callback frame(fill: bool);
+}
+
 /// The same again for the properties that are text rather than numbers.
 export enum ClipTextField {
     content, font-family, color, stroke-color, background,

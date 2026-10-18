@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Backdrop, BackdropData } from "../timeline/model.slint";
+
+// The phone's Canvas sheet: what fills a tall frame beside a wide shot,
+// and Fit and Fill, the way a phone editor lays them out - tiles and
+// swatches a thumb lands on, no list to open and no number to type. The
+// desk's inspector rows say the same things through the same Backdrop
+// global, so the two edit one model through one set of callbacks.
+
+/// A square choice with its mark over its word: a kind of background, Fit
+/// or Fill. Lit while it is the one in use.
+component Tile inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <string> label;
+    in property <bool> current;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    height: 68px;
+    horizontal-stretch: 1;
+    border-radius: Theme.r-lg;
+    border-width: root.current ? 2px : 0px;
+    border-color: Theme.accent;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: touch.pressed ? Theme.field-active : Theme.field;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 6px;
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.glyph;
+                size: 20px;
+                tint: root.current ? Theme.accent : Theme.fg;
+            }
+        }
+        Text {
+            text: root.label;
+            color: root.current ? Theme.fg : Theme.fg-muted;
+            font-size: Theme.fs;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// A pill in a row of steps: a blur's softness.
+component Step inherits Rectangle {
+    in property <string> label;
+    in property <bool> current;
+
+    callback clicked();
+
+    height: 44px;
+    horizontal-stretch: 1;
+    border-radius: 22px;
+    background: root.current ? Theme.accent
+        : touch.pressed ? Theme.field-active : Theme.field;
+
+    Text {
+        text: root.label;
+        color: root.current ? Theme.on-accent : Theme.fg;
+        font-size: Theme.fs-lg;
+        font-weight: Theme.weight-title;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+/// A quiet heading over a group in the sheet.
+component Heading inherits Text {
+    color: Theme.fg-dim;
+    font-size: Theme.fs-sm;
+    font-weight: Theme.weight-title;
+    letter-spacing: 1px;
+}
+
+export component PhoneCanvas inherits VerticalLayout {
+    /// The selected clip's own background rather than the timeline's; the
+    /// clip's sheet also sizes the clip.
+    in property <bool> own;
+
+    property <BackdropData> data: root.own ? Backdrop.clip : Backdrop.timeline;
+    property <bool> settable: !root.own || Backdrop.clip-has;
+
+    /// The softnesses offered: four steps cover what a slider would, and a
+    /// thumb hits each first time.
+    property <[float]> steps: [0.25, 0.5, 0.75, 1.0];
+    /// The colours offered: the plain ones vertical cuts are made with,
+    /// then a spread round the wheel.
+    property <[color]> swatches: [
+        #ffffff, #000000, #d9d9d9, #3a3a3a,
+        #f25c54, #f7b267, #ffe066, #8ac926,
+        #2ec4b6, #3a86ff, #8338ec, #ff4fa3,
+    ];
+
+    spacing: 12px;
+
+    if root.own && Backdrop.can-frame: Heading { text: I18n.t("common.size"); }
+    if root.own && Backdrop.can-frame: HorizontalLayout {
+        spacing: 8px;
+        Tile {
+            glyph: Glyph.fit;
+            label: I18n.t("clipInspector.fit");
+            clicked => { Backdrop.frame(false); }
+        }
+        Tile {
+            glyph: Glyph.maximize;
+            label: I18n.t("clipInspector.fill");
+            clicked => { Backdrop.frame(true); }
+        }
+    }
+
+    Heading { text: I18n.t("configPane.background"); }
+
+    if !root.settable: Text {
+        text: I18n.t("phone.canvasMainLaneOnly");
+        color: Theme.fg-dim;
+        font-size: Theme.fs;
+        wrap: word-wrap;
+    }
+
+    if root.settable: HorizontalLayout {
+        spacing: 8px;
+        if root.own: Tile {
+            glyph: Glyph.film;
+            label: I18n.t("clipInspector.backgroundTimeline");
+            current: root.data.mode == -1;
+            clicked => { Backdrop.set-mode(true, -1); }
+        }
+        Tile {
+            glyph: Glyph.close;
+            label: I18n.t("clipInspector.backgroundNone");
+            current: root.data.mode == 0;
+            clicked => { Backdrop.set-mode(root.own, 0); }
+        }
+        Tile {
+            glyph: Glyph.sparkle;
+            label: I18n.t("clipInspector.backgroundBlur");
+            current: root.data.mode == 1;
+            clicked => { Backdrop.set-mode(root.own, 1); }
+        }
+        Tile {
+            glyph: Glyph.sun;
+            label: I18n.t("common.color");
+            current: root.data.mode == 2;
+            clicked => { Backdrop.set-mode(root.own, 2); }
+        }
+        Tile {
+            glyph: Glyph.image;
+            label: I18n.t("clipInspector.backgroundImage");
+            current: root.data.mode == 3;
+            clicked => { Backdrop.set-mode(root.own, 3); }
+        }
+    }
+
+    if root.settable && root.data.mode == 1: Heading { text: I18n.t("clipInspector.softness"); }
+    if root.settable && root.data.mode == 1: HorizontalLayout {
+        spacing: 8px;
+        for amount in root.steps: Step {
+            label: "\{Math.round(amount * 100)}%";
+            current: Math.abs(root.data.amount - amount) < 0.125;
+            clicked => { Backdrop.set-amount(root.own, amount); }
+        }
+    }
+
+    // Twelve swatches, six to a row: a 2x6 grid placed by hand, since a
+    // repeater cannot wrap.
+    if root.settable && root.data.mode == 2: Rectangle {
+        property <length> gap: 10px;
+        property <length> cell: (self.width - 5 * self.gap) / 6;
+        height: 2 * self.cell + self.gap;
+
+        for swatch[index] in root.swatches: Rectangle {
+            x: Math.mod(index, 6) * (parent.cell + parent.gap);
+            y: Math.floor(index / 6) * (parent.cell + parent.gap);
+            width: parent.cell;
+            height: parent.cell;
+            border-radius: self.width / 2;
+            background: swatch;
+            border-width: root.data.colour == swatch ? 3px : 1px;
+            border-color: root.data.colour == swatch ? Theme.accent : Theme.line;
+
+            TouchArea {
+                clicked => { Backdrop.set-colour(root.own, swatch); }
+            }
+        }
+    }
+
+    if root.settable && root.data.mode == 3 && Backdrop.stills.length == 0: Text {
+        text: I18n.t("clipInspector.noStillsInBin");
+        color: Theme.fg-dim;
+        font-size: Theme.fs;
+        wrap: word-wrap;
+    }
+
+    if root.settable && root.data.mode == 3: VerticalLayout {
+        spacing: 8px;
+        for name[row] in Backdrop.stills: Rectangle {
+            height: 44px;
+            border-radius: Theme.r;
+            border-width: row == root.data.still ? 2px : 0px;
+            border-color: Theme.accent;
+            background: still-touch.pressed ? Theme.field-active : Theme.field;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    Icon {
+                        glyph: Glyph.image;
+                        size: 16px;
+                        tint: row == root.data.still ? Theme.accent : Theme.fg;
+                    }
+                }
+                Text {
+                    text: name;
+                    color: Theme.fg;
+                    font-size: Theme.fs-lg;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            still-touch := TouchArea {
+                clicked => { Backdrop.set-still(root.own, row); }
+            }
+        }
+    }
+}

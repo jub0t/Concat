@@ -20,6 +20,7 @@ import {
 import { TextPanel } from "../inspector/text-panel.slint";
 import { RoundButton, ToolItem, ToolStrip } from "controls.slint";
 import { PhoneSheet } from "sheet.slint";
+import { PhoneCanvas } from "canvas.slint";
 
 // The editor as a phone shows it: one screen, held upright, driven by a
 // finger. Shown in place of the title strip and the dock wherever the
@@ -251,6 +252,7 @@ export component PhoneEditor inherits Rectangle {
             : name == "filters" ? I18n.t("mediaPane.filters")
             : name == "transitions" ? I18n.t("mediaPane.transitions")
             : name == "project" ? I18n.t("phone.project")
+            : name == "canvas" || name == "clip-canvas" ? I18n.t("phone.canvas")
             : name == "clip-video" ? I18n.t("phone.edit")
             : name == "clip-speed" ? I18n.t("common.speed")
             : name == "clip-audio" ? I18n.t("common.audio")
@@ -751,6 +753,14 @@ export component PhoneEditor inherits Rectangle {
                     Editor.record-voiceover();
                 }
             }
+            // What fills a tall frame beside a wide shot, for the whole
+            // timeline: CapCut's Canvas, where a phone editor keeps it.
+            ToolItem {
+                glyph: Glyph.frame;
+                label: I18n.t("phone.canvas");
+                current: root.sheet == "canvas";
+                clicked => { root.show("canvas", false); }
+            }
             ToolItem {
                 glyph: Glyph.info;
                 label: I18n.t("phone.project");
@@ -793,6 +803,13 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("phone.edit");
                 current: root.sheet == "clip-video";
                 clicked => { root.show("clip-video", true); }
+            }
+            // The clip's own Canvas: Fit and Fill, and its background.
+            if root.is-picture: ToolItem {
+                glyph: Glyph.frame;
+                label: I18n.t("phone.canvas");
+                current: root.sheet == "clip-canvas";
+                clicked => { root.show("clip-canvas", true); }
             }
             if root.is-text: ToolItem {
                 glyph: Glyph.text-mark;
@@ -1092,7 +1109,12 @@ export component PhoneEditor inherits Rectangle {
         }
 
         // ── the inspector's pages ──
+        if root.sheet == "canvas": PhoneCanvas { own: false; }
+        if root.sheet == "clip-canvas": PhoneCanvas { own: true; }
+
         if root.sheet == "clip-video": VideoPanel {
+            // Fit, Fill and the background have the Canvas sheet here.
+            canvas: false;
             selected: Editor.selected-clip;
             applied: Editor.applied-visual;
             params: Editor.visual-params;
@@ -1215,6 +1237,7 @@ export component PhoneEditor inherits Rectangle {
             Fact { label: I18n.t("common.media"); value: "\{Editor.count-media}"; }
             Fact { label: I18n.t("configPane.tracks"); value: "\{Editor.count-tracks}"; }
             Fact { label: I18n.t("configPane.clips"); value: "\{Editor.count-clips}"; }
+
 
             Rectangle { height: 16px; }
 

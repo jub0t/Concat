@@ -8,7 +8,7 @@ import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, ProcessorRows,
+    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, BackgroundRows, ProcessorRows,
     CatalogueEntryData, ColourKnobData, EnhancePanel, FilterPanel, PresetStack, SpeedPanel,
     TransitionPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
@@ -408,6 +408,13 @@ export component ConfigPane inherits Rectangle {
                     FactRow { label: I18n.t("common.frame"); value: root.project-output; }
                     FactRow { label: I18n.t("common.rate"); value: root.project-rate; }
                     FactRow { label: I18n.t("common.duration"); value: root.project-duration; }
+
+                    // The one thing here that is set here rather than read:
+                    // what fills a tall frame beside a wide picture. The
+                    // timeline's, like the frame it fills, and every picture
+                    // on the main lane follows it unless it has its own.
+                    FactHeading { title: I18n.t("configPane.background"); }
+                    BackgroundRows { own: false; }
 
                     FactHeading { title: I18n.t("configPane.contents"); }
                     FactRow { label: I18n.t("common.media"); value: "\{root.count-media}"; }

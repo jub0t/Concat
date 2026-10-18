@@ -38,6 +38,8 @@ import {
     WheelGroupData,
 } from "grading.slint";
 import {
+    Backdrop,
+    BackdropData,
     ClipField,
     ClipKind,
     Keyframes,
@@ -921,6 +923,85 @@ component Hairline inherits HorizontalLayout {
     }
 }
 
+/// The rows that choose a background: what kind, then the one knob that
+/// kind has - a blur's softness, a colour, which still. The timeline's in
+/// the Details panel, a clip's own in its Video panel, where one more kind
+/// leads the list: the timeline's, followed.
+export component BackgroundRows inherits VerticalLayout {
+    /// The selected clip's own rather than the timeline's.
+    in property <bool> own;
+
+    property <BackdropData> data: root.own ? Backdrop.clip : Backdrop.timeline;
+    /// The list's row for the kind: a clip's list has the timeline's first.
+    property <int> picked: root.own ? root.data.mode + 1 : root.data.mode;
+    property <int> kind: root.data.mode;
+    // Seeded rather than bound: the knob writes it as it is dragged.
+    property <float> amount;
+    init => { root.amount = root.data.amount; }
+    changed data => { root.amount = root.data.amount; }
+
+    property <[string]> kinds: [
+        I18n.t("clipInspector.backgroundNone"),
+        I18n.t("clipInspector.backgroundBlur"),
+        I18n.t("common.color"),
+        I18n.t("clipInspector.backgroundImage"),
+    ];
+
+    Row {
+        label: I18n.t("common.mode");
+        Select {
+            options: root.own
+                ? [I18n.t("clipInspector.backgroundTimeline"), root.kinds[0], root.kinds[1],
+                    root.kinds[2], root.kinds[3]]
+                : root.kinds;
+            // Set again whenever the kind changes: a press assigns `current`
+            // inside the control and ends a plain binding (#250).
+            property <int> shown: root.picked;
+            current: self.shown;
+            changed shown => { self.current = self.shown; }
+            changed(index) => {
+                Backdrop.set-mode(root.own, root.own ? index - 1 : index);
+            }
+        }
+    }
+
+    if root.kind == 1: Param {
+        label: I18n.t("clipInspector.softness");
+        value <=> root.amount;
+        minimum: 0;
+        maximum: 1;
+        step: 0.01;
+        default-value: 0.5;
+        fmt: ParamFormat.fraction;
+        unit: "%";
+        unit-scale: 100;
+        changed(v) => { Backdrop.set-amount(root.own, v); }
+    }
+
+    if root.kind == 2: ColourField {
+        label: I18n.t("common.color");
+        value: root.data.colour;
+        alpha: false;
+        changed(colour) => { Backdrop.set-colour(root.own, colour); }
+    }
+
+    if root.kind == 3 && Backdrop.stills.length > 0: Row {
+        label: I18n.t("clipInspector.still");
+        Select {
+            options: Backdrop.stills;
+            property <int> still: root.data.still;
+            current: self.still;
+            changed still => { self.current = self.still; }
+            placeholder: I18n.t("clipInspector.pickStill");
+            changed(index) => { Backdrop.set-still(root.own, index); }
+        }
+    }
+
+    if root.kind == 3 && Backdrop.stills.length == 0: Note {
+        text: I18n.t("clipInspector.noStillsInBin");
+    }
+}
+
 /// Video: how the picture sits in the frame, how solid it is, and whether
 /// its background is keyed out.
 export component VideoPanel inherits VerticalLayout {
@@ -932,6 +1013,9 @@ export component VideoPanel inherits VerticalLayout {
     in property <[AppliedParamData]> params;
     /// The chain's colour knobs: the key's screen colour among them.
     in property <[ColourKnobData]> colours;
+    /// Fit and Fill under Transform, and the clip's Background section:
+    /// the desk's. A phone has them on a Canvas sheet of their own.
+    in property <bool> canvas: true;
     /// The custom cutout's brush; see Editor.
     in property <int> brush-tool;
     in property <float> brush-size;
@@ -1132,6 +1216,44 @@ export component VideoPanel inherits VerticalLayout {
                 unit: "%";
                 unit-scale: 100;
                 changed(v) => { root.set(ClipField.stretch-y, v); root.commit(); }
+            }
+
+            // The picture sized to the frame in one press: the whole of it
+            // inside, or the frame covered - what a landscape shot in a
+            // vertical cut needs one way or the other.
+            if root.canvas && Backdrop.can-frame: Row {
+                label: I18n.t("common.size");
+                Button {
+                    label: I18n.t("clipInspector.fit");
+                    glyph: Glyph.fit;
+                    horizontal-stretch: 1;
+                    clicked => { Backdrop.frame(false); }
+                }
+                Button {
+                    label: I18n.t("clipInspector.fill");
+                    glyph: Glyph.maximize;
+                    horizontal-stretch: 1;
+                    clicked => { Backdrop.frame(true); }
+                }
+            }
+        }
+    }
+
+    // What fills the frame where this picture does not reach: the
+    // timeline's background, or one of the clip's own. Only on the lowest
+    // picture lane, which is where a background is drawn.
+    if root.canvas && Backdrop.clip-has: Section {
+        canvas := SectionHeader {
+            title: I18n.t("clipInspector.background");
+            collapsible: true;
+            HelpButton {
+                text: I18n.t("clipInspector.backgroundHelp");
+            }
+        }
+
+        if canvas.open: SectionBody {
+            BackgroundRows {
+                own: true;
             }
         }
     }

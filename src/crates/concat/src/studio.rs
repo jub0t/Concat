@@ -44,6 +44,7 @@ use concat_project::model::{
 };
 use concat_project::{Command, PlayheadSide};
 
+mod backdrop;
 mod consolidate;
 use consolidate::MergeJob;
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -8428,6 +8429,9 @@ impl Studio {
 
         editor.set_selected_clip(self.selected());
         editor.set_selected_transition(self.selected_transition_data());
+        // The background and Fit and Fill, on their own global: the Details
+        // panel, the Video panel and the phone all read it.
+        self.publish_backdrop(app);
         // Written only when it differs: a fresh model is a change to every
         // binding that reads it, and this one is read on every publish.
         let labels = self.audio_track_labels();
@@ -10335,6 +10339,39 @@ impl Studio {
             ),
             rule(),
         ];
+        // The picture sized to the frame, whole or covering it: beside the
+        // inspector's two buttons, where a vertical cut is assembled clip
+        // by clip.
+        if clip.kind.is_visual() {
+            let frameable = !locked
+                && self
+                    .project()
+                    .media_by_id(&clip.media_id)
+                    .and_then(|media| {
+                        clip.framing_scale(
+                            model::Framing::Fit,
+                            (media.width, media.height),
+                            self.output_size(),
+                            0.0,
+                        )
+                    })
+                    .is_some();
+            rows.push(action(
+                "fit",
+                t("studio.fitToFrame"),
+                Glyph::Fit,
+                "",
+                frameable,
+            ));
+            rows.push(action(
+                "fill",
+                t("studio.fillFrame"),
+                Glyph::Maximize,
+                "",
+                frameable,
+            ));
+            rows.push(rule());
+        }
         // One slot, two verbs: the sound is either on its picture or off it.
         // Shown on every video clip, so the verb is where a person looks for
         // it, and greyed rather than gone when the file has no sound.
@@ -11099,6 +11136,14 @@ impl Studio {
                 self.delete_clips_to_playhead(&ids, side);
             }
             "merge" => self.merge(),
+            // On the clip that was right-clicked, which becomes the
+            // selection, as Enhance's row makes it.
+            "fit" | "fill" => {
+                self.flush_commit();
+                self.selection = vec![id.to_owned()];
+                self.transition_selected = None;
+                self.frame_selected(action == "fill");
+            }
             // The menu opens the clip's Enhance in the inspector, where its
             // switch starts it and later turns it off and on again.
             "enhance" => {

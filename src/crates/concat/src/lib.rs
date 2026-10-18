@@ -1107,6 +1107,26 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             state.clear_adjust_keys(key.as_str());
         }));
     }
+    // The background behind the main picture, and Fit and Fill: a global
+    // of their own, for the Details panel, the Video panel and the phone.
+    {
+        let backdrop = app.global::<Backdrop>();
+        backdrop.on_set_mode(on_lanes!(|state, clip: bool, mode: i32| {
+            state.backdrop_set_mode(clip, mode);
+        }));
+        backdrop.on_set_amount(on_lanes!(|state, clip: bool, amount: f32| {
+            state.backdrop_set_amount(clip, amount);
+        }));
+        backdrop.on_set_colour(on_lanes!(|state, clip: bool, colour: slint::Color| {
+            state.backdrop_set_colour(clip, colour);
+        }));
+        backdrop.on_set_still(on_lanes!(|state, clip: bool, row: i32| {
+            state.backdrop_set_still(clip, row);
+        }));
+        backdrop.on_frame(on_lanes!(|state, fill: bool| {
+            state.frame_selected(fill);
+        }));
+    }
     // The Keyframes panel's verbs; its rows go out with every publish.
     {
         let editor = app.global::<KeyEditor>();
