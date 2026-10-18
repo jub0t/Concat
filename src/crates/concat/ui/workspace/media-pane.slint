@@ -2479,7 +2479,7 @@ export component MediaPane inherits Rectangle {
                         ? I18n.t("mediaPane.nothingRenderedYetRight")
                         : root.count-all > 0
                         ? I18n.t("mediaPane.nothingKindProject")
-                        : "Drop video and audio files anywhere in the window to import them.";
+                        : I18n.t("mediaPane.dropToImport");
                 }
 
                 if root.tab == 0 && root.items.length > 0: HorizontalLayout {
