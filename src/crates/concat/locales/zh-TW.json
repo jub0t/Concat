@@ -405,6 +405,7 @@
   "settings.accent": "強調色",
   "settings.address": "位址",
   "settings.addressHint": "指令碼與應用程式的連線位置：一個位址和一個連接埠。127.0.0.1 僅限本機。",
+  "settings.agentsConnectWithMcp": "Claude 等 AI 代理透過 MCP 連線：讓代理以 --mcp 啟動本應用程式。此項開啟時，它們經由這個伺服器工作，不會動到螢幕上開啟的專案。",
   "settings.aheadOfReleases": "此建置 {0} 比任何已發布版本都新。",
   "settings.amber": "琥珀",
   "settings.appearance": "外觀",

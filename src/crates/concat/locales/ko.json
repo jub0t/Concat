@@ -405,6 +405,7 @@
   "settings.accent": "강조색",
   "settings.address": "주소",
   "settings.addressHint": "스크립트와 앱이 연결하는 곳: 주소와 포트입니다. 127.0.0.1은 이 컴퓨터만입니다.",
+  "settings.agentsConnectWithMcp": "Claude 같은 AI 에이전트는 MCP로 연결합니다: 에이전트가 이 앱을 --mcp로 실행하도록 지정하세요. 이 설정이 켜져 있는 동안 에이전트는 이 서버를 통해 작업하며 화면에 열린 프로젝트는 건드리지 않습니다.",
   "settings.aheadOfReleases": "이 빌드 {0}은(는) 어떤 릴리스보다 새롭습니다.",
   "settings.amber": "앰버",
   "settings.appearance": "화면",

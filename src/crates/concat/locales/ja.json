@@ -405,6 +405,7 @@
   "settings.accent": "アクセント",
   "settings.address": "アドレス",
   "settings.addressHint": "スクリプトやアプリの接続先: アドレスとポートです。127.0.0.1 はこのコンピューターだけです。",
+  "settings.agentsConnectWithMcp": "Claude などの AI エージェントは MCP で接続します：エージェントにこのアプリを --mcp 付きで指定してください。これがオンの間は、このサーバーを通して作業し、画面上のプロジェクトには触れません。",
   "settings.aheadOfReleases": "このビルド {0} は、どのリリースよりも新しいものです。",
   "settings.amber": "アンバー",
   "settings.appearance": "外観",

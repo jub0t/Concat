@@ -405,6 +405,7 @@
   "settings.accent": "Destaque",
   "settings.address": "Endereço",
   "settings.addressHint": "Onde scripts e apps se conectam: um endereço e uma porta. 127.0.0.1 é só este computador.",
+  "settings.agentsConnectWithMcp": "Agentes de IA como o Claude se conectam por MCP: aponte o agente para este app com --mcp. Enquanto isto estiver ativado, eles trabalham por este servidor e não mexem no projeto que está na tela.",
   "settings.aheadOfReleases": "Esta compilação, {0}, é mais nova que qualquer versão publicada.",
   "settings.amber": "Âmbar",
   "settings.appearance": "Aparência",

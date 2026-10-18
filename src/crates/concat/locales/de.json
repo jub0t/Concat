@@ -405,6 +405,7 @@
   "settings.accent": "Akzent",
   "settings.address": "Adresse",
   "settings.addressHint": "Wo sich Skripte und Apps verbinden: eine Adresse und ein Port. 127.0.0.1 ist nur dieser Rechner.",
+  "settings.agentsConnectWithMcp": "KI-Agenten wie Claude verbinden sich über MCP: Richten Sie den Agenten mit --mcp auf diese App. Solange dies an ist, arbeiten sie über diesen Server und lassen das Projekt auf dem Bildschirm in Ruhe.",
   "settings.aheadOfReleases": "Dieser Build, {0}, ist neuer als jede Veröffentlichung.",
   "settings.amber": "Amber",
   "settings.appearance": "Darstellung",

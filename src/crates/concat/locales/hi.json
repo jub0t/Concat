@@ -405,6 +405,7 @@
   "settings.accent": "एक्सेंट रंग",
   "settings.address": "पता",
   "settings.addressHint": "स्क्रिप्ट और ऐप जहां जुड़ते हैं: एक पता और एक पोर्ट। 127.0.0.1 का मतलब सिर्फ़ यही कंप्यूटर है।",
+  "settings.agentsConnectWithMcp": "Claude जैसे AI एजेंट MCP से जुड़ते हैं: --mcp के साथ एजेंट को इस ऐप की ओर इंगित करें। जब तक यह चालू है, वे इसी सर्वर के ज़रिए काम करते हैं और स्क्रीन पर खुले प्रोजेक्ट को नहीं छूते।",
   "settings.aheadOfReleases": "यह बिल्ड, {0}, किसी भी रिलीज़ से नया है।",
   "settings.amber": "एम्बर",
   "settings.appearance": "रूप-रंग",

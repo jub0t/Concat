@@ -405,6 +405,7 @@
   "settings.accent": "Naglasak",
   "settings.address": "Adresa",
   "settings.addressHint": "Gdje se spajaju skripte i aplikacije: adresa i port. 127.0.0.1 je samo ovo računalo.",
+  "settings.agentsConnectWithMcp": "AI agenti poput Claudea spajaju se preko MCP-a: usmjerite agenta na ovu aplikaciju s --mcp. Dok je ovo uključeno, rade preko ovog poslužitelja i ne diraju projekt na zaslonu.",
   "settings.aheadOfReleases": "Ova je gradnja, {0}, novija od bilo kojeg izdanja.",
   "settings.amber": "Jantar",
   "settings.appearance": "Izgled",

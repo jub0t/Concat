@@ -405,6 +405,7 @@
   "settings.accent": "Màu nhấn",
   "settings.address": "Địa chỉ",
   "settings.addressHint": "Nơi script và ứng dụng kết nối: một địa chỉ và một cổng. 127.0.0.1 chỉ là máy này.",
+  "settings.agentsConnectWithMcp": "Các tác tử AI như Claude kết nối qua MCP: trỏ tác tử tới ứng dụng này kèm --mcp. Khi mục này bật, chúng làm việc qua máy chủ này và không đụng tới dự án đang mở trên màn hình.",
   "settings.aheadOfReleases": "Bản dựng này ({0}) mới hơn mọi bản phát hành hiện có.",
   "settings.amber": "Hổ phách",
   "settings.appearance": "Giao diện",

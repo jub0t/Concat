@@ -405,6 +405,7 @@
   "settings.accent": "نمایاں رنگ",
   "settings.address": "پتہ",
   "settings.addressHint": "جہاں اسکرپٹس اور ایپس جڑتی ہیں: ایک پتہ اور ایک پورٹ۔ 127.0.0.1 صرف یہی کمپیوٹر ہے۔",
+  "settings.agentsConnectWithMcp": "Claude جیسے AI ایجنٹ MCP کے ذریعے جڑتے ہیں: ایجنٹ کو ‎--mcp کے ساتھ اس ایپ کی طرف اشارہ کریں۔ جب تک یہ آن ہے، وہ اسی سرور کے ذریعے کام کرتے ہیں اور اسکرین پر کھلے پروجیکٹ کو نہیں چھیڑتے۔",
   "settings.aheadOfReleases": "یہ بلڈ، {0}، کسی بھی جاری شدہ ورژن سے نیا ہے۔",
   "settings.amber": "کہربائی",
   "settings.appearance": "ظاہری شکل",

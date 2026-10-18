@@ -6,14 +6,19 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-const USAGE: &str =
-    "usage: concat [--project <PROJECT_DIRECTORY> | --version | --smoke | --whisper-cpu]";
+const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --mcp [auto|window|headless] | --version | --smoke | --whisper-cpu]";
 
 /// What one run of the binary was asked to do.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Launch {
     /// The window, on the launch screen or on the project it names.
     Normal(Option<PathBuf>),
+    /// Serve the Concat API to an AI agent as an MCP server on standard
+    /// input and output, with no window: what an agent's configuration
+    /// names (docs/MCP.md). The mode, when given: through the window's
+    /// server, on its own, or whichever is there; `CONCAT_MCP_MODE`
+    /// otherwise, and `auto` without that.
+    Mcp(Option<concat_mcp::Mode>),
     /// Print the version and exit, before logging, the GPU or a window: a
     /// run that gets this far has proved the executable and every library
     /// it links were found and loaded, which on Windows fails before `main`.
@@ -44,6 +49,15 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String>
         Launch::Smoke
     } else if option == "--whisper-cpu" {
         Launch::WhisperCpu
+    } else if option == "--mcp" {
+        match args.next() {
+            None => Launch::Mcp(None),
+            Some(word) => Launch::Mcp(Some(
+                word.to_str()
+                    .and_then(concat_mcp::Mode::parse)
+                    .ok_or_else(|| format!("--mcp takes auto, window or headless\n{USAGE}"))?,
+            )),
+        }
     } else if option == "--project" {
         let path = args
             .next()
@@ -91,6 +105,31 @@ mod tests {
             vec!["--smoke", "--project", "one"],
             vec!["--version", "extra"],
             vec!["--project", "one", "--smoke"],
+        ] {
+            assert!(parse_strs(&args).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn mcp_takes_an_optional_mode_and_nothing_else() {
+        use concat_mcp::Mode;
+        assert_eq!(parse_strs(&["--mcp"]).unwrap(), Launch::Mcp(None));
+        assert_eq!(
+            parse_strs(&["--mcp", "headless"]).unwrap(),
+            Launch::Mcp(Some(Mode::Headless))
+        );
+        assert_eq!(
+            parse_strs(&["--mcp", "window"]).unwrap(),
+            Launch::Mcp(Some(Mode::Window))
+        );
+        assert_eq!(
+            parse_strs(&["--mcp", "auto"]).unwrap(),
+            Launch::Mcp(Some(Mode::Auto))
+        );
+        for args in [
+            vec!["--mcp", "sometimes"],
+            vec!["--mcp", "headless", "extra"],
+            vec!["--mcp", "--project"],
         ] {
             assert!(parse_strs(&args).is_err(), "{args:?}");
         }

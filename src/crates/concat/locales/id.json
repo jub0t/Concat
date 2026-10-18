@@ -405,6 +405,7 @@
   "settings.accent": "Aksen",
   "settings.address": "Alamat",
   "settings.addressHint": "Tempat skrip dan aplikasi terhubung: alamat dan port. 127.0.0.1 hanya untuk komputer ini.",
+  "settings.agentsConnectWithMcp": "Agen AI seperti Claude terhubung lewat MCP: arahkan agen ke aplikasi ini dengan --mcp. Selama ini aktif, mereka bekerja lewat server ini dan tidak menyentuh proyek yang ada di layar.",
   "settings.aheadOfReleases": "Build ini, {0}, lebih baru dari rilis mana pun.",
   "settings.amber": "Ambar",
   "settings.appearance": "Tampilan",

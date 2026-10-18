@@ -405,6 +405,7 @@
   "settings.accent": "צבע הדגשה",
   "settings.address": "כתובת",
   "settings.addressHint": "לאן סקריפטים ואפליקציות מתחברים: כתובת ופורט. 127.0.0.1 הוא המחשב הזה בלבד.",
+  "settings.agentsConnectWithMcp": "סוכני בינה מלאכותית כמו Claude מתחברים דרך MCP: הפנו את הסוכן לאפליקציה הזו עם ‎--mcp. כל עוד זה מופעל, הם עובדים דרך השרת הזה ולא נוגעים בפרויקט שעל המסך.",
   "settings.aheadOfReleases": "גרסת הבנייה הזו, {0}, חדשה מכל גרסה שפורסמה.",
   "settings.amber": "ענבר",
   "settings.appearance": "מראה",

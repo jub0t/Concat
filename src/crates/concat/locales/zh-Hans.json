@@ -405,6 +405,7 @@
   "settings.accent": "强调色",
   "settings.address": "地址",
   "settings.addressHint": "脚本和应用的连接位置：一个地址和一个端口。127.0.0.1 仅限本机。",
+  "settings.agentsConnectWithMcp": "Claude 等 AI 智能体通过 MCP 连接：让智能体以 --mcp 启动本应用。此项开启时，它们经由这个服务器工作，不会动屏幕上打开的项目。",
   "settings.aheadOfReleases": "此构建 {0} 比任何已发布版本都新。",
   "settings.amber": "琥珀",
   "settings.appearance": "外观",

@@ -405,6 +405,7 @@
   "settings.accent": "لون التمييز",
   "settings.address": "العنوان",
   "settings.addressHint": "حيث تتصل السكربتات والتطبيقات: عنوان ومنفذ. ‏127.0.0.1 لهذا الجهاز فقط.",
+  "settings.agentsConnectWithMcp": "يتصل وكلاء الذكاء الاصطناعي مثل Claude عبر MCP: وجّه الوكيل إلى هذا التطبيق مع --mcp. وما دام هذا مفعّلًا، يعملون عبر هذا الخادم ولا يمسّون المشروع المعروض على الشاشة.",
   "settings.aheadOfReleases": "هذا الإصدار، {0}، أحدث من أي إصدار منشور.",
   "settings.amber": "كهرماني",
   "settings.appearance": "المظهر",

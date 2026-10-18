@@ -35,6 +35,24 @@ fn main() -> Result<(), slint::PlatformError> {
         let _ = writeln!(std::io::stdout(), "whisper runs on {cpu}");
         return Ok(());
     }
+    // An agent's MCP server: no window, no GPU, and standard output kept
+    // for the protocol alone. The engine's log goes to standard error,
+    // which the agent's client shows; not to a file, where every agent
+    // session would push one of the window's own logs out of the folder.
+    if let Ok(Launch::Mcp(mode)) = launch {
+        let mode = mode
+            .or_else(|| {
+                std::env::var("CONCAT_MCP_MODE")
+                    .ok()
+                    .and_then(|word| concat_mcp::Mode::parse(&word))
+            })
+            .unwrap_or_default();
+        let _ =concat_host::logs::open_console(None);
+        return concat_mcp::run(mode).map_err(|error| {
+            log::error!("mcp: {error}");
+            slint::PlatformError::Other(error)
+        });
+    }
     // A desktop's console is its standard error, which a packaged build
     // has wired to nowhere; hence the file underneath it.
     concat::open_logging(None);
@@ -55,6 +73,6 @@ fn main() -> Result<(), slint::PlatformError> {
             log::error!("smoke: could not start: {error}");
         }),
         // Answered above, before the log was opened.
-        Launch::Version | Launch::WhisperCpu => Ok(()),
+        Launch::Version | Launch::WhisperCpu | Launch::Mcp(_) => Ok(()),
     }
 }

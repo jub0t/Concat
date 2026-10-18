@@ -405,6 +405,7 @@
   "settings.accent": "Accentkleur",
   "settings.address": "Adres",
   "settings.addressHint": "Waar scripts en apps verbinding mee maken: een adres en een poort. 127.0.0.1 is alleen deze computer.",
+  "settings.agentsConnectWithMcp": "AI-agents zoals Claude verbinden via MCP: wijs de agent naar deze app met --mcp. Zolang dit aan staat, werken ze via deze server en blijven ze van het project op het scherm af.",
   "settings.aheadOfReleases": "Deze build, {0}, is nieuwer dan elke release.",
   "settings.amber": "Amber",
   "settings.appearance": "Weergave",

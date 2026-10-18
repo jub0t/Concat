@@ -405,6 +405,7 @@
   "settings.accent": "Kolor akcentu",
   "settings.address": "Adres",
   "settings.addressHint": "Gdzie łączą się skrypty i aplikacje: adres i port. 127.0.0.1 oznacza tylko ten komputer.",
+  "settings.agentsConnectWithMcp": "Agenci AI, tacy jak Claude, łączą się przez MCP: wskaż agentowi tę aplikację z --mcp. Dopóki to jest włączone, pracują przez ten serwer i nie ruszają projektu na ekranie.",
   "settings.aheadOfReleases": "Ta kompilacja, {0}, jest nowsza niż jakiekolwiek wydanie.",
   "settings.amber": "Bursztyn",
   "settings.appearance": "Wygląd",

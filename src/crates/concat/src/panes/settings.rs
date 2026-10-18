@@ -623,6 +623,7 @@ impl SettingsPane {
         self.server_error.clear();
         let exporter = studio.host.exporter.clone();
         let open_projects = studio.host.open_projects.clone();
+        let dirs = studio.host.dirs.clone();
         let prefs = &studio.prefs.server;
         if !prefs.enabled {
             return;
@@ -646,6 +647,9 @@ impl SettingsPane {
                 let config = concat_server::Config {
                     json: Some(address),
                     token: Some(prefs.token.clone()).filter(|token| !token.is_empty()),
+                    // Where `concat --mcp`, started by an agent, finds this
+                    // server rather than opening projects behind its back.
+                    discovery: Some(concat_server::discovery::path_in(&dirs.config)),
                     ..concat_server::Config::default()
                 };
                 // The window's export slot and its register of open

@@ -405,6 +405,7 @@
   "settings.accent": "Vurgu",
   "settings.address": "Adres",
   "settings.addressHint": "Betiklerin ve uygulamaların bağlandığı yer: bir adres ve bir bağlantı noktası. 127.0.0.1 yalnızca bu bilgisayardır.",
+  "settings.agentsConnectWithMcp": "Claude gibi yapay zekâ ajanları MCP üzerinden bağlanır: ajanı --mcp ile bu uygulamaya yönlendirin. Bu açıkken bu sunucu üzerinden çalışırlar ve ekrandaki projeye dokunmazlar.",
   "settings.aheadOfReleases": "Bu yapı ({0}) yayımlanmış her sürümden daha yeni.",
   "settings.amber": "Amber",
   "settings.appearance": "Görünüm",
