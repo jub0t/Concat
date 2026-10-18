@@ -666,6 +666,7 @@ pub struct Models {
     pub speech_model_details: Rc<VecModel<SharedString>>,
     pub speakers: Rc<VecModel<SharedString>>,
     pub speaker_details: Rc<VecModel<SharedString>>,
+    pub speaker_avatars: Rc<VecModel<crate::ui::AvatarData>>,
     pub speech_samples: Rc<VecModel<SharedString>>,
     /// The microphones the voiceover panel lists.
     pub voiceover_devices: Rc<VecModel<SharedString>>,
@@ -735,6 +736,7 @@ impl Models {
             speech_model_details: Rc::new(VecModel::default()),
             speakers: Rc::new(VecModel::default()),
             speaker_details: Rc::new(VecModel::default()),
+            speaker_avatars: Rc::new(VecModel::default()),
             speech_samples: Rc::new(VecModel::default()),
             voiceover_devices: Rc::new(VecModel::default()),
             speech_sample_waves: Rc::new(VecModel::default()),
@@ -10719,6 +10721,7 @@ impl Studio {
         );
         sync(&models.speakers, self.speech.speaker_rows());
         sync(&models.speaker_details, self.speech.speaker_detail_rows());
+        sync(&models.speaker_avatars, self.speech.speaker_avatar_rows());
         sync(&models.speech_samples, self.speech.sample_rows(self));
         sync(
             &models.speech_sample_waves,

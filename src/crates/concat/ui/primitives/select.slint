@@ -6,6 +6,7 @@ import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
 import { Tip } from "tooltip.slint";
 import { ThinScrollbar } from "scrollbar.slint";
+import { Avatar, AvatarData } from "avatar.slint";
 
 // Custom listbox dropdown rather than a native combo box, so options can carry
 // icons and match the panel styling. Arrows, Home/End, Enter and Escape all
@@ -30,6 +31,12 @@ export component Select inherits Rectangle {
     /// words of "Sort: Added" cost more room than they earn. Shorter than
     /// `options` is fine; a row past its end simply has none.
     in property <[Glyph]> icons;
+    /// One avatar per option, in the same order: a round picture or a
+    /// letter in a colour, before each row's words and before the
+    /// trigger's - for a list of who, like voices, where a face or a
+    /// colour is found faster than a name is read. Shorter than `options`
+    /// is fine; a row past its end simply has none.
+    in property <[AvatarData]> avatars;
     in property <bool> enabled: true;
     /// Rows that are shown and cannot be picked, by index: greyed, and a
     /// press or Enter on one does nothing. Shorter than `options` leaves
@@ -87,6 +94,11 @@ export component Select inherits Rectangle {
     property <Glyph> mark: root.marked ? root.icons[root.current] : Glyph.none;
     /// the mark on the trigger, at the size of the glyph it replaces
     property <length> mark-size: 14px;
+    /// The current option has an avatar, which the trigger shows before
+    /// its words.
+    property <bool> pictured: root.current >= 0 && root.current < root.avatars.length;
+    /// What the avatars add to a row: the circle and the gap after it.
+    property <length> avatar-w: root.avatars.length > 0 ? 18px + 6px : 0px;
 
     /// What the trigger needs to show its options whole: the padding, the
     /// chevron, the optional glyph, and the gaps between them. A select set
@@ -101,7 +113,8 @@ export component Select inherits Rectangle {
         + (root.marked
             ? root.mark-size
             : (root.snug ? shown.preferred-width : measure.preferred-width)
-                + (root.glyph != Glyph.none ? 12px + 6px : 0px));
+                + (root.glyph != Glyph.none ? 12px + 6px : 0px)
+                + root.avatar-w);
 
     height: Theme.h;
     min-width: 60px;
@@ -190,6 +203,14 @@ export component Select inherits Rectangle {
             }
         }
 
+        if !root.marked && root.pictured: VerticalLayout {
+            alignment: center;
+            Avatar {
+                data: root.avatars[root.current];
+                size: 18px;
+            }
+        }
+
         if !root.marked: Text {
             horizontal-stretch: 1;
             text: root.label;
@@ -256,7 +277,7 @@ export component Select inherits Rectangle {
     /// A marked trigger is only as wide as its icon, and the list it opens
     /// is the one place the options are written, so the list may not
     /// inherit that width.
-    property <length> list-w: Math.max(root.width, measure.preferred-width + 59px);
+    property <length> list-w: Math.max(root.width, measure.preferred-width + 59px + root.avatar-w);
 
     list := PopupWindow {
         // Right edge on the trigger's right edge: a list wider than an
@@ -350,6 +371,15 @@ export component Select inherits Rectangle {
                                 glyph: root.icons[index];
                                 size: 13px;
                                 tint: index == root.active ? Theme.on-accent : Theme.fg-dim;
+                            }
+                        }
+
+                        if index < root.avatars.length: VerticalLayout {
+                            alignment: center;
+                            Avatar {
+                                data: root.avatars[index];
+                                size: 18px;
+                                opacity: root.off(index) ? 0.45 : 1.0;
                             }
                         }
 

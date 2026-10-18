@@ -339,6 +339,12 @@ pub struct VoiceInfo {
     pub name: String,
     /// The family whose models read with this voice.
     pub family: Family,
+    /// A picture of the voice, as a path to an image file, for the voice
+    /// picker's avatar: none of the stock voices has one, and the picker
+    /// draws a letter in a colour instead. For a voice someone adds later
+    /// with a picture of their own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
 }
 
 /// A recording to read in the voice of: the clip the sheet was given.
@@ -563,11 +569,13 @@ impl Speech {
                     id: *id,
                     name: (*name).to_owned(),
                     family: Family::Kokoro,
+                    avatar: None,
                 })
                 .chain(POCKET_VOICES.iter().map(|(id, name, _)| VoiceInfo {
                     id: *id,
                     name: (*name).to_owned(),
                     family: Family::Pocket,
+                    avatar: None,
                 }))
                 // Chatterbox's stock voices are Pocket's recordings, and are
                 // only offered while the bundle holding them is here.
@@ -579,6 +587,7 @@ impl Speech {
                             id: *id,
                             name: (*name).to_owned(),
                             family: Family::Chatterbox,
+                            avatar: None,
                         }),
                 )
                 .collect(),

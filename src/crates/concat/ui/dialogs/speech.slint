@@ -7,6 +7,7 @@ import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
+import { AvatarData } from "../primitives/avatar.slint";
 import { Rail } from "../inspector/controls.slint";
 import { Wave } from "../primitives/wave.slint";
 import { Fmt } from "../util.slint";
@@ -36,6 +37,9 @@ export struct SpeechSheetData {
     text: string,
     /// Row in the voice list.
     voice: int,
+    /// How many named voices the list holds: past them, the last row is
+    /// "Clone from a sample…" when the model reads in a recording.
+    voice-count: int,
     /// Row in the installed voice model list.
     model: int,
     /// 0 Kokoro, 1 Pocket TTS, 2 Chatterbox: which controls the model has.
@@ -230,6 +234,8 @@ export component SpeechDialog inherits Modal {
     in property <[string]> voices;
     /// "American · female", beside each voice.
     in property <[string]> voice-details;
+    /// Each voice's avatar: its picture, or its first letter in its colour.
+    in property <[AvatarData]> voice-avatars;
     /// The bin's recordings a voice can be taken from: their names, their
     /// envelopes as path commands, and their lengths.
     in property <[string]> samples;
@@ -293,7 +299,7 @@ export component SpeechDialog inherits Modal {
     property <bool> has-reference: !root.data.use-sample || root.data.sample-name != "";
     /// There is a voice to read with: a sample, or a named one on the list.
     /// Chatterbox names none until Pocket's recordings are on disk.
-    property <bool> has-voice: root.data.use-sample || root.voices.length > 0;
+    property <bool> has-voice: root.data.use-sample || root.data.voice-count > 0;
 
     /// Seconds since the run began; the reference beside the bar.
     property <int> elapsed;
@@ -409,13 +415,17 @@ export component SpeechDialog inherits Modal {
                 }
             }
 
-            // The named voices, while a sample is not standing in for them.
+            // The named voices, while a sample is not standing in for them,
+            // each with its avatar; and last, for a model that reads in a
+            // recording, the way to read in one's own - the sample switch
+            // below, found from where a voice is chosen.
             if !root.data.use-sample: DialogRow {
                 label: I18n.t("speech.voice");
                 Select {
                     options: root.voices;
                     details: root.voice-details;
-                    current: root.data.voice;
+                    avatars: root.voice-avatars;
+                    current: root.data.voice-count > 0 ? root.data.voice : -1;
                     placeholder: I18n.t("speech.none");
                     enabled: root.voices.length > 0;
                     changed(index) => { root.voice-changed(index); }
@@ -425,7 +435,7 @@ export component SpeechDialog inherits Modal {
             // Chatterbox ships no recording of anyone's, so its named voices
             // are Pocket's two, borrowed while Pocket is on disk. With
             // neither there is nothing to read with but a sample.
-            if root.data.family == 2 && root.voices.length == 0 && !root.data.use-sample: Text {
+            if root.data.family == 2 && root.data.voice-count == 0 && !root.data.use-sample: Text {
                 text: I18n.t("speech.chatterboxHasNoVoice");
                 color: Theme.danger;
                 font-size: Theme.fs-sm;

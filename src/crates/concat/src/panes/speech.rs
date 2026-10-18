@@ -190,7 +190,18 @@ impl SpeechPane {
             }
             SpeechMsg::Close => self.open = false,
             SpeechMsg::TextEdited(text) => self.text = text,
-            SpeechMsg::VoiceChanged(index) => self.voice = index.max(0) as usize,
+            // The row past the named voices is "Clone from a sample…":
+            // the sample switch, turned on from where a voice is chosen.
+            SpeechMsg::VoiceChanged(index) => {
+                let index = index.max(0) as usize;
+                if index >= self.offered().len() {
+                    if self.sample_voice().is_some() {
+                        self.use_sample = true;
+                    }
+                } else {
+                    self.voice = index;
+                }
+            }
             SpeechMsg::ModelChanged(index) => {
                 self.model = index.max(0) as usize;
                 // Another model may read with other voices: the list is
@@ -521,11 +532,13 @@ impl SpeechPane {
             .unwrap_or(0)
     }
 
-    /// The voice list's rows: each offered voice's name.
+    /// The voice list's rows: each offered voice's name, and last, for a
+    /// model that reads in a recording, the row that clones one.
     pub fn speaker_rows(&self) -> Vec<SharedString> {
         self.offered()
             .iter()
             .map(|speaker| voice_label(&speaker.name).0.into())
+            .chain(self.clone_row().then(|| t("speech.cloneFromSample").into()))
             .collect()
     }
 
@@ -535,7 +548,44 @@ impl SpeechPane {
         self.offered()
             .iter()
             .map(|speaker| voice_label(&speaker.name).1.into())
+            .chain(
+                self.clone_row()
+                    .then(|| t("speech.fromRecordingInBin").into()),
+            )
             .collect()
+    }
+
+    /// The voice list's avatars: a voice's picture where it has one, else
+    /// the first letter of its name in the colour its name picks; and a
+    /// plain mark for the clone row, which is nobody yet.
+    pub fn speaker_avatar_rows(&self) -> Vec<crate::ui::AvatarData> {
+        self.offered()
+            .iter()
+            .map(|speaker| {
+                let name = voice_label(&speaker.name).0;
+                let picture = speaker
+                    .avatar
+                    .as_deref()
+                    .and_then(|path| slint::Image::load_from_path(path.as_ref()).ok());
+                crate::ui::AvatarData {
+                    letter: avatar_letter(&name).into(),
+                    hue: avatar_hue(&name),
+                    pictured: picture.is_some(),
+                    picture: picture.unwrap_or_default(),
+                }
+            })
+            .chain(self.clone_row().then(|| crate::ui::AvatarData {
+                letter: "+".into(),
+                hue: -1,
+                ..Default::default()
+            }))
+            .collect()
+    }
+
+    /// Whether the voice list ends in "Clone from a sample…": the model
+    /// reads in a recording, so one can stand in for a named voice.
+    fn clone_row(&self) -> bool {
+        self.sample_voice().is_some()
     }
 
     /// The model list's second lines: what each model is for, in a few
@@ -594,6 +644,7 @@ impl SpeechPane {
             open: self.open,
             text: self.text.as_str().into(),
             voice: self.voice as i32,
+            voice_count: self.offered().len() as i32,
             model: self.model as i32,
             family: match self.family {
                 Family::Kokoro => 0,
@@ -703,9 +754,48 @@ fn voice_label(name: &str) -> (String, String) {
     (title, detail)
 }
 
+/// The letter a voice's avatar shows: the first of its first name.
+fn avatar_letter(name: &str) -> String {
+    name.split_whitespace()
+        .next()
+        .and_then(|first| first.chars().next())
+        .map(|letter| letter.to_uppercase().collect())
+        .unwrap_or_default()
+}
+
+/// Which of the avatar palette's eight hues a voice's name picks: a hash
+/// of the name (FNV-1a), so a voice keeps its colour from run to run.
+fn avatar_hue(name: &str) -> i32 {
+    let hash = name
+        .to_lowercase()
+        .bytes()
+        .fold(0x811c_9dc5_u32, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+        });
+    (hash % 8) as i32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{insert_tag, voice_label};
+    use super::{avatar_hue, avatar_letter, insert_tag, voice_label};
+
+    /// An avatar is the first letter of the first name, in a colour the
+    /// name settles: the same every time, one of the palette's eight.
+    #[test]
+    fn a_voice_avatar_is_its_initial_in_its_own_colour() {
+        assert_eq!(avatar_letter("Bria"), "B");
+        assert_eq!(avatar_letter("émile dupont"), "É");
+        assert_eq!(avatar_letter(""), "");
+        assert_eq!(avatar_hue("Bria"), avatar_hue("bria"));
+        let hues: std::collections::HashSet<i32> = [
+            "Bria", "Adam", "Heart", "Lewis", "Nova", "Sky", "Eric", "Alba",
+        ]
+        .iter()
+        .map(|name| avatar_hue(name))
+        .collect();
+        assert!(hues.iter().all(|hue| (0..8).contains(hue)));
+        assert!(hues.len() > 2, "names spread over the palette: {hues:?}");
+    }
 
     /// A tag lands as a word of its own wherever the caret is: spaced off a
     /// word on either side, not doubled against a space already there, and

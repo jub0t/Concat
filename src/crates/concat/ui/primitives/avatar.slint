@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+
+// Who a row is: a picture in a circle, or where there is none, the first
+// letter of the name in a circle of a colour the name chooses.
+//
+// The colour is one of eight, picked by Rust from a hash of the name, so a
+// voice keeps its colour from one run to the next and two voices beside
+// each other rarely share one. Each is a light tint of the hue on a dark
+// shade of it - the letter and its ground one colour - which reads the
+// same on the dark theme and the light: the circle carries its own
+// contrast and does not lean on what is behind it. A `hue` of -1 is no
+// colour at all, for a row that is not a person (a "clone from a sample"
+// row): the field's own grey, the letter a mark.
+export struct AvatarData {
+    /// The letter shown when there is no picture: the name's first.
+    letter: string,
+    /// 0..7, one of the palette's hues; -1 for neutral.
+    hue: int,
+    /// The picture, when there is one.
+    picture: image,
+    pictured: bool,
+}
+
+export global AvatarPalette {
+    out property <[color]> grounds: [
+        #5b2530, // red
+        #5c3518, // orange
+        #4f4313, // amber
+        #1f4a2c, // green
+        #164848, // teal
+        #1d3a63, // blue
+        #3b2a66, // violet
+        #5a2350, // pink
+    ];
+    out property <[color]> inks: [
+        #ffc2cc,
+        #ffd2a8,
+        #ffe9a3,
+        #b9f0c8,
+        #aeeeee,
+        #bcd6ff,
+        #d6c8ff,
+        #ffc4f0,
+    ];
+}
+
+export component Avatar inherits Rectangle {
+    in property <AvatarData> data;
+    in property <length> size: 18px;
+
+    property <bool> hued: root.data.hue >= 0 && root.data.hue < AvatarPalette.grounds.length;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    clip: true;
+    background: root.hued ? AvatarPalette.grounds[root.data.hue] : Theme.field-active;
+
+    if root.data.pictured: Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.data.picture;
+        image-fit: cover;
+    }
+
+    if !root.data.pictured: Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.data.letter;
+        color: root.hued ? AvatarPalette.inks[root.data.hue] : Theme.fg-muted;
+        font-size: root.size * 0.52;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}

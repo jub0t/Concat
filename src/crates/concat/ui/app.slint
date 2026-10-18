@@ -28,6 +28,7 @@ import { RelinkDialog, RelinkData, MissingMediaItem } from "dialogs/relink.slint
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
+import { AvatarData } from "primitives/avatar.slint";
 import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
@@ -313,6 +314,8 @@ export component App inherits Window {
     in property <[string]> speech-model-details;
     in property <[string]> speech-voices;
     in property <[string]> speech-voice-details;
+    /// Each voice's avatar; see Avatar.
+    in property <[AvatarData]> speech-voice-avatars;
     /// The recordings in the bin a voice can be taken from: their names,
     /// their waveforms as path commands, and their lengths.
     in property <[string]> speech-samples;
@@ -695,6 +698,7 @@ export component App inherits Window {
             model-details: root.speech-model-details;
             voices: root.speech-voices;
             voice-details: root.speech-voice-details;
+            voice-avatars: root.speech-voice-avatars;
             samples: root.speech-samples;
             sample-waves: root.speech-sample-waves;
             sample-details: root.speech-sample-details;
