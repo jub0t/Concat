@@ -116,8 +116,9 @@ impl Motion {
     /// The movement cached in `dir`, or `None` when nothing is, or what is
     /// there cannot be read. Read once per change of the file.
     pub fn read(dir: &Path) -> Option<Arc<Motion>> {
-        static CACHE: OnceLock<Mutex<HashMap<PathBuf, (SystemTime, u64, Arc<Motion>)>>> =
-            OnceLock::new();
+        /// Each file's movement, by the modified time and length it was read at.
+        type Read = HashMap<PathBuf, (SystemTime, u64, Arc<Motion>)>;
+        static CACHE: OnceLock<Mutex<Read>> = OnceLock::new();
         let file = motion_file(dir);
         let meta = std::fs::metadata(&file).ok()?;
         let stamp = (

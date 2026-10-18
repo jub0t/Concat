@@ -63,36 +63,37 @@ const DEFAULT_PAUSES: f32 = 0.2;
 /// laid on the speech clip once it lands, where they stay as ordinary
 /// effects to change or take off. Original looks of the effects alone -
 /// no one's voice, no character's name. The Audio page's card carries
-/// its row; the key names it in the interface's language.
+/// its row; `name` names it in the interface's language, through a
+/// literal `t` so scripts/locales.py finds the key.
 pub struct VoiceStyle {
-    pub key: &'static str,
+    pub name: fn() -> String,
     pub effects: &'static [&'static str],
 }
 
 /// The Audio page's Voices › Styles shelf, in its order.
 pub const STYLES: [VoiceStyle; 6] = [
     VoiceStyle {
-        key: "voices.styleChipmunk",
+        name: || t("voices.styleChipmunk"),
         effects: &["concat.chipmunk"],
     },
     VoiceStyle {
-        key: "voices.styleRobot",
+        name: || t("voices.styleRobot"),
         effects: &["concat.robot"],
     },
     VoiceStyle {
-        key: "voices.styleTelephone",
+        name: || t("voices.styleTelephone"),
         effects: &["concat.telephone"],
     },
     VoiceStyle {
-        key: "voices.styleMegaphone",
+        name: || t("voices.styleMegaphone"),
         effects: &["concat.megaphone"],
     },
     VoiceStyle {
-        key: "voices.styleRadio",
+        name: || t("voices.styleRadio"),
         effects: &["concat.radio"],
     },
     VoiceStyle {
-        key: "voices.styleGiant",
+        name: || t("voices.styleGiant"),
         effects: &["concat.deep", "concat.hall"],
     },
 ];
@@ -854,7 +855,7 @@ impl SpeechPane {
             style: self
                 .style
                 .and_then(|row| STYLES.get(row))
-                .map(|style| t(style.key))
+                .map(|style| (style.name)())
                 .unwrap_or_default()
                 .into(),
             save_name: self.save_name.as_str().into(),

@@ -184,7 +184,7 @@ pub fn zoom_needed(map: &Similarity, aspect: f64) -> f64 {
 /// The ends are padded by reflecting through the end points.
 pub fn gaussian(values: &[f64], sigma: f64) -> Vec<f64> {
     let n = values.len();
-    if n < 2 || !(sigma >= 0.5) {
+    if n < 2 || sigma.is_nan() || sigma < 0.5 {
         return values.to_vec();
     }
     // Three boxes of width w have the variance of a Gaussian of sigma

@@ -488,7 +488,7 @@ impl Studio {
             .iter()
             .enumerate()
             .map(|(row, style)| {
-                let name = t(style.key);
+                let name = (style.name)();
                 let effects: Vec<String> = style
                     .effects
                     .iter()
