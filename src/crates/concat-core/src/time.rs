@@ -70,16 +70,14 @@ impl Rational {
 
     /// Parses FFmpeg's `"num/den"` fraction syntax, also accepting a bare
     /// integer or decimal. Returns `None` on anything else, including `"0/0"`,
-    /// which FFmpeg emits for streams with no meaningful frame rate.
+    /// which FFmpeg emits for streams with no meaningful frame rate, and a
+    /// value an `i64` fraction cannot hold.
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
         if let Some((num, den)) = text.split_once('/') {
             let num: i64 = num.trim().parse().ok()?;
             let den: i64 = den.trim().parse().ok()?;
-            if den == 0 {
-                return None;
-            }
-            return Some(Self::new(num, den));
+            return Self::checked_new(i128::from(num), i128::from(den));
         }
         if let Some((whole, frac)) = text.split_once('.') {
             let sign = if whole.starts_with('-') { -1 } else { 1 };
@@ -90,7 +88,8 @@ impl Rational {
             }
             let den = 10i64.checked_pow(u32::try_from(digits.len()).ok()?)?;
             let frac: i64 = digits.parse().ok()?;
-            return Some(Self::new(whole.checked_mul(den)? + sign * frac, den));
+            let num = whole.checked_mul(den)?.checked_add(sign * frac)?;
+            return Some(Self::new(num, den));
         }
         text.parse().ok().map(Self::from_int)
     }
@@ -571,6 +570,21 @@ mod tests {
         assert_eq!(Rational::parse("-1.25"), Some(Rational::new(-5, 4)));
         assert_eq!(Rational::parse("0/0"), None);
         assert_eq!(Rational::parse("N/A"), None);
+    }
+
+    /// Text that is a fraction or a decimal but whose value an `i64` cannot
+    /// hold is refused like any other text, never a panic or a wrapped value.
+    #[test]
+    fn parsing_a_value_past_i64_refuses_it() {
+        assert_eq!(Rational::parse("1/-9223372036854775808"), None);
+        assert_eq!(Rational::parse("-9223372036854775808/-1"), None);
+        assert_eq!(Rational::parse("922337203685477580.8"), None);
+        assert_eq!(Rational::parse("-922337203685477580.9"), None);
+        assert_eq!(
+            Rational::parse("922337203685477580.7"),
+            Some(Rational::new(i64::MAX, 10)),
+            "the largest decimal that fits still parses"
+        );
     }
 
     #[test]
