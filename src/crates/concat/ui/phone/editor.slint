@@ -337,8 +337,8 @@ export component PhoneEditor inherits Rectangle {
 
     /// Which sheet is up, by name, or empty for none. The names are the
     /// library's pages - "media", "text", "effects", "filters",
-    /// "transitions" - the project's own, and a "clip-" page of the
-    /// inspector for the selected clip.
+    /// "adjustments", "transitions" - the project's own, and a "clip-" page
+    /// of the inspector for the selected clip.
     property <string> sheet;
     /// The sheet up is one of the clip's, and goes with the clip.
     property <bool> sheet-needs-clip;
@@ -379,6 +379,7 @@ export component PhoneEditor inherits Rectangle {
             : name == "text" || name == "clip-text" ? I18n.t("common.text")
             : name == "effects" || name == "clip-effects" ? I18n.t("common.effects")
             : name == "filters" ? I18n.t("mediaPane.filters")
+            : name == "adjustments" ? I18n.t("mediaPane.adjustments")
             : name == "transitions" ? I18n.t("mediaPane.transitions")
             : name == "project" ? I18n.t("phone.project")
             : name == "canvas" || name == "clip-canvas" ? I18n.t("phone.canvas")
@@ -856,6 +857,14 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "filters";
                 clicked => { root.show("filters", false); }
             }
+            // CapCut's Adjust, beside Filters: a layer that grades the
+            // whole picture beneath it, and the user's LUTs.
+            ToolItem {
+                glyph: Glyph.sun;
+                label: I18n.t("mediaPane.adjustments");
+                current: root.sheet == "adjustments";
+                clicked => { root.show("adjustments", false); }
+            }
             ToolItem {
                 glyph: Glyph.transition;
                 label: I18n.t("mediaPane.transitions");
@@ -952,6 +961,20 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("configPane.filter");
                 current: root.sheet == "clip-layer";
                 clicked => { root.show("clip-layer", true); }
+            }
+            // An adjustment layer is graded as a clip is: the same colour
+            // sheet, and its chain, for everything beneath it.
+            if root.is-layer: ToolItem {
+                glyph: Glyph.sun;
+                label: I18n.t("common.adjust");
+                current: root.sheet == "clip-adjust";
+                clicked => { root.show("clip-adjust", true); }
+            }
+            if root.is-layer: ToolItem {
+                glyph: Glyph.sparkle;
+                label: I18n.t("common.effects");
+                current: root.sheet == "clip-effects";
+                clicked => { root.show("clip-effects", true); }
             }
             if (root.is-video || root.is-audio) && !Editor.selected-clip.batch-volume: ToolItem {
                 glyph: Glyph.clock;
@@ -1222,6 +1245,43 @@ export component PhoneEditor inherits Rectangle {
                 auditions: false;
                 applied(id, label) => {
                     Editor.library-apply-filter(id, label);
+                    root.hide();
+                }
+            }
+        }
+
+        // ── adjustments: a layer that grades everything beneath it, and
+        // the user's LUTs - imported from the phone's files, put down as
+        // a layer at the playhead ──
+        if root.sheet == "adjustments": VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+
+            SheetButton {
+                glyph: Glyph.plus;
+                primary: true;
+                label: I18n.t("mediaPane.addAdjustmentLayer");
+                clicked => {
+                    Editor.library-add-adjustment(I18n.t("mediaPane.adjustment"));
+                    root.hide();
+                }
+            }
+            SheetNote { text: I18n.t("mediaPane.adjustmentLayerHint"); }
+            SheetNote { text: I18n.t("mediaPane.luts"); }
+            SheetButton {
+                glyph: Glyph.import;
+                label: I18n.t("mediaPane.importALut");
+                clicked => { Editor.library-import-lut(); }
+            }
+            if Editor.catalogue-luts.length == 0: SheetNote {
+                text: I18n.t("mediaPane.noLutsYet");
+            }
+            ShelfGrid {
+                entries: Editor.catalogue-luts;
+                glyph: Glyph.sun;
+                auditions: false;
+                applied(id, label) => {
+                    Editor.library-apply-lut(id, label);
                     root.hide();
                 }
             }
