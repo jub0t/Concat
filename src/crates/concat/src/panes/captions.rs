@@ -357,12 +357,14 @@ impl CaptionsPane {
         // notice says it was the busiest, and how to pick another.
         let busiest = lane.busiest && srt::title_lanes(studio.timeline()) > 1;
         let say = move |studio: &mut Studio, place: &str| {
-            let key = if busiest {
-                "captions.exportedBusiestLane"
+            // Each key spelled out where it is used: scripts/locales.py
+            // finds the strings the source asks for by reading it.
+            let said = if busiest {
+                tf("captions.exportedBusiestLane", &[&count, &place])
             } else {
-                "captions.exportedCaptions"
+                tf("captions.exportedCaptions", &[&count, &place])
             };
-            studio.notify(&tf(key, &[&count, &place]), false);
+            studio.notify(&said, false);
         };
         let written = path.to_path_buf();
         let handed = crate::platform::publish_document(
