@@ -6236,6 +6236,17 @@ impl Studio {
     /// The zoom a stabilized clip is drawn at and the zoom it would need
     /// to steady every frame, once its media's movement is measured.
     fn stabilize_readout(&self, clip: &Clip) -> Option<(f64, f64)> {
+        let (correction, _) = self.stabilize_correction(clip)?;
+        Some((correction.zoom, correction.needed))
+    }
+
+    /// A stabilized clip's correction, worked out as the renderer works it
+    /// out, with the picture's aspect it is measured in; `None` for a clip
+    /// not stabilized or not measured yet.
+    fn stabilize_correction(
+        &self,
+        clip: &Clip,
+    ) -> Option<(concat_vision::stabilize::Correction, f64)> {
         let settings = clip.stabilize?;
         let session = self.session.as_ref()?;
         let media = self.project().media_by_id(&clip.media_id)?;
@@ -6254,7 +6265,7 @@ impl Studio {
                 keep_rotation: settings.keep_rotation,
             },
         );
-        (!correction.is_empty()).then_some((correction.zoom, correction.needed))
+        (!correction.is_empty()).then_some((correction, motion.aspect))
     }
 
     // ── enhance ──
@@ -7017,7 +7028,8 @@ impl Studio {
 
     /// Where a stage point lands in the source picture, in the fractions a
     /// stroke is stored in: the footprint's turn undone, then the crop and
-    /// the flips, the same way a decoded pixel finds its mask.
+    /// the flips, the same way a decoded pixel finds its mask, then a
+    /// stabilized clip's correction at the playhead.
     fn stage_to_source(&self, clip: &Clip, x: f64, y: f64) -> [f64; 2] {
         let footprint = self.footprint(clip);
         let (width, height) = self.output_size();
@@ -7045,7 +7057,17 @@ impl Studio {
             flip_v: clip.flip_v,
         };
         let (u, v) = mapping.source_of(px as f32, py as f32);
-        [f64::from(u), f64::from(v)]
+        let (u, v) = (f64::from(u), f64::from(v));
+        // A stabilized picture is drawn through its correction: the point
+        // under the brush is where the correction reads the frame from.
+        match self.stabilize_correction(clip) {
+            Some((correction, aspect)) => {
+                let map = correction.at(self.source_at_playhead(clip));
+                let (x, y) = map.apply(((u - 0.5) * aspect, v - 0.5));
+                [x / aspect + 0.5, y + 0.5]
+            }
+            None => [u, v],
+        }
     }
 
     /// The stroke in flight as the stage draws it: path commands over a
