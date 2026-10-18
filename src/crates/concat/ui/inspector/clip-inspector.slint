@@ -881,6 +881,20 @@ component AnalysisRow inherits Row {
     }
 }
 
+/// The stabilization analysis at work on the clip's media: the camera's
+/// movement measured frame by frame, the clip shown as shot until it is.
+component StabilizeRow inherits Row {
+    in property <float> progress;
+
+    label: I18n.t("clipInspector.analysis");
+    Text {
+        text: I18n.t1("clipInspector.measuringShake", "\{Math.round(root.progress * 100)}");
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+}
+
 /// Enhance at work on the clip's media: the model on its way, then the
 /// frames, one by one, into the copy the clip will show.
 component EnhanceRow inherits Row {
@@ -1088,9 +1102,13 @@ export component VideoPanel inherits VerticalLayout {
     property <float> crop-right;
     property <float> crop-bottom;
     property <float> feather;
+    property <float> smoothness;
+    property <float> max-zoom;
 
     function seed() {
         root.feather = root.selected.cutout-feather;
+        root.smoothness = root.selected.stabilize-smoothness;
+        root.max-zoom = root.selected.stabilize-max-zoom;
         root.scale = root.selected.scale;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
@@ -1304,6 +1322,76 @@ export component VideoPanel inherits VerticalLayout {
                 label: I18n.t("clipInspector.flipVertical");
                 checked: root.selected.flip-v;
                 toggled(on) => { root.set(ClipField.flip-v, on ? 1 : 0); root.commit(); }
+            }
+        }
+    }
+
+    // The camera's shake taken out: the media's movement is measured once
+    // in the background, and the correction is worked out from it live, so
+    // the sliders answer at once. Footage only.
+    if root.selected.kind == ClipKind.video: Section {
+        stabilize := SectionHeader {
+            title: I18n.t("clipInspector.stabilize");
+            collapsible: true;
+            switchable: true;
+            on: root.selected.stabilize;
+            switched(on) => {
+                root.set(ClipField.stabilize, on ? 1 : 0);
+                root.commit();
+            }
+            summary: !root.selected.stabilize ? I18n.t("common.off")
+                : root.selected.stabilize-progress >= 0
+                    ? I18n.t1("clipInspector.measuringShake", "\{Math.round(root.selected.stabilize-progress * 100)}")
+                : root.selected.stabilize-zoom > 0
+                    ? I18n.t1("clipInspector.zoomPercent", "\{Math.round(root.selected.stabilize-zoom * 100)}")
+                : "";
+            HelpButton {
+                text: I18n.t("clipInspector.stabilizeHelp");
+            }
+        }
+
+        if stabilize.open && root.selected.stabilize: SectionBody {
+            Param {
+                label: I18n.t("clipInspector.smoothness");
+                value <=> root.smoothness;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 0.5;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.stabilize-smoothness, v); root.commit(); }
+            }
+
+            Param {
+                label: I18n.t("clipInspector.maxZoom");
+                value <=> root.max-zoom;
+                minimum: 1;
+                maximum: 1.5;
+                step: 0.01;
+                default-value: 1.2;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.stabilize-max-zoom, v); root.commit(); }
+            }
+
+            SwitchRow {
+                label: I18n.t("clipInspector.tripod");
+                checked: root.selected.stabilize-tripod;
+                toggled(on) => { root.set(ClipField.stabilize-tripod, on ? 1 : 0); root.commit(); }
+            }
+
+            if root.selected.stabilize-progress >= 0: StabilizeRow {
+                progress: root.selected.stabilize-progress;
+            }
+            if root.selected.stabilize-progress < 0 && root.selected.stabilize-zoom > 0: Note {
+                text: root.selected.stabilize-needed > root.selected.stabilize-zoom + 0.005
+                    ? I18n.t2("clipInspector.stabilizeEased",
+                        "\{Math.round(root.selected.stabilize-zoom * 100)}",
+                        "\{Math.round(root.selected.stabilize-needed * 100)}")
+                    : I18n.t1("clipInspector.stabilizeZoom", "\{Math.round(root.selected.stabilize-zoom * 100)}");
             }
         }
     }

@@ -44,6 +44,8 @@ pub struct Host {
     pub titles: concat_host::Titles,
     /// The cutout models, and the masks they find for the project's media.
     pub cutouts: Arc<concat_host::Cutouts>,
+    /// The stabilization analysis, and the camera movement it measures.
+    pub stabilizers: Arc<concat_host::Stabilizers>,
     /// The brush model, and the regions it reads under smart strokes.
     pub brushes: Arc<concat_host::Brushes>,
     /// The restoration model, and the enhanced copies it writes.
@@ -70,6 +72,7 @@ impl Host {
         Ok(Host {
             titles: concat_host::Titles::new(&dirs),
             cutouts: Arc::new(concat_host::Cutouts::new(&dirs.data)),
+            stabilizers: Arc::new(concat_host::Stabilizers::new()),
             brushes: Arc::new(concat_host::Brushes::new(&dirs.data)),
             enhancers: Arc::new(concat_host::Enhancers::new(&dirs.data)),
             reversers: Arc::new(concat_host::Reversers::new()),

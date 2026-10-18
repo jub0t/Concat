@@ -1006,6 +1006,12 @@ pub struct Studio {
     pub painting: bool,
     /// The mask analyses running, by media id, and how far each has got.
     cutout_jobs: HashMap<String, (bool, f32)>,
+    /// The stabilization analyses running, by media id, and how far each
+    /// has got. One at a time, like the masks.
+    stabilize_jobs: HashMap<String, f32>,
+    /// Media whose stabilization was turned on anew, so an analysis the
+    /// app died in last time is tried again rather than skipped.
+    stabilize_retry: HashSet<String>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
@@ -1426,7 +1432,8 @@ fn command_name(command: &Command) -> String {
 }
 
 /// The commands that turn `before` into `after`, clip `id` as the echo
-/// left it against the document's: a transform, a cutout, a speed, the
+/// left it against the document's: a transform, a cutout, a
+/// stabilization, a speed, the
 /// keys, and one patch for everything else that differs. Empty when
 /// nothing does.
 fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
@@ -1452,6 +1459,12 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
         commands.push(Command::SetClipCutout {
             clip_id: id.to_owned(),
             cutout: after.cutout.clone(),
+        });
+    }
+    if after.stabilize != before.stabilize {
+        commands.push(Command::SetClipStabilize {
+            clip_id: id.to_owned(),
+            stabilize: after.stabilize,
         });
     }
     if after.speed != before.speed {
@@ -2253,6 +2266,8 @@ impl Studio {
             brush_size: 0.06,
             painting: true,
             cutout_jobs: HashMap::new(),
+            stabilize_jobs: HashMap::new(),
+            stabilize_retry: HashSet::new(),
             enhance_jobs: HashMap::new(),
             enhance_size: 0,
             enhance_strength: concat_host::enhance::DEFAULT_STRENGTH,
@@ -2644,6 +2659,7 @@ impl Studio {
         self.request_media_art();
         self.request_preview();
         self.ensure_cutouts();
+        self.ensure_stabilizers();
         self.ensure_regions();
     }
 
@@ -4821,6 +4837,17 @@ impl Studio {
             } else {
                 Vec::new()
             };
+            if field == ClipField::Stabilize
+                && value != 0.0
+                && let Some(media_id) = self
+                    .clip(&id)
+                    .filter(|clip| clip.stabilize.is_none())
+                    .map(|clip| clip.media_id.clone())
+            {
+                // Turned on anew: a measurement the app died in is tried
+                // again, since the person asked.
+                self.stabilize_retry.insert(media_id);
+            }
             // Where the playhead sits in the clip: a keyed property is written
             // there, as a key.
             let at = self
@@ -4890,6 +4917,26 @@ impl Studio {
                 ClipField::CutoutFeather => {
                     clip.cutout.get_or_insert_with(model::Cutout::auto).feather =
                         value.clamp(0.0, model::MAX_FEATHER);
+                }
+                // Only footage has a camera to steady.
+                ClipField::Stabilize => {
+                    clip.stabilize = (value != 0.0 && clip.kind == model::ClipKind::Video)
+                        .then(|| clip.stabilize.unwrap_or_default());
+                }
+                ClipField::StabilizeSmoothness => {
+                    if let Some(stabilize) = clip.stabilize.as_mut() {
+                        stabilize.smoothness = value.clamp(0.0, 1.0);
+                    }
+                }
+                ClipField::StabilizeMaxZoom => {
+                    if let Some(stabilize) = clip.stabilize.as_mut() {
+                        stabilize.max_zoom = value.clamp(1.0, model::MAX_STABILIZE_ZOOM);
+                    }
+                }
+                ClipField::StabilizeTripod => {
+                    if let Some(stabilize) = clip.stabilize.as_mut() {
+                        stabilize.tripod = value != 0.0;
+                    }
                 }
                 ClipField::Volume => {
                     write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
@@ -6102,6 +6149,112 @@ impl Studio {
                 }
             },
         );
+    }
+
+    // ── stabilization ──
+    //
+    // A stabilized clip's camera movement is measured once per stretch of
+    // its media, by the host, and cached in the project folder; the
+    // correction is worked out from it whenever the timeline is built. The
+    // window's part is to notice which media have stretches not measured,
+    // run one analysis at a time, and show the clip steadied when it lands.
+
+    /// Starts the analysis for the first media a stabilized clip needs
+    /// measured, unless one is running. Called after every change; the
+    /// finished job calls it again for whatever is next.
+    pub fn ensure_stabilizers(&mut self) {
+        if !self.stabilize_jobs.is_empty() || self.host.stabilizers.is_busy() {
+            return;
+        }
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let project = std::path::PathBuf::from(session.path());
+        let mut next = None;
+        for (media_id, request) in concat_host::Stabilizers::requests(self.project(), &project) {
+            if concat_host::Stabilizers::outstanding(&request).is_empty() {
+                continue;
+            }
+            let dir = concat_host::Stabilizers::dir(&request);
+            if concat_host::Stabilizers::tripped(&request) {
+                if self.stabilize_retry.remove(&media_id) {
+                    concat_host::jobs::Tripwire::clear(&dir);
+                } else {
+                    // Skipped, and said once: starting it again by itself
+                    // would close the app on every open.
+                    if self.tripped_strokes.insert(dir) {
+                        log::warn!("stabilize: media the app closed while measuring is skipped");
+                        self.notify(&t("studio.stabilizeSkipped"), true);
+                    }
+                    continue;
+                }
+            }
+            next = Some((media_id, request));
+            break;
+        }
+        let Some((media_id, request)) = next else {
+            return;
+        };
+        self.stabilize_jobs.insert(media_id.clone(), 0.0);
+        let stabilizers = Arc::clone(&self.host.stabilizers);
+        let epoch = crate::host::project_epoch();
+        spawn_in_project(
+            move || {
+                let mut last = -1.0f32;
+                let reporting = media_id.clone();
+                let result = stabilizers.analyse(&request, &mut |fraction| {
+                    // Every percent, not every frame.
+                    if fraction - last >= 0.01 {
+                        last = fraction;
+                        let id = reporting.clone();
+                        on_ui_in_project(epoch, move |studio, _, _| {
+                            if let Some(held) = studio.stabilize_jobs.get_mut(&id) {
+                                *held = fraction;
+                            }
+                        });
+                    }
+                });
+                (media_id, result)
+            },
+            |studio, _, _, (media_id, result)| {
+                studio.stabilize_jobs.remove(&media_id);
+                match result {
+                    Ok(_) => {
+                        // The kept plan was built before the measurement
+                        // and would go on showing the clip as shot.
+                        studio.host.monitor.forget_plan();
+                        studio.request_preview();
+                        studio.ensure_stabilizers();
+                    }
+                    Err(error) if error.contains("cancelled") => {}
+                    Err(error) => studio.notify(&tf("studio.stabilize", &[&error]), true),
+                }
+            },
+        );
+    }
+
+    /// The zoom a stabilized clip is drawn at and the zoom it would need
+    /// to steady every frame, once its media's movement is measured.
+    fn stabilize_readout(&self, clip: &Clip) -> Option<(f64, f64)> {
+        let settings = clip.stabilize?;
+        let session = self.session.as_ref()?;
+        let media = self.project().media_by_id(&clip.media_id)?;
+        let dir =
+            concat_vision::stabilize::motion_dir(std::path::Path::new(session.path()), &media.path);
+        let motion = concat_vision::stabilize::Motion::read(&dir)?;
+        let speed = clip.speed.max(0.0625);
+        let correction = concat_vision::stabilize::path::correct(
+            &motion,
+            (clip.source_start, clip.source_start + clip.duration * speed),
+            speed,
+            &concat_vision::stabilize::Settings {
+                smoothness: settings.smoothness,
+                max_zoom: settings.max_zoom,
+                tripod: settings.tripod,
+                keep_rotation: settings.keep_rotation,
+            },
+        );
+        (!correction.is_empty()).then_some((correction.zoom, correction.needed))
     }
 
     // ── enhance ──
@@ -7670,6 +7823,7 @@ impl Studio {
                 self.request_media_art();
                 self.request_preview();
                 self.ensure_cutouts();
+                self.ensure_stabilizers();
                 self.ensure_regions();
 
                 // Effects this build no longer has, named once as the project
@@ -7803,6 +7957,7 @@ impl Studio {
     /// the save has landed, and what quitting without saving does instead.
     fn release_project(&mut self) {
         self.host.cutouts.cancel();
+        self.host.stabilizers.cancel();
         self.host.enhancers.cancel();
         self.host.reversers.cancel();
         self.enhance_jobs.clear();
@@ -7812,6 +7967,8 @@ impl Studio {
         self.reverse_jobs.clear();
         self.cancel_merge();
         self.cutout_jobs.clear();
+        self.stabilize_jobs.clear();
+        self.stabilize_retry.clear();
         self.region_job = None;
         self.autosave.stop();
         if let Some(session) = self.session.as_ref() {
@@ -9586,6 +9743,7 @@ impl Studio {
                 .copied()
         });
         let mut enhance = self.enhance_readout(clip);
+        let steady = self.stabilize_readout(clip);
         let enhance_preview = enhance.preview.is_some();
         let (enhance_before, enhance_after, enhance_estimate) =
             enhance.preview.take().unwrap_or_default();
@@ -9699,6 +9857,18 @@ impl Studio {
             cutout_progress: analysis.map(|(_, fraction)| fraction).unwrap_or(-1.0),
             cutout_fetching: analysis.is_some_and(|(fetching, _)| fetching),
             cutout_empty: self.cutout_empty(clip),
+            stabilize: clip.stabilize.is_some(),
+            stabilize_smoothness: clip.stabilize.unwrap_or_default().smoothness as f32,
+            stabilize_max_zoom: clip.stabilize.unwrap_or_default().max_zoom as f32,
+            stabilize_tripod: clip.stabilize.is_some_and(|stabilize| stabilize.tripod),
+            stabilize_progress: self
+                .stabilize_jobs
+                .get(&clip.media_id)
+                .copied()
+                .filter(|_| clip.stabilize.is_some())
+                .unwrap_or(-1.0),
+            stabilize_zoom: steady.map_or(-1.0, |(zoom, _)| zoom as f32),
+            stabilize_needed: steady.map_or(-1.0, |(_, needed)| needed as f32),
             enhance_progress: self
                 .enhance_jobs
                 .get(&clip.id)

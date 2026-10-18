@@ -177,6 +177,9 @@ export enum ClipField {
     /// frame height on each axis
     background-padding-x, background-padding-y,
     cutout-feather,
+    /// stabilization: on (1) or off (0), how smooth, the most it may zoom,
+    /// and tripod (1) or following the camera's move (0)
+    stabilize, stabilize-smoothness, stabilize-max-zoom, stabilize-tripod,
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
     audio-track,
@@ -387,6 +390,19 @@ export struct SelectedClipData {
     cutout-progress: float,
     cutout-fetching: bool,
     cutout-empty: bool,
+
+    // stabilization: on or off; how smooth, 0..1; the most it may zoom;
+    // tripod rather than following the move; the measurement of the
+    // media's shake, -1 when none is running, else how far along; and,
+    // once measured, the zoom it is drawn at and the zoom every frame
+    // would need, -1 before
+    stabilize: bool,
+    stabilize-smoothness: float,
+    stabilize-max-zoom: float,
+    stabilize-tripod: bool,
+    stabilize-progress: float,
+    stabilize-zoom: float,
+    stabilize-needed: float,
 
     // Enhance writing this clip's enhanced copy: -1 when it is not, else
     // how far along, and whether that is the model downloading rather

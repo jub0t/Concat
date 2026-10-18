@@ -143,6 +143,12 @@ impl Tripwire {
         &self.path
     }
 
+    /// Takes the mark off `dir`, for a job the person has asked to be
+    /// tried again.
+    pub fn clear(dir: &std::path::Path) {
+        let _ = std::fs::remove_file(dir.join(Self::FILE));
+    }
+
     /// Whether a job on `dir` was running when its process died: the mark
     /// is there and the process that left it is not running any more. A
     /// second Concat open beside the first sees the first's mark as a job
