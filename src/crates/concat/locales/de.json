@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Setze den Abspielkopf in den Clip, um ihn dort zu schneiden",
   "studio.paste": "Einfügen",
   "studio.projectOpenThroughRemote": "Dieses Projekt ist über die Remote-API geöffnet",
+  "studio.projectOpenElsewhere": "Dieses Projekt ist in einem anderen Concat geöffnet (Prozess {0}). Schließen Sie es dort und öffnen Sie es dann hier.",
   "studio.projectSaved": "Projekt gespeichert",
   "studio.quit": "Beenden",
   "studio.reattachAudio": "Audio wieder anhängen",

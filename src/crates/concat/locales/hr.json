@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Postavi playhead unutar klipa da bi ga ondje izrezao",
   "studio.paste": "Zalijepi",
   "studio.projectOpenThroughRemote": "Ovaj je projekt otvoren putem udaljenog API-ja",
+  "studio.projectOpenElsewhere": "Ovaj je projekt otvoren u drugom Concatu (proces {0}). Zatvorite ga ondje, a zatim ga otvorite ovdje.",
   "studio.projectSaved": "Projekt spremljen",
   "studio.quit": "Izađi",
   "studio.reattachAudio": "Ponovno spoji zvuk",

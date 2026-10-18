@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Поставте курсор відтворення всередину кліпу, щоб розрізати його там",
   "studio.paste": "Вставити",
   "studio.projectOpenThroughRemote": "Цей проєкт відкрито через Remote API",
+  "studio.projectOpenElsewhere": "Цей проєкт відкрито в іншому Concat (процес {0}). Закрийте його там, а потім відкрийте тут.",
   "studio.projectSaved": "Проєкт збережено",
   "studio.quit": "Вийти",
   "studio.reattachAudio": "Повернути аудіо",

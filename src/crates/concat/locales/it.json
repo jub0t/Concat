@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Porta la testina dentro la clip per tagliarla lì",
   "studio.paste": "Incolla",
   "studio.projectOpenThroughRemote": "Questo progetto è aperto tramite l’API remota",
+  "studio.projectOpenElsewhere": "Questo progetto è aperto in un altro Concat (processo {0}). Chiudilo lì, poi aprilo qui.",
   "studio.projectSaved": "Progetto salvato",
   "studio.quit": "Esci",
   "studio.reattachAudio": "Ricollega l'audio",

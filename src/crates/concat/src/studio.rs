@@ -8062,13 +8062,26 @@ impl Studio {
     /// says why it could not.
     pub fn open_project(&mut self, info: ProjectInfo) -> Result<(), String> {
         log::info!("project: opening {}", info.path);
-        if self
+        match self
             .host
             .open_projects
             .claim(&info.path, concat_api::Holder::Window)
-            .is_err()
         {
-            return Err(t("studio.projectOpenThroughRemote"));
+            Ok(()) => {}
+            Err(concat_api::Refusal::Here(_)) => {
+                return Err(t("studio.projectOpenThroughRemote"));
+            }
+            // Another process has it - a second window, an agent's
+            // `concat --mcp`, the CLI - and two saving one folder lose
+            // each other's work.
+            Err(concat_api::Refusal::Elsewhere(owner)) => {
+                let pid = owner
+                    .pid
+                    .map(|pid| pid.to_string())
+                    .unwrap_or_else(|| "?".to_owned());
+                log::warn!("project: {} is held by process {pid}", info.path);
+                return Err(tf("studio.projectOpenElsewhere", &[&pid]));
+            }
         }
         match Session::open_info(&info) {
             Ok(session) => {

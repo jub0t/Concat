@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "ضع مؤشر التشغيل داخل المقطع لقصّه هناك",
   "studio.paste": "لصق",
   "studio.projectOpenThroughRemote": "هذا المشروع مفتوح عبر واجهة Remote API",
+  "studio.projectOpenElsewhere": "هذا المشروع مفتوح في نسخة أخرى من Concat (العملية {0}). أغلقه هناك، ثم افتحه هنا.",
   "studio.projectSaved": "تم حفظ المشروع",
   "studio.quit": "إنهاء",
   "studio.reattachAudio": "إعادة إرفاق الصوت",

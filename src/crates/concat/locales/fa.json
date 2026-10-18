@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "نشانگر پخش را داخل کلیپ بگذارید تا همان‌جا بریده شود",
   "studio.paste": "چسباندن",
   "studio.projectOpenThroughRemote": "این پروژه از طریق API راه دور باز است",
+  "studio.projectOpenElsewhere": "این پروژه در Concat دیگری باز است (فرایند {0}). آن را آنجا ببندید، سپس اینجا باز کنید.",
   "studio.projectSaved": "پروژه ذخیره شد",
   "studio.quit": "خروج",
   "studio.reattachAudio": "اتصال دوباره صدا",

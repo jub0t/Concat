@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "그 위치에서 자르려면 재생 헤드를 클립 안에 두세요",
   "studio.paste": "붙여넣기",
   "studio.projectOpenThroughRemote": "이 프로젝트는 원격 API를 통해 열려 있습니다",
+  "studio.projectOpenElsewhere": "이 프로젝트는 다른 Concat에서 열려 있습니다(프로세스 {0}). 그곳에서 닫은 뒤 여기서 여세요.",
   "studio.projectSaved": "프로젝트를 저장했습니다",
   "studio.quit": "끝내기",
   "studio.reattachAudio": "오디오 다시 연결",

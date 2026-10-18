@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "کلپ کو وہاں سے کاٹنے کے لیے پلے ہیڈ کو اس کے اندر رکھیں",
   "studio.paste": "پیسٹ کریں",
   "studio.projectOpenThroughRemote": "یہ پروجیکٹ Remote API کے ذریعے کھلا ہے",
+  "studio.projectOpenElsewhere": "یہ پروجیکٹ کسی دوسرے Concat میں کھلا ہے (پروسیس {0})۔ اسے وہاں بند کریں، پھر یہاں کھولیں۔",
   "studio.projectSaved": "پروجیکٹ محفوظ ہو گیا",
   "studio.quit": "بند کریں",
   "studio.reattachAudio": "آڈیو دوبارہ جوڑیں",

@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Klibi orada kesmek için oynatma imlecini klibin içine getirin",
   "studio.paste": "Yapıştır",
   "studio.projectOpenThroughRemote": "Bu proje Uzak API üzerinden açık",
+  "studio.projectOpenElsewhere": "Bu proje başka bir Concat'te açık (işlem {0}). Önce orada kapatın, sonra burada açın.",
   "studio.projectSaved": "Proje kaydedildi",
   "studio.quit": "Çık",
   "studio.reattachAudio": "Sesi yeniden bağla",

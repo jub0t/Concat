@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "請將播放磁頭放在片段內，才能在該處切開",
   "studio.paste": "貼上",
   "studio.projectOpenThroughRemote": "此專案正透過遠端 API 打開",
+  "studio.projectOpenElsewhere": "此專案已在另一個 Concat 中開啟（程序 {0}）。請先在那裡關閉，再在這裡開啟。",
   "studio.projectSaved": "專案已儲存",
   "studio.quit": "結束",
   "studio.reattachAudio": "重新附加音訊",

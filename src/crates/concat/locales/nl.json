@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Zet de afspeelkop in de clip om hem daar te knippen",
   "studio.paste": "Plakken",
   "studio.projectOpenThroughRemote": "Dit project is geopend via de Remote API",
+  "studio.projectOpenElsewhere": "Dit project is geopend in een andere Concat (proces {0}). Sluit het daar en open het dan hier.",
   "studio.projectSaved": "Project opgeslagen",
   "studio.quit": "Stoppen",
   "studio.reattachAudio": "Audio opnieuw koppelen",

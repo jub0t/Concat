@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Put the playhead inside the clip to cut it there",
   "studio.paste": "Paste",
   "studio.projectOpenThroughRemote": "This project is open through the Remote API",
+  "studio.projectOpenElsewhere": "This project is open in another Concat (process {0}). Close it there, then open it here.",
   "studio.projectSaved": "Project saved",
   "studio.quit": "Quit",
   "studio.reattachAudio": "Reattach audio",

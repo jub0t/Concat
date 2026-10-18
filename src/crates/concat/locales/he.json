@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "יש למקם את סמן ההפעלה בתוך הקליפ כדי לחתוך אותו שם",
   "studio.paste": "הדבקה",
   "studio.projectOpenThroughRemote": "הפרויקט הזה פתוח דרך ה-Remote API",
+  "studio.projectOpenElsewhere": "הפרויקט הזה פתוח ב-Concat אחר (תהליך {0}). סגרו אותו שם ואז פתחו אותו כאן.",
   "studio.projectSaved": "הפרויקט נשמר",
   "studio.quit": "יציאה",
   "studio.reattachAudio": "חיבור השמע מחדש",

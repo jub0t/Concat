@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "সেখানে কাটতে প্লেহেডটি ক্লিপের ভেতরে রাখুন",
   "studio.paste": "পেস্ট",
   "studio.projectOpenThroughRemote": "এই প্রজেক্টটি রিমোট API-এর মাধ্যমে খোলা",
+  "studio.projectOpenElsewhere": "এই প্রজেক্টটি আরেকটি Concat-এ খোলা আছে (প্রসেস {0})। সেখানে বন্ধ করুন, তারপর এখানে খুলুন।",
   "studio.projectSaved": "প্রজেক্ট সংরক্ষিত",
   "studio.quit": "বন্ধ করুন",
   "studio.reattachAudio": "অডিও পুনরায় যুক্ত করুন",

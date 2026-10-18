@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Placez la tête de lecture dans le clip pour le couper à cet endroit",
   "studio.paste": "Coller",
   "studio.projectOpenThroughRemote": "Ce projet est ouvert via l’API distante",
+  "studio.projectOpenElsewhere": "Ce projet est ouvert dans un autre Concat (processus {0}). Fermez-le là-bas, puis ouvrez-le ici.",
   "studio.projectSaved": "Projet enregistré",
   "studio.quit": "Quitter",
   "studio.reattachAudio": "Rattacher l'audio",

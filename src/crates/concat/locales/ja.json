@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "その位置で切るには、再生ヘッドをクリップ内に置いてください",
   "studio.paste": "ペースト",
   "studio.projectOpenThroughRemote": "このプロジェクトはリモート API で開かれています",
+  "studio.projectOpenElsewhere": "このプロジェクトは別の Concat で開かれています（プロセス {0}）。そちらで閉じてから、ここで開いてください。",
   "studio.projectSaved": "プロジェクトを保存しました",
   "studio.quit": "終了",
   "studio.reattachAudio": "音声を再結合",

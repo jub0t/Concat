@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Ustaw głowicę wewnątrz klipu, aby go tam przeciąć",
   "studio.paste": "Wklej",
   "studio.projectOpenThroughRemote": "Ten projekt jest otwarty przez Remote API",
+  "studio.projectOpenElsewhere": "Ten projekt jest otwarty w innym Concat (proces {0}). Zamknij go tam, a potem otwórz tutaj.",
   "studio.projectSaved": "Projekt zapisany",
   "studio.quit": "Zakończ",
   "studio.reattachAudio": "Dołącz dźwięk ponownie",

@@ -48,7 +48,7 @@ use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::session::EditorView;
 use concat_host::stabilize::{StabilizeRequest, Stabilizers};
 use concat_host::templates::{self, SlotFill};
-use concat_host::{ProjectInfo, Session, Titles, media, projects};
+use concat_host::{ProjectInfo, Session, Titles, lock, media, projects};
 use concat_project::Command;
 use concat_project::model::VideoSettings;
 
@@ -111,26 +111,83 @@ impl std::fmt::Display for Holder {
     }
 }
 
+/// Why a project folder could not be claimed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// The other side of this process has it: the window, or the API it
+    /// serves.
+    Here(Holder),
+    /// Another process has it - a second window, `concat --mcp`, the CLI -
+    /// as its lock file says.
+    Elsewhere(lock::Owner),
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refusal::Here(holder) => write!(f, "open in {holder}"),
+            Refusal::Elsewhere(owner) => {
+                let what = if owner.role == "window" {
+                    "a Concat window"
+                } else {
+                    "another Concat process"
+                };
+                match owner.pid {
+                    Some(pid) => write!(f, "open in {what} (process {pid})"),
+                    None => write!(f, "open in {what}"),
+                }
+            }
+        }
+    }
+}
+
+/// One claimed folder: who has it in this process, and the lock that
+/// keeps every other process off it.
+struct Claim {
+    holder: Holder,
+    /// `None` where the folder would not take a lock file - one that
+    /// cannot be written - which costs the guard, not the open.
+    _lock: Option<lock::ProjectLock>,
+}
+
 /// The project folders open on this machine and who has each, shared
 /// between a window and the API it embeds, so neither opens a folder the
 /// other is editing and saves over its work (audit 2026-09-23, #5). Cheap
 /// to clone; every clone is the same register.
+///
+/// Each claimed folder is also locked against every other process
+/// ([`lock::ProjectLock`]): a second window, `concat --mcp` working on its
+/// own, the CLI. The lock goes with the claim, and with the process if it
+/// dies, so a crash leaves a folder the next opener takes over.
 #[derive(Clone, Default)]
-pub struct OpenProjects(Arc<Mutex<BTreeMap<String, Holder>>>);
+pub struct OpenProjects(Arc<Mutex<BTreeMap<String, Claim>>>);
 
 impl OpenProjects {
     /// Claims `path` for `holder`. Refused, naming who has it, when the
-    /// other side does; claiming again what one already holds is fine.
-    pub fn claim(&self, path: &str, holder: Holder) -> Result<(), Holder> {
+    /// other side of this process does or another process does; claiming
+    /// again what one already holds is fine.
+    pub fn claim(&self, path: &str, holder: Holder) -> Result<(), Refusal> {
         let key = key_of(path);
         let mut open = self
             .0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match open.get(&key) {
-            Some(&other) if other != holder => Err(other),
-            _ => {
-                open.insert(key, holder);
+            Some(claim) if claim.holder != holder => Err(Refusal::Here(claim.holder)),
+            Some(_) => Ok(()),
+            None => {
+                let role = match holder {
+                    Holder::Window => "window",
+                    Holder::Api => "api",
+                };
+                let lock = match lock::ProjectLock::acquire(Path::new(path), role) {
+                    Ok(lock) => Some(lock),
+                    Err(lock::LockError::Held(owner)) => return Err(Refusal::Elsewhere(owner)),
+                    // A folder that will not take the file: a read-only
+                    // one, which nobody can save over anyway.
+                    Err(lock::LockError::Io(_)) => None,
+                };
+                open.insert(key, Claim { holder, _lock: lock });
                 Ok(())
             }
         }
@@ -152,7 +209,7 @@ impl OpenProjects {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(&key)
-            .copied()
+            .map(|claim| claim.holder)
     }
 }
 
@@ -482,10 +539,19 @@ impl Api {
     /// Opens a session on a project the host just described and puts it at
     /// the front of the recents list.
     fn adopt(&mut self, info: ProjectInfo) -> Result<EditorView, ApiError> {
-        if let Err(holder) = self.open.claim(&info.path, Holder::Api) {
+        if let Err(refusal) = self.open.claim(&info.path, Holder::Api) {
+            // A window holding it is the case an agent meets: say how to
+            // go through that window instead of around it.
+            let how = match &refusal {
+                Refusal::Elsewhere(owner) if owner.role == "window" => {
+                    ". To work on it from an agent, turn on Settings > Automation in that window and run the agent with `concat --mcp window`; the project on screen stays the window's until live mode lands"
+                }
+                Refusal::Elsewhere(_) => ". Close it there first",
+                Refusal::Here(_) => "",
+            };
             return Err(ApiError::new(
                 ErrorCode::Refused,
-                format!("{} is open in {holder}", info.path),
+                format!("{} is {refusal}{how}", info.path),
             ));
         }
         let session = match Session::open_info(&info) {
@@ -1654,13 +1720,42 @@ mod tests {
         assert_eq!(open.holder(&path), Some(Holder::Api));
         assert_eq!(
             open.claim(&path, Holder::Window),
-            Err(Holder::Api),
+            Err(Refusal::Here(Holder::Api)),
             "and the window is refused in turn"
+        );
+        assert!(
+            Path::new(&path).join(lock::FILE).exists(),
+            "and every other process by the lock"
         );
         ok(api.dispatch(Request::ProjectClose {
             path: path.clone(),
             save: false,
         }));
         assert_eq!(open.holder(&path), None, "closing gives it back");
+        assert!(!Path::new(&path).join(lock::FILE).exists(), "lock and all");
+    }
+
+    /// Two registers are two processes as far as the lock goes: an API
+    /// that does not share the window's register - `concat --mcp` on its
+    /// own - is kept off a folder the window has, and told the way in.
+    #[test]
+    fn a_project_another_process_holds_is_refused_with_the_way_in() {
+        let (mut other, _other_scratch, _other_events) = api();
+        let (mut api, scratch, _events) = api();
+        let path = project(&mut api, &scratch, "Held");
+        ok(api.dispatch(Request::ProjectClose {
+            path: path.clone(),
+            save: false,
+        }));
+        let window = lock::ProjectLock::acquire(Path::new(&path), "window").expect("the window");
+        let refused = err(api.dispatch(Request::ProjectOpen { path: path.clone() }));
+        assert_eq!(refused.code, ErrorCode::Refused);
+        assert!(refused.message.contains("a Concat window (process"), "{}", refused.message);
+        assert!(refused.message.contains("concat --mcp window"), "{}", refused.message);
+        drop(window);
+        ok(api.dispatch(Request::ProjectOpen { path: path.clone() }));
+
+        let refused = err(other.dispatch(Request::ProjectOpen { path: path.clone() }));
+        assert!(refused.message.contains("another Concat process"), "{}", refused.message);
     }
 }

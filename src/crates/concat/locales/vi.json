@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Đặt đầu phát vào trong clip để cắt tại vị trí đó",
   "studio.paste": "Dán",
   "studio.projectOpenThroughRemote": "Dự án này đang được mở thông qua API từ xa",
+  "studio.projectOpenElsewhere": "Dự án này đang mở trong một Concat khác (tiến trình {0}). Hãy đóng nó ở đó, rồi mở ở đây.",
   "studio.projectSaved": "Đã lưu dự án",
   "studio.quit": "Thoát",
   "studio.reattachAudio": "Gắn lại âm thanh",

@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "วางหัวเล่นไว้ภายในคลิปเพื่อตัดตรงนั้น",
   "studio.paste": "วาง",
   "studio.projectOpenThroughRemote": "โปรเจกต์นี้เปิดผ่าน API ระยะไกล",
+  "studio.projectOpenElsewhere": "โปรเจกต์นี้เปิดอยู่ใน Concat อีกตัวหนึ่ง (โพรเซส {0}) ปิดที่นั่นก่อน แล้วค่อยเปิดที่นี่",
   "studio.projectSaved": "บันทึกโปรเจกต์แล้ว",
   "studio.quit": "ออกจากโปรแกรม",
   "studio.reattachAudio": "รวมเสียงกลับ",

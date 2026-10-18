@@ -655,6 +655,7 @@
   "studio.parkPlayheadInsideClip": "Letakkan penanda putar di dalam klip untuk memotongnya di titik itu",
   "studio.paste": "Tempel",
   "studio.projectOpenThroughRemote": "Proyek ini terbuka melalui API Jarak Jauh",
+  "studio.projectOpenElsewhere": "Proyek ini terbuka di Concat lain (proses {0}). Tutup di sana, lalu buka di sini.",
   "studio.projectSaved": "Proyek disimpan",
   "studio.quit": "Keluar",
   "studio.reattachAudio": "Pasang kembali audio",

@@ -1260,6 +1260,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "ureq 2.12.1",
  "windows-sys 0.61.2",
 ]
