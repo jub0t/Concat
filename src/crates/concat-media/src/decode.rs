@@ -35,8 +35,39 @@ use ffmpeg_the_third::format::{self, Pixel};
 use ffmpeg_the_third::util::frame::video::Video;
 
 use crate::error::{Error, Result};
+use crate::feed;
 use crate::ffi;
-use crate::hardware::{self, Device, HwDevice, HwPolicy};
+use crate::hardware::{self, Device, HwDevice, HwPolicy, Seat};
+
+/// How [`Decoder::open_codec`] opens the codec.
+enum Codec<'a> {
+    /// libavcodec's own decoder for the stream, on the CPU.
+    Software,
+    /// libavcodec's own decoder, with this hwaccel device attached.
+    On(&'a Device),
+    /// A decoder by name in place of the built-in one: the platform's
+    /// decoder wrapped as a codec, MediaCodec's.
+    Named(&'static str),
+}
+
+/// Where a reader's codec runs when it is not plain software.
+enum OnChip {
+    /// A hwaccel: frames arrive in the device's memory, in this format,
+    /// and are copied back.
+    Accel(HwDevice, Pixel),
+    /// The platform's own decoder behind a codec of its own: frames arrive
+    /// in memory already. Holds its seat on the chip for as long as it
+    /// lasts; see [`hardware::MEDIACODEC_READERS`].
+    Wrapped { device: HwDevice, _seat: Seat },
+}
+
+impl OnChip {
+    fn device(&self) -> HwDevice {
+        match self {
+            OnChip::Accel(device, _) | OnChip::Wrapped { device, .. } => *device,
+        }
+    }
+}
 
 /// Anything that yields frames in order.
 ///
@@ -573,9 +604,18 @@ pub struct Decoder {
     /// that moved to software mid-file picks up, after the frame the
     /// device last gave it.
     discard_through: Option<Rational>,
-    /// The device the codec is on and the pixel format its frames arrive
-    /// in, or `None` in software, which is also where a failed device ends.
-    hardware: Option<(HwDevice, Pixel)>,
+    /// Where the codec runs when it is not on the CPU, or `None` in
+    /// software, which is also where a failed device ends.
+    hardware: Option<OnChip>,
+    /// A packet the codec refused while full, to send again; see
+    /// [`crate::feed`].
+    held: feed::Held<ffmpeg::Packet>,
+    /// Whether the codec has been handed anything since it opened or was
+    /// last flushed. A codec with nothing in it is not flushed: MediaCodec
+    /// flushed before its first output has lost the stream's parameter
+    /// sets and must be handed them again, which a seek straight after
+    /// opening - every reader opened at a start point - would do.
+    fed: bool,
     /// The last picture's timestamp, for picking up in software after it.
     last_pts: Option<Rational>,
     /// The output frame instant the pacer is at, when pacing.
@@ -633,32 +673,94 @@ impl Decoder {
                 Pixel::from(ffmpeg::sys::AVPixelFormat(raw)),
             )
         };
-        let device = options
-            .hardware
-            .device_for(codec, format)
-            .and_then(hardware::device);
-        let (decoder, accelerated) = match device {
-            Some(device) => match Self::open_codec(path, &stream, options, Some(&device)) {
-                Ok(opened) => opened,
-                Err(error) => {
-                    hardware::note_fallback(device.kind(), "open the decoder", &error.to_string());
-                    Self::open_codec(path, &stream, options, None)?
+        let software = || Self::open_codec(path, &stream, options, Codec::Software);
+        let (decoder, accelerated) = match options.hardware.device_for(codec, format) {
+            // MediaCodec: its own decoder, by name, when a seat is free.
+            // Not for a keyframes-only reader: the wrapper ignores
+            // `skip_frame`, so a filmstrip tile would decode its whole
+            // group of pictures instead of one frame, and its pipeline
+            // holds the first picture back until several packets are in -
+            // a one-frame grab is the chip's worst case and the CPU's best.
+            Some(device @ HwDevice::MediaCodec) => {
+                let wrapped = hardware::mediacodec_decoder(codec, format)
+                    .filter(|_| !options.keyframes_only)
+                    .filter(|&name| {
+                        hardware::mediacodec_works(name, || {
+                            first_picture_within(path, name, hardware::MEDIACODEC_FIRST_PICTURE)
+                        })
+                    })
+                    .and_then(|name| hardware::mediacodec_seat().map(|seat| (name, seat)));
+                match wrapped {
+                    Some((name, seat)) => {
+                        match Self::open_codec(path, &stream, options, Codec::Named(name)) {
+                            Ok((decoder, _)) => {
+                                hardware::note_wrapped(device, name);
+                                (
+                                    decoder,
+                                    Some(OnChip::Wrapped {
+                                        device,
+                                        _seat: seat,
+                                    }),
+                                )
+                            }
+                            Err(error) => {
+                                // Most often the phone's sessions are all
+                                // taken, by this app or another.
+                                hardware::note_fallback(
+                                    device,
+                                    "open the decoder",
+                                    &error.to_string(),
+                                );
+                                software()?
+                            }
+                        }
+                    }
+                    None => software()?,
                 }
+            }
+            Some(device) => match hardware::device(device) {
+                Some(device) => {
+                    match Self::open_codec(path, &stream, options, Codec::On(&device)) {
+                        Ok(opened) => opened,
+                        Err(error) => {
+                            hardware::note_fallback(
+                                device.kind(),
+                                "open the decoder",
+                                &error.to_string(),
+                            );
+                            software()?
+                        }
+                    }
+                }
+                None => software()?,
             },
-            None => Self::open_codec(path, &stream, options, None)?,
+            None => software()?,
         };
         // The caller's word over the file's, where the caller has one: the
         // file's tag is what the override exists to correct. Where neither
         // says, the codec's convention does; see `ColorRange::implied`.
-        let tagged = decoder.color_range();
+        // Read off the stream, not the opened codec: MediaCodec's wrapper
+        // writes the chip's own idea of the colour into the codec as it
+        // starts - limited range on a stream that says nothing, NV12 for
+        // the pixels - which is not what the file says.
+        // SAFETY: a live stream's codec parameters; plain enum fields.
+        let (tagged, primaries, transfer, matrix) = unsafe {
+            let raw = stream.parameters().as_ptr();
+            (
+                ffmpeg::color::Range::from((*raw).color_range),
+                ffmpeg::color::Primaries::from((*raw).color_primaries),
+                ffmpeg::color::TransferCharacteristic::from((*raw).color_trc),
+                ffmpeg::color::Space::from((*raw).color_space),
+            )
+        };
         let implied = options.color_range.is_none() && tagged == ffmpeg::color::Range::Unspecified;
         let color = ColorSignal {
-            primaries: decoder.color_primaries(),
-            transfer: decoder.color_transfer_characteristic(),
-            matrix: decoder.color_space(),
+            primaries,
+            transfer,
+            matrix,
             range: match options.color_range {
                 Some(range) => range.as_ffmpeg(),
-                None if implied => ColorRange::implied(decoder.id(), decoder.format()).as_ffmpeg(),
+                None if implied => ColorRange::implied(codec, format).as_ffmpeg(),
                 None => tagged,
             },
             implied,
@@ -690,6 +792,8 @@ impl Decoder {
             discard_before: None,
             discard_through: None,
             hardware: accelerated,
+            held: None,
+            fed: false,
             last_pts: None,
             tick: 0,
             origin: Rational::ZERO,
@@ -708,15 +812,14 @@ impl Decoder {
         Ok(this)
     }
 
-    /// Opens the stream's codec, on `device` where the codec can decode on
-    /// it. Gives back the opened decoder and, when it is on the device, the
-    /// device and the pixel format its frames arrive in.
+    /// Opens the stream's codec as `codec` says. Gives back the opened
+    /// decoder and, when it is on a hwaccel device, where.
     fn open_codec(
         path: &Path,
         stream: &ffmpeg::format::stream::Stream<'_>,
         options: &DecodeOptions,
-        device: Option<&Device>,
-    ) -> Result<(decoder::Video, Option<(HwDevice, Pixel)>)> {
+        codec: Codec<'_>,
+    ) -> Result<(decoder::Video, Option<OnChip>)> {
         let mut context = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .map_err(|error| ffi::fail("codec parameters", path, error))?;
         // Every core. libavcodec's API opens a decoder on one thread unless
@@ -733,15 +836,38 @@ impl Decoder {
             (*raw).thread_type = ffmpeg::sys::FF_THREAD_FRAME | ffmpeg::sys::FF_THREAD_SLICE;
             (*raw).thread_count = i32::from(options.threads);
         }
-        let accelerated = device.and_then(|device| {
-            device
-                .attach(&mut context)
-                .map(|format| (device.kind(), format))
-        });
-        let mut decoder = context
-            .decoder()
-            .video()
-            .map_err(|error| ffi::fail("open decoder", path, error))?;
+        let (accelerated, named) = match codec {
+            Codec::Software => (None, None),
+            Codec::On(device) => (
+                device
+                    .attach(&mut context)
+                    .map(|format| OnChip::Accel(device.kind(), format)),
+                None,
+            ),
+            Codec::Named(name) => {
+                let found = decoder::find_by_name(name).ok_or_else(|| Error::Missing {
+                    what: "decoder",
+                    name: name.to_owned(),
+                })?;
+                // MediaCodec counts time in microseconds; told the stream's
+                // clock, the wrapper converts each packet's timestamp there
+                // and every frame's back, exactly for any clock coarser than
+                // a microsecond, which is every one a container uses.
+                // SAFETY: the context is not opened yet; a plain rational.
+                unsafe {
+                    (*context.as_mut_ptr()).pkt_timebase = stream.time_base().into();
+                }
+                (None, Some(found))
+            }
+        };
+        let opened = match named {
+            Some(found) => context
+                .decoder()
+                .open_as(found)
+                .and_then(|opened| opened.video()),
+            None => context.decoder().video(),
+        };
+        let mut decoder = opened.map_err(|error| ffi::fail("open decoder", path, error))?;
         if options.keyframes_only {
             decoder.skip_frame(ffmpeg::Discard::NonKey);
         }
@@ -758,7 +884,7 @@ impl Decoder {
     /// without it, or once the codec has shown, with its first frame, that
     /// it declined the device for this stream.
     pub fn hardware(&self) -> Option<HwDevice> {
-        self.hardware.map(|(device, _)| device)
+        self.hardware.as_ref().map(OnChip::device)
     }
 
     /// Reopens the codec in software and carries on from `from`: the frame
@@ -774,7 +900,7 @@ impl Decoder {
                 .ok_or_else(|| Error::NoVideoStream {
                     path: self.path.clone(),
                 })?;
-            Self::open_codec(&self.path, &stream, &self.options, None)?.0
+            Self::open_codec(&self.path, &stream, &self.options, Codec::Software)?.0
         };
         let at = from.unwrap_or(self.origin);
         let target = ffi::av_ticks(at + self.start);
@@ -782,7 +908,10 @@ impl Decoder {
             .seek(target, ..=target)
             .map_err(|error| ffi::fail("seek", &self.path, error))?;
         self.decoder = decoder;
+        // The old codec, and its seat on the chip, go now.
         self.hardware = None;
+        self.held = None;
+        self.fed = false;
         if !self.options.keyframes_only {
             if after {
                 self.discard_through = Some(at);
@@ -799,7 +928,14 @@ impl Decoder {
         self.input
             .seek(target, ..=target)
             .map_err(|error| ffi::fail("seek", &self.path, error))?;
-        self.decoder.flush();
+        // Every picture and packet the codec holds is from before the
+        // seek: out, and so is the packet it refused. For MediaCodec this
+        // is the codec's own flush, which it needs before a jump.
+        if self.fed {
+            self.decoder.flush();
+            self.fed = false;
+        }
+        self.held = None;
         // Keyframes only: the picture the container landed on is the one
         // wanted, and discarding up to the target would throw it away and
         // wait for the *next* keyframe, a whole group of pictures late.
@@ -817,104 +953,78 @@ impl Decoder {
 
     /// The next picture out of the codec, or `None` at the end of the file.
     /// Frames before the discard point never come out of here, and a frame
-    /// from the device is copied back to memory before it does.
+    /// from a hwaccel device is copied back to memory before it does.
     fn next_source(&mut self) -> Result<Option<Source>> {
         loop {
-            let mut frame = Video::empty();
-            match self.decoder.receive_frame(&mut frame) {
-                Ok(()) => {
-                    let pts = frame
-                        .timestamp()
-                        .and_then(|ticks| ffi::seconds(ticks, self.time_base))
-                        .map(|pts| pts - self.start);
-                    if let Some((device, format)) = self.hardware {
-                        if frame.format() == format {
-                            frame = match hardware::download(&frame) {
-                                Ok(copy) => copy,
-                                Err(error) => {
-                                    hardware::note_fallback(
-                                        device,
-                                        "copy a frame back",
-                                        &error.to_string(),
-                                    );
-                                    self.resume_in_software(pts, false)?;
-                                    continue;
-                                }
-                            };
-                        } else {
-                            // The codec set the device up for this stream
-                            // and the device said no, so the codec went on
-                            // in software by itself; the frames are fine.
-                            hardware::note_fallback(
-                                device,
-                                "take this stream",
-                                "the codec decoded it in software",
-                            );
-                            self.hardware = None;
-                        }
-                    }
-                    if let (Some(before), Some(pts)) = (self.discard_before, pts)
-                        && pts < before
-                    {
-                        continue;
-                    }
-                    if let (Some(through), Some(pts)) = (self.discard_through, pts)
-                        && pts <= through
-                    {
-                        continue;
-                    }
-                    self.discard_before = None;
-                    self.discard_through = None;
-                    self.last_pts = pts;
-                    return Ok(Some(Source { frame, pts }));
-                }
-                Err(ffmpeg::Error::Eof) => return Ok(None),
-                Err(error) if ffi::is_again(&error) => {}
-                Err(error) if self.hardware.is_some() => {
-                    // The device choked on a picture it had accepted the
-                    // stream for. Software takes over after the last frame
-                    // the reader was given.
-                    let (device, _) = self.hardware.take().expect("checked");
-                    hardware::note_fallback(device, "decode a frame", &error.to_string());
+            // Packets for other streams are skipped; the end of the file
+            // drains the codec so its last few frames come out at all; a
+            // packet the codec refuses while full is kept and sent again.
+            self.fed = true;
+            let read = || feed::read_packet(&mut self.input, self.stream);
+            let mut frame = match feed::next_frame(&mut self.decoder, &mut self.held, read) {
+                Ok(Some(frame)) => frame,
+                Ok(None) => return Ok(None),
+                Err(feed::Stall::Read(error)) => return Err(ffi::fail("read", &self.path, error)),
+                Err(stall) if self.hardware.is_some() => {
+                    // The device choked on a stream it had accepted.
+                    // Software takes over after the last frame the reader
+                    // was given.
+                    let device = self.hardware.take().expect("checked").device();
+                    let (stage, detail) = match &stall {
+                        feed::Stall::Send(error) => ("take a packet", error.to_string()),
+                        feed::Stall::Receive(error) => ("decode a frame", error.to_string()),
+                        _ => ("keep decoding", "it stopped taking packets".to_owned()),
+                    };
+                    hardware::note_fallback(device, stage, &detail);
                     self.resume_in_software(self.last_pts, self.last_pts.is_some())?;
                     continue;
                 }
-                Err(error) => return Err(ffi::fail("decode", &self.path, error)),
-            }
-
-            // The codec wants another packet. Packets for other streams are
-            // skipped; the end of the file flushes the codec so its last few
-            // frames come out at all.
-            loop {
-                let mut packet = ffmpeg::Packet::empty();
-                match packet.read(&mut self.input) {
-                    Ok(()) => {
-                        if packet.stream() != self.stream {
+                Err(stall) => return Err(feed::fail(stall, &self.path)),
+            };
+            let pts = frame
+                .timestamp()
+                .and_then(|ticks| ffi::seconds(ticks, self.time_base))
+                .map(|pts| pts - self.start);
+            if let Some(&OnChip::Accel(device, format)) = self.hardware.as_ref() {
+                if frame.format() == format {
+                    frame = match hardware::download(&frame) {
+                        Ok(copy) => copy,
+                        Err(error) => {
+                            hardware::note_fallback(
+                                device,
+                                "copy a frame back",
+                                &error.to_string(),
+                            );
+                            self.resume_in_software(pts, false)?;
                             continue;
                         }
-                        match self.decoder.send_packet(&packet) {
-                            Ok(()) => break,
-                            Err(error) if ffi::is_again(&error) => break,
-                            Err(error) if self.hardware.is_some() => {
-                                let (device, _) = self.hardware.take().expect("checked");
-                                hardware::note_fallback(
-                                    device,
-                                    "take a packet",
-                                    &error.to_string(),
-                                );
-                                self.resume_in_software(self.last_pts, self.last_pts.is_some())?;
-                                break;
-                            }
-                            Err(error) => return Err(ffi::fail("send packet", &self.path, error)),
-                        }
-                    }
-                    Err(ffmpeg::Error::Eof) => {
-                        let _ = self.decoder.send_eof();
-                        break;
-                    }
-                    Err(error) => return Err(ffi::fail("read", &self.path, error)),
+                    };
+                } else {
+                    // The codec set the device up for this stream and the
+                    // device said no, so the codec went on in software by
+                    // itself; the frames are fine.
+                    hardware::note_fallback(
+                        device,
+                        "take this stream",
+                        "the codec decoded it in software",
+                    );
+                    self.hardware = None;
                 }
             }
+            if let (Some(before), Some(pts)) = (self.discard_before, pts)
+                && pts < before
+            {
+                continue;
+            }
+            if let (Some(through), Some(pts)) = (self.discard_through, pts)
+                && pts <= through
+            {
+                continue;
+            }
+            self.discard_before = None;
+            self.discard_through = None;
+            self.last_pts = pts;
+            return Ok(Some(Source { frame, pts }));
         }
     }
 
@@ -1123,6 +1233,51 @@ impl FrameSource for Decoder {
         }
         Ok(frame)
     }
+}
+
+/// Whether MediaCodec's decoder `name` gives the first picture of
+/// `path`'s video within `wait` - [`hardware::MEDIACODEC_FIRST_PICTURE`] for a
+/// reader; see [`hardware::Verdicts`] for why a decoder is asked before it
+/// is trusted.
+///
+/// The try runs on a thread of its own, with its own demuxer and codec,
+/// because a decoder that wedges never returns control to the caller; a
+/// wedged try is left behind on its thread, and the reader never waits on
+/// it past the deadline. A try that answers late still has its say, for
+/// the readers that come after.
+fn first_picture_within(path: &Path, name: &'static str, wait: std::time::Duration) -> bool {
+    let path = path.to_path_buf();
+    let (answer, answered) = std::sync::mpsc::channel();
+    let tried = std::thread::Builder::new()
+        .name("mediacodec-first-picture".to_owned())
+        .spawn(move || {
+            let attempt = || -> Option<()> {
+                let mut input = ffmpeg::format::input(&path).ok()?;
+                let (mut codec, index) = {
+                    let stream = input.streams().best(ffmpeg::media::Type::Video)?;
+                    let (codec, _) = Decoder::open_codec(
+                        &path,
+                        &stream,
+                        &DecodeOptions::default(),
+                        Codec::Named(name),
+                    )
+                    .ok()?;
+                    (codec, stream.index())
+                };
+                let mut held = None;
+                let read = || feed::read_packet(&mut input, index);
+                feed::next_frame(&mut codec, &mut held, read)
+                    .ok()?
+                    .map(|_| ())
+            };
+            let works = attempt().is_some();
+            let _ = answer.send(works);
+            // Late or not, what it found is the verdict from now on: a
+            // decoder that was only slow to start is not written off for
+            // the life of the process.
+            hardware::mediacodec_answered(name, works);
+        });
+    tried.is_ok() && answered.recv_timeout(wait).unwrap_or(false)
 }
 
 /// A second reference to `frame`'s picture: the same buffers, counted,
@@ -1676,6 +1831,127 @@ mod tests {
             difference <= 8,
             "the seek landed {difference} levels from frame 15"
         );
+    }
+
+    /// On a phone or the emulator, with a real file in
+    /// `CONCAT_DEVICE_SAMPLE`: MediaCodec decodes it to the frames the CPU
+    /// does - every frame of the first `CONCAT_DEVICE_FRAMES` (default 90)
+    /// at the same instant, within the rounding of a colour conversion -
+    /// and a seek forward, back and to the very start lands on the frame
+    /// the CPU's seek lands on. Prints how long each took, which on the
+    /// emulator measures its software MediaCodec and nothing a phone
+    /// does. With `CONCAT_DEVICE_OUT`, writes the chip's frame at each
+    /// seek there as a JPEG to look at.
+    ///
+    /// Built with `cargo test -p concat-media --no-run --target
+    /// aarch64-linux-android`, pushed with the file to /data/local/tmp,
+    /// and run there with `--ignored mediacodec`.
+    #[test]
+    #[ignore = "needs Android and a sample in CONCAT_DEVICE_SAMPLE"]
+    fn mediacodec_decodes_a_real_file_as_the_cpu_does() {
+        use std::time::Instant;
+        let Some(path) = std::env::var_os("CONCAT_DEVICE_SAMPLE").map(PathBuf::from) else {
+            return;
+        };
+        let count: usize = std::env::var("CONCAT_DEVICE_FRAMES")
+            .ok()
+            .and_then(|count| count.parse().ok())
+            .unwrap_or(90);
+        let out = std::env::var_os("CONCAT_DEVICE_OUT").map(PathBuf::from);
+        let chip = DecodeOptions::default().accelerated(HwDevice::MediaCodec);
+        let cpu = DecodeOptions::default().in_software();
+
+        let take = |options: &DecodeOptions| {
+            let started = Instant::now();
+            let mut decoder = Decoder::open(&path, options).expect("opens");
+            let mut frames = Vec::new();
+            while frames.len() < count {
+                let Some(frame) = decoder.next_frame().expect("decodes") else {
+                    break;
+                };
+                frames.push((decoder.position(), frame));
+            }
+            (decoder.hardware(), frames, started.elapsed())
+        };
+        // How long the platform's decoder takes to its first picture, the
+        // number the first-picture deadline is measured against.
+        {
+            let started = Instant::now();
+            let name = hardware::mediacodec_decoder(
+                ffmpeg::format::input(&path)
+                    .expect("opens")
+                    .streams()
+                    .best(ffmpeg::media::Type::Video)
+                    .expect("a video stream")
+                    .parameters()
+                    .id(),
+                Pixel::YUV420P,
+            )
+            .expect("a codec MediaCodec takes");
+            let answered = first_picture_within(&path, name, std::time::Duration::from_secs(60));
+            eprintln!(
+                "{name}: first picture {} in {:?}",
+                if answered { "came" } else { "did not come" },
+                started.elapsed()
+            );
+        }
+        let (on_chip, chip_frames, chip_took) = take(&chip);
+        let (_, cpu_frames, cpu_took) = take(&cpu);
+        assert_eq!(
+            on_chip,
+            Some(HwDevice::MediaCodec),
+            "still on the chip at the end"
+        );
+        eprintln!(
+            "{} frames of {}x{}: MediaCodec {chip_took:?}, CPU {cpu_took:?}",
+            chip_frames.len(),
+            chip_frames[0].1.width(),
+            chip_frames[0].1.height()
+        );
+        assert_eq!(chip_frames.len(), cpu_frames.len());
+        for (index, ((chip_at, chip_frame), (cpu_at, cpu_frame))) in
+            chip_frames.iter().zip(&cpu_frames).enumerate()
+        {
+            assert_eq!(chip_at, cpu_at, "frame {index} at the same instant");
+            let difference = worst_difference(chip_frame, cpu_frame);
+            assert!(difference <= 8, "frame {index} differs by {difference}");
+        }
+
+        // Seeks on one open reader each, the way the pool's warm readers
+        // take them: forward, back, forward again, and to the start.
+        let mut chip_reader = Decoder::open(&path, &chip).expect("opens");
+        let mut cpu_reader = Decoder::open(&path, &cpu).expect("opens");
+        for (step, to) in [(7, 3), (1, 1), (5, 2), (0, 1), (11, 4)]
+            .into_iter()
+            .enumerate()
+        {
+            let to = Rational::new(to.0, to.1);
+            let started = Instant::now();
+            chip_reader.seek(to).expect("seeks");
+            let landed = chip_reader.next_frame().expect("decodes").expect("a frame");
+            let took = started.elapsed();
+            cpu_reader.seek(to).expect("seeks");
+            let wanted = cpu_reader.next_frame().expect("decodes").expect("a frame");
+            assert_eq!(
+                chip_reader.position(),
+                cpu_reader.position(),
+                "seek to {to:?}"
+            );
+            let difference = worst_difference(&landed, &wanted);
+            eprintln!(
+                "seek to {to:?} landed at {:?} in {took:?}, {difference} levels off",
+                chip_reader.position()
+            );
+            assert!(
+                difference <= 8,
+                "the seek to {to:?} landed {difference} levels off"
+            );
+            if let Some(out) = &out {
+                let jpeg = crate::encode::jpeg(&landed, 90).expect("encodes");
+                std::fs::write(out.join(format!("seek-{step}.jpg")), jpeg).expect("writes");
+            }
+        }
+        assert_eq!(chip_reader.hardware(), Some(HwDevice::MediaCodec));
     }
 
     /// The pacer sits on top of the device exactly as it does the CPU: a
