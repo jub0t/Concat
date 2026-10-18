@@ -435,12 +435,15 @@ mod tests {
             dark: Some(true),
             ..Preferences::default()
         };
-        prefs.keybinds.insert("cut-left".into(), "j".into());
+        prefs.keybinds.insert("delete-left".into(), "j".into());
         prefs.keybinds.insert("mute".into(), String::new());
         let text = serde_json::to_string(&prefs).unwrap();
         assert!(text.contains("\"keybinds\""), "{text}");
         let back: Preferences = serde_json::from_str(&text).unwrap();
-        assert_eq!(back.keybinds.get("cut-left").map(String::as_str), Some("j"));
+        assert_eq!(
+            back.keybinds.get("delete-left").map(String::as_str),
+            Some("j")
+        );
         assert_eq!(back.keybinds.get("mute").map(String::as_str), Some(""));
         let older: Preferences = serde_json::from_str(r#"{"dark": false}"#).unwrap();
         assert!(older.keybinds.is_empty());

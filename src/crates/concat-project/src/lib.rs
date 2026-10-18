@@ -28,7 +28,10 @@ pub mod model;
 pub mod placement;
 pub mod speed;
 
-pub use commands::{Command, CommandError, Outcome, consolidation_clips, why_not_merge};
+pub use commands::{
+    Command, CommandError, Outcome, PlayheadSide, consolidation_clips, delete_to_playhead,
+    why_not_merge,
+};
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};
 pub use model::Project;
@@ -37,7 +40,9 @@ pub use model::Project;
 mod tests {
     use serde_json::json;
 
-    use crate::commands::{ClipMove, ClipPatch, Command, NewMedia, TrackFlag, TrimEdge};
+    use crate::commands::{
+        ClipMove, ClipPatch, Command, NewMedia, PlayheadSide, TrackFlag, TrimEdge,
+    };
     use crate::doc::DocumentSettings;
     use crate::editor::Editor;
     use crate::model::{
@@ -4529,5 +4534,112 @@ mod tests {
             })
             .expect("no-op");
         assert!(!off.applied);
+    }
+
+    // ── Delete Left / Delete Right (Q / W) ──
+    // https://github.com/jub0t/Concat/issues/400
+
+    fn span(editor: &Editor, id: &str) -> (f64, f64, f64) {
+        let clip = editor.project().active().clip(id).expect("clip");
+        (clip.start, clip.duration, clip.source_start)
+    }
+
+    fn close(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
+        (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9 && (a.2 - b.2).abs() < 1e-9
+    }
+
+    fn cut(editor: &Editor, ids: &[String], at: f64, side: PlayheadSide, ripple: bool) -> Command {
+        crate::delete_to_playhead(editor.project().active(), ids, at, side, ripple).expect("a cut")
+    }
+
+    #[test]
+    fn delete_left_takes_the_clip_from_its_start_to_the_playhead() {
+        let (mut editor, media_id, _) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let ids = lane(&mut editor, &media_id, &track, &[20.0, 30.0]);
+        let command = cut(&editor, &ids[..1], 24.0, PlayheadSide::Left, false);
+        editor.apply(command).expect("cuts");
+        // The frames after the playhead stay where they were, on the
+        // timeline and in the source; the hole stays on a plain timeline.
+        let first = span(&editor, &ids[0]);
+        assert!(close(first, (24.0, 6.0, 4.0)), "{first:?}");
+        assert!(close(span(&editor, &ids[1]), (30.0, 10.0, 0.0)));
+    }
+
+    #[test]
+    fn delete_right_takes_the_clip_from_the_playhead_to_its_end() {
+        let (mut editor, media_id, _) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let ids = lane(&mut editor, &media_id, &track, &[20.0, 30.0]);
+        let command = cut(&editor, &ids[..1], 24.0, PlayheadSide::Right, false);
+        editor.apply(command).expect("cuts");
+        assert!(close(span(&editor, &ids[0]), (20.0, 4.0, 0.0)));
+        assert!(
+            close(span(&editor, &ids[1]), (30.0, 10.0, 0.0)),
+            "the gap stays"
+        );
+    }
+
+    /// On a magnetic timeline the lane closes up behind the cut, as any
+    /// trim there does: a Delete Left keeps the clip's start and pulls
+    /// what follows in by what came off its head; a Delete Right pulls it
+    /// in by what came off the tail.
+    #[test]
+    fn a_magnetic_delete_closes_the_lane() {
+        let (mut editor, media_id, _) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let ids = lane(&mut editor, &media_id, &track, &[20.0, 30.0]);
+        let left = cut(&editor, &ids[..1], 24.0, PlayheadSide::Left, true);
+        editor.apply(left).expect("cuts");
+        let (first, second) = (span(&editor, &ids[0]), span(&editor, &ids[1]));
+        assert!(close(first, (20.0, 6.0, 4.0)), "{first:?}");
+        assert!(close(second, (26.0, 10.0, 0.0)), "{second:?}");
+
+        let right = cut(&editor, &ids[..1], 22.0, PlayheadSide::Right, true);
+        editor.apply(right).expect("cuts");
+        let (first, second) = (span(&editor, &ids[0]), span(&editor, &ids[1]));
+        assert!(close(first, (20.0, 2.0, 4.0)), "{first:?}");
+        assert!(close(second, (22.0, 10.0, 0.0)), "{second:?}");
+    }
+
+    /// Clips on several lanes are cut together, as one undo step.
+    #[test]
+    fn a_delete_across_lanes_is_one_undo_step() {
+        let (mut editor, media_id, first) = fixture();
+        let tracks = editor.project().active().tracks.clone();
+        let above = lane(&mut editor, &media_id, &tracks[1].id, &[2.0]);
+        let ids = vec![first.clone(), above[0].clone()];
+        let command = cut(&editor, &ids, 5.0, PlayheadSide::Right, false);
+        assert!(matches!(&command, Command::Batch { commands } if commands.len() == 2));
+        editor.apply(command).expect("cuts");
+        assert!(close(span(&editor, &first), (0.0, 5.0, 0.0)));
+        assert!(close(span(&editor, &above[0]), (2.0, 3.0, 0.0)));
+        assert!(editor.undo());
+        assert!(
+            close(span(&editor, &first), (0.0, 10.0, 0.0)),
+            "both back at once"
+        );
+        assert!(close(span(&editor, &above[0]), (2.0, 10.0, 0.0)));
+    }
+
+    /// A playhead outside the clip, or on its very edge, has nothing to
+    /// take: no command at all, rather than an undo step that did nothing.
+    #[test]
+    fn a_playhead_outside_the_clip_cuts_nothing() {
+        let (editor, _, clip) = fixture();
+        let timeline = editor.project().active();
+        let ids = [clip];
+        for at in [-1.0, 0.0, 10.0, 12.0] {
+            for side in [PlayheadSide::Left, PlayheadSide::Right] {
+                assert!(
+                    crate::delete_to_playhead(timeline, &ids, at, side, true).is_none(),
+                    "{at} {side:?}"
+                );
+            }
+        }
+        let gone = ["nobody".to_owned()];
+        assert!(
+            crate::delete_to_playhead(timeline, &gone, 5.0, PlayheadSide::Left, false).is_none()
+        );
     }
 }

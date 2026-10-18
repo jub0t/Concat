@@ -108,15 +108,16 @@ pub const ACTIONS: &[Action] = &[
         id: "freeze",
         defaults: &["f"],
     },
-    // The big editors' trim keys: the selected clip is cut at the
-    // playhead, Q dropping its left, E its right.
+    // CapCut's Delete Left and Delete Right, on its keys: the clip under
+    // the playhead loses everything before it (Q) or after it (W).
+    // https://github.com/jub0t/Concat/issues/400
     Action {
-        id: "cut-left",
+        id: "delete-left",
         defaults: &["q"],
     },
     Action {
-        id: "cut-right",
-        defaults: &["e"],
+        id: "delete-right",
+        defaults: &["w"],
     },
     Action {
         id: "split-tool",
@@ -200,8 +201,8 @@ pub fn name(id: &str) -> String {
         "delete" => i18n::t("common.delete"),
         "ripple-delete" => i18n::t("shortcuts.rippleDelete"),
         "freeze" => i18n::t("timelinePane.freeze"),
-        "cut-left" => i18n::t("shortcuts.cutLeft"),
-        "cut-right" => i18n::t("shortcuts.cutRight"),
+        "delete-left" => i18n::t("shortcuts.deleteLeft"),
+        "delete-right" => i18n::t("shortcuts.deleteRight"),
         "split-tool" => i18n::t("shortcuts.splitTool"),
         "mute" => i18n::t("studio.mute"),
         "pan" => i18n::t("shortcuts.pan"),
@@ -608,7 +609,10 @@ mod tests {
     #[test]
     fn the_defaults_resolve_to_their_actions() {
         let prefs = Preferences::default();
-        assert_eq!(resolve(&prefs, "q"), Some("cut-left"));
+        // CapCut's Delete Left and Right; E is nobody's.
+        assert_eq!(resolve(&prefs, "q"), Some("delete-left"));
+        assert_eq!(resolve(&prefs, "w"), Some("delete-right"));
+        assert_eq!(resolve(&prefs, "e"), None);
         assert_eq!(resolve(&prefs, "ctrl+shift+z"), Some("redo"));
         assert_eq!(resolve(&prefs, "backspace"), Some("delete"));
         assert_eq!(resolve(&prefs, "shift+delete"), Some("ripple-delete"));
@@ -653,21 +657,40 @@ mod tests {
     #[test]
     fn a_rebind_moves_the_chord_and_leaves_the_loser_none() {
         let mut prefs = Preferences::default();
-        // Mute ships on M; taking M for the trim key leaves mute none.
-        assert_eq!(bind(&mut prefs, "cut-left", "m"), Some("mute"));
-        assert_eq!(resolve(&prefs, "m"), Some("cut-left"));
+        // Mute ships on M; taking M for Delete Left leaves mute none.
+        assert_eq!(bind(&mut prefs, "delete-left", "m"), Some("mute"));
+        assert_eq!(resolve(&prefs, "m"), Some("delete-left"));
         assert_eq!(bound(&prefs, "mute"), None);
         assert_eq!(resolve(&prefs, "q"), None);
         // The override is what is stored, not the whole table.
         assert_eq!(
             prefs.keybinds,
             [
-                ("cut-left".to_owned(), "m".to_owned()),
+                ("delete-left".to_owned(), "m".to_owned()),
                 ("mute".to_owned(), String::new())
             ]
             .into_iter()
             .collect::<BTreeMap<_, _>>()
         );
+    }
+
+    /// A rebind and the action it left keyless are what the prefs file
+    /// keeps, and the window resolves the same keys after a restart.
+    #[test]
+    fn a_rebind_survives_the_prefs_file() {
+        let mut prefs = Preferences::default();
+        assert_eq!(bind(&mut prefs, "delete-right", "e"), None);
+        assert_eq!(bind(&mut prefs, "delete-left", "ctrl+shift+q"), None);
+        assert_eq!(bind(&mut prefs, "split", "m"), Some("mute"));
+        let text = serde_json::to_string(&prefs).unwrap();
+        let back: Preferences = serde_json::from_str(&text).unwrap();
+        assert_eq!(resolve(&back, "e"), Some("delete-right"));
+        assert_eq!(resolve(&back, "w"), None);
+        assert_eq!(resolve(&back, "ctrl+shift+q"), Some("delete-left"));
+        assert_eq!(resolve(&back, "q"), None);
+        assert_eq!(resolve(&back, "m"), Some("split"));
+        assert_eq!(bound(&back, "mute"), None);
+        assert_eq!(resolve(&back, "ctrl+b"), None);
     }
 
     #[test]
@@ -685,20 +708,20 @@ mod tests {
     #[test]
     fn reset_takes_the_shipped_chord_back() {
         let mut prefs = Preferences::default();
-        // The trim key took M from mute, leaving mute none.
-        assert_eq!(bind(&mut prefs, "cut-left", "m"), Some("mute"));
+        // Delete Left took M from mute, leaving mute none.
+        assert_eq!(bind(&mut prefs, "delete-left", "m"), Some("mute"));
         assert_eq!(bound(&prefs, "mute"), None);
-        assert_eq!(bound(&prefs, "cut-left"), Some("m"));
+        assert_eq!(bound(&prefs, "delete-left"), Some("m"));
         // Mute's own Reset puts M back where it ships, taking it off
-        // the trim key — a chord is one action's, and mute is the
+        // Delete Left — a chord is one action's, and mute is the
         // action it belongs to.
-        assert_eq!(reset(&mut prefs, "mute"), Some("cut-left"));
+        assert_eq!(reset(&mut prefs, "mute"), Some("delete-left"));
         assert_eq!(bound(&prefs, "mute"), Some("m"));
-        assert_eq!(bound(&prefs, "cut-left"), None);
-        // The trim key's Reset returns it to Q, which nobody holds, so
+        assert_eq!(bound(&prefs, "delete-left"), None);
+        // Delete Left's Reset returns it to Q, which nobody holds, so
         // there is no loser to name.
-        assert_eq!(reset(&mut prefs, "cut-left"), None);
-        assert_eq!(bound(&prefs, "cut-left"), Some("q"));
+        assert_eq!(reset(&mut prefs, "delete-left"), None);
+        assert_eq!(bound(&prefs, "delete-left"), Some("q"));
         assert_eq!(bound(&prefs, "mute"), Some("m"));
         reset_all(&mut prefs);
         assert!(prefs.keybinds.is_empty());
@@ -708,6 +731,8 @@ mod tests {
     fn the_windows_own_chords_are_reserved() {
         assert!(reserved("ctrl+o"));
         assert!(reserved("ctrl+w"));
+        // W alone is Delete Right's, not the window's.
+        assert!(!reserved("w"));
         assert!(!reserved("ctrl+z"));
         assert!(!reserved("alt+m"));
         if cfg!(not(any(target_os = "macos", target_os = "ios"))) {
@@ -727,7 +752,9 @@ mod tests {
         }
         let undo = display("ctrl+z");
         assert!(undo.to_lowercase().contains('z'), "{undo}");
-        assert!(undo.contains("Ctrl") || undo.contains('⌃'), "{undo}");
+        // Ctrl+Z on Windows and Linux, ⌘Z on a Mac, where Slint's Control
+        // is the command key.
+        assert!(undo.contains("Ctrl") || undo.contains('⌘'), "{undo}");
         let ripple = display("shift+delete");
         assert!(!ripple.is_empty(), "the ripple delete displays as nothing");
         // A row for an action with no chord reads "" for its menu and

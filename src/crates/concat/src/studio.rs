@@ -38,11 +38,11 @@ use concat_host::{
     templates,
 };
 use concat_media::{Pyramid, jpeg};
-use concat_project::Command;
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
 };
+use concat_project::{Command, PlayheadSide};
 
 mod consolidate;
 use consolidate::MergeJob;
@@ -6864,43 +6864,75 @@ impl Studio {
         }
     }
 
-    /// Q / E: the selected clip is cut at the playhead - Q drops its left
-    /// up to there, E its right from there on, as one undo step. Like any
-    /// trim, the lane closes behind the edge only on a magnetic timeline,
-    /// and trim follow carries the playhead to a head cut's new start.
-    pub fn cut_to_playhead(&mut self, left: bool) {
-        let Some(clip_id) = self.sole_selection() else {
-            self.notify(&t("studio.selectClipTimelineFirst"), true);
-            return;
-        };
-        let Some(clip) = self.clip(&clip_id).cloned() else {
-            return;
-        };
-        if self.locked(&clip.track_id) {
-            return;
-        }
+    /// Delete Left / Delete Right, CapCut's Q and W: the selected clips the
+    /// playhead runs through lose everything before it, or everything
+    /// after it, as one undo step. With nothing selected, the one clip
+    /// under the playhead is cut; with several there and none chosen, a
+    /// notice asks for one rather than guessing - a caption over the
+    /// picture is as much "the clip" as the picture is. The lane closes
+    /// behind the cut only on a magnetic timeline, as any trim's does.
+    /// https://github.com/jub0t/Concat/issues/400
+    pub fn delete_to_playhead(&mut self, side: PlayheadSide) {
         let at = f64::from(self.playhead);
-        // Nothing is cut unless the playhead sits inside the clip, as
-        // split_at requires of its cuts.
-        if !(clip.start + f64::from(MIN_DURATION) < at
-            && at < clip.start + clip.duration - f64::from(MIN_DURATION))
-        {
-            return;
-        }
-        let (edge, delta) = if left {
-            (TrimEdge::Start, at - clip.start)
+        let edge = f64::from(MIN_DURATION);
+        let under: Vec<String> = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| {
+                clip.start + edge < at
+                    && at < clip.start + clip.duration - edge
+                    && !self.locked(&clip.track_id)
+            })
+            .map(|clip| clip.id.clone())
+            .collect();
+        let targets: Vec<String> = if self.selection.is_empty() {
+            if under.len() > 1 {
+                self.notify(&t("studio.selectClipToCut"), true);
+                return;
+            }
+            under
         } else {
-            (TrimEdge::End, at - (clip.start + clip.duration))
+            under
+                .into_iter()
+                .filter(|id| self.selection.contains(id))
+                .collect()
         };
-        let follow = left && self.prefs.trim_follow;
-        self.apply(Command::TrimClip {
-            clip_id: clip_id.clone(),
-            edge,
-            delta,
-            ripple: self.prefs.magnetic,
-        });
-        if follow {
-            if let Some(start) = self.clip(&clip_id).map(|clip| clip.start) {
+        self.delete_clips_to_playhead(&targets, side);
+    }
+
+    /// The cut itself, on these clips; see [`Self::delete_to_playhead`].
+    /// A Delete Left ends with the playhead on the frame it was showing,
+    /// which a magnetic cut has moved back to the clip's start.
+    fn delete_clips_to_playhead(&mut self, ids: &[String], side: PlayheadSide) {
+        let at = f64::from(self.playhead);
+        let ids: Vec<String> = ids
+            .iter()
+            .filter(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| !self.locked(&clip.track_id))
+            })
+            .cloned()
+            .collect();
+        let Some(command) = concat_project::delete_to_playhead(
+            self.timeline(),
+            &ids,
+            at,
+            side,
+            self.prefs.magnetic,
+        ) else {
+            self.notify(&t("studio.parkPlayheadInsideClip"), true);
+            return;
+        };
+        self.flush_commit();
+        self.apply(command);
+        if side == PlayheadSide::Left {
+            let start = ids
+                .iter()
+                .filter_map(|id| self.clip(id))
+                .map(|clip| clip.start)
+                .fold(f64::INFINITY, f64::min);
+            if start.is_finite() && start < at {
                 self.seek(start as f32);
             }
         }
@@ -10184,6 +10216,22 @@ impl Studio {
                 &keymap::label(&self.prefs, "split"),
                 straddled && !locked,
             ),
+            // CapCut's Delete Left and Right, here as on the keys; on a
+            // phone, whose More is this menu, the only way to them.
+            action(
+                "delete-left",
+                t("shortcuts.deleteLeft"),
+                Glyph::None,
+                &keymap::label(&self.prefs, "delete-left"),
+                straddled && !locked,
+            ),
+            action(
+                "delete-right",
+                t("shortcuts.deleteRight"),
+                Glyph::None,
+                &keymap::label(&self.prefs, "delete-right"),
+                straddled && !locked,
+            ),
             action(
                 "merge",
                 self.merge_label(),
@@ -10265,7 +10313,7 @@ impl Studio {
         rows.push(check(
             "mute",
             &t("studio.mute"),
-            "M",
+            &keymap::label(&self.prefs, "mute"),
             clip.volume <= 0.0,
             !locked && audible,
         ));
@@ -10829,10 +10877,10 @@ impl Studio {
                     TimelineTool::Split
                 };
             }
-            // Q / E: the selected clip's edge jumps to the playhead, taking
-            // the clip's left or its right with it.
-            "cut-left" => self.cut_to_playhead(true),
-            "cut-right" => self.cut_to_playhead(false),
+            // Q / W, as in CapCut: the clip loses what is left, or right,
+            // of the playhead.
+            "delete-left" => self.delete_to_playhead(PlayheadSide::Left),
+            "delete-right" => self.delete_to_playhead(PlayheadSide::Right),
             "select-all" => self.select_all(),
             // The phone's way out of the clip tools: nothing selected, the
             // way a press on an empty lane leaves it.
@@ -10959,6 +11007,22 @@ impl Studio {
                 self.split_at(at, true);
             }
             "freeze" => self.freeze_at_playhead(),
+            // The clip right-clicked, or the selection when it is one of
+            // it, as Delete takes it.
+            "delete-left" | "delete-right" => {
+                let ids =
+                    if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
+                        self.selection.clone()
+                    } else {
+                        vec![id.to_owned()]
+                    };
+                let side = if action == "delete-left" {
+                    PlayheadSide::Left
+                } else {
+                    PlayheadSide::Right
+                };
+                self.delete_clips_to_playhead(&ids, side);
+            }
             "merge" => self.merge(),
             // The menu opens the clip's Enhance in the inspector, where its
             // switch starts it and later turns it off and on again.

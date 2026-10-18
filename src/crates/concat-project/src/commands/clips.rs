@@ -832,6 +832,63 @@ fn first_free_track_above(timeline: &Timeline, start: f64, duration: f64) -> Opt
         .map(|track| track.id.clone())
 }
 
+/// Which side of the playhead [`delete_to_playhead`] takes away.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PlayheadSide {
+    /// From the clip's start up to the playhead: CapCut's Delete Left (Q).
+    Left,
+    /// From the playhead to the clip's end: CapCut's Delete Right (W).
+    Right,
+}
+
+/// Delete Left / Delete Right: each named clip that `at` runs through loses
+/// what lies on `side` of it, as trims of the edge on that side brought to
+/// `at` - so a head cut keeps the frames after the playhead where they
+/// were in the source. More than one clip is one [`Command::Batch`], one
+/// undo step. `ripple` closes each lane behind the cut, as a trim on the
+/// magnetic timeline does.
+///
+/// A clip the instant misses, or grazes within [`MIN_CLIP_DURATION`] of an
+/// end, is skipped, the way [`Command::SplitClips`] skips it: there is
+/// nothing to take. So is a second clip on a lane that already has one:
+/// a magnetic cut moves what comes after it, and the second clip's cut
+/// was measured before that move. None when nothing is left to cut.
+pub fn delete_to_playhead(
+    timeline: &Timeline,
+    clip_ids: &[String],
+    at: f64,
+    side: PlayheadSide,
+    ripple: bool,
+) -> Option<Command> {
+    let mut lanes = HashSet::new();
+    let mut trims: Vec<Command> = clip_ids
+        .iter()
+        .filter_map(|id| timeline.clip(id))
+        .filter(|clip| {
+            clip.start + MIN_CLIP_DURATION < at
+                && at < clip.start + clip.duration - MIN_CLIP_DURATION
+        })
+        .filter(|clip| lanes.insert(clip.track_id.clone()))
+        .map(|clip| {
+            let (edge, delta) = match side {
+                PlayheadSide::Left => (TrimEdge::Start, at - clip.start),
+                PlayheadSide::Right => (TrimEdge::End, at - (clip.start + clip.duration)),
+            };
+            Command::TrimClip {
+                clip_id: clip.id.clone(),
+                edge,
+                delta,
+                ripple,
+            }
+        })
+        .collect();
+    match trims.len() {
+        0 => None,
+        1 => trims.pop(),
+        _ => Some(Command::Batch { commands: trims }),
+    }
+}
+
 /// Where each piece of a clip cut at `offset` begins in the source: the
 /// head keeps its in-point and the tail starts `offset × speed` later, so
 /// the two pieces together show exactly what the whole did.

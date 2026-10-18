@@ -20,7 +20,7 @@ use crate::model::{
 
 mod audio;
 mod clips;
-pub use clips::{consolidation_clips, why_not_merge};
+pub use clips::{PlayheadSide, consolidation_clips, delete_to_playhead, why_not_merge};
 mod media;
 mod properties;
 mod timelines;
