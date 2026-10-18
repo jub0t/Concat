@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::model::{
     AppliedFilter, AudioTrack, Background, Clip, ClipKind, ColorRange, ColorSpace, Crop,
     CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty, MediaItem, MediaKind,
-    MediaOrigin, Project, ShapeStyle, SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition,
-    VideoSettings,
+    MediaOrigin, Project, ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track,
+    Transition, VideoSettings,
 };
 
 mod audio;
@@ -462,6 +462,16 @@ pub enum Command {
         clip_id: String,
         /// The cutout, or None to take it off.
         cutout: Option<Cutout>,
+    },
+    /// Turns a picture's stabilization on, sets its settings, or takes it
+    /// off. Tidied on the way in; see [`Stabilize::tidy`]. The camera's
+    /// movement is measured by the host the first time a clip of the
+    /// media asks for it; until then the clip shows as shot.
+    SetClipStabilize {
+        /// The clip. An unknown id is a no-op.
+        clip_id: String,
+        /// The settings, or None to take stabilization off.
+        stabilize: Option<Stabilize>,
     },
     /// Paints one stroke onto a clip's cutout. A clip with no cutout gets a
     /// custom one; an automatic cutout becomes custom, since a stroke is a
@@ -1002,6 +1012,9 @@ impl Command {
                 bad([cutout.feather]) || cutout.strokes.iter().any(bad_stroke)
             }),
             Command::AddCutoutStroke { stroke, .. } => bad_stroke(stroke),
+            Command::SetClipStabilize { stabilize, .. } => stabilize
+                .as_ref()
+                .is_some_and(|stabilize| bad([stabilize.smoothness, stabilize.max_zoom])),
             Command::MoveClips { moves } => bad(moves.iter().map(|wanted| wanted.start)),
             Command::TrimClip { delta, .. } => bad([*delta]),
             Command::SplitClips { time, .. } => bad([*time]),
@@ -1139,6 +1152,7 @@ pub fn apply(
         | Command::SetClipSpeed { .. }
         | Command::SetClipCutout { .. }
         | Command::AddCutoutStroke { .. }
+        | Command::SetClipStabilize { .. }
         | Command::SetClipKey { .. }
         | Command::ClearClipKey { .. }
         | Command::ClearClipKeys { .. }

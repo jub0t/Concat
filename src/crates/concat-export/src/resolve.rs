@@ -12,6 +12,7 @@
 //! what this builds and never look at an `ExportClip` again.
 
 use super::*;
+use concat_vision::stabilize::{self, Correction, Motion};
 
 /// The tint a highlighted cutout wears: the interface's accent, the same
 /// lime the brushes and the selection are drawn in.
@@ -83,6 +84,63 @@ impl CutoutJob {
     }
 }
 
+/// A stabilization as the frame loop runs it: the clip's correction for
+/// every frame it shows, worked out once from the media's measured
+/// movement and the clip's settings when the timeline is built. Nothing
+/// is cached past that: the working out is a few milliseconds even for a
+/// long clip, and a changed setting is a rebuilt timeline anyway.
+pub(crate) struct StabilizeJob {
+    correction: Correction,
+}
+
+impl StabilizeJob {
+    /// The job for a clip, or `None` when it is not stabilized or its
+    /// media's movement has not been measured.
+    pub(crate) fn of(clip: &ExportClip) -> Option<StabilizeJob> {
+        let settings = clip.stabilize?;
+        if clip.kind != ClipKind::Video || clip.motion_dir.is_empty() {
+            return None;
+        }
+        let motion = Motion::read(Path::new(&clip.motion_dir))?;
+        // The same clamp the picture's own pacing applies; a curve's mean
+        // is its speed.
+        let speed = audio::clamp_speed(clip.speed);
+        let range = (
+            clip.source_start,
+            clip.source_start + clip.duration.max(0.0) * speed,
+        );
+        let correction = stabilize::path::correct(
+            &motion,
+            range,
+            speed,
+            &stabilize::Settings {
+                smoothness: settings.smoothness,
+                max_zoom: settings.max_zoom,
+                tripod: settings.tripod,
+                keep_rotation: settings.keep_rotation,
+            },
+        );
+        (!correction.is_empty()).then_some(StabilizeJob { correction })
+    }
+
+    /// The correction for the frame on screen at `source_time`, as the
+    /// compositor takes it.
+    pub(crate) fn warp_at(&self, source_time: Rational) -> concat_render::Warp {
+        let map = self.correction.at(source_time.as_f64());
+        concat_render::Warp {
+            a: map.a as f32,
+            b: map.b as f32,
+            tx: map.tx as f32,
+            ty: map.ty as f32,
+        }
+    }
+
+    /// The zoom the clip is drawn at, `>= 1`.
+    pub(crate) fn zoom(&self) -> f64 {
+        self.correction.zoom
+    }
+}
+
 /// An engine timeline plus the per-clip facts the decoders need that the
 /// engine's model has no field for.
 pub(crate) struct BuiltTimeline {
@@ -118,6 +176,8 @@ pub(crate) struct BuiltTimeline {
     /// What fills the frame behind each picture that has a background; see
     /// [`crate::with_backdrops`].
     pub(crate) backdrops: HashMap<ClipId, crate::ExportBackdrop>,
+    /// The clips whose camera shake is taken out.
+    pub(crate) stabilized: HashMap<ClipId, StabilizeJob>,
 }
 
 /// A packaged transition over a cut. The incoming clip has been overlapped
@@ -216,6 +276,7 @@ pub(crate) fn build_timeline(
     let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
     let mut backdrops: HashMap<ClipId, crate::ExportBackdrop> = HashMap::new();
+    let mut stabilized: HashMap<ClipId, StabilizeJob> = HashMap::new();
     let mut highlight: Option<ClipId> = None;
 
     let lanes = visible.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
@@ -282,8 +343,29 @@ pub(crate) fn build_timeline(
                 stills.insert(id);
             }
             let planned = planned_geometry(clip);
+            let steadied = StabilizeJob::of(clip);
             if let Some(size) = fitted_size(request, clip, planned.is_some()) {
+                // A stabilized picture is drawn larger by its zoom: decoded
+                // that much larger too, up to the file's own size, so the
+                // zoom costs no sharpness the file had.
+                let size = match (&steadied, clip.media_width, clip.media_height) {
+                    (Some(job), Some(width), Some(height)) if job.zoom() > 1.0 => {
+                        let grow = job
+                            .zoom()
+                            .min(f64::from(width) / f64::from(size.0.max(1)))
+                            .min(f64::from(height) / f64::from(size.1.max(1)))
+                            .max(1.0);
+                        (
+                            ((f64::from(size.0) * grow).round() as u32).max(2) & !1,
+                            ((f64::from(size.1) * grow).round() as u32).max(2) & !1,
+                        )
+                    }
+                    _ => size,
+                };
                 decode_sizes.insert(id, size);
+            }
+            if let Some(job) = steadied {
+                stabilized.insert(id, job);
             }
             if !clip.transition_shapes.is_empty() {
                 shapes.insert(id, clip.transition_shapes.clone());
@@ -326,6 +408,7 @@ pub(crate) fn build_timeline(
         chains,
         reveal_maps,
         cutouts,
+        stabilized,
         highlight,
         backdrops,
     }
@@ -343,12 +426,15 @@ pub(crate) struct PlannedGeometry {
 /// it has neither. The plan crops and flips the picture as it draws it,
 /// before the clip's effects run over it: a vignette is centred on the
 /// picture as cropped, a wipe on a mirrored clip still wipes the way the
-/// frame is seen.
+/// frame is seen. A stabilized clip always has them drawn by the plan,
+/// even when it has neither: its correction is of the whole picture as
+/// shot, before any crop, so the decoder must hand over the whole of it.
 pub(crate) fn planned_geometry(clip: &ExportClip) -> Option<PlannedGeometry> {
     let crop = clip
         .crop
         .map_or(concat_render::Crop::NONE, concat_render::Crop::of);
-    if crop.is_none() && !clip.flip_h && !clip.flip_v {
+    let stabilized = clip.stabilize.is_some() && !clip.motion_dir.is_empty();
+    if crop.is_none() && !clip.flip_h && !clip.flip_v && !stabilized {
         return None;
     }
     Some(PlannedGeometry {

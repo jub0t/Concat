@@ -566,6 +566,73 @@ impl Stroke {
     }
 }
 
+/// A clip's stabilization: the camera's shake taken out of the picture.
+///
+/// The camera's movement is measured once, frame to frame, by the host's
+/// analysis and cached in the project folder beside the masks; these are
+/// the settings the smooth path and the correction are worked out from,
+/// live, whenever they change. Off is no `Stabilize` at all.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Stabilize {
+    /// How much of the camera's movement is smoothed away, `0..=1`: low
+    /// keeps a pan or a glide and takes out the jitter, high leaves only
+    /// the slowest of moves. Measured on the timeline, so a clip sped up
+    /// is smoothed as calmly as one at its own pace.
+    pub smoothness: f64,
+    /// The most the picture may be zoomed to hide the edges the correction
+    /// moves into view, `1..=MAX_STABILIZE_ZOOM`. The zoom used is the
+    /// least the whole clip needs, up to this; past it the correction is
+    /// eased where it would show an edge.
+    pub max_zoom: f64,
+    /// Lock the frame entirely, as on a tripod, rather than follow the
+    /// camera's intended move.
+    #[serde(skip_serializing_if = "is_false")]
+    pub tripod: bool,
+    /// Leave the camera's roll as shot: only its drift and its zoom are
+    /// corrected.
+    #[serde(skip_serializing_if = "is_false")]
+    pub keep_rotation: bool,
+}
+
+/// The smoothness a stabilization starts with.
+pub const DEFAULT_STABILIZE_SMOOTHNESS: f64 = 0.5;
+/// The zoom a stabilization may use to begin with: a fifth larger.
+pub const DEFAULT_STABILIZE_ZOOM: f64 = 1.2;
+/// The most a stabilization may zoom: half again.
+pub const MAX_STABILIZE_ZOOM: f64 = 1.5;
+
+impl Default for Stabilize {
+    fn default() -> Self {
+        Stabilize {
+            smoothness: DEFAULT_STABILIZE_SMOOTHNESS,
+            max_zoom: DEFAULT_STABILIZE_ZOOM,
+            tripod: false,
+            keep_rotation: false,
+        }
+    }
+}
+
+impl Stabilize {
+    /// Every number held to its range, a number that is not one to its
+    /// default.
+    pub fn tidy(self) -> Stabilize {
+        Stabilize {
+            smoothness: if self.smoothness.is_finite() {
+                self.smoothness.clamp(0.0, 1.0)
+            } else {
+                DEFAULT_STABILIZE_SMOOTHNESS
+            },
+            max_zoom: if self.max_zoom.is_finite() {
+                self.max_zoom.clamp(1.0, MAX_STABILIZE_ZOOM)
+            } else {
+                DEFAULT_STABILIZE_ZOOM
+            },
+            ..self
+        }
+    }
+}
+
 /// A crop: what is taken off each edge, as fractions of the source.
 #[derive(Clone, Copy, PartialEq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1467,6 +1534,10 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub cutout: Option<Cutout>,
+    /// The camera's shake taken out; see [`Stabilize`]. None is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub stabilize: Option<Stabilize>,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,
@@ -1604,6 +1675,7 @@ impl Clip {
             blend: String::new(),
             crop: None,
             cutout: None,
+            stabilize: None,
             filters: Vec::new(),
             video_effects: Vec::new(),
             audio_stream: None,
@@ -1660,6 +1732,7 @@ impl Clip {
             .map(Crop::tidy)
             .filter(|crop| !crop.is_none());
         self.cutout = self.cutout.take().map(Cutout::tidy);
+        self.stabilize = self.stabilize.take().map(Stabilize::tidy);
         if let Some(transition) = self.transition_in.as_mut() {
             transition.duration = finite(transition.duration, 1.0).max(MIN_TRANSITION);
         }

@@ -140,6 +140,26 @@ pub(super) fn apply(
             })
         }
 
+        Command::SetClipStabilize {
+            clip_id,
+            stabilize,
+        } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            // Only footage has a camera that moved: a still, a title, a
+            // shape or a layer has nothing to steady.
+            if clip.kind != ClipKind::Video && stabilize.is_some() {
+                return Ok(Outcome::default());
+            }
+            let applied = assign(&mut clip.stabilize, stabilize.map(Stabilize::tidy));
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
         Command::AddCutoutStroke { clip_id, stroke } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {

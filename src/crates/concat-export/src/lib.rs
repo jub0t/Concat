@@ -220,6 +220,16 @@ pub struct ExportClip {
     /// - or empty when the flattener had no project folder to name it by.
     #[serde(default)]
     pub mask_dir: String,
+    /// The camera's shake taken out, as the document holds it. Rendered
+    /// only with `motion_dir`: a clip whose movement is not measured yet
+    /// shows as shot.
+    #[serde(default)]
+    pub stabilize: Option<concat_project::model::Stabilize>,
+    /// Where this clip's media has its measured movement - see
+    /// `concat_vision::stabilize::motion_dir` - or empty when the
+    /// flattener had no project folder to name it by.
+    #[serde(default)]
+    pub motion_dir: String,
     /// A title's per-word reveal order, baked at rasterize time and set by
     /// the host - never by the wire format, like `transition_chain`. Every
     /// shader pass over this clip carries it, so a reveal effect can read
@@ -322,6 +332,8 @@ impl ExportClip {
             has_audio: None,
             cutout: None,
             mask_dir: String::new(),
+            stabilize: None,
+            motion_dir: String::new(),
             highlighted: false,
             reveal_map: None,
             backdrop: None,
@@ -1313,7 +1325,8 @@ pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
 
 /// The plan's layer for one clip at one instant, filled in: the picture
 /// decoded, its effects resolved, on its track, and its crop and flips
-/// where the plan draws them (`geometry`; see `resolve::planned_geometry`).
+/// where the plan draws them (`geometry`; see `resolve::planned_geometry`),
+/// and its stabilization's correction at the frame it shows.
 /// A clip without planned geometry has them baked in by the decoder's
 /// chain, as the transition fades still are, and the cutout has already
 /// cut the picture either way.
@@ -1324,6 +1337,7 @@ fn filled(
     effects: Vec<ShaderPass>,
     geometry: Option<&resolve::PlannedGeometry>,
     transitions: Vec<Transition>,
+    stabilized: Option<&resolve::StabilizeJob>,
 ) -> PlannedLayer {
     let mut filled = PlannedLayer {
         source: Some(frame),
@@ -1332,6 +1346,9 @@ fn filled(
         transitions,
         ..layer.clone()
     };
+    if let Some(job) = stabilized {
+        filled.warp = job.warp_at(layer.source_time);
+    }
     if let Some(geometry) = geometry {
         filled.crop = geometry.crop;
         filled.flip_h = geometry.flip_h;
@@ -1602,6 +1619,7 @@ fn render_picture(
         chains,
         reveal_maps,
         cutouts,
+        stabilized,
         highlight: _,
         backdrops,
     } = build_timeline(request, rate, visible, transitions);
@@ -1697,6 +1715,7 @@ fn render_picture(
                     passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                     geometry.get(&layer.clip),
                     shapes_at(&shapes, layer, time, rate),
+                    stabilized.get(&layer.clip),
                 ));
                 continue;
             }
@@ -1764,6 +1783,7 @@ fn render_picture(
                     passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                     geometry.get(&layer.clip),
                     shapes_at(&shapes, layer, time, rate),
+                    stabilized.get(&layer.clip),
                 ));
             }
         }
@@ -2214,6 +2234,7 @@ pub fn preview_sources_of(
         chains,
         reveal_maps,
         cutouts,
+        stabilized,
         highlight,
         backdrops,
     } = &plan.built;
@@ -2256,6 +2277,7 @@ pub fn preview_sources_of(
                     passes_at(chains, reveal_maps, timeline, layer.clip, time),
                     geometry.get(&layer.clip),
                     shapes_at(shapes, layer, time, rate),
+                    stabilized.get(&layer.clip),
                 ))
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),

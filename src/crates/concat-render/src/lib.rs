@@ -32,6 +32,7 @@ pub use gpu::WgpuCompositor;
 pub use metrics::ssim;
 pub use plan::{
     Backdrop, Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition,
+    Warp,
     detached_clip, plan_frame,
 };
 #[cfg(test)]

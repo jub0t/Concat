@@ -31,8 +31,9 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
 }
 
 /// [`flatten_timeline`], knowing the project folder: a clip with a cutout
-/// is then told where its media's masks are, and renders cut. Without the
-/// folder the cutout is carried but not rendered.
+/// is then told where its media's masks are, and renders cut, and a
+/// stabilized one where its media's movement is, and renders steadied.
+/// Without the folder both are carried but not rendered.
 pub fn flatten_timeline_in(
     project: &Project,
     timeline_id: Option<&str>,
@@ -144,6 +145,15 @@ pub fn flatten_timeline_in(
                 mask_dir: match (&clip.cutout, project_dir) {
                     (Some(cutout), Some(dir)) => {
                         concat_vision::mask_dir(dir, &media.path, cutout.subject)
+                            .to_string_lossy()
+                            .into_owned()
+                    }
+                    _ => String::new(),
+                },
+                stabilize: clip.stabilize.filter(|_| kind == ClipKind::Video),
+                motion_dir: match (&clip.stabilize, project_dir) {
+                    (Some(_), Some(dir)) if kind == ClipKind::Video => {
+                        concat_vision::stabilize::motion_dir(dir, &media.path)
                             .to_string_lossy()
                             .into_owned()
                     }

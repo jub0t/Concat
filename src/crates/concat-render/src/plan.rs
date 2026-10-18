@@ -16,9 +16,9 @@
 //! resolved for this frame, the mask, the transitions at the cut, the
 //! treatments live over the stack - and hands the plan to a compositor.
 //!
-//! What a compositor does with one layer, in order: the crop, the flips and
-//! the fit make the picture; the effects run over it; the mask, the fades
-//! and the wipes weigh it; the placement puts it in the frame; the blend
+//! What a compositor does with one layer, in order: the warp a stabilized
+//! clip is corrected by, the crop, the flips and the fit make the picture;
+//! the effects run over it; the mask, the fades and the wipes weigh it; the placement puts it in the frame; the blend
 //! meets what is beneath. The geometry and the weighing are worked out
 //! here, once, so the two backends cannot drift on them.
 
@@ -83,6 +83,62 @@ impl Crop {
             .max(1.0)
             .min(h - y);
         [x, y, cw, ch]
+    }
+}
+
+/// A turn, a zoom and a shift the source is resampled through before its
+/// crop: what a stabilized clip's correction is at one frame.
+///
+/// It maps a point of the source as drawn to the point of the source as
+/// decoded that is drawn there, in the picture's normalised units - the
+/// source's centre the origin, `y` down, its height one - so it means the
+/// same whatever size the decoder gave the picture. `x' = a·x − b·y + tx`,
+/// `y' = b·x + a·y + ty`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Warp {
+    /// The zoom times the cosine of the turn.
+    pub a: f32,
+    /// The zoom times its sine.
+    pub b: f32,
+    /// The shift across, in source heights.
+    pub tx: f32,
+    /// The shift down.
+    pub ty: f32,
+}
+
+impl Warp {
+    /// The source as decoded.
+    pub const NONE: Warp = Warp {
+        a: 1.0,
+        b: 0.0,
+        tx: 0.0,
+        ty: 0.0,
+    };
+
+    /// True when nothing moves.
+    pub fn is_none(&self) -> bool {
+        *self == Warp::NONE
+    }
+
+    /// Where a point of the drawn source, `(x, y)` in the pixels of a
+    /// `width` by `height` source, is read from in the decoded one.
+    pub fn source_pixel(&self, (x, y): (f32, f32), (width, height): (u32, u32)) -> (f32, f32) {
+        if self.is_none() {
+            return (x, y);
+        }
+        let (w, h) = (width as f32, height as f32);
+        let (nx, ny) = ((x - w / 2.0) / h, (y - h / 2.0) / h);
+        let (mx, my) = (
+            self.a * nx - self.b * ny + self.tx,
+            self.b * nx + self.a * ny + self.ty,
+        );
+        (mx * h + w / 2.0, my * h + h / 2.0)
+    }
+}
+
+impl Default for Warp {
+    fn default() -> Self {
+        Warp::NONE
     }
 }
 
@@ -205,6 +261,9 @@ pub struct PlannedLayer {
     /// whatever size the decoder gave it. `None` until then, and a layer
     /// without one draws nothing rather than failing the frame.
     pub source: Option<Arc<Frame>>,
+    /// The source resampled before anything else is done to it: a
+    /// stabilized clip's correction at this frame. `NONE` for every other.
+    pub warp: Warp,
     /// What is cut off the source's edges before it is fitted. `NONE` for
     /// a picture the decoder already cropped.
     pub crop: Crop,
@@ -245,6 +304,7 @@ impl PlannedLayer {
             speed: Rational::ONE,
             paced: true,
             source: Some(frame),
+            warp: Warp::NONE,
             crop: Crop::NONE,
             flip_h: false,
             flip_v: false,
@@ -350,7 +410,9 @@ impl PlannedLayer {
     ///
     /// It covers the frame, centred, whatever the picture's own scale,
     /// position and turn: the background stays put while the picture moves
-    /// over it. It belongs to the picture all the same: it is on the
+    /// over it. A blur is of the picture as drawn, a stabilized one's
+    /// correction and all, so it is as steady as the picture over it. It
+    /// belongs to the picture all the same: it is on the
     /// picture's track, as strong as the picture is at this frame, and goes
     /// through the picture's fades and wipes, so a dissolve or a fade to
     /// black takes the background with the picture rather than leaving it
@@ -386,12 +448,14 @@ impl PlannedLayer {
             Backdrop::Colour([r, g, b]) => {
                 let mut solid = Frame::black(16, 16);
                 solid.fill([*r, *g, *b, 255]);
+                layer.warp = Warp::NONE;
                 layer.crop = Crop::NONE;
                 layer.flip_h = false;
                 layer.flip_v = false;
                 (Arc::new(solid), Vec::new())
             }
             Backdrop::Image(still) => {
+                layer.warp = Warp::NONE;
                 layer.crop = Crop::NONE;
                 layer.flip_h = false;
                 layer.flip_v = false;
@@ -496,6 +560,9 @@ pub struct Geometry {
     pub source_rect: [f32; 4],
     /// The size of the source the rectangle is of.
     pub source_size: (u32, u32),
+    /// The source resampled before the rectangle is taken of it; see
+    /// [`Warp`].
+    pub warp: Warp,
     /// The picture's size once fitted: the size the effects run at.
     pub fitted: (u32, u32),
     /// Where the picture's centre lands in the output, after translation.
@@ -540,6 +607,7 @@ impl Geometry {
         Geometry {
             source_rect,
             source_size: (source_width, source_height),
+            warp: layer.warp,
             fitted,
             centre,
             scale,
@@ -553,6 +621,7 @@ impl Geometry {
         Geometry {
             source_rect: [0.0, 0.0, self.fitted.0 as f32, self.fitted.1 as f32],
             source_size: self.fitted,
+            warp: Warp::NONE,
             ..*self
         }
     }
@@ -560,7 +629,8 @@ impl Geometry {
     /// True when the fitted picture is the whole source at its own size.
     pub fn fits_source(&self) -> bool {
         let [x, y, w, h] = self.source_rect;
-        x == 0.0
+        self.warp.is_none()
+            && x == 0.0
             && y == 0.0
             && w == self.source_size.0 as f32
             && h == self.source_size.1 as f32
@@ -593,7 +663,10 @@ impl Geometry {
         let u = if flip_h { 1.0 - u } else { u };
         let v = if flip_v { 1.0 - v } else { v };
         let [x, y, w, h] = self.source_rect;
-        (x + u * w - 0.5, y + v * h - 0.5)
+        let (sx, sy) = self
+            .warp
+            .source_pixel((x + u * w, y + v * h), self.source_size);
+        (sx - 0.5, sy - 0.5)
     }
 
     /// The same, as texture coordinates in `0..1` of the source.
@@ -601,9 +674,12 @@ impl Geometry {
         let u = if flip_h { 1.0 - u } else { u };
         let v = if flip_v { 1.0 - v } else { v };
         let [x, y, w, h] = self.source_rect;
+        let (sx, sy) = self
+            .warp
+            .source_pixel((x + u * w, y + v * h), self.source_size);
         (
-            (x + u * w) / self.source_size.0 as f32,
-            (y + v * h) / self.source_size.1 as f32,
+            sx / self.source_size.0 as f32,
+            sy / self.source_size.1 as f32,
         )
     }
 }
@@ -713,6 +789,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
             speed: clip.speed,
             paced: clip.is_paced(),
             source: None,
+            warp: Warp::NONE,
             crop: Crop::NONE,
             flip_h: false,
             flip_v: false,

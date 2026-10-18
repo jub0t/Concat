@@ -15,7 +15,7 @@ use concat_core::timeline::{Blend, Transform};
 use super::*;
 use crate::CpuCompositor;
 use crate::metrics::ssim;
-use crate::plan::{Backdrop, Crop, Transition, detached_clip};
+use crate::plan::{Backdrop, Crop, Transition, Warp, detached_clip};
 
 fn gpu() -> Option<WgpuCompositor> {
     let compositor = WgpuCompositor::new();
@@ -155,6 +155,104 @@ fn plain_layers_match_the_cpu_reference_to_the_pixel() {
                 "pixel {index} channel {channel}: cpu {want:?} vs gpu {got:?}"
             );
         }
+    }
+}
+
+/// A stabilized frame is its source resampled through the correction: a
+/// warp of a whole number of pixels draws each pixel from that far over,
+/// to the level, and the edge it pulls into view holds the source's last
+/// column, as the sampler reads past an edge.
+#[test]
+fn a_stabilized_frame_is_the_source_through_its_warp() {
+    let Some(mut gpu) = gpu() else { return };
+    let (w, h) = (64u32, 48u32);
+    let source = gradient(w, h);
+    let mut shifted = layer(source.clone());
+    // Each point drawn is read 6 px right of and 3 px below itself.
+    shifted.warp = Warp {
+        a: 1.0,
+        b: 0.0,
+        tx: 6.0 / h as f32,
+        ty: 3.0 / h as f32,
+    };
+    let out = gpu.render(&plan(w, h, vec![shifted]));
+    for y in 0..h {
+        for x in 0..w {
+            let want = source
+                .pixel((x + 6).min(w - 1), (y + 3).min(h - 1))
+                .expect("inside");
+            let got = out.pixel(x, y).expect("inside");
+            for channel in 0..3 {
+                let difference = (i32::from(want[channel]) - i32::from(got[channel])).abs();
+                assert!(
+                    difference <= 1,
+                    "({x}, {y}) channel {channel}: want {want:?}, got {got:?}"
+                );
+            }
+        }
+    }
+
+    // A turn and a zoom about the centre: a point of the picture reads
+    // from where the turn and the zoom send it. Probed on the smooth
+    // gradient, away from the bar, whose edge the two blend differently
+    // (the GPU in light, the reference in its stored levels).
+    let (angle, zoom) = (8f32.to_radians(), 1.0 / 1.15);
+    let mut turned = layer(source.clone());
+    turned.warp = Warp {
+        a: zoom * angle.cos(),
+        b: zoom * angle.sin(),
+        tx: 0.0,
+        ty: 0.0,
+    };
+    let out = gpu.render(&plan(w, h, vec![turned.clone()]));
+    let probe = |x: f32, y: f32| {
+        let (nx, ny) = ((x - w as f32 / 2.0) / h as f32, (y - h as f32 / 2.0) / h as f32);
+        let (mx, my) = (
+            turned.warp.a * nx - turned.warp.b * ny,
+            turned.warp.b * nx + turned.warp.a * ny,
+        );
+        (mx * h as f32 + w as f32 / 2.0, my * h as f32 + h as f32 / 2.0)
+    };
+    for (x, y) in [(52u32, 10u32), (10, 36), (48, 40), (40, 6)] {
+        let (sx, sy) = probe(x as f32 + 0.5, y as f32 + 0.5);
+        let want = crate::reference::sample_bilinear(&source, sx - 0.5, sy - 0.5);
+        let got = out.pixel(x, y).expect("inside");
+        for channel in 0..3 {
+            assert!(
+                (want[channel] - f32::from(got[channel])).abs() <= 3.0,
+                "({x}, {y}) channel {channel}: want {want:?}, got {got:?}"
+            );
+        }
+    }
+
+    // And the CPU reference agrees, alone, cropped, and made first for an
+    // effect to run over.
+    assert_parity("stabilized", &plan(w, h, vec![turned.clone()]), 0.99);
+    let mut cropped = turned.clone();
+    cropped.crop = Crop::of([0.1, 0.0, 0.2, 0.1]);
+    cropped.flip_h = true;
+    assert_parity("stabilized and cropped", &plan(w, h, vec![cropped.clone()]), 0.99);
+    let mut prepared = cropped;
+    prepared.effects = vec![package("test.invert", INVERT, "", &[], 1.0)];
+    let geometry = prepared.geometry(&source, w, h);
+    assert!(prepared.needs_preparing(&geometry));
+    let inverted = gpu.render(&plan(w, h, vec![prepared]));
+    let mut plain = turned;
+    plain.crop = Crop::of([0.1, 0.0, 0.2, 0.1]);
+    plain.flip_h = true;
+    let straight = gpu.render(&plan(w, h, vec![plain]));
+    // The invert ran over the warped picture: inside the fitted picture,
+    // each pixel is the other's inverse.
+    let middle = (w / 2, h / 2);
+    let (a, b) = (
+        inverted.pixel(middle.0, middle.1).expect("inside"),
+        straight.pixel(middle.0, middle.1).expect("inside"),
+    );
+    for channel in 0..3 {
+        assert!(
+            (i32::from(a[channel]) + i32::from(b[channel]) - 255).abs() <= 2,
+            "{a:?} vs {b:?}"
+        );
     }
 }
 
