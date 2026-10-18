@@ -291,6 +291,8 @@ export global Backdrop {
     callback set-colour(clip: bool, colour: color);
     /// A still, by its row in `stills`.
     callback set-still(clip: bool, row: int);
+    /// The selected clip's background for every picture on the main lane.
+    callback apply-to-all();
     /// Sizes the selected picture to the frame: whole inside it, or
     /// covering it.
     callback frame(fill: bool);

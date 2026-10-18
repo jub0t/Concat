@@ -932,8 +932,7 @@ export component BackgroundRows inherits VerticalLayout {
     in property <bool> own;
 
     property <BackdropData> data: root.own ? Backdrop.clip : Backdrop.timeline;
-    /// The list's row for the kind: a clip's list has the timeline's first.
-    property <int> picked: root.own ? root.data.mode + 1 : root.data.mode;
+    property <int> picked: root.data.mode;
     property <int> kind: root.data.mode;
     // Seeded rather than bound: the knob writes it as it is dragged.
     property <float> amount;
@@ -948,19 +947,16 @@ export component BackgroundRows inherits VerticalLayout {
     ];
 
     Row {
-        label: I18n.t("common.mode");
+        label: I18n.t("clipInspector.background");
         Select {
-            options: root.own
-                ? [I18n.t("clipInspector.backgroundTimeline"), root.kinds[0], root.kinds[1],
-                    root.kinds[2], root.kinds[3]]
-                : root.kinds;
+            options: root.kinds;
             // Set again whenever the kind changes: a press assigns `current`
             // inside the control and ends a plain binding (#250).
             property <int> shown: root.picked;
             current: self.shown;
             changed shown => { self.current = self.shown; }
             changed(index) => {
-                Backdrop.set-mode(root.own, root.own ? index - 1 : index);
+                Backdrop.set-mode(root.own, index);
             }
         }
     }
@@ -1244,16 +1240,23 @@ export component VideoPanel inherits VerticalLayout {
     // picture lane, which is where a background is drawn.
     if root.canvas && Backdrop.clip-has: Section {
         canvas := SectionHeader {
-            title: I18n.t("clipInspector.background");
+            title: I18n.t("phone.canvas");
             collapsible: true;
             HelpButton {
-                text: I18n.t("clipInspector.backgroundHelp");
+                text: I18n.t("clipInspector.canvasHelp");
             }
         }
 
         if canvas.open: SectionBody {
             BackgroundRows {
                 own: true;
+            }
+            // As in CapCut: this clip's background for every picture on
+            // the main lane, which is how the timeline's is set.
+            Button {
+                label: I18n.t("clipInspector.applyToAll");
+                block: true;
+                clicked => { Backdrop.apply-to-all(); }
             }
         }
     }

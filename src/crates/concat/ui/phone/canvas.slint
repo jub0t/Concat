@@ -5,6 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Backdrop, BackdropData } from "../timeline/model.slint";
+import { Button } from "../primitives/modal.slint";
 
 // The phone's Canvas sheet: what fills a tall frame beside a wide shot,
 // and Fit and Fill, the way a phone editor lays them out - tiles and
@@ -140,12 +141,6 @@ export component PhoneCanvas inherits VerticalLayout {
 
     if root.settable: HorizontalLayout {
         spacing: 8px;
-        if root.own: Tile {
-            glyph: Glyph.film;
-            label: I18n.t("clipInspector.backgroundTimeline");
-            current: root.data.mode == -1;
-            clicked => { Backdrop.set-mode(true, -1); }
-        }
         Tile {
             glyph: Glyph.close;
             label: I18n.t("clipInspector.backgroundNone");
@@ -246,5 +241,13 @@ export component PhoneCanvas inherits VerticalLayout {
                 clicked => { Backdrop.set-still(root.own, row); }
             }
         }
+    }
+
+    // As in CapCut: this clip's background for every picture on the main
+    // lane, which is how the timeline's is set from a clip.
+    if root.own && root.settable: Button {
+        label: I18n.t("clipInspector.applyToAll");
+        block: true;
+        clicked => { Backdrop.apply-to-all(); }
     }
 }

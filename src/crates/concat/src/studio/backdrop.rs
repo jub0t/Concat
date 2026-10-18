@@ -81,8 +81,13 @@ impl Studio {
         backdrop.set_timeline(self.backdrop_data(Some(&self.timeline().background)));
         let clip = self.backdrop_clip();
         backdrop.set_clip_has(clip.is_some());
+        // What the clip draws: its own background, or the timeline's it
+        // follows. The panels show that, not a "follows" entry of its own:
+        // "Timeline's" beside None and Blur read as one more kind of
+        // background, and nobody could say which.
+        let timeline = &self.timeline().background;
         backdrop.set_clip(clip.map_or_else(BackdropData::default, |clip| {
-            self.backdrop_data(clip.background.as_ref())
+            self.backdrop_data(Some(clip.background.as_ref().unwrap_or(timeline)))
         }));
         backdrop.set_can_frame(self.framing_target().is_some());
         // Written only when it differs, as the audio tracks are: a fresh
@@ -187,6 +192,41 @@ impl Studio {
         if background != now {
             self.backdrop_write(clip, background, None);
         }
+    }
+
+    /// Apply to all, as CapCut has it: the selected clip's background
+    /// becomes the timeline's, and every picture on the main lane follows
+    /// it, any of their own let go. One undo step.
+    pub fn backdrop_apply_to_all(&mut self) {
+        let Some(clip) = self.backdrop_clip() else {
+            return;
+        };
+        let background = clip
+            .background
+            .clone()
+            .unwrap_or_else(|| self.timeline().background.clone());
+        let timeline = self.timeline();
+        let lane = timeline.background_lane().map(str::to_owned);
+        let mut commands = vec![Command::SetTimelineBackground {
+            timeline_id: timeline.id.clone(),
+            background,
+        }];
+        commands.extend(
+            timeline
+                .clips
+                .iter()
+                .filter(|other| {
+                    other.background.is_some() && Some(other.track_id.as_str()) == lane.as_deref()
+                })
+                .map(|other| Command::UpdateClip {
+                    clip_id: other.id.clone(),
+                    patch: ClipPatch {
+                        background: Some(None),
+                        ..ClipPatch::default()
+                    },
+                }),
+        );
+        self.apply(Command::Batch { commands });
     }
 
     /// A blur's softness, as its knob turns.

@@ -1123,6 +1123,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         backdrop.on_set_still(on_lanes!(|state, clip: bool, row: i32| {
             state.backdrop_set_still(clip, row);
         }));
+        backdrop.on_apply_to_all(on_lanes!(|state| {
+            state.backdrop_apply_to_all();
+        }));
         backdrop.on_frame(on_lanes!(|state, fill: bool| {
             state.frame_selected(fill);
         }));
