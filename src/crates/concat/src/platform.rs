@@ -701,12 +701,90 @@ fn existing_folder(start: &str) -> Option<&std::path::Path> {
         .find(|folder| folder.is_dir())
 }
 
-/// What a phone does when asked for files: shows the system's picker and
-/// calls back, later, with what was chosen - an empty list for nothing.
-/// Installed by the phone's own crate before the window runs; see
-/// [`install_file_picker`].
+/// What a phone does when asked for files: shows the system's picker for
+/// the kinds asked for (see [`PickKinds`]) and calls back, later, with what
+/// was chosen - an empty list for nothing. Installed by the phone's own
+/// crate before the window runs; see [`install_file_picker`].
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub type FilePicker = Box<dyn Fn(Box<dyn FnOnce(Vec<PathBuf>) + Send>) + Send + Sync>;
+pub type FilePicker = Box<dyn Fn(PickKinds, Box<dyn FnOnce(Vec<PathBuf>) + Send>) + Send + Sync>;
+
+/// What a phone's picker is asked to offer, from the desktop dialog's
+/// list of extensions: media - some of video, sound and pictures - which
+/// the phone's own pickers know by kind, or files by their extensions
+/// (subtitles, fonts), which a phone's providers type so variously that
+/// the extensions are all there is to go on.
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PickKinds {
+    /// Media, by kind; every kind when no list was given.
+    Media {
+        video: bool,
+        audio: bool,
+        image: bool,
+    },
+    /// Anything else, by extension, lowercase and without the dot.
+    Files(Vec<String>),
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+impl PickKinds {
+    /// The kinds a dialog filter's extensions ask for. No filter is every
+    /// kind of media, as Import asks.
+    pub fn of(extensions: Option<&[&str]>) -> Self {
+        let Some(extensions) = extensions.filter(|list| !list.is_empty()) else {
+            return PickKinds::Media {
+                video: true,
+                audio: true,
+                image: true,
+            };
+        };
+        let (mut video, mut audio, mut image) = (false, false, false);
+        for extension in extensions {
+            match media_kind(extension) {
+                Some(MediaKind::Video) => video = true,
+                Some(MediaKind::Audio) => audio = true,
+                Some(MediaKind::Image) => image = true,
+                None => {
+                    return PickKinds::Files(
+                        extensions
+                            .iter()
+                            .map(|ext| ext.to_ascii_lowercase())
+                            .collect(),
+                    );
+                }
+            }
+        }
+        PickKinds::Media {
+            video,
+            audio,
+            image,
+        }
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+enum MediaKind {
+    Video,
+    Audio,
+    Image,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+/// Which kind of media a file with this extension is, if it is media.
+fn media_kind(extension: &str) -> Option<MediaKind> {
+    match extension.to_ascii_lowercase().as_str() {
+        "mp4" | "mov" | "mkv" | "webm" | "avi" | "m4v" | "mts" | "m2ts" | "3gp" => {
+            Some(MediaKind::Video)
+        }
+        "mp3" | "wav" | "aac" | "m4a" | "flac" | "ogg" | "opus" | "aif" | "aiff" => {
+            Some(MediaKind::Audio)
+        }
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff" | "heic" | "heif" => {
+            Some(MediaKind::Image)
+        }
+        _ => None,
+    }
+}
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 static FILE_PICKER: std::sync::OnceLock<FilePicker> = std::sync::OnceLock::new();
@@ -732,6 +810,13 @@ pub struct ExportPublisher {
     /// storage, or with why it could not, leaving the file where it was.
     /// It copies a whole video, so it is called off the window's thread.
     pub publish: Box<dyn Fn(&std::path::Path) -> Result<String, String> + Send + Sync>,
+    /// The same for a small file that is not a video - a subtitle file -
+    /// with its MIME type: moved to where the phone's file manager shows
+    /// it (Android's Download/Concat, the iPhone's Files), never over
+    /// another file, and answered with where, as the person would look
+    /// for it.
+    pub publish_document:
+        Box<dyn Fn(&std::path::Path, &str) -> Result<String, String> + Send + Sync>,
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -818,6 +903,33 @@ pub fn publish_export(
     }
 }
 
+/// [`publish_export`] for a document - a subtitle file - of MIME type
+/// `mime`: handed to the phone on a thread of its own, `on_done` told
+/// where it went or why not. False when there is nothing to hand it to -
+/// a desktop, where the file was written where the person chose, or a
+/// phone too old to be asked - and `on_done` is never called.
+pub fn publish_document(
+    path: std::path::PathBuf,
+    mime: &'static str,
+    on_done: impl FnOnce(Result<String, String>) + Send + 'static,
+) -> bool {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let Some(publisher) = EXPORT_PUBLISHER.get() else {
+            return false;
+        };
+        std::thread::Builder::new()
+            .name("document publish".into())
+            .spawn(move || on_done((publisher.publish_document)(&path, mime)))
+            .is_ok()
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = (path, mime, on_done);
+        false
+    }
+}
+
 /// Asks for files and calls `on_picked` with them, on whichever thread the
 /// platform answers from - the caller hops to the window's thread itself.
 ///
@@ -825,7 +937,8 @@ pub fn publish_export(
 /// returns. On a phone the system's picker is another screen: this returns
 /// at once and the callback comes when the picker is dismissed, through
 /// the picker the phone's crate installed. `filter` is the desktop
-/// dialog's; a phone's picker offers every kind of media on its own.
+/// dialog's; a phone's picker is asked for the same kinds of file, as
+/// [`PickKinds`] reads them from it.
 pub fn pick_files_async(
     title: &str,
     filter: Option<(&str, &[&str])>,
@@ -839,9 +952,10 @@ pub fn pick_files_async(
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        let _ = (title, filter);
+        let _ = title;
+        let kinds = PickKinds::of(filter.map(|(_, extensions)| extensions));
         match FILE_PICKER.get() {
-            Some(picker) => picker(Box::new(on_picked)),
+            Some(picker) => picker(kinds, Box::new(on_picked)),
             None => log::warn!("no file picker on this platform yet"),
         }
     }
@@ -964,5 +1078,35 @@ mod tests {
         );
         assert_eq!(existing_folder(""), None);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A phone's picker is asked for what the desktop dialog would show:
+    /// media by kind, and subtitles or fonts by their extensions - an
+    /// .srt is not media, and a picker that offered only media hid it.
+    #[test]
+    fn a_phone_picker_is_asked_for_the_dialogs_kinds() {
+        let every = PickKinds::Media {
+            video: true,
+            audio: true,
+            image: true,
+        };
+        assert_eq!(PickKinds::of(None), every);
+        assert_eq!(PickKinds::of(Some(&["mp4", "WAV", "png"])), every);
+        assert_eq!(
+            PickKinds::of(Some(&["mp3", "flac"])),
+            PickKinds::Media {
+                video: false,
+                audio: true,
+                image: false,
+            }
+        );
+        assert_eq!(
+            PickKinds::of(Some(&["SRT"])),
+            PickKinds::Files(vec!["srt".to_owned()])
+        );
+        assert_eq!(
+            PickKinds::of(Some(&["ttf", "otf"])),
+            PickKinds::Files(vec!["ttf".to_owned(), "otf".to_owned()])
+        );
     }
 }

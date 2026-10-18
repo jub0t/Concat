@@ -174,9 +174,46 @@ pub fn title_cues(timeline: &Timeline, track_id: Option<&str>) -> Vec<Cue> {
     cues
 }
 
+/// The lane with the most titles on it - the first such lane, top down,
+/// when two have as many - or None when the timeline has no title.
+///
+/// A title made as a caption is a title like any other: nothing in the
+/// document says which lane is the captions'. But captions come many to
+/// a lane, one after another, where a title card is one or two; so with
+/// no title selected to name a lane, the busiest lane is the captions'.
+/// A title card on a lane of its own is never written out with them.
+pub fn busiest_title_lane(timeline: &Timeline) -> Option<String> {
+    let mut best: Option<(&str, usize)> = None;
+    for track in &timeline.tracks {
+        let count = timeline
+            .clips
+            .iter()
+            .filter(|clip| clip.kind == ClipKind::Text && clip.track_id == track.id)
+            .count();
+        if count > 0 && best.is_none_or(|(_, most)| count > most) {
+            best = Some((&track.id, count));
+        }
+    }
+    best.map(|(id, _)| id.to_owned())
+}
+
+/// How many lanes have titles on them.
+pub fn title_lanes(timeline: &Timeline) -> usize {
+    timeline
+        .tracks
+        .iter()
+        .filter(|track| {
+            timeline
+                .clips
+                .iter()
+                .any(|clip| clip.kind == ClipKind::Text && clip.track_id == track.id)
+        })
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Cue, parse, title_cues, write};
+    use super::{Cue, busiest_title_lane, parse, title_cues, title_lanes, write};
     use crate::commands::Command;
     use crate::editor::Editor;
     use crate::model::TextStyle;
@@ -349,5 +386,9 @@ mod tests {
             [cue(1.0, 2.5, "First"), cue(4.0, 5.5, "Second")]
         );
         assert_eq!(title_cues(timeline, None).len(), 3);
+        // The captions' lane is the busy one, not the title card's.
+        assert_eq!(busiest_title_lane(timeline).as_deref(), Some(lane.as_str()));
+        assert_eq!(title_lanes(timeline), 2);
+        assert_eq!(busiest_title_lane(Editor::new().project().active()), None);
     }
 }

@@ -267,31 +267,36 @@ impl CaptionsPane {
         studio.notify(&tf("captions.addedCaptions", &[&count]), false);
     }
 
-    /// Asks where to write the captions, offering the project's folder; a
-    /// phone, with no such dialog, writes them there.
+    /// Asks where to write the captions, offering the project's folder
+    /// and its name. A phone has no such dialog: the file is written
+    /// beside the project under a name nothing there has, and handed to
+    /// the phone to put where its file manager shows it.
     fn ask_export_srt(&mut self, studio: &mut Studio) {
-        if srt::title_cues(studio.timeline(), export_lane(studio).as_deref()).is_empty() {
+        if export_lane(studio).is_none() {
             self.message = t("captions.noCaptionsToExport");
             return;
         }
-        let Some(folder) = studio
+        let name = format!("{}.srt", file_stem(studio));
+        // No project, no project folder: Documents, as anywhere else a
+        // file is written with nothing better to offer.
+        let folder = studio
             .session
             .as_ref()
             .map(|session| PathBuf::from(session.path()))
-        else {
+            .unwrap_or_else(|| PathBuf::from(crate::studio::home_folder("Documents")));
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            let path = unique_path(&folder, &name);
+            self.export_srt(studio, &path);
             return;
-        };
+        }
         let title = t("captions.exportSrt");
         let family = t("captions.subRipSubtitles");
         crate::host::after_dialog(
             move || {
-                if cfg!(any(target_os = "android", target_os = "ios")) {
-                    return Some(folder.join("captions.srt"));
-                }
                 let chosen = crate::platform::save_file(
                     &title,
                     &folder,
-                    "captions.srt",
+                    &name,
                     (family.as_str(), &["srt"]),
                 )?;
                 Some(
@@ -309,23 +314,61 @@ impl CaptionsPane {
         );
     }
 
-    /// Writes the captions to `path` as SubRip.
+    /// Writes the captions to `path` as SubRip, and says how many and
+    /// where - on a phone, once the phone has put the file where it shows
+    /// it.
     fn export_srt(&mut self, studio: &mut Studio, path: &Path) {
-        let cues = srt::title_cues(studio.timeline(), export_lane(studio).as_deref());
-        match std::fs::write(path, srt::write(&cues)) {
-            Ok(()) => {
-                log::info!(
-                    "captions: wrote {} cue(s) to {}",
-                    cues.len(),
-                    path.display()
-                );
-                self.open = false;
-                studio.notify(&tf("captions.exportedCaptions", &[&cues.len()]), false);
-            }
-            Err(error) => {
-                log::warn!("captions: could not write {}: {error}", path.display());
-                self.message = tf("captions.couldNotWriteSubtitles", &[&error]);
-            }
+        let Some(lane) = export_lane(studio) else {
+            self.message = t("captions.noCaptionsToExport");
+            return;
+        };
+        let cues = srt::title_cues(studio.timeline(), Some(&lane.track_id));
+        if let Err(error) = std::fs::write(path, srt::write(&cues)) {
+            log::warn!("captions: could not write {}: {error}", path.display());
+            self.message = tf("captions.couldNotWriteSubtitles", &[&error]);
+            return;
+        }
+        log::info!(
+            "captions: wrote {} cue(s) to {}",
+            cues.len(),
+            path.display()
+        );
+        self.open = false;
+        let count = cues.len();
+        // Which lane was written goes without saying when it was the
+        // selected title's, or the only lane with titles; otherwise the
+        // notice says it was the busiest, and how to pick another.
+        let busiest = lane.busiest && srt::title_lanes(studio.timeline()) > 1;
+        let say = move |studio: &mut Studio, place: &str| {
+            let key = if busiest {
+                "captions.exportedBusiestLane"
+            } else {
+                "captions.exportedCaptions"
+            };
+            studio.notify(&tf(key, &[&count, &place]), false);
+        };
+        let written = path.to_path_buf();
+        let handed = crate::platform::publish_document(
+            path.to_path_buf(),
+            "application/x-subrip",
+            move |result| {
+                crate::host::on_ui(move |studio, _, _| match result {
+                    Ok(place) => say(studio, &place),
+                    Err(error) => {
+                        log::warn!("captions: could not publish {}: {error}", written.display());
+                        studio.notify(
+                            &tf(
+                                "captions.couldNotPublishSubtitles",
+                                &[&written.display(), &error],
+                            ),
+                            true,
+                        );
+                    }
+                });
+            },
+        );
+        if !handed {
+            say(studio, &path.display().to_string());
         }
     }
 
@@ -517,14 +560,78 @@ fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>)
         .collect()
 }
 
+/// The lane an SRT export writes out.
+struct ExportLane {
+    track_id: String,
+    /// Chosen as the lane with the most titles, not by a selected title.
+    busiest: bool,
+}
+
 /// The lane whose titles are written out as captions: the selected
-/// title's, or None - every lane - when no title is selected.
-fn export_lane(studio: &Studio) -> Option<String> {
-    studio
+/// title's; or with no title selected, the lane with the most titles -
+/// captions come many to a lane, a title card one or two, and nothing
+/// else in the document tells them apart (see `srt::busiest_title_lane`).
+/// None when the timeline has no title.
+fn export_lane(studio: &Studio) -> Option<ExportLane> {
+    let selected = studio
         .sole_selection()
         .and_then(|id| studio.clip(&id))
         .filter(|clip| clip.kind == ClipKind::Text)
-        .map(|clip| clip.track_id.clone())
+        .map(|clip| clip.track_id.clone());
+    match selected {
+        Some(track_id) => Some(ExportLane {
+            track_id,
+            busiest: false,
+        }),
+        None => srt::busiest_title_lane(studio.timeline()).map(|track_id| ExportLane {
+            track_id,
+            busiest: true,
+        }),
+    }
+}
+
+/// The name an export is offered under: the project's, as one file name,
+/// or "captions" with no project or no usable name.
+fn file_stem(studio: &Studio) -> String {
+    let name = studio
+        .session
+        .as_ref()
+        .map(|session| session.settings().name)
+        .unwrap_or_default();
+    let stem: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let stem = stem.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    if stem.is_empty() {
+        "captions".to_owned()
+    } else {
+        stem.to_owned()
+    }
+}
+
+/// `name` in `dir`, or `name (2)`, `name (3)`... until nothing there is
+/// written over.
+fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+    (2..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|path| !path.exists())
+        .unwrap_or(first)
 }
 
 /// A clip on the timeline whose voice can be captioned, as the sheet's

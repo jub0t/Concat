@@ -339,9 +339,9 @@ export component CaptionsDialog inherits Modal {
             }
 
             // Captions as a SubRip file: one read in as titles with the
-            // look above, timed as the file says; or the timeline's titles
-            // written out, only the selected title's lane when one is
-            // selected.
+            // look above, timed as the file says; or a lane of titles
+            // written out: the selected title's lane, or with none
+            // selected the lane with the most titles, the captions'.
             if !root.data.running: HorizontalLayout {
                 spacing: 8px;
 
