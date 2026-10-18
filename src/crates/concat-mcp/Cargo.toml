@@ -1,0 +1,22 @@
+[package]
+name = "concat-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Concat for AI agents: an MCP server over stdio whose tools are the Concat API's methods, with schemas generated from its request types."
+
+[dependencies]
+# The one source of editing semantics. `schema` gives each request and each
+# edit command its JSON Schema, which is what a tool's arguments are.
+concat-api = { workspace = true, features = ["schema"] }
+# The window's server, reached as a client, and the file that says where
+# it is.
+concat-server.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
