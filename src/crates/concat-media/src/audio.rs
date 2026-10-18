@@ -337,6 +337,8 @@ struct MixInput {
     input: ffmpeg::format::context::Input,
     stream: usize,
     decoder: ffmpeg::codec::decoder::Audio,
+    /// A packet the codec refused while full; see [`crate::feed`].
+    held: crate::feed::Held<ffmpeg::Packet>,
     label: String,
     done: bool,
     /// Samples already sent to the graph for this clip.
@@ -351,37 +353,14 @@ impl MixInput {
         if self.done {
             return Ok(None);
         }
-        loop {
-            let mut frame = Audio::empty();
-            match self.decoder.receive_frame(&mut frame) {
-                Ok(()) => return Ok(Some(frame)),
-                Err(ffmpeg::Error::Eof) => {
-                    self.done = true;
-                    return Ok(None);
-                }
-                Err(error) if ffi::is_again(&error) => {}
-                Err(error) => return Err(ffi::fail("decode", &self.path, error)),
+        let read = || crate::feed::read_packet(&mut self.input, self.stream);
+        match crate::feed::next_frame(&mut self.decoder, &mut self.held, read) {
+            Ok(Some(frame)) => Ok(Some(frame)),
+            Ok(None) => {
+                self.done = true;
+                Ok(None)
             }
-            loop {
-                let mut packet = ffmpeg::Packet::empty();
-                match packet.read(&mut self.input) {
-                    Ok(()) => {
-                        if packet.stream() != self.stream {
-                            continue;
-                        }
-                        match self.decoder.send_packet(&packet) {
-                            Ok(()) => break,
-                            Err(error) if ffi::is_again(&error) => break,
-                            Err(error) => return Err(ffi::fail("send packet", &self.path, error)),
-                        }
-                    }
-                    Err(ffmpeg::Error::Eof) => {
-                        let _ = self.decoder.send_eof();
-                        break;
-                    }
-                    Err(error) => return Err(ffi::fail("read", &self.path, error)),
-                }
-            }
+            Err(stall) => Err(crate::feed::fail(stall, &self.path)),
         }
     }
 }
@@ -438,6 +417,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             input,
             stream: stream_index,
             decoder,
+            held: None,
             label,
             done: false,
             samples_sent: 0,

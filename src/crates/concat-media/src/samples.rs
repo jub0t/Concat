@@ -134,6 +134,8 @@ pub struct AudioDecoder {
     /// is, the way the picture and the export mix measure it.
     origin: f64,
     decoder: decoder::Audio,
+    /// A packet the codec refused while full; see [`crate::feed`].
+    held: crate::feed::Held<ffmpeg::Packet>,
     options: AudioOptions,
     graph: Option<filter::Graph>,
     /// The codec has been drained and the graph flushed; only what the sink
@@ -200,6 +202,7 @@ impl AudioDecoder {
             time_base,
             origin,
             decoder,
+            held: None,
             options: options.clone(),
             graph: None,
             flushed: false,
@@ -258,35 +261,9 @@ impl AudioDecoder {
 
     /// One decoded frame out of the codec, or `None` when the file is over.
     fn next_source(&mut self) -> Result<Option<Audio>> {
-        loop {
-            let mut frame = Audio::empty();
-            match self.decoder.receive_frame(&mut frame) {
-                Ok(()) => return Ok(Some(frame)),
-                Err(ffmpeg::Error::Eof) => return Ok(None),
-                Err(error) if ffi::is_again(&error) => {}
-                Err(error) => return Err(ffi::fail("decode", &self.path, error)),
-            }
-            loop {
-                let mut packet = ffmpeg::Packet::empty();
-                match packet.read(&mut self.input) {
-                    Ok(()) => {
-                        if packet.stream() != self.stream {
-                            continue;
-                        }
-                        match self.decoder.send_packet(&packet) {
-                            Ok(()) => break,
-                            Err(error) if ffi::is_again(&error) => break,
-                            Err(error) => return Err(ffi::fail("send packet", &self.path, error)),
-                        }
-                    }
-                    Err(ffmpeg::Error::Eof) => {
-                        let _ = self.decoder.send_eof();
-                        break;
-                    }
-                    Err(error) => return Err(ffi::fail("read", &self.path, error)),
-                }
-            }
-        }
+        let read = || crate::feed::read_packet(&mut self.input, self.stream);
+        crate::feed::next_frame(&mut self.decoder, &mut self.held, read)
+            .map_err(|stall| crate::feed::fail(stall, &self.path))
     }
 
     /// The next frame out of the graph: interleaved samples at the requested

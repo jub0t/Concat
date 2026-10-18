@@ -17,6 +17,7 @@ pub mod audio;
 pub mod decode;
 pub mod encode;
 pub mod error;
+mod feed;
 mod ffi;
 pub mod hardware;
 pub mod peaks;
