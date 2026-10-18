@@ -201,6 +201,8 @@ impl Preferences {
 
     /// The multiplier the window backend takes for a percent: the percent
     /// over a hundred, which is what `SLINT_SCALE_FACTOR` parses.
+    // A phone sets its size the system's way and never scales by this.
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     pub fn scale_factor(percent: u32) -> f64 {
         f64::from(percent) / 100.0
     }
