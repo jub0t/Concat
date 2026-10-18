@@ -1021,6 +1021,11 @@ pub struct Studio {
     /// A preview being made, for the clip by this id: whether the model is
     /// still downloading, and how far along.
     enhance_previewing: Option<(String, bool, f32)>,
+    /// Clips whose Enhance section is ticked but that have no copy yet: the
+    /// tick only turns the section on, so it needs somewhere to live until
+    /// a run leaves a copy, whose link then holds it. The window's, not
+    /// the project's: a tick with nothing made is not worth an undo step.
+    enhance_ticked: HashSet<String>,
     /// Reverse writing a clip's backwards copy, by clip: how far along.
     reverse_jobs: HashMap<String, f32>,
     /// A selection being rendered into one clip, with its own cancel flag.
@@ -2248,6 +2253,7 @@ impl Studio {
             enhance_strength: concat_host::enhance::DEFAULT_STRENGTH,
             enhance_preview: None,
             enhance_previewing: None,
+            enhance_ticked: HashSet::new(),
             reverse_jobs: HashMap::new(),
             merge_job: None,
             region_job: None,
@@ -6221,9 +6227,16 @@ impl Studio {
         );
     }
 
-    /// The Enhance switch in the inspector, for the one selected clip. A
-    /// clip with a copy shows it or its original; one without starts
-    /// Enhance on the switch going on, and stops a run on it going off.
+    /// The Enhance tick in the inspector, for the one selected clip. It
+    /// never starts a run - that is minutes of the machine, and the
+    /// button's to ask for. Ticked, the section's settings and button come
+    /// alive. On a clip with a copy it also switches the clip between the
+    /// copy and its original, one undo step, the copy kept in the bin and
+    /// the cache so ticking again shows it at once.
+    ///
+    /// Unticked means the clip shows its original, so a run still going
+    /// for it is stopped: left alone, it would put the copy on screen when
+    /// it finished, under a tick that says it is off.
     pub fn clip_enhance_set(&mut self, on: bool) {
         let Some(id) = self.sole_selection() else {
             return;
@@ -6234,13 +6247,27 @@ impl Studio {
         if self.locked(&clip.track_id) {
             return;
         }
-        if clip.enhanced.is_some() {
+        let linked = clip.enhanced.is_some();
+        if !on && self.enhance_jobs.contains_key(&id) {
+            self.host.enhancers.cancel();
+        }
+        if on {
+            self.enhance_ticked.insert(id.clone());
+        } else {
+            self.enhance_ticked.remove(&id);
+        }
+        if linked {
             self.apply(Command::SetClipEnhanced { clip_id: id, on });
             self.request_preview();
-        } else if on {
-            self.enhance_clip(&id);
-        } else if self.enhance_jobs.contains_key(&id) {
-            self.host.enhancers.cancel();
+        }
+    }
+
+    /// Whether clip `clip`'s Enhance section is ticked: its copy shown, or,
+    /// without a copy, the tick put on in this window.
+    fn enhance_ticked(&self, clip: &Clip) -> bool {
+        match clip.enhanced.as_ref() {
+            Some(link) => link.on,
+            None => self.enhance_ticked.contains(&clip.id),
         }
     }
 
@@ -6268,16 +6295,25 @@ impl Studio {
         }
     }
 
-    /// "Enhance again": a clip that has a copy, enhanced anew from its
-    /// original with the section's settings as they are now. A copy those
-    /// settings already made is picked up at once rather than redone.
+    /// The section's one button: Enhance, or Enhance again on a clip that
+    /// has a copy - a run from the original with the settings as they are
+    /// now, a copy those settings already made picked up at once rather
+    /// than redone - and Terminate while this clip's run is going. Only on
+    /// a ticked section, as the button is.
     pub fn clip_enhance_run(&mut self) {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        // Terminate: the run under way for this clip stops after the frame
+        // in hand, and its partial files go; the clip is re-pointed only on
+        // a copy that is whole, so it stays as it was.
+        if self.enhance_jobs.contains_key(&id) {
+            self.host.enhancers.cancel();
+            return;
+        }
         if self
             .clip(&id)
-            .is_some_and(|clip| !self.locked(&clip.track_id))
+            .is_some_and(|clip| !self.locked(&clip.track_id) && self.enhance_ticked(clip))
         {
             self.enhance_clip(&id);
         }
@@ -6489,9 +6525,18 @@ impl Studio {
                 studio.enhance_jobs.remove(&clip_id);
                 // A cancelled or failed run leaves the clip as it was: the
                 // job writes under partial names and the clip is only
-                // re-pointed here, on a copy that is whole.
+                // re-pointed here, on a copy that is whole. Nor is a clip
+                // whose tick went off as the run finished: the copy stays
+                // in the cache, and ticking and Enhance again find it.
+                let ticked = studio
+                    .clip(&clip_id)
+                    .is_some_and(|clip| studio.enhance_ticked(clip));
                 match result {
-                    Ok(path) => studio.adopt_enhanced(&clip_id, &path, factor, percent),
+                    Ok(path) if ticked => {
+                        studio.enhance_ticked.remove(&clip_id);
+                        studio.adopt_enhanced(&clip_id, &path, factor, percent);
+                    }
+                    Ok(_) => {}
                     Err(error) if error.contains("cancelled") => {}
                     Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
                 }
@@ -7710,6 +7755,7 @@ impl Studio {
         self.enhance_jobs.clear();
         self.enhance_preview = None;
         self.enhance_previewing = None;
+        self.enhance_ticked.clear();
         self.reverse_jobs.clear();
         self.cancel_merge();
         self.cutout_jobs.clear();
@@ -9601,8 +9647,7 @@ impl Studio {
                 .is_some_and(|(fetching, _)| *fetching),
             reverse_progress: self.reverse_jobs.get(&clip.id).copied().unwrap_or(-1.0),
             enhance_linked: clip.enhanced.is_some(),
-            enhance_on: clip.enhanced.as_ref().is_some_and(|link| link.on)
-                || self.enhance_jobs.contains_key(&clip.id),
+            enhance_on: self.enhance_ticked(clip),
             enhance_busy: !self.enhance_jobs.is_empty() || self.enhance_previewing.is_some(),
             enhance_size: enhance.size,
             enhance_auto: enhance.auto as i32,

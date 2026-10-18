@@ -1498,9 +1498,14 @@ component PreviewHalf inherits VerticalLayout {
 }
 
 /// Enhance: the picture restored and enlarged by the model, into a copy the
-/// clip then shows. The header's tick starts it the first time; once there
-/// is a copy, it switches between the copy and the original without running
-/// the model again.
+/// clip then shows.
+///
+/// The header's tick never starts minutes of work by itself: it turns the
+/// section on - its settings, its preview and its button come alive - and,
+/// once there is a copy, switches the clip between the copy and its
+/// original without running the model again. The run is the button's:
+/// Enhance, Enhance again once there is a copy, and Terminate while one is
+/// going.
 ///
 /// Below the tick, what the run is made with - Size and Strength - and a
 /// preview of the frame under the playhead at those settings, so the
@@ -1511,13 +1516,20 @@ component PreviewHalf inherits VerticalLayout {
 export component EnhancePanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
 
+    /// The tick: the section on or off, and the copy shown or not.
     callback enhance-set(on: bool);
     /// 0 Auto, 1 once, 2 twice, 3 four times.
     callback enhance-size(index: int);
     callback enhance-strength(strength: float);
     callback enhance-preview();
-    /// A clip with a copy enhanced anew with the settings as they are.
+    /// The button: a run with the settings as they are, or, while this
+    /// clip's run is going, its end.
     callback enhance-run();
+
+    /// This clip's run is going: the button stops it rather than starts one.
+    property <bool> running: root.selected.enhance-progress >= 0;
+    /// The section is ticked: everything under the header answers.
+    property <bool> live: root.selected.enhance-on;
 
     property <float> strength;
 
@@ -1538,19 +1550,20 @@ export component EnhancePanel inherits VerticalLayout {
             switchable: true;
             on: root.selected.enhance-on;
             switched(on) => { root.enhance-set(on); }
+            HelpButton {
+                text: I18n.t("clipInspector.enhanceExplain");
+            }
         }
 
         SectionBody {
-            if root.selected.enhance-progress >= 0: EnhanceRow {
+            if root.running: EnhanceRow {
                 progress: root.selected.enhance-progress;
                 fetching: root.selected.enhance-fetching;
             }
-            if root.selected.enhance-progress < 0: Note {
-                text: root.selected.enhance-linked
-                    ? (root.selected.enhance-on
-                        ? I18n.t("clipInspector.enhanceShowingCopy")
-                        : I18n.t("clipInspector.enhanceShowingOriginal"))
-                    : I18n.t("clipInspector.enhanceExplain");
+            if !root.running && root.selected.enhance-linked: Note {
+                text: root.selected.enhance-on
+                    ? I18n.t("clipInspector.enhanceShowingCopy")
+                    : I18n.t("clipInspector.enhanceShowingOriginal");
             }
 
             Row {
@@ -1569,6 +1582,7 @@ export component EnhancePanel inherits VerticalLayout {
                         !root.selected.enhance-fits-4x,
                     ];
                     current: root.selected.enhance-size;
+                    enabled: root.live;
                     changed(index) => { root.enhance-size(index); }
                 }
             }
@@ -1586,6 +1600,7 @@ export component EnhancePanel inherits VerticalLayout {
                 fmt: ParamFormat.fraction;
                 unit: "%";
                 unit-scale: 100;
+                enabled: root.live;
                 changed(v) => { root.enhance-strength(v); }
             }
             Note {
@@ -1595,15 +1610,22 @@ export component EnhancePanel inherits VerticalLayout {
             Row {
                 Button {
                     label: I18n.t("clipInspector.enhancePreview");
-                    enabled: !root.selected.enhance-busy;
+                    enabled: root.live && !root.selected.enhance-busy;
                     clicked => { root.enhance-preview(); }
                 }
-                if root.selected.enhance-linked: Button {
-                    label: I18n.t("clipInspector.enhanceAgain");
-                    enabled: !root.selected.enhance-busy;
+                Rectangle { horizontal-stretch: 1; }
+                // One button for the run, whatever stage it is at. While
+                // this clip's run goes it is the way to stop it, even though
+                // the model is then busy; otherwise it waits for the model.
+                Button {
+                    primary: !root.running;
+                    danger: root.running;
+                    label: root.running ? I18n.t("clipInspector.enhanceTerminate")
+                        : root.selected.enhance-linked ? I18n.t("clipInspector.enhanceAgain")
+                        : I18n.t("clipInspector.enhanceRun");
+                    enabled: root.running || (root.live && !root.selected.enhance-busy);
                     clicked => { root.enhance-run(); }
                 }
-                Rectangle { horizontal-stretch: 1; }
             }
             if root.selected.enhance-previewing: Note {
                 text: root.selected.enhance-preview-fetch >= 0
