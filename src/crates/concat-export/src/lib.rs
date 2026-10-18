@@ -2864,6 +2864,177 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// A fresh adjustment layer - the colour panel's package at its
+    /// defaults, laid over the footage through the command the library
+    /// uses - leaves the picture exactly as it was, on the monitor's plan
+    /// and through the export's compositing alike; graded, it changes the
+    /// picture and the two still agree (#249). Skips without FFmpeg or a
+    /// GPU.
+    #[test]
+    fn a_fresh_adjustment_layer_changes_nothing_on_the_monitor_or_in_the_export() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+        use concat_project::commands::{ClipPatch, NewMedia};
+        use concat_project::model::MediaKind;
+        use concat_project::{Command, Editor};
+
+        let (width, height) = (64_u32, 64_u32);
+        let path = std::env::temp_dir().join(format!(
+            "concat-adjustment-layer-{}.mp4",
+            std::process::id()
+        ));
+        let Ok(mut encoder) = Encoder::create(
+            &path,
+            width,
+            height,
+            FrameRate::THIRTY,
+            &EncodeOptions {
+                crf: 12,
+                ..EncodeOptions::default()
+            },
+        ) else {
+            return; // no ffmpeg here
+        };
+        // Something in every channel at every level, so a grade that moved
+        // any of them would show.
+        let mut picture = Frame::black(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                picture.set_pixel(x, y, [(x * 4) as u8, (y * 4) as u8, 150, 255]);
+            }
+        }
+        for _ in 0..60 {
+            encoder.write_frame(&picture).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        let Some(mut gpu) = WgpuCompositor::new() else {
+            let _ = std::fs::remove_file(&path);
+            return; // no renderer here
+        };
+
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(Command::AddMedia {
+                item: NewMedia {
+                    path: path.to_string_lossy().into_owned(),
+                    name: "gradient.mp4".into(),
+                    duration: Some(2.0),
+                    kind: MediaKind::Video,
+                    width: Some(width),
+                    height: Some(height),
+                    frame_rate: None,
+                    frame_rate_fraction: None,
+                    video_codec: None,
+                    audio_codec: None,
+                    has_audio: false,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                    color_space: Default::default(),
+                },
+            })
+            .expect("adds media")
+            .created_id
+            .expect("an id");
+        let track_id = editor.project().timelines[0].tracks[0].id.clone();
+        editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id,
+                start: 0.0,
+                ripple: false,
+            })
+            .expect("adds the footage");
+        let plain = flatten::flatten_timeline(editor.project(), None);
+        let layer_id = editor
+            .apply(Command::AddLayerClip {
+                track_id: None,
+                start: 0.0,
+                duration: Some(2.0),
+                effect_id: "concat.adjust".into(),
+                name: "Adjustment".into(),
+            })
+            .expect("adds the layer")
+            .created_id
+            .expect("an id");
+        let fresh = flatten::flatten_timeline(editor.project(), None);
+        assert!(
+            fresh
+                .iter()
+                .any(|clip| clip.kind == ClipKind::Layer && clip.track > 0),
+            "the layer is over the footage"
+        );
+
+        let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
+        let request = |clips: Vec<ExportClip>| PreviewFrameRequest {
+            time: 1.0,
+            width,
+            height,
+            rate_num: 30,
+            rate_den: 1,
+            clips,
+            color_space: concat_project::model::ColorSpace::Sdr,
+        };
+        // The window draws the plan with every live treatment folded in;
+        // the export draws through `composite_treated`.
+        let mut both = |clips: Vec<ExportClip>| -> (Frame, Frame) {
+            let sources = preview_sources(&pool, &request(clips)).expect("previews");
+            let monitor = gpu.render(sources.plan());
+            let export = sources.composite(&mut gpu);
+            (monitor, export)
+        };
+        let furthest = |a: &Frame, b: &Frame| -> u8 {
+            a.pixels()
+                .iter()
+                .zip(b.pixels())
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap_or(0)
+        };
+
+        let (before, before_export) = both(plain);
+        assert_eq!(furthest(&before, &before_export), 0, "untreated");
+        let (monitor, export) = both(fresh);
+        assert!(
+            furthest(&before, &monitor) <= 1,
+            "a fresh adjustment layer moved the monitor's picture by {}",
+            furthest(&before, &monitor)
+        );
+        assert!(
+            furthest(&before, &export) <= 1,
+            "a fresh adjustment layer moved the exported picture by {}",
+            furthest(&before, &export)
+        );
+
+        // A stop up: the picture changes, the same on both.
+        let mut graded = AppliedFilter::new("concat.adjust");
+        graded.params.insert("exposure".into(), 1.0);
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: layer_id,
+                patch: ClipPatch {
+                    video_effects: Some(vec![graded]),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("grades the layer");
+        let (monitor, export) = both(flatten::flatten_timeline(editor.project(), None));
+        eprintln!(
+            "a stop up moves the picture by {} at most; monitor and export differ by {}",
+            furthest(&before, &monitor),
+            furthest(&monitor, &export)
+        );
+        assert!(
+            furthest(&before, &monitor) > 20,
+            "a stop up must show on the monitor"
+        );
+        assert!(
+            furthest(&monitor, &export) <= 1,
+            "the monitor and the export disagree by {}",
+            furthest(&monitor, &export)
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// A still keeps its own shape on the monitor: a portrait photograph
     /// in a square frame stands in the middle with the stage either side
     /// of it, not stretched across the frame (#229). Skips without FFmpeg.
