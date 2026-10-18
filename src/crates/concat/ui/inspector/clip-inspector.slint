@@ -1983,9 +1983,12 @@ export component EnhancePanel inherits VerticalLayout {
                     : I18n.t("clipInspector.enhanceShowingOriginal");
             }
 
+            // A dropdown, as the inspector's other choices of one are:
+            // the sizes past the longest side the model can take are
+            // listed greyed, and the note under the row says why.
             Row {
                 label: I18n.t("clipInspector.enhanceSize");
-                sizes := SegmentedControl {
+                sizes := Select {
                     options: [
                         I18n.t1("clipInspector.enhanceAuto", "\{root.selected.enhance-auto}x"),
                         "1x",
