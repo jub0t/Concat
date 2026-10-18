@@ -45,6 +45,7 @@ use concat_host::cutout::{self, AnalyseRequest, Cutouts};
 use concat_host::export::{self, Exporter};
 use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::session::EditorView;
+use concat_host::stabilize::{StabilizeRequest, Stabilizers};
 use concat_host::templates::{self, SlotFill};
 use concat_host::{ProjectInfo, Session, Titles, media, projects};
 use concat_project::Command;
@@ -156,6 +157,7 @@ pub struct Api {
     open: OpenProjects,
     titles: Titles,
     cutouts: Arc<Cutouts>,
+    stabilizers: Arc<Stabilizers>,
     monitor: Monitor,
     exporter: Exporter,
     events: EventSink,
@@ -177,6 +179,7 @@ impl Api {
         Api {
             titles: Titles::new(&dirs),
             cutouts: Arc::new(Cutouts::new(&dirs.data)),
+            stabilizers: Arc::new(Stabilizers::new()),
             monitor: Monitor::new(),
             exporter: Exporter::new(),
             sessions: BTreeMap::new(),
@@ -579,6 +582,11 @@ impl Api {
                 .into_iter()
                 .filter(|(_, request)| Cutouts::outstanding(request) != 0)
                 .collect();
+        let steadies: Vec<(String, StabilizeRequest)> =
+            Stabilizers::requests(session.project(), &project_dir)
+                .into_iter()
+                .filter(|(_, request)| !Stabilizers::outstanding(request).is_empty())
+                .collect();
         let titles = self.title_clips(session, width, height);
         let mut request = export::request(session, &host_spec, titles);
         request.width = width;
@@ -601,6 +609,8 @@ impl Api {
             request,
             masks,
             cutouts: Arc::clone(&self.cutouts),
+            steadies,
+            stabilizers: Arc::clone(&self.stabilizers),
             events: Arc::clone(&self.events),
         };
         let thread = std::thread::Builder::new()
@@ -623,6 +633,7 @@ impl Api {
         // Whichever phase it is in: the analysis ahead of the render, or
         // the render itself.
         self.cutouts.cancel();
+        self.stabilizers.cancel();
         self.exporter.cancel();
         Ok(())
     }
@@ -752,6 +763,8 @@ struct ExportJob {
     request: ExportRequest,
     masks: Vec<(String, AnalyseRequest)>,
     cutouts: Arc<Cutouts>,
+    steadies: Vec<(String, StabilizeRequest)>,
+    stabilizers: Arc<Stabilizers>,
     events: EventSink,
 }
 
@@ -759,11 +772,14 @@ impl ExportJob {
     /// The whole job, start to end, on the thread it is called from. The
     /// slot is held until this returns, so the next export waits its turn.
     fn run(self, slot: concat_host::jobs::Job) {
-        let outcome = self.masks(&slot).and_then(|()| {
-            export::run(&self.request, slot.cancel_flag(), |progress| {
-                (self.events)(Event::progress(&self.name, &self.path, progress));
-            })
-        });
+        let outcome = self
+            .masks(&slot)
+            .and_then(|()| self.steadies(&slot))
+            .and_then(|()| {
+                export::run(&self.request, slot.cancel_flag(), |progress| {
+                    (self.events)(Event::progress(&self.name, &self.path, progress));
+                })
+            });
         let event = match outcome {
             Ok(output) => Event::ExportDone {
                 job: self.name.clone(),
@@ -804,6 +820,28 @@ impl ExportJob {
                     path: self.path.clone(),
                     media_id: media_id.clone(),
                     fetching,
+                    fraction,
+                });
+            })?;
+        }
+        Ok(())
+    }
+}
+
+impl ExportJob {
+    /// Measures every stabilized clip's media the timeline still needs,
+    /// one after the other, so the render that follows steadies every
+    /// clip it should.
+    fn steadies(&self, slot: &concat_host::jobs::Job) -> Result<(), String> {
+        for (media_id, request) in &self.steadies {
+            if slot.cancelled() {
+                return Err("cancelled".to_owned());
+            }
+            self.stabilizers.analyse(request, &mut |fraction| {
+                (self.events)(Event::StabilizeProgress {
+                    job: self.name.clone(),
+                    path: self.path.clone(),
+                    media_id: media_id.clone(),
                     fraction,
                 });
             })?;

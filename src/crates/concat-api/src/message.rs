@@ -194,7 +194,8 @@ pub enum Request {
     },
 
     /// Renders an open project's active timeline to a file, exactly as
-    /// the window's Export does: cutouts analysed, titles painted, then the
+    /// the window's Export does: cutouts analysed, stabilized clips'
+    /// camera shake measured, titles painted, then the
     /// frame loop and the mix. Returns at once with the job's name; the
     /// render runs on its own thread and reports through [`Event`]s, ending
     /// in [`Event::ExportDone`] or [`Event::ExportFailed`]. One export runs
@@ -577,6 +578,18 @@ pub enum Event {
         /// How far along, `0..=1`.
         fraction: f32,
     },
+    /// A stabilized clip's media is being measured ahead of an export.
+    #[serde(rename = "stabilize.progress")]
+    StabilizeProgress {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// The media being measured.
+        media_id: String,
+        /// How far along, `0..=1`.
+        fraction: f32,
+    },
     /// The export moved on.
     #[serde(rename = "export.progress")]
     ExportProgress {
@@ -634,6 +647,7 @@ impl Event {
     pub fn job(&self) -> &str {
         match self {
             Event::CutoutProgress { job, .. }
+            | Event::StabilizeProgress { job, .. }
             | Event::ExportProgress { job, .. }
             | Event::ExportDone { job, .. }
             | Event::ExportFailed { job, .. } => job,
