@@ -851,6 +851,12 @@ impl SettingsPane {
                 _ => studio.prefs.server.token.as_str().into(),
             },
             server_status: self.server_status(studio).into(),
+            server_state: match &studio.host.server {
+                Some(_) => 1,
+                None if !self.server_error.is_empty() => 2,
+                None => 0,
+            },
+            server_local: is_loopback(&split_listen(&studio.prefs.server.listen).0),
             disk: {
                 let on_disk: Vec<&ModelState> = installed(&self.transcribers)
                     .into_iter()
@@ -1018,6 +1024,17 @@ mod tests {
 /// A bracketed IPv6 host keeps its brackets. An address with no port, or
 /// a port that is not a number, gets the default port; an empty host gets
 /// loopback.
+/// Whether a listening host is this computer's alone: a loopback address
+/// or "localhost". Anything else - 0.0.0.0, a LAN address, a name - can
+/// be reached from the network, and the Automation page says so.
+pub fn is_loopback(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
 pub fn split_listen(listen: &str) -> (String, u16) {
     let (default_host, default_port) = match split_once_port(prefs::DEFAULT_LISTEN) {
         Some((host, Some(port))) => (host, port),
@@ -1094,6 +1111,24 @@ mod listen_tests {
         for listen in ["127.0.0.1:7420", "[::1]:7420", "0.0.0.0:65535"] {
             let (host, port) = split_listen(listen);
             assert_eq!(join_listen(&host, port), listen);
+        }
+    }
+
+    /// The Automation page warns for any host past this computer.
+    #[test]
+    fn only_a_loopback_host_is_this_computer_alone() {
+        for host in [
+            "127.0.0.1",
+            "127.0.0.2",
+            "[::1]",
+            "::1",
+            "localhost",
+            " LocalHost ",
+        ] {
+            assert!(is_loopback(host), "{host}");
+        }
+        for host in ["0.0.0.0", "192.168.1.9", "[::]", "example.com", ""] {
+            assert!(!is_loopback(host), "{host}");
         }
     }
 

@@ -93,6 +93,10 @@ export struct SettingsData {
     server-token: string,
     /// "Listening on 127.0.0.1:7420 · 1 connected", "Off", or why not
     server-status: string,
+    /// 0 off, 1 listening, 2 could not start: the status line's dot
+    server-state: int,
+    /// the address is this computer's alone (loopback): no warning
+    server-local: bool,
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
@@ -700,6 +704,9 @@ export component SettingsDialog inherits Modal {
     /// Off each time the sheet opens: showing it is a decision for the
     /// moment, not a setting.
     property <bool> token-shown;
+    /// Copy was pressed a moment ago: its mark is a tick for a second
+    /// and a half, so the press is seen to have worked.
+    property <bool> token-copied;
     changed open => {
         if (!root.open) {
             root.token-shown = false;
@@ -1224,9 +1231,10 @@ export component SettingsDialog inherits Modal {
             }
 
             // The API on a socket. The switch is the whole of it for most
-            // people; the address and the token are there for the one who
-            // is putting a script on another machine, and the hints say
-            // what that opens.
+            // people, with a line under it saying what the server is doing;
+            // the address and the token are there for the one who is
+            // putting a script on another machine, and the page says
+            // plainly when the address it is given reaches past this one.
             if root.data.tab == 4 && !root.phone: VerticalLayout {
                 DialogSection {
                     ruled: false;
@@ -1237,67 +1245,117 @@ export component SettingsDialog inherits Modal {
                     on: root.data.server-enabled;
                     switched(on) => { root.server-enabled-changed(on); }
 
-                    Text {
-                        text: root.data.server-status;
-                        color: Theme.fg-muted;
-                        font-family: Theme.font-technical;
-                        font-size: Theme.fs-sm;
-                        wrap: word-wrap;
+                    // What the server is doing, at a glance: a green dot
+                    // while it listens, a red one when it could not start,
+                    // a dim one when it is off.
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: self.width / 2;
+                                background: root.data.server-state == 1 ? Theme.green
+                                    : root.data.server-state == 2 ? Theme.danger
+                                    : Theme.fg-dim;
+                            }
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.data.server-status;
+                            color: root.data.server-state == 2 ? Theme.danger : Theme.fg-muted;
+                            font-family: root.data.server-state == 1 ? Theme.font-technical : Theme.font;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
                     }
                 }
 
                 DialogSection {
-
                     ruled: false;
                     title: I18n.t("settings.address");
-                    hint: I18n.t("settings.localAddressWarning");
+                    hint: I18n.t("settings.addressHint");
 
-                    // One control in two halves: the address, a fixed
-                    // colon nobody has to type, and the port as a number
-                    // held to what a port can be.
-                    HorizontalLayout {
-                        spacing: 0;
+                    // One field in two parts on one ground: the address,
+                    // a colon nobody has to type, drawn as the field's own
+                    // dim text rather than a band of its own, and the port
+                    // as a number held to what a port can be.
+                    Rectangle {
+                        min-height: 28px;
+                        max-height: 28px;
+                        border-radius: Theme.r;
+                        background: Theme.field;
+                        clip: true;
 
-                        Field {
-                            value: root.data.server-host;
-                            placeholder: "127.0.0.1";
-                            technical: true;
-                            radius-right: 0px;
-                            edited(text) => { root.server-host-edited(text); }
-                        }
+                        HorizontalLayout {
+                            spacing: 0;
 
-                        Rectangle {
-                            width: 18px;
-                            min-height: 28px;
-                            max-height: 28px;
-                            background: Theme.well;
+                            Field {
+                                value: root.data.server-host;
+                                placeholder: "127.0.0.1";
+                                technical: true;
+                                radius-right: 0px;
+                                edited(text) => { root.server-host-edited(text); }
+                            }
 
                             Text {
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
+                                width: 10px;
                                 text: ":";
                                 color: Theme.fg-dim;
                                 font-family: Theme.font-technical;
                                 font-size: Theme.fs;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            NumberField {
+                                width: 72px;
+                                horizontal-stretch: 0;
+                                radius-left: 0px;
+                                value: root.data.server-port;
+                                minimum: 0;
+                                maximum: 65535;
+                                step: 1;
+                                precision: 0;
+                                changed(port) => { root.server-port-edited(port); }
                             }
                         }
+                    }
 
-                        NumberField {
-                            width: 76px;
-                            horizontal-stretch: 0;
-                            radius-left: 0px;
-                            value: root.data.server-port;
-                            minimum: 0;
-                            maximum: 65535;
-                            step: 1;
-                            precision: 0;
-                            changed(port) => { root.server-port-edited(port); }
+                    // Past loopback, said where it is decided, with the way
+                    // back beside it.
+                    if !root.data.server-local: Rectangle {
+                        border-radius: Theme.r;
+                        background: Theme.danger-soft;
+
+                        HorizontalLayout {
+                            padding: 8px;
+                            spacing: 8px;
+
+                            Text {
+                                horizontal-stretch: 1;
+                                text: I18n.t("settings.exposedAddressWarning");
+                                color: Theme.fg;
+                                font-size: Theme.fs-sm;
+                                wrap: word-wrap;
+                                vertical-alignment: center;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Button {
+                                    label: I18n.t("settings.thisComputerOnly");
+                                    clicked => { root.server-host-edited("127.0.0.1"); }
+                                }
+                            }
                         }
                     }
                 }
 
                 DialogSection {
-
                     ruled: false;
                     title: I18n.t("settings.token");
                     hint: I18n.t("settings.whatConnectionMustPresent");
@@ -1305,28 +1363,64 @@ export component SettingsDialog inherits Modal {
                     // Dots until asked, the way a password field is: the
                     // token is what lets a connection in, and Settings is
                     // open on screens other people look at. The eye shows
-                    // it for as long as the sheet is up.
-                    HorizontalLayout {
-                        spacing: 6px;
+                    // it for as long as the sheet is up; Copy takes it
+                    // without showing it, and the arrow makes a new one.
+                    Rectangle {
+                        min-height: 28px;
+                        max-height: 28px;
 
-                        Field {
-                            value: root.data.server-token;
-                            placeholder: I18n.t("common.none");
-                            technical: true;
-                            secret: !root.token-shown;
-                            edited(text) => { root.server-token-edited(text); }
+                        HorizontalLayout {
+                            spacing: 6px;
+
+                            Field {
+                                value: root.data.server-token;
+                                placeholder: I18n.t("common.none");
+                                technical: true;
+                                secret: !root.token-shown;
+                                edited(text) => { root.server-token-edited(text); }
+                            }
+
+                            Button {
+                                square: true;
+                                glyph: root.token-shown ? Glyph.eye-off : Glyph.eye;
+                                label: root.token-shown ? I18n.t("settings.hideTheToken") : I18n.t("settings.showTheToken");
+                                clicked => { root.token-shown = !root.token-shown; }
+                            }
+
+                            Button {
+                                square: true;
+                                glyph: root.token-copied ? Glyph.check : Glyph.copy;
+                                label: I18n.t("settings.copyTheToken");
+                                enabled: root.data.server-token != "";
+                                clicked => {
+                                    token-copy.select-all();
+                                    token-copy.copy();
+                                    root.token-copied = true;
+                                }
+                            }
+
+                            Button {
+                                glyph: Glyph.reset;
+                                label: I18n.t("settings.newToken");
+                                clicked => { root.server-token-generated(); }
+                            }
                         }
 
-                        Button {
-                            square: true;
-                            glyph: root.token-shown ? Glyph.eye-off : Glyph.eye;
-                            label: root.token-shown ? I18n.t("settings.hideTheToken") : I18n.t("settings.showTheToken");
-                            clicked => { root.token-shown = !root.token-shown; }
+                        // What Copy copies from: the token, out of sight.
+                        token-copy := TextInput {
+                            x: 0;
+                            y: 0;
+                            width: 1px;
+                            height: 1px;
+                            opacity: 0;
+                            text: root.data.server-token;
+                            read-only: true;
                         }
 
-                        Button {
-                            label: I18n.t("settings.newToken");
-                            clicked => { root.server-token-generated(); }
+                        Timer {
+                            interval: 1500ms;
+                            running: root.token-copied;
+                            triggered => { root.token-copied = false; }
                         }
                     }
                 }
