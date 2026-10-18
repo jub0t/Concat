@@ -277,6 +277,24 @@ export component TimelineTray inherits Rectangle {
                     ? TimelineTool.select : TimelineTool.split);
             }
         }
+        // Delete left and Delete right, as in CapCut's toolbar: the clip under
+        // the playhead loses what is left, or right, of it. The same action
+        // as their keys (Q and W unless rebound), so a button and its key
+        // cannot disagree. https://github.com/jub0t/Concat/issues/400
+        TrayButton {
+            glyph: Glyph.delete-left;
+            label: I18n.t("shortcuts.deleteLeft") + (Editor.keys-delete-left == "" ? ""
+                : " (" + Editor.keys-delete-left + ")");
+            icon-size: 16px;
+            clicked => { Editor.shortcut("delete-left"); }
+        }
+        TrayButton {
+            glyph: Glyph.delete-right;
+            label: I18n.t("shortcuts.deleteRight") + (Editor.keys-delete-right == "" ? ""
+                : " (" + Editor.keys-delete-right + ")");
+            icon-size: 16px;
+            clicked => { Editor.shortcut("delete-right"); }
+        }
         TrayButton {
             glyph: Glyph.merge;
             // The reason a blocked Merge is blocked rides on the button rather

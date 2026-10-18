@@ -8208,6 +8208,8 @@ impl Studio {
         editor.set_keys_redo(hint("redo").into());
         editor.set_keys_split(hint("split").into());
         editor.set_keys_split_tool(hint("split-tool").into());
+        editor.set_keys_delete_left(hint("delete-left").into());
+        editor.set_keys_delete_right(hint("delete-right").into());
         editor.set_keys_pan(hint("pan").into());
         editor.set_keys_preview_axis(hint("preview-axis").into());
         self.publish_lanes(app, models);

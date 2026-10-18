@@ -109,6 +109,8 @@ export enum Glyph {
     pointer,
     razor,
     split,
+    delete-left,
+    delete-right,
     merge,
     trash,
     magnet,
@@ -580,6 +582,17 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M12 2v20 M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3 M8 21H5a2 2 0 0"
             + " 1-2-2V5a2 2 0 0 1 2-2h3";
+    }
+
+    // The split glyph's cut and the half that stays, with a cross where the
+    // other half was: what Delete left and Delete right leave of a clip.
+    if root.glyph == Glyph.delete-left: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 2v20 M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3 M4 9l5 6 M9 9l-5 6";
+    }
+    if root.glyph == Glyph.delete-right: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 2v20 M8 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3 M15 9l5 6 M20 9l-5 6";
     }
 
     // lucide/merge
