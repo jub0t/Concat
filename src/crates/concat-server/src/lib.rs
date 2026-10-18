@@ -40,6 +40,8 @@
 //! encryption: a bind off loopback belongs behind something that provides
 //! it, and [`is_exposed`] is how a front end says so.
 
+pub mod client;
+pub mod discovery;
 mod hub;
 pub mod json;
 pub mod throttle;
@@ -117,6 +119,11 @@ pub struct Config {
     /// instantiated template, an export, a preview file. Empty means the
     /// user's home ([`home_root`]); to write anywhere, name `/`.
     pub roots: Vec<PathBuf>,
+    /// Where to list the JSON-RPC address and the token while the server
+    /// runs, for a program on this machine to find it - `concat --mcp`,
+    /// started by an agent. See [`discovery`]; removed when the server
+    /// stops. `None` lists nothing.
+    pub discovery: Option<PathBuf>,
 }
 
 /// Where the API writes when told nothing else: the user's home folder,
@@ -165,6 +172,8 @@ pub struct Server {
     connections: Connections,
     seats: Arc<AtomicUsize>,
     pending: Arc<AtomicUsize>,
+    /// The listing written for local callers, taken away at the stop.
+    listing: Option<PathBuf>,
 }
 
 /// Every connection that is in, by number, with its way of being closed,
@@ -237,6 +246,7 @@ impl Server {
             connections: Arc::clone(&connections),
             seats: Arc::clone(&door.seats),
             pending: Arc::clone(&door.pending),
+            listing: None,
         };
         let could_not = |what: &str, error: &dyn std::fmt::Display| {
             format!("could not listen on {what}: {error}")
@@ -281,6 +291,14 @@ impl Server {
             server.listeners.push(thread);
         }
         let _ = throttle;
+
+        // Last, so nothing is listed that is not yet listening. A listing
+        // that cannot be written costs the agent a way in, not the server.
+        if let (Some(path), Some(address)) = (config.discovery, server.json)
+            && discovery::write(&path, &discovery::Listing::new(address, &server.token)).is_ok()
+        {
+            server.listing = Some(path);
+        }
 
         Ok(server)
     }
@@ -363,6 +381,10 @@ impl Server {
     /// the listeners joined, the connections hung up, the jobs cancelled
     /// and the queue closed.
     fn close_doors(&mut self) {
+        // Unlisted first, so nobody new is sent to a door that is closing.
+        if let Some(path) = self.listing.take() {
+            discovery::remove(&path);
+        }
         self.stop.store(true, Ordering::SeqCst);
         // A blocked accept wakes for a connection; make one - to loopback
         // when the bind was to every interface, which Windows refuses to
@@ -506,6 +528,29 @@ pub(crate) mod tests {
         assert!(is_exposed(&bound));
         assert!(loopback(bound).ip().is_loopback());
         server.stop();
+    }
+
+    #[test]
+    fn a_server_lists_itself_while_it_runs() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let dirs = AppDirs {
+            config: scratch.path().join("config"),
+            data: scratch.path().join("data"),
+        };
+        let path = discovery::path_in(&dirs.config);
+        let config = Config {
+            json: Some("127.0.0.1:0".parse().expect("an address")),
+            roots: vec![scratch.path().to_path_buf()],
+            discovery: Some(path.clone()),
+            ..Config::default()
+        };
+        let server =
+            Server::start(config, move |events| Ok(Api::with_dirs(dirs, events))).expect("starts");
+        let listing = discovery::read(&path).expect("reads").expect("listed");
+        assert_eq!(Some(listing.address), server.json_addr());
+        assert_eq!(listing.token, server.token());
+        server.stop_detached();
+        assert!(!path.exists(), "unlisted at the stop");
     }
 
     #[test]
