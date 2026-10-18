@@ -67,6 +67,10 @@ impl Book {
                 status.stage = Some("cutout".to_owned());
                 status.fraction = f64::from(*fraction).clamp(0.0, 1.0);
             }
+            Event::StabilizeProgress { fraction, .. } => {
+                status.stage = Some("stabilize".to_owned());
+                status.fraction = f64::from(*fraction).clamp(0.0, 1.0);
+            }
             Event::ExportProgress {
                 frame,
                 total,

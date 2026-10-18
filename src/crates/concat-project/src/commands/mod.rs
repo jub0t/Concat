@@ -177,6 +177,7 @@ pub struct ClipPatch {
         with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<Background>"))]
     pub background: Option<Option<Background>>,
 }
 

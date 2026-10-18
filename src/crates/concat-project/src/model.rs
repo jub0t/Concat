@@ -583,6 +583,7 @@ impl Stroke {
 /// analysis and cached in the project folder beside the masks; these are
 /// the settings the smooth path and the correction are worked out from,
 /// live, whenever they change. Off is no `Stabilize` at all.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Stabilize {
@@ -693,6 +694,7 @@ impl Crop {
 /// A timeline carries one ([`Timeline::background`]) and a clip may carry
 /// its own over it ([`Clip::background`]); which clips have one at all is
 /// [`Timeline::background_of`]'s to say.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -774,6 +776,7 @@ fn rgb_of(hex: &str) -> Option<[u8; 3]> {
 }
 
 /// The two ways a picture can be sized to the frame in one go.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Framing {

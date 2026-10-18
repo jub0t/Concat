@@ -210,6 +210,9 @@ fn serve(
         grpc,
         token,
         roots,
+        // The listing is the window's: a server in a terminal prints its
+        // address and token for whoever started it.
+        discovery: None,
     };
     let server = concat_server::Server::start(config, concat_api::Api::new)?;
     if let Some(address) = server.json_addr() {
