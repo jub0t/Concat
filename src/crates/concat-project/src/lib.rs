@@ -3675,6 +3675,51 @@ mod tests {
         );
     }
 
+    /// An adjustment layer laid at the playhead lands over the footage,
+    /// with the colour panel's package as its chain at its defaults: a
+    /// layer under the picture would treat nothing (#249).
+    #[test]
+    fn an_adjustment_layer_lands_above_the_picture() {
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(media("/a.mp4", 10.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let video_track = editor.project().active().tracks[2].id.clone();
+        editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id: video_track.clone(),
+                start: 0.0,
+                ripple: false,
+            })
+            .expect("adds");
+        let layer_id = editor
+            .apply(Command::AddLayerClip {
+                track_id: None,
+                start: 1.0,
+                duration: Some(3.0),
+                effect_id: "concat.adjust".into(),
+                name: "Adjustment".into(),
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let timeline = editor.project().active();
+        let layer = timeline.clip(&layer_id).expect("exists");
+        assert_eq!(layer.kind, ClipKind::Layer);
+        assert_eq!(layer.name, "Adjustment");
+        assert_eq!(layer.video_effects.len(), 1);
+        assert_eq!(layer.video_effects[0].id, "concat.adjust");
+        assert!(layer.video_effects[0].params.is_empty(), "at its defaults");
+        let row = |id: &str| timeline.tracks.iter().position(|t| t.id == id);
+        assert!(
+            row(&layer.track_id) > row(&video_track),
+            "the layer must sit over the footage, not under it"
+        );
+    }
+
     #[test]
     fn a_caption_on_an_empty_timeline_lands_on_the_bottom_lane() {
         let mut editor = Editor::new();

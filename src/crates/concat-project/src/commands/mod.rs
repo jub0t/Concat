@@ -399,7 +399,10 @@ pub enum Command {
     /// package named, at its defaults, and the clip's opacity is how hard it
     /// is applied.
     AddLayerClip {
-        /// The lane to place it on; None picks the first free track.
+        /// The lane to place it on. None picks the first free lane *above*
+        /// the highest one occupied over its span, minting one at the top
+        /// when every lane above is taken: a layer treats what is beneath
+        /// it, so one under the picture would treat nothing.
         track_id: Option<String>,
         /// Timeline position in seconds, floored at 0.
         start: f64,
