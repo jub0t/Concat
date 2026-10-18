@@ -185,6 +185,27 @@ public class ConcatFiles extends Fragment {
         return false;
     }
 
+    /**
+     * Opens a web address in the browser, or in whichever app claims it -
+     * the launch screen's guides, the repository, the Discord invite. Null
+     * when it went, or why it could not. Asked straight rather than through
+     * resolveActivity, which from Android 11 answers no for any app the
+     * manifest does not name in its queries. From any thread.
+     */
+    public static String openLink(Activity activity, String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            activity.startActivity(intent);
+            return null;
+        } catch (android.content.ActivityNotFoundException e) {
+            return "no app on this phone opens " + url;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not open " + url, e);
+            return String.valueOf(e.getMessage());
+        }
+    }
+
     /** Registered from Rust: the picked files' paths, or none. */
     public static native void filesPicked(String[] paths);
 

@@ -846,6 +846,43 @@ pub fn install_microphone_access(access: MicrophoneAccess) {
     let _ = MICROPHONE_ACCESS.set(access);
 }
 
+/// Opens a web address in the browser, on a phone. Installed by the phone's
+/// own crate; see [`install_link_opener`].
+#[cfg(target_os = "android")]
+pub type LinkOpener = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+
+#[cfg(target_os = "android")]
+static LINK_OPENER: std::sync::OnceLock<LinkOpener> = std::sync::OnceLock::new();
+
+/// Installs how a phone opens a web address. Once; a second call is
+/// ignored.
+#[cfg(target_os = "android")]
+pub fn install_link_opener(opener: LinkOpener) {
+    let _ = LINK_OPENER.set(opener);
+}
+
+/// Opens a web address in the system's browser: the launch screen's
+/// guides, the repository, the release notes. A desktop hands it to the
+/// platform's opener; Android to an ACTION_VIEW intent through the
+/// activity, iOS to UIApplication. An address that goes nowhere says why.
+pub fn open_link(url: &str) -> Result<(), String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        opener::open(url).map_err(|error| error.to_string())
+    }
+    #[cfg(target_os = "android")]
+    {
+        match LINK_OPENER.get() {
+            Some(open) => open(url),
+            None => Err(format!("this device has no browser to open {url} with")),
+        }
+    }
+    #[cfg(target_os = "ios")]
+    {
+        crate::ios::open_link(url)
+    }
+}
+
 /// Whether the microphone may be opened now. A desktop asks when the
 /// device opens, which is the system's business, so it is always yes here;
 /// a phone with nothing installed is too, and the device's own error says

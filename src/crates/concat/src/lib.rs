@@ -54,6 +54,8 @@ mod platform;
 pub use platform::{
     ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
 };
+#[cfg(target_os = "android")]
+pub use platform::{LinkOpener, install_link_opener};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
 mod panes;
@@ -230,7 +232,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                         && paths
                             .iter()
                             .all(|path| concat_host::sounds::is_sound(path));
-                    if to_library {
+                    if studio.on_start {
+                        // On the launch screen there is no project to
+                        // import into: a dropped project opens, and media
+                        // starts one.
+                        studio.handle(Msg::Start(StartMsg::Dropped(paths)));
+                    } else if to_library {
                         studio.handle(Msg::Sounds(SoundsMsg::Import(paths)));
                     } else {
                         studio.handle(Msg::Media(MediaMsg::Import(paths)));
@@ -263,6 +270,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // the playhead at their middle; the strip and the dock are the desk's.
     let phone = platform::phone();
     app.set_phone(phone);
+    // The launch screen's version line, and whether its drop zone is
+    // offered: a drag in from the system is a desk's (see platform.rs).
+    app.set_app_version(env!("CARGO_PKG_VERSION").into());
+    app.set_can_drop(cfg!(not(any(target_os = "android", target_os = "ios"))));
 
     // The user's own packages - imported looks, and any effect folder they
     // or the community wrote - sit beside the built-ins from the first
@@ -653,6 +664,18 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_start_forget_recent(on_window!(|state, path: SharedString| {
         state.handle(Msg::Start(StartMsg::ForgetRecent(path.to_string())));
+    }));
+    app.on_start_reveal_recent(on_window!(|state, path: SharedString| {
+        state.handle(Msg::Start(StartMsg::RevealRecent(path.to_string())));
+    }));
+    app.on_start_search_edited(on_window!(|state, query: SharedString| {
+        state.handle(Msg::Start(StartMsg::SearchEdited(query.to_string())));
+    }));
+    app.on_start_sort_changed(on_window!(|state, sort: i32| {
+        state.handle(Msg::Start(StartMsg::Sort(sort)));
+    }));
+    app.on_start_link(on_window!(|state, name: SharedString| {
+        state.handle(Msg::Start(StartMsg::Link(name.to_string())));
     }));
 
     // ── the workspace's arrangement ──

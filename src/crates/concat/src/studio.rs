@@ -55,8 +55,8 @@ use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
 use crate::format::{
-    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha,
-    wave_columns, wave_path, when_phrase,
+    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha, rate_label,
+    running_time, wave_columns, wave_path, when_phrase,
 };
 use crate::grading;
 use crate::host::{
@@ -879,9 +879,13 @@ pub struct Studio {
     // ── the launch screen ──
     pub on_start: bool,
     pub start: crate::panes::start::StartPane,
-    pub recents: Vec<ProjectInfo>,
+    pub recents: Vec<projects::Recent>,
     pub posters: HashMap<String, slint::Image>,
     posters_pending: HashSet<String>,
+    /// How long each recent project's timeline runs, in seconds, read on
+    /// the poster's worker. A path here has been tried, poster and all,
+    /// and is not asked for again until its project is next closed.
+    lengths: HashMap<String, Option<f64>>,
     pub project_name: String,
 
     // ── the workspace ──
@@ -2235,7 +2239,7 @@ impl Studio {
         // the remembered language.
         i18n::select(prefs.locale.as_deref().unwrap_or(i18n::ENGLISH), &host.dirs);
         let languages = i18n::languages(&host.dirs);
-        let recents = projects::list(&host.dirs.config);
+        let recents = projects::recents(&host.dirs.config);
         let text_presets = presets::all(&host.dirs);
         let mut studio = Self {
             prefs,
@@ -2284,6 +2288,7 @@ impl Studio {
             recents,
             posters: HashMap::new(),
             posters_pending: HashSet::new(),
+            lengths: HashMap::new(),
             project_name: "Untitled project".into(),
             dock: default_dock(),
             dock_aside: crate::dock::compact_dock(),
@@ -8158,7 +8163,7 @@ impl Studio {
                 self.handle(crate::panes::Msg::Monitor(
                     crate::panes::monitor::MonitorMsg::Opened,
                 ));
-                self.recents = projects::list(&self.host.dirs.config);
+                self.recents = projects::recents(&self.host.dirs.config);
                 self.host.monitor.clear();
                 self.audition = None;
                 self.revision += 1;
@@ -8315,6 +8320,12 @@ impl Studio {
         self.stabilize_retry.clear();
         self.region_job = None;
         self.autosave.stop();
+        // The launch screen's card for this project is read again: the
+        // edit just made may have moved its first frame and its length.
+        // The old poster stays up until the new one replaces it.
+        if let Some(session) = self.session.as_ref() {
+            self.lengths.remove(session.path());
+        }
         if let Some(session) = self.session.as_ref() {
             self.host.open_projects.release(session.path());
         }
@@ -8351,16 +8362,18 @@ impl Studio {
             .playback
             .set_clips(std::path::PathBuf::new(), Vec::new());
         self.on_start = true;
-        self.recents = projects::list(&self.host.dirs.config);
+        self.recents = projects::recents(&self.host.dirs.config);
     }
 
-    /// Posters for the recents that have none yet, decoded on a worker.
+    /// Posters, and the running time, for the recents not yet looked at,
+    /// read on a worker. A missing folder has neither to give.
     fn request_posters(&mut self) {
         let wanted: Vec<String> = self
             .recents
             .iter()
-            .map(|project| project.path.clone())
-            .filter(|path| !self.posters.contains_key(path) && !self.posters_pending.contains(path))
+            .filter(|recent| recent.present)
+            .map(|recent| recent.info.path.clone())
+            .filter(|path| !self.lengths.contains_key(path) && !self.posters_pending.contains(path))
             .collect();
         for path in wanted {
             self.posters_pending.insert(path.clone());
@@ -8370,13 +8383,15 @@ impl Studio {
                     // A project with no poster - nothing on it, or nothing
                     // but black - keeps the film mark; see `poster_frame`.
                     let made = media::poster_frame(&path).is_ok();
-                    (path, made.then_some(cached))
+                    let length = media::timeline_seconds(&path);
+                    (path, made.then_some(cached), length)
                 },
-                |studio, _, _, (path, cached)| {
+                |studio, _, _, (path, cached, length)| {
                     studio.posters_pending.remove(&path);
                     if let Some(poster) = cached.and_then(|cached| image_at(&cached)) {
-                        studio.posters.insert(path, poster);
+                        studio.posters.insert(path.clone(), poster);
                     }
+                    studio.lengths.insert(path, length);
                 },
             );
         }
@@ -10680,22 +10695,40 @@ impl Studio {
             failed: self.toast.failed,
         });
         app.set_start(self.start.data());
+        app.set_recents_total(self.recents.len() as i32);
         sync(
             &models.recents,
-            self.recents
-                .iter()
-                .map(|project| RecentProjectData {
-                    path: project.path.as_str().into(),
-                    name: project.name.as_str().into(),
-                    detail: format!(
-                        "{} x {} · {:.2} fps",
-                        project.width,
-                        project.height,
-                        project.rate_num as f32 / project.rate_den.max(1) as f32
-                    )
-                    .into(),
-                    when: when_phrase(project.opened_at).into(),
-                    poster: self.posters.get(&project.path).cloned().unwrap_or_default(),
+            crate::panes::start::shown(&self.recents, &self.start.query, self.start.sort)
+                .into_iter()
+                .map(|recent| {
+                    let project = &recent.info;
+                    RecentProjectData {
+                        path: project.path.as_str().into(),
+                        name: project.name.as_str().into(),
+                        detail: format!(
+                            "{} × {} · {}",
+                            project.width,
+                            project.height,
+                            rate_label(project.rate_num, project.rate_den)
+                        )
+                        .into(),
+                        // When it was last worked on, which is what a
+                        // person means by recent; when it was last opened
+                        // where the file keeps no time.
+                        when: when_phrase(recent.edited_at.unwrap_or(project.opened_at)).into(),
+                        length: self
+                            .lengths
+                            .get(&project.path)
+                            .copied()
+                            .flatten()
+                            .filter(|seconds| *seconds > 0.0)
+                            .map(running_time)
+                            .unwrap_or_default()
+                            .into(),
+                        ratio: project.width as f32 / project.height.max(1) as f32,
+                        missing: !recent.present,
+                        poster: self.posters.get(&project.path).cloned().unwrap_or_default(),
+                    }
                 })
                 .collect(),
         );

@@ -154,6 +154,32 @@ pub fn span(seconds: f64) -> String {
     }
 }
 
+/// A running time the way a video player's corner says it: "0:06",
+/// "12:30", "1:02:03". Whole seconds, rounded down, so a 5.9 second edit
+/// does not claim a sixth.
+pub fn running_time(seconds: f64) -> String {
+    let whole = if seconds.is_finite() {
+        seconds.max(0.0) as u64
+    } else {
+        0
+    };
+    let (hours, minutes, seconds) = (whole / 3600, whole / 60 % 60, whole % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+/// A frame rate as a person says it: "30 fps", "29.97 fps", "23.976 fps".
+/// The exact fraction is the project's; this is its name.
+pub fn rate_label(num: i64, den: i64) -> String {
+    let fps = num as f64 / den.max(1) as f64;
+    let text = format!("{fps:.3}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    format!("{text} fps")
+}
+
 pub fn hex_of(colour: slint::Color) -> String {
     format!(
         "#{:02x}{:02x}{:02x}",
@@ -299,8 +325,10 @@ pub fn when_phrase(opened_at_millis: u64) -> String {
         t("format.justNow")
     } else if hours < 1 {
         tf("format.minutesAgo", &[&minutes])
+    } else if hours < 2 {
+        t("format.anHourAgo")
     } else if days < 1 {
-        t("format.today")
+        tf("format.hoursAgo", &[&hours])
     } else if days == 1 {
         t("format.yesterday")
     } else if days < 30 {
@@ -543,6 +571,18 @@ mod tests {
         assert_eq!(when_phrase(now), "just now");
         assert_eq!(when_phrase(now - 86_400_000 - 1000), "yesterday");
         assert_eq!(when_phrase(now - 3 * 86_400_000), "3 days ago");
+    }
+
+    #[test]
+    fn a_running_time_reads_as_a_player_says_it() {
+        assert_eq!(running_time(0.0), "0:00");
+        assert_eq!(running_time(5.9), "0:05");
+        assert_eq!(running_time(754.0), "12:34");
+        assert_eq!(running_time(3725.0), "1:02:05");
+        assert_eq!(running_time(f64::NAN), "0:00");
+        assert_eq!(rate_label(30, 1), "30 fps");
+        assert_eq!(rate_label(30000, 1001), "29.97 fps");
+        assert_eq!(rate_label(24000, 1001), "23.976 fps");
     }
 
     #[test]

@@ -632,3 +632,29 @@ fn save_to_photos(path: &Path) -> Result<String, String> {
         .map(|()| path.to_string_lossy().into_owned())
         .map_err(|error| error.localizedDescription().to_string())
 }
+
+/// Opens a web address in Safari, or in whichever app claims it: the
+/// launch screen's guides and the repository. From the main thread, where
+/// the window's callbacks run.
+pub fn open_link(url: &str) -> Result<(), String> {
+    let text = NSString::from_str(url);
+    // SAFETY: NSURL's class constructor, and UIApplication's shared
+    // instance and `openURL:options:completionHandler:` on the main
+    // thread; the options are an empty dictionary and the handler nil,
+    // both of which the method takes.
+    unsafe {
+        let link: Option<Retained<NSURL>> = msg_send![class!(NSURL), URLWithString: &*text];
+        let link = link.ok_or_else(|| format!("{url} is not a web address"))?;
+        let app: Option<Retained<AnyObject>> = msg_send![class!(UIApplication), sharedApplication];
+        let app = app.ok_or("no UIApplication")?;
+        let options: Retained<AnyObject> = msg_send![class!(NSDictionary), dictionary];
+        let handler: Option<&Block<dyn Fn(objc2::runtime::Bool)>> = None;
+        let _: () = msg_send![
+            &app,
+            openURL: &*link,
+            options: &*options,
+            completionHandler: handler
+        ];
+    }
+    Ok(())
+}

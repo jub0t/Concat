@@ -707,6 +707,22 @@ pub fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// How long a project's active timeline runs, in seconds: where its last
+/// clip ends. For the launch screen's cards, read on a worker beside the
+/// poster; None when the manifest cannot be read as a project.
+pub fn timeline_seconds(project: &str) -> Option<f64> {
+    let manifest = projects::manifest_path(Path::new(project));
+    let text = std::fs::read_to_string(manifest).ok()?;
+    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let project = concat_project::from_document(&document)?;
+    let timeline = project
+        .timelines
+        .iter()
+        .find(|timeline| timeline.id == project.active_timeline_id)
+        .or_else(|| project.timelines.first())?;
+    Some(timeline.duration())
+}
+
 /// Below this mean brightness, out of 255, a frame is a black one: a
 /// leader, the foot of a fade, a lens cap. A night scene is well above it.
 const DEAD_BELOW: u32 = 10;

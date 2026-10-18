@@ -48,8 +48,10 @@ pub fn is_project(root: &Path) -> bool {
 }
 
 const RECENTS: &str = "recents.json";
-/// Long enough to be useful, short enough that the list stays scannable.
-const MAX_RECENTS: usize = 12;
+/// Long enough to be a working set of projects, short enough that the
+/// launch screen's grid stays scannable - and past a page of it, the screen
+/// has a search and a sort to find one by.
+const MAX_RECENTS: usize = 40;
 
 /// Everything needed to reopen a project.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -480,6 +482,47 @@ pub fn list(config: &Path) -> Vec<ProjectInfo> {
     read_recents(config)
         .into_iter()
         .filter(|entry| is_project(Path::new(&entry.path)))
+        .collect()
+}
+
+/// One row of the recents list as the launch screen shows it.
+#[derive(Clone, Debug)]
+pub struct Recent {
+    /// What the list remembers of it.
+    pub info: ProjectInfo,
+    /// The folder is there and still holds a project. One on a drive that
+    /// is unplugged is not, and the launch screen shows it as missing
+    /// rather than dropping it, so the person sees where it went and can
+    /// forget it - and it comes back by itself when the drive does.
+    pub present: bool,
+    /// When the project was last written, in milliseconds since the epoch:
+    /// the manifest's own time, which every autosave moves. None for a
+    /// missing folder, or a file system that keeps no times.
+    pub edited_at: Option<u64>,
+}
+
+/// The recents list, most recent first, missing folders included and
+/// marked. One stat per project, so it is read when the list changes and
+/// not on every frame.
+pub fn recents(config: &Path) -> Vec<Recent> {
+    read_recents(config)
+        .into_iter()
+        .map(|info| {
+            let manifest = manifest_path(Path::new(&info.path));
+            let meta = std::fs::metadata(&manifest)
+                .ok()
+                .filter(|meta| meta.is_file());
+            let edited_at = meta
+                .as_ref()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|elapsed| elapsed.as_millis() as u64);
+            Recent {
+                present: meta.is_some(),
+                edited_at,
+                info,
+            }
+        })
         .collect()
 }
 

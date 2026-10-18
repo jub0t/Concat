@@ -113,6 +113,9 @@ pub enum SettingsMsg {
 
 /// The Version page's index in the column of pages.
 const VERSION_PAGE: i32 = 6;
+/// The Shortcuts page's index, which the launch screen's Keyboard
+/// shortcuts card opens the sheet on.
+pub const SHORTCUTS_PAGE: i32 = 7;
 
 /// One downloadable model, as the settings sheet shows it.
 #[derive(Clone, Debug)]

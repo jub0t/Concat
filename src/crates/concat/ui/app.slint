@@ -161,7 +161,19 @@ export component App inherits Window {
     callback start-open();
     callback start-open-recent(path: string);
     callback start-forget-recent(path: string);
+    callback start-reveal-recent(path: string);
+    callback start-search-edited(query: string);
+    callback start-sort-changed(sort: int);
+    /// One of the launch screen's links, by name; see `start::link`.
+    callback start-link(name: string);
     callback start-dismiss-error();
+    /// How many projects the recents list holds, before the search: the
+    /// grid's search and sort come up past a page of them.
+    in property <int> recents-total;
+    /// "0.2.7", for the launch screen's version line.
+    in property <string> app-version;
+    /// A file can be dragged in from the system: a desk, not a phone.
+    in property <bool> can-drop;
 
     // Title bar. The drag/maximize pair must be handled in main.rs — a window
     // cannot drag itself from inside the scene graph; the rest are seams like
@@ -570,14 +582,23 @@ export component App inherits Window {
                 vertical-stretch: 1;
 
                 recents: root.recents;
+                recents-total: root.recents-total;
+                query: root.start.query;
+                sort: root.start.sort;
                 busy: root.start.busy;
                 phone: root.phone;
+                version: root.app-version;
+                can-drop: root.can-drop;
 
                 compose => { root.start-compose(); }
                 open => { root.start-open(); }
                 open-settings => { root.open-settings(); }
                 open-recent(path) => { root.start-open-recent(path); }
                 forget-recent(path) => { root.start-forget-recent(path); }
+                reveal-recent(path) => { root.start-reveal-recent(path); }
+                search-edited(query) => { root.start-search-edited(query); }
+                sort-changed(sort) => { root.start-sort-changed(sort); }
+                link(name) => { root.start-link(name); }
             }
 
             // Everything the workspace shows now reads the Editor global, so

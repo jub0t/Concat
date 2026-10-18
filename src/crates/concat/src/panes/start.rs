@@ -46,6 +46,73 @@ pub enum StartMsg {
     OpenChosen(PathBuf),
     OpenRecent(String),
     ForgetRecent(String),
+    /// Show a project's folder in the file manager.
+    RevealRecent(String),
+    /// What the projects' search field holds now.
+    SearchEdited(String),
+    /// How the projects are ordered: [`SORT_RECENT`] or [`SORT_NAME`].
+    Sort(i32),
+    /// One of the learn-and-community cards, or the version line, by the
+    /// name [`link`] knows it by.
+    Link(String),
+    /// Files or folders dropped on the launch screen: a project folder
+    /// opens, and anything else starts a new project to go into.
+    Dropped(Vec<PathBuf>),
+}
+
+/// The projects in the order they were last opened, newest first.
+pub const SORT_RECENT: i32 = 0;
+/// The projects by name, A to Z.
+pub const SORT_NAME: i32 = 1;
+
+/// The recents the grid shows: those whose name or folder holds every
+/// word of the query, ignoring case, newest first or by name. A missing
+/// folder is found and sorted like any other.
+pub fn shown<'a>(
+    recents: &'a [projects::Recent],
+    query: &str,
+    sort: i32,
+) -> Vec<&'a projects::Recent> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    let mut shown: Vec<&projects::Recent> = recents
+        .iter()
+        .filter(|recent| {
+            let name = recent.info.name.to_lowercase();
+            let path = recent.info.path.to_lowercase();
+            words
+                .iter()
+                .all(|word| name.contains(word.as_str()) || path.contains(word.as_str()))
+        })
+        .collect();
+    if sort == SORT_NAME {
+        shown.sort_by_cached_key(|recent| recent.info.name.to_lowercase());
+    }
+    shown
+}
+
+/// The official site, which the guides and the developer docs are pages of.
+const SITE: &str = "https://concat.standalones.org";
+/// The repository: the code, the issues, the releases.
+pub const REPOSITORY: &str = "https://github.com/jub0t/Concat";
+
+/// Where each of the launch screen's links goes, by the name the screen
+/// sends. One table, so a moved page is one line here. Every address is a
+/// page of the website's own content - src/content/guides in its
+/// repository - or the repository's, and None for a name nobody sends.
+/// "shortcuts" is not here: it opens Settings, not a page.
+pub fn link(name: &str) -> Option<String> {
+    Some(match name {
+        "guides" => format!("{SITE}/guides/"),
+        "first-edit" => format!("{SITE}/guides/first-edit/"),
+        "report" => format!("{SITE}/guides/report-a-problem/"),
+        "github" => REPOSITORY.to_owned(),
+        // The invite the README carries.
+        "discord" => "https://discord.gg/DVuPfpXfqP".to_owned(),
+        // The notes for the release this build is, under the tag the
+        // release workflow pushes.
+        "release-notes" => format!("{REPOSITORY}/releases/tag/v{}", env!("CARGO_PKG_VERSION")),
+        _ => return None,
+    })
 }
 
 /// The sheet on the launch screen.
@@ -69,6 +136,14 @@ pub struct StartPane {
     pub custom_rate: (i64, i64),
     pub busy: bool,
     pub error: String,
+    /// The projects' search, as typed; empty shows them all.
+    pub query: String,
+    /// [`SORT_RECENT`] or [`SORT_NAME`].
+    pub sort: i32,
+    /// Media dropped on the launch screen, waiting for the project the
+    /// sheet is about to make: imported into it once it opens, and let go
+    /// if the sheet is put down instead.
+    pub dropped: Vec<PathBuf>,
 }
 
 impl Default for StartPane {
@@ -86,6 +161,9 @@ impl Default for StartPane {
             custom_rate: (30, 1),
             busy: false,
             error: String::new(),
+            query: String::new(),
+            sort: SORT_RECENT,
+            dropped: Vec::new(),
         }
     }
 }
@@ -168,8 +246,10 @@ impl StartPane {
             StartMsg::Dismiss => {
                 self.composing = false;
                 // The notice belongs to the attempt it reported on, not to
-                // the next time the sheet comes up.
+                // the next time the sheet comes up; and so do the files
+                // dropped to start it.
                 self.error.clear();
+                self.dropped.clear();
             }
             StartMsg::NameEdited(name) => self.name = name,
             StartMsg::LocationEdited(path) => self.location = path,
@@ -220,6 +300,13 @@ impl StartPane {
             // does: the sheet is down while a card is pressed, and a notice
             // inside it would go unseen.
             StartMsg::OpenRecent(path) => {
+                // A folder that has gone says so in words, not as the
+                // manifest file it could not read.
+                if !projects::is_project(Path::new(&path)) {
+                    studio.notify(&tf("start.folderMissing", &[&path]), true);
+                    studio.recents = projects::recents(&studio.host.dirs.config);
+                    return;
+                }
                 if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info))
                 {
                     studio.notify(&error, true);
@@ -229,8 +316,69 @@ impl StartPane {
                 if let Err(error) = projects::forget(&studio.host.dirs.config, &path) {
                     studio.notify(&error, true);
                 }
-                studio.recents = projects::list(&studio.host.dirs.config);
+                studio.recents = projects::recents(&studio.host.dirs.config);
             }
+            StartMsg::RevealRecent(path) => {
+                if let Err(error) = platform::reveal(&path) {
+                    studio.notify(&error, true);
+                }
+            }
+            StartMsg::SearchEdited(query) => self.query = query,
+            StartMsg::Sort(sort) => {
+                self.sort = if sort == SORT_NAME {
+                    SORT_NAME
+                } else {
+                    SORT_RECENT
+                };
+            }
+            StartMsg::Link(name) => {
+                if name == "shortcuts" {
+                    use crate::panes::settings::{SHORTCUTS_PAGE, SettingsMsg};
+                    studio.handle(crate::panes::Msg::Settings(SettingsMsg::Open));
+                    studio.handle(crate::panes::Msg::Settings(SettingsMsg::PageChanged(
+                        SHORTCUTS_PAGE,
+                    )));
+                    return;
+                }
+                let Some(url) = link(&name) else {
+                    log::warn!("start: no link is called {name:?}");
+                    return;
+                };
+                if let Err(error) = platform::open_link(&url) {
+                    studio.notify(&tf("start.couldNotOpenLink", &[&url, &error]), true);
+                }
+            }
+            StartMsg::Dropped(paths) => self.dropped_on(paths, studio),
+        }
+    }
+
+    /// Files or folders dropped on the launch screen. A project folder
+    /// among them opens, the first if there are several, as Open would;
+    /// anything else is media, and puts up the new-project sheet with the
+    /// files waiting to go into the project it makes.
+    fn dropped_on(&mut self, paths: Vec<PathBuf>, studio: &mut Studio) {
+        if self.busy {
+            return;
+        }
+        if let Some(folder) = paths.iter().find(|path| projects::is_project(path)) {
+            self.dropped.clear();
+            self.composing = false;
+            Self::open_chosen(folder, studio);
+            return;
+        }
+        let media: Vec<PathBuf> = paths.into_iter().filter(|path| path.is_file()).collect();
+        if media.is_empty() {
+            studio.notify(&t("start.dropNothingToOpen"), true);
+            return;
+        }
+        // A second drop while the sheet is up adds to the first.
+        for path in media {
+            if !self.dropped.contains(&path) {
+                self.dropped.push(path);
+            }
+        }
+        if !self.composing {
+            self.update(StartMsg::Compose, studio);
         }
     }
 
@@ -259,6 +407,14 @@ impl StartPane {
                 studio.prefs.save(&studio.host.dirs);
                 self.composing = false;
                 self.error.clear();
+                // What was dropped to start it goes in, the way an import
+                // does: probed on a worker, with its own notice.
+                let dropped = std::mem::take(&mut self.dropped);
+                if !dropped.is_empty() {
+                    studio.handle(crate::panes::Msg::Media(
+                        crate::panes::media_bin::MediaMsg::Import(dropped),
+                    ));
+                }
             }
             Err(error) => self.error = error,
         }
@@ -370,6 +526,9 @@ impl StartPane {
             ))),
             busy: self.busy,
             error: self.error.as_str().into(),
+            dropped: self.dropped.len() as i32,
+            query: self.query.as_str().into(),
+            sort: self.sort,
         }
     }
 }
@@ -412,6 +571,71 @@ mod tests {
             first_free_untitled(|folder| taken.contains(&folder)),
             "Untitled project"
         );
+    }
+
+    /// The search finds by every word, in the name or the folder, and the
+    /// sort by name ignores case; the list's own order is the recent one.
+    #[test]
+    fn the_projects_search_and_sort() {
+        let recent = |name: &str, path: &str| projects::Recent {
+            info: projects::ProjectInfo {
+                path: path.into(),
+                name: name.into(),
+                width: 1920,
+                height: 1080,
+                rate_num: 30,
+                rate_den: 1,
+                opened_at: 0,
+            },
+            present: true,
+            edited_at: None,
+        };
+        let list = [
+            recent("beach vlog", "/v/summer/beach"),
+            recent("Podcast 12", "/v/pods/12"),
+            recent("Apple ad", "/v/clients/apple"),
+        ];
+        let names = |shown: Vec<&projects::Recent>| -> Vec<String> {
+            shown
+                .iter()
+                .map(|recent| recent.info.name.clone())
+                .collect()
+        };
+        assert_eq!(
+            names(shown(&list, "", SORT_RECENT)),
+            ["beach vlog", "Podcast 12", "Apple ad"]
+        );
+        assert_eq!(
+            names(shown(&list, "", SORT_NAME)),
+            ["Apple ad", "beach vlog", "Podcast 12"]
+        );
+        assert_eq!(names(shown(&list, "SUMMER", SORT_RECENT)), ["beach vlog"]);
+        assert_eq!(names(shown(&list, "pod 12", SORT_RECENT)), ["Podcast 12"]);
+        assert!(shown(&list, "nothing", SORT_RECENT).is_empty());
+    }
+
+    /// Every link the launch screen sends goes somewhere, and the release
+    /// notes are this build's tag.
+    #[test]
+    fn every_link_has_an_address() {
+        for name in [
+            "guides",
+            "first-edit",
+            "report",
+            "github",
+            "discord",
+            "release-notes",
+        ] {
+            assert!(
+                link(name).is_some_and(|url| url.starts_with("https://")),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            link("release-notes").unwrap(),
+            format!("{REPOSITORY}/releases/tag/v{}", env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(link("nowhere"), None);
     }
 
     /// Only a name the sheet made up is replaced; a typed one is kept.

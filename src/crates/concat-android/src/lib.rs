@@ -471,6 +471,43 @@ mod microphone {
     }
 }
 
+/// The browser, for the launch screen's guides and links: an ACTION_VIEW
+/// intent through the activity, which the Java sends.
+#[cfg(target_os = "android")]
+mod links {
+    use jni::objects::JString;
+    use jni::{jni_sig, jni_str};
+    use slint::android::AndroidApp;
+
+    /// Hands the window's crate the way to open a web address.
+    pub fn install(app: &AndroidApp) {
+        let app = app.clone();
+        concat::install_link_opener(Box::new(move |url| {
+            let answer = super::java::with_class(&app, |env, activity, class| {
+                let url = env.new_string(url)?;
+                let answer = env
+                    .call_static_method(
+                        class,
+                        jni_str!("openLink"),
+                        jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;"),
+                        &[activity.into(), (&url).into()],
+                    )?
+                    .l()?;
+                if answer.is_null() {
+                    return Ok(None);
+                }
+                let answer = env.cast_local::<JString>(answer)?;
+                Ok(Some(answer.mutf8_chars(env)?.to_string()))
+            });
+            match answer {
+                Ok(None) => Ok(()),
+                Ok(Some(why)) => Err(why),
+                Err(error) => Err(format!("could not reach the browser: {error}")),
+            }
+        }));
+    }
+}
+
 /// Called by the activity's native glue; the name is the contract.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
@@ -487,6 +524,7 @@ fn android_main(app: slint::android::AndroidApp) {
     picker::install(&app);
     publisher::install(&app);
     microphone::install(&app);
+    links::install(&app);
     if let Err(error) = concat::run() {
         log::error!("{error}");
     }
