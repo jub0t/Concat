@@ -62,6 +62,21 @@ concrt140.dll                  any
 *ggml-cpu-alderlake.*          any
 *ggml-cpu-sapphirerapids.*     any
 
+# On Windows those older modules, and whisper and ggml, link MSVC's STL,
+# whose vectorized std::find, count and min_element are static code even
+# under /MD and take their AVX2 paths only when the CPU has them: a few
+# vpcmpeqb, vpmovmskb, vpmaskmovd and, in whisper, vpminud and vpermd.
+# 0.2.8 counted 6 in each module, 17 in ggml and 30 in whisper, and no
+# FMA or BMI at all, which a module compiled for Haswell would be full
+# of. So AVX2 is allowed a margin over those counts, and the rest none.
+# The .so files on Linux, built with GCC, still may hold nothing.
+ggml-cpu-x64.dll               16    0     0      0          0
+ggml-cpu-sse42.dll             16    0     0      0          0
+ggml-cpu-sandybridge.dll       16    0     0      0          0
+ggml-cpu-ivybridge.dll         16    0     0      0          0
+ggml.dll                       32    0     0      0          0
+whisper.dll                    48    0     0      0          0
+
 # Concat itself. It holds dispatched code of its own - memchr, aho-corasick
 # and ring choose AVX2 or BMI2 paths at run time (ring's hand-written
 # cryptography is where mulx and rorx come from), and Skia carries its
