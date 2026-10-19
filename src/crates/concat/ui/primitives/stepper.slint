@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
@@ -10,6 +11,11 @@ component StepButton inherits Rectangle {
     in property <bool> enabled: true;
     callback pressed(shift: bool, alt: bool);
     callback released();
+
+    accessible-role: button;
+    accessible-label: root.glyph == Glyph.plus || root.glyph == Glyph.chevron-up
+        ? I18n.t("controls.increaseValue") : I18n.t("controls.decreaseValue");
+    accessible-enabled: root.enabled;
 
     width: 30px;
     opacity: root.enabled ? 1.0 : 0.4;
@@ -49,6 +55,7 @@ component StepButton inherits Rectangle {
 // and runs at `repeat-interval`.
 export component Stepper inherits Rectangle {
     in property <bool> enabled: true;
+    in property <bool> vertical: false;
     in property <duration> repeat-delay: 380ms;
     in property <duration> repeat-interval: 55ms;
 
@@ -60,7 +67,7 @@ export component Stepper inherits Rectangle {
     property <bool> shift;
     property <bool> alt;
 
-    width: 61px;
+    width: root.vertical ? 22px : 61px;
     height: Theme.h;
     horizontal-stretch: 0;
     background: Theme.field;
@@ -116,7 +123,7 @@ export component Stepper inherits Rectangle {
         }
     }
 
-    HorizontalLayout {
+    if !root.vertical: HorizontalLayout {
         StepButton {
             glyph: Glyph.minus;
             enabled: root.enabled;
@@ -150,6 +157,33 @@ export component Stepper inherits Rectangle {
             released => {
                 root.held = 0;
             }
+        }
+    }
+
+    if root.vertical: VerticalLayout {
+        spacing: 0px;
+        StepButton {
+            width: root.width;
+            height: (root.height - 1px) / 2;
+            glyph: Glyph.chevron-up;
+            enabled: root.enabled;
+            pressed(shift-key, alt-key) => {
+                fs.focus();
+                root.begin(1, shift-key, alt-key);
+            }
+            released => { root.held = 0; }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        StepButton {
+            width: root.width;
+            height: (root.height - 1px) / 2;
+            glyph: Glyph.chevron-down;
+            enabled: root.enabled;
+            pressed(shift-key, alt-key) => {
+                fs.focus();
+                root.begin(-1, shift-key, alt-key);
+            }
+            released => { root.held = 0; }
         }
     }
 

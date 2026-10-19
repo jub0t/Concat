@@ -1605,6 +1605,38 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
     commands
 }
 
+// Fill a partial X/Y pair without toggling its existing axis off. Once
+// both keys exist at the playhead, a second press removes the pair.
+fn position_key_commands(clip: &Clip, at: f64) -> Vec<Command> {
+    use model::KeyProperty::{OffsetX, OffsetY};
+    let axes = [OffsetX, OffsetY];
+    let remove = axes.iter().all(|&p| clip.key_at(p, at).is_some());
+    axes.into_iter()
+        .filter_map(|property| {
+            if remove {
+                Some(Command::ClearClipKey {
+                    clip_id: clip.id.clone(),
+                    property,
+                    at,
+                })
+            } else if clip.key_at(property, at).is_none() {
+                Some(Command::SetClipKey {
+                    clip_id: clip.id.clone(),
+                    property,
+                    at,
+                    value: clip.value_at(property, at),
+                    ease: clip
+                        .keys_on(property)
+                        .rfind(|key| key.at < at)
+                        .map_or(model::KeyEase::LINEAR, |key| key.ease),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// The commands that turn `before`'s keys into `after`'s: a `SetClipKey`
 /// for every key added or changed, a `ClearClipKey` for every key gone.
 /// Two keys within a hair of each other are the same key.
@@ -10098,6 +10130,15 @@ impl Studio {
         self.apply(command);
     }
 
+    /// Adds or removes keys on both position axes in one undoable edit.
+    pub fn toggle_position_key(&mut self) {
+        let Some((clip, at)) = self.key_point() else {
+            return;
+        };
+        let commands = position_key_commands(clip, at);
+        self.apply(Command::Batch { commands });
+    }
+
     /// Takes every key off a field, leaving it its constant.
     pub fn clear_keys_on(&mut self, field: ClipField) {
         let Some(property) = Self::key_property_of(field) else {
@@ -12444,6 +12485,83 @@ mod tests {
         for current in [0.0, 0.25, 1.0, 2.0] {
             assert_eq!(batch_value(ClipField::Volume, 0.5, 1.0, current), 0.5);
         }
+    }
+
+    #[test]
+    fn position_keys_are_added_and_removed_as_one_undo_step() {
+        use super::position_key_commands;
+        use concat_project::model::{Clip, ClipKind, KeyProperty, Project};
+        use concat_project::{DocumentSettings, Editor, to_document};
+        let mut project = Project::new();
+        let mut clip = Clip::blank("position", "T1", ClipKind::Text, "position", 0.0, 2.0);
+        clip.offset_x = 0.25;
+        clip.offset_y = -0.5;
+        project.active_mut().clips.push(clip.into());
+        let mut editor = Editor::from_document(&to_document(
+            &DocumentSettings {
+                name: "position".into(),
+                width: 1920,
+                height: 1080,
+                rate_num: 25,
+                rate_den: 1,
+            },
+            &project,
+        ))
+        .unwrap();
+        let axes = [KeyProperty::OffsetX, KeyProperty::OffsetY];
+        let commands =
+            position_key_commands(editor.project().active().clip("position").unwrap(), 0.5);
+        editor.apply(Command::Batch { commands }).unwrap();
+        for property in axes {
+            let clip = editor.project().active().clip("position").unwrap();
+            assert!(clip.key_at(property, 0.5).is_some());
+        }
+        assert!(editor.undo());
+        assert!(!editor.can_undo(), "the pair was one edit");
+        assert!(axes.iter().all(|&p| {
+            !editor
+                .project()
+                .active()
+                .clip("position")
+                .unwrap()
+                .is_keyed(p)
+        }));
+        assert!(editor.redo());
+        let commands =
+            position_key_commands(editor.project().active().clip("position").unwrap(), 0.5);
+        editor.apply(Command::Batch { commands }).unwrap();
+        assert!(axes.iter().all(|&p| {
+            !editor
+                .project()
+                .active()
+                .clip("position")
+                .unwrap()
+                .is_keyed(p)
+        }));
+        assert!(editor.undo());
+        let clip = editor.project().active().clip("position").unwrap();
+        assert_eq!(clip.value_at(KeyProperty::OffsetX, 0.5), 0.25);
+        assert_eq!(clip.value_at(KeyProperty::OffsetY, 0.5), -0.5);
+        assert!(axes.iter().all(|&p| clip.key_at(p, 0.5).is_some()));
+    }
+
+    #[test]
+    fn position_keys_complete_partial_pairs_without_overwriting_existing_keys() {
+        use super::position_key_commands;
+        use concat_project::model::{Clip, ClipKind, KeyEase, KeyProperty};
+        let mut clip = Clip::blank("position", "T1", ClipKind::Video, "position", 0.0, 2.0);
+        clip.offset_y = -0.25;
+        clip.set_key(KeyProperty::OffsetX, 0.5, 0.75, KeyEase::LINEAR);
+        let commands = position_key_commands(&clip, 0.5);
+        assert!(matches!(&commands[..], [Command::SetClipKey {
+            property: KeyProperty::OffsetY, at, value, ..
+        }] if *at == 0.5 && *value == -0.25));
+        clip.set_key(KeyProperty::OffsetY, 0.0, -0.5, KeyEase::LINEAR);
+        clip.set_key(KeyProperty::OffsetY, 1.0, 0.5, KeyEase::LINEAR);
+        let commands = position_key_commands(&clip, 0.5);
+        assert!(matches!(&commands[..], [Command::SetClipKey {
+            property: KeyProperty::OffsetY, value, ..
+        }] if value.abs() < 1e-10));
     }
 
     #[test]

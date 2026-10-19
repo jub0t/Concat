@@ -6,7 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { ClipField } from "../timeline/model.slint";
-import { KeyCluster } from "controls.slint";
+import { KeyCluster, ValueControl } from "controls.slint";
 
 // The colour wheels and the curves: lift, gamma and gain as three wheels in
 // a row, and one graph for the curves with a tab a channel. Both draw what
@@ -107,27 +107,39 @@ export component ColorWheel inherits VerticalLayout {
     spacing: 4px;
     alignment: start;
     horizontal-stretch: 1;
+    min-width: 72px;
+    preferred-width: 80px;
 
     HorizontalLayout {
-        alignment: center;
+        height: Theme.h;
         spacing: 2px;
 
         Text {
+            min-width: 0px;
+            horizontal-stretch: 1;
+            overflow: elide;
             text: root.data.label;
             color: Theme.fg-muted;
             font-size: Theme.fs;
             vertical-alignment: center;
         }
 
-        if root.data.keyable: KeyCluster {
-            name: root.data.key;
-            state: {
-                field: ClipField.scale,
-                keyed: root.data.keyed,
-                here: root.data.here,
-                prev: root.data.prev,
-                next: root.data.next,
-            };
+        VerticalLayout {
+            width: 17px;
+            alignment: center;
+            if !root.data.keyable: Rectangle { width: 17px; }
+            if root.data.keyable: KeyCluster {
+                compact: true;
+                enabled: root.enabled;
+                name: root.data.key;
+                state: {
+                    field: ClipField.scale,
+                    keyed: root.data.keyed,
+                    here: root.data.here,
+                    prev: root.data.prev,
+                    next: root.data.next,
+                };
+            }
         }
     }
 
@@ -212,12 +224,11 @@ export component ColorWheel inherits VerticalLayout {
         }
     }
 
-    master := NumberField {
+    master := ValueControl {
         value: root.data.master;
         minimum: root.data.min;
         maximum: root.data.max;
         step: 0.01;
-        precision: 2;
         enabled: root.enabled;
         changed(v) => { root.master-changed(v); }
     }

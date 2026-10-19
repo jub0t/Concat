@@ -224,6 +224,8 @@ export global Keyframes {
 
     /// Put a key on this field at the playhead, or take off the one there.
     callback toggle(field: ClipField);
+    /// Keys both position axes together as one undoable action.
+    callback toggle-position();
     /// Move the playhead to this field's previous (-1) or next (+1) key.
     callback step(field: ClipField, delta: int);
     /// Take every key off this field, leaving it the constant it shows. What

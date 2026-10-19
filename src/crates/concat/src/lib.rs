@@ -1149,6 +1149,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         keys.on_toggle(on_lanes!(|state, field: ClipField| {
             state.toggle_key(field);
         }));
+        keys.on_toggle_position(on_lanes!(|state| {
+            state.toggle_position_key();
+        }));
         keys.on_step(on_lanes!(|state, field: ClipField, delta: i32| {
             state.step_key(field, delta);
         }));

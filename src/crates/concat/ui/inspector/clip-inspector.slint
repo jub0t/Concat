@@ -22,6 +22,7 @@ import {
     Note,
     Param,
     ParamFormat,
+    PositionRow,
     Rail,
     ResetButton,
     SearchField,
@@ -393,6 +394,7 @@ export component PresetStack inherits VerticalLayout {
 
                             knob := Param {
                                 label: p.label;
+                                color-key: p.key;
                                 value: p.value;
                                 minimum: p.min;
                                 maximum: p.max;
@@ -1189,38 +1191,19 @@ export component VideoPanel inherits VerticalLayout {
                 changed(v) => { root.set(ClipField.scale, v); root.commit(); }
             }
 
-            Param {
-                label: I18n.t("common.positionX");
-                keyable: true;
-                field: ClipField.offset-x;
-                value <=> root.offset-x;
-                minimum: -1;
-                maximum: 1;
-                step: 0.005;
-                default-value: 0;
-                fmt: ParamFormat.centred;
-                unit: "%";
-                unit-scale: 100;
-                changed(v) => { root.set(ClipField.offset-x, v); root.commit(); }
-            }
-
-            Param {
-                label: I18n.t("common.positionY");
-                keyable: true;
-                field: ClipField.offset-y;
-                value <=> root.offset-y;
-                minimum: -1;
-                maximum: 1;
-                step: 0.005;
-                default-value: 0;
-                fmt: ParamFormat.centred;
-                unit: "%";
-                unit-scale: 100;
-                changed(v) => { root.set(ClipField.offset-y, v); root.commit(); }
+            PositionRow {
+                x-value <=> root.offset-x;
+                y-value <=> root.offset-y;
+                changed(x, y) => {
+                    root.set(ClipField.offset-x, x);
+                    root.set(ClipField.offset-y, y);
+                    root.commit();
+                }
             }
 
             Param {
                 label: I18n.t("common.rotation");
+                rail: false;
                 keyable: true;
                 field: ClipField.rotation;
                 value <=> root.rotation;
@@ -2375,6 +2358,7 @@ export component AdjustPanel inherits VerticalLayout {
     in property <[AppliedParamData]> params;
     in property <[WheelData]> wheels;
     in property <[CurveData]> curves;
+    in-out property <int> tab: 0;
 
     callback set(key: string, value: float);
     /// A curve's point moved, or put down when `point` is -1, or taken off.
@@ -2391,14 +2375,21 @@ export component AdjustPanel inherits VerticalLayout {
             }
         }
 
-        // The wheels and curves first, the knobs after: the grading tools
-        // are what a colourist reaches for, and they sit above the fold.
-        // See PresetStack for why each knob's row re-seeds it; a subhead
-        // opens each run of rows that share a group.
+        // Keep the three grading tools on separate pages. Changing pages
+        // changes only what is shown; every control uses the same model.
         SectionBody {
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                SegmentedControl {
+                    options: [I18n.t("clipInspector.colorTab"), I18n.t("clipInspector.curvesTab"), I18n.t("clipInspector.wheelsTab")];
+                    current <=> root.tab;
+                    disabled: [false, root.curves.length == 0, root.wheels.length == 0];
+                }
+            }
             // The wheels, three in a row: a puck is two knobs of the panel,
             // `<key>.x` and `<key>.y`, and the master a third.
-            if root.wheels.length > 0: VerticalLayout {
+            if root.tab == 2 && root.wheels.length > 0: VerticalLayout {
                 spacing: Theme.gap;
 
                 Subhead {
@@ -2425,7 +2416,7 @@ export component AdjustPanel inherits VerticalLayout {
                 }
             }
 
-            if root.curves.length > 0: VerticalLayout {
+            if root.tab == 1 && root.curves.length > 0: VerticalLayout {
                 spacing: Theme.gap;
 
                 Subhead {
@@ -2447,37 +2438,41 @@ export component AdjustPanel inherits VerticalLayout {
                 }
             }
 
-            for p[i] in root.params: VerticalLayout {
+            if root.tab == 0: VerticalLayout {
                 spacing: Theme.gap;
+                for p[i] in root.params: VerticalLayout {
+                    spacing: Theme.gap;
 
-                if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
-                    title: p.group;
-                }
+                    if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
+                        title: p.group;
+                    }
 
-                Rectangle {
-                    property <AppliedParamData> data: p;
-                    height: knob.preferred-height;
-                    changed data => { knob.value = self.data.value; }
+                    Rectangle {
+                        property <AppliedParamData> data: p;
+                        height: knob.preferred-height;
+                        changed data => { knob.value = self.data.value; }
 
-                    knob := Param {
-                        unit: p.unit;
-                        label: p.label;
-                        value: p.value;
-                        minimum: p.min;
-                        maximum: p.max;
-                        step: p.step;
-                        default-value: p.default-value;
-                        fmt: p.fmt;
-                        keyable: p.keyable;
-                        key-name: p.key;
-                        key-state: {
-                            field: ClipField.scale,
-                            keyed: p.keyed,
-                            here: p.here,
-                            prev: p.prev,
-                            next: p.next,
-                        };
-                        changed(v) => { root.set(p.key, v); root.commit(); }
+                        knob := Param {
+                            unit: p.unit;
+                            label: p.label;
+                            color-key: p.key;
+                            value: p.value;
+                            minimum: p.min;
+                            maximum: p.max;
+                            step: p.step;
+                            default-value: p.default-value;
+                            fmt: p.fmt;
+                            keyable: p.keyable;
+                            key-name: p.key;
+                            key-state: {
+                                field: ClipField.scale,
+                                keyed: p.keyed,
+                                here: p.here,
+                                prev: p.prev,
+                                next: p.next,
+                            };
+                            changed(v) => { root.set(p.key, v); root.commit(); }
+                        }
                     }
                 }
             }

@@ -6,6 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { NumberField } from "../primitives/number-field.slint";
+import { Stepper } from "../primitives/stepper.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
 import { ClipField, ClipKeyData, Keyframes } from "../timeline/model.slint";
 
@@ -129,24 +130,30 @@ export global InspectorFmt {
         return decibels <= -60 ? 0 : Math.pow(10, decibels / 20);
     }
 
+    /// Units for parameters that previously relied on a separate readout.
+    public pure function unit-of(fmt: ParamFormat) -> string {
+        if (fmt == ParamFormat.percent || fmt == ParamFormat.fraction || fmt == ParamFormat.centred
+            || fmt == ParamFormat.height || fmt == ParamFormat.outline) { return "%"; }
+        if (fmt == ParamFormat.gain || fmt == ParamFormat.decibels) { return "dB"; }
+        if (fmt == ParamFormat.degrees) { return "°"; }
+        if (fmt == ParamFormat.seconds || fmt == ParamFormat.seconds2 || fmt == ParamFormat.fade) { return "s"; }
+        if (fmt == ParamFormat.millis) { return "ms"; }
+        if (fmt == ParamFormat.hertz || fmt == ParamFormat.rate-hz) { return "Hz"; }
+        if (fmt == ParamFormat.pitch) { return "st"; }
+        if (fmt == ParamFormat.ratio) { return ":1"; }
+        if (fmt == ParamFormat.rate) { return "x"; }
+        if (fmt == ParamFormat.kelvin) { return "K"; }
+        if (fmt == ParamFormat.stops) { return "EV"; }
+        return "";
+    }
+
     // What a NumberField should show for a given step.
     public pure function precision-of(step: float) -> int {
         return step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
     }
 }
 
-// The one slider: a hairline track with a raised chip you push along it.
-// Click to jump, drag to ride, double-click to reset.
-//
-// It is a *control*, not a field: mostly air, the dragger the only solid
-// thing in it, and one of them in a section says this is the setting the
-// section is about. Volume is that. A chorus's wet/dry is not - a knob
-// like that is its number field alone, which scrubs on a drag.
-//
-// The dragger is a chip and not a bead: flat sides land on a value. It is
-// light rather than accent-coloured because the fill it slides over is
-// already the accent, and a dragger in the colour of the thing behind it
-// stops being a dragger.
+// Click the track to jump, drag its handle to adjust, double-click to reset.
 export component Rail inherits Rectangle {
     in-out property <float> value;
     in property <float> minimum: 0;
@@ -155,6 +162,9 @@ export component Rail inherits Rectangle {
     /// restored on double-click
     in property <float> default-value: root.minimum;
     in property <bool> enabled: true;
+
+    in property <brush> track-brush: Theme.well;
+    in property <bool> color-track: false;
 
     callback changed(value: float);
 
@@ -186,16 +196,16 @@ export component Rail inherits Rectangle {
     track := Rectangle {
         y: (parent.height - self.height) / 2;
         width: parent.width;
-        height: 4px;
+        height: root.color-track ? 6px : 4px;
         border-radius: 2px;
         border-width: 1px;
         border-color: Theme.line;
-        background: Theme.well;
+        background: root.track-brush;
 
         // Runs to the dragger's middle rather than to its near edge, so the
         // fill and the chip meet instead of leaving a gap that grows with
         // the dragger's width.
-        Rectangle {
+        if !root.color-track: Rectangle {
             x: 0;
             y: 0;
             width: root.inset + root.usable * root.percent;
@@ -286,11 +296,15 @@ export component KeyCluster inherits HorizontalLayout {
     /// it up. Empty for a field.
     in property <string> name;
     in property <ClipKeyData> state: Keyframes.row(root.field);
+    in property <bool> compact: false;
+    in property <bool> position: false;
 
-    property <bool> live: Keyframes.available;
+    in property <bool> enabled: true;
+    property <bool> live: root.enabled && Keyframes.available;
 
     function toggle() {
-        if (root.name == "") { Keyframes.toggle(root.field); }
+        if (root.position) { Keyframes.toggle-position(); }
+        else if (root.name == "") { Keyframes.toggle(root.field); }
         else { Keyframes.toggle-param(root.name); }
     }
     function step(delta: int) {
@@ -300,7 +314,7 @@ export component KeyCluster inherits HorizontalLayout {
 
     spacing: 1px;
 
-    prev := KeyButton {
+    if !root.compact: KeyButton {
         glyph: Glyph.chevron-left;
         enabled: root.live && root.state.prev;
         clicked => { root.step(-1); }
@@ -318,21 +332,128 @@ export component KeyCluster inherits HorizontalLayout {
         clicked => { root.toggle(); }
     }
 
-    next := KeyButton {
+    if !root.compact: KeyButton {
         glyph: Glyph.chevron-right;
         enabled: root.live && root.state.next;
         clicked => { root.step(1); }
     }
 }
 
-// The inspector's repeating unit, on one line: label, a formatted readout
-// (the value in a unit you reason about — "none", "auto", "1.00x"), keys
-// and a raw number field, which scrubs on a drag. Keeping readout and field
-// both is what lets a fade of zero say "none" without making zero
-// un-typeable; when the field wears the unit itself the readout goes.
-//
-// A row that rides the Rail is two lines: the rail under the line above,
-// with the number field beside it.
+// Shared numeric control: a leading axis, centred value, trailing unit and steppers.
+export component ValueControl inherits HorizontalLayout {
+    in-out property <float> value;
+    in property <float> minimum: -1000000000;
+    in property <float> maximum: 1000000000;
+    in property <float> step: 1;
+    in property <string> unit;
+    in property <string> axis;
+    in property <float> unit-scale: 1;
+    in property <bool> enabled: true;
+    callback changed(value: float);
+
+    min-width: 72px;
+    preferred-width: 101px;
+    spacing: 1px;
+    NumberField {
+        horizontal-stretch: 1;
+        value <=> root.value;
+        minimum: root.minimum;
+        maximum: root.maximum;
+        step: root.step;
+        precision: InspectorFmt.precision-of(root.step);
+        enabled: root.enabled;
+        scrubbable: false;
+        centered: true;
+        unit-leading: false;
+        prefix: root.axis;
+        radius-right: 0px;
+        unit: root.unit;
+        format(v) => {
+            return Fmt.round-to(v * root.unit-scale,
+                InspectorFmt.precision-of(root.step * root.unit-scale));
+        }
+        parse(t) => { return t.is-float() ? t.to-float() / root.unit-scale : root.value; }
+        changed(v) => { root.changed(v); }
+    }
+    Stepper {
+        vertical: true;
+        enabled: root.enabled;
+        stepped(direction, shift, alt) => {
+            root.value = Fmt.clamp(Fmt.round-to(
+                root.value + direction * root.step * (shift ? 10 : alt ? 0.1 : 1),
+                InspectorFmt.precision-of(root.step) + (alt ? 1 : 0)),
+                root.minimum, root.maximum);
+            root.changed(root.value);
+        }
+    }
+}
+
+// X and Y share one keyframe action and one edit/undo transaction.
+export component PositionRow inherits VerticalLayout {
+    in-out property <float> x-value;
+    in-out property <float> y-value;
+    callback changed(x: float, y: float);
+    spacing: 4px;
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    Text {
+        text: I18n.t("common.position");
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        TouchArea {
+            double-clicked => {
+                root.x-value = 0;
+                root.y-value = 0;
+                root.changed(0, 0);
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        ValueControl {
+            horizontal-stretch: 1;
+            axis: "X";
+            unit: "%";
+            unit-scale: 100;
+            minimum: -1;
+            maximum: 1;
+            step: 0.005;
+            value <=> root.x-value;
+            changed(v) => { root.changed(v, root.y-value); }
+        }
+        ValueControl {
+            horizontal-stretch: 1;
+            axis: "Y";
+            unit: "%";
+            unit-scale: 100;
+            minimum: -1;
+            maximum: 1;
+            step: 0.005;
+            value <=> root.y-value;
+            changed(v) => { root.changed(root.x-value, v); }
+        }
+        VerticalLayout {
+            width: 17px;
+            horizontal-stretch: 0;
+            alignment: center;
+            KeyCluster {
+                compact: true;
+                position: true;
+                state: {
+                    field: ClipField.offset-x,
+                    here: Keyframes.row(ClipField.offset-x).here && Keyframes.row(ClipField.offset-y).here,
+                    keyed: Keyframes.row(ClipField.offset-x).keyed || Keyframes.row(ClipField.offset-y).keyed,
+                    prev: false,
+                    next: false,
+                };
+            }
+        }
+    }
+}
+
+// Each adjustment has a label, then a slider, an editable value with
+// vertical step buttons, and a keyframe diamond where supported. The model's
+// units and change callbacks remain shared by every way of setting it.
 export component Param inherits VerticalLayout {
     in property <string> label;
     in-out property <float> value;
@@ -342,11 +463,9 @@ export component Param inherits VerticalLayout {
     in property <float> default-value: root.minimum;
     in property <ParamFormat> fmt;
     in property <bool> enabled: true;
-    /// Ride the Rail — for the one setting a section is named after, not
-    /// for a list of knobs.
-    in property <bool> rail: false;
-    /// The value's unit, worn by the number field's trailing segment in
-    /// place of the formatted readout: the number is then said once.
+    /// Parameters expose a slider by default; specialised rows may opt out.
+    in property <bool> rail: true;
+    /// The trailing unit inside the fixed-width numeric field.
     in property <string> unit;
     /// What the field shows per unit of value: 100 for a fraction worn as
     /// a percent. The value itself stays what the model holds.
@@ -359,7 +478,13 @@ export component Param inherits VerticalLayout {
     in property <ClipField> field;
     /// See KeyCluster: a row keyed by name is handed its key state.
     in property <string> key-name;
+    in property <string> color-key: root.key-name;
     in property <ClipKeyData> key-state: Keyframes.row(root.field);
+
+    property <string> display-unit: root.unit != "" ? root.unit : InspectorFmt.unit-of(root.fmt);
+    property <float> display-scale: root.unit != "" ? root.unit-scale
+        : root.fmt == ParamFormat.fraction || root.fmt == ParamFormat.centred
+            || root.fmt == ParamFormat.height || root.fmt == ParamFormat.outline ? 100 : root.unit-scale;
 
     callback changed(value: float);
 
@@ -368,14 +493,11 @@ export component Param inherits VerticalLayout {
     spacing: 4px;
 
     HorizontalLayout {
-        // Double-click the label to put the value back. The label rather
-        // than the field, which a double-click would only start typing in.
         Text {
             text: root.label;
             color: Theme.fg-muted;
             font-size: Theme.fs;
             vertical-alignment: center;
-
             TouchArea {
                 enabled: root.enabled;
                 double-clicked => {
@@ -384,61 +506,20 @@ export component Param inherits VerticalLayout {
                 }
             }
         }
-
         Rectangle { horizontal-stretch: 1; }
 
-        if root.unit == "": Text {
-            text: InspectorFmt.format(root.fmt, root.value);
-            color: Theme.fg;
-            font-family: Theme.font-technical;
-            font-size: Theme.fs;
-            vertical-alignment: center;
-        }
-
-        if !root.rail: Rectangle { width: 8px; }
-        if !root.rail: NumberField {
-            width: root.unit == "" ? 64px : 84px;
-            value <=> root.value;
-            minimum: root.minimum;
-            maximum: root.maximum;
-            step: root.step;
-            // The field rounds what it *holds* to this, and it holds the
-            // model's number - a fraction, for a row worn as a percent. The
-            // display's precision is the format's business below; handing
-            // it here rounded a scale of 1.01 to 1, and a drag on Width
-            // went nowhere until it could go to 200%.
-            precision: InspectorFmt.precision-of(root.step);
-            enabled: root.enabled;
-            unit: root.unit;
-            // Shown scaled, typed scaled, held as is.
-            format(v) => {
-                return Fmt.round-to(v * root.unit-scale,
-                    InspectorFmt.precision-of(root.step * root.unit-scale));
-            }
-            parse(t) => {
-                return t.is-float() ? t.to-float() / root.unit-scale : root.value;
-            }
-            changed(v) => { root.changed(v); }
-        }
-
-        // After the number field: the cluster is about the value, and it
-        // trails whatever last states the value.
-        if root.keyable: Rectangle { width: 6px; }
-        if root.keyable: VerticalLayout {
-            alignment: center;
-            KeyCluster {
-                field: root.field;
-                name: root.key-name;
-                state: root.key-state;
-            }
-        }
     }
 
-    if root.rail: HorizontalLayout {
-        spacing: 8px;
-
-        Rail {
+    HorizontalLayout {
+        spacing: 6px;
+        if root.rail: Rail {
             horizontal-stretch: 1;
+            min-width: 48px;
+            color-track: root.color-key == "temperature" || root.color-key == "tint" || root.color-key == "saturation";
+            track-brush: root.color-key == "temperature" ? @linear-gradient(90deg, #f4d66c 0%, #478bff 100%)
+                : root.color-key == "tint" ? @linear-gradient(90deg, #55c978 0%, #d566d2 100%)
+                : root.color-key == "saturation" ? @linear-gradient(90deg, #808080 0%, #ea705e 100%)
+                : Theme.well;
             value <=> root.value;
             minimum: root.minimum;
             maximum: root.maximum;
@@ -447,26 +528,35 @@ export component Param inherits VerticalLayout {
             enabled: root.enabled;
             changed(v) => { root.changed(v); }
         }
-
-        NumberField {
-            width: root.unit == "" ? 64px : 84px;
+        if !root.rail: Rectangle { horizontal-stretch: 1; }
+        ValueControl {
+            width: 101px;
+            horizontal-stretch: 0;
             value <=> root.value;
             minimum: root.minimum;
             maximum: root.maximum;
             step: root.step;
-            // The model's precision, as above.
-            precision: InspectorFmt.precision-of(root.step);
+            unit: root.display-unit;
+            unit-scale: root.display-scale;
             enabled: root.enabled;
-            unit: root.unit;
-            format(v) => {
-                return Fmt.round-to(v * root.unit-scale,
-                    InspectorFmt.precision-of(root.step * root.unit-scale));
-            }
-            parse(t) => {
-                return t.is-float() ? t.to-float() / root.unit-scale : root.value;
-            }
             changed(v) => { root.changed(v); }
         }
+        // Reserve the diamond's column even for unkeyable parameters, so
+        // every rail ends at the same place and keeps its own numeric scale.
+        if !root.keyable: Rectangle { width: 17px; height: Theme.h; }
+        if root.keyable: VerticalLayout {
+            width: 17px;
+            horizontal-stretch: 0;
+            alignment: center;
+            KeyCluster {
+                compact: true;
+                enabled: root.enabled;
+                field: root.field;
+                name: root.key-name;
+                state: root.key-state;
+            }
+        }
+
     }
 }
 
