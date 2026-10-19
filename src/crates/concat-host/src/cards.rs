@@ -339,6 +339,8 @@ impl Painter {
             font_size: 0.26,
             font_weight: 800.0,
             italic: false,
+            underline: false,
+            strikethrough: false,
             color: "#ffffff".to_owned(),
             align: concat_text::Align::Center,
             stroke_width: 0.0,

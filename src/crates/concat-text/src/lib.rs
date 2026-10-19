@@ -71,6 +71,9 @@ pub struct TitleStyle {
     pub font_weight: f64,
     /// Italic when true.
     pub italic: bool,
+    /// Decorations share the glyph fill, outline and shadow.
+    pub underline: bool,
+    pub strikethrough: bool,
     /// Fill colour as `#rrggbb` or `#rrggbbaa`.
     pub color: String,
     /// Line alignment within the block.
@@ -1437,6 +1440,34 @@ fn paint(
                 .expect("a translated glyph path stays finite");
             words.push_path(&placed);
         }
+        // Font metrics keep decorations aligned across faces and resolutions.
+        let metric = |m: Option<ttf_parser::LineMetrics>, fallback: f32| {
+            m.map_or((fallback, (em * 0.05).max(1.0)), |m| {
+                (
+                    -f32::from(m.position) / upem * em,
+                    (f32::from(m.thickness).abs() / upem * em).max(1.0),
+                )
+            })
+        };
+        for (enabled, (offset, thickness)) in [
+            (style.underline, metric(own.underline_metrics(), em * 0.1)),
+            (
+                style.strikethrough,
+                metric(own.strikeout_metrics(), -em * 0.3),
+            ),
+        ] {
+            if enabled
+                && line.width > 0.0
+                && let Some(rect) = Rect::from_xywh(
+                    left + indent,
+                    baseline + offset - thickness / 2.0,
+                    line.width,
+                    thickness,
+                )
+            {
+                words.push_rect(rect);
+            }
+        }
         let line_top = baseline - ascent;
         for &(start_x, end_x) in &line.words {
             word_rects.push(WordRect {
@@ -1913,6 +1944,8 @@ mod tests {
             font_size: 0.09,
             font_weight: 700.0,
             italic: false,
+            underline: false,
+            strikethrough: false,
             color: "#ffffff".to_owned(),
             align: Align::Center,
             stroke_width: 0.0,
@@ -1926,6 +1959,28 @@ mod tests {
             tracking: 0.0,
             max_width: 0.0,
             max_height: 0.0,
+        }
+    }
+
+    #[test]
+    fn decorations_change_pixels_without_moving_the_text() {
+        let fonts = Fonts::new();
+        let plain = style("First line\nSecond line");
+        let base = render_frame(&fonts, &plain, 640, 360).unwrap();
+        for (underline, strikethrough) in [(true, false), (false, true), (true, true)] {
+            let decorated = TitleStyle {
+                underline,
+                strikethrough,
+                ..plain.clone()
+            };
+            let painted = render_frame(&fonts, &decorated, 640, 360).unwrap();
+            assert_ne!(painted.rgba, base.rgba);
+            assert_eq!(painted.words, base.words);
+            assert_eq!(painted.block_width, base.block_width);
+            assert_eq!(painted.block_height, base.block_height);
+            // The PNG export path and live preview share the same painter.
+            let exported = render(&fonts, &decorated, 640, 360).unwrap();
+            assert_eq!(exported.words, painted.words);
         }
     }
 

@@ -5505,6 +5505,16 @@ impl Studio {
                 ClipField::FontSize => text.font_size = value.clamp(0.01, 0.5),
                 ClipField::FontWeight => text.font_weight = value.clamp(100.0, 900.0),
                 ClipField::Italic => text.italic = value != 0.0,
+                ClipField::Underline => text.underline = value != 0.0,
+                ClipField::Strikethrough => text.strikethrough = value != 0.0,
+                ClipField::TextCase => {
+                    text.text_case = match value as i32 {
+                        1 => model::TextCase::Upper,
+                        2 => model::TextCase::Lower,
+                        3 => model::TextCase::Sentence,
+                        _ => model::TextCase::Original,
+                    };
+                }
                 ClipField::TextOpacity => text.opacity = value.clamp(0.0, 1.0),
                 ClipField::Align => {
                     text.align = match value as i32 {
@@ -10887,6 +10897,14 @@ impl Studio {
             font_size: text.font_size as f32,
             font_weight: text.font_weight as f32,
             italic: text.italic,
+            underline: text.underline,
+            strikethrough: text.strikethrough,
+            text_case: match text.text_case {
+                model::TextCase::Original => 0,
+                model::TextCase::Upper => 1,
+                model::TextCase::Lower => 2,
+                model::TextCase::Sentence => 3,
+            },
             fill,
             fill_hex: hex_of(fill).into(),
             align: align_of(text.align),

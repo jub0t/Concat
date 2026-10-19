@@ -570,11 +570,13 @@ fn reveal_of(words: &[WordRect], width: u32, height: u32) -> Arc<RevealMap> {
 /// The document's style, field for field, in the painter's terms.
 fn title_style(style: &TextStyle) -> TitleStyle {
     TitleStyle {
-        content: style.content.clone(),
+        content: style.display_content(),
         font_family: style.font_family.clone(),
         font_size: style.font_size,
         font_weight: style.font_weight,
         italic: style.italic,
+        underline: style.underline,
+        strikethrough: style.strikethrough,
         color: style.color.clone(),
         align: match style.align {
             TextAlign::Left => Align::Left,

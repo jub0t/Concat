@@ -342,10 +342,65 @@ export component TextPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.font-size, v); root.commit(); }
         }
 
-        SwitchRow {
-            label: I18n.t("textPanel.italic");
-            checked: root.selected.italic;
-            toggled(on) => { root.set(ClipField.italic, on ? 1 : 0); root.commit(); }
+        Row {
+            label: I18n.t("textPanel.style");
+            label-width: root.label-w;
+            IconButton {
+                text: "B";
+                text-weight: 700;
+                label: I18n.t("textPanel.bold");
+                tooltip: false;
+                checked: root.selected.font-weight >= 700;
+                clicked => { root.set(ClipField.font-weight, root.selected.font-weight >= 700 ? 400 : 700); root.commit(); }
+            }
+            IconButton {
+                text: "I";
+                text-italic: true;
+                label: I18n.t("textPanel.italic");
+                tooltip: false;
+                checked: root.selected.italic;
+                clicked => { root.set(ClipField.italic, root.selected.italic ? 0 : 1); root.commit(); }
+            }
+            IconButton {
+                text: "U̲";
+                label: I18n.t("textPanel.underline");
+                tooltip: false;
+                checked: root.selected.underline;
+                clicked => { root.set(ClipField.underline, root.selected.underline ? 0 : 1); root.commit(); }
+            }
+            IconButton {
+                text: "S̶";
+                label: I18n.t("textPanel.strikethrough");
+                tooltip: false;
+                checked: root.selected.strikethrough;
+                clicked => { root.set(ClipField.strikethrough, root.selected.strikethrough ? 0 : 1); root.commit(); }
+            }
+        }
+
+        Row {
+            label: I18n.t("textPanel.letterCase");
+            label-width: root.label-w;
+            IconButton {
+                text: "AA";
+                label: I18n.t("textPanel.uppercase");
+                tooltip: false;
+                checked: root.selected.text-case == 1;
+                clicked => { root.set(ClipField.text-case, root.selected.text-case == 1 ? 0 : 1); root.commit(); }
+            }
+            IconButton {
+                text: "aa";
+                label: I18n.t("textPanel.lowercase");
+                tooltip: false;
+                checked: root.selected.text-case == 2;
+                clicked => { root.set(ClipField.text-case, root.selected.text-case == 2 ? 0 : 2); root.commit(); }
+            }
+            IconButton {
+                text: "Aa";
+                label: I18n.t("textPanel.sentenceCase");
+                tooltip: false;
+                checked: root.selected.text-case == 3;
+                clicked => { root.set(ClipField.text-case, root.selected.text-case == 3 ? 0 : 3); root.commit(); }
+            }
         }
 
         // The fill has no alpha of its own: the title's Opacity below is

@@ -225,8 +225,11 @@ export component IconButton inherits Rectangle {
     in property <Glyph> glyph;
     /// text label instead of a glyph, for toggles like M / S
     in property <string> text;
+    in property <int> text-weight: 400;
+    in property <bool> text-italic: false;
     /// accessible name; also what a tooltip would show
     in property <string> label;
+    in property <bool> tooltip: true;
     in property <bool> checked;
     in property <bool> enabled: true;
     /// Destructive action: the button states in red instead of the neutral
@@ -337,6 +340,8 @@ export component IconButton inherits Rectangle {
             text: root.text;
             color: root.tint;
             font-size: Theme.fs;
+            font-weight: root.text-weight;
+            font-italic: root.text-italic;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -357,7 +362,7 @@ export component IconButton inherits Rectangle {
         // is worth most.
         Tip {
             text: root.label;
-            active: touch.has-hover;
+            active: root.tooltip && touch.has-hover;
         }
 
         FocusRing {

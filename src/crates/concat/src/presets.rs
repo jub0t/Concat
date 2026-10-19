@@ -96,6 +96,9 @@ struct PresetStyle {
     font_size: Option<f64>,
     font_weight: Option<f64>,
     italic: Option<bool>,
+    text_case: Option<concat_project::model::TextCase>,
+    underline: Option<bool>,
+    strikethrough: Option<bool>,
     color: Option<String>,
     align: Option<String>,
     opacity: Option<f64>,
@@ -126,6 +129,9 @@ impl PresetStyle {
                 .unwrap_or(base.font_weight)
                 .clamp(100.0, 900.0),
             italic: self.italic.unwrap_or(false),
+            text_case: self.text_case.unwrap_or_default(),
+            underline: self.underline.unwrap_or(false),
+            strikethrough: self.strikethrough.unwrap_or(false),
             color: self.color.unwrap_or(base.color),
             align: match self.align.as_deref() {
                 Some("left") => TextAlign::Left,
