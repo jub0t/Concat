@@ -1509,6 +1509,19 @@ mod tests {
         assert_eq!(editor.project().media.len(), 1);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_path_spelled_another_way_is_not_imported_twice_on_windows() {
+        let mut editor = Editor::new();
+        editor
+            .apply(media(r"C:\Videos\a.mp4", 10.0, true))
+            .expect("adds");
+        editor
+            .apply(media("c:/videos/A.mp4", 10.0, true))
+            .expect("no-op");
+        assert_eq!(editor.project().media.len(), 1);
+    }
+
     #[test]
     fn replace_clip_media_can_move_the_in_point_to_the_copy() {
         let (mut editor, _, clip_id) = fixture();
