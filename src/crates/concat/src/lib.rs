@@ -596,13 +596,20 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // Mutate, then republish. Every handler is one of these three: the whole
     // window, the lanes alone (for the handlers a pointer drives directly,
     // which arrive as a stream), or the dock alone (a gutter drag).
+    //
+    // The body runs in a closure of its own, so a `return` in it ends the
+    // handler and not the republish after it. Pasted in bare, an early
+    // return skipped the publish and left the window showing the state from
+    // before until the next event republished it: Generate captions from a
+    // clip's menu opened the sheet only at the next click (#433).
     macro_rules! handler {
         ($publish:ident, |$state:ident $(, $arg:ident : $ty:ty)*| $body:block) => {{
             move |$($arg : $ty),*| {
                 Shell::with(|shell, app| {
                     {
                         let mut $state = shell.studio.borrow_mut();
-                        $body
+                        #[allow(clippy::redundant_closure_call)]
+                        (|| $body)();
                     }
                     shell.studio.borrow_mut().refresh_art();
                     shell.studio.borrow().$publish(&app, &shell.models);
