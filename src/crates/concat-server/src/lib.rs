@@ -178,8 +178,10 @@ pub struct Server {
 
 /// Every connection that is in, by number, with its way of being closed,
 /// so a stop reaches the threads blocked reading them. A connection takes
-/// itself out when it ends.
-pub(crate) type Connections = Arc<Mutex<BTreeMap<u64, Box<dyn Fn() + Send>>>>;
+/// itself out when it ends. Called with `true`, the closing first writes
+/// out what the connection has queued - the last event of a job the stop
+/// ended - and waits for that, at most the write timeout.
+pub(crate) type Connections = Arc<Mutex<BTreeMap<u64, Box<dyn Fn(bool) + Send>>>>;
 
 impl Server {
     /// Binds every address in `config` and starts serving. `make` builds
@@ -355,9 +357,16 @@ impl Server {
     /// Stops the server and returns once everything it started has ended:
     /// the listeners and connections closed, the API's own jobs cancelled
     /// and their threads finished, the API's thread gone.
+    ///
+    /// The jobs end before the callers are hung up, so a caller whose
+    /// export was cancelled hears `export.failed` for it rather than a
+    /// connection that just ends after the last progress (#431).
     pub fn stop(mut self) {
-        self.close_doors();
+        self.close_listeners();
+        self.stopper.cancel_all();
+        self.hub.close();
         self.finish();
+        self.hang_up(true);
     }
 
     /// Stops the server without waiting for the API's thread: when this
@@ -382,6 +391,18 @@ impl Server {
     /// the listeners joined, the connections hung up, the jobs cancelled
     /// and the queue closed.
     fn close_doors(&mut self) {
+        self.close_listeners();
+        self.hang_up(false);
+        // Before the queue closes: the API's thread waits for its jobs as
+        // it ends, and a job told to stop ends at its next frame instead
+        // of its last.
+        self.stopper.cancel_all();
+        self.hub.close();
+    }
+
+    /// Takes the server off the list and stops every listener, so nobody
+    /// new comes in; who is in already stays connected.
+    fn close_listeners(&mut self) {
         // Unlisted first, so nobody new is sent to a door that is closing.
         if let Some(path) = self.listing.take() {
             discovery::remove(&path);
@@ -404,20 +425,24 @@ impl Server {
         for thread in self.listeners.drain(..) {
             let _ = thread.join();
         }
-        if let Ok(mut connections) = self.connections.lock() {
-            for (_, close) in std::mem::take(&mut *connections) {
-                close();
-            }
-        }
         #[cfg(unix)]
         if let Some(path) = self.socket.take() {
             let _ = std::fs::remove_file(path);
         }
-        // Before the queue closes: the API's thread waits for its jobs as
-        // it ends, and a job told to stop ends at its next frame instead
-        // of its last.
-        self.stopper.cancel_all();
-        self.hub.close();
+    }
+
+    /// Closes every connection. With `drain`, each writes out what it has
+    /// queued first; see [`Connections`].
+    fn hang_up(&mut self, drain: bool) {
+        // Taken out of the lock before any is closed: a connection that
+        // ends takes itself out of the same map.
+        let connections = match self.connections.lock() {
+            Ok(mut connections) => std::mem::take(&mut *connections),
+            Err(_) => return,
+        };
+        for (_, close) in connections {
+            close(drain);
+        }
     }
 
     fn finish(&mut self) {

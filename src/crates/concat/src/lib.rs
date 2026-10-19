@@ -2427,8 +2427,54 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         std::mem::forget(startup_mark);
         leave(1);
     }
+    stop_exports();
     drop(startup_mark);
     leave(0);
+}
+
+/// How long a quit waits for an export it cancelled to stop.
+const EXPORT_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Ends what is still rendering before the process goes, so a quit in the
+/// middle of an export leaves no half-written `.{name}.concat-*` file
+/// beside the output: the window's export is cancelled, and the API's
+/// server is stopped - its jobs cancelled, the caller of each told
+/// `export.failed`, the callers hung up (#431). A render stops at its next
+/// frame and removes its files on the way out; one that does not stop
+/// within [`EXPORT_PATIENCE`] does not keep the quit from quitting.
+fn stop_exports() {
+    let mut held = None;
+    Shell::with(|shell, _| {
+        let mut studio = shell.studio.borrow_mut();
+        held = Some((studio.host.exporter.clone(), studio.host.server.take()));
+    });
+    let Some((exporter, server)) = held else {
+        return;
+    };
+    if !exporter.is_busy() && server.is_none() {
+        return;
+    }
+    let until = std::time::Instant::now() + EXPORT_PATIENCE;
+    // The server first: it cancels its own jobs, so each ends as a cancel
+    // its caller can tell apart from a failure.
+    if let Some(server) = server {
+        log::info!("close: stopping the API's server");
+        let (stopped, wait) = std::sync::mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("concat server stop".to_owned())
+            .spawn(move || {
+                server.stop();
+                let _ = stopped.send(());
+            });
+        let _ = wait.recv_timeout(EXPORT_PATIENCE);
+    }
+    exporter.cancel();
+    while exporter.is_busy() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    if exporter.is_busy() {
+        log::warn!("close: the export did not stop in time; leaving anyway");
+    }
 }
 
 /// How long a launch runs before it counts as having started.
