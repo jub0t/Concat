@@ -1950,29 +1950,12 @@ fn composite_treated(
     transitions: &[TransitionSpan],
 ) -> Frame {
     let time = plan.time;
-    // A packaged transition live at this instant combines the outgoing stack
-    // with the incoming picture through its shader. A live adjustment layer
-    // over the same frame is the one case we leave to the dissolve fallback,
-    // so the two never fight over the ground - a rare pairing, and the cut
-    // still transitions, just without its shader.
-    let treated_now = treatments.iter().any(|treatment| treatment.covers(time));
-    if !treated_now
-        && let Some(span) = transitions.iter().find(|span| span.covers(time))
-        && let Some(frame) = combine_transition(compositor, &plan, span)
-    {
-        return frame;
-    }
-
     let mut live: Vec<&Treatment> = treatments
         .iter()
         .filter(|treatment| treatment.covers(time))
         .collect();
-    if live.is_empty() {
-        plan.treatments.clear();
-        return compositor.render(&plan);
-    }
     live.sort_by_key(|treatment| treatment.track);
-    plan.treatments = live
+    let planned: Vec<PlannedTreatment> = live
         .iter()
         .map(|treatment| PlannedTreatment {
             track: treatment.track,
@@ -1980,6 +1963,18 @@ fn composite_treated(
             strength: treatment.strength_at(time),
         })
         .collect();
+    // A packaged transition live at this instant combines the outgoing stack
+    // with the incoming picture through its shader, and an adjustment layer
+    // live over the same frame grades it where it sits: one above the
+    // incoming lane grades the combined picture, one below grades the
+    // stacks being combined. Leaving the pairing to the dissolve turned
+    // every transition under a filter layer into a plain fade.
+    if let Some(span) = transitions.iter().find(|span| span.covers(time))
+        && let Some(frame) = combine_transition(compositor, &plan, span, &planned)
+    {
+        return frame;
+    }
+    plan.treatments = planned;
     compositor.render(&plan)
 }
 
@@ -2026,35 +2021,45 @@ fn combine_transition(
     compositor: &mut dyn Compositor,
     plan: &FramePlan,
     span: &TransitionSpan,
+    treatments: &[PlannedTreatment],
 ) -> Option<Frame> {
     let pass =
         Catalogue::builtin().transition_pass(&span.id, &span.params, span.progress(plan.time))?;
     let (width, height, time, output) = (plan.width, plan.height, plan.time, plan.output);
-    let stage = |layers: Vec<PlannedLayer>| FramePlan {
+    let stage = |layers: Vec<PlannedLayer>, treatments: Vec<PlannedTreatment>| FramePlan {
         time,
         width,
         height,
         layers,
-        treatments: Vec::new(),
+        treatments,
         output,
     };
-    let (from_plan, to_plan) = transition_stages(plan, span);
+    // A layer's track is never the incoming clip's: lanes are doubled when
+    // the cuts are resolved, so each side of the incoming lane is clear.
+    let (below, over): (Vec<PlannedTreatment>, Vec<PlannedTreatment>) = treatments
+        .iter()
+        .cloned()
+        .partition(|treatment| treatment.track < span.to_track);
+    let (mut from_plan, mut to_plan) = transition_stages(plan, span);
+    from_plan.treatments = below.clone();
+    to_plan.treatments = below;
     let from = compositor.render(&from_plan);
     let to = compositor.render(&to_plan);
     let combined = compositor.combine(width, height, time.as_f64() as f32, &from, &to, &pass)?;
-    // Anything above the incoming lane draws over the combined picture.
+    // Anything above the incoming lane draws over the combined picture, and
+    // a layer above it grades the lot.
     let above: Vec<PlannedLayer> = plan
         .layers
         .iter()
         .filter(|layer| layer.track > span.to_track)
         .cloned()
         .collect();
-    if above.is_empty() {
+    if above.is_empty() && over.is_empty() {
         Some(combined)
     } else {
         let mut layers = vec![ground_layer(combined)];
         layers.extend(above);
-        Some(compositor.render(&stage(layers)))
+        Some(compositor.render(&stage(layers, over)))
     }
 }
 
@@ -2579,6 +2584,88 @@ mod tests {
             let p = &frame.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
             [p[0], p[1], p[2]]
         }
+    }
+
+    /// A filter layer over a cut with a packaged transition grades the
+    /// transition, not a dissolve in its place: Push under a Mono layer is
+    /// Push in grey. Before, any live adjustment layer sent the frame down
+    /// the dissolve fallback, and every transition under a filter looked
+    /// like the default fade. Skips without a GPU.
+    #[test]
+    fn a_filter_layer_over_a_transition_grades_the_transition() {
+        let solid = |rgba: [u8; 4]| {
+            let mut frame = Frame::black(16, 8);
+            for pixel in frame.pixels_mut().chunks_exact_mut(4) {
+                pixel.copy_from_slice(&rgba);
+            }
+            frame
+        };
+        let time = Rational::from_int(1);
+        // Red going out on lane 0, white coming in on lane 2 halfway
+        // through its dissolve ramp, as the resolved cut leaves them. White
+        // stays white through Mono and red does not, so the graded push
+        // keeps two sides where a graded dissolve would have one.
+        let plan = || {
+            let mut incoming = PlannedLayer::picture(
+                concat_render::detached_clip(),
+                std::sync::Arc::new(solid([255, 255, 255, 255])),
+            );
+            incoming.track = 2;
+            incoming.opacity = 0.5;
+            FramePlan {
+                time,
+                width: 16,
+                height: 8,
+                layers: vec![ground_layer(solid([255, 0, 0, 255])), incoming],
+                treatments: Vec::new(),
+                output: concat_core::frame::Signal::Sdr,
+            }
+        };
+        let span = TransitionSpan {
+            start: Rational::ZERO,
+            end: Rational::from_int(2),
+            to_track: 2,
+            id: "concat.push".to_owned(),
+            params: BTreeMap::new(),
+        };
+        let mono = Treatment {
+            start: Rational::ZERO,
+            end: Rational::from_int(10),
+            track: 3,
+            effects: vec![AppliedFilter::new("concat.mono")],
+            strength: 1.0,
+            ramp_in: 0.0,
+            ramp_out: 0.0,
+        };
+        let Some(mut gpu) = WgpuCompositor::new() else {
+            return; // no renderer here
+        };
+        let pushed = composite_treated(&mut gpu, plan(), &[], std::slice::from_ref(&span));
+        let graded = composite_treated(
+            &mut gpu,
+            plan(),
+            std::slice::from_ref(&mono),
+            std::slice::from_ref(&span),
+        );
+        let at = |frame: &Frame, x: usize| {
+            let p = &frame.pixels()[(4 * 16 + x) * 4..(4 * 16 + x) * 4 + 3];
+            [p[0], p[1], p[2]]
+        };
+        // Halfway through a push the two sides are the two pictures, not
+        // one mix of them; graded, each side is its own grey.
+        let (left, right) = (at(&pushed, 1), at(&pushed, 14));
+        assert_ne!(left, right, "the push drew: {left:?} {right:?}");
+        let (left, right) = (at(&graded, 1), at(&graded, 14));
+        for pixel in [left, right] {
+            assert!(
+                pixel[0].abs_diff(pixel[1]) <= 3 && pixel[1].abs_diff(pixel[2]) <= 3,
+                "graded grey: {pixel:?}"
+            );
+        }
+        assert!(
+            left[0].abs_diff(right[0]) > 20,
+            "still a push under the grade, not a dissolve: {left:?} {right:?}"
+        );
     }
 
     use super::*;
