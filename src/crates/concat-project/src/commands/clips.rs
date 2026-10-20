@@ -688,7 +688,7 @@ pub(super) fn apply(
             let media = project
                 .media
                 .iter()
-                .find(|media| media.path == path)
+                .find(|media| super::media::same_path(&media.path, &path))
                 .expect("imported above");
             let mut merged =
                 default_clip(first.id.clone(), first.track_id.clone(), media, first.start);

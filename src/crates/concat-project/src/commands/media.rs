@@ -8,6 +8,24 @@
 
 use super::*;
 
+/// Whether two bin paths name the same file. Windows reads `\` and `/`
+/// alike and ignores case, so there `C:\v\a.mp4` and `c:/v/A.mp4` are one
+/// file; elsewhere the paths must match exactly.
+pub(super) fn same_path(a: &str, b: &str) -> bool {
+    same_path_as(a, b, cfg!(windows))
+}
+
+fn same_path_as(a: &str, b: &str, windows: bool) -> bool {
+    if a == b {
+        return true;
+    }
+    let fold = |byte: u8| match byte {
+        b'\\' => b'/',
+        other => other.to_ascii_lowercase(),
+    };
+    windows && a.len() == b.len() && a.bytes().zip(b.bytes()).all(|(x, y)| fold(x) == fold(y))
+}
+
 /// Applies one of this module's commands. Any other is a routing error.
 pub(super) fn apply(
     project: &mut Project,
@@ -19,7 +37,7 @@ pub(super) fn apply(
             if project
                 .media
                 .iter()
-                .any(|existing| existing.path == item.path)
+                .any(|existing| same_path(&existing.path, &item.path))
             {
                 return Ok(Outcome::default());
             }
@@ -194,5 +212,24 @@ pub(super) fn apply(
         }
 
         _ => unreachable!("commands::apply routes only this module's commands here"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_path_as;
+
+    #[test]
+    fn windows_reads_either_slash_and_ignores_case() {
+        assert!(same_path_as(r"C:\v\a.mp4", "c:/v/A.mp4", true));
+        assert!(!same_path_as(r"C:\v\a.mp4", r"C:\v\b.mp4", true));
+        assert!(!same_path_as(r"C:\v\a.mp4", r"C:\v\a.mp4.bak", true));
+    }
+
+    #[test]
+    fn elsewhere_a_path_matches_only_itself() {
+        assert!(same_path_as("/v/a.mp4", "/v/a.mp4", false));
+        assert!(!same_path_as(r"/v/a\b.mp4", "/v/a/b.mp4", false));
+        assert!(!same_path_as("/v/a.mp4", "/v/A.mp4", false));
     }
 }
