@@ -43,6 +43,12 @@ name: Build app
 # The six targets are a matrix so one fails without taking the rest down;
 # `fail-fast` is off for the same reason.
 on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The ref to build
+        type: string
+        default: feature/dynamic-karaoke-captions
   workflow_call:
     inputs:
       ref:
