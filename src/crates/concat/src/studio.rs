@@ -1142,9 +1142,33 @@ fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
     }
 }
 
+/// The cards that ship, drawn on a real GPU by scripts/bundle-cards.sh.
+mod bundled_cards {
+    include!(concat!(env!("OUT_DIR"), "/bundled_cards.rs"));
+}
+
+/// The card `id` shipped with, decoded: what a shelf shows until this
+/// machine has drawn its own. That is never on a software adapter, which
+/// draws no cards, and minutes on a Windows GPU whose shaders compile
+/// through FXC, which spends them on a blur's loops while every card after
+/// it waits - a shelf of sparkles (#416).
+fn bundled_card(id: &str) -> Option<slint::Image> {
+    let (_, bytes) = bundled_cards::CARDS.iter().find(|(card, _)| *card == id)?;
+    let picture = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)
+        .ok()?
+        .into_rgba8();
+    Some(slint::Image::from_rgba8(
+        slint::SharedPixelBuffer::clone_from_slice(
+            picture.as_raw(),
+            picture.width(),
+            picture.height(),
+        ),
+    ))
+}
+
 /// The card a package shows on a shelf: an author's own still from the
-/// package's folder, else the card drawn for it by its own shader; read
-/// once and kept.
+/// package's folder, else the card drawn for it by its own shader, else the
+/// one it shipped with; read once and kept.
 fn package_art(
     package: &concat_effects::catalogue::Package,
     look_art: &std::cell::RefCell<HashMap<String, slint::Image>>,
@@ -1163,6 +1187,7 @@ fn package_art(
                     let card = card_paths.get(id)?;
                     slint::Image::load_from_path(card).ok()
                 })
+                .or_else(|| bundled_card(id))
                 .unwrap_or_default()
         })
         .clone()
@@ -12048,6 +12073,27 @@ mod tests {
         custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
         wheel_partners, write_keyable,
     };
+
+    /// Every built-in picture package ships a card, decodable at the size
+    /// cards are drawn: one added without running scripts/bundle-cards.sh
+    /// would show a sparkle on every machine that cannot draw its own.
+    #[test]
+    fn every_built_in_picture_package_ships_a_card() {
+        for package in concat_effects::Catalogue::builtin().packages() {
+            if !package.kind().is_visual() || package.id() == super::ADJUST_ID {
+                continue;
+            }
+            let card = super::bundled_card(package.id())
+                .unwrap_or_else(|| panic!("{} has no bundled card", package.id()));
+            let size = card.size();
+            assert_eq!(
+                (size.width, size.height),
+                (concat_host::cards::WIDTH, concat_host::cards::HEIGHT),
+                "{}",
+                package.id()
+            );
+        }
+    }
 
     /// A pasted group keeps its shape from `base` on, its rows shifted
     /// and held inside the lanes it lands in, a locked row passed over

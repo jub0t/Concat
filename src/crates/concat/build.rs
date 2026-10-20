@@ -67,6 +67,42 @@ fn main() {
         std::fs::write(out, table).expect("write text_presets.rs");
     }
 
+    // The effect cards that ship: cards/<package id>.jpg, drawn on a real
+    // GPU by scripts/bundle-cards.sh. A table of include_bytes!s, which a
+    // shelf shows until the machine has drawn its own (#416).
+    {
+        let root =
+            std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+                .join("cards");
+        println!("cargo:rerun-if-changed={}", root.display());
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&root)
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.path())
+                    .filter(|path| path.extension().is_some_and(|ext| ext == "jpg"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        files.sort();
+        let mut table = String::from("pub static CARDS: &[(&str, &[u8])] = &[\n");
+        for file in &files {
+            println!("cargo:rerun-if-changed={}", file.display());
+            let id = file
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .expect("a card's name");
+            table.push_str(&format!(
+                "    ({id:?}, include_bytes!({:?})),\n",
+                file.display().to_string()
+            ));
+        }
+        table.push_str("];\n");
+        let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("out dir"))
+            .join("bundled_cards.rs");
+        std::fs::write(out, table).expect("write bundled_cards.rs");
+    }
+
     // The .exe's icon. The window's own is set in app.slint, but Explorer,
     // the Start menu and a pinned taskbar button read the file's resources,
     // and without one they show Windows' generic program icon. Needs the
