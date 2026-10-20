@@ -504,77 +504,81 @@ component ShortcutRow inherits Rectangle {
 
     animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 6px;
-        spacing: 8px;
+    // The row's press under its contents, not over them: a TouchArea
+    // drawn last covers the reset, and its press then listened for a
+    // key instead. Children get the pointer before their parent.
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.pressed(); }
 
-        Text {
-            horizontal-stretch: 1;
-            text: root.label;
-            color: Theme.fg;
-            font-size: Theme.fs;
-            vertical-alignment: center;
-            overflow: elide;
-        }
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 6px;
+            spacing: 8px;
 
-        // The chord in a chip — a key, not a word, in the face the
-        // fields keep for values. An action a rebind left with no key
-        // reads "—" rather than vanishing: it is still an action, and
-        // its reset is right beside it.
-        Rectangle {
-            height: 21px;
-            border-radius: Theme.r-sm;
-            border-width: root.capturing ? 1px : 0px;
-            border-color: root.capturing ? Theme.accent : Colors.transparent;
-            background: root.capturing ? Colors.transparent
-                : root.keys == "" ? Colors.transparent
-                : Theme.field-active;
+            Text {
+                horizontal-stretch: 1;
+                text: root.label;
+                color: Theme.fg;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+                overflow: elide;
+            }
 
-            HorizontalLayout {
-                padding-left: 7px;
-                padding-right: 7px;
+            // The chord in a chip — a key, not a word, in the face the
+            // fields keep for values. An action a rebind left with no key
+            // reads "—" rather than vanishing: it is still an action, and
+            // its reset is right beside it.
+            Rectangle {
+                height: 21px;
+                border-radius: Theme.r-sm;
+                border-width: root.capturing ? 1px : 0px;
+                border-color: root.capturing ? Theme.accent : Colors.transparent;
+                background: root.capturing ? Colors.transparent
+                    : root.keys == "" ? Colors.transparent
+                    : Theme.field-active;
 
-                Text {
-                    text: root.capturing ? I18n.t("shortcuts.press")
-                        : root.keys == "" ? "—" : root.keys;
-                    color: root.capturing ? Theme.accent : Theme.fg;
-                    font-family: Theme.font-technical;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
-                    overflow: elide;
+                HorizontalLayout {
+                    padding-left: 7px;
+                    padding-right: 7px;
+
+                    Text {
+                        text: root.capturing ? I18n.t("shortcuts.press")
+                            : root.keys == "" ? "—" : root.keys;
+                        color: root.capturing ? Theme.accent : Theme.fg;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            // Not an IconButton: its own FocusScope takes focus on a press,
+            // and focus the window has lost is focus the keymap cannot use
+            // until the sheet closes. A TouchArea under an Icon moves
+            // nothing.
+            if root.custom: Rectangle {
+                width: 24px;
+                height: 20px;
+                border-radius: Theme.r-sm;
+                background: reset-touch.has-hover ? Theme.field : Colors.transparent;
+
+                Icon {
+                    glyph: Glyph.reset;
+                    size: 13px;
+                    tint: reset-touch.has-hover ? Theme.fg : Theme.fg-muted;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                reset-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.reset(); }
                 }
             }
         }
 
-        // Not an IconButton: its own FocusScope takes focus on a press,
-        // and focus the window has lost is focus the keymap cannot use
-        // until the sheet closes. A TouchArea under an Icon moves
-        // nothing.
-        if root.custom: Rectangle {
-            width: 24px;
-            height: 20px;
-            border-radius: Theme.r-sm;
-            background: reset-touch.has-hover ? Theme.field : Colors.transparent;
-
-            Icon {
-                glyph: Glyph.reset;
-                size: 13px;
-                tint: reset-touch.has-hover ? Theme.fg : Theme.fg-muted;
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-            }
-
-            reset-touch := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.reset(); }
-            }
-        }
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.pressed(); }
     }
 }
 
