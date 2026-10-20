@@ -245,6 +245,12 @@ jobs:
           rm -f "$keystore"
           "$tools/apksigner" verify --print-certs "$apk"
 
+      # A phone with 16 KB pages loads none of a library aligned to less,
+      # and the build would not say so.
+      - name: Every library is aligned for 16 KB pages
+        if: matrix.ship
+        run: python3 scripts/ci/check-16k-pages.py src/target/release/apk/Concat.apk
+
       - name: Build log to the summary (failure only)
         if: failure()
         run: |

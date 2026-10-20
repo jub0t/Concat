@@ -61,12 +61,20 @@ case "$target" in
     # archive under that name, on the search path, is what the linker finds
     # instead, and it contributes exactly what the missing library would
     # have. The ar magic alone is a well-formed archive with no members.
+    #
+    # Every library the APK carries is linked for 16 KB pages, as FFmpeg's
+    # already is (ffmpeg-mobile.sh): a phone whose kernel uses them refuses
+    # a library aligned to 4 KB, and v0.2.8's libconcat_android.so was.
+    # One RUSTFLAGS for both: cargo reads it whole and ignores the
+    # target's own flags when it is set.
+    rustflags='-C link-arg=-Wl,-z,max-page-size=16384'
     if [ "$(uname -s)" = Darwin ]; then
       shim=$workspace/vendor/shim/$target
       mkdir -p "$shim"
       printf '!<arch>\n' > "$shim/libggml-blas.a"
-      echo "export RUSTFLAGS='-L native=$shim'"
+      rustflags="$rustflags -L native=$shim"
     fi
+    echo "export RUSTFLAGS='$rustflags'"
     ;;
   aarch64-apple-ios)
     sherpa=$workspace/vendor/sherpa-onnx/ios/lib
