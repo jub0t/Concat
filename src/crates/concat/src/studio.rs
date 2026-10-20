@@ -12219,10 +12219,7 @@ impl Studio {
             if other.id == id || other.track_id == clip.track_id || other.muted == Some(true) {
                 continue;
             }
-            if other.kind == model::ClipKind::Text
-                || other.kind == model::ClipKind::Filter
-                || other.kind == model::ClipKind::Shape
-            {
+            if !matches!(other.kind, model::ClipKind::Audio | model::ClipKind::Video) {
                 continue;
             }
             let other_start = other.start;
