@@ -222,7 +222,7 @@ jobs:
         id: toolchain
         shell: bash
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
 
