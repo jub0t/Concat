@@ -141,6 +141,10 @@ struct DropHandler {
     /// says where it moved, and a press says only that it happened.
     cursor: Option<(f32, f32)>,
     on_pressed_away: Box<dyn Fn()>,
+    /// The window came back to the front: the moment a person returns from
+    /// moving a file, and the one where a file that went missing can be
+    /// noticed. See `Studio::check_missing_media`.
+    on_focused: Box<dyn Fn()>,
     /// Whether this window draws its own resize edges: Linux, undecorated.
     edges: bool,
     /// The edge the pointer is on, while it is on one.
@@ -195,6 +199,7 @@ impl DropHandler {
     fn new(
         on_dropped: impl Fn(Vec<PathBuf>) + 'static,
         on_pressed_away: impl Fn() + 'static,
+        on_focused: impl Fn() + 'static,
     ) -> Self {
         Self {
             pending: Vec::new(),
@@ -205,6 +210,7 @@ impl DropHandler {
             fitted: false,
             cursor: None,
             on_pressed_away: Box::new(on_pressed_away),
+            on_focused: Box::new(on_focused),
             edges: cfg!(not(any(
                 target_os = "macos",
                 target_os = "windows",
@@ -267,6 +273,10 @@ impl CustomApplicationHandler for DropHandler {
         match event {
             WindowEvent::ScaleFactorChanged { .. } => reapply_ui_scale(),
             WindowEvent::DroppedFile(path) => self.pending.push(path.clone()),
+            // Back at the front, after Explorer or the file manager: what a
+            // dropped file is to an import, a return is to a look for one
+            // that went away while the window was open.
+            WindowEvent::Focused(true) => (self.on_focused)(),
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = slint_window
                     .map(|window| f64::from(window.scale_factor()))
@@ -399,11 +409,13 @@ pub fn phone() -> bool {
 /// a file manager - batched into one call per drag. It is taken here,
 /// before the window exists, because the backend - and the hook into its
 /// event loop that OS drops arrive through - has to be selected before
-/// anything is built on top of it; see [`DropHandler`].
+/// anything is built on top of it; see [`DropHandler`]. `on_focused` fires
+/// the same way each time the window is brought back to the front.
 #[cfg(not(target_os = "android"))]
 pub fn select_backend(
     on_files_dropped: impl Fn(Vec<PathBuf>) + 'static,
     on_pressed_away: impl Fn() + 'static,
+    on_focused: impl Fn() + 'static,
 ) -> Result<Option<Gpu>, PlatformError> {
     // The device the renderer and the monitor share. Taken first, because
     // the backend is selected with it.
@@ -431,7 +443,11 @@ pub fn select_backend(
 
     let mut selector = slint::BackendSelector::new()
         .backend_name("winit".into())
-        .with_winit_custom_application_handler(DropHandler::new(on_files_dropped, on_pressed_away));
+        .with_winit_custom_application_handler(DropHandler::new(
+            on_files_dropped,
+            on_pressed_away,
+            on_focused,
+        ));
     selector = match &gpu {
         Some(gpu) => selector.require_wgpu_30(gpu.configuration()),
         None => {
@@ -640,6 +656,9 @@ pub fn select_backend(
     // Android has no pointer to press away with; the screen's own keyboard
     // dismisses, and the field goes with it.
     _on_pressed_away: impl Fn() + 'static,
+    // Nor a window that loses and regains the front: the activity owns the
+    // screen, and a file comes back through the picker.
+    _on_focused: impl Fn() + 'static,
 ) -> Result<Option<Gpu>, PlatformError> {
     let _ = on_files_dropped;
     Ok(None)
