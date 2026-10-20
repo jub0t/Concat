@@ -2219,6 +2219,8 @@ export component AudioPanel inherits VerticalLayout {
 
     callback set(field: ClipField, value: float);
     callback commit();
+    callback auto-duck();
+    callback auto-cut-silence();
 
     /// A fade longer than half the clip would overlap the other one.
     property <float> fade-limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
@@ -2365,6 +2367,31 @@ export component AudioPanel inherits VerticalLayout {
             }
         }
     }
+
+    Section {
+        smart-audio := SectionHeader {
+            title: I18n.t("clipInspector.smartAudio");
+            collapsible: true;
+        }
+
+        if smart-audio.open: SectionBody {
+            Row {
+                label: I18n.t("clipInspector.autoDucking");
+                Button {
+                    text: I18n.t("clipInspector.applyAutoDuck");
+                    clicked => { root.auto-duck(); }
+                }
+            }
+
+            Row {
+                label: I18n.t("clipInspector.autoCutSilences");
+                Button {
+                    text: I18n.t("clipInspector.cutSilence");
+                    clicked => { root.auto-cut-silence(); }
+                }
+            }
+        }
+    }
 }
 
 /// Speed: the rate, and only the rate. Speed that changes over the clip is
@@ -2378,8 +2405,19 @@ export component SpeedPanel inherits VerticalLayout {
 
     callback set(field: ClipField, value: float);
     callback commit();
+    callback speed-preset-set(preset: int);
 
     property <float> speed;
+    property <[string]> curve-presets: [
+        I18n.t("clipInspector.speedNormal"),
+        I18n.t("clipInspector.speedMontage"),
+        I18n.t("clipInspector.speedHero"),
+        I18n.t("clipInspector.speedBulletTime"),
+        I18n.t("clipInspector.speedJumpCut"),
+        I18n.t("clipInspector.speedFlashIn"),
+        I18n.t("clipInspector.speedFlashOut"),
+    ];
+
     function seed() { root.speed = root.selected.speed; }
     init => { root.seed(); }
     changed selected => { root.seed(); }
@@ -2414,6 +2452,15 @@ export component SpeedPanel inherits VerticalLayout {
                 fmt: ParamFormat.rate;
                 unit: "x";
                 changed(v) => { root.set(ClipField.speed, v); root.commit(); }
+            }
+
+            Row {
+                label: I18n.t("clipInspector.speedCurve");
+                Select {
+                    options: root.curve-presets;
+                    current: root.selected.speed-preset;
+                    changed(index) => { root.speed-preset-set(index); }
+                }
             }
         }
     }

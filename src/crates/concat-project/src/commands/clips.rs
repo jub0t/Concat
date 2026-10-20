@@ -403,6 +403,135 @@ pub(super) fn apply(
             })
         }
 
+        Command::CutClipSilences {
+            clip_id,
+            silences,
+            ripple,
+        } => {
+            let timeline = project.active_mut();
+            let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let clip = timeline.clips[index].clone();
+            let src_start = clip.source_start;
+            let src_end = clip.source_start + clip.duration * clip.speed;
+            let speed = clip.speed;
+
+            if silences.is_empty() || src_end <= src_start || speed <= 0.0 {
+                return Ok(Outcome::default());
+            }
+
+            // Clamp and sort silence intervals within [src_start, src_end]
+            let mut clamped_silences: Vec<(f64, f64)> = Vec::new();
+            for &(s, e) in &silences {
+                let start = s.max(src_start);
+                let end = e.min(src_end);
+                if end - start > MIN_CLIP_DURATION * speed {
+                    clamped_silences.push((start, end));
+                }
+            }
+            clamped_silences.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+            // Merge overlapping/adjacent silences
+            let mut merged_silences: Vec<(f64, f64)> = Vec::new();
+            for (s, e) in clamped_silences {
+                if let Some(last) = merged_silences.last_mut() {
+                    if s <= last.1 + 1e-4 {
+                        last.1 = last.1.max(e);
+                        continue;
+                    }
+                }
+                merged_silences.push((s, e));
+            }
+
+            // Invert silences to compute audible intervals
+            let mut audible_spans: Vec<(f64, f64)> = Vec::new();
+            let mut cursor = src_start;
+            for (s, e) in &merged_silences {
+                if *s > cursor + MIN_CLIP_DURATION * speed {
+                    audible_spans.push((cursor, *s));
+                }
+                cursor = cursor.max(*e);
+            }
+            if src_end > cursor + MIN_CLIP_DURATION * speed {
+                audible_spans.push((cursor, src_end));
+            }
+
+            // If no audible spans or if only 1 span covering the whole clip, nothing changed
+            if audible_spans.is_empty()
+                || (audible_spans.len() == 1
+                    && (audible_spans[0].0 - src_start).abs() < 1e-4
+                    && (audible_spans[0].1 - src_end).abs() < 1e-4)
+            {
+                return Ok(Outcome::default());
+            }
+
+            let orig_start = clip.start;
+            let orig_duration = clip.duration;
+            let whole = orig_duration;
+            let track_id = clip.track_id.clone();
+
+            // Remove original clip
+            timeline.clips.remove(index);
+
+            let mut created_clips: Vec<Clip> = Vec::new();
+            let mut current_pos = orig_start;
+            let total_audible = audible_spans.len();
+
+            for (i, (s_start, s_end)) in audible_spans.iter().enumerate() {
+                let dur = (s_end - s_start) / speed;
+                let mut piece = (*clip).clone();
+                piece.id = if i == 0 {
+                    clip.id.clone()
+                } else {
+                    mint.next("c")
+                };
+                piece.source_start = *s_start;
+                piece.duration = dur;
+                piece.speed_curve = None; // clear curve as source is partitioned
+
+                let offset_from_orig = (s_start - src_start) / speed;
+                piece.start = if ripple {
+                    current_pos
+                } else {
+                    orig_start + offset_from_orig
+                };
+
+                // Transitions & fades:
+                if i != 0 {
+                    piece.transition_in = None;
+                    piece.fade_in = 0.0;
+                }
+                if i != total_audible - 1 {
+                    piece.fade_out = 0.0;
+                }
+
+                piece.rewindow_keys(whole, offset_from_orig, offset_from_orig + dur);
+                current_pos += dur;
+                created_clips.push(piece);
+            }
+
+            let first_id = created_clips[0].id.clone();
+            for (i, piece) in created_clips.into_iter().enumerate() {
+                timeline.clips.insert(index + i, Arc::new(piece));
+            }
+
+            if ripple {
+                let total_cut = orig_duration - (current_pos - orig_start);
+                if total_cut > 1e-6 {
+                    close_gaps(
+                        timeline,
+                        &[(track_id, orig_start + (orig_duration - total_cut), orig_start + orig_duration)],
+                    );
+                }
+            }
+
+            Ok(Outcome {
+                created_id: Some(first_id),
+                applied: true,
+            })
+        }
+
         Command::ReplaceClipMedia {
             clip_id,
             item,

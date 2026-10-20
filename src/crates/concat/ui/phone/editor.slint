@@ -1419,6 +1419,7 @@ export component PhoneEditor inherits Rectangle {
             selected: Editor.selected-clip;
             set(field, value) => { Editor.clip-set(field, value); }
             commit => { Editor.clip-commit(); }
+            speed-preset-set(preset) => { Editor.speed-preset-set(preset); }
         }
 
         if root.sheet == "clip-audio": VerticalLayout {
@@ -1427,6 +1428,8 @@ export component PhoneEditor inherits Rectangle {
                 audio-tracks: Editor.audio-tracks;
                 set(field, value) => { Editor.clip-set(field, value); }
                 commit => { Editor.clip-commit(); }
+                auto-duck => { Editor.auto-duck(); }
+                auto-cut-silence => { Editor.auto-cut-silence(); }
             }
             if !Editor.selected-clip.batch-volume: ProcessorRows {
                 applied: Editor.applied-audio;

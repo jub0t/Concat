@@ -147,6 +147,71 @@ impl Peaks {
         }
         (low, high)
     }
+
+    /// Detects silent intervals in audio using peak amplitude analysis.
+    ///
+    /// * `threshold`: amplitude threshold below which audio is considered silence (default ~0.02).
+    /// * `min_duration`: minimum silence length in seconds to qualify as cuttable (default ~0.4s).
+    /// * `margin`: safety margin in seconds to keep before and after audible sound (default ~0.08s).
+    pub fn find_silences(&self, threshold: f32, min_duration: f64, margin: f64) -> Vec<SilenceSpan> {
+        let count = self.len();
+        if count == 0 || self.buckets_per_second <= 0.0 {
+            return Vec::new();
+        }
+        let bps = self.buckets_per_second as f64;
+        let min_buckets = (min_duration * bps).max(1.0) as usize;
+        let margin_buckets = (margin * bps).max(0.0) as usize;
+
+        let mut silences = Vec::new();
+        let mut silence_start: Option<usize> = None;
+
+        for i in 0..count {
+            let amp = self.max[i].max(-self.min[i]);
+            let is_silent = amp <= threshold;
+
+            if is_silent {
+                if silence_start.is_none() {
+                    silence_start = Some(i);
+                }
+            } else if let Some(start) = silence_start.take() {
+                let duration_buckets = i - start;
+                if duration_buckets >= min_buckets {
+                    let cut_start = (start + margin_buckets).min(i);
+                    let cut_end = i.saturating_sub(margin_buckets).max(cut_start);
+                    if cut_end > cut_start {
+                        silences.push(SilenceSpan {
+                            start: cut_start as f64 / bps,
+                            end: cut_end as f64 / bps,
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(start) = silence_start {
+            let duration_buckets = count - start;
+            if duration_buckets >= min_buckets {
+                let cut_start = (start + margin_buckets).min(count);
+                if count > cut_start {
+                    silences.push(SilenceSpan {
+                        start: cut_start as f64 / bps,
+                        end: count as f64 / bps,
+                    });
+                }
+            }
+        }
+
+        silences
+    }
+}
+
+/// A silent interval detected within audio peaks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SilenceSpan {
+    /// Start time in seconds relative to the audio file.
+    pub start: f64,
+    /// End time in seconds relative to the audio file.
+    pub end: f64,
 }
 
 /// A waveform at every resolution a drawing could want: the file's peaks
@@ -396,5 +461,39 @@ mod tests {
         // Past the end is silence, not a panic.
         assert_eq!(coarse.extremes(100.0, 200.0), (0.0, 0.0));
         assert_eq!(coarse.extremes(2.0, 1.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn test_find_silences() {
+        // 100 buckets per second: 1 sec sound, 2 sec silence, 1 sec sound, 1 sec silence
+        let mut min = Vec::new();
+        let mut max = Vec::new();
+        // 1.0s sound: 100 buckets
+        min.extend(vec![-0.6; 100]);
+        max.extend(vec![0.6; 100]);
+        // 2.0s silence: 200 buckets
+        min.extend(vec![-0.005; 200]);
+        max.extend(vec![0.005; 200]);
+        // 1.0s sound: 100 buckets
+        min.extend(vec![-0.7; 100]);
+        max.extend(vec![0.7; 100]);
+        // 1.0s silence: 100 buckets
+        min.extend(vec![0.0; 100]);
+        max.extend(vec![0.0; 100]);
+
+        let peaks = Peaks {
+            min,
+            max,
+            buckets_per_second: 100.0,
+        };
+
+        let silences = peaks.find_silences(0.01, 0.5, 0.1);
+        assert_eq!(silences.len(), 2);
+        // First silence is from 1.0s to 3.0s, with 0.1s margin => 1.1s to 2.9s
+        assert!((silences[0].start - 1.1).abs() < 1e-4);
+        assert!((silences[0].end - 2.9).abs() < 1e-4);
+        // Second silence is from 4.0s to 5.0s, with 0.1s margin at head => 4.1s to 5.0s
+        assert!((silences[1].start - 4.1).abs() < 1e-4);
+        assert!((silences[1].end - 5.0).abs() < 1e-4);
     }
 }

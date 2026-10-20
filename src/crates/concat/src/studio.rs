@@ -1587,6 +1587,12 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
             speed: after.speed,
         });
     }
+    if after.speed_curve != before.speed_curve {
+        commands.push(Command::SetClipSpeedCurve {
+            clip_id: id.to_owned(),
+            curve: after.speed_curve.clone(),
+        });
+    }
     let mut patch = ClipPatch::default();
     if after.name != before.name {
         patch.name = Some(after.name.clone());
@@ -10439,6 +10445,12 @@ impl Studio {
                 .map_or(0, |item| item.audio_track_position(clip.audio_stream))
                 as i32,
             speed: clip.speed as f32,
+            speed_preset: clip
+                .speed_curve
+                .as_deref()
+                .map(concat_project::speed::detect_preset)
+                .unwrap_or(0),
+            has_speed_curve: clip.speed_curve.is_some(),
             preserve_pitch: clip.preserve_pitch,
             flip_h: clip.flip_h,
             flip_v: clip.flip_v,
@@ -11351,6 +11363,20 @@ impl Studio {
                 "",
                 self.clip_has_sound(clip),
             ));
+            rows.push(action(
+                "auto-cut-silence",
+                t("studio.autoCutSilences"),
+                Glyph::Split,
+                "",
+                !locked && self.clip_has_sound(clip),
+            ));
+            rows.push(action(
+                "auto-duck",
+                t("studio.autoDuck"),
+                Glyph::Volume,
+                "",
+                !locked && self.clip_has_sound(clip),
+            ));
             rows.push(rule());
         }
         let audible = clip.kind != model::ClipKind::Image;
@@ -12116,8 +12142,168 @@ impl Studio {
                 }
                 self.menu_target = None;
             }
+            "auto-cut-silence" => self.auto_cut_silence(id),
+            "auto-duck" => self.auto_duck(id),
             _ => {}
         }
+    }
+
+    /// Applies one of the speed ramp presets (or 0 for constant speed) to the selected clips.
+    pub fn apply_speed_preset(&mut self, preset: i32) {
+        let ids = self.edit_targets();
+        if ids.is_empty() {
+            return;
+        }
+        self.flush_commit();
+        let curve = concat_project::speed::SpeedPreset::from_index(preset).map(|p| p.points());
+        let mut commands = Vec::new();
+        for id in ids {
+            commands.push(Command::SetClipSpeedCurve {
+                clip_id: id,
+                curve: curve.clone(),
+            });
+        }
+        let command = match commands.len() {
+            1 => commands.remove(0),
+            _ => Command::Batch { commands },
+        };
+        self.apply(command);
+    }
+
+    /// Detects silence in the clip's audio and cuts it into non-silent segments.
+    pub fn auto_cut_silence(&mut self, id: &str) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        if clip.kind != model::ClipKind::Audio && clip.kind != model::ClipKind::Video {
+            return;
+        }
+        let art = art_key(&clip.media_id, clip.audio_stream);
+        let Some(pyramid) = self.peaks.get(&art) else {
+            self.notify(&t("studio.autoCutNone"), false);
+            return;
+        };
+        let silences_found = pyramid.finest().find_silences(0.02, 0.35, 0.08);
+        if silences_found.is_empty() {
+            self.notify(&t("studio.autoCutNone"), false);
+            return;
+        }
+        let silences: Vec<(f64, f64)> = silences_found.into_iter().map(|s| (s.start, s.end)).collect();
+        let ripple = self.prefs.magnetic;
+        let outcome = self.apply(Command::CutClipSilences {
+            clip_id: id.to_owned(),
+            silences,
+            ripple,
+        });
+        if outcome.is_some() {
+            self.notify(&t("studio.autoCutSuccess"), false);
+        } else {
+            self.notify(&t("studio.autoCutNone"), false);
+        }
+    }
+
+    /// Automatically ducks (lowers volume of) background audio during speech on other tracks.
+    pub fn auto_duck(&mut self, id: &str) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        let clip_start = clip.start;
+        let clip_end = clip.start + clip.duration;
+        let clip_dur = clip.duration;
+        if clip_dur <= 0.0 {
+            return;
+        }
+
+        let mut speech_intervals: Vec<(f64, f64)> = Vec::new();
+        for other in &self.timeline().clips {
+            if other.id == id || other.track_id == clip.track_id || other.muted == Some(true) {
+                continue;
+            }
+            if other.kind == model::ClipKind::Text
+                || other.kind == model::ClipKind::Filter
+                || other.kind == model::ClipKind::Shape
+            {
+                continue;
+            }
+            let other_start = other.start;
+            let other_end = other.start + other.duration;
+            let overlap_start = other_start.max(clip_start);
+            let overlap_end = other_end.min(clip_end);
+            if overlap_end > overlap_start + 0.1 {
+                speech_intervals.push((overlap_start, overlap_end));
+            }
+        }
+
+        if speech_intervals.is_empty() {
+            self.notify(&t("studio.autoDuckNone"), false);
+            return;
+        }
+
+        speech_intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut merged: Vec<(f64, f64)> = Vec::new();
+        for (s, e) in speech_intervals {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 0.4 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+
+        let lead_in = 0.3;
+        let lead_out = 0.4;
+        let duck_val = 0.25;
+        let normal_val = clip.volume.max(1.0);
+
+        let mut commands = Vec::new();
+        commands.push(Command::ClearClipKeys {
+            clip_id: id.to_owned(),
+            property: model::KeyProperty::Volume,
+        });
+
+        for (s, e) in merged {
+            let t1 = ((s - lead_in - clip_start).max(0.0) / clip_dur).clamp(0.0, 1.0);
+            let t2 = ((s - clip_start).max(0.0) / clip_dur).clamp(0.0, 1.0);
+            let t3 = ((e - clip_start).min(clip_dur) / clip_dur).clamp(0.0, 1.0);
+            let t4 = ((e + lead_out - clip_start).min(clip_dur) / clip_dur).clamp(0.0, 1.0);
+
+            if t1 > 0.0 {
+                commands.push(Command::SetClipKey {
+                    clip_id: id.to_owned(),
+                    property: model::KeyProperty::Volume,
+                    at: t1,
+                    value: normal_val,
+                    ease: model::KeyEase::default(),
+                });
+            }
+            commands.push(Command::SetClipKey {
+                clip_id: id.to_owned(),
+                property: model::KeyProperty::Volume,
+                at: t2,
+                value: duck_val,
+                ease: model::KeyEase::default(),
+            });
+            commands.push(Command::SetClipKey {
+                clip_id: id.to_owned(),
+                property: model::KeyProperty::Volume,
+                at: t3,
+                value: duck_val,
+                ease: model::KeyEase::default(),
+            });
+            if t4 < 1.0 {
+                commands.push(Command::SetClipKey {
+                    clip_id: id.to_owned(),
+                    property: model::KeyProperty::Volume,
+                    at: t4,
+                    value: normal_val,
+                    ease: model::KeyEase::default(),
+                });
+            }
+        }
+
+        self.apply(Command::Batch { commands });
+        self.notify(&t("studio.autoDuckSuccess"), false);
     }
 
     /// Every clip on an unlocked lane.

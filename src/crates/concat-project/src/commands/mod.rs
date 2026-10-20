@@ -565,6 +565,18 @@ pub enum Command {
         /// The cut point, in timeline seconds.
         time: f64,
     },
+    /// Cuts out silent portions of a clip. The remaining non-silent
+    /// segments remain on the timeline, either keeping their original positions
+    /// or rippling to close the gaps if `ripple` is true.
+    CutClipSilences {
+        /// The clip to cut silences from.
+        clip_id: String,
+        /// List of (start, end) silence intervals in source seconds.
+        silences: Vec<(f64, f64)>,
+        /// Whether subsequent clips on the track ripple left to close gaps.
+        #[serde(default)]
+        ripple: bool,
+    },
     /// Points a clip at another file - the enhanced or reversed copy of
     /// its media - adding the file to the bin first when it is not there.
     /// The clip's length, looks and name are kept, and its in-point unless
@@ -1062,6 +1074,9 @@ impl Command {
             Command::MoveClips { moves } => bad(moves.iter().map(|wanted| wanted.start)),
             Command::TrimClip { delta, .. } => bad([*delta]),
             Command::SplitClips { time, .. } => bad([*time]),
+            Command::CutClipSilences { silences, .. } => {
+                silences.iter().any(|(start, end)| bad([*start, *end]))
+            }
             Command::FreezeFrame { time, duration, .. } => bad([*time]) || bad(*duration),
             Command::ReplaceClipMedia {
                 item, source_start, ..
@@ -1198,6 +1213,7 @@ pub fn apply(
         | Command::MoveClips { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }
+        | Command::CutClipSilences { .. }
         | Command::FreezeFrame { .. }
         | Command::ReplaceClipMedia { .. }
         | Command::SetClipEnhanced { .. }

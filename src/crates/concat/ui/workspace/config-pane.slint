@@ -215,6 +215,9 @@ export component ConfigPane inherits Rectangle {
     callback transition-remove();
     callback transition-duration-set(seconds: float);
     callback transition-param-set(key: string, value: float);
+    callback speed-preset-set(preset: int);
+    callback auto-duck();
+    callback auto-cut-silence();
 
 
     // The tab strip follows the selection, and stays short: three tabs at
@@ -673,6 +676,7 @@ export component ConfigPane inherits Rectangle {
                         selected: root.selected;
                         set(field, value) => { root.clip-set(field, value); }
                         commit => { root.clip-commit(); }
+                        speed-preset-set(preset) => { root.speed-preset-set(preset); }
                     }
                 }
 
@@ -720,6 +724,8 @@ export component ConfigPane inherits Rectangle {
                         audio-tracks: root.audio-tracks;
                         set(field, value) => { root.clip-set(field, value); }
                         commit => { root.clip-commit(); }
+                        auto-duck => { root.auto-duck(); }
+                        auto-cut-silence => { root.auto-cut-silence(); }
                     }
                     // A sound clip's speed, under its level and fades: one
                     // knob is not a page of its own. A picture's sound
@@ -729,6 +735,7 @@ export component ConfigPane inherits Rectangle {
                         selected: root.selected;
                         set(field, value) => { root.clip-set(field, value); }
                         commit => { root.clip-commit(); }
+                        speed-preset-set(preset) => { root.speed-preset-set(preset); }
                     }
                     // The three treatments, between the mix and the library:
                     // they are chain links like any other, but they are the

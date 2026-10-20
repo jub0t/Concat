@@ -156,6 +156,9 @@ export global Editor {
     callback clip-set-text(field: ClipTextField, value: string);
     callback clip-set-colour(field: ClipTextField, value: color);
     callback clip-commit();
+    callback speed-preset-set(preset: int);
+    callback auto-duck();
+    callback auto-cut-silence();
     /// The families a title can be set in: the bundled face, the user's
     /// own fonts, then the machine's. See `Studio::font_families`.
     in-out property <[string]> font-families;

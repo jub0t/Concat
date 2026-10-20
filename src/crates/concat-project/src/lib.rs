@@ -36,6 +36,7 @@ pub use commands::{
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};
 pub use model::Project;
+pub use speed::{SpeedPreset, detect_preset};
 
 #[cfg(test)]
 mod tests {
@@ -1815,6 +1816,39 @@ mod tests {
         assert_eq!(clips.len(), 1);
         assert_eq!(clips[0].duration, 10.0);
         assert_eq!(clips[0].id, clip_id, "the first piece keeps its identity");
+    }
+
+    #[test]
+    fn cut_clip_silences_partitions_and_ripples() {
+        let (mut editor, _, clip_id) = fixture();
+        // Clip starts at 0.0, duration 10.0, speed 1.0.
+        // Silences at source 2.0..4.0 and 7.0..8.0
+        let outcome = editor
+            .apply(Command::CutClipSilences {
+                clip_id: clip_id.clone(),
+                silences: vec![(2.0, 4.0), (7.0, 8.0)],
+                ripple: true,
+            })
+            .expect("cuts silences");
+        assert!(outcome.applied);
+
+        let clips = &editor.project().active().clips;
+        assert_eq!(clips.len(), 3);
+        // Piece 1: 0.0 to 2.0 (duration 2.0)
+        assert_eq!(clips[0].start, 0.0);
+        assert_eq!(clips[0].duration, 2.0);
+        assert_eq!(clips[0].source_start, 0.0);
+        assert_eq!(clips[0].id, clip_id);
+
+        // Piece 2: 2.0 to 5.0 (duration 3.0, source 4.0..7.0)
+        assert_eq!(clips[1].start, 2.0);
+        assert_eq!(clips[1].duration, 3.0);
+        assert_eq!(clips[1].source_start, 4.0);
+
+        // Piece 3: 5.0 to 7.0 (duration 2.0, source 8.0..10.0)
+        assert_eq!(clips[2].start, 5.0);
+        assert_eq!(clips[2].duration, 2.0);
+        assert_eq!(clips[2].source_start, 8.0);
     }
 
     #[test]

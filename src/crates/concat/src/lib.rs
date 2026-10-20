@@ -1267,6 +1267,19 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_commit(on_lanes!(|state| {
         state.clip_commit();
     }));
+    editor.on_speed_preset_set(on_lanes!(|state, preset: i32| {
+        state.apply_speed_preset(preset);
+    }));
+    editor.on_auto_duck(on_window!(|state| {
+        if let Some(id) = state.sole_selection() {
+            state.auto_duck(&id);
+        }
+    }));
+    editor.on_auto_cut_silence(on_window!(|state| {
+        if let Some(id) = state.sole_selection() {
+            state.auto_cut_silence(&id);
+        }
+    }));
 
     // ── the chains ──
     editor.on_chain_add(on_window!(|state, audio: bool, id: SharedString| {
