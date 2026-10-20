@@ -779,6 +779,62 @@ fn every_packaged_transition_combines_across_its_progress_range() {
     }
 }
 
+/// Halfway through, every packaged transition but the plain dissolves draws
+/// something a dissolve does not: "all the transitions look the same, just
+/// a fade" (#448) is a shader that compiled and ran and drew the mix
+/// anyway. Over two busy pictures, so a slide or a zoom moves something.
+#[test]
+fn halfway_through_a_packaged_transition_is_not_a_dissolve() {
+    let Some(mut gpu) = gpu() else { return };
+    let (width, height) = (64, 36);
+    let from = gradient(width, height);
+    let mut to = Frame::transparent(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let on = (x / 8 + y / 8) % 2 == 0;
+            to.set_pixel(
+                x,
+                y,
+                if on {
+                    [240, 240, 40, 255]
+                } else {
+                    [20, 90, 200, 255]
+                },
+            );
+        }
+    }
+    let mix = crate::reference::mix_frames(&from, &to, 0.5);
+    let catalogue = concat_effects::Catalogue::builtin();
+    let mut report = Vec::new();
+    for package in catalogue.packages() {
+        if package.kind() != concat_effects::Kind::Transition {
+            continue;
+        }
+        let pass = catalogue
+            .transition_pass(package.id(), &Default::default(), 0.5)
+            .expect("a pass");
+        let out = gpu
+            .combine(width, height, 0.0, &from, &to, &pass)
+            .expect("combines");
+        let differs = out
+            .pixels()
+            .iter()
+            .zip(mix.pixels())
+            .map(|(a, b)| u32::from(a.abs_diff(*b)))
+            .sum::<u32>() as f64
+            / out.pixels().len() as f64;
+        report.push(format!("{} {differs:.2}", package.id()));
+        if !package.id().contains("dissolve") {
+            assert!(
+                differs > 2.0,
+                "{} is a dissolve halfway: {differs:.2}",
+                package.id()
+            );
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
 /// A texture read back into a frame, for comparing a picture that stayed
 /// on the device with one that was read back on the way.
 fn read_texture(gpu: &WgpuCompositor, texture: &wgpu::Texture) -> Frame {
