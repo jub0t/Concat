@@ -251,6 +251,17 @@ fn success(id: &Value, mut result: Value, params: &Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
+/// The caching hints 2026-07-28 requires on these results.
+fn cacheable(mut reply: Value) -> Value {
+    if let Some(result) = reply.get_mut("result").and_then(Value::as_object_mut)
+        && result.get("resultType") == Some(&json!("complete"))
+    {
+        result.insert("ttlMs".to_owned(), json!(0));
+        result.insert("cacheScope".to_owned(), json!("public"));
+    }
+    reply
+}
+
 fn failure(id: Value, code: i64, message: &str, data: Option<Value>) -> Value {
     let mut error = json!({ "code": code, "message": message });
     if let Some(data) = data {
@@ -361,9 +372,9 @@ impl Server {
                 result["_meta"] = Value::Object(meta);
                 let mut reply = success(id, result, params);
                 reply["result"]["resultType"] = json!("complete");
-                reply
+                cacheable(reply)
             }
-            "tools/list" => success(id, json!({ "tools": self.toolbox.list() }), params),
+            "tools/list" => cacheable(success(id, json!({ "tools": self.toolbox.list() }), params)),
             "tools/call" => self.call(id, params, backend, cancelled),
             _ => failure(
                 id.clone(),
