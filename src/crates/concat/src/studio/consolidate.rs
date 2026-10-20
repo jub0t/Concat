@@ -47,6 +47,12 @@ impl Studio {
         }) {
             return Some(t("studio.mergeTrackLocked"));
         }
+        if concat_project::why_not_merge(self.timeline(), &self.selection).is_none() {
+            return None;
+        }
+        if self.host.exporter.is_busy() {
+            return Some(t("studio.mergeExportBusy"));
+        }
         consolidation_clips(self.timeline(), &self.selection)
             .err()
             .map(|error| error.to_string())
@@ -74,6 +80,14 @@ impl Studio {
             return;
         }
         self.flush_commit();
+        if let Some(session) = self.session.as_ref() {
+            if concat_project::why_not_merge(session.project().active(), &self.selection).is_none() {
+                self.apply(Command::MergeClips {
+                    clip_ids: self.selection.clone(),
+                });
+                return;
+            }
+        }
         if let Some(reason) = self.merge_blocked() {
             self.notify(&reason, true);
             return;
