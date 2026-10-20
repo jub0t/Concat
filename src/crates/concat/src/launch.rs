@@ -14,7 +14,7 @@ pub enum Launch {
     /// The window, on the launch screen or on the project it names.
     Normal(Option<PathBuf>),
     /// The window on the launch screen, drawn in software from now on: what
-    /// the Start menu's "Concat (software drawing)" runs, for a driver that
+    /// the Start menu's "Concat (safe graphics)" runs, for a driver that
     /// draws the window as coloured squares, where Settings' GPU switch
     /// cannot be seen to be turned off (#389, #242, #449).
     Software,

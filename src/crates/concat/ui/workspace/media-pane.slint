@@ -1412,6 +1412,11 @@ component CategoryPill inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     callback clicked();
+    /// A finger went down on the pill, then slid `dx` across the window
+    /// since: the strip's to scroll by. A pill takes the press, so the
+    /// strip under it never hears a drag that starts on one (#415).
+    callback drag-started();
+    callback dragged(dx: length);
 
     height: 24px;
     border-radius: 12px;
@@ -1438,8 +1443,35 @@ component CategoryPill inherits Rectangle {
     }
 
     touch := TouchArea {
+        // Measured across the window, not the pill: the strip moves the
+        // pill along with the finger, and the pill's own coordinates would
+        // read the slide as no slide at all.
+        property <length> start;
+        property <bool> slid;
         mouse-cursor: pointer;
-        clicked => { root.clicked(); }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                self.start = root.absolute-position.x + self.mouse-x;
+                self.slid = false;
+                root.drag-started();
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                let dx = root.absolute-position.x + self.mouse-x - self.start;
+                if (Math.abs(dx) > 8px) {
+                    self.slid = true;
+                }
+                if (self.slid) {
+                    root.dragged(dx);
+                }
+            }
+        }
+        clicked => {
+            if (!self.slid) {
+                root.clicked();
+            }
+        }
     }
 }
 
@@ -1489,6 +1521,10 @@ export component CategoryPillBar inherits Rectangle {
             spacing: 6px;
 
             for cat in root.categories: CategoryPill {
+                drag-started => { root.press-offset = root.offset; }
+                dragged(dx) => {
+                    root.offset = Math.max(-root.max-scroll, Math.min(0px, root.press-offset + dx));
+                }
                 text: cat;
                 selected: root.current == cat || (root.current == "" && cat == "All" && Library.view(1).group < 0);
                 clicked => {
@@ -1541,11 +1577,19 @@ export component GroupPillBar inherits Rectangle {
             spacing: 6px;
 
             CategoryPill {
-                text: I18n.t("sounds.all");
+                text: I18n.t("common.all");
                 selected: root.current < 0;
                 clicked => { Library.group-changed(root.shelf, -1); }
+                drag-started => { root.press-offset = root.offset; }
+                dragged(dx) => {
+                    root.offset = Math.max(-root.max-scroll, Math.min(0px, root.press-offset + dx));
+                }
             }
             for label[index] in root.groups: CategoryPill {
+                drag-started => { root.press-offset = root.offset; }
+                dragged(dx) => {
+                    root.offset = Math.max(-root.max-scroll, Math.min(0px, root.press-offset + dx));
+                }
                 text: label;
                 selected: root.current == index;
                 clicked => { Library.group-changed(root.shelf, index); }

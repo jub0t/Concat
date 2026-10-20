@@ -367,6 +367,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_applied_visual(ModelRc::from(models.applied_visual.clone()));
         editor.set_applied_audio(ModelRc::from(models.applied_audio.clone()));
         editor.set_visual_params(ModelRc::from(models.visual_params.clone()));
+        editor.set_transition_knobs(ModelRc::from(models.transition_knobs.clone()));
+        editor.set_transition_choices(ModelRc::from(models.transition_choices.clone()));
         editor.set_audio_params(ModelRc::from(models.audio_params.clone()));
         editor.set_adjust_params(ModelRc::from(models.adjust_params.clone()));
         editor.set_adjust_wheels(ModelRc::from(models.adjust_wheels.clone()));

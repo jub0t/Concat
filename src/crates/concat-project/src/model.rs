@@ -2031,6 +2031,9 @@ impl Clip {
         self.stabilize = self.stabilize.take().map(Stabilize::tidy);
         if let Some(transition) = self.transition_in.as_mut() {
             transition.duration = finite(transition.duration, 1.0).max(MIN_TRANSITION);
+            // A knob that is not a number would save as null and make the
+            // project unreadable: it goes, and the knob is at its default.
+            transition.params.retain(|_, value| value.is_finite());
         }
         self.keys
             .retain(|key| (0.0..=1.0).contains(&key.at) && key.value.is_finite());

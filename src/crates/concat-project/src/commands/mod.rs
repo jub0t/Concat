@@ -1093,7 +1093,7 @@ impl Command {
                         .transition_in
                         .iter()
                         .flatten()
-                        .any(|tr| bad([tr.duration]))
+                        .any(|tr| bad([tr.duration]) || tr.params.values().any(|v| !v.is_finite()))
                     || matches!(
                         patch.background,
                         Some(Some(Background::Blur { amount })) if !amount.is_finite()

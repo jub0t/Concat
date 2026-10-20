@@ -633,6 +633,10 @@ pub struct Models {
     pub applied_visual: Rc<VecModel<AppliedEntryData>>,
     pub applied_audio: Rc<VecModel<AppliedEntryData>>,
     pub visual_params: Rc<VecModel<AppliedParamData>>,
+    /// The selected transition's knobs, kept and synced like the chains'
+    /// so a row being dragged is not rebuilt under the finger.
+    pub transition_knobs: Rc<VecModel<AppliedParamData>>,
+    pub transition_choices: Rc<VecModel<crate::ui::TransitionChoiceData>>,
     pub audio_params: Rc<VecModel<AppliedParamData>>,
     /// The colour panel's knobs.
     pub adjust_params: Rc<VecModel<AppliedParamData>>,
@@ -724,6 +728,8 @@ impl Models {
             applied_visual: Rc::new(VecModel::default()),
             applied_audio: Rc::new(VecModel::default()),
             visual_params: Rc::new(VecModel::default()),
+            transition_knobs: Rc::new(VecModel::default()),
+            transition_choices: Rc::new(VecModel::default()),
             audio_params: Rc::new(VecModel::default()),
             adjust_params: Rc::new(VecModel::default()),
             adjust_wheels: Rc::new(VecModel::default()),
@@ -4303,13 +4309,17 @@ impl Studio {
         }
         let mut params = existing.params.clone();
         params.insert(key.to_owned(), value.clamp(param.min, param.max));
-        self.apply(Command::UpdateClip {
-            clip_id,
-            patch: ClipPatch {
-                transition_in: Some(Some(Transition { params, ..existing })),
-                ..ClipPatch::default()
+        // One undo step a drag, not one a tick of it.
+        self.apply_within(
+            &format!("transition-knob:{clip_id}:{key}"),
+            Command::UpdateClip {
+                clip_id,
+                patch: ClipPatch {
+                    transition_in: Some(Some(Transition { params, ..existing })),
+                    ..ClipPatch::default()
+                },
             },
-        });
+        );
     }
 
     /// Sets `clip_id`'s transition to `seconds`, clamped to what the cut can
@@ -8841,6 +8851,12 @@ impl Studio {
     /// The window is a phone's: the lanes keep the playhead at their middle
     /// and glide under it. See `platform::phone` and `TimelinePane::centred`.
     pub fn set_phone(&mut self, phone: bool) {
+        // A phone's Filters and Transitions sheets open on every shelf at
+        // once, under their All pill; a desk's strip starts on the first.
+        if phone {
+            self.library[0].group = -1;
+            self.library[3].group = -1;
+        }
         self.lanes.centred = phone;
         self.meters.phone = phone;
         let playhead = self.playhead;
@@ -9041,8 +9057,8 @@ impl Studio {
         editor.set_selected_clip(self.selected());
         editor.set_selected_transition(self.selected_transition_data());
         let (knobs, choices) = self.transition_knobs();
-        editor.set_transition_knobs(ModelRc::new(VecModel::from(knobs)));
-        editor.set_transition_choices(ModelRc::new(VecModel::from(choices)));
+        sync(&models.transition_knobs, knobs);
+        sync(&models.transition_choices, choices);
         // The background and Fit and Fill, on their own global: the Details
         // panel, the Video panel and the phone all read it.
         self.publish_backdrop(app);
