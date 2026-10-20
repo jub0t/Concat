@@ -2471,6 +2471,27 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     (Some(concat_host::jobs::Tripwire::arm(&mark)), safe)
 }
 
+/// `concat --software`: Settings > General's GPU switch turned off before
+/// the window opens, so this launch and every one after it draws in
+/// software - the way into a window that a driver draws as coloured
+/// squares, where the switch itself cannot be seen. The switch turns it
+/// back on. Nothing where [`safe_start`] has no software rasteriser.
+pub fn draw_in_software() {
+    if !cfg!(any(windows, target_os = "linux")) {
+        log::warn!("start: --software has no software rasteriser to draw on here");
+        return;
+    }
+    let Ok(dirs) = concat_host::AppDirs::locate() else {
+        return;
+    };
+    let mut preferences = prefs::Preferences::load(&dirs);
+    if !preferences.software_gpu {
+        log::warn!("start: --software; drawing in software from now on");
+        preferences.software_gpu = true;
+        preferences.save(&dirs);
+    }
+}
+
 /// Ends the process with `code`, the log flushed first, and the threads
 /// still running - the GPU's, the engine's, the audio output's - not
 /// waited on.

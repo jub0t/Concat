@@ -55,6 +55,16 @@
                 Target="[INSTALLFOLDER]concat.exe"
                 WorkingDirectory="INSTALLFOLDER"
                 Icon="concat.ico" />
+      <!-- The way in when a graphics driver draws the window as coloured
+           squares: it turns off Settings > General > Draw on the GPU,
+           which that window hides. -->
+      <Shortcut Id="SafeGraphicsShortcut"
+                Name="Concat (safe graphics)"
+                Description="Concat, drawn in software"
+                Target="[INSTALLFOLDER]concat.exe"
+                Arguments="--software"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="concat.ico" />
       <RemoveFolder Id="RemoveShortcutFolder" On="uninstall" />
       <RegistryValue Root="HKCU" Key="Software\Concat" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
     </Component>
