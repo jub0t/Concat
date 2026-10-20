@@ -886,7 +886,14 @@ fn overlap(clips: &mut Vec<ExportClip>, cut: &Cut, frame: f64) -> Option<Overlap
         // Sound rides the picture: each side fades across the overlap
         // rather than arriving or leaving at full level.
         b.fade_in = b.fade_in.max(length);
-        b.track = a_track + 1;
+        // N2 fix: Alternate within the track's two allocated sub-lanes (2t and 2t+1)
+        // so chained transitions never climb into the next track above (2t+2).
+        let base_track = a_track - (a_track % 2);
+        b.track = if a_track % 2 == 0 {
+            base_track + 1
+        } else {
+            base_track
+        };
     }
     if outgoing_runs {
         let a = &mut clips[cut.outgoing];
@@ -3617,6 +3624,30 @@ mod tests {
         // Both ride the same ease, which is what keeps them edge to edge.
         assert_eq!(clips[0].animation[1].ease, clips[1].animation[1].ease);
         assert_eq!(clips[1].animation[1].ease, EASE_IN_OUT);
+    }
+
+    #[test]
+    fn chained_transitions_stay_within_track_sublanes() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 2.0),
+            clip("video", 0, 8.0, 4.0, 2.0),
+            clip("video", 0, 12.0, 4.0, 2.0),
+        ];
+        clips[1].transition = spec("push", 1.0);
+        clips[2].transition = spec("push", 1.0);
+        clips[3].transition = spec("push", 1.0);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+
+        // Track was 0 (doubled to 0). All clips must stay on lanes 0 and 1,
+        // and never climb into lane 2 or 3 which belong to track 1!
+        for c in &clips {
+            assert!(
+                c.track == 0 || c.track == 1,
+                "clip climbed into foreign track lane: {}",
+                c.track
+            );
+        }
     }
 
     #[test]
