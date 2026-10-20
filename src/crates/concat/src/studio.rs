@@ -1199,6 +1199,17 @@ fn package_art(
         .clone()
 }
 
+/// Whether two project paths name one folder: the same string, or the same
+/// folder once both are resolved, so a path spelled another way is not
+/// mistaken for another project.
+fn same_folder(a: &str, b: &str) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
 /// A look made from a table - an imported `.cube`, or any package that
 /// carries a `[lut]` - which the Adjustments page's LUTs shelf lists and
 /// the Filters page does not.
@@ -8171,6 +8182,23 @@ impl Studio {
     /// says why it could not.
     pub fn open_project(&mut self, info: ProjectInfo) -> Result<(), String> {
         log::info!("project: opening {}", info.path);
+        // File › Open and Recents from a window with a project in it: that
+        // project is closed first, as a close would - saved, its folder let
+        // go, its jobs stopped. Swapping the session alone dropped what the
+        // last autosave had not written yet and kept the old folder locked
+        // against every other Concat for the rest of the run. A save that
+        // fails keeps it open and the other one shut.
+        if let Some(open) = self
+            .session
+            .as_ref()
+            .map(|session| session.path().to_owned())
+        {
+            if same_folder(&open, &info.path) {
+                return Ok(());
+            }
+            self.save_and_release()
+                .map_err(|error| tf("studio.couldNotSave", &[&error]))?;
+        }
         match self
             .host
             .open_projects
@@ -8353,6 +8381,14 @@ impl Studio {
     /// failure does not reach is the teardown: the worker cancellations, the
     /// job lists, the autosave timer and the session itself.
     pub fn close_project(&mut self) -> Result<(), String> {
+        self.save_and_release().inspect_err(|error| {
+            self.notify(&tf("studio.couldNotSave", &[error]), true);
+        })
+    }
+
+    /// [`Studio::close_project`] without the notice: the project saved, then
+    /// let go, or left open when the save fails.
+    fn save_and_release(&mut self) -> Result<(), String> {
         log::info!("project: closing {}", self.project_name);
         // Words still being typed land in the save, not on the floor.
         self.flush_commit();
@@ -8365,7 +8401,6 @@ impl Studio {
             let ticket = projects::ticket();
             if let Err(error) = projects::save_ordered(&path, &document, ticket) {
                 log::warn!("project: could not be saved, not closing: {error}");
-                self.notify(&tf("studio.couldNotSave", &[&error]), true);
                 return Err(error);
             }
         }
