@@ -280,6 +280,7 @@ export component Seat inherits Rectangle {
             clip-enhance-run => { Editor.clip-enhance-run(); }
             transition-remove => { Editor.transition-remove(); }
             transition-duration-set(seconds) => { Editor.transition-duration-set(seconds); }
+            transition-param-set(key, value) => { Editor.transition-param-set(key, value); }
 
             project-name: Editor.project-name;
             project-folder: Editor.project-folder;
@@ -294,6 +295,8 @@ export component Seat inherits Rectangle {
 
             selected: Editor.selected-clip;
             transition: Editor.selected-transition;
+            transition-knobs: Editor.transition-knobs;
+            transition-choices: Editor.transition-choices;
             clip-set(field, value) => { Editor.clip-set(field, value); }
             clip-set-text(field, value) => { Editor.clip-set-text(field, value); }
             clip-set-colour(field, value) => { Editor.clip-set-colour(field, value); }

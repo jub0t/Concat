@@ -1308,6 +1308,11 @@ pub struct Transition {
     /// Seconds the transition covers.
     #[serde(default = "unity")]
     pub duration: f64,
+    /// The package's knobs as set on this cut, by key; a knob left out is
+    /// at its default. Empty for every transition saved before knobs could
+    /// be set, which play exactly as they did.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, f64>,
 }
 
 /// How a title's lines sit within their block, and which point of the block

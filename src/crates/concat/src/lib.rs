@@ -1483,6 +1483,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_transition_duration_set(on_window!(|state, seconds: f32| {
         state.set_transition_duration(seconds as f64);
     }));
+    editor.on_transition_param_set(on_window!(|state, key: SharedString, value: f32| {
+        state.set_transition_param(key.as_str(), f64::from(value));
+    }));
 
     // ── the context menu ──
     editor.on_clip_context(on_window!(|state, id: SharedString| {

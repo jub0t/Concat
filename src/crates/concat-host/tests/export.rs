@@ -1095,6 +1095,7 @@ fn fades_and_wipes_reach_the_picture() {
                 transition_in: Some(Some(Transition {
                     id: kind.to_owned(),
                     duration: 1.0,
+                    params: Default::default(),
                 })),
                 ..ClipPatch::default()
             },
@@ -1582,6 +1583,7 @@ fn every_edit_still_exports() {
                 transition_in: Some(Some(Transition {
                     id: kind.to_owned(),
                     duration: 0.5,
+                    params: Default::default(),
                 })),
                 ..ClipPatch::default()
             },

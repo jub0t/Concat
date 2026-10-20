@@ -381,6 +381,10 @@ pub struct TransitionSpec {
     pub kind: String,
     /// Seconds the transition covers.
     pub duration: f64,
+    /// A packaged transition's knobs as set on the cut; the package's
+    /// defaults for any left out.
+    #[serde(default)]
+    pub params: BTreeMap<String, f64>,
 }
 
 fn yes() -> bool {
@@ -654,6 +658,7 @@ fn resolve_transitions_at(
                 outgoing,
                 kind: transition.kind.clone(),
                 duration: transition.duration.max(0.0),
+                params: transition.params.clone(),
             }),
             _ => {}
         }
@@ -802,7 +807,7 @@ fn resolve_transitions_at(
                     end,
                     to_track: b.track,
                     id: cut.kind.clone(),
-                    params: BTreeMap::new(),
+                    params: cut.params.clone(),
                 });
             }
             // A kind this build does not know renders as a plain cut rather
@@ -821,6 +826,7 @@ struct Cut {
     outgoing: usize,
     kind: String,
     duration: f64,
+    params: BTreeMap<String, f64>,
 }
 
 /// What [`overlap`] built a transition on.
@@ -2594,6 +2600,7 @@ mod tests {
         Some(TransitionSpec {
             kind: kind.to_owned(),
             duration,
+            params: BTreeMap::new(),
         })
     }
 
@@ -3330,6 +3337,20 @@ mod tests {
         resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(keys_on(&clips[0], "scale"), vec![(4.0 / 4.5, 2.0)]);
         assert_eq!(keys_on(&clips[1], "scale"), vec![(0.5 / 4.5, 2.0)]);
+    }
+
+    /// A packaged transition's knobs, as set on the cut, reach the span
+    /// the compositor combines with: before, every span was built empty and
+    /// every transition drew at its defaults, whatever the cut held.
+    #[test]
+    fn a_packaged_transitions_knobs_reach_its_span() {
+        let mut clips = cut_with_handles();
+        let mut transition = spec("concat.push", 1.0).expect("a spec");
+        transition.params.insert("direction".to_owned(), 2.0);
+        clips[1].transition = Some(transition);
+        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].params.get("direction"), Some(&2.0));
     }
 
     #[test]

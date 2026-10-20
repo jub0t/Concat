@@ -157,6 +157,17 @@ export struct AppliedParamData {
     next: bool,
 }
 
+/// One knob of a transition that is a choice among a few - Push's
+/// direction - drawn as segments: a direction is picked, not dialled.
+export struct TransitionChoiceData {
+    key: string,
+    label: string,
+    options: [string],
+    /// The value each option stores, in the same order.
+    values: [float],
+    current: int,
+}
+
 /// One colour knob of one link - a key's screen colour - drawn as a swatch
 /// that opens the picker, with the hex beside it.
 export struct ColourKnobData {
@@ -2075,12 +2086,17 @@ export component EnhancePanel inherits VerticalLayout {
 /// clips rather than to either of them.
 export component TransitionPanel inherits VerticalLayout {
     in property <SelectedTransitionData> transition;
+    /// The package's own knobs, numbers and choices, as set on this cut.
+    in property <[AppliedParamData]> knobs;
+    in property <[TransitionChoiceData]> choices;
 
     /// Taken off, leaving a plain cut.
     callback remove();
     /// Set to a new length - clamped as applying one is, so this can never
     /// ask for more than the cut can give it.
     callback duration-set(seconds: float);
+    /// One of the package's knobs moved.
+    callback param-set(key: string, value: float);
 
     property <float> duration;
 
@@ -2141,6 +2157,43 @@ export component TransitionPanel inherits VerticalLayout {
                 default-value: 0.5;
                 fmt: ParamFormat.seconds2;
                 changed(v) => { root.duration-set(v); }
+            }
+
+            for choice in root.choices: VerticalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 4px;
+
+                Text {
+                    text: choice.label;
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                }
+                SegmentedControl {
+                    options: choice.options;
+                    current: choice.current;
+                    changed(index) => { root.param-set(choice.key, choice.values[index]); }
+                }
+            }
+
+            for p in root.knobs: Rectangle {
+                property <AppliedParamData> data: p;
+                height: knob.preferred-height;
+                changed data => { knob.value = self.data.value; }
+
+                knob := Param {
+                    unit: p.unit;
+                    label: p.label;
+                    value: p.value;
+                    minimum: p.min;
+                    maximum: p.max;
+                    step: p.step;
+                    default-value: p.default-value;
+                    fmt: p.fmt;
+                    changed(v) => { root.param-set(p.key, v); }
+                }
             }
         }
     }

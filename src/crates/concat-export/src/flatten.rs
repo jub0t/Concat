@@ -133,6 +133,7 @@ pub fn flatten_timeline_in(
                     .map(|transition| TransitionSpec {
                         kind: transition.id.clone(),
                         duration: transition.duration,
+                        params: transition.params.clone(),
                     }),
                 media_width: media.width,
                 media_height: media.height,

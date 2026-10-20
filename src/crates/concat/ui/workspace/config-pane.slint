@@ -9,6 +9,7 @@ import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
     AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, BackgroundRows, ProcessorRows,
+    TransitionChoiceData,
     CatalogueEntryData, ColourKnobData, EnhancePanel, FilterPanel, PresetStack, SpeedPanel,
     TransitionPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
@@ -113,6 +114,8 @@ export component ConfigPane inherits Rectangle {
     property <bool> has-selection: root.selected.present;
     /// The transition selected on its own on the lanes, when no clip is.
     in property <SelectedTransitionData> transition;
+    in property <[AppliedParamData]> transition-knobs;
+    in property <[TransitionChoiceData]> transition-choices;
     property <bool> on-transition: root.transition.present && !root.has-selection;
     in property <string> project-name: I18n.t("common.untitledProject");
     in property <string> project-folder: "—";
@@ -211,6 +214,7 @@ export component ConfigPane inherits Rectangle {
     callback clip-enhance-run();
     callback transition-remove();
     callback transition-duration-set(seconds: float);
+    callback transition-param-set(key: string, value: float);
 
 
     // The tab strip follows the selection, and stays short: three tabs at
@@ -521,6 +525,9 @@ export component ConfigPane inherits Rectangle {
             PaneScroll {
                 TransitionPanel {
                     transition: root.transition;
+                    knobs: root.transition-knobs;
+                    choices: root.transition-choices;
+                    param-set(key, value) => { root.transition-param-set(key, value); }
                     remove => { root.transition-remove(); }
                     duration-set(seconds) => { root.transition-duration-set(seconds); }
                 }

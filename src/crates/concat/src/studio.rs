@@ -4228,6 +4228,7 @@ impl Studio {
                 transition_in: Some(Some(Transition {
                     id: id.to_owned(),
                     duration,
+                    params: Default::default(),
                 })),
                 ..ClipPatch::default()
             },
@@ -4276,6 +4277,39 @@ impl Studio {
             return;
         };
         self.set_clip_transition_duration(&clip_id, seconds);
+    }
+
+    /// Sets one of the selected transition's own knobs, held inside the
+    /// range its package gives it. A knob the package does not have is
+    /// refused rather than stored.
+    pub fn set_transition_param(&mut self, key: &str, value: f64) {
+        let Some(clip_id) = self.transition_target() else {
+            return;
+        };
+        let Some(existing) = self
+            .clip(&clip_id)
+            .and_then(|clip| clip.transition_in.clone())
+        else {
+            return;
+        };
+        let Some(param) = Catalogue::builtin()
+            .get(&existing.id)
+            .and_then(|package| package.manifest.param(key).cloned())
+        else {
+            return;
+        };
+        if !value.is_finite() {
+            return;
+        }
+        let mut params = existing.params.clone();
+        params.insert(key.to_owned(), value.clamp(param.min, param.max));
+        self.apply(Command::UpdateClip {
+            clip_id,
+            patch: ClipPatch {
+                transition_in: Some(Some(Transition { params, ..existing })),
+                ..ClipPatch::default()
+            },
+        });
     }
 
     /// Sets `clip_id`'s transition to `seconds`, clamped to what the cut can
@@ -9006,6 +9040,9 @@ impl Studio {
 
         editor.set_selected_clip(self.selected());
         editor.set_selected_transition(self.selected_transition_data());
+        let (knobs, choices) = self.transition_knobs();
+        editor.set_transition_knobs(ModelRc::new(VecModel::from(knobs)));
+        editor.set_transition_choices(ModelRc::new(VecModel::from(choices)));
         // The background and Fit and Fill, on their own global: the Details
         // panel, the Video panel and the phone all read it.
         self.publish_backdrop(app);
@@ -10190,6 +10227,89 @@ impl Studio {
             duration: transition.duration as f32,
             into: clip.name.as_str().into(),
         }
+    }
+
+    /// The selected transition's own knobs as the panel draws them: the
+    /// choices as segments, the numbers as sliders, each at what the cut
+    /// holds or the package's default.
+    fn transition_knobs(&self) -> (Vec<AppliedParamData>, Vec<crate::ui::TransitionChoiceData>) {
+        let Some(transition) = self
+            .selected_transition()
+            .and_then(|clip| clip.transition_in.as_ref())
+        else {
+            return Default::default();
+        };
+        let Some(package) = Catalogue::builtin().get(&transition.id) else {
+            return Default::default();
+        };
+        let (mut knobs, mut choices) = (Vec::new(), Vec::new());
+        for param in &package.manifest.params {
+            let value = transition
+                .params
+                .get(&param.key)
+                .copied()
+                .unwrap_or(param.default);
+            match param.kind {
+                ParamType::Enum if !param.values.is_empty() => {
+                    let options: Vec<SharedString> = param
+                        .values
+                        .iter()
+                        .enumerate()
+                        .map(|(index, at)| {
+                            param
+                                .labels
+                                .get(index)
+                                .cloned()
+                                .unwrap_or_else(|| format!("{at}"))
+                                .into()
+                        })
+                        .collect();
+                    let current = param
+                        .values
+                        .iter()
+                        .position(|at| (at - value).abs() < 1e-9)
+                        .unwrap_or(0);
+                    choices.push(crate::ui::TransitionChoiceData {
+                        key: param.key.as_str().into(),
+                        label: param.label.as_str().into(),
+                        options: ModelRc::new(VecModel::from(options)),
+                        values: ModelRc::new(VecModel::from(
+                            param.values.iter().map(|at| *at as f32).collect::<Vec<_>>(),
+                        )),
+                        current: current as i32,
+                    });
+                }
+                ParamType::Float | ParamType::Int => {
+                    let step = if param.step > 0.0 {
+                        param.step
+                    } else if param.kind == ParamType::Int {
+                        1.0
+                    } else {
+                        (param.max - param.min) / 200.0
+                    };
+                    knobs.push(AppliedParamData {
+                        entry: 0,
+                        key: param.key.as_str().into(),
+                        label: param.label.as_str().into(),
+                        group: "".into(),
+                        unit: param.unit.as_str().into(),
+                        min: param.min as f32,
+                        max: param.max as f32,
+                        step: step as f32,
+                        default_value: param.default as f32,
+                        value: value as f32,
+                        fmt: format_of(&param.unit),
+                        keyable: false,
+                        keyed: false,
+                        here: false,
+                        prev: false,
+                        next: false,
+                    });
+                }
+                _ => {}
+            }
+        }
+        (knobs, choices)
     }
 
     fn selected(&self) -> SelectedClipData {

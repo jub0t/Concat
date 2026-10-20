@@ -3,7 +3,7 @@
 
 import { EffectData } from "demo/effects-panel.slint";
 import {
-    AppliedEntryData, AppliedParamData, CatalogueEntryData, ColourKnobData,
+    AppliedEntryData, AppliedParamData, CatalogueEntryData, ColourKnobData, TransitionChoiceData,
 } from "inspector/clip-inspector.slint";
 import {
     CurveData, CurveGroupData, WheelData, WheelGroupData,
@@ -185,6 +185,9 @@ export global Editor {
     in-out property <[AppliedEntryData]> applied-visual;
     in-out property <[AppliedEntryData]> applied-audio;
     in-out property <[AppliedParamData]> visual-params;
+    /// The selected transition's own knobs: the numbers, and the choices.
+    in-out property <[AppliedParamData]> transition-knobs;
+    in-out property <[TransitionChoiceData]> transition-choices;
     in-out property <[AppliedParamData]> audio-params;
     /// The Adjust tab: the colour package's knobs for the selected clip.
     in-out property <[AppliedParamData]> adjust-params;
@@ -299,6 +302,7 @@ export global Editor {
     /// The transition riding into the selected clip; see VideoPanel.
     callback transition-remove();
     callback transition-duration-set(seconds: float);
+    callback transition-param-set(key: string, value: float);
 
     // ── the timeline ──
     in-out property <[TimelineTabData]> timeline-tabs;

@@ -835,6 +835,34 @@ fn halfway_through_a_packaged_transition_is_not_a_dissolve() {
     eprintln!("{}", report.join("\n"));
 }
 
+/// A transition's knob, set on the cut, changes what the shader draws:
+/// Push to the right is not Push to the left.
+#[test]
+fn a_transitions_knob_changes_what_it_draws() {
+    let Some(mut gpu) = gpu() else { return };
+    let (width, height) = (64, 36);
+    let (from, to) = (
+        gradient(width, height),
+        solid(width, height, [30, 200, 60, 255]),
+    );
+    let catalogue = concat_effects::Catalogue::builtin();
+    let draw = |gpu: &mut WgpuCompositor, direction: f64| {
+        let params = BTreeMap::from([("direction".to_owned(), direction)]);
+        let pass = catalogue
+            .transition_pass("concat.push", &params, 0.5)
+            .expect("push has a pass");
+        gpu.combine(width, height, 0.0, &from, &to, &pass)
+            .expect("combines")
+    };
+    let left = draw(&mut gpu, 0.0);
+    let right = draw(&mut gpu, 1.0);
+    assert_ne!(
+        left.pixels(),
+        right.pixels(),
+        "the direction knob reached the shader"
+    );
+}
+
 /// A texture read back into a frame, for comparing a picture that stayed
 /// on the device with one that was read back on the way.
 fn read_texture(gpu: &WgpuCompositor, texture: &wgpu::Texture) -> Frame {
