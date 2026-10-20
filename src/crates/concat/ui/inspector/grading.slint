@@ -6,7 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { ClipField } from "../timeline/model.slint";
-import { KeyCluster, ValueControl } from "controls.slint";
+import { KeyCluster, ValueControl, InspectorInput } from "controls.slint";
 
 // The colour wheels and the curves: lift, gamma and gain as three wheels in
 // a row, and one graph for the curves with a tab a channel. Both draw what
@@ -107,11 +107,11 @@ export component ColorWheel inherits VerticalLayout {
     spacing: 4px;
     alignment: start;
     horizontal-stretch: 1;
-    min-width: 72px;
+    min-width: 64px;
     preferred-width: 80px;
 
     HorizontalLayout {
-        height: Theme.h;
+        height: InspectorInput.field-height;
         spacing: 2px;
 
         Text {
@@ -125,9 +125,9 @@ export component ColorWheel inherits VerticalLayout {
         }
 
         VerticalLayout {
-            width: 17px;
+            width: InspectorInput.key-size;
             alignment: center;
-            if !root.data.keyable: Rectangle { width: 17px; }
+            if !root.data.keyable: Rectangle { width: InspectorInput.key-size; }
             if root.data.keyable: KeyCluster {
                 compact: true;
                 enabled: root.enabled;
@@ -225,6 +225,7 @@ export component ColorWheel inherits VerticalLayout {
     }
 
     master := ValueControl {
+        min-width: 64px;
         value: root.data.master;
         minimum: root.data.min;
         maximum: root.data.max;

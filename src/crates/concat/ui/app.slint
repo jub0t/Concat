@@ -40,7 +40,7 @@ import { PhoneEditor } from "phone/editor.slint";
 import {
     AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData,
 } from "inspector/clip-inspector.slint";
-import { ParamFormat } from "inspector/controls.slint";
+import { ParamFormat, InspectorInput } from "inspector/controls.slint";
 import { ToastData, ToastLayer } from "primitives/toast.slint";
 import { TooltipLayer } from "primitives/tooltip.slint";
 import { FontSearch } from "inspector/font-picker.slint";
@@ -186,6 +186,7 @@ export component App inherits Window {
     /// strip, no dock - and the launch screen carries its own verbs, as it
     /// does whenever it is narrow. Set once from Rust; see platform::phone.
     in property <bool> phone;
+    changed phone => { InspectorInput.touch = root.phone; }
     /// A sheet with pages of its own is the whole window, inside its safe
     /// area, on a phone and in any window too narrow for it to float as a
     /// card with room around it.

@@ -15,6 +15,14 @@ import { ClipField, ClipKeyData, Keyframes } from "../timeline/model.slint";
 // field. Written to the same contract as primitives/ — value plus a changed
 // callback — so promoting one later is a file move rather than a rewrite.
 
+// The phone keeps large hit targets and uses a scrub/type field rather than
+// the desktop's tiny paired step buttons. Set from App.phone, not window width.
+export global InspectorInput {
+    in-out property <bool> touch;
+    out property <length> field-height: self.touch ? 44px : Theme.h;
+    out property <length> key-size: self.touch ? 44px : 17px;
+}
+
 // How a parameter's readout is spelled. A Slint struct cannot carry a
 // closure, so the catalogue names one of these per param and InspectorFmt
 // renders it.
@@ -168,7 +176,7 @@ export component Rail inherits Rectangle {
 
     callback changed(value: float);
 
-    height: Theme.h;
+    height: InspectorInput.field-height;
     opacity: root.enabled ? 1.0 : 0.45;
 
     property <float> span: Math.max(root.maximum - root.minimum, 0.000001);
@@ -262,13 +270,15 @@ component KeyButton inherits Rectangle {
 
     callback clicked();
 
-    width: 17px;
-    height: 17px;
+    width: InspectorInput.key-size;
+    height: InspectorInput.key-size;
     border-radius: Theme.r-xs;
     background: touch.has-hover && root.enabled ? Theme.field : Colors.transparent;
     opacity: root.enabled ? 1.0 : 0.35;
 
     Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
         glyph: root.glyph;
         size: 11px;
         filled: root.filled;
@@ -352,9 +362,12 @@ export component ValueControl inherits HorizontalLayout {
     callback changed(value: float);
 
     min-width: 72px;
-    preferred-width: 101px;
+    preferred-width: 88px;
+    min-height: InspectorInput.field-height;
     spacing: 1px;
     NumberField {
+        height: InspectorInput.field-height;
+        min-width: 40px;
         horizontal-stretch: 1;
         value <=> root.value;
         minimum: root.minimum;
@@ -362,7 +375,7 @@ export component ValueControl inherits HorizontalLayout {
         step: root.step;
         precision: InspectorFmt.precision-of(root.step);
         enabled: root.enabled;
-        scrubbable: false;
+        scrubbable: InspectorInput.touch;
         centered: true;
         unit-leading: false;
         prefix: root.axis;
@@ -375,7 +388,7 @@ export component ValueControl inherits HorizontalLayout {
         parse(t) => { return t.is-float() ? t.to-float() / root.unit-scale : root.value; }
         changed(v) => { root.changed(v); }
     }
-    Stepper {
+    if !InspectorInput.touch: Stepper {
         vertical: true;
         enabled: root.enabled;
         stepped(direction, shift, alt) => {
@@ -409,9 +422,10 @@ export component PositionRow inherits VerticalLayout {
         }
     }
     HorizontalLayout {
+        alignment: start;
         spacing: 6px;
         ValueControl {
-            horizontal-stretch: 1;
+            width: 88px; horizontal-stretch: 0;
             axis: "X";
             unit: "%";
             unit-scale: 100;
@@ -422,7 +436,7 @@ export component PositionRow inherits VerticalLayout {
             changed(v) => { root.changed(v, root.y-value); }
         }
         ValueControl {
-            horizontal-stretch: 1;
+            width: 88px; horizontal-stretch: 0;
             axis: "Y";
             unit: "%";
             unit-scale: 100;
@@ -433,7 +447,7 @@ export component PositionRow inherits VerticalLayout {
             changed(v) => { root.changed(root.x-value, v); }
         }
         VerticalLayout {
-            width: 17px;
+            width: InspectorInput.key-size;
             horizontal-stretch: 0;
             alignment: center;
             KeyCluster {
@@ -530,7 +544,7 @@ export component Param inherits VerticalLayout {
         }
         if !root.rail: Rectangle { horizontal-stretch: 1; }
         ValueControl {
-            width: 101px;
+            width: 88px;
             horizontal-stretch: 0;
             value <=> root.value;
             minimum: root.minimum;
@@ -543,9 +557,9 @@ export component Param inherits VerticalLayout {
         }
         // Reserve the diamond's column even for unkeyable parameters, so
         // every rail ends at the same place and keeps its own numeric scale.
-        if !root.keyable: Rectangle { width: 17px; height: Theme.h; }
+        if !root.keyable: Rectangle { width: InspectorInput.key-size; height: InspectorInput.field-height; }
         if root.keyable: VerticalLayout {
-            width: 17px;
+            width: InspectorInput.key-size;
             horizontal-stretch: 0;
             alignment: center;
             KeyCluster {
