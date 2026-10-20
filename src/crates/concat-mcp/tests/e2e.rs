@@ -323,6 +323,8 @@ fn a_modern_client_discovers_and_is_told_which_versions_are_spoken() {
     let (_, discovered) = agent.ask("server/discover", json!({ "_meta": meta("2026-07-28") }));
     let result = &discovered["result"];
     assert_eq!(result["resultType"], "complete");
+    assert_eq!(result["ttlMs"], 0);
+    assert_eq!(result["cacheScope"], "public");
     assert!(
         result["supportedVersions"]
             .as_array()
@@ -335,6 +337,8 @@ fn a_modern_client_discovers_and_is_told_which_versions_are_spoken() {
 
     let (_, listed) = agent.ask("tools/list", json!({ "_meta": meta("2026-07-28") }));
     assert_eq!(listed["result"]["resultType"], "complete");
+    assert_eq!(listed["result"]["ttlMs"], 0);
+    assert_eq!(listed["result"]["cacheScope"], "public");
     assert!(
         listed["result"]["tools"]
             .as_array()
