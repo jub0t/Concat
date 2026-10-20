@@ -289,21 +289,32 @@ fn connection<S: Socket>(mut stream: S, door: Door, id: u64, peer: Peer, pending
     let (Ok(writer), Ok(closer)) = (stream.duplicate(), stream.duplicate()) else {
         return;
     };
+    if stream.read_timeout(None).is_err() || writer.write_timeout(Some(WRITE_TIMEOUT)).is_err() {
+        return;
+    }
+    let Some(outbox) = Outbox::start(writer, id) else {
+        return;
+    };
     let _registered = match door.connections.lock() {
         Ok(mut connections) => {
-            connections.insert(id, Box::new(move || closer.hang_up()));
+            // A stop that waited for the jobs lets their last events out
+            // before it hangs up; see `Server::stop`.
+            let queued = outbox.clone();
+            connections.insert(
+                id,
+                Box::new(move |drain| {
+                    if drain {
+                        queued.close();
+                    }
+                    closer.hang_up();
+                }),
+            );
             Registered {
                 connections: Arc::clone(&door.connections),
                 id,
             }
         }
         Err(_) => return,
-    };
-    if stream.read_timeout(None).is_err() || writer.write_timeout(Some(WRITE_TIMEOUT)).is_err() {
-        return;
-    }
-    let Some(outbox) = Outbox::start(writer, id) else {
-        return;
     };
     outbox.send(Message::Reply {
         id: call,
@@ -779,6 +790,55 @@ mod tests {
         let (server, _scratch) = server(None);
         let mut client = Client::connect(&server);
         server.stop();
+        assert!(client.closed());
+    }
+
+    #[test]
+    fn a_stop_lets_out_what_a_caller_was_already_sent() {
+        // The API's sink, kept from the API being made, stands in for a job
+        // ending as the stop cancels it: what it says before the hang-up is
+        // on the wire before the connection closes (#431).
+        let scratch = tempfile::tempdir().expect("scratch");
+        let dirs = concat_api::AppDirs {
+            config: scratch.path().join("config"),
+            data: scratch.path().join("data"),
+        };
+        let kept: Arc<Mutex<Option<concat_api::EventSink>>> = Arc::new(Mutex::new(None));
+        let keep = Arc::clone(&kept);
+        let config = crate::Config {
+            json: Some("127.0.0.1:0".parse().expect("an address")),
+            roots: vec![scratch.path().to_path_buf()],
+            ..crate::Config::default()
+        };
+        let server = crate::Server::start(config, move |events| {
+            *keep.lock().expect("kept") = Some(Arc::clone(&events));
+            Ok(concat_api::Api::with_dirs(dirs, events))
+        })
+        .expect("starts");
+        let mut client = Client::connect(&server);
+        let sink = kept
+            .lock()
+            .expect("kept")
+            .clone()
+            .expect("the API was made");
+
+        // Fewer than the outbox holds, so none is refused for want of room.
+        let sent = 200;
+        for frame in 0..sent {
+            sink(concat_api::Event::ExportProgress {
+                job: "j1".to_owned(),
+                path: "project".to_owned(),
+                frame,
+                total: sent,
+                stage: "video".to_owned(),
+            });
+        }
+        server.stop();
+        for frame in 0..sent {
+            let event = client.read();
+            assert_eq!(event["method"], "export.progress", "{event}");
+            assert_eq!(event["params"]["frame"], frame, "{event}");
+        }
         assert!(client.closed());
     }
 }
