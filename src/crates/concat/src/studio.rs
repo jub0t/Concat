@@ -1143,7 +1143,7 @@ fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
         ..TextStyle::default()
     });
     TextStyle {
-        content: "New title".to_owned(),
+        content: t("studio.newTitle"),
         ..base
     }
 }
@@ -2339,7 +2339,7 @@ impl Studio {
             posters: HashMap::new(),
             posters_pending: HashSet::new(),
             lengths: HashMap::new(),
-            project_name: "Untitled project".into(),
+            project_name: t("common.untitledProject"),
             dock: default_dock(),
             dock_aside: crate::dock::compact_dock(),
             compact: false,
@@ -7838,7 +7838,7 @@ impl Studio {
                     && at < clip.start + clip.duration - edge
             });
         let Some(clip) = target else {
-            self.notify("Park the playhead inside a picture clip to freeze", true);
+            self.notify(&t("studio.parkPlayheadToFreeze"), true);
             return;
         };
 
@@ -11252,7 +11252,7 @@ impl Studio {
             ),
             action(
                 "freeze",
-                "Freeze frame".into(),
+                t("studio.freezeFrame"),
                 Glyph::Frame,
                 &keymap::label(&self.prefs, "freeze"),
                 straddled
@@ -11713,9 +11713,9 @@ impl Studio {
                     true,
                 ),
                 rule(),
-                check("sort-added", "Sort by: Added", self.media.sort == 0),
-                check("sort-name", "Sort by: Name", self.media.sort == 1),
-                check("sort-kind", "Sort by: Type", self.media.sort == 2),
+                check("sort-added", &t("studio.sortAdded"), self.media.sort == 0),
+                check("sort-name", &t("studio.sortName"), self.media.sort == 1),
+                check("sort-kind", &t("studio.sortType"), self.media.sort == 2),
                 rule(),
                 row(
                     "start",

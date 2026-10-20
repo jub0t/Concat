@@ -150,7 +150,7 @@ impl Default for StartPane {
     fn default() -> Self {
         Self {
             composing: false,
-            name: UNTITLED.into(),
+            name: untitled(),
             location: default_location(),
             aspect: 0,
             // 1080p, not the first of the three. The size everything else
@@ -204,17 +204,22 @@ fn location_on(os: &str, desktop: Option<PathBuf>, home: impl Fn(&str) -> String
     }
 }
 
-/// What an unnamed project is called.
-const UNTITLED: &str = "Untitled project";
+/// What an unnamed project is called, in the interface's language: the name
+/// this sheet suggests, the folder it makes, and what the title bar shows
+/// until the project is named.
+fn untitled() -> String {
+    t("common.untitledProject")
+}
 
 /// Whether `name` is one this sheet made up rather than one somebody
 /// typed: "Untitled project", or that with a number after it.
 fn is_untitled(name: &str) -> bool {
+    let untitled = untitled();
     let name = name.trim();
     name.is_empty()
-        || name == UNTITLED
+        || name == untitled.as_str()
         || name
-            .strip_prefix(UNTITLED)
+            .strip_prefix(untitled.as_str())
             .and_then(|rest| rest.strip_prefix(' '))
             .is_some_and(|number| number.parse::<u32>().is_ok_and(|n| n >= 2))
 }
@@ -224,8 +229,9 @@ fn is_untitled(name: &str) -> bool {
 /// refused as "already exists" until it was renamed by hand.
 /// https://github.com/jub0t/Concat/issues/151
 fn first_free_untitled(taken: impl Fn(&str) -> bool) -> String {
-    std::iter::once(UNTITLED.to_owned())
-        .chain((2..).map(|n| format!("{UNTITLED} {n}")))
+    let untitled = untitled();
+    std::iter::once(untitled.clone())
+        .chain((2..).map(|n| format!("{untitled} {n}")))
         .find(|name| !taken(&projects::folder_name(name)))
         .expect("the numbers do not run out")
 }
@@ -465,7 +471,7 @@ impl StartPane {
     fn free_untitled(&self) -> String {
         let location = self.location.trim();
         if location.is_empty() {
-            return UNTITLED.to_owned();
+            return untitled();
         }
         first_free_untitled(|folder| Path::new(location).join(folder).exists())
     }
@@ -560,6 +566,9 @@ mod tests {
     /// over at the plain name once that is free again.
     #[test]
     fn a_second_untitled_project_gets_a_name_of_its_own() {
+        // The name is the interface's, so the test holds English while it
+        // reads it: another test may choose a language at any moment.
+        let _english = crate::i18n::language_lock();
         assert_eq!(first_free_untitled(|_| false), "Untitled project");
         let taken = ["Untitled project", "Untitled project 2"];
         assert_eq!(
@@ -641,6 +650,7 @@ mod tests {
     /// Only a name the sheet made up is replaced; a typed one is kept.
     #[test]
     fn only_a_made_up_name_moves_on() {
+        let _english = crate::i18n::language_lock();
         for name in [
             "",
             "  ",
@@ -665,6 +675,7 @@ mod tests {
     /// the next free name, not the one that would be refused.
     #[test]
     fn compose_offers_a_name_that_is_free_in_the_location() {
+        let _english = crate::i18n::language_lock();
         let root = std::env::temp_dir().join(format!("concat-untitled-{}", std::process::id()));
         std::fs::create_dir_all(root.join("Untitled project")).unwrap();
         let pane = StartPane {
