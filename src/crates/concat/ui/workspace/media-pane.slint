@@ -1499,6 +1499,61 @@ export component CategoryPillBar inherits Rectangle {
     }
 }
 
+// A kind's shelves as a strip of pills, All first: the phone's way to the
+// desktop's shelf strip. Without it a phone showed the first shelf alone,
+// and the first shelf of transitions holds a Dissolve and nothing else
+// (#415).
+export component GroupPillBar inherits Rectangle {
+    /// `Library.view`'s shelf: 0 filters, 1 effects, 2 audio, 3 transitions.
+    in property <int> shelf;
+    in property <[string]> groups;
+
+    height: 30px;
+    clip: true;
+
+    property <int> current: Library.view(root.shelf).group;
+    property <length> offset: 0px;
+    property <length> max-scroll: Math.max(0px, row.preferred-width - root.width);
+    property <length> press-x: 0px;
+    property <length> press-offset: 0px;
+
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.press-x = touch.mouse-x;
+                root.press-offset = root.offset;
+            }
+        }
+        moved => {
+            if (touch.pressed) {
+                root.offset = Math.max(-root.max-scroll, Math.min(0px, root.press-offset + touch.mouse-x - root.press-x));
+            }
+        }
+        scroll-event(event) => {
+            root.offset = Math.max(-root.max-scroll, Math.min(0px, root.offset + event.delta-x + event.delta-y));
+            return EventResult.accept;
+        }
+
+        row := HorizontalLayout {
+            x: Math.max(-root.max-scroll, Math.min(0px, root.offset));
+            y: 3px;
+            height: 24px;
+            spacing: 6px;
+
+            CategoryPill {
+                text: I18n.t("sounds.all");
+                selected: root.current < 0;
+                clicked => { Library.group-changed(root.shelf, -1); }
+            }
+            for label[index] in root.groups: CategoryPill {
+                text: label;
+                selected: root.current == index;
+                clicked => { Library.group-changed(root.shelf, index); }
+            }
+        }
+    }
+}
+
 // The Presets shelf: the same auto-fill arithmetic as the other grids.
 export component PresetGrid inherits Rectangle {
     in property <[TextPresetData]> items;

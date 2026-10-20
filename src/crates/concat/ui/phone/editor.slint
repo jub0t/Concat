@@ -12,7 +12,7 @@ import { Param, ParamFormat, SwitchRow } from "../inspector/controls.slint";
 import { PreviewPane } from "../workspace/preview-pane.slint";
 import { ContextMenu } from "../primitives/context-menu.slint";
 import {
-    CategoryPillBar, MediaCard, MediaItemData, PresetGrid, ShelfGrid, ShelfSearch,
+    CategoryPillBar, GroupPillBar, MediaCard, MediaItemData, PresetGrid, ShelfGrid, ShelfSearch,
 } from "../workspace/media-pane.slint";
 import {
     AdjustPanel, AudioPanel, EnhancePanel, FilterPanel, Library, PresetStack, ProcessorRows,
@@ -1302,6 +1302,10 @@ export component PhoneEditor inherits Rectangle {
                 shelf: 0;
                 placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.filter"));
             }
+            GroupPillBar {
+                shelf: 0;
+                groups: Editor.filter-groups;
+            }
             ShelfGrid {
                 entries: Editor.catalogue-filters;
                 auditions: false;
@@ -1358,6 +1362,10 @@ export component PhoneEditor inherits Rectangle {
             ShelfSearch {
                 shelf: 3;
                 placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.transition"));
+            }
+            GroupPillBar {
+                shelf: 3;
+                groups: Editor.transition-groups;
             }
             ShelfGrid {
                 entries: Editor.catalogue-transitions;

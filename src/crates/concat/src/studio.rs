@@ -9249,7 +9249,8 @@ impl Studio {
     /// so the query goes.
     pub fn library_group(&mut self, shelf: i32, index: i32) {
         if let Some(view) = self.library_at(shelf) {
-            view.group = index.max(0);
+            // -1 is every shelf at once: the phone's All pill.
+            view.group = index.max(-1);
             view.category.clear();
             view.query.clear();
             view.favourites = false;
