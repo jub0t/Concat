@@ -4457,7 +4457,10 @@ impl Studio {
     }
 
     pub fn chain_add(&mut self, audio: bool, id: &str) {
+        // Added from the chain in view: stay there, unlike a library card (#462).
+        let jump = self.inspector_jump;
         self.apply_catalogue(id, !audio);
+        self.inspector_jump = jump;
     }
 
     pub fn chain_toggle(&mut self, audio: bool, index: i32) {
