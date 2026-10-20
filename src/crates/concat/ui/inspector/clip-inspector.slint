@@ -2378,7 +2378,7 @@ export component AudioPanel inherits VerticalLayout {
             Row {
                 label: I18n.t("clipInspector.autoDucking");
                 Button {
-                    text: I18n.t("clipInspector.applyAutoDuck");
+                    label: I18n.t("clipInspector.applyAutoDuck");
                     clicked => { root.auto-duck(); }
                 }
             }
@@ -2386,7 +2386,7 @@ export component AudioPanel inherits VerticalLayout {
             Row {
                 label: I18n.t("clipInspector.autoCutSilences");
                 Button {
-                    text: I18n.t("clipInspector.cutSilence");
+                    label: I18n.t("clipInspector.cutSilence");
                     clicked => { root.auto-cut-silence(); }
                 }
             }
