@@ -93,7 +93,11 @@ pub(super) fn apply(
             })
         }
 
-        Command::SetClipSpeed { clip_id, speed } => {
+        Command::SetClipSpeed {
+            clip_id,
+            speed,
+            ripple,
+        } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {
                 return Ok(Outcome::default());
@@ -111,20 +115,7 @@ pub(super) fn apply(
                     (source_covered / next).max(MIN_CLIP_DURATION),
                 )
                 | assign(&mut clip.speed_curve, None);
-            // Slowed down, the clip grows into what follows it: the rest of
-            // the lane moves along by the growth, as a freeze frame's does,
-            // rather than being covered.
-            let (track_id, start, duration) = (clip.track_id.clone(), clip.start, clip.duration);
-            let grow = start + duration - old_end;
-            if grow > 0.0 && !timeline.is_free(&track_id, start, duration, &[&clip_id]) {
-                for other in timeline.clips_where(|other| {
-                    other.id != clip_id
-                        && other.track_id == track_id
-                        && other.start >= old_end - crate::placement::TOUCH
-                }) {
-                    other.start += grow;
-                }
-            }
+            make_room(timeline, &clip_id, old_end, ripple);
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -306,13 +297,18 @@ pub(super) fn apply(
             })
         }
 
-        Command::SetClipSpeedCurve { clip_id, curve } => {
+        Command::SetClipSpeedCurve {
+            clip_id,
+            curve,
+            ripple,
+        } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {
                 return Ok(Outcome::default());
             };
             let curve = curve.filter(|points| crate::speed::curve_of(points).is_some());
             let source_covered = clip.duration * clip.speed;
+            let old_end = clip.start + clip.duration;
             let mean = curve
                 .as_ref()
                 .map(|points| crate::speed::mean_of(points))
@@ -324,6 +320,7 @@ pub(super) fn apply(
                     &mut clip.duration,
                     (source_covered / mean).max(MIN_CLIP_DURATION),
                 );
+            make_room(timeline, &clip_id, old_end, ripple);
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -404,5 +401,29 @@ pub(super) fn apply(
         }
 
         _ => unreachable!("commands::apply routes only this module's commands here"),
+    }
+}
+
+/// What a retimed clip does to the lane behind it. One that ends later
+/// than `old_end` and would cover what follows it pushes the rest of the
+/// lane along by the growth, as a freeze frame's does. On the magnetic
+/// timeline (`ripple`) the lane follows the clip's end either way, so a
+/// clip sped up leaves no gap, as a magnetic trim leaves none. Shared by
+/// the constant rate and the curve, which both stretch a clip.
+fn make_room(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool) {
+    let Some(clip) = timeline.clip(clip_id) else {
+        return;
+    };
+    let (track_id, start, duration) = (clip.track_id.clone(), clip.start, clip.duration);
+    let moved = start + duration - old_end;
+    let pushed = moved > 0.0 && !timeline.is_free(&track_id, start, duration, &[clip_id]);
+    if (ripple && moved != 0.0) || pushed {
+        for other in timeline.clips_where(|other| {
+            other.id != clip_id
+                && other.track_id == track_id
+                && other.start >= old_end - crate::placement::TOUCH
+        }) {
+            other.start = (other.start + moved).max(0.0);
+        }
     }
 }

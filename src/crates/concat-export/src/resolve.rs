@@ -320,7 +320,7 @@ pub(crate) fn build_timeline(
         if clip.kind != ClipKind::Image {
             engine_clip.speed =
                 Rational::approximate(audio::clamp_speed(clip.speed)).unwrap_or(Rational::ONE);
-            engine_clip.retime = SpeedCurve::new(&clip.speed_curve);
+            engine_clip.retime = clip.retime();
         }
         engine_clip.animation = animation_of(&clip.animation);
         engine_clip.blend = concat_core::timeline::Blend::parse(&clip.blend);
