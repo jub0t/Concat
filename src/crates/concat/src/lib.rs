@@ -211,7 +211,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         platform::set_ui_scale(percent);
     }
 
-    let (startup_mark, safe) = safe_start();
+    // Not for a smoke run: it exits through `leave`, past the mark's drop,
+    // and the mark it left put the next real launch in software for nothing.
+    let (startup_mark, safe) = if smoke { (None, false) } else { safe_start() };
 
     // The shell doesn't exist yet - it needs the window the backend is about
     // to help create - but `Shell::with` is a no-op until `Shell::install`
@@ -2539,12 +2541,15 @@ const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 /// first seconds - a new one each time (#339, #378, #389, #242) - and a
 /// launch check on a CI machine meets none of them. A launch that dies
 /// before [`SAFE_AFTER`] leaves its mark; the next one finds it, draws on
-/// WARP or lavapipe instead of the GPU, and keeps doing so - a driver that
-/// killed one launch kills the next, and starting on the GPU every other
-/// time would crash every other time. Slower, and it opens. Settings >
-/// General's GPU switch goes back. Only on Windows and Linux, which have a
-/// software rasteriser to draw on; a Mac has none, and a phone's backend
-/// picks its own way to draw.
+/// WARP or lavapipe instead of the GPU, and keeps doing so for that build -
+/// a driver that killed one launch kills the next, and starting on the GPU
+/// every other time would crash every other time. Slower, and it opens.
+/// The next build tries the GPU again: 0.2.8 kept the CPU for good, and a
+/// Task Manager kill or a crash an update fixed left fast machines drawing
+/// every hover on it (#476). Settings > General's GPU switch goes back
+/// sooner. Only on Windows and Linux, which have a software rasteriser to
+/// draw on; a Mac has none, and a phone's backend picks its own way to
+/// draw.
 fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     if !cfg!(any(windows, target_os = "linux")) {
         return (None, false);
@@ -2554,17 +2559,18 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     };
     let mark = dirs.data.join("startup");
     let mut preferences = prefs::Preferences::load(&dirs);
-    let safe = concat_host::jobs::Tripwire::tripped(&mark) && !preferences.software_gpu;
-    if safe {
-        log::warn!("start: the last launch closed while starting; drawing in software from now on");
-        preferences.software_gpu = true;
+    let died = concat_host::jobs::Tripwire::tripped(&mark);
+    if preferences.settle_start(died, &concat_host::machine::build()) {
         preferences.save(&dirs);
     }
-    if preferences.software_gpu && std::env::var_os("CONCAT_GPU").is_none() {
+    if preferences.draws_in_software() && std::env::var_os("CONCAT_GPU").is_none() {
         // SAFETY: the process is single-threaded here, as for the scale
         // above: nothing reads the environment concurrently.
         unsafe { std::env::set_var("CONCAT_GPU", "software") };
     }
+    // Said on every launch it holds, not only the first: the person on
+    // the CPU is the one who wants to know why the window is slow.
+    let safe = preferences.software_after_crash.is_some() && !preferences.software_gpu;
     (Some(concat_host::jobs::Tripwire::arm(&mark)), safe)
 }
 
