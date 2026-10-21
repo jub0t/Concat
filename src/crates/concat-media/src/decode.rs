@@ -946,10 +946,7 @@ impl Decoder {
             Self::open_codec(&self.path, &stream, &self.options, Codec::Software)?.0
         };
         let at = from.unwrap_or(self.origin);
-        let target = ffi::av_ticks(at + self.start);
-        self.input
-            .seek(target, ..=target)
-            .map_err(|error| ffi::fail("seek", &self.path, error))?;
+        self.seek_input(ffi::av_ticks(at + self.start))?;
         self.decoder = decoder;
         // The old codec, and its seat on the chip, go now.
         self.hardware = None;
@@ -965,12 +962,30 @@ impl Decoder {
         Ok(())
     }
 
-    /// The container seek, and the state reset that goes with it.
-    fn jump(&mut self, to: Rational) -> Result<()> {
-        let target = ffi::av_ticks(to + self.start);
+    /// The container seek to `target`, in `AV_TIME_BASE` ticks: the keyframe
+    /// at or before it, never one after, so the frames short of the target
+    /// can be decoded and dropped. The MP4s VLC's stream output writes leave
+    /// their first picture out of the keyframe table, and FFmpeg then finds
+    /// no keyframe before any target short of the second one; those seeks
+    /// go to 0 instead, which their edit list - the picture starts 14 ms
+    /// in - still lets land on the first picture. Without it the monitor
+    /// stayed black for those seconds and the media thumbnail never came.
+    fn seek_input(&mut self, target: i64) -> Result<()> {
         self.input
             .seek(target, ..=target)
-            .map_err(|error| ffi::fail("seek", &self.path, error))?;
+            .or_else(|error| {
+                log::debug!(
+                    "{}: no keyframe at or before {target}, reading from the top ({error})",
+                    self.path.display()
+                );
+                self.input.seek(0, ..=0).map_err(|_| error)
+            })
+            .map_err(|error| ffi::fail("seek", &self.path, error))
+    }
+
+    /// The container seek, and the state reset that goes with it.
+    fn jump(&mut self, to: Rational) -> Result<()> {
+        self.seek_input(ffi::av_ticks(to + self.start))?;
         // Every picture and packet the codec holds is from before the
         // seek: out, and so is the packet it refused. For MediaCodec this
         // is the codec's own flush, which it needs before a jump.
@@ -1400,6 +1415,26 @@ mod tests {
                 "{fixture}: the ground is clear"
             );
         }
+    }
+
+    /// VLC's stream output leaves an MP4's first picture out of its keyframe
+    /// table, behind an edit list that starts the picture 14 ms in: a seek
+    /// short of the second keyframe, 2 s in here, lands where the caller
+    /// meant instead of failing.
+    #[test]
+    fn a_seek_before_the_second_keyframe_of_a_vlc_mp4_lands() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/vlc-first-picture-not-a-keyframe.mp4"
+        );
+        let mut decoder = Decoder::open(path, &DecodeOptions::default()).expect("opens");
+        decoder.seek(Rational::from_int(1)).expect("seeks");
+        let _ = decoder.next_frame().expect("decodes").expect("a frame");
+        let at = decoder.position().expect("a position").as_f64();
+        assert!(
+            (0.95..1.15).contains(&at),
+            "after a seek to 1 s the frame is at {at}"
+        );
     }
 
     #[test]
