@@ -9220,10 +9220,18 @@ impl Studio {
                     && playhead < clip.start + clip.duration
             })
             .max_by_key(|clip| -self.row_of(&clip.track_id));
-        editor.set_has_picture(showing.is_some());
+        // A picture from the bin on the monitor is shown whatever is under
+        // the timeline's playhead: in a new project there is nothing, and
+        // its frame was decoded and then hidden (#464).
+        let source = self
+            .source
+            .as_ref()
+            .filter(|source| source.kind != model::MediaKind::Audio);
+        editor.set_has_picture(source.is_some() || showing.is_some());
         editor.set_preview_clip_name(
-            showing
-                .map(|clip| clip.name.as_str())
+            source
+                .map(|source| source.name.as_str())
+                .or(showing.map(|clip| clip.name.as_str()))
                 .unwrap_or_default()
                 .into(),
         );
