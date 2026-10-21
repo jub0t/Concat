@@ -320,6 +320,7 @@ export component App inherits Window {
     callback captions-placement-changed(index: int);
     callback captions-size-changed(index: int);
     callback captions-style-changed(index: int);
+    callback captions-sync-changed(index: int);
     callback captions-begin();
     callback captions-cancel();
     callback captions-import-srt();
@@ -700,6 +701,7 @@ export component App inherits Window {
             placement-changed(index) => { root.captions-placement-changed(index); }
             size-changed(index) => { root.captions-size-changed(index); }
             style-changed(index) => { root.captions-style-changed(index); }
+            sync-changed(index) => { root.captions-sync-changed(index); }
             begin => { root.captions-begin(); }
             cancel => { root.captions-cancel(); }
             import-srt => { root.captions-import-srt(); }

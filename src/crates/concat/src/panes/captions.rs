@@ -61,6 +61,8 @@ pub enum CaptionsMsg {
     SizeChanged(i32),
     /// 0 Sentence, 1 WordByWord (Dynamic pop), 2 Karaoke highlight
     StyleChanged(i32),
+    /// 0: 0ms, 1: +100ms, 2: +200ms, 3: -100ms
+    SyncChanged(i32),
     /// Run the pass the sheet describes.
     Begin,
     Cancel,
@@ -88,6 +90,8 @@ struct Subject {
     look: (f64, f64),
     /// Caption style chosen: 0 Sentence, 1 WordByWord, 2 Karaoke.
     style: usize,
+    /// Sync offset index: 0 (0ms), 1 (+100ms), 2 (+200ms), 3 (-100ms)
+    sync: usize,
     /// The transcriber model, and the thirty-second windows whisper reads
     /// the sound in: what the run's timing is kept by.
     model: String,
@@ -125,6 +129,8 @@ pub struct CaptionsPane {
     pub size: usize,
     /// 0 Sentence, 1 WordByWord (Dynamic pop), 2 Karaoke highlight.
     pub style: usize,
+    /// 0: 0ms, 1: +100ms, 2: +200ms, 3: -100ms
+    pub sync: usize,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -181,6 +187,7 @@ impl CaptionsPane {
             }
             CaptionsMsg::SizeChanged(index) => self.size = (index.max(0) as usize).min(2),
             CaptionsMsg::StyleChanged(index) => self.style = (index.max(0) as usize).min(2),
+            CaptionsMsg::SyncChanged(index) => self.sync = (index.max(0) as usize).min(3),
             CaptionsMsg::Begin => {
                 if self.from_voice {
                     self.run_sound(studio);
@@ -208,6 +215,12 @@ impl CaptionsPane {
                         };
                         let look = subject.look;
                         let base = studio.prefs.title_style.clone();
+                        let sync_offset = match subject.sync {
+                            1 => 0.10,
+                            2 => 0.20,
+                            3 => -0.10,
+                            _ => 0.0,
+                        };
                         let commands: Vec<Command> = match subject.style {
                             // 1: Dynamic Word-by-Word (CapCut / TikTok viral short-form style)
                             1 => segments
@@ -219,7 +232,7 @@ impl CaptionsPane {
                                         (!text.is_empty()).then(|| {
                                             dynamic_word_clip(
                                                 text,
-                                                subject.start + w.start / subject.speed,
+                                                (subject.start + (w.start + sync_offset) / subject.speed).max(0.0),
                                                 ((w.end - w.start) / subject.speed).max(0.16),
                                                 look,
                                                 base_ref,
@@ -259,7 +272,7 @@ impl CaptionsPane {
                                         }
                                         Some(karaoke_caption_clip(
                                             text_line,
-                                            subject.start + w.start / subject.speed,
+                                            (subject.start + (w.start + sync_offset) / subject.speed).max(0.0),
                                             ((w.end - w.start) / subject.speed).max(0.18),
                                             look,
                                             base_ref,
@@ -275,7 +288,7 @@ impl CaptionsPane {
                                     (!text.is_empty()).then(|| {
                                         caption_clip(
                                             text,
-                                            subject.start + segment.start / subject.speed,
+                                            (subject.start + (segment.start + sync_offset) / subject.speed).max(0.0),
                                             ((segment.end - segment.start) / subject.speed).max(0.2),
                                             look,
                                             base.as_ref(),
@@ -483,6 +496,7 @@ impl CaptionsPane {
             placement: 0,
             size: 1,
             style: self.style,
+            sync: self.sync,
             timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
@@ -612,6 +626,7 @@ impl CaptionsPane {
             speed: clip.speed,
             look: self.look(),
             style: self.style,
+            sync: self.sync,
             model,
             windows,
         });
@@ -655,6 +670,7 @@ impl CaptionsPane {
             placement: self.placement as i32,
             size: self.size as i32,
             style: self.style as i32,
+            sync: self.sync as i32,
             running: self.running,
             progress: self.pace.floor,
             ceiling: self.pace.ceiling,

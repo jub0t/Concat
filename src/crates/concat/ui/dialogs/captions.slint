@@ -47,6 +47,8 @@ export struct CaptionsSheetData {
     size: int,
     /// 0 Sentence, 1 Word-by-Word (Dynamic pop), 2 Karaoke highlight
     style: int,
+    /// 0: 0ms, 1: +100ms, 2: +200ms, 3: -100ms
+    sync: int,
     running: bool,
     /// 0..1: where the transcription surely is.
     progress: float,
@@ -77,6 +79,7 @@ export component CaptionsDialog inherits Modal {
     callback placement-changed(index: int);
     callback size-changed(index: int);
     callback style-changed(index: int);
+    callback sync-changed(index: int);
     callback begin();
     callback cancel();
     callback import-srt();
@@ -250,6 +253,20 @@ export component CaptionsDialog inherits Modal {
                     options: [I18n.t("common.small"), I18n.t("common.medium"), I18n.t("common.large")];
                     current: root.data.size;
                     changed(index) => { root.size-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.sync");
+                SegmentedControl {
+                    options: [
+                        "0 ms",
+                        "+100 ms",
+                        "+200 ms",
+                        "-100 ms"
+                    ];
+                    current: root.data.sync;
+                    changed(index) => { root.sync-changed(index); }
                 }
             }
 

@@ -510,6 +510,9 @@ impl Transcriber {
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
         params.set_suppress_blank(true);
+        params.set_token_timestamps(true);
+        params.set_split_on_word(true);
+        params.set_max_len(42);
         // The raw hooks, not `set_abort_callback_safe`. whisper-rs 0.16's
         // safe one hands whisper a pointer to a boxed trait object with a
         // trampoline typed for the closure itself, so whisper reads the
@@ -556,9 +559,10 @@ impl Transcriber {
             .as_iter()
             .filter_map(|segment| {
                 // Whisper's timestamps are centiseconds.
-                let start = segment.start_timestamp() as f64 / 100.0;
+                let raw_start = segment.start_timestamp() as f64 / 100.0;
                 let end = segment.end_timestamp() as f64 / 100.0;
                 let text = segment.to_str_lossy().ok()?.trim().to_owned();
+                let start = detect_speech_onset(&samples, raw_start, end);
                 keep_segment(start, end, text)
             })
             .collect())
@@ -609,6 +613,58 @@ pub fn split_segment_words(text: &str, start: f64, end: f64) -> Vec<WordTiming> 
     }
 
     result
+}
+
+/// Finds the true acoustic onset of speech within a segment, trimming leading silence.
+/// This prevents captions from starting prematurely during pauses before words begin (Audit N3).
+pub fn detect_speech_onset(samples: &[f32], start: f64, end: f64) -> f64 {
+    let sample_rate = 16000.0;
+    let start_idx = (start * sample_rate).round().max(0.0) as usize;
+    let end_idx = (end * sample_rate).round().min(samples.len() as f64) as usize;
+    if start_idx >= end_idx || start_idx >= samples.len() {
+        return start;
+    }
+
+    let segment_samples = &samples[start_idx..end_idx];
+    if segment_samples.len() < 320 {
+        return start;
+    }
+
+    let mut sum_sq = 0.0f64;
+    let mut peak = 0.0f32;
+    for &s in segment_samples {
+        let abs = s.abs();
+        if abs > peak {
+            peak = abs;
+        }
+        sum_sq += (s * s) as f64;
+    }
+    let segment_rms = (sum_sq / segment_samples.len() as f64).sqrt();
+    if segment_rms < 0.005 || peak * 1.0 < 0.02 {
+        return start;
+    }
+
+    let window_size = 320; // 20ms
+    let hop_size = 160;    // 10ms
+    let threshold = (segment_rms * 0.18).clamp(0.008, 0.04);
+
+    let mut offset = 0;
+    while offset + window_size <= segment_samples.len() {
+        let window = &segment_samples[offset..offset + window_size];
+        let mut win_sum_sq = 0.0f64;
+        for &s in window {
+            win_sum_sq += (s * s) as f64;
+        }
+        let win_rms = (win_sum_sq / window_size as f64).sqrt();
+        if win_rms >= threshold {
+            let onset_sec = start + (offset as f64 / sample_rate);
+            let adjusted = (onset_sec - 0.04).max(start);
+            return adjusted.min((end - 0.15).max(start));
+        }
+        offset += hop_size;
+    }
+
+    start
 }
 
 /// Whisper marks silence and music with bracketed stage directions
