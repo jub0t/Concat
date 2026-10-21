@@ -264,6 +264,31 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 }
             });
         },
+        // The loop ending. On a Mac, ⌘Q and the Dock's Quit end it inside
+        // the system's terminate, past every close road, and `run` never
+        // returns: the project is saved here or not at all. Every other way
+        // out has released the session by now, so this does nothing there.
+        // https://github.com/jub0t/Concat/issues/437
+        || {
+            let terminating = std::cell::Cell::new(false);
+            Shell::with(|shell, _| {
+                let Ok(mut studio) = shell.studio.try_borrow_mut() else {
+                    log::warn!("close: app terminating mid-edit; project not saved");
+                    return;
+                };
+                if studio.session.is_some() {
+                    log::info!("close: app terminating");
+                    terminating.set(true);
+                    if let Err(error) = studio.close_project() {
+                        log::warn!("close: project could not be saved: {error}");
+                    }
+                }
+            });
+            // What `run` returning would have done next, had it returned.
+            if terminating.get() {
+                stop_exports();
+            }
+        },
     )?;
 
     let host = match Host::start(gpu) {
