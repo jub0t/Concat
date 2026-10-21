@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
 //! The Model Context Protocol over a pair of streams: newline-delimited
 //! JSON-RPC 2.0, one message a line, as the stdio transport has it.

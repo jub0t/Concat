@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
 //! The audio-only batch exposed by the inspector, separate from title styling.
 use concat_project::model::{Clip, ClipKind, KeyProperty, Project};

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
 //! The CPU compositor, kept for the tests alone: the reference the GPU
 //! compositor's parity suite holds it to, obvious and dependency-free. It

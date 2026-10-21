@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
 //! Compiles the `.slint` tree into the binary and records three facts about
 //! the build for Settings > About.
@@ -119,7 +119,7 @@ fn main() {
             .set("FileDescription", "Concat")
             .set(
                 "LegalCopyright",
-                "Copyright 2026 Jareer and Concat contributors, AGPL-3.0-or-later",
+                "Copyright 2026 Jareer Abdullah and Concat contributors, AGPL-3.0-or-later",
             )
             .compile()
             .expect("could not embed the Windows icon");

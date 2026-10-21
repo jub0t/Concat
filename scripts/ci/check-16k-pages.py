@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 """Fails when any native library in an APK is not aligned for 16 KB pages.
 
 A phone whose kernel uses 16 KB pages - Android 15 and later can, and
