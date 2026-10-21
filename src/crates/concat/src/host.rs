@@ -427,8 +427,14 @@ pub fn image_of(frame: &concat_core::frame::Frame) -> slint::Image {
     slint::Image::from_rgba8(buffer)
 }
 
-/// The JPEG at `path`, if it can be read, as a Slint image.
+/// The picture at `path`, if it can be read, as a Slint image. A file that
+/// is not there is `None` without a word: Slint prints every load that
+/// fails, and a cached picture not drawn yet is the expected case, not a
+/// fault.
 pub fn image_at(path: &std::path::Path) -> Option<slint::Image> {
+    if !path.is_file() {
+        return None;
+    }
     slint::Image::load_from_path(path).ok()
 }
 
