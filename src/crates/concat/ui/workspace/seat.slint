@@ -431,6 +431,7 @@ export component Seat inherits Rectangle {
             lanes-resized(width) => { Editor.lanes-resized(width); }
             floor-pressed => { Editor.blur(); }
             key-mark-moved(from, to) => { Editor.key-mark-moved(from, to); }
+            key-mark-opened => { Editor.key-mark-opened(); }
             scrubbed(seconds) => {
                 Editor.blur();
                 Editor.scrubbed(seconds);

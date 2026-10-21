@@ -1149,6 +1149,8 @@ export component Lanes inherits Rectangle {
     callback scrubbed(seconds: float);
     /// A ruler diamond dragged from one instant to another.
     callback key-mark-moved(from: float, to: float);
+    /// A ruler diamond was clicked: the Keyframes pane, if it is not up.
+    callback key-mark-opened();
     /// The preview axis: the pointer is over the lanes at this instant,
     /// and then - a beat after it last was - it is not.
     callback hovered(seconds: float);
@@ -1847,49 +1849,71 @@ export component Lanes inherits Rectangle {
                     }
                 }
             }
+        }
 
-            // The selected clip's keys, as diamonds on the ruler's floor:
-            // clicked to go to one, dragged to move every key at that
-            // instant. Only while one clip is selected (#188).
-            for mark in root.key-marks: TouchArea {
-                property <float> drag-to: mark;
-                property <bool> dragging;
+        // The selected clip's keys, as diamonds on the ruler's floor:
+        // clicked to go to one, dragged to move every key at that instant.
+        // Only while one clip is selected (#188). Centred on the ruler's
+        // foot, half over the lanes, so the diamond sits on the line it
+        // marks a moment of; large enough to see and to hit, a finger's
+        // size under a finger. Over the ruler, not inside it: the ruler
+        // clips, and cut each diamond's lower half off (#490).
+        for mark in root.key-marks: key := TouchArea {
+            property <float> drag-to: mark;
+            property <bool> dragging;
+            property <length> size: root.finger ? 32px : 22px;
+            property <length> core: root.finger ? 16px : 14px;
+            /// Pointed at, held, or the key the playhead is on: ringed,
+            /// a clear gap and then the diamond's own colour around it.
+            property <bool> on: self.has-hover || self.dragging
+                || Math.abs(root.playhead - mark) * root.px-per-second < 1px;
 
-                x: root.at(self.dragging ? self.drag-to : mark) - 7px;
-                y: root.ruler-height - 14px;
-                width: 14px;
-                height: 14px;
-                mouse-cursor: pointer;
+            x: root.at(self.dragging ? self.drag-to : mark) - self.size / 2;
+            y: root.ruler-height - self.size / 2;
+            width: self.size;
+            height: self.size;
+            mouse-cursor: pointer;
 
-                Path {
-                    x: 2px;
-                    y: 2px;
-                    width: 10px;
-                    height: 10px;
-                    viewbox-width: 10;
-                    viewbox-height: 10;
-                    commands: "M 5 0.75 L 9.25 5 L 5 9.25 L 0.75 5 Z";
-                    fill: Theme.accent;
-                    stroke: Theme.ruler;
-                    stroke-width: 1px;
+            if key.on: Path {
+                x: (key.width - self.width) / 2;
+                y: (key.height - self.height) / 2;
+                width: key.core + 8px;
+                height: key.core + 8px;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                commands: "M 5 0.5 L 9.5 5 L 5 9.5 L 0.5 5 Z";
+                stroke: Theme.accent;
+                stroke-width: 1.5px;
+            }
+            Path {
+                x: (key.width - self.width) / 2;
+                y: (key.height - self.height) / 2;
+                width: key.core;
+                height: key.core;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                commands: "M 5 0.75 L 9.25 5 L 5 9.25 L 0.75 5 Z";
+                fill: Theme.accent;
+                stroke: Theme.ruler;
+                stroke-width: 1px;
+            }
+
+            moved => {
+                if (self.pressed) {
+                    self.dragging = true;
+                    self.drag-to = Math.max(0,
+                        root.seconds-at(root.at(mark) + self.mouse-x - self.pressed-x));
                 }
-
-                moved => {
-                    if (self.pressed) {
-                        self.dragging = true;
-                        self.drag-to = Math.max(0,
-                            root.seconds-at(root.at(mark) + self.mouse-x - self.pressed-x));
+            }
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    if (self.dragging && Math.abs(self.drag-to - mark) > 0.0005) {
+                        root.key-mark-moved(mark, self.drag-to);
+                    } else if (event.kind == PointerEventKind.up) {
+                        root.scrubbed(mark);
+                        root.key-mark-opened();
                     }
-                }
-                pointer-event(event) => {
-                    if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
-                        if (self.dragging && Math.abs(self.drag-to - mark) > 0.0005) {
-                            root.key-mark-moved(mark, self.drag-to);
-                        } else if (event.kind == PointerEventKind.up) {
-                            root.scrubbed(mark);
-                        }
-                        self.dragging = false;
-                    }
+                    self.dragging = false;
                 }
             }
         }

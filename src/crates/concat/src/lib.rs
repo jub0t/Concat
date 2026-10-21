@@ -758,24 +758,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         state.dock.remove_leaf(&from_path);
     }));
     editor.on_dock_add(on_dock!(|state, kind: PaneKind| {
-        let seats = state.dock_layout().seats;
-        let Some(biggest) = seats
-            .iter()
-            .max_by(|a, b| (a.width * a.height).total_cmp(&(b.width * b.height)))
-        else {
-            return;
-        };
-        let across = biggest.width >= SEAT_MIN_W * 2.0;
-        let down = biggest.height >= SEAT_MIN_H * 2.0;
-        let side = if biggest.width >= biggest.height && (across || !down) {
-            DockSide::Right
-        } else {
-            DockSide::Bottom
-        };
-        let Some(path) = state.dock.leaf_path(biggest.index.max(0) as usize) else {
-            return;
-        };
-        state.dock.split_leaf(&path, kind, side);
+        add_pane(&mut state, kind);
+    }));
+    // Not on a phone or in the compact dock: there the two seats are the
+    // monitor and the timeline, and a third would squeeze both.
+    editor.on_key_mark_opened(on_dock!(|state| {
+        if !state.compact && !state.meters.phone && !state.dock.contains(PaneKind::Keyframes) {
+            add_pane(&mut state, PaneKind::Keyframes);
+        }
     }));
     editor.on_dock_remove(on_dock!(|state, seat: i32| {
         let Some(path) = state.dock.leaf_path(seat.max(0) as usize) else {
@@ -2498,6 +2488,29 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     stop_exports();
     drop(startup_mark);
     leave(0);
+}
+
+/// Adds a pane of `kind` beside the largest seat: to its right when that
+/// seat is wide enough to halve across, else below it.
+fn add_pane(state: &mut Studio, kind: PaneKind) {
+    let seats = state.dock_layout().seats;
+    let Some(biggest) = seats
+        .iter()
+        .max_by(|a, b| (a.width * a.height).total_cmp(&(b.width * b.height)))
+    else {
+        return;
+    };
+    let across = biggest.width >= SEAT_MIN_W * 2.0;
+    let down = biggest.height >= SEAT_MIN_H * 2.0;
+    let side = if biggest.width >= biggest.height && (across || !down) {
+        DockSide::Right
+    } else {
+        DockSide::Bottom
+    };
+    let Some(path) = state.dock.leaf_path(biggest.index.max(0) as usize) else {
+        return;
+    };
+    state.dock.split_leaf(&path, kind, side);
 }
 
 /// How long a quit waits for an export it cancelled to stop.
