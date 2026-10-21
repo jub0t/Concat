@@ -99,8 +99,7 @@ Every source file starts with:
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 ```
 
-Keep your own copyright line if you want one: add it, don't replace what's
-there.
+Use this header as it is, and don't add a copyright line of your own.
 
 ### Third-party code
 
