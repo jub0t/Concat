@@ -806,7 +806,8 @@ fn media_kind(extension: &str) -> Option<MediaKind> {
         "mp3" | "wav" | "aac" | "m4a" | "flac" | "ogg" | "opus" | "aif" | "aiff" => {
             Some(MediaKind::Audio)
         }
-        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff" | "heic" | "heif" => {
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff" | "heic" | "heif"
+        | "svg" | "svgz" => {
             Some(MediaKind::Image)
         }
         _ => None,

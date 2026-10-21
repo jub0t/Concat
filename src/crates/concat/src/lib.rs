@@ -862,6 +862,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     &[
                         "mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "wav", "aac", "m4a",
                         "flac", "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
+                        "svg",
                     ],
                 )),
                 |studio, _, _, paths| studio.handle(Msg::Media(MediaMsg::Import(paths))),

@@ -90,7 +90,9 @@ impl MediaInfo {
 pub fn probe(path: impl AsRef<Path>) -> Result<MediaInfo> {
     ffi::init();
     let path = path.as_ref();
-    let input = ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
+    // An SVG is probed as its drawing, and described as itself; see svg.rs.
+    let drawn = crate::svg::readable(path)?;
+    let input = ffmpeg::format::input(&drawn).map_err(|error| ffi::fail("open", path, error))?;
 
     let duration = input.duration();
     let duration =

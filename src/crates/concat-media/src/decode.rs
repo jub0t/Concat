@@ -642,7 +642,9 @@ impl Decoder {
         // rule, every one of them failed to open on the CPU renderer. A
         // chain that is not a graph fails at the parse, with its error.
 
-        let path = path.as_ref();
+        // An SVG is read as its drawing, which FFmpeg can open; see svg.rs.
+        let drawn = crate::svg::readable(path.as_ref())?;
+        let path = drawn.as_path();
         let input = ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
         let stream = input
             .streams()
