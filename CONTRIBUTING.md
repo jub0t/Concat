@@ -77,10 +77,11 @@ around you; the engine avoids cleverness on purpose.
 
 Concat is **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)).
 
-Contributions are accepted under the CLA in [`CLA.md`](CLA.md). **You keep the
-copyright in your work**: the CLA is a licence, not an assignment. It exists so
-that copyright in Concat stays centralised, which is what makes the AGPL
-enforceable against companies that take the code without honouring it.
+Contributions are accepted under the agreement in [`CLA.md`](CLA.md). **You
+assign the copyright in your contribution to Concat's owner**, and get a
+licence back to use your own work for anything, plus a promise that it always
+stays open source. Copyright in one place is what makes the AGPL enforceable
+against companies that take the code without honouring it.
 
 Sign off your commits to indicate agreement:
 
