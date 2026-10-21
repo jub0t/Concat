@@ -1195,11 +1195,8 @@ fn package_art(
             package
                 .folder
                 .as_deref()
-                .and_then(|folder| slint::Image::load_from_path(&folder.join("preview.png")).ok())
-                .or_else(|| {
-                    let card = card_paths.get(id)?;
-                    slint::Image::load_from_path(card).ok()
-                })
+                .and_then(|folder| image_at(&folder.join("preview.png")))
+                .or_else(|| image_at(card_paths.get(id)?))
                 .or_else(|| bundled_card(id))
                 .unwrap_or_default()
         })
