@@ -987,6 +987,21 @@ impl Decoder {
                 .timestamp()
                 .and_then(|ticks| ffi::seconds(ticks, self.time_base))
                 .map(|pts| pts - self.start);
+            // A frame short of a seek's target is let go before it is copied
+            // off the chip: a seek decodes from the keyframe before it, up
+            // to a second or more of frames, and a full-size copy back of
+            // each one it throws away made every scrub on a Windows GPU
+            // decoder wait for all of them (#472).
+            if let (Some(before), Some(pts)) = (self.discard_before, pts)
+                && pts < before
+            {
+                continue;
+            }
+            if let (Some(through), Some(pts)) = (self.discard_through, pts)
+                && pts <= through
+            {
+                continue;
+            }
             if let Some(&OnChip::Accel(device, format)) = self.hardware.as_ref() {
                 if frame.format() == format {
                     frame = match hardware::download(&frame) {
@@ -1012,16 +1027,6 @@ impl Decoder {
                     );
                     self.hardware = None;
                 }
-            }
-            if let (Some(before), Some(pts)) = (self.discard_before, pts)
-                && pts < before
-            {
-                continue;
-            }
-            if let (Some(through), Some(pts)) = (self.discard_through, pts)
-                && pts <= through
-            {
-                continue;
             }
             self.discard_before = None;
             self.discard_through = None;
