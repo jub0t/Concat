@@ -13,7 +13,17 @@ concat-core.workspace = true
 # libraries on the machine - pkg-config where there is one, FFMPEG_DIR
 # pointing at an unpacked shared build otherwise. FFmpeg 7 or newer: the
 # display-rotation side data is read from where 7.0 moved it.
-ffmpeg-the-third = "6"
+# Without libavdevice, its default "device" feature: nothing here records
+# from a camera or a screen through FFmpeg, and on macOS the library's
+# AVFoundation input names AVCaptureDeviceTypeContinuityCamera, a macOS 13
+# symbol, so dyld refused to start Concat on macOS 12 (#342).
+ffmpeg-the-third = { version = "6", default-features = false, features = [
+    "codec",
+    "filter",
+    "format",
+    "software-resampling",
+    "software-scaling",
+] }
 libc = "0.2"
 log = "0.4"
 # SVG, drawn into a PNG FFmpeg can read; see svg.rs. The version Slint
