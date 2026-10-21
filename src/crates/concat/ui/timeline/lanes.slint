@@ -130,9 +130,19 @@ component Clip inherits Rectangle {
     in property <TimelineTool> tool;
     /// how close to an edge counts as grabbing it
     in property <length> edge-grab: 6px;
+    /// Driven by a finger: a phone. A press is then a tap, a swipe or a
+    /// hold - see the gesture below.
+    in property <bool> finger: false;
 
     /// A press landed: the caller resolves the selection before any drag.
     callback pressed(additive: bool, edge: int);
+    /// Under a finger, a press that is not yet anything, at a window
+    /// position; then where it has got to; then its release, true when it
+    /// was a tap. The lanes treat it as a press on their floor: a swipe
+    /// along the cut scrubs, one down the stack scrolls it.
+    callback finger-pressed(x: length, y: length, id: int);
+    callback finger-swiped(x: length, y: length);
+    callback finger-let-go(id: int) -> bool;
     /// A press with the split tool: cut here, `x` into the clip.
     callback split-at(x: length);
     /// The volume line dragged to `gain` - linear, 1 being unity, 2 the
@@ -504,8 +514,12 @@ component Clip inherits Rectangle {
         width: parent.width;
         height: parent.height;
         border-radius: Theme.r-sm;
-        border-width: root.item.selected ? 2px : 1px;
-        border-color: root.item.selected ? Theme.accent : root.mark;
+        border-width: touch.lifted ? 3px : root.item.selected ? 2px : 1px;
+        border-color: root.item.selected || touch.lifted ? Theme.accent : root.mark;
+        // Picked up by a hold: it rises off the lane until it is let go.
+        drop-shadow-blur: touch.lifted ? 10px : 0px;
+        drop-shadow-offset-y: touch.lifted ? 3px : 0px;
+        drop-shadow-color: #00000080;
     }
 
     // ── locked ───────────────────────────────────────────────────────────
@@ -568,10 +582,40 @@ component Clip inherits Rectangle {
                 self.origin-y = self.absolute-position.y + self.mouse-y;
                 self.travelled = false;
                 self.on-edge = root.edge-at >= 0;
+                // A finger on a phone moved the clip by brushing it: a
+                // wobble of a few pixels was a move with an undo step, and
+                // a swipe meant to scroll the lanes dragged the clip
+                // instead. Under a finger a press is nothing yet - a tap
+                // selects, a swipe scrolls, and only a hold picks the clip
+                // up to move, as in CapCut. An edge of the selected clip
+                // still trims straight away: it was aimed at.
+                if (root.finger && !(self.on-edge && root.item.selected)) {
+                    self.held = true;
+                    self.lifted = false;
+                    root.finger-pressed(self.origin-x, self.origin-y, event.touch-finger-id);
+                    hold.running = false;
+                    hold.running = true;
+                    return;
+                }
+                self.held = false;
                 root.pressed(event.modifiers.shift || event.modifiers.control
                     || event.modifiers.meta, root.edge-at);
             } else if (event.kind == PointerEventKind.up
                 || event.kind == PointerEventKind.cancel) {
+                hold.running = false;
+                if (self.held) {
+                    self.held = false;
+                    if (self.lifted) {
+                        self.lifted = false;
+                        root.released();
+                    } else if (root.finger-let-go(event.touch-finger-id)
+                        && event.kind == PointerEventKind.up) {
+                        // A tap: selected, and nothing moved.
+                        root.pressed(false, -1);
+                        root.released();
+                    }
+                    return;
+                }
                 // Only a release ends it. Slint delivers `move` here too, so a
                 // plain `else` would end the gesture the moment it began.
                 root.released();
@@ -583,6 +627,21 @@ component Clip inherits Rectangle {
         }
 
         moved => {
+            if (self.held) {
+                let x = self.absolute-position.x + self.mouse-x;
+                let y = self.absolute-position.y + self.mouse-y;
+                if (self.lifted) {
+                    root.pointer-at(self.mouse-x);
+                    root.dragged((x - self.origin-x) / root.px-per-second, y - self.origin-y);
+                    return;
+                }
+                // Past the touch slop it is a swipe, and never a hold.
+                if (Math.abs(x - self.origin-x) > 8px || Math.abs(y - self.origin-y) > 8px) {
+                    hold.running = false;
+                }
+                root.finger-swiped(x, y);
+                return;
+            }
             // Past a few pixels it is a drag, not a click, and the playhead
             // stays where it was. Short of them it is nothing at all: a
             // hand that shook on a click reported a move of a pixel or two,
@@ -605,6 +664,25 @@ component Clip inherits Rectangle {
         property <length> origin-y;
         property <bool> travelled;
         property <bool> on-edge;
+        /// A finger's press, until it lets go: a tap, a swipe or a hold.
+        property <bool> held;
+        /// Held long enough without travelling: the clip is picked up, and
+        /// moves with the finger.
+        out property <bool> lifted;
+    }
+
+    // A hold's beat: Android's long press is 400 ms, CapCut's about the
+    // same. Stopped by a swipe or a release before it.
+    hold := Timer {
+        interval: 400ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            if (touch.held && !touch.lifted) {
+                touch.lifted = true;
+                root.pressed(false, -1);
+            }
+        }
     }
 
     // ── the volume line ───────────────────────────────────────────────────
@@ -1201,9 +1279,11 @@ export component Lanes inherits Rectangle {
     /// job: the floor scrolls the stack, the ruler does not.
     function finger-moved(x: length, y: length, down-too: bool) {
         if (root.finger-axis == 0) {
-            if (Math.abs(x - root.finger-x) > 6px) {
+            // Android's touch slop: 8 dp, which Slint's logical pixels
+            // are on a phone.
+            if (Math.abs(x - root.finger-x) > 8px) {
                 root.finger-axis = 1;
-            } else if (down-too && Math.abs(y - root.finger-y) > 6px) {
+            } else if (down-too && Math.abs(y - root.finger-y) > 8px) {
                 root.finger-axis = 2;
             }
         }
@@ -1499,6 +1579,7 @@ export component Lanes inherits Rectangle {
             viewport-width: parent.width;
             tool: root.tool;
             edge-grab: root.edge-grab;
+            finger: root.finger;
             // Read back through the lane the clip sits on rather than carried
             // on the clip: locking is a property of the lane, and copying it
             // onto every clip would be one more thing to keep in step.
@@ -1523,6 +1604,9 @@ export component Lanes inherits Rectangle {
             split-at(x) => {
                 root.clip-split(entry.id, entry.start + x / root.px-per-second);
             }
+            finger-pressed(x, y, id) => { root.finger-down(x, y, id); }
+            finger-swiped(x, y) => { root.finger-moved(x, y, true); }
+            finger-let-go(id) => { return root.finger-up(id); }
             volume-dragged(gain) => { root.clip-volume(entry.id, gain); }
             // The clip reports its delta from the press; a view that has
             // scrolled since then is added, so the clip stays under the
