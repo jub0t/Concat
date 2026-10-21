@@ -506,7 +506,10 @@ export component App inherits Window {
             // Escape closes the sheet on top, as its × does. A sheet busy
             // with a job keeps itself - its × is gone then too - and the
             // key is spent on it, not passed to the editor underneath.
-            if (event.text == Key.Escape) {
+            // Android's Back is the same key on a phone: unhandled, Slint
+            // finishes the activity, so Back with Export or a sheet open
+            // quit the app, a running export with it.
+            if (event.text == Key.Escape || event.text == Key.Back) {
                 if (root.confirm.open) { root.confirm-dismissed(); return accept; }
                 if (root.relink.open) { root.relink-dismiss(); return accept; }
                 if (root.project-sheet.open) { root.project-closed(); return accept; }
@@ -531,6 +534,17 @@ export component App inherits Window {
                     if (!root.sheets-fill || !root.captions.running) { root.captions-closed(); }
                     return accept;
                 }
+            }
+            // Back with nothing on top: the editor saves and goes back to
+            // the launch screen, as a phone editor's Back returns to its
+            // projects. On the launch screen it goes on up, and Android
+            // leaves the app.
+            if (event.text == Key.Back) {
+                if (!root.on-start) {
+                    root.app-menu-selected("close-project");
+                    return accept;
+                }
+                return reject;
             }
             if (Editor.key-chord(event.text, event.modifiers.shift, event.modifiers.alt,
                     event.modifiers.control, event.modifiers.meta, root.on-start)) {

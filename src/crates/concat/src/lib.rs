@@ -2481,6 +2481,20 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         std::mem::forget(startup_mark);
         leave(1);
     }
+    // Android ends the loop when it destroys the activity - Back on the
+    // launch screen, or the system taking it back - with no close request
+    // first, and the process then left without a save: the edits since the
+    // last autosave were lost and the project's lock was left behind. A
+    // desktop's every way out closes the project before the loop ends.
+    #[cfg(target_os = "android")]
+    Shell::with(|shell, _| {
+        let mut studio = shell.studio.borrow_mut();
+        if studio.session.is_some()
+            && let Err(error) = studio.close_project()
+        {
+            log::warn!("close: the activity ended and the project could not be saved: {error}");
+        }
+    });
     stop_exports();
     drop(startup_mark);
     leave(0);
