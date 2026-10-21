@@ -63,6 +63,14 @@ pub fn apply_ui_scale(window: &slint::Window) {
         return;
     }
     let Some(native) = window.with_winit_window(|winit| winit.scale_factor()) else {
+        // Not up yet, as at startup: try again shortly, a few times over,
+        // or the chosen scale waits for the next pick in Settings (#462).
+        static TRIES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if TRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 40 {
+            reapply_ui_scale(std::time::Duration::from_millis(50));
+        } else {
+            log::warn!("interface scale: no window to scale; giving up");
+        }
         return;
     };
     let percent = UI_SCALE.load(std::sync::atomic::Ordering::Relaxed);
@@ -93,8 +101,8 @@ pub fn apply_ui_scale(_window: &slint::Window) {}
 /// Slint applies a display's own scale as it handles the event, and the
 /// chosen percent goes on top of that afterwards.
 #[cfg(not(target_os = "android"))]
-fn reapply_ui_scale() {
-    slint::Timer::single_shot(std::time::Duration::ZERO, || {
+fn reapply_ui_scale(delay: std::time::Duration) {
+    slint::Timer::single_shot(delay, || {
         crate::host::Shell::with(|_, app| {
             apply_ui_scale(slint::ComponentHandle::window(&app));
         });
@@ -271,7 +279,7 @@ impl CustomApplicationHandler for DropHandler {
             self.wayland = listen_for_wayland_drops(window, &self.arrived);
         }
         match event {
-            WindowEvent::ScaleFactorChanged { .. } => reapply_ui_scale(),
+            WindowEvent::ScaleFactorChanged { .. } => reapply_ui_scale(std::time::Duration::ZERO),
             WindowEvent::DroppedFile(path) => self.pending.push(path.clone()),
             // Back at the front, after Explorer or the file manager: what a
             // dropped file is to an import, a return is to a look for one
