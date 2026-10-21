@@ -573,6 +573,29 @@ fn video_filter(
     parts.join(",")
 }
 
+/// The libvpx decoder that reads this stream's WebM alpha layer, when it
+/// has one the built-in decoder would drop.
+///
+/// A WebM track keeps its alpha in a second plane and marks itself
+/// `alpha_mode=1`; libavcodec's own VP8 and VP9 decoders decode only the
+/// colour plane, and a hardware decoder drops the layer too, so the picture
+/// arrives opaque. libvpx reads both planes. See
+/// <https://github.com/jub0t/Concat/issues/429>.
+fn alpha_decoder(stream: &ffmpeg::format::stream::Stream<'_>) -> Option<&'static str> {
+    let alpha = stream
+        .metadata()
+        .get("alpha_mode")
+        .is_some_and(|mode| mode.trim() == "1");
+    if !alpha {
+        return None;
+    }
+    match stream.parameters().id() {
+        ffmpeg::codec::Id::VP8 => Some("libvpx"),
+        ffmpeg::codec::Id::VP9 => Some("libvpx-vp9"),
+        _ => None,
+    }
+}
+
 /// One decoded picture, before the filtergraph.
 struct Source {
     frame: Video,
@@ -674,14 +697,32 @@ impl Decoder {
             )
         };
         let software = || Self::open_codec(path, &stream, options, Codec::Software);
-        let (decoder, accelerated) = match options.hardware.device_for(codec, format) {
+        // A WebM alpha layer is a plane the built-in VP8 and VP9 decoders
+        // do not read, and no hwaccel hands it back either: the picture
+        // would arrive opaque and cover the lanes below. libvpx reads it,
+        // in software, so a track that says it has one goes there and to
+        // no device.
+        // https://github.com/jub0t/Concat/issues/429
+        let (decoder, accelerated) = match (
+            alpha_decoder(&stream),
+            options.hardware.device_for(codec, format),
+        ) {
+            (Some(name), _) => match Self::open_codec(path, &stream, options, Codec::Named(name)) {
+                Ok((decoder, _)) => (decoder, None),
+                Err(error) => {
+                    // A build without libvpx still plays the picture, with
+                    // the alpha layer dropped rather than the file refused.
+                    log::warn!("{name} does not open here: {error}");
+                    software()?
+                }
+            },
             // MediaCodec: its own decoder, by name, when a seat is free.
             // Not for a keyframes-only reader: the wrapper ignores
             // `skip_frame`, so a filmstrip tile would decode its whole
             // group of pictures instead of one frame, and its pipeline
             // holds the first picture back until several packets are in -
             // a one-frame grab is the chip's worst case and the CPU's best.
-            Some(device @ HwDevice::MediaCodec) => {
+            (None, Some(device @ HwDevice::MediaCodec)) => {
                 let wrapped = hardware::mediacodec_decoder(codec, format)
                     .filter(|_| !options.keyframes_only)
                     .filter(|&name| {
@@ -718,7 +759,7 @@ impl Decoder {
                     None => software()?,
                 }
             }
-            Some(device) => match hardware::device(device) {
+            (None, Some(device)) => match hardware::device(device) {
                 Some(device) => {
                     match Self::open_codec(path, &stream, options, Codec::On(&device)) {
                         Ok(opened) => opened,
@@ -734,7 +775,7 @@ impl Decoder {
                 }
                 None => software()?,
             },
-            None => software()?,
+            (None, None) => software()?,
         };
         // The caller's word over the file's, where the caller has one: the
         // file's tag is what the override exists to correct. Where neither
@@ -1325,6 +1366,33 @@ mod tests {
             (0.45..0.65).contains(&at),
             "after a seek to 0.5 s the frame is at {at}"
         );
+    }
+
+    /// A WebM alpha layer is a second plane the built-in decoders do not
+    /// read; without it the picture arrives opaque and covers the lanes
+    /// below. Both flavours go through libvpx and keep it. See
+    /// <https://github.com/jub0t/Concat/issues/429>.
+    #[test]
+    fn a_webm_alpha_layer_survives_the_decoder() {
+        for fixture in ["alpha-vp8.webm", "alpha-vp9.webm"] {
+            let path = format!("{}/fixtures/{fixture}", env!("CARGO_MANIFEST_DIR"));
+            let options = DecodeOptions {
+                hardware: HwPolicy::Software,
+                ..DecodeOptions::default()
+            };
+            let mut decoder = Decoder::open(&path, &options).expect("opens");
+            let frame = decoder.next_frame().expect("decodes").expect("a frame");
+            let alphas: Vec<u8> = frame
+                .pixels()
+                .chunks_exact(4)
+                .map(|pixel| pixel[3])
+                .collect();
+            assert!(alphas.contains(&255), "{fixture}: the square is opaque");
+            assert!(
+                alphas.iter().filter(|&&alpha| alpha < 8).count() > alphas.len() / 2,
+                "{fixture}: the ground is clear"
+            );
+        }
     }
 
     #[test]
