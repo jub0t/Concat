@@ -587,9 +587,26 @@ pub fn folder_name(name: &str) -> String {
     let trimmed = cleaned.trim_matches(['.', ' ']);
     if trimmed.is_empty() {
         "Untitled project".to_owned()
+    } else if is_device_name(trimmed) {
+        // A folder called `NUL` is made, but nothing can be written in it.
+        format!("_{trimmed}")
     } else {
         trimmed.to_owned()
     }
+}
+
+/// Whether Windows takes `name` for a device - `CON`, `NUL`, `COM1` and
+/// the rest - rather than a file. Only the part before the first dot
+/// counts, so `nul.mp4` is the device too.
+fn is_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    let stem = stem.to_ascii_uppercase();
+    let port = |prefix: &str| {
+        stem.strip_prefix(prefix).is_some_and(|number| {
+            matches!(number.as_bytes(), [b'0'..=b'9']) || matches!(number, "¹" | "²" | "³")
+        })
+    };
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") || port("COM") || port("LPT")
 }
 
 /// Removes all cached artwork and waveforms from a project folder.
@@ -631,6 +648,27 @@ mod tests {
         assert_eq!(folder_name("  trailing.  "), "trailing");
         assert_eq!(folder_name("..."), "Untitled project");
         assert_eq!(folder_name(""), "Untitled project");
+    }
+
+    #[test]
+    fn device_names_get_a_folder_windows_will_open() {
+        for name in [
+            "NUL", "con", "Aux", "prn", "COM1", "lpt9", "nul.mp4", "CON .txt",
+        ] {
+            assert_eq!(folder_name(name), format!("_{name}"));
+        }
+        // Only the device names themselves, not names that start like them.
+        assert_eq!(folder_name("Console"), "Console");
+        assert_eq!(folder_name("COM10"), "COM10");
+        assert_eq!(folder_name("nul-and-void"), "nul-and-void");
+    }
+
+    #[test]
+    fn a_project_named_nul_is_created_and_reads_back() {
+        let location = scratch("device-name");
+        let info = create(&location, "nul", 1920, 1080, 30, 1).expect("creates");
+        assert!(is_project(Path::new(&info.path)));
+        assert_eq!(info.name, "nul");
     }
 
     #[test]
