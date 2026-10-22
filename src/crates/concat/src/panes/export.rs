@@ -13,7 +13,7 @@
 //! pane reads and asks things of but never reaches into for its own
 //! fields.
 
-use concat_host::export::{self, ExportSpec};
+use concat_host::export::{self, AudioFormat, ExportSpec};
 use concat_media::ColorRange;
 
 use crate::format::{bytes, eta};
@@ -33,6 +33,12 @@ pub enum ExportMsg {
     /// The sheet is dismissed.
     Close,
     NameEdited(String),
+    /// The picture and its sound (false), or the sound alone.
+    AudioOnlyChanged(bool),
+    /// Index into `AudioFormat::ALL`.
+    AudioFormatChanged(i32),
+    /// Index into `AudioFormat::BIT_RATES`, for the two that compress.
+    AudioBitrateChanged(i32),
     RateChanged(i32),
     CodecChanged(i32),
     TenBitChanged(bool),
@@ -72,6 +78,13 @@ pub struct ExportPane {
     pub name: String,
     pub folder: String,
     pub resolution: usize,
+    /// The file is the sound alone, written as `audio_format`.
+    pub audio_only: bool,
+    /// Index into `AudioFormat::ALL`.
+    pub audio_format: usize,
+    /// The bitrate picked for AAC or MP3, in bits a second; `None` until
+    /// one is, and the format's own is written.
+    pub audio_bitrate: Option<usize>,
     pub rate: usize,
     /// The bitrate is the typed one, not the recommended one for the
     /// frame and the rate.
@@ -107,6 +120,9 @@ impl Default for ExportPane {
                 "Movies"
             }),
             resolution: 2,
+            audio_only: false,
+            audio_format: 0,
+            audio_bitrate: None,
             rate: 0,
             custom: false,
             codec: 0,
@@ -142,6 +158,19 @@ impl ExportPane {
             }
             ExportMsg::Close => self.open = false,
             ExportMsg::NameEdited(name) => self.name = name,
+            ExportMsg::AudioOnlyChanged(on) => self.audio_only = on,
+            // A format this device cannot write is not taken, as a codec
+            // is not: the picker greys it, and the choice before stands.
+            ExportMsg::AudioFormatChanged(index) => {
+                let index = (index.max(0) as usize).min(AudioFormat::ALL.len() - 1);
+                if AudioFormat::ALL[index].encodable() {
+                    self.audio_format = index;
+                }
+            }
+            ExportMsg::AudioBitrateChanged(index) => {
+                let index = (index.max(0) as usize).min(AudioFormat::BIT_RATES.len() - 1);
+                self.audio_bitrate = Some(AudioFormat::BIT_RATES[index]);
+            }
             ExportMsg::RateChanged(index) => {
                 self.rate = (index.max(0) as usize).min(Self::rates(studio).len() - 1);
             }
@@ -211,12 +240,23 @@ impl ExportPane {
                 self.progress = 1.0;
                 self.written = written.clone();
                 // A phone moves the file to where its gallery shows it, and
-                // the sheet says "finished" once it is there.
-                let handed = platform::publish_export(written.into(), |result| {
+                // the sheet says "finished" once it is there. The sound
+                // alone is no video for the gallery: it goes where the
+                // phone keeps documents, as an exported SubRip does.
+                let published = |result| {
                     on_ui(move |studio, _, _| {
                         studio.handle(Msg::Export(ExportMsg::Published(result)));
                     });
-                });
+                };
+                let handed = if self.audio_only {
+                    platform::publish_document(
+                        written.into(),
+                        self.audio_format().mime(),
+                        published,
+                    )
+                } else {
+                    platform::publish_export(written.into(), published)
+                };
                 if !handed {
                     studio.notify(&t("export.exportFinished"), false);
                 }
@@ -363,6 +403,13 @@ impl ExportPane {
     /// The file's size, in bytes: the bitrate is an average the encoder
     /// keeps to, so this is what is written, give or take.
     pub fn size_bytes(&self, studio: &Studio) -> f32 {
+        if self.audio_only {
+            let bps = match self.audio_bit_rate() {
+                Some(bps) => bps as f32,
+                None => self.audio_format().bits_per_second(),
+            };
+            return bps * studio.duration().max(1.0) / 8.0;
+        }
         let video = self.target_kbps(studio) as f32 * 1000.0;
         (video + AUDIO_BPS) * studio.duration().max(1.0) / 8.0
     }
@@ -390,6 +437,30 @@ impl ExportPane {
             wanted.and_then(|codec| VideoCodec::ALL.iter().position(|c| *c == codec))
         {
             self.codec = index;
+        }
+    }
+
+    /// The format the sound alone is written as.
+    pub fn audio_format(&self) -> AudioFormat {
+        AudioFormat::ALL[self.audio_format.min(AudioFormat::ALL.len() - 1)]
+    }
+
+    /// The bitrate the sound alone is written at, in bits a second: the
+    /// one picked, or the format's own until one is; `None` for the two
+    /// lossless formats, which have none.
+    pub fn audio_bit_rate(&self) -> Option<usize> {
+        self.audio_format()
+            .bit_rate()
+            .map(|own| self.audio_bitrate.unwrap_or(own))
+    }
+
+    /// The file's extension: the audio format's for the sound alone, and
+    /// `container` - the chosen codec's - for a video.
+    fn extension(&self, container: &'static str) -> &'static str {
+        if self.audio_only {
+            self.audio_format().extension()
+        } else {
+            container
         }
     }
 
@@ -456,10 +527,22 @@ impl ExportPane {
             self.message = t("export.nameNeedsToBeAFileName");
             return;
         };
+        // The sound alone of a timeline with nothing to hear would be a
+        // file of silence: the sheet says so instead. Audible as playback
+        // has it, so the file holds what the window plays.
+        if self.audio_only
+            && studio.session.as_ref().is_some_and(|session| {
+                crate::studio::audio_specs(&session.flattened_clips()).is_empty()
+            })
+        {
+            self.phase = ExportPhase::Failed;
+            self.message = t("export.nothingToHear");
+            return;
+        }
         let output = format!(
             "{}/{name}.{}",
             self.folder.trim_end_matches('/'),
-            self.codec(studio).container()
+            self.extension(self.codec(studio).container())
         );
         // A file already there is replaced once the person has said so:
         // the confirmation sheet asks, and its answer comes back as
@@ -509,11 +592,17 @@ impl ExportPane {
         let (num, den) = self.rate(studio);
         let titles = std::sync::Arc::clone(&studio.host.titles);
         let monitor = studio.host.monitor.clone();
+        let audio_only = self.audio_only;
+        let bit_rate = self.audio_bit_rate();
 
         studio.pause();
         self.phase = ExportPhase::Running;
         self.progress = 0.0;
-        self.stage = t("export.preparing");
+        self.stage = if self.audio_only {
+            t("export.mixingAudio")
+        } else {
+            t("export.preparing")
+        };
         self.message.clear();
         self.written.clear();
         self.started_at = Some(std::time::Instant::now());
@@ -523,18 +612,29 @@ impl ExportPane {
                 let job = job;
                 let cancel = job.cancel_flag();
                 let stopped = || cancel.load(std::sync::atomic::Ordering::Relaxed);
-                // At the export's own frame, not the project's: a 4K export
-                // of an HD edit was its captions painted at HD and scaled
-                // up, soft. The API's export paints them so too.
-                let Some(titles) = titles.clips_unless(&project, width, height, cancel) else {
-                    return Err("export cancelled".to_owned());
+                // Titles are pictures, and the sound alone draws none: they
+                // are not painted for it. A video's are painted at the
+                // export's own frame, not the project's: a 4K export of an
+                // HD edit was its captions painted at HD and scaled up, soft.
+                // The API's export paints them so too.
+                let titles = if audio_only {
+                    Vec::new()
+                } else {
+                    let Some(titles) = titles.clips_unless(&project, width, height, cancel) else {
+                        return Err("export cancelled".to_owned());
+                    };
+                    titles.into_iter().map(|title| title.clip).collect()
                 };
-                let titles = titles.into_iter().map(|title| title.clip).collect();
                 let mut request = export::request_for(&project, &project_dir, &spec, titles);
-                request.width = width;
-                request.height = height;
-                request.rate_num = num;
-                request.rate_den = den;
+                // The sound alone keeps the timeline's own rate, which places
+                // its transitions as the monitor plays them; the sheet's size
+                // and rate are for a picture, and their rows are not shown.
+                if !audio_only {
+                    request.width = width;
+                    request.height = height;
+                    request.rate_num = num;
+                    request.rate_den = den;
+                }
                 // The monitor's readers that sit idle are closed now rather
                 // than ten seconds on by the sweep: on a phone up to three of
                 // them hold MediaCodec decoder sessions, which the chip has
@@ -550,16 +650,7 @@ impl ExportPane {
                 if stopped() {
                     return Err("export cancelled".to_owned());
                 }
-                // The export draws on the window's device - a sibling of the
-                // monitor's compositor - not on a second device opened
-                // through the drivers for the export alone, which on Windows
-                // laptops with NVIDIA chips took the whole app down at the
-                // first frame with nothing in the log (issue #202). Not on
-                // Vulkan, whose queue the window submits to from its own
-                // thread (#324); see `Monitor::off_thread`. None there or
-                // without a GPU, and the render then opens what it can.
-                let compositor = monitor.off_thread();
-                export::run_on(&request, compositor, cancel, |progress| {
+                let report = |progress: export::Progress| {
                     let fraction = if progress.total > 0 {
                         progress.frame as f32 / progress.total as f32
                     } else {
@@ -575,7 +666,21 @@ impl ExportPane {
                     on_ui(move |studio, _, _| {
                         studio.handle(Msg::Export(ExportMsg::Progress { fraction, stage }));
                     });
-                })
+                };
+                if audio_only {
+                    // The sound alone draws nothing, and borrows no device.
+                    return export::run_audio(&request, bit_rate, cancel, report);
+                }
+                // The export draws on the window's device - a sibling of the
+                // monitor's compositor - not on a second device opened
+                // through the drivers for the export alone, which on Windows
+                // laptops with NVIDIA chips took the whole app down at the
+                // first frame with nothing in the log (issue #202). Not on
+                // Vulkan, whose queue the window submits to from its own
+                // thread (#324); see `Monitor::off_thread`. None there or
+                // without a GPU, and the render then opens what it can.
+                let compositor = monitor.off_thread();
+                export::run_on(&request, compositor, cancel, report)
             },
             |studio, _, _, result| studio.handle(Msg::Export(ExportMsg::Finished(result))),
         );
@@ -601,15 +706,28 @@ impl ExportPane {
             // shows, not the app's own that the export writes into.
             // The name as it will be written: trimmed, as `begin` trims it.
             path: match platform::published_folder() {
-                Some(folder) => format!("{folder}/{}.{container}", self.name.trim()),
+                Some(folder) => {
+                    format!(
+                        "{folder}/{}.{}",
+                        self.name.trim(),
+                        self.extension(container)
+                    )
+                }
                 None => format!(
-                    "{}/{}.{container}",
+                    "{}/{}.{}",
                     self.folder.trim_end_matches('/'),
-                    self.name.trim()
+                    self.name.trim(),
+                    self.extension(container)
                 ),
             }
             .into(),
-            format: format!("{width} × {height} · {rate:.2} fps").into(),
+            format: if self.audio_only {
+                let khz = concat_media::audio::MIX_RATE / 1000;
+                tf("export.kilohertzStereo", &[&khz.to_string()])
+            } else {
+                format!("{width} × {height} · {rate:.2} fps")
+            }
+            .into(),
             duration: {
                 let whole = studio.duration().max(0.0) as i32;
                 format!("{}:{:02}", whole / 60, whole % 60).into()
@@ -669,7 +787,81 @@ impl ExportPane {
             }
             .into(),
             target: self.target_kbps(studio) as f32 / 1000.0,
-            encoding: {
+            audio_only: self.audio_only,
+            audio_format: self.audio_format as i32,
+            audio_formats: {
+                let labels: Vec<SharedString> = AudioFormat::ALL
+                    .iter()
+                    .map(|format| format.label().into())
+                    .collect();
+                ModelRc::new(VecModel::from(labels))
+            },
+            audio_format_details: {
+                let details: Vec<SharedString> = AudioFormat::ALL
+                    .iter()
+                    .map(|format| {
+                        if !format.encodable() {
+                            return t("export.notOnThisDevice").into();
+                        }
+                        match format {
+                            AudioFormat::Wav => t("export.uncompressed"),
+                            AudioFormat::Flac => t("export.lossless"),
+                            AudioFormat::Aac => t("export.smallest"),
+                            AudioFormat::Mp3 => t("export.playsEverywhere"),
+                        }
+                        .into()
+                    })
+                    .collect();
+                ModelRc::new(VecModel::from(details))
+            },
+            // The bitrates, for the two formats that take one; none, and
+            // so no row, for the lossless two.
+            audio_bitrate: self
+                .audio_bit_rate()
+                .and_then(|bps| AudioFormat::BIT_RATES.iter().position(|rate| *rate == bps))
+                .map_or(-1, |index| index as i32),
+            audio_bitrates: {
+                let labels: Vec<SharedString> = self
+                    .audio_format()
+                    .bit_rates()
+                    .iter()
+                    .map(|bps| format!("{} kbps", bps / 1000).into())
+                    .collect();
+                ModelRc::new(VecModel::from(labels))
+            },
+            audio_bitrate_details: {
+                let own = self.audio_format().bit_rate();
+                let details: Vec<SharedString> = self
+                    .audio_format()
+                    .bit_rates()
+                    .iter()
+                    .map(|bps| {
+                        if Some(*bps) == own {
+                            t("export.default").into()
+                        } else {
+                            SharedString::new()
+                        }
+                    })
+                    .collect();
+                ModelRc::new(VecModel::from(details))
+            },
+            audio_format_disabled: {
+                let disabled: Vec<bool> = AudioFormat::ALL
+                    .iter()
+                    .map(|format| !format.encodable())
+                    .collect();
+                ModelRc::new(VecModel::from(disabled))
+            },
+            encoding: if self.audio_only {
+                // "WAV 16-bit", "MP3 320 kbps": the format, and the depth or
+                // the rate it is written at.
+                let format = self.audio_format();
+                match self.audio_bit_rate() {
+                    Some(bps) => format!("{} {} kbps", format.label(), bps / 1000),
+                    None => format!("{} 16-bit", format.label()),
+                }
+                .into()
+            } else {
                 // "HEVC 10-bit · hardware": the standard, the depth when it
                 // is the deeper one, and whether the platform's own encoder
                 // will be doing it.
@@ -693,9 +885,8 @@ impl ExportPane {
                 {
                     words.push(format!("· {}", t("export.hardware")));
                 }
-                words.join(" ")
-            }
-            .into(),
+                words.join(" ").into()
+            },
             size_chosen: bytes(self.size_bytes(studio)).into(),
             phase: self.phase,
             progress: self.progress,
@@ -760,6 +951,50 @@ mod tests {
             "", "   ", ".", "..", "a/b", r"a\b", "c:d", "a?b", "<a>", "a|b", "a\"b", "a*", "a\tb",
         ] {
             assert_eq!(file_name(bad), None, "{bad:?}");
+        }
+    }
+
+    /// The file is named for what it holds: the codec's container for a
+    /// video, and the format's own extension for the sound alone.
+    #[test]
+    fn the_extension_follows_what_is_exported() {
+        let mut pane = ExportPane::default();
+        assert_eq!(pane.extension("mp4"), "mp4");
+        assert_eq!(pane.extension("mov"), "mov");
+        pane.audio_only = true;
+        for (index, format) in AudioFormat::ALL.iter().enumerate() {
+            pane.audio_format = index;
+            assert_eq!(pane.extension("mp4"), format.extension(), "{format:?}");
+        }
+    }
+
+    /// The two formats that compress are written at their own bitrate
+    /// until one is picked, and then at that one, whichever of the two is
+    /// chosen; the lossless two have none, and so no row to pick it in.
+    #[test]
+    fn the_bitrate_is_the_formats_own_until_one_is_picked() {
+        let mut pane = ExportPane {
+            audio_only: true,
+            ..ExportPane::default()
+        };
+        let at = |format: AudioFormat| {
+            AudioFormat::ALL
+                .iter()
+                .position(|each| *each == format)
+                .expect("every format is in ALL")
+        };
+        pane.audio_format = at(AudioFormat::Aac);
+        assert_eq!(pane.audio_bit_rate(), Some(192_000));
+        pane.audio_format = at(AudioFormat::Mp3);
+        assert_eq!(pane.audio_bit_rate(), Some(320_000));
+        pane.audio_bitrate = Some(AudioFormat::BIT_RATES[0]);
+        assert_eq!(pane.audio_bit_rate(), Some(128_000));
+        pane.audio_format = at(AudioFormat::Aac);
+        assert_eq!(pane.audio_bit_rate(), Some(128_000));
+        for format in [AudioFormat::Wav, AudioFormat::Flac] {
+            pane.audio_format = at(format);
+            assert_eq!(pane.audio_bit_rate(), None, "{format:?}");
+            assert!(format.bit_rates().is_empty(), "{format:?}");
         }
     }
 

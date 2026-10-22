@@ -11,7 +11,8 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use concat_export::{ExportClip, ExportRequest, Reporter, render_on};
+use concat_export::{ExportClip, ExportRequest, Reporter, render_audio, render_on};
+pub use concat_media::audio::AudioFormat;
 pub use concat_media::{ColorRange, RateMode, VideoCodec};
 pub use concat_render::WgpuCompositor;
 
@@ -179,6 +180,33 @@ pub fn run_on(
         log::info!("export: stopped in {stage_now} at frame {frame} of {total}");
     }
     result
+}
+
+/// [`run`] for the sound alone: `request` mixed into an audio file, as the
+/// format its output's extension names, at `bit_rate` bits a second where
+/// the format takes one (`None` for its own), with no picture drawn and
+/// so no device needed. Reports and stops as [`run`] does.
+pub fn run_audio(
+    request: &ExportRequest,
+    bit_rate: Option<usize>,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(Progress),
+) -> Result<String, String> {
+    let mut report = |frame: i64, total: i64, stage: &'static str| {
+        progress(Progress {
+            frame,
+            total,
+            stage,
+        });
+    };
+    render_audio(
+        request,
+        bit_rate,
+        Reporter {
+            progress: &mut report,
+            cancel,
+        },
+    )
 }
 
 /// The slot for the one export that can run at a time - enforced, not
