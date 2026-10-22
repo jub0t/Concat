@@ -153,6 +153,8 @@ struct DropHandler {
     /// moving a file, and the one where a file that went missing can be
     /// noticed. See `Studio::check_missing_media`.
     on_focused: Box<dyn Fn()>,
+    /// The event loop is ending, by any road: see `start` in lib.rs.
+    on_exiting: Box<dyn Fn()>,
     /// Whether this window draws its own resize edges: Linux, undecorated.
     edges: bool,
     /// The edge the pointer is on, while it is on one.
@@ -208,6 +210,7 @@ impl DropHandler {
         on_dropped: impl Fn(Vec<PathBuf>) + 'static,
         on_pressed_away: impl Fn() + 'static,
         on_focused: impl Fn() + 'static,
+        on_exiting: impl Fn() + 'static,
     ) -> Self {
         Self {
             pending: Vec::new(),
@@ -219,6 +222,7 @@ impl DropHandler {
             cursor: None,
             on_pressed_away: Box::new(on_pressed_away),
             on_focused: Box::new(on_focused),
+            on_exiting: Box::new(on_exiting),
             edges: cfg!(not(any(
                 target_os = "macos",
                 target_os = "windows",
@@ -356,6 +360,7 @@ impl CustomApplicationHandler for DropHandler {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) -> EventResult {
         // Before winit closes its display, which the listener reads.
         self.wayland = None;
+        (self.on_exiting)();
         EventResult::Propagate
     }
 }
@@ -424,6 +429,7 @@ pub fn select_backend(
     on_files_dropped: impl Fn(Vec<PathBuf>) + 'static,
     on_pressed_away: impl Fn() + 'static,
     on_focused: impl Fn() + 'static,
+    on_exiting: impl Fn() + 'static,
 ) -> Result<Option<Gpu>, PlatformError> {
     // The device the renderer and the monitor share. Taken first, because
     // the backend is selected with it.
@@ -455,6 +461,7 @@ pub fn select_backend(
             on_files_dropped,
             on_pressed_away,
             on_focused,
+            on_exiting,
         ));
     selector = match &gpu {
         Some(gpu) => selector.require_wgpu_30(gpu.configuration()),
@@ -667,6 +674,8 @@ pub fn select_backend(
     // Nor a window that loses and regains the front: the activity owns the
     // screen, and a file comes back through the picker.
     _on_focused: impl Fn() + 'static,
+    // Nor a desktop event loop whose end this hook watches.
+    _on_exiting: impl Fn() + 'static,
 ) -> Result<Option<Gpu>, PlatformError> {
     let _ = on_files_dropped;
     Ok(None)
