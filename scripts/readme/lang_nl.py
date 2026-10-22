@@ -24,7 +24,7 @@ highlights=[
 "📤 **Exporteren.** H.264, HEVC, AV1. Tot 4K 60, 10-bit kleur.",
 "🦀 **Native Rust-engine.** GPU-compositor, proxy’s, hardwaredecodering. Zelfs 4K scrubt soepel.",
 "🤖 **Scriptbaar.** Een JSON-RPC-API waarmee scripts en AI-agents video kunnen knippen. Een build vanaf de broncode voegt gRPC en een opdrachtregeltool toe.",
-"🖥️ **macOS, Windows, Linux, Android.** 25 talen. Dezelfde app, dezelfde projectbestanden.",
+"🖥️ **macOS, Windows, Linux, Android.** 26 talen. Dezelfde app, dezelfde projectbestanden.",
 ],
 download_h="Downloaden", two_ways="Twee manieren:",
 website="De website", website_text="geeft je de juiste build voor je computer. Begin hier.",

@@ -24,7 +24,7 @@ highlights=[
 "📤 **Xuất.** H.264, HEVC, AV1. Lên đến 4K 60, màu 10-bit.",
 "🦀 **Engine Rust gốc.** Trình tổng hợp GPU, proxy, giải mã phần cứng. Tua 4K mượt mà.",
 "🤖 **Có thể lập trình.** API JSON-RPC để script và các tác nhân AI cắt video. Bản dựng từ mã nguồn có thêm gRPC và công cụ dòng lệnh.",
-"🖥️ **macOS, Windows, Linux, Android.** 25 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.",
+"🖥️ **macOS, Windows, Linux, Android.** 26 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.",
 ],
 download_h="Tải về", two_ways="Hai cách:",
 website="Trang web", website_text="đưa bạn đúng bản dựng cho máy của bạn. Bắt đầu từ đây.",

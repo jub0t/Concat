@@ -23,7 +23,7 @@
   <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · **🇮🇷 فارسی** · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · **🇮🇷 فارسی** · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
 > ترجمه‌شده از README انگلیسی در ۱۱ اکتبر ۲۰۲۶. نسخهٔ انگلیسی همان نسخه‌ای است که به‌روز نگه داشته می‌شود.
 
@@ -68,7 +68,7 @@ Concat یک ویرایشگر ویدیوی رایگان و متن‌باز و ج�
 - 📤 **خروجی.** H.264، HEVC، AV1. تا 4K 60، رنگ ۱۰ بیتی.
 - 🦀 **موتور بومی Rust.** ترکیب‌کنندهٔ GPU، پراکسی، رمزگشایی سخت‌افزاری. 4K روان جلو و عقب می‌رود.
 - 🤖 **اسکریپت‌پذیر.** یک API به‌صورت JSON-RPC که اسکریپت‌ها و عامل‌های هوش مصنوعی می‌توانند با آن ویدیو برش بزنند. ساختن از کد منبع، gRPC و یک ابزار خط فرمان را هم اضافه می‌کند.
-- 🖥️ **macOS، Windows، Linux، Android.** ۲۵ زبان. همان برنامه، همان فایل‌های پروژه.
+- 🖥️ **macOS، Windows، Linux، Android.** ۲۶ زبان. همان برنامه، همان فایل‌های پروژه.
 
 ## دانلود
 

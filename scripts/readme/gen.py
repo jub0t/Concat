@@ -22,7 +22,7 @@ for f in sorted(glob.glob(os.path.join(HERE, "lang_*.py"))):
 
 # The order of the language line, after English. It lists the same languages
 # the app ships (src/crates/concat/locales), one README for each.
-ORDER = ["de","es","fr","it","nl","pl","pt-BR","ru","uk","tr","hr","id","vi","th","ja","ko","zh-Hans","zh-TW","ar","he","fa","hi","ur","bn"]
+ORDER = ["de","es","fr","it","nl","pl","pt-BR","ru","uk","tr","az","hr","id","vi","th","ja","ko","zh-Hans","zh-TW","ar","he","fa","hi","ur","bn"]
 
 def language_line(current):
     parts = []

@@ -24,7 +24,7 @@ highlights=[
 "📤 **导出。** H.264、HEVC、AV1。最高 4K 60，10 位色彩。",
 "🦀 **原生 Rust 引擎。** GPU 合成器、代理、硬件解码。4K 拖动也顺滑。",
 "🤖 **可脚本化。** 提供 JSON-RPC API，脚本和 AI 代理可以用它剪视频。从源码构建还会加上 gRPC 和命令行工具。",
-"🖥️ **macOS、Windows、Linux、Android。** 25 种语言。同一个应用，同样的项目文件。",
+"🖥️ **macOS、Windows、Linux、Android。** 26 种语言。同一个应用，同样的项目文件。",
 ],
 download_h="下载", two_ways="两个入口：",
 website="官网", website_text="会给您适合您机器的版本。从这里开始。",
