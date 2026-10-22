@@ -1136,39 +1136,9 @@ pub fn render_on(
         .iter()
         .filter(|clip| (clip.kind.is_visual() || clip.kind == ClipKind::Layer) && !clip.hidden)
         .collect();
-    let audible: Vec<&ExportClip> = resolved
-        .iter()
-        .filter(|clip| clip.kind == ClipKind::Audio && !clip.muted)
-        .collect();
+    let sound = sound_of(&resolved);
 
-    // A video clip carries its own sound, so an unmuted video track
-    // contributes to the mix as well as to the picture.
-    let mut sound: Vec<&ExportClip> = audible;
-    sound.extend(
-        resolved
-            .iter()
-            .filter(|clip| clip.kind == ClipKind::Video && !clip.muted),
-    );
-
-    // An unmuted clip can still have no audio stream - a screen recording, a
-    // silent render. FFmpeg refuses a filtergraph that names `[N:a]` on such
-    // an input rather than treating it as silence, so membership in the mix
-    // needs the file's truth. The document learnt it at import and the UI
-    // sends it along; a request that omits it falls back to probing, once
-    // per unique path.
-    let mut probed: HashMap<&str, bool> = HashMap::new();
-    sound.retain(|clip| {
-        clip.has_audio.unwrap_or_else(|| {
-            *probed.entry(clip.path.as_str()).or_insert_with(|| {
-                concat_media::probe(&clip.path).is_ok_and(|info| info.audio.is_some())
-            })
-        })
-    });
-
-    let timeline_end = resolved
-        .iter()
-        .map(|clip| clip.start + clip.duration)
-        .fold(0.0f64, f64::max);
+    let timeline_end = end_of(&resolved);
     let total_frames = (timeline_end * rate.fps().as_f64()).round() as i64;
     if total_frames <= 0 {
         return Err("the timeline is empty".to_owned());
@@ -1232,6 +1202,131 @@ pub fn render_on(
     let _ = std::fs::remove_file(&muxed);
 
     result.map(|()| output.to_string_lossy().into_owned())
+}
+
+/// Mixes `request`'s sound alone into an audio file, as the format its
+/// output's extension names (see [`audio::AudioFormat::of_path`]) at
+/// `bit_rate` bits a second where the format takes one - `None` for the
+/// format's own - and returns the path written. No picture is drawn, so
+/// the frame size and the quality are not read; the rate is, because
+/// transitions are counted in its frames and they shape the sound as well
+/// as the picture.
+pub fn render_audio(
+    request: &ExportRequest,
+    bit_rate: Option<usize>,
+    mut reporter: Reporter<'_>,
+) -> Result<String, String> {
+    if !request.effect_time_offset.is_finite()
+        || request.effect_time_offset.abs() > concat_project::model::ranges::MAX_TIME
+    {
+        return Err("the effect timeline offset is not a valid time".into());
+    }
+    if request.clips.is_empty() {
+        return Err("there is nothing on the timeline to export".to_owned());
+    }
+    let rate = FrameRate::checked(request.rate_num, request.rate_den).ok_or_else(|| {
+        format!(
+            "{}/{} is not a frame rate a video can have",
+            request.rate_num, request.rate_den
+        )
+    })?;
+    let output = PathBuf::from(&request.output);
+
+    let mut resolved = request.clips.clone();
+    resolve_transitions_at(&mut resolved, rate, request.effect_time_offset);
+    let sound = sound_of(&resolved);
+    if sound.is_empty() {
+        return Err("there is no sound on the timeline to export".to_owned());
+    }
+    let timeline_end = end_of(&resolved);
+    if timeline_end <= 0.0 {
+        return Err("the timeline is empty".to_owned());
+    }
+
+    // Mixed beside the output and renamed over it at the end, as the
+    // video is: a mix that fails or is cancelled leaves the file that was
+    // there before.
+    let format = audio::AudioFormat::of_path(&output);
+    let stem = output
+        .file_stem()
+        .map_or_else(|| "concat".into(), |s| s.to_string_lossy());
+    let directory = output.parent().unwrap_or(Path::new("."));
+    if let Err(error) = std::fs::create_dir_all(directory) {
+        return Err(format!(
+            "could not create the folder {}: {error}",
+            directory.display()
+        ));
+    }
+    let mixed = directory.join(format!(".{stem}.concat-audio.{}", format.extension()));
+
+    reporter.cancelled()?;
+    reporter.emit(0, 1, "mixing audio");
+    let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
+    // Reported once a percent: the mix runs many times faster than the
+    // sound plays, and a report a frame would be thousands a second.
+    let mut shown = -1;
+    let result =
+        audio::mix_to_file_reporting(&mix, timeline_end, &mixed, bit_rate, &mut |done, total| {
+            if reporter.cancel.load(Ordering::Relaxed) {
+                return false;
+            }
+            let percent = done * 100 / total.max(1);
+            if percent != shown {
+                shown = percent;
+                reporter.emit(done, total, "mixing audio");
+            }
+            true
+        })
+        .map_err(|error| match error {
+            concat_media::Error::Cancelled => "export cancelled".to_owned(),
+            error => error.to_string(),
+        })
+        .and_then(|()| {
+            std::fs::rename(&mixed, &output)
+                .map_err(|error| format!("could not write {}: {error}", output.display()))
+        });
+    let _ = std::fs::remove_file(&mixed);
+
+    result.map(|()| output.to_string_lossy().into_owned())
+}
+
+/// The clips the sound is mixed from: the audio clips and the videos, as a
+/// video carries its own sound, that are not muted and whose files have
+/// sound to give.
+fn sound_of(resolved: &[ExportClip]) -> Vec<&ExportClip> {
+    let mut sound: Vec<&ExportClip> = resolved
+        .iter()
+        .filter(|clip| clip.kind == ClipKind::Audio && !clip.muted)
+        .collect();
+    sound.extend(
+        resolved
+            .iter()
+            .filter(|clip| clip.kind == ClipKind::Video && !clip.muted),
+    );
+
+    // An unmuted clip can still have no audio stream - a screen recording, a
+    // silent render. FFmpeg refuses a filtergraph that names `[N:a]` on such
+    // an input rather than treating it as silence, so membership in the mix
+    // needs the file's truth. The document learnt it at import and the UI
+    // sends it along; a request that omits it falls back to probing, once
+    // per unique path.
+    let mut probed: HashMap<&str, bool> = HashMap::new();
+    sound.retain(|clip| {
+        clip.has_audio.unwrap_or_else(|| {
+            *probed.entry(clip.path.as_str()).or_insert_with(|| {
+                concat_media::probe(&clip.path).is_ok_and(|info| info.audio.is_some())
+            })
+        })
+    });
+    sound
+}
+
+/// Where the last clip ends, in seconds: the length of what is exported.
+fn end_of(resolved: &[ExportClip]) -> f64 {
+    resolved
+        .iter()
+        .map(|clip| clip.start + clip.duration)
+        .fold(0.0f64, f64::max)
 }
 
 /// The clip's gain track, or an empty one when its gain is the single number
