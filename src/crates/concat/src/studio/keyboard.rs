@@ -200,7 +200,7 @@ impl Studio {
                 self.transition_selected = None;
                 self.inspector_jump = (self.inspector_jump.0 + 1, "Video", "Enhance");
             }
-            "export-audio" => self.export_clip_audio(id),
+            "export-selected" => self.export_selected(id),
             // One of the two ways, or back to the recording when that way
             // is the one already on; on the selection when the clip is in
             // it, else on the clip alone.

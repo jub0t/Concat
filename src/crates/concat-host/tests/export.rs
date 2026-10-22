@@ -698,6 +698,68 @@ impl Studio {
     }
 }
 
+impl Studio {
+    /// Exports the clips `ids` alone, the way Export Selected does: the
+    /// selection narrowed out of the session's request, its titles painted
+    /// from the project that holds it alone - as a video, or as the sound
+    /// alone in `audio`'s format - then the file read back whole.
+    fn export_selected(
+        &mut self,
+        label: &str,
+        ids: &[String],
+        audio: Option<AudioFormat>,
+    ) -> Exported {
+        self.count += 1;
+        let label = format!("{:02} {label}", self.count).replace('/', "-");
+        eprintln!("{label}: exporting the selection");
+        let folder = PathBuf::from(self.session.path());
+        let selected = export::Selected::of(self.session.project(), ids, &folder)
+            .unwrap_or_else(|| panic!("{label}: none of {ids:?} is on the timeline"));
+        let settings = self.session.settings();
+        let extension = audio.map_or("mp4", AudioFormat::extension);
+        let spec = ExportSpec {
+            output: self
+                .exports
+                .join(format!("{}.{extension}", label.replace(' ', "-")))
+                .to_string_lossy()
+                .into_owned(),
+            crf: 18,
+            preset: "ultrafast".to_owned(),
+            codec: VideoCodec::H264,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: self.range,
+            hdr: false,
+        };
+        let titles = match audio {
+            Some(_) => Vec::new(),
+            None => self
+                .titles
+                .clips(&selected.project, settings.width, settings.height)
+                .into_iter()
+                .map(|title| title.clip)
+                .collect(),
+        };
+        let mut request = export::request(&self.session, &spec, Vec::new());
+        selected.narrow(&mut request, titles);
+        let cancel = AtomicBool::new(false);
+        let written = match audio {
+            Some(_) => export::run_audio(&request, None, &cancel, |_| {}),
+            None => export::run(&request, &cancel, |_| {}),
+        }
+        .unwrap_or_else(|error| panic!("{label}: the export failed: {error}"));
+        match audio {
+            Some(_) => Exported::read_sound(&label, Path::new(&written)),
+            None => Exported::read(
+                &label,
+                Path::new(&written),
+                (request.rate_num, request.rate_den),
+            ),
+        }
+    }
+}
+
 /// A fresh scratch folder for one test, gone when the test ends.
 struct Scratch(PathBuf);
 
@@ -3058,6 +3120,64 @@ fn the_sound_alone_refuses_silence_and_stops_when_cancelled() {
         .filter(|name| name.contains("silence"))
         .collect();
     assert!(left.is_empty(), "a cancelled export left {left:?}");
+}
+
+/// Export Selected: the clips picked, alone, from the first of them - the
+/// gap between them kept as black and silence, and a still on another lane
+/// in that gap left out - as a video and as the sound alone; and one clip
+/// picked alone, from its own start.
+#[test]
+fn a_selection_exports_alone() {
+    let scratch = Scratch::new("selected");
+    let sources = Sources::make(scratch.path());
+    let mut studio = Studio::new(scratch.path(), "Selected", video(WIDTH, HEIGHT, 30, 1));
+    let cam = studio.import(&sources.cam);
+    let peek = studio.import(&sources.peek);
+    let still = studio.import(&sources.still);
+    // The camera from 2 s to 6 s, the screen recording from 8 s to 14 s,
+    // and a still from 6 s, in the gap between them, on a lane of its own.
+    let first = studio.clips_made_by(Command::AddClipAtFirstFree {
+        media_id: cam,
+        start: 2.0,
+    });
+    let second = studio.clips_made_by(Command::AddClipAtFirstFree {
+        media_id: peek,
+        start: 8.0,
+    });
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: still,
+        start: 6.0,
+    });
+    // The whole timeline has the still in the gap: what the selection
+    // must leave out.
+    let whole = studio.export("the whole timeline");
+    whole.expect_still(7.0);
+
+    let both = [first[0].clone(), second[0].clone()];
+    let picture = studio.export_selected("two clips as a video", &both, None);
+    picture.expect_length(12.0);
+    picture.expect_second(0.5, 0);
+    picture.expect_second(3.5, 3);
+    picture.expect_black(5.0);
+    picture.expect_second(6.5, 0);
+    picture.expect_second(11.5, 5);
+    picture.expect_sound(12.0);
+    picture.expect_tone(1.5);
+    picture.expect_quiet(5.0);
+    picture.expect_tone(7.5);
+
+    let sound = studio.export_selected("two clips as sound", &both, Some(AudioFormat::Wav));
+    sound.expect_sound(12.0);
+    sound.expect_quiet(0.5);
+    sound.expect_tone(1.5);
+    sound.expect_quiet(5.0);
+    sound.expect_tone(7.5);
+
+    let one = studio.export_selected("one clip", &second, None);
+    one.expect_length(6.0);
+    one.expect_second(0.5, 0);
+    one.expect_second(5.5, 5);
+    one.expect_tone(1.5);
 }
 
 #[path = "export/resume.rs"]

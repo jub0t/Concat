@@ -8,6 +8,7 @@
 //! the quality, and the one export that can run at a time reports through a
 //! callback and stops through a flag.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -16,6 +17,8 @@ use concat_export::{ExportClip, ExportRequest, Reporter, render_audio, render_on
 pub use concat_media::audio::AudioFormat;
 pub use concat_media::{ColorRange, RateMode, VideoCodec};
 pub use concat_render::WgpuCompositor;
+
+use concat_project::model::Project;
 
 use crate::jobs::{Job, SingleFlight};
 use crate::session::Session;
@@ -133,6 +136,96 @@ fn resume_for(
         key: concat_export::parts::digest(&text),
         ..Default::default()
     })
+}
+
+/// Some clips exported alone: Export Selected.
+///
+/// Rendered as Merge selected clips renders a selection (see
+/// [`crate::consolidate`]): the project with only them on its active
+/// timeline, moved so the first starts at zero and the gaps between them
+/// kept, every track shown and heard - what was picked is what is wanted
+/// - and the effects on the clock they had where the clips were.
+#[derive(Clone)]
+pub struct Selected {
+    /// The project with the selection alone on its active timeline, moved;
+    /// what its titles are painted from.
+    pub project: Project,
+    /// Every clip of it but the titles, flattened as an export takes them.
+    pub clips: Vec<ExportClip>,
+    /// Where the first of them started on the timeline, in seconds.
+    pub origin: f64,
+}
+
+impl Selected {
+    /// The clips of `project`'s active timeline named in `ids`, alone;
+    /// `None` when none of them is there. `folder` is the project's, for
+    /// the media its clips name relatively.
+    pub fn of(project: &Project, ids: &[String], folder: &Path) -> Option<Self> {
+        let origin = project
+            .active()
+            .clips
+            .iter()
+            .filter(|clip| ids.contains(&clip.id))
+            .map(|clip| clip.start)
+            .min_by(f64::total_cmp)?;
+        let mut alone = project.clone();
+        let timeline = alone.active_mut();
+        timeline.clips.retain(|clip| ids.contains(&clip.id));
+        for clip in &mut timeline.clips {
+            Arc::make_mut(clip).start -= origin;
+        }
+        for track in &mut timeline.tracks {
+            track.visible = true;
+            track.muted = false;
+        }
+        let clips = concat_export::flatten::flatten_timeline_in(&alone, None, Some(folder));
+        Some(Self {
+            project: alone,
+            clips,
+            origin,
+        })
+    }
+
+    /// How long the file runs, in seconds: to the end of the last clip.
+    pub fn duration(&self) -> f64 {
+        self.project
+            .active()
+            .clips
+            .iter()
+            .map(|clip| clip.start + clip.duration)
+            .fold(0.0, f64::max)
+    }
+
+    /// `request` - made for the whole session by [`request`] - narrowed to
+    /// the selection: its clips and `titles`, the selection's own painted
+    /// from [`Selected::project`], from zero, the effects on the clock they
+    /// had where they were.
+    pub fn narrow(&self, request: &mut ExportRequest, titles: Vec<ExportClip>) {
+        request.clips = self.clips.clone();
+        request.clips.extend(titles);
+        // Keyed on the selection, not on the whole timeline the request
+        // was made for, so neither takes the other's parts for its own.
+        request.resume = request.resume.take().and_then(|whole| {
+            Some(concat_export::parts::Resume {
+                key: resume_for(&self.project, &request.clips)?.key,
+                ..whole
+            })
+        });
+        starting_at(request, self.origin);
+    }
+}
+
+/// `request`, of a project moved to start `origin` seconds earlier - as
+/// [`Selected::project`] is - with its effects on the clock they had
+/// before the move, and the parts an export of it that stopped left
+/// behind told from those of the same clips where they were.
+pub fn starting_at(request: &mut ExportRequest, origin: f64) {
+    request.effect_time_offset = origin;
+    if origin != 0.0
+        && let Some(resume) = &mut request.resume
+    {
+        resume.key = concat_export::parts::digest(&format!("{}\nfrom {origin}", resume.key));
+    }
 }
 
 /// Renders `request` and returns the path written, reporting through

@@ -382,6 +382,7 @@ export component App inherits Window {
     callback export-closed();
     callback export-name-edited(name: string);
     callback export-browse();
+    callback export-preview-seek(seconds: float);
     callback export-audio-only-changed(on: bool);
     callback export-audio-format-changed(index: int);
     callback export-audio-bitrate-changed(index: int);
@@ -949,11 +950,19 @@ export component App inherits Window {
         height: root.height - root.sheets-top;
         phone: root.phone;
         data: root.export;
-        preview-frame: Editor.preview-frame;
-        playhead: Editor.playhead;
-        duration-seconds: Editor.duration-seconds;
+        // A selection's sheet previews the selection alone; the whole
+        // timeline's shows the monitor's picture and scrubs the playhead.
+        preview-frame: root.export.own-preview ? root.export.preview : Editor.preview-frame;
+        playhead: root.export.own-preview ? root.export.preview-at : Editor.playhead;
+        duration-seconds: root.export.own-preview ? root.export.preview-length : Editor.duration-seconds;
         frame-rate: Editor.frame-rate;
-        seek(seconds) => { Editor.seek(seconds); }
+        seek(seconds) => {
+            if (root.export.own-preview) {
+                root.export-preview-seek(seconds);
+            } else {
+                Editor.seek(seconds);
+            }
+        }
 
         closed => { root.export-closed(); }
         name-edited(name) => { root.export-name-edited(name); }

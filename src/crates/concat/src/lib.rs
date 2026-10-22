@@ -2379,6 +2379,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_export_name_edited(on_window!(|state, name: SharedString| {
         state.handle(Msg::Export(ExportMsg::NameEdited(name.to_string())));
     }));
+    app.on_export_preview_seek(on_window!(|state, seconds: f32| {
+        state.handle(Msg::Export(ExportMsg::PreviewSeek(seconds)));
+    }));
     app.on_export_audio_only_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Export(ExportMsg::AudioOnlyChanged(on)));
     }));

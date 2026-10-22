@@ -80,6 +80,13 @@ export struct ExportData {
     /// The file is the sound alone, mixed as the timeline plays it, with
     /// no picture.
     audio-only: bool,
+    /// The sheet is on a selection, and its preview is the selection's
+    /// own - `preview` at `preview-at` seconds of `preview-length` - not
+    /// the monitor's picture of the whole timeline.
+    own-preview: bool,
+    preview: image,
+    preview-at: float,
+    preview-length: float,
     /// index into the audio formats: WAV, FLAC, AAC
     audio-format: int,
     /// The audio formats as the picker names them, what each is good for,

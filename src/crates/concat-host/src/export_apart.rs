@@ -62,6 +62,12 @@ pub struct Order {
     pub rate_num: i64,
     /// The export's rate.
     pub rate_den: i64,
+    /// Where the edit's clock starts, in seconds: an Export Selected's
+    /// project is moved to start at zero, and its effects keep the clock
+    /// they had where its clips were (see [`crate::export::Selected`]).
+    /// Zero for the whole timeline.
+    #[serde(default)]
+    pub effect_time_offset: f64,
     /// What the window's encoder probe found: each encoder, and whether it
     /// opened. The worker opens none the probe found does not.
     #[serde(default)]
@@ -137,6 +143,7 @@ impl Order {
             height,
             rate_num,
             rate_den,
+            effect_time_offset: 0.0,
             encoders: concat_media::encode::known_encoders(),
             packages: concat_effects::Catalogue::builtin()
                 .packages()
@@ -247,6 +254,7 @@ fn render(
     request.height = order.height;
     request.rate_num = order.rate_num;
     request.rate_den = order.rate_den;
+    crate::export::starting_at(&mut request, order.effect_time_offset);
     crate::export::run_on(&request, None, cancel, progress)
 }
 

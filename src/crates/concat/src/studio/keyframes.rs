@@ -2367,18 +2367,7 @@ impl Studio {
             ));
             rows.push(rule());
         }
-        // The clip's sound, written out as it plays, as a file of its own
-        // in the bin. For anything with sound in it; a clip whose track is
-        // muted still renders, since the file is the clip's and not the
-        // mix's.
         if clip.kind == model::ClipKind::Audio || clip.kind == model::ClipKind::Video {
-            rows.push(action(
-                "export-audio",
-                t("studio.exportAudio"),
-                Glyph::Waveform,
-                "",
-                self.clip_has_sound(clip),
-            ));
             // What is said in it, as titles on the timeline: the captions
             // sheet, opened on this clip. Here so the transcriber is found
             // where the sound is, not only on the tray (#302). The captions
@@ -2413,6 +2402,17 @@ impl Studio {
             ));
             rows.push(rule());
         }
+        // The clip, or the selection when it is one of it, exported on its
+        // own: the export sheet, scoped to them, for a video or the sound
+        // alone. Any clip - a title or a still exports as a picture.
+        rows.push(action(
+            "export-selected",
+            t("studio.exportSelected"),
+            Glyph::Export,
+            "",
+            true,
+        ));
+        rows.push(rule());
         let audible = clip.kind != model::ClipKind::Image;
         rows.push(check(
             "mute",
