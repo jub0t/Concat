@@ -203,6 +203,19 @@ fn android_wgpu_30_or_opengl_surface_factory(
     size: PhysicalWindowSize,
     requested_graphics_api: Option<RequestedGraphicsAPI>,
 ) -> Result<Box<dyn Surface>, PlatformError> {
+    // Concat's safe start: the last launch of this build died while
+    // starting, so Vulkan is not tried at all. A driver that crashes on its
+    // first frame, rather than refusing the surface, gets past the fall
+    // back below and kills every launch.
+    if std::env::var("CONCAT_GPU").is_ok_and(|value| value.trim().eq_ignore_ascii_case("software")) {
+        return surface_factory::<opengl_surface::OpenGLSurface>(
+            context,
+            window_handle,
+            display_handle,
+            size,
+            requested_graphics_api,
+        );
+    }
     let wgpu = match surface_factory::<wgpu_30_surface::WGPUSurface>(
         context,
         window_handle.clone(),
