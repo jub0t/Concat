@@ -512,6 +512,7 @@ fn opens(codec: VideoCodec, encoder_name: &'static str) -> bool {
         tags,
         None,
         true,
+        Attempt::AsAsked,
     );
     if let Err(error) = &result {
         log::info!("{encoder_name} does not open here: {error}");
@@ -592,6 +593,51 @@ fn implied_kbps(
 /// One encoder's context, set up and opened for the file: the frame's
 /// size, rate and tags, and the settings `encoder_name` is steered by.
 /// Returns the encoder and the pixel format it takes its pictures in.
+/// How an encoder is asked to open. A phone's chip turns away an export
+/// it cannot do with nothing past FFmpeg's "Generic error in an external
+/// library" (#491) - a bitrate past its ceiling, a rate it was not built
+/// for, colour keys an older component does not know - and a phone has no
+/// other encoder linked. So a MediaCodec encoder that will not open as
+/// asked is asked plainly, and then Android's own software encoder is
+/// asked by name: slow, but on every phone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Attempt {
+    /// Everything the export asked for.
+    AsAsked,
+    /// The chip's own rate control, a bitrate it can hold, a declared rate
+    /// of 30 at most and no colour keys.
+    Plain,
+    /// One of Android's own components, by name, asked plainly.
+    Component(&'static str),
+}
+
+/// The ways to ask `encoder_name`, in order.
+fn attempts(encoder_name: &str) -> &'static [Attempt] {
+    use Attempt::*;
+    match encoder_name {
+        // c2.android.* since Android 10; OMX.google.* before it.
+        "h264_mediacodec" => &[
+            AsAsked,
+            Plain,
+            Component("c2.android.avc.encoder"),
+            Component("OMX.google.h264.encoder"),
+        ],
+        "hevc_mediacodec" => &[AsAsked, Plain, Component("c2.android.hevc.encoder")],
+        "av1_mediacodec" => &[AsAsked, Plain, Component("c2.android.av1.encoder")],
+        _ => &[AsAsked],
+    }
+}
+
+/// The most a plain ask puts on a phone's chip, in kb/s: room for a clean
+/// 1080p, and twice that above it.
+fn plain_kbps(width: u32, height: u32) -> u32 {
+    if u64::from(width) * u64::from(height) <= 1920 * 1088 {
+        16_000
+    } else {
+        32_000
+    }
+}
+
 fn open_video(
     encoder_name: &'static str,
     codec: ffmpeg::Codec,
@@ -606,9 +652,11 @@ fn open_video(
     ),
     hdr: Option<Signal>,
     global_header: bool,
+    attempt: Attempt,
 ) -> Result<(encoder::video::Encoder, Pixel)> {
     let pq = hdr == Some(Signal::Pq);
     let family = Family::of(encoder_name);
+    let plain = attempt != Attempt::AsAsked;
     let pixel_format = family.pixel_format(options.ten_bit);
     let cbr = options.rate_mode == RateMode::Cbr && options.bitrate_kbps > 0;
     let average = options.rate_mode == RateMode::Average && options.bitrate_kbps > 0;
@@ -620,20 +668,35 @@ fn open_video(
     video.set_height(height);
     video.set_format(pixel_format);
     video.set_time_base(rate.invert());
-    video.set_frame_rate(Some(rate));
+    let fps = f64::from(rate.numerator()) / f64::from(rate.denominator().max(1));
+    // Asked plainly, a chip is told 30 at most: the rate is what it sizes
+    // its work by and may refuse past, while the frames' times come from
+    // the time base and are untouched.
+    video.set_frame_rate(Some(if plain && fps > 30.5 {
+        ffmpeg::Rational::new(30, 1)
+    } else {
+        rate
+    }));
     let (primaries, transfer, matrix) = tags;
-    video.set_colorspace(matrix);
-    // The range the frames will be converted to below, so the tag is
-    // true; VideoToolbox reads it to pick its full- or video-range
-    // pixel format, the software encoders write it into the stream.
-    video.set_color_range(options.color_range.as_ffmpeg());
+    // Asked plainly, no colour keys at all: an older codec2 component
+    // refuses some it does not know, and untagged 8-bit video is read as
+    // the limited-range Rec. 709 it is.
+    if !plain {
+        video.set_colorspace(matrix);
+        // The range the frames will be converted to below, so the tag is
+        // true; VideoToolbox reads it to pick its full- or video-range
+        // pixel format, the software encoders write it into the stream.
+        video.set_color_range(options.color_range.as_ffmpeg());
+    }
     // SAFETY: `video` owns a live AVCodecContext; primaries and
     // transfer have no setter in the bindings, and all three are plain
     // fields the encoder reads at open.
     unsafe {
         let context = video.as_mut_ptr();
-        (*context).color_primaries = primaries.into();
-        (*context).color_trc = transfer.into();
+        if !plain {
+            (*context).color_primaries = primaries.into();
+            (*context).color_trc = transfer.into();
+        }
         if options.threads > 0 {
             (*context).thread_count = i32::from(options.threads);
         }
@@ -666,23 +729,31 @@ fn open_video(
 
     // The encoders steered by a bitrate alone take one whatever the mode:
     // the target in CBR, and in VBR the rate the CRF would come to.
+    // Asked plainly, no more than a phone's chip is sure to hold.
+    let ceiling = |kbps: u32| {
+        if plain {
+            kbps.min(plain_kbps(width, height))
+        } else {
+            kbps
+        }
+    };
     if family.steered_by_bitrate() {
         let kbps = if cbr || average {
             options.bitrate_kbps
         } else {
             implied_kbps(options.codec, options.crf, width, height, rate)
         };
-        video.set_bit_rate(kbps as usize * 1000);
+        video.set_bit_rate(ceiling(kbps) as usize * 1000);
         // Two seconds between keyframes, where MediaCodec's own default
         // is one per second rounded from a GOP of twelve frames.
-        let fps = (f64::from(rate.numerator()) / f64::from(rate.denominator().max(1))).round();
-        video.set_gop((fps.max(1.0) * 2.0) as u32);
+        video.set_gop((fps.round().max(1.0) * 2.0) as u32);
     }
     // An average, on the context as well as in each encoder's own words:
     // the AV1 encoders read the target and the ceiling from there.
     if average {
-        video.set_bit_rate(options.bitrate_kbps as usize * 1000);
-        video.set_max_bit_rate(options.bitrate_kbps as usize * 1500);
+        let kbps = ceiling(options.bitrate_kbps);
+        video.set_bit_rate(kbps as usize * 1000);
+        video.set_max_bit_rate(kbps as usize * 1500);
     }
     let crf = options.crf.to_string();
     let bitrate = format!("{}k", options.bitrate_kbps);
@@ -774,8 +845,15 @@ fn open_video(
         },
         // A phone's chip. The NDK's MediaCodec, not the Java one: no
         // JavaVM is handed to FFmpeg, and the NDK needs none.
-        _ if family == Family::MediaCodec => ffmpeg::dict! {
-            "bitrate_mode" => if cbr { "cbr" } else { "vbr" },
+        _ if family == Family::MediaCodec => match attempt {
+            Attempt::AsAsked => ffmpeg::dict! {
+                "bitrate_mode" => if cbr { "cbr" } else { "vbr" },
+            },
+            // The chip's own rate control, whatever it is.
+            Attempt::Plain => ffmpeg::Dictionary::new(),
+            Attempt::Component(component) => ffmpeg::dict! {
+                "codec_name" => component,
+            },
         },
         // Windows' Media Foundation, whatever the machine has behind it.
         _ if family == Family::MediaFoundation => ffmpeg::dict! {
@@ -1204,31 +1282,37 @@ impl Encoder {
         }
         let mut failure = None;
         let mut opened = None;
-        for (name, codec) in candidates {
-            match open_video(
-                name,
-                codec,
-                path,
-                (width, height),
-                rate,
-                options,
-                tags,
-                hdr,
-                global_header,
-            ) {
-                Ok((encoder, pixel_format)) => {
-                    // Opening proves the chip, for the export sheet's label.
-                    // A refusal is not remembered: it may be this export's
-                    // size or depth, not the machine.
-                    if Family::of(name).hardware() {
-                        remember(name, true);
+        'encoders: for (name, codec) in candidates {
+            for &attempt in attempts(name) {
+                match open_video(
+                    name,
+                    codec,
+                    path,
+                    (width, height),
+                    rate,
+                    options,
+                    tags,
+                    hdr,
+                    global_header,
+                    attempt,
+                ) {
+                    Ok((encoder, pixel_format)) => {
+                        // Opening proves the chip, for the export sheet's
+                        // label. A refusal is not remembered: it may be
+                        // this export's size or depth, not the machine.
+                        if attempt == Attempt::AsAsked && Family::of(name).hardware() {
+                            remember(name, true);
+                        }
+                        if attempt != Attempt::AsAsked {
+                            log::warn!("{name} opened only when asked {attempt:?}");
+                        }
+                        opened = Some((name, codec, encoder, pixel_format));
+                        break 'encoders;
                     }
-                    opened = Some((name, codec, encoder, pixel_format));
-                    break;
-                }
-                Err(error) => {
-                    log::warn!("{name} would not open, trying the next encoder: {error}");
-                    failure = Some(error);
+                    Err(error) => {
+                        log::warn!("{name} would not open {attempt:?}: {error}");
+                        failure = Some(error);
+                    }
                 }
             }
         }
@@ -2062,6 +2146,28 @@ mod tests {
 
     /// Each kind of encoder is handed the pictures it reads, and ten bits
     /// only where it takes them.
+    /// A phone's encoder that will not open as asked is asked plainly,
+    /// then Android's own software one is asked by name; every other
+    /// encoder is asked once, as before (#491).
+    #[test]
+    fn a_phone_encoder_is_asked_again_before_the_export_fails() {
+        assert_eq!(
+            attempts("h264_mediacodec"),
+            [
+                Attempt::AsAsked,
+                Attempt::Plain,
+                Attempt::Component("c2.android.avc.encoder"),
+                Attempt::Component("OMX.google.h264.encoder"),
+            ]
+        );
+        assert_eq!(attempts("hevc_mediacodec")[1], Attempt::Plain);
+        assert_eq!(attempts("libx264"), [Attempt::AsAsked]);
+        assert_eq!(attempts("h264_videotoolbox"), [Attempt::AsAsked]);
+        assert_eq!(plain_kbps(1920, 1080), 16_000);
+        assert_eq!(plain_kbps(1080, 1920), 16_000, "upright is the same size");
+        assert_eq!(plain_kbps(3840, 2160), 32_000);
+    }
+
     #[test]
     fn each_encoder_family_takes_its_own_pictures() {
         assert_eq!(Family::of("libx264").pixel_format(false), Pixel::YUV420P);
@@ -2247,6 +2353,7 @@ mod tests {
             tags,
             None,
             true,
+            Attempt::AsAsked,
         )
         .expect("opens");
         assert_eq!(format, Pixel::NV12);
