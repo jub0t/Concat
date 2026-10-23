@@ -239,10 +239,10 @@ pub fn download(
     // A read timeout: a stalled connection blocks in `read` with the
     // cancel flag unreachable, and thirty seconds without a byte means
     // the download is dead.
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(20))
-        .timeout_read(std::time::Duration::from_secs(30))
-        .build();
+    let agent = crate::net::agent(
+        std::time::Duration::from_secs(20),
+        std::time::Duration::from_secs(30),
+    );
     let mut request = agent.get(url);
     if already > 0 {
         request = request.set("Range", &format!("bytes={already}-"));

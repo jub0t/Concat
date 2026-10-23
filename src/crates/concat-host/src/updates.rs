@@ -669,10 +669,10 @@ fn detach(command: &mut Command) -> Result<(), String> {
 /// One GET, read whole as text. GitHub wants a user agent and says so with
 /// a 403 otherwise.
 fn get_text(url: &str) -> Result<String, String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(20))
-        .timeout_read(std::time::Duration::from_secs(30))
-        .build();
+    let agent = crate::net::agent(
+        std::time::Duration::from_secs(20),
+        std::time::Duration::from_secs(30),
+    );
     let response = agent
         .get(url)
         .set("User-Agent", &format!("Concat/{}", Version::current()))
