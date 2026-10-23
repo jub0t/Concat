@@ -45,7 +45,7 @@ use concat_host::{AppDirs, SingleFlight, projects};
 use serde::{Deserialize, Serialize};
 use sherpa_onnx::{
     GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKokoroModelConfig,
-    OfflineTtsModelConfig, OfflineTtsPocketModelConfig,
+    OfflineTtsModelConfig, OfflineTtsPocketModelConfig, OfflineTtsVitsModelConfig,
 };
 
 use crate::{DownloadProgress, JobStage};
@@ -63,6 +63,8 @@ pub enum Family {
     /// Resemble's Chatterbox Turbo: a voice is a reference recording,
     /// and the engine is ONNX Runtime rather than sherpa.
     Chatterbox,
+    /// Piper VITS: open-source neural TTS models by language.
+    Vits,
 }
 
 /// The family a model id belongs to, by the bundle's name.
@@ -71,6 +73,8 @@ pub fn family_of(id: &str) -> Family {
         Family::Pocket
     } else if id.starts_with("chatterbox") {
         Family::Chatterbox
+    } else if id.starts_with("vits-") || id.starts_with("piper-") {
+        Family::Vits
     } else {
         Family::Kokoro
     }
@@ -130,6 +134,20 @@ const KNOWN_MODELS: &[KnownModel] = &[
         approx_bytes: 349_906_910,
         sha256: "c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298",
     },
+    KnownModel {
+        id: "vits-piper-id_ID-news_tts-medium-int8",
+        label: "Piper Indonesian (compact)",
+        blurb: "Indonesian news voice; fast, clear and lightweight.",
+        approx_bytes: 21_046_435,
+        sha256: "d7315f6bf6b61e75cc4397a934b3372fd7a8223bccb96ed817f7283649eebd89",
+    },
+    KnownModel {
+        id: "vits-piper-id_ID-news_tts-medium",
+        label: "Piper Indonesian (full precision)",
+        blurb: "Indonesian news voice; bit-perfect unquantised weights.",
+        approx_bytes: 67_243_848,
+        sha256: "634b0169fe41c368e9fafe128f30647f9e0301e852ce503cd78146db524f1f12",
+    },
 ];
 
 /// The speakers we offer, by Kokoro v1.0 speaker id.
@@ -177,6 +195,9 @@ const VOICES: &[(i32, &str)] = &[
     (51, "zm_yunxia"),
     (52, "zm_yunyang"),
 ];
+
+/// The voices Piper VITS offers.
+pub const VITS_VOICES: &[(i32, &str)] = &[(3000, "id_news")];
 
 /// The voices Pocket TTS offers, by our own id, out of Kokoro's range.
 ///
@@ -230,6 +251,8 @@ pub fn voice_family(voice: i32) -> Option<Family> {
         Some(Family::Pocket)
     } else if CHATTERBOX_VOICES.iter().any(|(id, _, _)| *id == voice) {
         Some(Family::Chatterbox)
+    } else if VITS_VOICES.iter().any(|(id, _)| *id == voice) {
+        Some(Family::Vits)
     } else {
         None
     }
@@ -252,6 +275,12 @@ fn voice_name(voice: i32) -> Option<&'static str> {
                 .iter()
                 .find(|(id, _, _)| *id == voice)
                 .map(|(_, name, _)| *name)
+        })
+        .or_else(|| {
+            VITS_VOICES
+                .iter()
+                .find(|(id, _)| *id == voice)
+                .map(|(_, name)| *name)
         })
 }
 
@@ -590,6 +619,11 @@ impl Speech {
                             avatar: None,
                         }),
                 )
+                .chain(VITS_VOICES.iter().map(|(id, name)| VoiceInfo {
+                    id: *id,
+                    name: (*name).to_owned(),
+                    family: Family::Vits,
+                }))
                 .collect(),
         })
     }
@@ -820,6 +854,7 @@ impl Speech {
                 Ok(match family {
                     Family::Kokoro => Engine::Sherpa(load_kokoro(&dir, accelerated)?),
                     Family::Pocket => Engine::Sherpa(load_pocket(&dir, accelerated)?),
+                    Family::Vits => Engine::Sherpa(load_vits(&dir, accelerated)?),
                     #[cfg(feature = "chatterbox")]
                     Family::Chatterbox => Engine::Chatterbox(Box::new(
                         crate::chatterbox::Engine::load(&dir, accelerated)?,
@@ -950,6 +985,12 @@ impl Speech {
         let generation = match family {
             Family::Kokoro => GenerationConfig {
                 sid: request.voice,
+                speed,
+                silence_scale,
+                ..Default::default()
+            },
+            Family::Vits => GenerationConfig {
+                sid: 0,
                 speed,
                 silence_scale,
                 ..Default::default()
@@ -1263,6 +1304,40 @@ fn load_kokoro(dir: &Path, accelerated: bool) -> Result<OfflineTts, String> {
         .ok_or_else(|| "the speech engine failed to load - try re-downloading the model".to_owned())
 }
 
+/// Builds the engine for a VITS (Piper) bundle.
+fn load_vits(dir: &Path, accelerated: bool) -> Result<OfflineTts, String> {
+    let network = onnx_file(dir)
+        .ok_or_else(|| "the model folder has no .onnx network - re-download it".to_owned())?;
+    let tokens = dir.join("tokens.txt");
+    if !tokens.is_file() {
+        return Err("missing tokens.txt in model folder - re-download it".to_owned());
+    }
+    let espeak_data = dir.join("espeak-ng-data");
+
+    let config = OfflineTtsConfig {
+        model: OfflineTtsModelConfig {
+            vits: OfflineTtsVitsModelConfig {
+                model: Some(network.to_string_lossy().into_owned()),
+                tokens: Some(tokens.to_string_lossy().into_owned()),
+                data_dir: espeak_data
+                    .is_dir()
+                    .then(|| espeak_data.to_string_lossy().into_owned()),
+                noise_scale: 0.667,
+                noise_scale_w: 0.8,
+                length_scale: 1.0,
+                ..Default::default()
+            },
+            num_threads: threads(),
+            provider: Some(provider(accelerated).to_owned()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    OfflineTts::create(&config)
+        .ok_or_else(|| "the speech engine failed to load - try re-downloading the model".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1354,11 +1429,17 @@ mod tests {
             family_of("sherpa-onnx-pocket-tts-int8-2026-01-26"),
             Family::Pocket
         );
+        assert_eq!(
+            family_of("vits-piper-id_ID-news_tts-medium-int8"),
+            Family::Vits
+        );
+        assert_eq!(family_of("vits-piper-id_ID-news_tts-medium"), Family::Vits);
         assert_eq!(voice_family(3), Some(Family::Kokoro));
         assert_eq!(voice_family(52), Some(Family::Kokoro));
         assert_eq!(voice_family(1000), Some(Family::Pocket));
         assert_eq!(voice_family(POCKET_CLONE), Some(Family::Pocket));
         assert_eq!(voice_family(CHATTERBOX_CLONE), Some(Family::Chatterbox));
+        assert_eq!(voice_family(3000), Some(Family::Vits));
         assert_eq!(family_of("chatterbox-turbo-q8"), Family::Chatterbox);
         assert!(is_clone(POCKET_CLONE) && is_clone(CHATTERBOX_CLONE) && !is_clone(3));
         assert_eq!(voice_family(53), None);
@@ -1375,6 +1456,13 @@ mod tests {
         for (id, name, _) in CHATTERBOX_VOICES {
             assert_eq!(voice_name(*id), Some(*name));
             assert_eq!(voice_family(*id), Some(Family::Chatterbox));
+        }
+        for (id, name) in VITS_VOICES {
+            assert_eq!(voice_name(*id), Some(*name));
+            assert_eq!(voice_family(*id), Some(Family::Vits));
+            assert!(!VOICES.iter().any(|(other, _)| other == id));
+            assert!(!POCKET_VOICES.iter().any(|(other, _, _)| other == id));
+            assert!(!CHATTERBOX_VOICES.iter().any(|(other, _, _)| other == id));
         }
         // The stock Chatterbox voice is Pocket's long recording by another
         // name; Pocket's one-second one is not offered to it.
