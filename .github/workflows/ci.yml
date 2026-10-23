@@ -32,13 +32,45 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The checks that need no libraries, in a job of their own: a string
+  # slip or an unformatted line fails here in a minute, and no longer
+  # skips clippy and the tests behind it.
+  checks:
+    name: Format, locales and models
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: The pinned toolchain
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: rustfmt
+      - run: cargo fmt --check
+        working-directory: src
+      # Every string the interface shows is a key in a locale file; this
+      # keeps en.json the inventory of them and every shipped language
+      # keyed off it. See TRANSLATING.md.
+      - run: python3 scripts/locales.py --check
+        if: ${{ !cancelled() }}
+      # The models Concat downloads are mirrored onto a release of this
+      # repository; models/manifest.toml is what fills that mirror and the
+      # engine's tables are what a download is checked against. This keeps
+      # the two saying the same thing. See models/manifest.toml.
+      - run: python3 scripts/models.py --check
+        if: ${{ !cancelled() }}
+
   engine:
     name: Engine tests and lints
     runs-on: ubuntu-24.04
-    # The steps that can run long have timeouts of their own, 110 minutes
+    # The steps that can run long have timeouts of their own, 135 minutes
     # between them, so a stuck step is named by its own timeout; this is
     # for a job stuck anywhere else. A warm run takes about twenty minutes.
-    timeout-minutes: 130
+    timeout-minutes: 155
     env:
       # See build-app.yml: the version the ort crate is built against.
       # scripts/ci/deps.lock pins the file.
@@ -133,17 +165,6 @@ jobs:
           test -d "sherpa/$stem/lib"
           echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
 
-      - run: cargo fmt --check
-        working-directory: src
-      # Every string the interface shows is a key in a locale file; this
-      # keeps en.json the inventory of them and every shipped language
-      # keyed off it. See TRANSLATING.md.
-      - run: python3 scripts/locales.py --check
-      # The models Concat downloads are mirrored onto a release of this
-      # repository; models/manifest.toml is what fills that mirror and the
-      # engine's tables are what a download is checked against. This keeps
-      # the two saying the same thing. See models/manifest.toml.
-      - run: python3 scripts/models.py --check
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review. Lints
       # before tests: they finish in a fraction of the time and catch the
@@ -156,8 +177,9 @@ jobs:
       # and a slow test are told apart by which step ran out of time. One
       # job at a time and no debug info, to stay inside the runner's
       # memory; the run below finds everything already built.
+      # A cold cache, one build job at a time, has run past 25 minutes.
       - name: Build the tests
-        timeout-minutes: 25
+        timeout-minutes: 50
         working-directory: src
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
