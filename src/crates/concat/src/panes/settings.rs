@@ -332,7 +332,7 @@ impl SettingsPane {
                 studio.notify(&t("settings.gpuNextStart"), false);
             }
             SettingsMsg::MagneticChanged(on) => {
-                studio.prefs.magnetic = on;
+                studio.prefs.set_magnetic(on);
                 studio.prefs.save(&studio.host.dirs);
             }
             SettingsMsg::DownloadSourceChanged(index) => {
@@ -856,7 +856,7 @@ impl SettingsPane {
             proxies: studio.prefs.proxies,
             gpu: !studio.prefs.draws_in_software(),
             gpu_switchable: cfg!(any(windows, target_os = "linux")),
-            magnetic: studio.prefs.magnetic,
+            magnetic: studio.prefs.magnetic(),
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
             server_enabled: studio.prefs.server.enabled,

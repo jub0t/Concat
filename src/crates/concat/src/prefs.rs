@@ -87,10 +87,15 @@ pub struct Preferences {
     /// would otherwise leave Concat on the CPU for good.
     pub software_after_crash: Option<String>,
     /// The magnetic timeline: a delete and a trim close the gap they would
-    /// leave, on the lane they happen on. Off by default, because a gap is
-    /// sometimes the point; ⇧⌫ ripples either way.
+    /// leave, on the lane they happen on. Off by default on a desk, because
+    /// a gap is sometimes the point; ⇧⌫ ripples either way. Read it through
+    /// [`Preferences::magnetic`], which knows the phone's default.
     /// https://github.com/jub0t/Concat/issues/106
     pub magnetic: bool,
+    /// Whether the person has set the magnetic timeline, either way. Every
+    /// phone has saved `magnetic: false` without anyone choosing it, so
+    /// this is what tells a phone's chosen Off from the default it got.
+    pub magnetic_chosen: bool,
     /// Trim follow: while a clip's edge is dragged, the playhead rides the
     /// edge, so the monitor shows the exact frame the cut lands on. Off by
     /// default; the tray's button beside the hand turns it on.
@@ -267,6 +272,23 @@ impl Preferences {
             .filter(|location| std::path::Path::new(location).is_dir())
     }
 
+    /// Whether the magnet shows as on. On a phone, until the person says
+    /// otherwise: the phone editors close the gap a delete leaves on the
+    /// main picture's lane, a Split and Delete there left a black hole in
+    /// the picture and the export (#497), and the phone shell has no magnet
+    /// in sight to turn on. What that default closes is
+    /// `Studio::closes_gap`'s to say; the field alone is the desk's magnet,
+    /// which closes every lane.
+    pub fn magnetic(&self) -> bool {
+        self.magnetic || (crate::platform::phone() && !self.magnetic_chosen)
+    }
+
+    /// Sets the magnetic timeline by the person's choice.
+    pub fn set_magnetic(&mut self, on: bool) {
+        self.magnetic = on;
+        self.magnetic_chosen = true;
+    }
+
     /// Whether this launch draws in software, by choice or after a crash.
     pub fn draws_in_software(&self) -> bool {
         self.software_gpu || self.software_after_crash.is_some()
@@ -319,6 +341,23 @@ impl Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A choice made is kept, whatever the platform's default: a phone
+    /// that turned the magnet off stays off, and a desk that turned it on
+    /// stays on.
+    #[test]
+    fn a_chosen_magnetic_timeline_outranks_the_default() {
+        let mut prefs = Preferences::default();
+        assert!(!prefs.magnetic_chosen);
+        prefs.set_magnetic(false);
+        assert!(!prefs.magnetic());
+        prefs.set_magnetic(true);
+        assert!(prefs.magnetic());
+        // A file saved before the choice was recorded reads as unchosen.
+        let old: Preferences = serde_json::from_str(r#"{"magnetic":false}"#).expect("old prefs");
+        assert!(!old.magnetic_chosen);
+        assert_eq!(old.magnetic(), crate::platform::phone());
+    }
 
     #[test]
     fn the_last_project_location_survives_loading_and_saving() {

@@ -7709,7 +7709,7 @@ impl Studio {
             &ids,
             at,
             side,
-            self.prefs.magnetic,
+            self.closes_gap(&ids),
         ) else {
             self.notify(&t("studio.parkPlayheadInsideClip"), true);
             return;
@@ -7899,8 +7899,29 @@ impl Studio {
             self.remove_transition();
             return;
         }
-        let magnetic = self.prefs.magnetic;
+        let magnetic = self.closes_gap(&self.selection);
         self.remove_selected(magnetic);
+    }
+
+    /// Whether removing these clips closes the gap they leave: always with
+    /// the magnetic timeline on, and on a phone, until the person sets it,
+    /// when every one of them is on the main picture's lane - CapCut's main
+    /// track, where a Split and Delete is done (#497). Titles, captions and
+    /// overlays keep their time there: a caption deleted must not pull the
+    /// ones after it off the words they were timed to.
+    fn closes_gap(&self, ids: &[String]) -> bool {
+        if self.prefs.magnetic {
+            return true;
+        }
+        if !self.prefs.magnetic() {
+            return false;
+        }
+        let main = self.timeline().background_lane();
+        !ids.is_empty()
+            && ids.iter().all(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| main == Some(clip.track_id.as_str()))
+            })
     }
 
     /// Ripple delete (⇧⌫): the selection goes and each lane closes behind
@@ -9348,7 +9369,7 @@ impl Studio {
         editor.set_frame_rate(self.frame_rate());
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
-        editor.set_magnetic(self.prefs.magnetic);
+        editor.set_magnetic(self.prefs.magnetic());
         editor.set_trim_follow(self.prefs.trim_follow);
         editor.set_meters_shown(self.prefs.meters_shown());
         editor.set_preview_axis(self.prefs.preview_axis);
@@ -11914,7 +11935,7 @@ impl Studio {
                     enabled: true,
                     danger: false,
                     checkable: true,
-                    checked: self.prefs.magnetic,
+                    checked: self.prefs.magnetic(),
                 },
             ],
             2 => vec![
@@ -12325,8 +12346,15 @@ impl Studio {
             // A clip that is part of the selection takes the selection with
             // it: Delete on one of five selected clips means the five.
             "delete" | "ripple-delete" => {
-                let ripple = action == "ripple-delete" || self.prefs.magnetic;
-                if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
+                let whole =
+                    self.selection.len() > 1 && self.selection.iter().any(|held| held == id);
+                let ripple = action == "ripple-delete"
+                    || if whole {
+                        self.closes_gap(&self.selection)
+                    } else {
+                        self.closes_gap(&[id.to_owned()])
+                    };
+                if whole {
                     self.remove_selected(ripple);
                 } else {
                     self.apply(Command::RemoveClips {
