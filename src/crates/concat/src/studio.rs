@@ -8993,6 +8993,18 @@ impl Studio {
         );
     }
 
+    /// Whether a sheet covers the editor - Export, Settings, the project
+    /// sheet, a relink or a question - so the editor's keys are not its
+    /// own. The tool cards are not sheets: the timeline is worked beside
+    /// them.
+    pub fn sheet_open(&self) -> bool {
+        self.export.open
+            || self.settings.open
+            || self.project_sheet.open
+            || self.relink.open
+            || self.confirm.is_some()
+    }
+
     // ── notices ──
 
     /// Raises the bottom-right notice. Every caller is some other handler

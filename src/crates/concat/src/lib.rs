@@ -1694,6 +1694,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             let Some(action) = action else {
                 return;
             };
+            // Save is the one chord that means the same in a field, under a
+            // sheet and on the timeline. Every other chord is the editor's,
+            // and a key that came out of a text field or past a sheet was
+            // never meant for it: Slint's TextInput turns away the Ctrl
+            // chords it has no use for, and a read-only one every key, so
+            // Ctrl+B in a title split the clip and Backspace in a path field
+            // deleted it; and Delete or Q with Export or Settings open cut
+            // the timeline nobody could see.
+            if action != "save" && (typing(&app) || shell.studio.borrow().sheet_open()) {
+                return;
+            }
             handled = true;
             match action {
                 // The playhead, straight: these were never menu rows and
@@ -2513,6 +2524,19 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     stop_exports();
     drop(startup_mark);
     leave(0);
+}
+
+/// Whether a text field has the focus, read or write. Slint says it only
+/// through its own window internals: the keystroke that reaches the keymap
+/// carries no target, and a flag each field kept would stay set when a
+/// sheet closed with its field still focused.
+fn typing(app: &App) -> bool {
+    use slint::private_unstable_api::re_exports::{TextInput, WindowInner};
+    WindowInner::from_pub(app.window())
+        .focus_item
+        .borrow()
+        .upgrade()
+        .is_some_and(|item| item.downcast::<TextInput>().is_some())
 }
 
 /// Adds a pane of `kind` beside the largest seat: to its right when that
