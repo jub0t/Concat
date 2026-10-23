@@ -78,19 +78,14 @@ impl Consolidation {
             .filter(|clip| !clip.muted)
             .flat_map(concat_export::audio_pieces)
             .collect();
-        concat_media::audio::mix_to_wav(
-            &mix,
-            duration,
-            Path::new(&request.output),
-            |fraction| {
-                progress(crate::export::Progress {
-                    frame: (fraction * 1000.0).round() as i64,
-                    total: 1000,
-                    stage: "mixing audio",
-                });
-                !cancel.load(std::sync::atomic::Ordering::Relaxed)
-            },
-        )
+        concat_media::audio::mix_to_wav(&mix, duration, Path::new(&request.output), |fraction| {
+            progress(crate::export::Progress {
+                frame: (fraction * 1000.0).round() as i64,
+                total: 1000,
+                stage: "mixing audio",
+            });
+            !cancel.load(std::sync::atomic::Ordering::Relaxed)
+        })
         .map_err(|error| error.to_string())?;
         Ok(request.output.clone())
     }
@@ -243,7 +238,8 @@ mod tests {
         let item: NewMedia = serde_json::from_value(serde_json::json!({
             "path":"/merged.wav", "name":"Merged", "duration":4.0,
             "kind":"audio", "audioCodec":"pcm_f32le", "hasAudio":true
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(plan.replacement(&project, item.clone()).is_ok());
         project.active_mut().clip_mut(&ids[0]).unwrap().volume = 0.7;
         assert!(plan.replacement(&project, item).is_err());

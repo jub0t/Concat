@@ -708,9 +708,9 @@ pub(super) fn apply(
             if item.kind != expected
                 || (audio && !item.has_audio)
                 || item.path.is_empty()
-                || item.duration.is_none_or(|length| {
-                    !length.is_finite() || length + tolerance < duration
-                })
+                || item
+                    .duration
+                    .is_none_or(|length| !length.is_finite() || length + tolerance < duration)
             {
                 return Err(CommandError::CannotMerge {
                     reason: "The merged media does not cover the selected clips.".into(),
@@ -1048,7 +1048,9 @@ pub fn consolidation_clips(
     };
     let selected: HashSet<_> = clip_ids.iter().collect();
     if selected.len() < 2 || selected.len() != clip_ids.len() {
-        return Err(refuse("Select two or more distinct audio or video clips to merge."));
+        return Err(refuse(
+            "Select two or more distinct audio or video clips to merge.",
+        ));
     }
     let mut clips: Vec<Clip> = clip_ids
         .iter()

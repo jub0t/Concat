@@ -856,9 +856,10 @@ fn run_mix(
         // the speed factor. The first frame goes into the graph separately
         // below, so it counts towards the total.
         let span = heard[index].to - heard[index].from;
-        mix_input.samples_sent = first.samples() as i64;
         mix_input.clip_samples =
             ((span * speed + lead).max(0.0) * f64::from(first.rate())).round() as i64;
+        first.set_samples(first.samples().min(mix_input.clip_samples.max(0) as usize));
+        mix_input.samples_sent = first.samples() as i64;
         // One sample per time-base tick: the PTS we stamp is a plain
         // running sample count, so the graph's clock is the sample clock.
         let args = format!(
@@ -973,7 +974,6 @@ fn run_mix(
             }
             match input.next()? {
                 Some(mut frame) => {
-                    let frame_samples = frame.samples() as i64;
                     // Our continuous PTS: whatever the source's timestamp
                     // series does from here on cannot move this frame out
                     // of its place in the mix.
@@ -987,6 +987,9 @@ fn run_mix(
                         input.done = true;
                         continue;
                     }
+                    let remaining = (input.clip_samples - input.samples_sent) as usize;
+                    frame.set_samples(frame.samples().min(remaining));
+                    let frame_samples = frame.samples() as i64;
                     // Scope the add call so its borrow ends before the flush.
                     let added = {
                         let mut context = graph.get(&input.label).expect("source exists");
@@ -1216,7 +1219,9 @@ mod tests {
             ..Default::default()
         };
         crate::samples::AudioDecoder::open(path, &options)
-            .unwrap().collect_f32().unwrap()
+            .unwrap()
+            .collect_f32()
+            .unwrap()
     }
 
     #[test]
@@ -1241,8 +1246,13 @@ mod tests {
         bytes.extend_from_slice(b"data");
         bytes.extend_from_slice(&data_len.to_le_bytes());
         for sample in 0..MIX_RATE {
-            let value: f32 = if sample < MIX_RATE / 4 { 0.2 }
-                else if sample < MIX_RATE * 3 / 4 { 0.8 } else { 0.4 };
+            let value: f32 = if sample < MIX_RATE / 4 {
+                0.2
+            } else if sample < MIX_RATE * 3 / 4 {
+                0.8
+            } else {
+                0.4
+            };
             bytes.extend_from_slice(&value.to_le_bytes());
             bytes.extend_from_slice(&value.to_le_bytes());
         }
@@ -1264,28 +1274,42 @@ mod tests {
         assert_eq!(audio.codec, "pcm_f32le");
         assert_eq!((audio.sample_rate, audio.channels), (MIX_RATE, 2));
         let samples = wav_samples(&output);
-        assert_eq!(samples.len(), (0.6 * f64::from(MIX_RATE)).round() as usize * 2);
+        assert_eq!(
+            samples.len(),
+            (0.6 * f64::from(MIX_RATE)).round() as usize * 2
+        );
         let at = |seconds: f64| samples[(seconds * f64::from(MIX_RATE)).round() as usize * 2];
         assert!((at(0.15) - 0.1).abs() < 0.001);
         assert!((at(0.45) - 0.1).abs() < 0.001);
         assert!(at(0.01).abs() < 0.02 && at(0.59).abs() < 0.02);
         assert!(samples.iter().all(|sample| sample.abs() <= 0.101));
-        assert!(samples[12_000 * 2..16_800 * 2].iter().all(|sample| sample.abs() < 1e-6));
+        assert!(
+            samples[12_000 * 2..16_800 * 2]
+                .iter()
+                .all(|sample| sample.abs() < 1e-6)
+        );
         std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
     fn wav_silence_and_cancellation_use_the_sample_clock() {
-        let output = std::env::temp_dir().join(format!("concat-silent-wav-{}.wav", std::process::id()));
+        let output =
+            std::env::temp_dir().join(format!("concat-silent-wav-{}.wav", std::process::id()));
         let duration = 5926.0 / f64::from(MIX_RATE);
         mix_to_wav(&[], duration, &output, |_| true).unwrap();
         let samples = wav_samples(&output);
         assert_eq!(samples.len(), 5926 * 2);
         assert!(samples.iter().all(|sample| *sample == 0.0));
         std::fs::remove_file(&output).unwrap();
-        assert!(matches!(mix_to_wav(&[], 60.0, &output, |_| false), Err(Error::Cancelled)));
+        assert!(matches!(
+            mix_to_wav(&[], 60.0, &output, |_| false),
+            Err(Error::Cancelled)
+        ));
         assert!(!output.exists(), "cancelled before opening an output");
-        assert!(matches!(mix_to_wav(&[], 60.0, &output, |at| at < 0.01), Err(Error::Cancelled)));
+        assert!(matches!(
+            mix_to_wav(&[], 60.0, &output, |at| at < 0.01),
+            Err(Error::Cancelled)
+        ));
         std::fs::remove_file(output).unwrap();
     }
 

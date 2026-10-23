@@ -1379,7 +1379,8 @@ mod tests {
         }
         let duration = 13.12345;
         let before = editor.project().clone();
-        let Command::AddMedia { mut item } = media("/project/media/merged.wav", duration, true) else {
+        let Command::AddMedia { mut item } = media("/project/media/merged.wav", duration, true)
+        else {
             unreachable!()
         };
         item.kind = MediaKind::Audio;
@@ -1388,14 +1389,18 @@ mod tests {
         item.video_codec = None;
         item.audio_codec = Some("pcm_f32le".into());
         let command = Command::ConsolidateClips {
-            clip_ids: vec![second.clone(), first.clone()], item,
+            clip_ids: vec![second.clone(), first.clone()],
+            item,
         };
         editor.apply(command).unwrap();
         let merged = editor.project().active().clip(&first).unwrap();
         assert_eq!(merged.kind, ClipKind::Audio);
         assert!((merged.start - 0.013).abs() < 1e-9);
         assert!((merged.duration - duration).abs() < 1e-9);
-        assert_eq!((merged.volume, merged.fade_in, merged.fade_out), (1.0, 0.0, 0.0));
+        assert_eq!(
+            (merged.volume, merged.fade_in, merged.fade_out),
+            (1.0, 0.0, 0.0)
+        );
         assert_eq!(merged.source_start, 0.0);
         assert_eq!(editor.project().media.len(), 2);
         let after = editor.project().clone();
@@ -1403,7 +1408,12 @@ mod tests {
         assert_eq!(editor.project(), &before);
         assert!(editor.redo());
         assert_eq!(editor.project(), &after);
-        assert_eq!(Editor::from_document(&editor.to_document(&settings())).unwrap().project(), &after);
+        assert_eq!(
+            Editor::from_document(&editor.to_document(&settings()))
+                .unwrap()
+                .project(),
+            &after
+        );
     }
 
     #[test]
@@ -1425,9 +1435,14 @@ mod tests {
                 unreachable!()
             };
             item.kind = kind;
-            assert!(editor.apply(Command::ConsolidateClips {
-                clip_ids: vec![first.clone(), second.clone()], item,
-            }).is_err());
+            assert!(
+                editor
+                    .apply(Command::ConsolidateClips {
+                        clip_ids: vec![first.clone(), second.clone()],
+                        item,
+                    })
+                    .is_err()
+            );
             assert_eq!(editor.project(), &before);
         }
     }
