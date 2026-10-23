@@ -73,6 +73,7 @@ pub struct TitleStyle {
     pub italic: bool,
     /// Decorations share the glyph fill, outline and shadow.
     pub underline: bool,
+    /// A rule through each line using the selected face's strike metrics.
     pub strikethrough: bool,
     /// Fill colour as `#rrggbb` or `#rrggbbaa`.
     pub color: String,

@@ -1470,9 +1470,13 @@ impl Default for ShapeStyle {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TextCase {
+    /// Display all cased letters in uppercase.
     Upper,
+    /// Display all cased letters in lowercase.
     Lower,
+    /// Lowercase the text and capitalize sentence initials.
     Sentence,
+    /// Preserve the editable source's capitalization.
     #[default]
     #[serde(other)]
     Original,
