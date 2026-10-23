@@ -65,6 +65,23 @@ export struct ExportData {
     hdr-label: string,
     /// The bitrate the file is written at, in Mbps.
     target: float,
+    /// The file is the sound alone, mixed as the timeline plays it, with
+    /// no picture.
+    audio-only: bool,
+    /// index into the audio formats: WAV, FLAC, AAC, MP3
+    audio-format: int,
+    /// The audio formats as the picker names them, what each is good for,
+    /// and which of them this device cannot write: a phone's FFmpeg has
+    /// no MP3 encoder.
+    audio-formats: [string],
+    audio-format-details: [string],
+    audio-format-disabled: [bool],
+    /// index into the bitrates, or -1 for a lossless format, which has none
+    audio-bitrate: int,
+    /// "128 kbps" up to "320 kbps", with the format's own marked; empty
+    /// for a lossless format, and then the row is not shown
+    audio-bitrates: [string],
+    audio-bitrate-details: [string],
     /// "HEVC 10-bit · hardware": what the file will be encoded as
     encoding: string,
     /// What the file will weigh at the bitrate.
@@ -270,6 +287,9 @@ component DestinationSection inherits DialogSection {
 component OutputSection inherits DialogSection {
     in property <ExportData> data;
 
+    callback audio-only-changed(on: bool);
+    callback audio-format-changed(index: int);
+    callback audio-bitrate-changed(index: int);
     callback rate-changed(index: int);
     callback bitrate-changed(mbps: float);
     callback codec-changed(index: int);
@@ -278,7 +298,43 @@ component OutputSection inherits DialogSection {
 
     title: I18n.t("export.output");
 
+    // The picture and its sound, or the sound alone - a mix to master, a
+    // podcast, a voice-over to send on - as the timeline plays it.
     DialogRow {
+        label: I18n.t("export.exportAs");
+        Select {
+            current: root.data.audio-only ? 1 : 0;
+            options: [I18n.t("common.video"), I18n.t("export.audioOnly")];
+            changed(index) => { root.audio-only-changed(index == 1); }
+        }
+    }
+
+    // The sound alone has a format and nothing else to choose: each is
+    // written at its one rate, 48 kHz stereo, like a video's sound.
+    if root.data.audio-only: DialogRow {
+        label: I18n.t("export.format");
+        Select {
+            current: root.data.audio-format;
+            options: root.data.audio-formats;
+            details: root.data.audio-format-details;
+            disabled: root.data.audio-format-disabled;
+            changed(index) => { root.audio-format-changed(index); }
+        }
+    }
+
+    // How hard AAC and MP3 squeeze: less for a voice, more for music.
+    // WAV and FLAC lose nothing, and have no bitrate to pick.
+    if root.data.audio-only && root.data.audio-bitrates.length > 0: DialogRow {
+        label: I18n.t("export.bitrate");
+        Select {
+            current: root.data.audio-bitrate;
+            options: root.data.audio-bitrates;
+            details: root.data.audio-bitrate-details;
+            changed(index) => { root.audio-bitrate-changed(index); }
+        }
+    }
+
+    if !root.data.audio-only: DialogRow {
         label: I18n.t("export.resolution");
         // The timeline's own size, which is the size it exports at: a
         // 9:16 edit is 1080 × 1920. A fact, not a choice.
@@ -295,7 +351,7 @@ component OutputSection inherits DialogSection {
         }
     }
 
-    DialogRow {
+    if !root.data.audio-only: DialogRow {
         label: I18n.t("common.frameRate");
         Select {
             current: root.data.rate;
@@ -307,7 +363,7 @@ component OutputSection inherits DialogSection {
 
     // An HDR timeline is written as it is by default, or rolled off
     // to SDR for wherever HDR does not play.
-    if root.data.hdr-timeline && root.data.deep-available: DialogRow {
+    if !root.data.audio-only && root.data.hdr-timeline && root.data.deep-available: DialogRow {
         label: I18n.t("common.color");
         Select {
             current: root.data.hdr ? 0 : 1;
@@ -321,7 +377,7 @@ component OutputSection inherits DialogSection {
     // platform's business, and the Format line says when the hardware
     // one will. H.264 is left out of an HDR file, which it does not
     // carry.
-    if !root.data.hdr: DialogRow {
+    if !root.data.audio-only && !root.data.hdr: DialogRow {
         label: I18n.t("export.codec");
         Select {
             current: root.data.codec;
@@ -335,7 +391,7 @@ component OutputSection inherits DialogSection {
         }
     }
 
-    if root.data.hdr: DialogRow {
+    if !root.data.audio-only && root.data.hdr: DialogRow {
         label: I18n.t("export.codec");
         Select {
             current: root.data.codec - 1;
@@ -352,7 +408,7 @@ component OutputSection inherits DialogSection {
     // recommendation, which every platform takes) until it is dragged,
     // stepped or typed to another. The encoder keeps to it as an average,
     // so the size on the Export button is the size written.
-    DialogRow {
+    if !root.data.audio-only: DialogRow {
         label: I18n.t("export.bitrate");
         HorizontalLayout {
             alignment: end;
@@ -371,7 +427,7 @@ component OutputSection inherits DialogSection {
     }
 
     // HDR is ten bits always, so the switch is for SDR alone.
-    if !root.data.hdr && root.data.deep-available: DialogRow {
+    if !root.data.audio-only && !root.data.hdr && root.data.deep-available: DialogRow {
         label: I18n.t("export.tenBitColour");
         HorizontalLayout {
             alignment: end;
@@ -562,6 +618,9 @@ export component ExportDialog inherits Rectangle {
     callback closed();
     callback name-edited(name: string);
     callback browse();
+    callback audio-only-changed(on: bool);
+    callback audio-format-changed(index: int);
+    callback audio-bitrate-changed(index: int);
     callback rate-changed(index: int);
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
@@ -698,6 +757,9 @@ export component ExportDialog inherits Rectangle {
                         }
                         if !root.running: OutputSection {
                             data: root.data;
+                            audio-only-changed(on) => { root.audio-only-changed(on); }
+                            audio-format-changed(index) => { root.audio-format-changed(index); }
+                            audio-bitrate-changed(index) => { root.audio-bitrate-changed(index); }
                             bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                             rate-changed(index) => { root.rate-changed(index); }
                             codec-changed(index) => { root.codec-changed(index); }
@@ -737,6 +799,9 @@ export component ExportDialog inherits Rectangle {
                             OutputSection {
                                 first: true;
                                 data: root.data;
+                                audio-only-changed(on) => { root.audio-only-changed(on); }
+                                audio-format-changed(index) => { root.audio-format-changed(index); }
+                                audio-bitrate-changed(index) => { root.audio-bitrate-changed(index); }
                                 bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                                 rate-changed(index) => { root.rate-changed(index); }
                                 codec-changed(index) => { root.codec-changed(index); }
@@ -771,6 +836,9 @@ export component ExportDialog inherits Rectangle {
                             OutputSection {
                                 first: true;
                                 data: root.data;
+                                audio-only-changed(on) => { root.audio-only-changed(on); }
+                                audio-format-changed(index) => { root.audio-format-changed(index); }
+                                audio-bitrate-changed(index) => { root.audio-bitrate-changed(index); }
                                 bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                                 rate-changed(index) => { root.rate-changed(index); }
                                 codec-changed(index) => { root.codec-changed(index); }

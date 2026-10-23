@@ -247,6 +247,9 @@ export component App inherits Window {
     callback export-closed();
     callback export-name-edited(name: string);
     callback export-browse();
+    callback export-audio-only-changed(on: bool);
+    callback export-audio-format-changed(index: int);
+    callback export-audio-bitrate-changed(index: int);
     callback export-rate-changed(index: int);
     callback export-codec-changed(index: int);
     callback export-ten-bit-changed(on: bool);
@@ -824,6 +827,9 @@ export component App inherits Window {
         closed => { root.export-closed(); }
         name-edited(name) => { root.export-name-edited(name); }
         browse => { root.export-browse(); }
+        audio-only-changed(on) => { root.export-audio-only-changed(on); }
+        audio-format-changed(index) => { root.export-audio-format-changed(index); }
+        audio-bitrate-changed(index) => { root.export-audio-bitrate-changed(index); }
         rate-changed(index) => { root.export-rate-changed(index); }
         codec-changed(index) => { root.export-codec-changed(index); }
         ten-bit-changed(on) => { root.export-ten-bit-changed(on); }

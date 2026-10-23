@@ -34,7 +34,7 @@ use concat_core::animate::Track as GainTrack;
 use concat_core::frame::Frame;
 use concat_core::time::FrameRate;
 use concat_host::dirs::AppDirs;
-use concat_host::export::{self, ExportSpec};
+use concat_host::export::{self, AudioFormat, ExportSpec};
 use concat_host::session::Session;
 use concat_host::titles::Titles;
 use concat_host::{media, projects, reverse};
@@ -306,6 +306,31 @@ impl Exported {
             fps: rate.0 as f64 / rate.1 as f64,
             frames,
             audio,
+        }
+    }
+
+    /// A file of sound alone, decoded whole: it must have no picture.
+    fn read_sound(label: &str, path: &Path) -> Exported {
+        let info = concat_media::probe(path)
+            .unwrap_or_else(|error| panic!("{label}: the export does not open: {error}"));
+        assert!(
+            info.video.is_none(),
+            "{label}: the sound alone has a picture"
+        );
+        let options = AudioOptions {
+            rate: RATE,
+            channels: 2,
+            format: SampleFormat::F32,
+            ..AudioOptions::default()
+        };
+        let audio = AudioDecoder::open(path, &options)
+            .and_then(|mut decoder| decoder.collect_f32())
+            .unwrap_or_else(|error| panic!("{label}: the sound does not decode: {error}"));
+        Exported {
+            label: label.to_owned(),
+            fps: 1.0,
+            frames: Vec::new(),
+            audio: Some(audio),
         }
     }
 
@@ -614,6 +639,59 @@ impl Studio {
             Path::new(&written),
             (request.rate_num, request.rate_den),
         )
+    }
+}
+
+impl Studio {
+    /// Exports the sound alone, the way the sheet's Audio only does: no
+    /// titles, no picture, the timeline's own rate, as `format` at
+    /// `bit_rate` (`None` for its own) - then the file read back whole,
+    /// with the codec its name promises. The file's size comes with it.
+    fn export_audio(
+        &mut self,
+        label: &str,
+        format: AudioFormat,
+        bit_rate: Option<usize>,
+    ) -> (Exported, u64) {
+        self.count += 1;
+        let label = format!("{:02} {label}", self.count).replace('/', "-");
+        eprintln!("{label}: exporting the sound");
+        let spec = ExportSpec {
+            output: self
+                .exports
+                .join(format!(
+                    "{}.{}",
+                    label.replace(' ', "-"),
+                    format.extension()
+                ))
+                .to_string_lossy()
+                .into_owned(),
+            ..ExportSpec::default()
+        };
+        let request = export::request(&self.session, &spec, Vec::new());
+        let cancel = AtomicBool::new(false);
+        let written = export::run_audio(&request, bit_rate, &cancel, |_| {})
+            .unwrap_or_else(|error| panic!("{label}: the export failed: {error}"));
+        let codec = concat_media::probe(Path::new(&written))
+            .ok()
+            .and_then(|info| info.audio)
+            .map(|stream| stream.codec);
+        let expected = match format {
+            AudioFormat::Wav => "pcm_s16le",
+            AudioFormat::Flac => "flac",
+            AudioFormat::Aac => "aac",
+            AudioFormat::Mp3 => "mp3",
+        };
+        assert_eq!(
+            codec.as_deref(),
+            Some(expected),
+            "{label}: a {} is written as {expected}",
+            format.label()
+        );
+        let size = std::fs::metadata(&written)
+            .unwrap_or_else(|error| panic!("{label}: the export is not there: {error}"))
+            .len();
+        (Exported::read_sound(&label, Path::new(&written)), size)
     }
 }
 
@@ -2448,4 +2526,139 @@ fn consolidation_keeps_the_global_frame_grid_at_fractional_starts() {
             "frame {frame}: expected {expected:?}, got {got:?}"
         );
     }
+}
+
+/// The sound alone, exported as every format this FFmpeg writes: the
+/// timeline's sound and no picture - a gap, a video's own sound trimmed at
+/// its head, then a sound-only clip after it - as the codec each format's
+/// name promises. A WAV holds PCM, not the AAC the mix wrote whatever the
+/// file was called.
+#[test]
+fn the_sound_alone_exports_as_every_format() {
+    let scratch = Scratch::new("sound-alone");
+    let sources = Sources::make(scratch.path());
+    let mut studio = Studio::new(scratch.path(), "Sound alone", video(WIDTH, HEIGHT, 30, 1));
+    let peek = studio.import(&sources.peek);
+    let ids = studio.clips_made_by(Command::AddClipAtFirstFree {
+        media_id: peek,
+        start: 0.0,
+    });
+    // The first second off the head: the clip keeps its place, so the
+    // timeline opens on a second of nothing and the clip on the tone.
+    studio.apply(Command::TrimClip {
+        clip_id: ids[0].clone(),
+        edge: TrimEdge::Start,
+        delta: 1.0,
+        ripple: false,
+    });
+    let wav = studio.import(&sources.wav);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: wav,
+        start: studio.end(),
+    });
+    let end = studio.end();
+    assert!((end - 12.0).abs() < 1e-6, "the timeline is 12s, not {end}s");
+
+    for format in AudioFormat::ALL {
+        if !format.encodable() {
+            eprintln!("this FFmpeg has no {} encoder; skipped", format.label());
+            continue;
+        }
+        let (exported, _) =
+            studio.export_audio(&format!("sound as {}", format.label()), format, None);
+        exported.expect_sound(12.0);
+        // The gap, then the trimmed video from its source second one.
+        exported.expect_quiet(0.5);
+        exported.expect_tone(1.5);
+        exported.expect_quiet(2.5);
+        exported.expect_tone(5.5);
+        // The sound-only clip from six seconds, from its own second zero.
+        exported.expect_quiet(6.5);
+        exported.expect_tone(7.5);
+        exported.expect_tone(11.5);
+
+        // A bitrate picked is the bitrate written: the least and the most
+        // the sheet offers, the tone the same in both, and the file never
+        // over its rate - twelve seconds at 128 kbps is 192 kB, at 320
+        // kbps 480 kB, give or take the container. MP3 is written at a
+        // constant rate, so its file is that size; FFmpeg's AAC spends
+        // less where the sound is easy, and half of this clock is silence.
+        let rates = format.bit_rates();
+        let (Some(least), Some(most)) = (rates.first(), rates.last()) else {
+            continue;
+        };
+        let mut sizes = Vec::new();
+        for bps in [*least, *most] {
+            let label = format!("sound as {} at {}k", format.label(), bps / 1000);
+            let (exported, size) = studio.export_audio(&label, format, Some(bps));
+            exported.expect_sound(12.0);
+            exported.expect_tone(1.5);
+            exported.expect_quiet(2.5);
+            let expected = bps as f64 * 12.0 / 8.0;
+            assert!(
+                (size as f64) < expected * 1.1,
+                "{label}: {size} bytes, over the {expected} its rate allows"
+            );
+            if format == AudioFormat::Mp3 {
+                assert!(
+                    (size as f64) > expected * 0.9,
+                    "{label}: {size} bytes, not the {expected} a constant rate writes"
+                );
+            }
+            sizes.push(size);
+        }
+        assert!(
+            sizes[1] > sizes[0] * 3 / 2,
+            "{}: {}k and {}k came out {sizes:?} bytes",
+            format.label(),
+            least / 1000,
+            most / 1000
+        );
+    }
+}
+
+/// A timeline with nothing to hear is refused rather than written as a
+/// file of silence, and an export cancelled before it starts writes
+/// nothing: no file, and no scratch file beside it.
+#[test]
+fn the_sound_alone_refuses_silence_and_stops_when_cancelled() {
+    let scratch = Scratch::new("sound-refused");
+    let sources = Sources::make(scratch.path());
+    let mut studio = Studio::new(
+        scratch.path(),
+        "Nothing to hear",
+        video(WIDTH, HEIGHT, 24, 1),
+    );
+    let silent = studio.import(&sources.silent);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: silent,
+        start: 0.0,
+    });
+    let output = scratch.path().join("silence.wav");
+    let spec = ExportSpec {
+        output: output.to_string_lossy().into_owned(),
+        ..ExportSpec::default()
+    };
+    let request = export::request(&studio.session, &spec, Vec::new());
+    let refused = export::run_audio(&request, None, &AtomicBool::new(false), |_| {})
+        .expect_err("a silent render has no sound to export");
+    assert!(refused.contains("no sound"), "refused with {refused:?}");
+    assert!(!output.exists(), "nothing is written for a silent timeline");
+
+    let peek = studio.import(&sources.peek);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: peek,
+        start: 0.0,
+    });
+    let request = export::request(&studio.session, &spec, Vec::new());
+    let cancelled = export::run_audio(&request, None, &AtomicBool::new(true), |_| {})
+        .expect_err("a cancelled export does not finish");
+    assert_eq!(cancelled, "export cancelled");
+    let left: Vec<_> = std::fs::read_dir(scratch.path())
+        .expect("reads the scratch folder")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("silence"))
+        .collect();
+    assert!(left.is_empty(), "a cancelled export left {left:?}");
 }
