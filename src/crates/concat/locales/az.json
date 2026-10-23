@@ -232,6 +232,8 @@
   "export.cancelExport": "İxracı ləğv et",
   "export.codec": "Kodek",
   "export.contents": "Məzmun",
+  "export.contentsClips": "{0} klip",
+  "export.contentsClipsTitles": "{0} klip · {1} başlıq",
   "export.couldNotPublish": "{0} yerinə yadda saxlamaq alınmadı: {1}",
   "export.couldNotShowFile": "Faylı göstərmək alınmadı: {0}",
   "export.destination": "Hara",

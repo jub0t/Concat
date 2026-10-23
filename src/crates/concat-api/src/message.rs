@@ -427,8 +427,8 @@ pub struct JobStatus {
     /// Running, or how it ended.
     pub state: JobState,
     /// What it is doing: "cutout" while masks are found, "stabilize" while
-    /// shake is measured, then "video",
-    /// "audio" and "mux". Absent until it has said.
+    /// shake is measured, then "rendering", "mixing audio" and "muxing".
+    /// Absent until it has said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
     /// Frames rendered, in the video stage.

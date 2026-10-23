@@ -54,7 +54,7 @@ pub struct Progress {
     pub frame: i64,
     /// Frames in total.
     pub total: i64,
-    /// What the exporter is doing: "video", "audio", "mux".
+    /// What the exporter is doing: "rendering", "mixing audio", "muxing".
     pub stage: &'static str,
 }
 
