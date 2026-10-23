@@ -232,6 +232,8 @@
   "export.cancelExport": "لغو خروجی گرفتن",
   "export.codec": "Codec",
   "export.contents": "محتوا",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "ذخیره در {0} ممکن نبود: {1}",
   "export.couldNotShowFile": "نمایش فایل ممکن نشد: {0}",
   "export.destination": "مقصد",

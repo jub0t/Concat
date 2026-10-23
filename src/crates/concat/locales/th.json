@@ -232,6 +232,8 @@
   "export.cancelExport": "ยกเลิกการส่งออก",
   "export.codec": "โคเดก",
   "export.contents": "เนื้อหา",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "บันทึกไปที่ {0} ไม่ได้: {1}",
   "export.couldNotShowFile": "แสดงไฟล์ไม่ได้: {0}",
   "export.destination": "ปลายทาง",

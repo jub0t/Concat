@@ -232,6 +232,8 @@
   "export.cancelExport": "Скасувати експорт",
   "export.codec": "Кодек",
   "export.contents": "Вміст",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "Не вдалося зберегти в {0}: {1}",
   "export.couldNotShowFile": "Не вдалося показати файл: {0}",
   "export.destination": "Місце збереження",

@@ -232,6 +232,8 @@
   "export.cancelExport": "Export abbrechen",
   "export.codec": "Codec",
   "export.contents": "Inhalt",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "Konnte nicht in {0} speichern: {1}",
   "export.couldNotShowFile": "Datei konnte nicht angezeigt werden: {0}",
   "export.destination": "Ziel",
