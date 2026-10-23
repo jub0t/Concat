@@ -327,6 +327,37 @@ pub(super) fn apply(
             })
         }
 
+        Command::MatchClip { clip_id, like } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let mut matched = *like;
+            matched.id = clip.id.clone();
+            matched.track_id = clip.track_id.clone();
+            matched.media_id = clip.media_id.clone();
+            matched.kind = clip.kind;
+            matched.start = clip.start;
+            matched.duration = clip.duration;
+            matched.source_start = clip.source_start;
+            matched.speed = clip.speed;
+            matched.speed_curve = clip.speed_curve.clone();
+            matched.detached_from = clip.detached_from.clone();
+            matched.transition_in = clip.transition_in.clone();
+            // A title's words and a shape's figure are what it is, and only
+            // a clip of the same kind can wear them.
+            if matched.text.is_some() != clip.text.is_some() {
+                matched.text = clip.text.clone();
+            }
+            if matched.shape.is_some() != clip.shape.is_some() {
+                matched.shape = clip.shape.clone();
+            }
+            let applied = assign(clip, matched);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
         Command::SetClipTransform {
             clip_id,
             scale,

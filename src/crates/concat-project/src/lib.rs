@@ -566,6 +566,58 @@ mod tests {
         );
     }
 
+    /// A clip made like another takes on every field but its place, and
+    /// the command cannot be sent from outside.
+    #[test]
+    fn a_matched_clip_takes_everything_but_its_place() {
+        let (mut editor, media_id, source_id) = fixture();
+        let track_id = editor.project().active().tracks[0].id.clone();
+        let mut like = editor
+            .project()
+            .active()
+            .clip(&source_id)
+            .expect("clip")
+            .clone();
+        like.mask = Some(crate::model::ClipMask::of(crate::model::MaskShape::Linear));
+        like.stabilize = Some(crate::model::Stabilize::default());
+        like.opacity = 0.4;
+        like.transition_in = Some(crate::model::Transition {
+            id: "concat.dissolve".to_owned(),
+            duration: 0.5,
+            params: Default::default(),
+        });
+        like.detached_from = Some("c99".to_owned());
+        like.start = 99.0;
+        let copy_id = editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id,
+                start: 20.0,
+                ripple: false,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let applied = editor
+            .apply(Command::MatchClip {
+                clip_id: copy_id.clone(),
+                like: Box::new(like.clone()),
+            })
+            .expect("matches")
+            .applied;
+        assert!(applied);
+        let copy = editor.project().active().clip(&copy_id).expect("copy");
+        assert_eq!(copy.mask, like.mask);
+        assert_eq!(copy.stabilize, like.stabilize);
+        assert_eq!(copy.opacity, 0.4);
+        assert_eq!((copy.id.as_str(), copy.start), (copy_id.as_str(), 20.0));
+        assert_eq!(copy.transition_in, None, "its neighbours' business");
+        assert_eq!(copy.detached_from, None);
+
+        let wire = serde_json::json!({ "op": "matchClip", "clipId": copy_id, "like": {} });
+        assert!(serde_json::from_value::<Command>(wire).is_err());
+    }
+
     /// Editor with one media item and one clip at [0, 10) on track one.
     fn fixture() -> (Editor, String, String) {
         let mut editor = Editor::new();

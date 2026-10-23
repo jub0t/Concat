@@ -430,6 +430,24 @@ pub enum Command {
         #[serde(default)]
         ripple: bool,
     },
+    /// Gives a clip everything another has but its place: its look and
+    /// sound, keys, effects, crop, mask, cutout, stabilizing, background
+    /// and enhancement - the whole clip, so a field added to [`Clip`] is
+    /// carried without a list here to remember it in. The clip keeps its
+    /// own id, lane, start, length, media, kind, in-point and speed, which
+    /// say where it is and what it plays, and its own transition in and
+    /// link to the picture its sound came off, which belong to its
+    /// neighbours. What a copy, a paste and a duplicate end with.
+    ///
+    /// The window's alone: a whole clip from outside would be a way round
+    /// every check the other commands make, so it never crosses the API.
+    #[serde(skip)]
+    MatchClip {
+        /// The clip that takes everything on.
+        clip_id: String,
+        /// The clip it is made like.
+        like: Box<Clip>,
+    },
     /// Puts a key on one property at one point of a clip, replacing
     /// whichever key on that property was already within a hair of it.
     ///
@@ -1219,6 +1237,7 @@ pub fn apply(
         | Command::ConsolidateClips { .. }
         | Command::RemoveClips { .. }) => clips::apply(project, mint, command),
         command @ (Command::UpdateClip { .. }
+        | Command::MatchClip { .. }
         | Command::SetClipSpeed { .. }
         | Command::SetClipCutout { .. }
         | Command::AddCutoutStroke { .. }
