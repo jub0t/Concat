@@ -24,9 +24,10 @@ use std::sync::{Arc, Mutex};
 use concat_core::frame::Frame;
 use concat_core::shader::RevealMap;
 
+use concat_export::flatten::export_base;
 use concat_export::{ClipKind, ExportClip};
 use concat_project::model::{
-    ClipKind as ModelClipKind, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
+    ClipKind as ModelClipKind, KeyProperty, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
 };
 use concat_text::{Align, Figure, Fonts, TitleStyle, WordRect};
 
@@ -273,10 +274,14 @@ impl Titles {
                     flip_v: clip.flip_v,
                     blend: clip.blend.clone(),
                     effects: clip.video_effects.clone(),
-                    scale: clip.scale,
-                    offset_x: clip.offset_x,
-                    offset_y: clip.offset_y,
-                    rotation: clip.rotation,
+                    // A keyed property's keys travel absolute, on a
+                    // neutral base, as a media clip's do: the clip's own
+                    // offset under keys put the title at the two added,
+                    // away from the gizmo and often off the frame (#512).
+                    scale: export_base(clip, KeyProperty::Scale),
+                    offset_x: export_base(clip, KeyProperty::OffsetX),
+                    offset_y: export_base(clip, KeyProperty::OffsetY),
+                    rotation: export_base(clip, KeyProperty::Rotation),
                     // A title is never pulled along an axis: its box is
                     // sized by the style, and its glyphs keep their shape.
                     // 0.2.2's side grips wrote a stretch onto title clips
@@ -296,8 +301,12 @@ impl Titles {
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
                     opacity: match painting {
-                        Painting::Title(text) => (clip.opacity * text.opacity).clamp(0.0, 1.0),
-                        Painting::Shape(_) => clip.opacity.clamp(0.0, 1.0),
+                        Painting::Title(text) => {
+                            (export_base(clip, KeyProperty::Opacity) * text.opacity).clamp(0.0, 1.0)
+                        }
+                        Painting::Shape(_) => {
+                            export_base(clip, KeyProperty::Opacity).clamp(0.0, 1.0)
+                        }
                     },
                     media_width: Some(width),
                     media_height: Some(height),
@@ -669,6 +678,54 @@ mod tests {
     /// A text clip comes back as an image clip on its own track, pointing
     /// at a PNG on disk that is the frame's size, and a second ask for the
     /// same title paints nothing new.
+    /// A keyed position plays from a neutral base, as a media clip's does,
+    /// so the title is drawn where its keys - and the gizmo - put it, not
+    /// at the clip's own offset added to them (#512).
+    #[test]
+    fn a_keyed_title_plays_its_keys_from_a_neutral_base() {
+        let dirs = scratch("a_keyed_titl");
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddTextClip {
+                above: false,
+                track_id: None,
+                start: 0.0,
+                style: None,
+                duration: Some(2.0),
+                offset_y: Some(0.3),
+            })
+            .expect("a title is added")
+            .created_id
+            .expect("with an id");
+        for (property, at, value) in [
+            (KeyProperty::OffsetY, 0.0, -0.1),
+            (KeyProperty::OffsetY, 1.0, -0.1),
+            (KeyProperty::Opacity, 0.0, 0.5),
+        ] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: id.clone(),
+                    property,
+                    at,
+                    value,
+                    ease: Default::default(),
+                })
+                .expect("a key is set");
+        }
+
+        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        let title = &out[0].clip;
+        assert_eq!(title.offset_y, 0.0, "keys, not 0.3 plus keys");
+        assert_eq!(
+            title.opacity, 1.0,
+            "the style's own opacity, times the keys"
+        );
+        assert_eq!(title.offset_x, 0.0);
+        assert_eq!(title.scale, 1.0, "an unkeyed property keeps the clip's own");
+        assert!(!title.animation.is_empty(), "the keys travel with it");
+        let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
+    }
+
     #[test]
     fn a_title_rejoins_as_a_still() {
         let dirs = scratch("a_title_rejo");
