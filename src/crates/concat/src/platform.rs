@@ -433,26 +433,28 @@ pub fn select_backend(
 ) -> Result<Option<Gpu>, PlatformError> {
     // The device the renderer and the monitor share. Taken first, because
     // the backend is selected with it.
-    let gpu = Gpu::acquire();
-    match &gpu {
-        None => log::warn!("no GPU adapter; the monitor composites on the CPU"),
-        // A software adapter is refused by Slint's selector unless this
-        // variable says otherwise: it enumerates the adapters on the instance
-        // it was handed, finds none that is a GPU, and `select` fails with
-        // "no GPU-backed WGPU adapter is available". From a double-clicked
-        // GUI build that failure went to a console nobody could see, and the
-        // app just never appeared. Setting it here is what the reporter did
-        // by hand, and the window, the editing and the export all worked on
-        // WARP - so the app does it for them and says so in the log.
-        // https://github.com/jub0t/Concat/issues/135
-        Some(gpu) if gpu.is_software() => {
-            log::warn!("the GPU adapter is a software rasteriser; the window will render slowly");
-            // SAFETY: the process is single-threaded at this point - the
-            // backend, the engine's threads and the window all come after
-            // this function - so nothing reads the environment concurrently.
-            unsafe { std::env::set_var("SLINT_WGPU_CPU", "1") };
-        }
-        Some(_) => {}
+    let mut gpu = Gpu::acquire();
+    // A software adapter is not shared. Skia drew the window through
+    // Direct3D 12 on WARP, and the monitor composited on the same device:
+    // when WARP removed it (0x887A0005, as a clip went onto the timeline),
+    // wgpu panicked in its own queue and took the window, the project and
+    // the export with it (#480, #503). Skia's own CPU rasteriser draws the
+    // window instead - with no device to lose, and faster than Skia's GPU
+    // path run on a CPU - and the monitor composites on a device of its
+    // own, on the software adapter too (CONCAT_GPU, which the compositor
+    // reads), handing the window pixels as it does with no GPU at all.
+    let software = gpu.as_ref().is_some_and(Gpu::is_software);
+    if software {
+        log::warn!(
+            "the GPU adapter is a software rasteriser; the window draws on the CPU and the monitor on a device of its own"
+        );
+        // SAFETY: the process is single-threaded at this point - the
+        // backend, the engine's threads and the window all come after
+        // this function - so nothing reads the environment concurrently.
+        unsafe { std::env::set_var("CONCAT_GPU", "software") };
+        gpu = None;
+    } else if gpu.is_none() {
+        log::warn!("no GPU adapter; the monitor composites on the CPU");
     }
 
     let mut selector = slint::BackendSelector::new()
@@ -465,6 +467,7 @@ pub fn select_backend(
         ));
     selector = match &gpu {
         Some(gpu) => selector.require_wgpu_30(gpu.configuration()),
+        None if software => selector.renderer_name("skia-software".into()),
         None => {
             // Without a shared device, ask for the platform's own API by
             // name: Skia picks its surface from a cfg chain, and requiring
