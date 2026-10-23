@@ -741,25 +741,48 @@ export component Field inherits Rectangle {
         clicked => { input.focus(); }
     }
 
-    input := TextInput {
+    // The strip the text shows through. A TextInput never scrolls by
+    // itself: a name longer than the field ran on past its right edge,
+    // and the caret walked out of sight under the clip with it (#506).
+    // The input is as wide as its text and slides inside this so the
+    // caret stays in view, as Slint's own LineEdit does it.
+    Rectangle {
         x: 10px;
-        y: (parent.height - self.height) / 2;
         width: parent.width - 20px;
-        // Without this the input takes the whole field's height — a child of a
-        // Rectangle fills it by default — so the centring above resolves to
-        // zero and the text draws hard against the top edge. Same fix, and the
-        // same reason, as SearchField in the inspector.
-        height: self.preferred-height;
-        text <=> root.draft;
-        input-type: root.secret ? InputType.password : InputType.text;
-        color: Theme.fg;
-        font-family: root.technical ? Theme.font-technical : Theme.font;
-        font-size: Theme.fs;
-        single-line: true;
-        selection-background-color: Theme.accent;
-        selection-foreground-color: Theme.on-accent;
+        clip: true;
 
-        edited => { root.edited(self.text); }
+        input := TextInput {
+            // Where the text would sit to keep the caret in view; clamped
+            // below so a short text stays put and a long one never leaves
+            // empty field after its end.
+            property <length> scroll;
+            x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll));
+            y: (parent.height - self.height) / 2;
+            width: max(parent.width - self.text-cursor-width, self.preferred-width);
+            // Without this the input takes the whole field's height — a child of a
+            // Rectangle fills it by default — so the centring above resolves to
+            // zero and the text draws hard against the top edge. Same fix, and the
+            // same reason, as SearchField in the inspector.
+            height: self.preferred-height;
+            text <=> root.draft;
+            input-type: root.secret ? InputType.password : InputType.text;
+            color: Theme.fg;
+            font-family: root.technical ? Theme.font-technical : Theme.font;
+            font-size: Theme.fs;
+            single-line: true;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+
+            cursor-position-changed(caret) => {
+                if caret.x + self.scroll < 0px {
+                    self.scroll = -caret.x;
+                } else if caret.x + self.scroll > parent.width - self.text-cursor-width {
+                    self.scroll = parent.width - caret.x - self.text-cursor-width;
+                }
+            }
+
+            edited => { root.edited(self.text); }
+        }
     }
 
     if root.draft == "" && !input.has-focus: Text {
