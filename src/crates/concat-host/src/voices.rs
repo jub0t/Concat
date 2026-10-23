@@ -8,7 +8,8 @@
 //! (Pocket TTS, Chatterbox). Kept, it is the few seconds of the recording
 //! the model listens to, cut out and written as a WAV of its own - not the
 //! file it came from, which may be a long video in one project - beside a
-//! `voice.json` with its name and, when given one, a picture:
+//! `voice.json` with its name and, when given them, a picture and a line
+//! about it:
 //!
 //! ```text
 //! <library>/voices/<id>/voice.json
@@ -40,6 +41,32 @@ const PICTURE_CAP: u64 = 8 * 1024 * 1024;
 /// The pictures a voice can wear.
 pub const PICTURE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 
+/// The recordings a voice can be imported from: the sound files the
+/// library takes, and the videos the bin takes, for their soundtrack.
+pub const RECORDING_EXTENSIONS: [&str; 15] = [
+    "mp3", "wav", "aac", "m4a", "flac", "ogg", "opus", "aif", "aiff", "mp4", "mov", "mkv", "webm",
+    "avi", "m4v",
+];
+
+/// The most characters a voice's description keeps: a line under its
+/// name, not a biography.
+pub const DESCRIPTION_CHARS: usize = 140;
+
+/// The frame a recording is measured in when its voice is looked for, in
+/// seconds: about the shortest sound of a syllable, the usual frame of a
+/// voice detector.
+const FRAME_SECONDS: f64 = 0.02;
+
+/// How loud a frame must be to count as speech, against the loud end of
+/// the recording (see [`densest`]): twenty decibels under it. Relative, so
+/// a quiet take and a hot one are read alike, and the hiss of a room
+/// between the sentences is not taken for them.
+const SPEECH_FLOOR: f32 = 0.1;
+
+/// A recording whose loud end is under this, about eighty decibels down,
+/// is silent: there is no voice in it to look for.
+const SILENCE: f32 = 1e-4;
+
 /// One saved voice.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +78,10 @@ pub struct SavedVoice {
     /// The picture's file name in its folder, when it has one.
     #[serde(default)]
     pub picture: Option<String>,
+    /// A line about it, when the user wrote one: what the shelf says
+    /// under its name.
+    #[serde(default)]
+    pub description: Option<String>,
     /// When it was saved, as Unix seconds: the shelf's order, newest first.
     #[serde(default)]
     pub created: u64,
@@ -101,19 +132,25 @@ pub fn list(dir: &Path) -> Vec<SavedVoice> {
 }
 
 /// Saves `name` as a voice: [`SAMPLE_SECONDS`] of `source` from `start`,
-/// mono, written as a WAV of its own, and `picture` copied beside it.
-/// Slow - a decode - so a worker's.
+/// mono, written as a WAV of its own, and `picture` copied beside it. The
+/// description is kept trimmed and cut to [`DESCRIPTION_CHARS`]; a blank
+/// one is none. Slow - a decode - so a worker's.
 pub fn save(
     dir: &Path,
     name: &str,
     source: &Path,
     start: f64,
     picture: Option<&Path>,
+    description: Option<&str>,
 ) -> Result<SavedVoice, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("a voice needs a name".to_owned());
     }
+    let description = description
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.chars().take(DESCRIPTION_CHARS).collect::<String>());
     let options = concat_media::AudioOptions {
         start: (start.is_finite() && start > 0.0).then_some(start),
         duration: Some(SAMPLE_SECONDS),
@@ -163,6 +200,7 @@ pub fn save(
             id: id.clone(),
             name: name.to_owned(),
             picture,
+            description,
             created,
             dir: folder.clone(),
         };
@@ -177,6 +215,96 @@ pub fn save(
         let _ = std::fs::remove_dir_all(&staging);
     }
     written
+}
+
+/// What listening to a recording found: how long it is, and where in it
+/// the [`SAMPLE_SECONDS`] most given to speech start.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Heard {
+    /// The recording's length, in seconds.
+    pub duration: f64,
+    /// Seconds in where the kept sample is best taken from.
+    pub start: f64,
+}
+
+/// Listens to `source` for where its voice is, so a recording that opens
+/// on silence, a room or a jingle is kept from where the speaking is and
+/// not from its first second. Its sound is decoded as [`save`] decodes it,
+/// mono at the models' rate, and measured a [`FRAME_SECONDS`] frame at a
+/// time as it comes, so an hour of video costs a few hundred thousand
+/// levels rather than the hour's samples; see [`densest`] for the window
+/// taken. Slow - the whole file decoded - so a worker's.
+pub fn listen(source: &Path) -> Result<Heard, String> {
+    let options = concat_media::AudioOptions {
+        rate: SAMPLE_RATE,
+        channels: 1,
+        format: concat_media::SampleFormat::F32,
+        ..Default::default()
+    };
+    let unheard =
+        |error: concat_media::Error| format!("could not listen to {}: {error}", source.display());
+    let mut decoder = concat_media::AudioDecoder::open(source, &options).map_err(unheard)?;
+    let frame = (f64::from(SAMPLE_RATE) * FRAME_SECONDS).round() as usize;
+    let mut levels = Vec::new();
+    let mut power = 0.0_f64;
+    let mut filled = 0;
+    let mut samples = 0_usize;
+    while let Some(chunk) = decoder.next_f32().map_err(unheard)? {
+        samples += chunk.len();
+        for sample in chunk {
+            power += f64::from(sample) * f64::from(sample);
+            filled += 1;
+            if filled == frame {
+                levels.push((power / frame as f64).sqrt() as f32);
+                power = 0.0;
+                filled = 0;
+            }
+        }
+    }
+    let window = (SAMPLE_SECONDS / FRAME_SECONDS).round() as usize;
+    Ok(Heard {
+        duration: samples as f64 / f64::from(SAMPLE_RATE),
+        start: densest(&levels, window) as f64 * FRAME_SECONDS,
+    })
+}
+
+/// The first frame of the run of `window` frames most given to speech in
+/// `levels`, each a frame's RMS. A frame is speech when it is louder than
+/// [`SPEECH_FLOOR`] of the recording's loud end - the level a twentieth of
+/// the frames are louder than, rather than the loudest, so one slammed
+/// door does not set the bar - and the run with the most speech frames is
+/// taken; between runs with as many, the one with the most energy, which
+/// is the one spoken up in; between runs alike in both, the earliest. A
+/// recording no longer than a window, or one with nothing in it louder
+/// than [`SILENCE`], starts at its beginning.
+fn densest(levels: &[f32], window: usize) -> usize {
+    if window == 0 || levels.len() <= window {
+        return 0;
+    }
+    let mut sorted = levels.to_vec();
+    sorted.sort_by(f32::total_cmp);
+    let loud = sorted[(sorted.len() - 1) * 19 / 20];
+    if loud < SILENCE {
+        return 0;
+    }
+    let floor = loud * SPEECH_FLOOR;
+    // Running sums over the frames so far, so each run is the difference
+    // of two rather than a fresh count of its window.
+    let mut spoken = vec![0_usize; levels.len() + 1];
+    let mut energy = vec![0.0_f64; levels.len() + 1];
+    for (at, level) in levels.iter().enumerate() {
+        spoken[at + 1] = spoken[at] + usize::from(*level > floor);
+        energy[at + 1] = energy[at] + f64::from(*level) * f64::from(*level);
+    }
+    let mut best = (0, 0, 0.0);
+    for first in 0..=levels.len() - window {
+        let count = spoken[first + window] - spoken[first];
+        let power = energy[first + window] - energy[first];
+        if count > best.1 || (count == best.1 && power > best.2) {
+            best = (first, count, power);
+        }
+    }
+    best.0
 }
 
 /// Deletes a saved voice's folder.
@@ -245,18 +373,22 @@ mod tests {
         dir
     }
 
+    /// `seconds` of a tone at `level`, as a recording's samples.
+    fn tone(seconds: f64, level: f32) -> Vec<f32> {
+        (0..(seconds * f64::from(SAMPLE_RATE)) as usize)
+            .map(|n| (n as f32 * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin() * level)
+            .collect()
+    }
+
     /// A voice is saved from a recording - its sample cut out and written
-    /// on its own, its picture beside it - listed newest first, and gone
-    /// with its folder when removed.
+    /// on its own, its picture beside it, its description trimmed - listed
+    /// newest first, and gone with its folder when removed.
     #[test]
     fn a_voice_is_kept_listed_and_removed() {
         let dir = scratch("keep");
         // Three seconds of a tone, as the recording.
-        let tone: Vec<f32> = (0..SAMPLE_RATE * 3)
-            .map(|n| (n as f32 * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin() * 0.5)
-            .collect();
         let source = dir.join("take.wav");
-        std::fs::write(&source, wav(&tone, SAMPLE_RATE)).unwrap();
+        std::fs::write(&source, wav(&tone(3.0, 0.5), SAMPLE_RATE)).unwrap();
         let picture = dir.join("face.PNG");
         std::fs::write(&picture, b"png").unwrap();
 
@@ -266,26 +398,98 @@ mod tests {
             &source,
             0.5,
             Some(&picture),
+            Some("  Warm, unhurried  "),
         )
         .expect("saves");
         assert_eq!(voice.name, "Narrator");
         assert!(voice.sample().is_file());
         assert_eq!(voice.picture.as_deref(), Some("picture.png"));
+        assert_eq!(voice.description.as_deref(), Some("Warm, unhurried"));
         let listed = list(&dir.join("voices"));
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, voice.id);
         assert!(listed[0].picture_path().unwrap().is_file());
+        assert_eq!(listed[0].description, voice.description);
 
         assert!(
-            save(&dir.join("voices"), "  ", &source, 0.0, None).is_err(),
+            save(&dir.join("voices"), "  ", &source, 0.0, None, None).is_err(),
             "a name is needed"
         );
         assert!(
-            save(&dir.join("voices"), "Late", &source, 2.5, None).is_err(),
+            save(&dir.join("voices"), "Late", &source, 2.5, None, None).is_err(),
             "half a second is too little"
         );
         remove(&listed[0]).unwrap();
         assert!(list(&dir.join("voices")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A description is a line: a blank one is none, a long one is cut at
+    /// its cap by characters, never inside one; and a voice saved before
+    /// voices had descriptions reads as one without.
+    #[test]
+    fn a_voice_description_is_one_capped_line() {
+        let dir = scratch("describe");
+        let source = dir.join("take.wav");
+        std::fs::write(&source, wav(&tone(2.0, 0.5), SAMPLE_RATE)).unwrap();
+        let voices = dir.join("voices");
+        let blank = save(&voices, "Blank", &source, 0.0, None, Some("   ")).unwrap();
+        assert_eq!(blank.description, None);
+        let long = "é".repeat(DESCRIPTION_CHARS + 20);
+        let cut = save(&voices, "Long", &source, 0.0, None, Some(&long)).unwrap();
+        assert_eq!(
+            cut.description.as_deref().map(|line| line.chars().count()),
+            Some(DESCRIPTION_CHARS)
+        );
+        let old: SavedVoice =
+            serde_json::from_str(r#"{"id":"a","name":"Old","created":1}"#).unwrap();
+        assert_eq!(old.description, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The window taken is where the speaking is: past a silent opening,
+    /// the louder of two runs as full of it, and never one loud click.
+    #[test]
+    fn the_densest_window_is_where_the_speaking_is() {
+        let run = |parts: &[(usize, f32)]| -> Vec<f32> {
+            parts
+                .iter()
+                .flat_map(|&(frames, level)| std::iter::repeat_n(level, frames))
+                .collect()
+        };
+        // Silence, then speech: the window starts where the speech does,
+        // the earliest of the windows wholly in it.
+        assert_eq!(densest(&run(&[(50, 0.0), (30, 0.5)]), 20), 50);
+        // Two runs of speech as long: the one spoken up in.
+        assert_eq!(
+            densest(&run(&[(20, 0.2), (30, 0.0), (20, 0.5), (10, 0.0)]), 20),
+            50
+        );
+        // A door slammed in the silence before quiet speech: the bar is
+        // set by the loud end of the recording, not its loudest frame, so
+        // the speech still counts and the bang does not win on energy.
+        let mut levels = run(&[(60, 0.0), (40, 0.0625), (20, 0.0)]);
+        levels[5] = 1.0;
+        assert_eq!(densest(&levels, 20), 60);
+        // No longer than a window, or silent: from the start.
+        assert_eq!(densest(&run(&[(10, 0.0), (10, 0.5)]), 20), 0);
+        assert_eq!(densest(&run(&[(100, 0.0)]), 20), 0);
+    }
+
+    /// A recording that opens on silence is listened to from where its
+    /// voice begins, and its length is the file's.
+    #[test]
+    fn a_recording_is_listened_to_for_its_voice() {
+        let dir = scratch("listen");
+        let mut samples = vec![0.0; SAMPLE_RATE as usize * 20];
+        samples.extend(tone(12.5, 0.3));
+        samples.extend(vec![0.0; SAMPLE_RATE as usize * 10]);
+        let source = dir.join("interview.wav");
+        std::fs::write(&source, wav(&samples, SAMPLE_RATE)).unwrap();
+        let heard = listen(&source).expect("listens");
+        assert!((heard.duration - 42.5).abs() < 0.05, "{heard:?}");
+        assert!((19.98..=20.52).contains(&heard.start), "{heard:?}");
+        assert!(listen(&dir.join("missing.wav")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

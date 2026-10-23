@@ -455,7 +455,12 @@ impl Studio {
             .map(|voice| VoiceCardData {
                 id: format!("saved-{}", voice.id).into(),
                 name: voice.name.as_str().into(),
-                detail: t("speech.savedVoice").into(),
+                // The line the user wrote about it, or what it is.
+                detail: voice
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| t("speech.savedVoice"))
+                    .into(),
                 avatar: self.speech.saved_avatar(voice),
                 removable: true,
             })
