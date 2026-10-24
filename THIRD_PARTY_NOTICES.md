@@ -26,6 +26,12 @@ originate at https://huggingface.co/ggerganov/whisper.cpp (MIT); Concat
 mirrors them and downloads them on demand from that mirror, and never
 bundles them. See "The model mirror" below.
 
+The one model Concat does bundle is Silero VAD v6.2.0 in whisper.cpp's
+format (`ggml-silero-v6.2.0.bin`, from https://huggingface.co/ggml-org/whisper-vad,
+MIT; Silero VAD itself is MIT, https://github.com/snakers4/silero-vad,
+Copyright (c) 2020-present Silero Team). It finds where the speech is, so
+captions are timed from it.
+
 ## Slint (used under GPL-3.0-only)
 
 The `concat` crate (`src/crates/concat`) builds against
