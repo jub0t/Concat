@@ -252,7 +252,15 @@ export component ConfigPane inherits Rectangle {
     /// chain is not something to go looking for: its tab shows only on a
     /// clip that already carries one - from an older project, a template,
     /// the API - so that chain can still be seen, tuned and taken off.
-    property <bool> has-chain: root.applied-visual.length > 0;
+    /// The colour panel's own package and the chroma key have homes of
+    /// their own (Adjust, the cutout), so they do not count as a chain: a
+    /// clip only graded or keyed has no Effects tab to go looking in.
+    pure function own-link(id: string) -> bool {
+        return id == "concat.adjust" || id == "concat.chroma-key";
+    }
+    property <bool> has-chain: root.applied-visual.length > 2
+        || (root.applied-visual.length > 0 && !root.own-link(root.applied-visual[0].id))
+        || (root.applied-visual.length > 1 && !root.own-link(root.applied-visual[1].id));
     property <[string]> tabs: root.selected.batch-volume ? ["Audio"]
         : root.is-text ? (root.has-chain ? ["Text", "Effects"] : ["Text"])
         : root.is-layer ? ["Filter"]
@@ -795,7 +803,10 @@ export component ConfigPane inherits Rectangle {
                         noun: I18n.t("common.audioEffect");
                         library-title: I18n.t("configPane.audioEffects");
                         shelf: 2;
-                        hidden: ["concat.loudness", "concat.denoise", "concat.enhance-voice"];
+                        // A sound layer has no Sound page with their switches,
+                        // so its treatments are cards like any other link.
+                        hidden: root.selected.kind == ClipKind.sound-layer ? []
+                            : ["concat.loudness", "concat.denoise", "concat.enhance-voice"];
                         group-labels: root.audio-groups;
                         catalogue: root.catalogue-audio;
                         applied: root.applied-audio;

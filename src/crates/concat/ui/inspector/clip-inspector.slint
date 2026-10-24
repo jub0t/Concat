@@ -360,8 +360,13 @@ export component PresetStack inherits VerticalLayout {
 
                                 VerticalLayout {
                                     alignment: center;
-                                    Switch {
-                                        checked: item.on;
+                                    // The switch flips itself on a click, which
+                                    // ends a binding; it is set again whenever
+                                    // the document says otherwise - an undo.
+                                    switch := Switch {
+                                        property <bool> held: item.on;
+                                        checked: self.held;
+                                        changed held => { self.checked = self.held; }
                                         toggled(on) => { root.toggle(index); }
                                     }
                                 }

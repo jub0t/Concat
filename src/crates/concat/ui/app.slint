@@ -36,7 +36,7 @@ import { Editor } from "editor.slint";
 import { PaneKind, Panes } from "workspace/pane-switcher.slint";
 import { ChipOption, NewProjectDialog, RecentProjectData, StartData, StartScreen } from "start.slint";
 import { TitleBar } from "title-bar.slint";
-import { PhoneEditor } from "phone/editor.slint";
+import { PhoneEditor, PhoneSheets } from "phone/editor.slint";
 import {
     AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData,
     TransitionChoiceData,
@@ -539,6 +539,12 @@ export component App inherits Window {
                     Editor.library-audition-filter(Editor.library-audition);
                     return accept;
                 }
+            }
+            // The phone editor's own sheet - Effects, Text, a clip's tools -
+            // comes down before Back leaves the project.
+            if ((event.text == Key.Back || event.text == Key.Escape) && root.phone && PhoneSheets.open) {
+                PhoneSheets.close-asked += 1;
+                return accept;
             }
             // Back with nothing on top: the editor saves and goes back to
             // the launch screen, as a phone editor's Back returns to its

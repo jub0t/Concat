@@ -97,6 +97,7 @@ export component FontPicker inherits Rectangle {
 
                 search := SearchField {
                     placeholder: I18n.t("textPanel.searchFonts");
+                    esc-passes: true;
                     edited(text) => { FontSearch.query-changed(text); }
                     init => { self.focus(); }
                 }

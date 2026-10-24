@@ -706,6 +706,9 @@ export component Note inherits HorizontalLayout {
 export component SearchField inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
+    /// Esc goes on up rather than letting go of the keyboard: for a field
+    /// inside a popup, whose Esc closes the popup.
+    in property <bool> esc-passes: false;
 
     callback edited(text: string);
 
@@ -762,7 +765,7 @@ export component SearchField inherits Rectangle {
                 // words stay; the cross clears them.
                 accepted => { Focus.release(); }
                 key-pressed(event) => {
-                    if (event.text == Key.Escape) {
+                    if (event.text == Key.Escape && !root.esc-passes) {
                         Focus.release();
                         return EventResult.accept;
                     }

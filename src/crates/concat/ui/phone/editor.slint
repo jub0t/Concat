@@ -326,6 +326,14 @@ component LaneChip inherits Rectangle {
     }
 }
 
+/// Whether a sheet is up in the phone editor, and a way to ask it down:
+/// Android's Back, which the window hears, closes it before it leaves the
+/// project - with Effects open, Back saved and went back to the projects.
+export global PhoneSheets {
+    in-out property <bool> open;
+    in-out property <int> close-asked;
+}
+
 export component PhoneEditor inherits Rectangle {
     in property <string> project-name;
     /// "saved", "saving…": the little truth under the name.
@@ -341,6 +349,11 @@ export component PhoneEditor inherits Rectangle {
     /// "adjustments", "transitions" - the project's own, and a "clip-" page
     /// of the inspector for the selected clip.
     property <string> sheet;
+    // Back closes the sheet on top before it leaves the editor; the window
+    // hears the key, so the sheet's state is told it through PhoneSheets.
+    changed sheet => { PhoneSheets.open = root.sheet != ""; }
+    property <int> close-asked: PhoneSheets.close-asked;
+    changed close-asked => { root.hide(); }
     /// The Audio sheet's shelf: 0 my sounds, 1 voices, 2 styles.
     property <int> audio-shelf;
     /// The sheet up is one of the clip's, and goes with the clip.
