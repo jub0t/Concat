@@ -20,7 +20,9 @@
 //! twenty jobs waiting their turn on the same few threads and never twenty
 //! decoders at once (#52). One worker always stays clear of the low
 //! priorities, so the artwork of a big import cannot make playback wait
-//! behind it.
+//! behind it. A card's picture is the exception: one small frame, short
+//! enough for any worker, so an import's cards fill in on all of them
+//! before any file's waveform or filmstrip is begun.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -48,7 +50,17 @@ pub enum Priority {
     Playback,
     /// A clip's filmstrip, drawn on the timeline.
     Filmstrip,
-    /// The bin's thumbnails and waveforms.
+    /// A bin card's picture: one small frame of a file, what an import is
+    /// waiting to see. Not background work - it is a single decode, short
+    /// enough to take the worker kept for playback - so a folder's cards
+    /// fill in on every worker, ahead of any waveform or filmstrip.
+    Poster,
+    /// A file's waveform: one pass through its sound, quick beside a
+    /// filmstrip's pictures and, for a sound file, its card's picture -
+    /// so it is not left waiting behind the filmstrips of the footage
+    /// imported with it.
+    Waveform,
+    /// A file's own filmstrip, sampled across the whole of it.
     Artwork,
     /// A proxy being written: minutes of work nobody is waiting on.
     Proxy,
@@ -56,9 +68,11 @@ pub enum Priority {
 
 impl Priority {
     /// Every priority, most urgent first.
-    pub const ALL: [Priority; 4] = [
+    pub const ALL: [Priority; 6] = [
         Priority::Playback,
         Priority::Filmstrip,
+        Priority::Poster,
+        Priority::Waveform,
         Priority::Artwork,
         Priority::Proxy,
     ];
@@ -67,7 +81,10 @@ impl Priority {
     /// reserved worker never takes, and what runs one at a time for a
     /// proxy.
     fn background(self) -> bool {
-        matches!(self, Priority::Artwork | Priority::Proxy)
+        matches!(
+            self,
+            Priority::Waveform | Priority::Artwork | Priority::Proxy
+        )
     }
 }
 
@@ -507,8 +524,10 @@ mod tests {
         for (priority, name) in [
             (Priority::Artwork, "art-1"),
             (Priority::Proxy, "proxy"),
+            (Priority::Poster, "poster"),
             (Priority::Filmstrip, "strip"),
             (Priority::Artwork, "art-2"),
+            (Priority::Waveform, "wave"),
             (Priority::Playback, "play"),
         ] {
             let order = Arc::clone(&order);
@@ -522,8 +541,47 @@ mod tests {
         prefetcher.drain();
         assert_eq!(
             *order.lock().unwrap(),
-            vec!["play", "strip", "art-1", "art-2", "proxy"]
+            vec!["play", "strip", "poster", "wave", "art-1", "art-2", "proxy"]
         );
+    }
+
+    /// The posters of an import are not background work: on two workers
+    /// two of them run together, where artwork runs one at a time, and
+    /// every one of them runs before any artwork queued ahead of them.
+    #[test]
+    fn posters_run_on_every_worker_ahead_of_artwork() {
+        let pool = Arc::new(ReaderPool::new(1024, 1));
+        let prefetcher = Prefetcher::new(pool, 2);
+        let running = Arc::new(AtomicUsize::new(0));
+        let most = Arc::new(AtomicUsize::new(0));
+        let order = Arc::new(Mutex::new(Vec::new()));
+        // Artwork queued first, as a big file's waveform and filmstrip are
+        // when the posters of the next files come in behind them.
+        for index in 0..2 {
+            let order = Arc::clone(&order);
+            prefetcher.submit(Priority::Artwork, move || {
+                order.lock().unwrap().push(format!("art-{index}"));
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            });
+        }
+        for index in 0..4 {
+            let running = Arc::clone(&running);
+            let most = Arc::clone(&most);
+            let order = Arc::clone(&order);
+            prefetcher.submit(Priority::Poster, move || {
+                order.lock().unwrap().push(format!("poster-{index}"));
+                let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                most.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                running.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+        prefetcher.drain();
+        assert_eq!(most.load(Ordering::SeqCst), 2, "posters ran side by side");
+        // The one artwork job a worker may have taken before the posters
+        // were queued starts where it starts; the other waits for them all.
+        let order = order.lock().unwrap().clone();
+        assert_eq!(order.last().map(String::as_str), Some("art-1"), "{order:?}");
     }
 
     /// With two workers, one is kept clear of background work: two

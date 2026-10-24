@@ -60,9 +60,10 @@ use crate::format::{
 };
 use crate::grading;
 use crate::host::{
-    CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
-    image_of, media_art, on_ui_in_project, spawn, spawn_art, spawn_in_project, spawn_strip,
-    strip_window, window_art, window_span, window_start,
+    CachedStrip, Host, MediaArt, MediaPoster, WindowArt, cached_media_art, cached_window_art,
+    image_at, image_of, media_peaks, media_poster, media_strip, on_ui_in_project, spawn, spawn_art,
+    spawn_in_project, spawn_poster, spawn_strip, spawn_wave, strip_window, window_art, window_span,
+    window_start,
 };
 use crate::i18n::{self, t, tf};
 use crate::keymap;
@@ -1115,6 +1116,31 @@ fn art_key(media_id: &str, stream: Option<u32>) -> String {
     match stream {
         None => media_id.to_owned(),
         Some(index) => format!("{media_id}#{index}"),
+    }
+}
+
+/// The key a media item's card picture is pending or failed under.
+fn poster_key(media_id: &str) -> String {
+    format!("{media_id}#poster")
+}
+
+/// The key a media item's own filmstrip is pending or failed under.
+fn strip_key(media_id: &str) -> String {
+    format!("{media_id}#strip")
+}
+
+/// What of a media item's own art is still to be decoded; see
+/// `Studio::missing_art`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MissingArt {
+    poster: bool,
+    strip: bool,
+    peaks: bool,
+}
+
+impl MissingArt {
+    fn any(self) -> bool {
+        self.poster || self.strip || self.peaks
     }
 }
 
@@ -3399,16 +3425,17 @@ impl Studio {
             );
             self.proxied.insert(id);
         }
-        /// One job: the art key it fills, and what to decode.
+        /// A media item whose own art is missing, or another of its audio
+        /// streams whose waveform a clip plays.
         struct Want {
-            key: String,
             id: String,
             path: String,
             kind: model::MediaKind,
             has_audio: bool,
             duration: Option<f64>,
+            /// The stream whose waveform alone is wanted, or `None` for
+            /// the item's own art: its picture, filmstrip and waveform.
             stream: Option<u32>,
-            pictures: bool,
             /// The levels the file is read as, so the filmstrip reads the
             /// proxy written for that reading.
             range: Option<concat_media::ColorRange>,
@@ -3418,31 +3445,19 @@ impl Studio {
             .media
             .iter()
             .filter(|item| !item.placeholder && !item.path.is_empty())
-            .filter(|item| {
-                !self.art_pending.contains(&item.id) && !self.art_failed.contains(&item.id)
-            })
-            .filter(|item| {
-                let needs_thumb = item.kind != model::MediaKind::Audio
-                    && (!self.media.thumbs.contains_key(&item.id)
-                        || !self.strips.contains_key(&item.id));
-                let needs_peaks = (item.kind == model::MediaKind::Audio || item.has_audio)
-                    && !self.peaks.contains_key(&item.id);
-                needs_thumb || needs_peaks
-            })
+            .filter(|item| self.missing_art(&item.id, item.kind, item.has_audio).any())
             .map(|item| Want {
-                key: item.id.clone(),
                 id: item.id.clone(),
                 path: item.path.clone(),
                 kind: item.kind,
                 has_audio: item.has_audio,
                 duration: item.duration,
                 stream: None,
-                pictures: item.kind != model::MediaKind::Audio,
                 range: item.color_range.map(concat_export::engine_range),
             })
             .collect();
         // The other streams clips have chosen, once each.
-        let mut asked: HashSet<String> = wanted.iter().map(|want| want.key.clone()).collect();
+        let mut asked: HashSet<String> = HashSet::new();
         for clip in project
             .timelines
             .iter()
@@ -3464,40 +3479,53 @@ impl Studio {
             if self.peaks.contains_key(&key)
                 || self.art_pending.contains(&key)
                 || self.art_failed.contains(&key)
-                || !asked.insert(key.clone())
+                || !asked.insert(key)
             {
                 continue;
             }
             wanted.push(Want {
-                key,
                 id: item.id.clone(),
                 path: item.path.clone(),
                 kind: item.kind,
                 has_audio: item.has_audio,
                 duration: item.duration,
                 stream: Some(stream),
-                pictures: false,
                 range: item.color_range.map(concat_export::engine_range),
             });
         }
+        // Each piece of art is a job of its own, on the scheduler's lane
+        // for it (see host.rs): the cards' pictures first and on every
+        // worker, then the waveforms, then the filmstrips, a few at a
+        // time. A card shows its picture the moment its one frame is
+        // decoded, never after a filmstrip - its own, or those of every
+        // file imported before it.
         for want in wanted {
             let Want {
-                key,
                 id,
                 path,
                 kind,
                 has_audio,
                 duration,
                 stream,
-                mut pictures,
                 range,
             } = want;
+            let project = project_path.clone();
+
+            if let Some(stream) = stream {
+                self.art_pending.insert(art_key(&id, Some(stream)));
+                spawn_wave(
+                    move || media_peaks(id, path, project, Some(stream)),
+                    Self::peaks_landed,
+                );
+                continue;
+            }
 
             // Restore pictures from the project's JPEG artwork cache before
             // starting a decoder. Peaks already have their own disk cache in
             // concat-media; thumbnails and filmstrips are what used to be
             // recreated on every project open.
-            if stream.is_none() && kind != model::MediaKind::Audio {
+            let mut missing = self.missing_art(&id, kind, has_audio);
+            if missing.poster || missing.strip {
                 let cached = cached_media_art(&project_path, &id, &path, kind);
                 if let Some(image) = cached.thumbnail {
                     self.media.thumbs.insert(id.clone(), image);
@@ -3505,50 +3533,100 @@ impl Studio {
                 if let Some(strip) = cached.strip {
                     self.strips.insert(id.clone(), strip.into());
                 }
-                pictures = !self.media.thumbs.contains_key(&id) || !self.strips.contains_key(&id);
+                missing = self.missing_art(&id, kind, has_audio);
             }
 
-            let needs_peaks =
-                (kind == model::MediaKind::Audio || has_audio) && !self.peaks.contains_key(&key);
-            if !pictures && !needs_peaks {
-                continue;
+            if missing.poster {
+                self.art_pending.insert(poster_key(&id));
+                let (id, path, project) = (id.clone(), path.clone(), project.clone());
+                spawn_poster(
+                    move || media_poster(id, path, kind, duration, project),
+                    |studio, _, _, poster: MediaPoster| {
+                        let key = poster_key(&poster.id);
+                        studio.art_pending.remove(&key);
+                        match poster.thumbnail {
+                            Some(frame) => {
+                                studio
+                                    .media
+                                    .thumbs
+                                    .insert(poster.id.clone(), image_of(&frame));
+                            }
+                            None => {
+                                studio.art_failed.insert(key);
+                            }
+                        }
+                        if let Some((frame, frames)) = poster.strip {
+                            studio.strips.insert(poster.id, Strip::of(&frame, frames));
+                        }
+                    },
+                );
             }
-
-            self.art_pending.insert(key);
-            let project = project_path.clone();
-            // On the artwork lane, a few at a time - see host.rs.
-            spawn_art(
-                move || {
-                    media_art(
-                        id, path, kind, has_audio, duration, project, stream, pictures, range,
-                    )
-                },
-                |studio, _, _, art: MediaArt| {
-                    let key = art_key(&art.id, art.stream);
-                    studio.art_pending.remove(&key);
-                    if art.thumbnail.is_none() && art.strip.is_none() && art.peaks.is_none() {
-                        studio.art_failed.insert(key.clone());
-                    }
-                    if let Some(frame) = art.thumbnail {
-                        studio.media.thumbs.insert(art.id.clone(), image_of(&frame));
-                    }
-                    if let Some((frame, frames)) = art.strip {
-                        studio
-                            .strips
-                            .insert(art.id.clone(), Strip::of(&frame, frames));
-                    }
-                    if let Some(peaks) = art.peaks {
-                        let prefix = format!("{key}|");
-                        studio.peaks.insert(key, peaks);
-                        studio
-                            .waves
-                            .borrow_mut()
-                            .retain(|key, _| !key.starts_with(&prefix));
-                    }
-                },
-            );
+            if missing.peaks {
+                self.art_pending.insert(art_key(&id, None));
+                let (id, path, project) = (id.clone(), path.clone(), project.clone());
+                spawn_wave(
+                    move || media_peaks(id, path, project, None),
+                    Self::peaks_landed,
+                );
+            }
+            if missing.strip {
+                self.art_pending.insert(strip_key(&id));
+                spawn_art(
+                    move || media_strip(id, path, project, range),
+                    |studio, _, _, art: MediaArt| {
+                        let key = strip_key(&art.id);
+                        studio.art_pending.remove(&key);
+                        match art.strip {
+                            Some((frame, frames)) => {
+                                studio.strips.insert(art.id, Strip::of(&frame, frames));
+                            }
+                            None => {
+                                studio.art_failed.insert(key);
+                            }
+                        }
+                    },
+                );
+            }
         }
         self.request_window_art();
+    }
+
+    /// What of media item `id`'s own art is neither held, nor being made,
+    /// nor known not to come: its card's picture (a still's is its
+    /// filmstrip too), its filmstrip, its first stream's waveform.
+    fn missing_art(&self, id: &str, kind: model::MediaKind, has_audio: bool) -> MissingArt {
+        let open = |key: &str| !self.art_pending.contains(key) && !self.art_failed.contains(key);
+        MissingArt {
+            poster: kind != model::MediaKind::Audio
+                && (!self.media.thumbs.contains_key(id)
+                    || (kind == model::MediaKind::Image && !self.strips.contains_key(id)))
+                && open(&poster_key(id)),
+            strip: kind == model::MediaKind::Video
+                && !self.strips.contains_key(id)
+                && open(&strip_key(id)),
+            peaks: (kind == model::MediaKind::Audio || has_audio)
+                && !self.peaks.contains_key(id)
+                && open(&art_key(id, None)),
+        }
+    }
+
+    /// A waveform decoded on a worker, in its place: the drawn envelopes
+    /// made from the one before it, if any, go with it.
+    fn peaks_landed(&mut self, _: &App, _: &Models, art: MediaArt) {
+        let key = art_key(&art.id, art.stream);
+        self.art_pending.remove(&key);
+        match art.peaks {
+            Some(peaks) => {
+                let prefix = format!("{key}|");
+                self.peaks.insert(key, peaks);
+                self.waves
+                    .borrow_mut()
+                    .retain(|key, _| !key.starts_with(&prefix));
+            }
+            None => {
+                self.art_failed.insert(key);
+            }
+        }
     }
 
     /// Decodes a cell strip for every picture clip on the current timeline

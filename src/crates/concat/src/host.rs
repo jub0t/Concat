@@ -304,6 +304,24 @@ pub fn spawn_art<T: Send + 'static>(
     spawn_at(concat_media::Priority::Artwork, work, then);
 }
 
+/// Like [`spawn_art`], at the poster priority: a card's picture, ahead
+/// of every waveform and filmstrip, and on any free worker.
+pub fn spawn_poster<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    spawn_at(concat_media::Priority::Poster, work, then);
+}
+
+/// Like [`spawn_art`], at the waveform priority: after the posters and
+/// ahead of the files' filmstrips.
+pub fn spawn_wave<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    spawn_at(concat_media::Priority::Waveform, work, then);
+}
+
 /// Like [`spawn_art`], at the filmstrip priority: the lanes' pictures
 /// come before the bin's, after the monitor's.
 pub fn spawn_strip<T: Send + 'static>(
@@ -695,7 +713,20 @@ pub fn probe_error(error: &str) -> String {
     format!("Could not import: {error}")
 }
 
-/// The still and the peaks for one media item, decoded on a worker.
+/// A media item's card picture, decoded on a worker ahead of the rest of
+/// its art: what an import is waiting to see. See [`media_poster`].
+pub struct MediaPoster {
+    /// The media id the picture belongs to.
+    pub id: String,
+    /// A small frame of the footage or the still. A frame rather than an
+    /// image: a Slint image cannot cross a thread, and this is made on one.
+    pub thumbnail: Option<concat_core::frame::Frame>,
+    /// A still's filmstrip, which is its picture: a strip of one. `None`
+    /// for footage, whose strip is sampled across it by [`media_strip`].
+    pub strip: Option<(concat_core::frame::Frame, u32)>,
+}
+
+/// The waveform or the filmstrip of one media item, decoded on a worker.
 pub struct MediaArt {
     /// The media id the art belongs to.
     pub id: String,
@@ -703,13 +734,10 @@ pub struct MediaArt {
     /// which is the media's own art, or a named one a clip plays. Named
     /// streams get peaks only, never a picture.
     pub stream: Option<u32>,
-    /// A small first frame, for footage and stills. A frame rather than an
-    /// image: a Slint image cannot cross a thread, and this is made on one.
-    pub thumbnail: Option<concat_core::frame::Frame>,
-    /// The waveform, for anything with sound.
+    /// The waveform, when it was asked for and the file has sound.
     pub peaks: Option<Arc<concat_media::Pyramid>>,
     /// Frames sampled evenly across the footage, side by side in one
-    /// picture, and how many there are. A still is a strip of one.
+    /// picture, and how many there are, when it was asked for.
     pub strip: Option<(concat_core::frame::Frame, u32)>,
 }
 
@@ -721,70 +749,47 @@ pub struct MediaArt {
 const STRIP_FRAMES: u32 = 24;
 const STRIP_HEIGHT: u32 = 64;
 
-/// Decodes the art for one media item. `project` is where the peaks cache
-/// lives. With a `stream` named, only that stream's peaks: the pictures are
-/// the media's, made once with the default stream's peaks.
-pub fn media_art(
+/// How wide a card's picture is decoded: about twice the card, for a
+/// sharp picture on a dense screen.
+const POSTER_WIDTH: u32 = 160;
+
+/// Where in the footage a card's picture is taken: a quarter of the way
+/// in, and no further than two seconds - past the black leader so many
+/// files open on, and near enough the top to be quick to reach. A
+/// still's only picture is its first.
+fn poster_instant(kind: concat_project::model::MediaKind, duration: Option<f64>) -> f64 {
+    if kind == concat_project::model::MediaKind::Image {
+        return 0.0;
+    }
+    duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0))
+}
+
+/// Decodes the card picture for one media item - one small frame - and
+/// files it in the project's artwork cache.
+///
+/// On its own and first, at the scheduler's poster priority, so a card
+/// shows its picture the moment that frame is decoded: not after the
+/// file's waveform and filmstrip, and not after every file imported
+/// before it has had all of its art made, which on a 4K file is seconds
+/// of filmstrip. A still's picture is its filmstrip too.
+pub fn media_poster(
     id: String,
     path: String,
     kind: concat_project::model::MediaKind,
-    has_audio: bool,
     duration: Option<f64>,
     project: String,
-    stream: Option<u32>,
-    pictures: bool,
-    range: Option<concat_media::ColorRange>,
-) -> MediaArt {
+) -> MediaPoster {
     use concat_project::model::MediaKind;
-    if stream.is_some() {
-        return MediaArt {
-            id,
-            stream,
-            thumbnail: None,
-            peaks: media::peaks(&path, stream, Some(&project))
-                .ok()
-                .map(|peaks| Arc::new(concat_media::Pyramid::of(peaks))),
-            strip: None,
-        };
-    }
-    let thumbnail = if pictures {
-        match kind {
-            MediaKind::Video | MediaKind::Image => {
-                // Within the first two seconds, so the walk from the keyframe
-                // before it is at most those two seconds of frames.
-                let at = duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0));
-                media::still_at(&path, if kind == MediaKind::Image { 0.0 } else { at }, 160).ok()
-            }
-            MediaKind::Audio => None,
+    let thumbnail = match kind {
+        MediaKind::Video | MediaKind::Image => {
+            media::still_at(&path, poster_instant(kind, duration), POSTER_WIDTH).ok()
         }
-    } else {
-        None
+        MediaKind::Audio => None,
     };
-    let peaks = (kind == MediaKind::Audio || has_audio)
-        .then(|| {
-            media::peaks(&path, None, Some(&project))
-                .ok()
-                .map(|peaks| Arc::new(concat_media::Pyramid::of(peaks)))
-        })
+    let strip = (kind == MediaKind::Image)
+        .then(|| thumbnail.clone().map(|frame| (frame, 1)))
         .flatten();
-    // The filmstrip reads the proxy where the file has one: the tiles are
-    // small, and a 4K file's frames cost more than they show.
-    let strip_source = concat_host::proxy::existing(std::path::Path::new(&project), &path, range)
-        .map(|proxy| proxy.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.clone());
-    let strip = if pictures {
-        match kind {
-            MediaKind::Video => media::filmstrip(&strip_source, STRIP_FRAMES, STRIP_HEIGHT)
-                .ok()
-                .map(|frame| (frame, STRIP_FRAMES)),
-            MediaKind::Image => thumbnail.clone().map(|frame| (frame, 1)),
-            MediaKind::Audio => None,
-        }
-    } else {
-        None
-    };
-
-    if pictures {
+    if thumbnail.is_some() {
         save_media_art_cache(
             &project,
             &id,
@@ -793,12 +798,50 @@ pub fn media_art(
             strip.as_ref().map(|(frame, frames)| (frame, *frames)),
         );
     }
+    MediaPoster {
+        id,
+        thumbnail,
+        strip,
+    }
+}
 
+/// Decodes the waveform of one of a media item's audio streams - its
+/// first with `stream` `None` - from the project's peaks cache when it
+/// is there.
+pub fn media_peaks(id: String, path: String, project: String, stream: Option<u32>) -> MediaArt {
+    MediaArt {
+        peaks: media::peaks(&path, stream, Some(&project))
+            .ok()
+            .map(|peaks| Arc::new(concat_media::Pyramid::of(peaks))),
+        id,
+        stream,
+        strip: None,
+    }
+}
+
+/// Decodes the filmstrip of a piece of footage, sampled across the whole
+/// of it, and files it in the project's artwork cache.
+pub fn media_strip(
+    id: String,
+    path: String,
+    project: String,
+    range: Option<concat_media::ColorRange>,
+) -> MediaArt {
+    // The filmstrip reads the proxy where the file has one: the tiles are
+    // small, and a 4K file's frames cost more than they show.
+    let strip_source = concat_host::proxy::existing(std::path::Path::new(&project), &path, range)
+        .map(|proxy| proxy.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.clone());
+    let strip = media::filmstrip(&strip_source, STRIP_FRAMES, STRIP_HEIGHT)
+        .ok()
+        .map(|frame| (frame, STRIP_FRAMES));
+    if let Some((frame, frames)) = &strip {
+        save_media_art_cache(&project, &id, &path, None, Some((frame, *frames)));
+    }
     MediaArt {
         id,
         stream: None,
-        thumbnail,
-        peaks,
+        peaks: None,
         strip,
     }
 }
