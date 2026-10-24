@@ -1165,11 +1165,7 @@ pub fn render_on(
         })
     });
 
-    let timeline_end = resolved
-        .iter()
-        .map(|clip| clip.start + clip.duration)
-        .fold(0.0f64, f64::max);
-    let total_frames = (timeline_end * rate.fps().as_f64()).round() as i64;
+    let (timeline_end, total_frames) = timeline_extent(&resolved, rate, request.effect_time_offset);
     if total_frames <= 0 {
         return Err("the timeline is empty".to_owned());
     }
@@ -1216,7 +1212,8 @@ pub fn render_on(
             reporter.cancelled()?;
             reporter.emit(0, total_frames, "mixing audio");
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
-            audio::mix_to_file(&mix, timeline_end, &mixed).map_err(|error| error.to_string())?;
+            audio::mix_to_file(&mix, timeline_end.as_f64(), &mixed)
+                .map_err(|error| error.to_string())?;
 
             reporter.cancelled()?;
             reporter.emit(total_frames, total_frames, "muxing");
@@ -1232,6 +1229,24 @@ pub fn render_on(
     let _ = std::fs::remove_file(&muxed);
 
     result.map(|()| output.to_string_lossy().into_owned())
+}
+
+/// The timeline's end and how many frames it runs for, on the frame grid the
+/// engine quantises every clip onto: a clip's start and its duration are each
+/// rounded to that grid separately on the way into the timeline, so the
+/// timeline the frames are drawn from can run a frame past - or stop a frame
+/// short of - what the f64 seconds add up to, whose own whole rounding is a
+/// third answer again. A clip starting half a frame in and running a further
+/// half-frame count lost the last frame of the last clip that way; a pair
+/// that rounds down at both ends gained a black one after it. The mix takes
+/// the same end, so the muxer joins two tracks of one length.
+fn timeline_extent(clips: &[ExportClip], rate: FrameRate, origin: f64) -> (Rational, i64) {
+    let end = clips
+        .iter()
+        .map(|clip| quantise_at(clip.start, rate, origin) + quantise(clip.duration, rate))
+        .max()
+        .unwrap_or(Rational::ZERO);
+    (end, rate.frames_in(end))
 }
 
 /// The clip's gain track, or an empty one when its gain is the single number
@@ -3866,5 +3881,25 @@ mod tests {
         resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].start, 2.0);
         assert!(clips[1].transition_shapes.is_empty());
+    }
+
+    /// The exported frame count is the timeline's own, not the f64 seconds'
+    /// rounded whole. A clip's start and its duration are each rounded to the
+    /// frame grid on the way into the timeline, and the sum rounded once
+    /// disagrees a frame either side: half a frame under half a frame lost the
+    /// last frame of the last clip - the engine drew to frame 301, the export
+    /// stopped at 300 - and a pair that rounds down at both ends gained a
+    /// black frame after everything ended.
+    #[test]
+    fn the_exported_frame_count_is_the_timelines_own() {
+        let half = vec![clip("video", 0, 3.5 / 30.0, 296.5 / 30.0, 0.0)];
+        let (end, frames) = timeline_extent(&half, FrameRate::THIRTY, 0.0);
+        assert_eq!(end, Rational::new(301, 30));
+        assert_eq!(frames, 301, "the last frame of the last clip is drawn");
+
+        let down = vec![clip("video", 0, 3.4 / 30.0, 296.4 / 30.0, 0.0)];
+        let (end, frames) = timeline_extent(&down, FrameRate::THIRTY, 0.0);
+        assert_eq!(end, Rational::new(299, 30));
+        assert_eq!(frames, 299, "no black frame past the end");
     }
 }
