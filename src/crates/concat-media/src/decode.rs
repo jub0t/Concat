@@ -641,6 +641,12 @@ pub struct Decoder {
     /// The seek whose landing is still to be checked; see
     /// [`Decoder::retreat`].
     landing: Option<Landing>,
+    /// The last picture short of a seek's target, kept back in case none
+    /// lands on the target itself; see [`Decoder::next_source`].
+    short: Option<Video>,
+    /// A picture already out of the codec, to be handed on next: the one
+    /// past the target that sent the kept-back picture out first.
+    stashed: Option<Video>,
     /// Where the codec runs when it is not on the CPU, or `None` in
     /// software, which is also where a failed device ends.
     hardware: Option<OnChip>,
@@ -851,6 +857,8 @@ impl Decoder {
             discard_before: None,
             discard_through: None,
             landing: None,
+            short: None,
+            stashed: None,
             hardware: accelerated,
             held: None,
             fed: false,
@@ -969,6 +977,8 @@ impl Decoder {
         self.hardware = None;
         self.held = None;
         self.fed = false;
+        self.short = None;
+        self.stashed = None;
         if !self.options.keyframes_only {
             if after {
                 self.discard_through = Some(at);
@@ -1099,7 +1109,19 @@ impl Decoder {
             self.fed = false;
         }
         self.held = None;
+        self.short = None;
+        self.stashed = None;
         Ok(())
+    }
+
+    /// One tick of the stream's clock, and never more than a millisecond:
+    /// how far past an instant a frame meant for it can be stamped by a
+    /// container that rounds - Matroska, WebM, FLV and ASF to whole
+    /// milliseconds - without being taken for the frame after it.
+    fn slack(&self) -> Rational {
+        ffi::seconds(1, self.time_base)
+            .unwrap_or(Rational::ZERO)
+            .min(Rational::new(1, 1000))
     }
 
     /// The container seek, and the state reset that goes with it.
@@ -1113,6 +1135,8 @@ impl Decoder {
             self.fed = false;
         }
         self.held = None;
+        self.short = None;
+        self.stashed = None;
         // Keyframes only: the picture the container landed on is the one
         // wanted, and discarding up to the target would throw it away and
         // wait for the *next* keyframe, a whole group of pictures late.
@@ -1129,26 +1153,40 @@ impl Decoder {
     }
 
     /// The next picture out of the codec, or `None` at the end of the file.
-    /// Frames before the discard point never come out of here, and a frame
-    /// from a hwaccel device is copied back to memory before it does.
+    /// After a seek the first is the picture on screen at the target: the
+    /// one stamped there, or the last one before it when none is - frames
+    /// before that never come out of here. A frame from a hwaccel device is
+    /// copied back to memory before it does.
     fn next_source(&mut self) -> Result<Option<Source>> {
         loop {
             // Packets for other streams are skipped; the end of the file
             // drains the codec so its last few frames come out at all; a
             // packet the codec refuses while full is kept and sent again.
-            self.fed = true;
-            let read = || feed::read_packet(&mut self.input, self.stream);
-            let mut frame = match feed::next_frame(&mut self.decoder, &mut self.held, read) {
+            let decoded = match self.stashed.take() {
+                Some(frame) => Ok(Some(frame)),
+                None => {
+                    self.fed = true;
+                    let read = || feed::read_packet(&mut self.input, self.stream);
+                    feed::next_frame(&mut self.decoder, &mut self.held, read)
+                }
+            };
+            let mut frame = match decoded {
                 Ok(Some(frame)) => frame,
                 // Nothing at all after a seek: the container landed past
                 // the end of the picture stream, not on the keyframe asked
                 // for.
-                Ok(None) => match self.landing.take() {
-                    Some(landing) => {
+                Ok(None) => match (self.landing.take(), self.short.take()) {
+                    (Some(landing), _) => {
                         self.retreat(landing)?;
                         continue;
                     }
-                    None => return Ok(None),
+                    // The picture ended short of the target: its last frame
+                    // is the one on screen there.
+                    (None, Some(short)) => {
+                        self.discard_before = None;
+                        short
+                    }
+                    (None, None) => return Ok(None),
                 },
                 Err(feed::Stall::Read(error)) => return Err(ffi::fail("read", &self.path, error)),
                 Err(stall) if self.hardware.is_some() => {
@@ -1167,34 +1205,49 @@ impl Decoder {
                 }
                 Err(stall) => return Err(feed::fail(stall, &self.path)),
             };
-            let pts = frame
-                .timestamp()
-                .and_then(|ticks| ffi::seconds(ticks, self.time_base))
-                .map(|pts| pts - self.start);
+            let stamp = |frame: &Video| {
+                frame
+                    .timestamp()
+                    .and_then(|ticks| ffi::seconds(ticks, self.time_base))
+                    .map(|pts| pts - self.start)
+            };
+            let mut pts = stamp(&frame);
             // The first picture after a seek is the keyframe it landed on.
             // One later than the target - by more than a tick of the
             // stream's clock, which a container that rounds to milliseconds
             // can put a frame past its true instant, and never more than a
             // millisecond, which a clock as coarse as the frames would be -
             // means the picture on screen at the target was skipped.
-            if let Some(landing) = self.landing.take() {
-                let slack = ffi::seconds(1, self.time_base)
-                    .unwrap_or(Rational::ZERO)
-                    .min(Rational::new(1, 1000));
-                if pts.is_some_and(|pts| pts > landing.target + slack) {
-                    self.retreat(landing)?;
-                    continue;
-                }
+            if let Some(landing) = self.landing.take()
+                && pts.is_some_and(|pts| pts > landing.target + self.slack())
+            {
+                self.retreat(landing)?;
+                continue;
             }
             // A frame short of a seek's target is let go before it is copied
             // off the chip: a seek decodes from the keyframe before it, up
             // to a second or more of frames, and a full-size copy back of
             // each one it throws away made every scrub on a Windows GPU
-            // decoder wait for all of them (#472).
-            if let (Some(before), Some(pts)) = (self.discard_before, pts)
-                && pts < before
-            {
-                continue;
+            // decoder wait for all of them (#472). The last of them is kept
+            // back, uncopied: when the next frame is past the target, no
+            // frame sits on it - a variable-rate recording that holds a
+            // still screen for seconds, a phone clip whose frames drift off
+            // the grid - and the picture on screen there is the one before.
+            // Handing on the next instead showed, after any seek into such
+            // a pause, the picture from after it, seconds early (#457).
+            if let (Some(before), Some(at)) = (self.discard_before, pts) {
+                if at < before {
+                    self.short = Some(frame);
+                    continue;
+                }
+                if at > before + self.slack()
+                    && let Some(short) = self.short.take()
+                {
+                    self.stashed = Some(frame);
+                    frame = short;
+                    pts = stamp(&frame);
+                }
+                self.short = None;
             }
             if let (Some(through), Some(pts)) = (self.discard_through, pts)
                 && pts <= through
@@ -1570,6 +1623,48 @@ mod tests {
             (19..=24).contains(&white),
             "{white} of 64 columns are white, not a third"
         );
+    }
+
+    /// A variable-rate recording that holds a still screen has no frame
+    /// for the length of the pause. A seek into it lands on the picture on
+    /// screen there - the last one before the pause - and not on the first
+    /// one after it, seconds early. The fixture is white to 0.3 s, then has
+    /// no frame until black starts at 2 s (#457).
+    #[test]
+    fn a_seek_into_a_still_screen_shows_the_picture_held_there() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/vfr-still-screen.mp4");
+        let brightness = |frame: &Frame| frame.pixels()[0];
+        let at = Rational::from_int(1);
+        let options = DecodeOptions::default().in_software();
+        let mut opened = Decoder::open(path, &options.clone().starting_at(at)).expect("opens");
+        let held = opened.next_frame().expect("decodes").expect("a frame");
+        assert!(
+            brightness(&held) > 200,
+            "the pause shows the white before it"
+        );
+        assert_eq!(opened.position(), Some(Rational::new(8, 30)));
+        let next = opened.next_frame().expect("decodes").expect("a frame");
+        assert!(brightness(&next) < 50, "and the black after it comes next");
+        assert_eq!(opened.position(), Some(Rational::from_int(2)));
+
+        let mut paced = Decoder::open(
+            path,
+            &options.clone().starting_at(at).at_rate(FrameRate::THIRTY),
+        )
+        .expect("opens paced");
+        let frames = drain(&mut paced);
+        assert_eq!(frames.len(), 39, "1 s to 2.3 s at 30 fps");
+        let white = frames
+            .iter()
+            .take_while(|(_, frame)| brightness(frame) > 200);
+        assert_eq!(white.count(), 30, "white until the black starts at 2 s");
+
+        // Past the last frame, the last frame is the one on screen.
+        let mut late =
+            Decoder::open(path, &options.starting_at(Rational::from_int(5))).expect("opens");
+        let last = late.next_frame().expect("decodes").expect("the last frame");
+        assert!(brightness(&last) < 50);
+        assert_eq!(late.position(), Some(Rational::new(68, 30)));
     }
 
     /// A WebM alpha layer is a second plane the built-in decoders do not
