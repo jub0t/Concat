@@ -828,10 +828,17 @@ impl WgpuCompositor {
         // CONCAT_GPU=software - set by hand, or by a safe start after a
         // launch the GPU's driver killed - keeps the compositor off the GPU
         // too, so an export or a card does not meet that driver either.
-        let software_only = software_only
-            || std::env::var("CONCAT_GPU")
-                .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
-        let own = if cfg!(target_vendor = "apple") {
+        // Not on Android, where a safe start means OpenGL ES rather than
+        // Vulkan (#507): a phone has no software adapter, and reading it as
+        // "software alone" left the monitor and every export with nothing
+        // to draw on for the rest of the build. There it asks for GL first.
+        let safe = std::env::var("CONCAT_GPU")
+            .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
+        let android = cfg!(target_os = "android");
+        let software_only = software_only || (safe && !android);
+        let own = if android && safe {
+            wgpu::Backends::GL
+        } else if cfg!(target_vendor = "apple") {
             wgpu::Backends::METAL
         } else if cfg!(windows) {
             wgpu::Backends::DX12
