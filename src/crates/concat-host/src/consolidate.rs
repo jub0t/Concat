@@ -262,7 +262,9 @@ mod tests {
         );
         layer
             .filters
-            .push(concat_project::model::AppliedFilter::new("concat.telephone"));
+            .push(concat_project::model::AppliedFilter::new(
+                "concat.telephone",
+            ));
         layer.opacity = 0.5;
         layer.fade_in = 0.1;
         layer.fade_out = 0.2;

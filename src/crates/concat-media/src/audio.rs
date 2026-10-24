@@ -1325,8 +1325,7 @@ mod tests {
 
     #[test]
     fn wav_merge_bounds_a_clip_shorter_than_its_first_decoded_frame() {
-        let folder =
-            std::env::temp_dir().join(format!("concat-short-wav-{}", std::process::id()));
+        let folder = std::env::temp_dir().join(format!("concat-short-wav-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
         let source = folder.join("tone.wav");
         let output = folder.join("merged.wav");
