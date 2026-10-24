@@ -361,6 +361,7 @@ fn segment_options() -> EncodeOptions {
         color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 2,
+        software_only: false,
     }
 }
 
@@ -377,6 +378,7 @@ fn copy_options() -> EncodeOptions {
         color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 2,
+        software_only: false,
     }
 }
 

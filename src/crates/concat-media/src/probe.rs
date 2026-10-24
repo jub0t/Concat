@@ -353,6 +353,7 @@ mod tests {
             color_range: crate::ColorRange::Limited,
             hardware: false,
             threads: 0,
+            software_only: false,
         };
         let rate = FrameRate::from_int(25);
         for (name, hdr, want) in [

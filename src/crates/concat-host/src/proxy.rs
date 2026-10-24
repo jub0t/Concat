@@ -238,6 +238,7 @@ pub fn write(
         // media engine does it for nothing where there is one.
         hardware: hdr,
         threads: 2,
+        software_only: false,
     };
     let mut encoder = if hdr {
         Encoder::create_hdr(&partial, width, height, rate, &encoding, signal)

@@ -255,6 +255,7 @@
   "export.output": "Ausgabe",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "Läuft überall",
+  "export.renderingInSoftware": "Wird mit dem langsameren Encoder neu gerendert",
   "export.renderingVideo": "Video wird gerendert",
   "export.replace": "Ersetzen",
   "export.replaceFileMessage": "{0} ist schon da. Der Export ersetzt sie.",

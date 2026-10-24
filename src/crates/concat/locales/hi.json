@@ -255,6 +255,7 @@
   "export.output": "आउटपुट",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "हर जगह चलता है",
+  "export.renderingInSoftware": "धीमे एन्कोडर पर फिर से रेंडर हो रहा है",
   "export.renderingVideo": "वीडियो रेंडर हो रहा है",
   "export.replace": "बदलें",
   "export.replaceFileMessage": "{0} पहले से मौजूद है। एक्सपोर्ट करने पर यह बदल जाएगी।",

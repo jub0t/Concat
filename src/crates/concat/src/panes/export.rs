@@ -195,6 +195,12 @@ impl ExportPane {
             }
             ExportMsg::Progress { fraction, stage } => {
                 if self.phase == ExportPhase::Running {
+                    // Gone back: the export started again from its first
+                    // frame on the slower encoder, and the time left is
+                    // reckoned from there.
+                    if fraction < self.progress {
+                        self.started_at = Some(std::time::Instant::now());
+                    }
                     self.progress = fraction.clamp(0.0, 1.0);
                     self.stage = stage;
                 }
@@ -471,6 +477,17 @@ impl ExportPane {
         request.rate_den = den;
 
         studio.pause();
+        // The monitor's readers that sit idle are closed now rather than
+        // ten seconds on by the sweep: on a phone up to three of them hold
+        // MediaCodec decoder sessions, which the chip has few of and its
+        // encoder and the export's own decoders need. A reader comes back
+        // on the next frame the monitor asks of it; the cached frames stay.
+        let closed = concat_host::scheduler()
+            .pool()
+            .close_idle(std::time::Duration::ZERO);
+        if closed > 0 {
+            log::info!("export: closed {closed} idle preview decoder(s) before starting");
+        }
         self.phase = ExportPhase::Running;
         self.progress = 0.0;
         self.stage = t("export.renderingVideo");
@@ -498,6 +515,7 @@ impl ExportPane {
                     };
                     let stage = match progress.stage {
                         "rendering" => t("export.renderingVideo"),
+                        concat_export::RENDERING_IN_SOFTWARE => t("export.renderingInSoftware"),
                         "mixing audio" => t("export.mixingAudio"),
                         "muxing" => t("export.finalisingFile"),
                         other => other.to_owned(),

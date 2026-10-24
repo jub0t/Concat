@@ -255,6 +255,7 @@
   "export.output": "출력",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "어디서나 재생",
+  "export.renderingInSoftware": "더 느린 인코더로 다시 렌더링 중",
   "export.renderingVideo": "영상 렌더링 중",
   "export.replace": "바꾸기",
   "export.replaceFileMessage": "{0} 이(가) 이미 있습니다. 내보내면 바뀝니다.",

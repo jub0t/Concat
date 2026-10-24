@@ -255,6 +255,7 @@
   "export.output": "Çıxış",
   "export.photosNotAllowed": "Concat-ın Şəkillər tətbiqinə fayl əlavə etməyə icazəsi yoxdur; icazəni Parametrlər › Concat › Şəkillər bölməsindən verin",
   "export.playsEverywhere": "Hər yerdə oynayır",
+  "export.renderingInSoftware": "Daha yavaş kodlayıcı ilə yenidən render olunur",
   "export.renderingVideo": "Video render olunur",
   "export.replace": "Əvəz et",
   "export.replaceFileMessage": "{0} artıq mövcuddur. İxrac onu əvəz edəcək.",

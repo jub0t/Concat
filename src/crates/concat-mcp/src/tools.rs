@@ -36,14 +36,15 @@ const WAIT_LONGEST: f64 = 600.0;
 const STAGES: usize = 5;
 
 /// Where a stage comes in an export, from 0. A job's status names the
-/// stage the exporter reports - "rendering", "mixing audio", "muxing" -
-/// and the API's documentation names them "video", "audio" and "mux"; both
+/// stage the exporter reports - "rendering" (or "rendering in software",
+/// going again after the hardware encoder stopped), "mixing audio",
+/// "muxing" - and the API's documentation names them "video", "audio" and "mux"; both
 /// are known here, and one this does not know counts as the first.
 fn stage_place(stage: &str) -> usize {
     match stage {
         "cutout" => 0,
         "stabilize" => 1,
-        "video" | "rendering" => 2,
+        "video" | "rendering" | "rendering in software" => 2,
         "audio" | "mixing audio" => 3,
         "mux" | "muxing" => 4,
         _ => 0,

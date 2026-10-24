@@ -255,6 +255,7 @@
   "export.output": "Keluaran",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "Dapat diputar di mana saja",
+  "export.renderingInSoftware": "Merender ulang dengan encoder yang lebih lambat",
   "export.renderingVideo": "Merender video",
   "export.replace": "Ganti",
   "export.replaceFileMessage": "{0} sudah ada. Mengekspor akan menggantinya.",

@@ -255,6 +255,7 @@
   "export.output": "פלט",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "מתנגן בכל מקום",
+  "export.renderingInSoftware": "מרנדר שוב עם המקודד האיטי יותר",
   "export.renderingVideo": "מרנדר וידאו",
   "export.replace": "החלפה",
   "export.replaceFileMessage": "{0} כבר קיים. הייצוא יחליף אותו.",

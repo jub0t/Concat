@@ -255,6 +255,7 @@
   "export.output": "آؤٹ پٹ",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "ہر جگہ چلتا ہے",
+  "export.renderingInSoftware": "سست انکوڈر پر دوبارہ رینڈر ہو رہی ہے",
   "export.renderingVideo": "ویڈیو رینڈر ہو رہی ہے",
   "export.replace": "تبدیل کریں",
   "export.replaceFileMessage": "{0} پہلے سے موجود ہے۔ ایکسپورٹ اسے تبدیل کر دے گا۔",

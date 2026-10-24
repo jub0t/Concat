@@ -255,6 +255,7 @@
   "export.output": "خروجی",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "همه‌جا قابل پخش است",
+  "export.renderingInSoftware": "رندر دوباره با رمزگذار کندتر",
   "export.renderingVideo": "در حال رندر کردن ویدئو",
   "export.replace": "جایگزینی",
   "export.replaceFileMessage": "{0} از قبل وجود دارد. خروجی گرفتن آن را جایگزین می‌کند.",

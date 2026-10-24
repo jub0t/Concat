@@ -255,6 +255,7 @@
   "export.output": "Çıktı",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "Her yerde oynatılır",
+  "export.renderingInSoftware": "Daha yavaş kodlayıcıyla yeniden işleniyor",
   "export.renderingVideo": "Video işleniyor",
   "export.replace": "Değiştir",
   "export.replaceFileMessage": "{0} zaten var. Dışa aktarma onu değiştirir.",

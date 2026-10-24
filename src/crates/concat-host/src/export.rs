@@ -54,7 +54,11 @@ pub struct Progress {
     pub frame: i64,
     /// Frames in total.
     pub total: i64,
-    /// What the exporter is doing: "rendering", "mixing audio", "muxing".
+    /// What the exporter is doing: "rendering", "mixing audio", "muxing";
+    /// "rendering in software" ([`concat_export::RENDERING_IN_SOFTWARE`])
+    /// when the hardware encoder stopped part way and the video is being
+    /// rendered again from its first frame on the CPU, the frame count
+    /// back at nothing.
     pub stage: &'static str,
 }
 

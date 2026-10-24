@@ -255,6 +255,7 @@
   "export.output": "输出",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "随处可播",
+  "export.renderingInSoftware": "正在用较慢的编码器重新渲染",
   "export.renderingVideo": "正在渲染视频",
   "export.replace": "替换",
   "export.replaceFileMessage": "{0} 已经存在。导出会将其替换。",

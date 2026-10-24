@@ -255,6 +255,7 @@
   "export.output": "আউটপুট",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "সব জায়গায় চলে",
+  "export.renderingInSoftware": "ধীরগতির এনকোডারে আবার রেন্ডার হচ্ছে",
   "export.renderingVideo": "ভিডিও রেন্ডার হচ্ছে",
   "export.replace": "প্রতিস্থাপন করুন",
   "export.replaceFileMessage": "{0} ইতিমধ্যে বিদ্যমান। এক্সপোর্ট করলে এটি প্রতিস্থাপিত হবে।",

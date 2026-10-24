@@ -25,6 +25,23 @@ pub enum Error {
         detail: String,
     },
 
+    /// An encoder that kept saying "try again" to a frame, or held its
+    /// last frames, for longer than a working one ever takes. Said in the
+    /// same words as any other failure to encode; told apart so an export
+    /// whose phone chip stopped part way through can go again on the CPU.
+    #[error("{operation} failed for {path}: {detail}")]
+    Stalled {
+        /// The step that stopped: "encode".
+        operation: &'static str,
+        /// The file being written.
+        path: PathBuf,
+        /// What the encoder stopped taking, and for how long.
+        detail: String,
+        /// Whether the encoder that stopped was the platform's hardware
+        /// rather than the CPU.
+        hardware: bool,
+    },
+
     /// An IO error on a file this crate reads or writes itself.
     #[error("io error on {path}")]
     Io {
@@ -97,4 +114,14 @@ pub enum Error {
         /// Its name.
         name: String,
     },
+}
+
+impl Error {
+    /// Whether this is the platform's hardware encoder having stopped part
+    /// way through: an export can go again on the CPU, which takes every
+    /// frame however slowly. A stall on the CPU, or any other failure, is
+    /// not one that going again would mend.
+    pub fn stalled_on_hardware(&self) -> bool {
+        matches!(self, Error::Stalled { hardware: true, .. })
+    }
 }

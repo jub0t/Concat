@@ -255,6 +255,7 @@
   "export.output": "เอาต์พุต",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "เล่นได้ทุกที่",
+  "export.renderingInSoftware": "กำลังเรนเดอร์ใหม่ด้วยตัวเข้ารหัสที่ช้ากว่า",
   "export.renderingVideo": "กำลังเรนเดอร์วิดีโอ",
   "export.replace": "แทนที่",
   "export.replaceFileMessage": "มี {0} อยู่แล้ว การส่งออกจะแทนที่ไฟล์นี้",

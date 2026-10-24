@@ -255,6 +255,7 @@
   "export.output": "Izlaz",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "Radi svugdje",
+  "export.renderingInSoftware": "Ponovno renderiranje sporijim koderom",
   "export.renderingVideo": "Renderiranje videa",
   "export.replace": "Zamijeni",
   "export.replaceFileMessage": "{0} već postoji. Izvoz će je zamijeniti.",

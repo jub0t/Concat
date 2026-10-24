@@ -255,6 +255,7 @@
   "export.output": "出力",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "どこでも再生可能",
+  "export.renderingInSoftware": "低速なエンコーダーで再レンダリング中",
   "export.renderingVideo": "映像をレンダリング中",
   "export.replace": "置き換える",
   "export.replaceFileMessage": "{0} はすでにあります。書き出すと置き換えられます。",

@@ -255,6 +255,7 @@
   "export.output": "Saída",
   "export.photosNotAllowed": "O Concat não tem permissão para adicionar em Fotos; permita em Ajustes, Concat, Fotos",
   "export.playsEverywhere": "Reproduz em qualquer lugar",
+  "export.renderingInSoftware": "Renderizando de novo com o codificador mais lento",
   "export.renderingVideo": "Renderizando o vídeo",
   "export.replace": "Substituir",
   "export.replaceFileMessage": "{0} já existe. Exportar o substitui.",

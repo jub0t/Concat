@@ -255,6 +255,7 @@
   "export.output": "Đầu ra",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "Phát được trên mọi thiết bị",
+  "export.renderingInSoftware": "Đang kết xuất lại bằng bộ mã hóa chậm hơn",
   "export.renderingVideo": "Đang kết xuất video",
   "export.replace": "Thay thế",
   "export.replaceFileMessage": "{0} đã tồn tại. Khi xuất, tệp này sẽ bị thay thế.",

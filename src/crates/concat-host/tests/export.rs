@@ -94,6 +94,7 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32, codec: VideoCodec) {
         color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 0,
+        software_only: false,
     };
     let mut encoder =
         Encoder::create(path, WIDTH, HEIGHT, rate, &options).expect("the linked FFmpeg encodes");
@@ -126,6 +127,7 @@ fn quadrants(path: &Path) {
         color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 0,
+        software_only: false,
     };
     let mut encoder = Encoder::create(path, WIDTH, HEIGHT, FrameRate::THIRTY, &options)
         .expect("the linked FFmpeg encodes");
@@ -1022,6 +1024,7 @@ fn solid(path: &Path, colour: [u8; 3]) {
         color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 0,
+        software_only: false,
     };
     let mut encoder = Encoder::create(path, WIDTH, HEIGHT, FrameRate::THIRTY, &options)
         .expect("the linked FFmpeg encodes");
@@ -1152,6 +1155,7 @@ fn an_hlg_clip_exports_through_the_gpu_conversion() {
             color_range: concat_media::ColorRange::Limited,
             hardware: false,
             threads: 0,
+            software_only: false,
         };
         let mut encoder = Encoder::create_mislabelled_hdr(
             &path,
@@ -1211,6 +1215,7 @@ fn an_hlg_timeline_exports_as_hdr_or_sdr() {
         color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 0,
+        software_only: false,
     };
     {
         let mut encoder = Encoder::create_hdr(
