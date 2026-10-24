@@ -1165,11 +1165,7 @@ pub fn render_on(
         })
     });
 
-    let timeline_end = resolved
-        .iter()
-        .map(|clip| clip.start + clip.duration)
-        .fold(0.0f64, f64::max);
-    let total_frames = (timeline_end * rate.fps().as_f64()).round() as i64;
+    let (timeline_end, total_frames) = timeline_extent(&resolved, rate, request.effect_time_offset);
     if total_frames <= 0 {
         return Err("the timeline is empty".to_owned());
     }
@@ -1216,7 +1212,8 @@ pub fn render_on(
             reporter.cancelled()?;
             reporter.emit(0, total_frames, "mixing audio");
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
-            audio::mix_to_file(&mix, timeline_end, &mixed).map_err(|error| error.to_string())?;
+            audio::mix_to_file(&mix, timeline_end.as_f64(), &mixed)
+                .map_err(|error| error.to_string())?;
 
             reporter.cancelled()?;
             reporter.emit(total_frames, total_frames, "muxing");
@@ -1232,6 +1229,24 @@ pub fn render_on(
     let _ = std::fs::remove_file(&muxed);
 
     result.map(|()| output.to_string_lossy().into_owned())
+}
+
+/// The timeline's end and how many frames it runs for, on the frame grid the
+/// engine quantises every clip onto: a clip's start and its duration are each
+/// rounded to that grid separately on the way into the timeline, so the
+/// timeline the frames are drawn from can run a frame past - or stop a frame
+/// short of - what the f64 seconds add up to, whose own whole rounding is a
+/// third answer again. A clip starting half a frame in and running a further
+/// half-frame count lost the last frame of the last clip that way; a pair
+/// that rounds down at both ends gained a black one after it. The mix takes
+/// the same end, so the muxer joins two tracks of one length.
+fn timeline_extent(clips: &[ExportClip], rate: FrameRate, origin: f64) -> (Rational, i64) {
+    let end = clips
+        .iter()
+        .map(|clip| quantise_at(clip.start, rate, origin) + quantise(clip.duration, rate))
+        .max()
+        .unwrap_or(Rational::ZERO);
+    (end, rate.frames_in(end))
 }
 
 /// The clip's gain track, or an empty one when its gain is the single number
@@ -1830,13 +1845,14 @@ fn render_picture(
         };
         // The plan is kept for a second drawing: a frame drawn on a device
         // that died under it is black, and is drawn again on the device
-        // that takes over. The copy is cheap - the pictures are shared.
+        // that takes over. Both drawings borrow it - the layers' pictures
+        // were never copied, and now their passes are not either.
         let mut composed = composite_treated(
             &mut EffectClock {
                 inner: &mut compositor,
                 offset: effect_offset,
             },
-            frame_plan.clone(),
+            &frame_plan,
             &treatments,
             &transitions,
         );
@@ -1855,7 +1871,7 @@ fn render_picture(
                     inner: &mut compositor,
                     offset: effect_offset,
                 },
-                frame_plan.clone(),
+                &frame_plan,
                 &treatments,
                 &transitions,
             );
@@ -1955,10 +1971,13 @@ impl Compositor for EffectClock<'_> {
 
 /// Draws `plan` with every treatment live at its instant applied to the
 /// stack beneath its track: each goes into the plan, and the compositor
-/// applies it where it draws.
+/// applies it where it draws. The plan is borrowed: a frame carries its
+/// treatments in a copy of its own only when one is live, which most frames
+/// have none of - the export and the monitor both draw every frame through
+/// here, and the copy is a whole plan's worth of layers and passes.
 fn composite_treated(
     compositor: &mut dyn Compositor,
-    mut plan: FramePlan,
+    plan: &FramePlan,
     treatments: &[Treatment],
     transitions: &[TransitionSpan],
 ) -> Frame {
@@ -1983,10 +2002,14 @@ fn composite_treated(
     // stacks being combined. Leaving the pairing to the dissolve turned
     // every transition under a filter layer into a plain fade.
     if let Some(span) = transitions.iter().find(|span| span.covers(time))
-        && let Some(frame) = combine_transition(compositor, &plan, span, &planned)
+        && let Some(frame) = combine_transition(compositor, plan, span, &planned)
     {
         return frame;
     }
+    if planned.is_empty() && plan.treatments.is_empty() {
+        return compositor.render(plan);
+    }
+    let mut plan = plan.clone();
     plan.treatments = planned;
     compositor.render(&plan)
 }
@@ -2161,12 +2184,7 @@ impl PreviewSources {
 
     /// The frame, treatments and transitions included, drawn with `compositor`.
     pub fn composite(&self, compositor: &mut dyn Compositor) -> Frame {
-        composite_treated(
-            compositor,
-            self.plan.clone(),
-            &self.treatments,
-            &self.transitions,
-        )
+        composite_treated(compositor, &self.plan, &self.treatments, &self.transitions)
     }
 
     /// The frame as raw RGBA, drawn on the shared headless compositor: the
@@ -2565,7 +2583,7 @@ mod tests {
         };
         let out = composite_treated(
             &mut compositor,
-            stack(Rational::from_int(1)),
+            &stack(Rational::from_int(1)),
             std::slice::from_ref(&mono),
             &[],
         );
@@ -2583,7 +2601,7 @@ mod tests {
             strength: 0.5,
             ..mono.clone()
         };
-        let out = composite_treated(&mut compositor, stack(Rational::from_int(1)), &[half], &[]);
+        let out = composite_treated(&mut compositor, &stack(Rational::from_int(1)), &[half], &[]);
         let pixel = at_of(&out, 7, 7);
         assert!(
             pixel[0] > pixel[1] + 60 && pixel[1] > grey[1] / 4 && pixel[0] < 255,
@@ -2591,7 +2609,12 @@ mod tests {
         );
 
         // Outside its span the treatment does nothing.
-        let out = composite_treated(&mut compositor, stack(Rational::from_int(20)), &[mono], &[]);
+        let out = composite_treated(
+            &mut compositor,
+            &stack(Rational::from_int(20)),
+            &[mono],
+            &[],
+        );
         assert_eq!(at_of(&out, 7, 7), [255, 0, 0]);
         fn at_of(frame: &Frame, x: usize, y: usize) -> [u8; 3] {
             let p = &frame.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
@@ -2653,10 +2676,10 @@ mod tests {
         let Some(mut gpu) = WgpuCompositor::new() else {
             return; // no renderer here
         };
-        let pushed = composite_treated(&mut gpu, plan(), &[], std::slice::from_ref(&span));
+        let pushed = composite_treated(&mut gpu, &plan(), &[], std::slice::from_ref(&span));
         let graded = composite_treated(
             &mut gpu,
-            plan(),
+            &plan(),
             std::slice::from_ref(&mono),
             std::slice::from_ref(&span),
         );
@@ -3866,5 +3889,25 @@ mod tests {
         resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].start, 2.0);
         assert!(clips[1].transition_shapes.is_empty());
+    }
+
+    /// The exported frame count is the timeline's own, not the f64 seconds'
+    /// rounded whole. A clip's start and its duration are each rounded to the
+    /// frame grid on the way into the timeline, and the sum rounded once
+    /// disagrees a frame either side: half a frame under half a frame lost the
+    /// last frame of the last clip - the engine drew to frame 301, the export
+    /// stopped at 300 - and a pair that rounds down at both ends gained a
+    /// black frame after everything ended.
+    #[test]
+    fn the_exported_frame_count_is_the_timelines_own() {
+        let half = vec![clip("video", 0, 3.5 / 30.0, 296.5 / 30.0, 0.0)];
+        let (end, frames) = timeline_extent(&half, FrameRate::THIRTY, 0.0);
+        assert_eq!(end, Rational::new(301, 30));
+        assert_eq!(frames, 301, "the last frame of the last clip is drawn");
+
+        let down = vec![clip("video", 0, 3.4 / 30.0, 296.4 / 30.0, 0.0)];
+        let (end, frames) = timeline_extent(&down, FrameRate::THIRTY, 0.0);
+        assert_eq!(end, Rational::new(299, 30));
+        assert_eq!(frames, 299, "no black frame past the end");
     }
 }
