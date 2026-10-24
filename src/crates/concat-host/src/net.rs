@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
 //! The one way the host reaches the network: models, sounds and update
-//! checks all go through [`agent`].
+//! checks all go through [`agent`], and the manifests that vouch for a
+//! download through [`strict_agent`].
 //!
 //! An HTTPS connection is trusted when its certificate chains to a root
 //! Concat ships (Mozilla's list, as webpki-roots carries it) or to a root
@@ -19,13 +20,47 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 /// An agent with these timeouts that trusts the shipped roots and the
-/// system's.
+/// system's: for a file whose digest Concat already knows - a model, whose
+/// sums are compiled in, or an installer or sound checked against a
+/// manifest fetched with [`strict_agent`].
 pub fn agent(connect: Duration, read: Duration) -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout_connect(connect)
         .timeout_read(read)
         .tls_config(Arc::clone(tls()))
         .build()
+}
+
+/// An agent that trusts the shipped roots alone, for the manifests that
+/// say what a download must hash to: the update manifest and the sound
+/// list. A root the system was given by a proxy or an antivirus is enough
+/// to re-sign github.com, and a manifest fetched through it could name a
+/// swapped installer's digest beside the swapped installer. Behind such a
+/// network the update check and the sound list fail, as every download did
+/// before #517; the files they vouch for still come over [`agent`].
+pub fn strict_agent(connect: Duration, read: Duration) -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(connect)
+        .timeout_read(read)
+        .tls_config(Arc::clone(shipped_tls()))
+        .build()
+}
+
+/// The TLS configuration [`strict_agent`] shares: the shipped roots only.
+fn shipped_tls() -> &'static Arc<rustls::ClientConfig> {
+    static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+    CONFIG.get_or_init(|| {
+        let config = rustls::ClientConfig::builder_with_provider(
+            rustls::crypto::ring::default_provider().into(),
+        )
+        .with_protocol_versions(&[&rustls::version::TLS12, &rustls::version::TLS13])
+        .expect("ring offers cipher suites for TLS 1.2 and 1.3")
+        .with_root_certificates(rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        })
+        .with_no_client_auth();
+        Arc::new(config)
+    })
 }
 
 /// The TLS configuration every agent shares. Built once: reading the
@@ -77,6 +112,7 @@ mod tests {
         // The configuration is whole: a connection can be started on it.
         // The name is never looked up.
         let name = rustls::pki_types::ServerName::try_from("github.com").expect("a valid name");
-        assert!(rustls::ClientConnection::new(Arc::clone(tls()), name).is_ok());
+        assert!(rustls::ClientConnection::new(Arc::clone(tls()), name.clone()).is_ok());
+        assert!(rustls::ClientConnection::new(Arc::clone(shipped_tls()), name).is_ok());
     }
 }

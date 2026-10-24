@@ -289,7 +289,10 @@ fn vad_model(dirs: &AppDirs) -> Result<PathBuf, String> {
     let path = models_dir(dirs)?.join("ggml-silero-v6.2.0.bin");
     let whole = std::fs::metadata(&path).is_ok_and(|meta| meta.len() == VAD_MODEL.len() as u64);
     if !whole {
-        let part = path.with_extension("part");
+        // Named for this process, so two windows writing it at once do
+        // not write into one file; whichever renames last wins, and both
+        // wrote the same bytes.
+        let part = path.with_extension(format!("part-{}", std::process::id()));
         std::fs::write(&part, VAD_MODEL)
             .and_then(|()| std::fs::rename(&part, &path))
             .map_err(|error| format!("could not write {}: {error}", path.display()))?;

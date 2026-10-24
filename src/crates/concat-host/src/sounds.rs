@@ -382,7 +382,7 @@ pub fn cached_catalogue(dirs: &AppDirs) -> Option<Catalogue> {
 /// error.
 pub fn fetch_catalogue(dirs: &AppDirs) -> Result<Option<Catalogue>, String> {
     use std::io::Read;
-    let agent = crate::net::agent(
+    let agent = crate::net::strict_agent(
         std::time::Duration::from_secs(15),
         std::time::Duration::from_secs(30),
     );
