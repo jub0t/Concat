@@ -33,21 +33,22 @@ use concat_effects::{At, Catalogue, Package};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_render::{Compositor, FramePlan, PlannedLayer, WgpuCompositor, detached_clip};
 
-/// A card's width in pixels: 16:9, and twice the widest a card is shown,
-/// for a high-density screen.
-pub const WIDTH: u32 = 480;
+/// A card's width in pixels: square, and twice the widest a card is
+/// shown, for a high-density screen.
+pub const WIDTH: u32 = 360;
 
 /// A card's height in pixels.
-pub const HEIGHT: u32 = 270;
+pub const HEIGHT: u32 = 360;
 
-/// The picture every card is drawn from: a person in a bright, colourful
-/// room, so a look has skin, saturated colour, shadow and highlight to
-/// work on.
+/// The picture every card is drawn from, square like the cards: a person
+/// in hard daylight under a blue sky, against yellow and navy bars and a
+/// red roof, so a look has skin, saturated colour, edges, shadow and
+/// highlight to work on.
 pub const STILL: &[u8] = include_bytes!("../assets/card-still.jpg");
 
 /// Bumped whenever the way a card is drawn changes - the still, the moment,
 /// the title, the size, the encoding - so every kept card is drawn again.
-const EDITION: u64 = 1;
+const EDITION: u64 = 2;
 
 /// The instant a card shows, in seconds into its clip: late enough that a
 /// reveal is under way and a pulse is lit, early enough that a one-shot
@@ -453,12 +454,12 @@ fn checker(width: u32, height: u32) -> Frame {
     frame
 }
 
-/// The still before a screen of `colour`: everything left of the person
-/// in the middle, and right of him, painted that colour, as a key's card
-/// needs something to take out.
+/// The still before a screen of `colour`: everything left of the person,
+/// and the strip right of her shoulder, painted that colour, as a key's
+/// card needs something to take out.
 fn screened(still: &Frame, [r, g, b]: [u8; 3]) -> Frame {
     let (width, height) = (still.width(), still.height());
-    let (left, right) = (width * 33 / 100, width * 80 / 100);
+    let (left, right) = (width * 30 / 100, width * 92 / 100);
     let mut out = still.clone();
     for y in 0..height {
         for x in (0..left).chain(right..width) {
@@ -504,6 +505,20 @@ mod tests {
 
     /// Every picture package has a card and every sound has none, each
     /// under a name of its own.
+    /// Draws every built-in card into `CONCAT_CARDS_OUT` on this machine's
+    /// GPU, for `scripts/bundle-cards.sh` to copy into the binary's set:
+    /// `CONCAT_CARDS_OUT=/tmp/cards cargo test -p concat-host --lib --
+    /// --ignored draw_every_card`.
+    #[test]
+    #[ignore = "needs a GPU and writes the cards to a folder of your choosing"]
+    fn draw_every_card() {
+        let dir = PathBuf::from(std::env::var("CONCAT_CARDS_OUT").expect("CONCAT_CARDS_OUT"));
+        let cards = cards(&Catalogue::builtin(), &dir);
+        let mut drawn = 0;
+        draw_all(&dir, &cards, None, |batch, _| drawn += batch.len());
+        assert_eq!(drawn, cards.len(), "every card is drawn");
+    }
+
     #[test]
     fn every_picture_package_has_a_card_of_its_own() {
         let catalogue = Catalogue::builtin();

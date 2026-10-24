@@ -948,7 +948,7 @@ component CatalogueCard inherits Rectangle {
 
             tile := Rectangle {
                 y: 0;
-                height: root.compact ? root.height : root.width * 9 / 16;
+                height: root.compact ? root.height : root.width;
                 border-radius: Theme.r;
                 background: root.compact && card.has-hover && root.item.enabled
                     ? Theme.field : Theme.well;
@@ -1284,7 +1284,7 @@ export component ShelfGrid inherits Rectangle {
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
     property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
     property <length> card-h: root.compact ? root.card-w / 2
-        : root.card-w * 9 / 16 + 4px + 14px;
+        : root.card-w + 4px + 14px;
     property <int> rows: Math.ceil(root.entries.length / root.cols);
 
     height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
@@ -1329,7 +1329,7 @@ component AdjustmentShelf inherits Rectangle {
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
     property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
 
-    height: root.card-w * 9 / 16 + 4px + 14px;
+    height: root.card-w + 4px + 14px;
 
     CatalogueCard {
         x: 0;

@@ -256,9 +256,9 @@ of it.
 
 ## Effect preview photograph
 
-The effect catalogue cards are drawn from a photograph by Vitaly Gariev on
-Unsplash (https://unsplash.com/@silverkblack), used under the Unsplash
-License. The still lives at `src/crates/concat-host/assets/card-still.jpg`
+The effect catalogue cards are drawn from a photograph by Sou Jest on
+Unsplash (https://unsplash.com/@soujest,
+https://unsplash.com/photos/2v921tlqdXE), used under the Unsplash License. The still lives at `src/crates/concat-host/assets/card-still.jpg`
 and is embedded in the app; each card is the effect's own shader run over
 it on the GPU when the app first needs the card (`concat-host`'s
 `cards.rs`).
