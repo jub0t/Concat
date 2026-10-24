@@ -658,8 +658,6 @@
   "start.removeFromList": "إزالة من القائمة",
   "start.reportProblem": "الإبلاغ عن مشكلة",
   "start.reportProblemNote": "ما الذي ترسله لكي يمكن إصلاحها",
-  "start.safeMode": "أُغلق Concat أثناء بدء تشغيله في المرة السابقة، لذا يرسم الآن برمجيًا: أبطأ، لكنه يفتح. لتجربة بطاقة الرسوميات مجددًا، فعّل الرسم على GPU من الإعدادات > عام.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "البحث في المشاريع",
   "start.settingsApplyWholeEdit": "تنطبق هذه الإعدادات على التحرير كله ولا يمكن تغييرها لاحقًا.",
   "start.shape": "الشكل",

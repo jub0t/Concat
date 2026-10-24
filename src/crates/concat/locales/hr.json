@@ -658,8 +658,6 @@
   "start.removeFromList": "Ukloni s popisa",
   "start.reportProblem": "Prijavi problem",
   "start.reportProblemNote": "Što poslati da se može popraviti",
-  "start.safeMode": "Concat se prošli put zatvorio tijekom pokretanja, pa sada crta softverski: sporije, ali se otvara. Da ponovno isprobaš grafičku karticu, uključi Crtaj na GPU-u u Postavke > Općenito.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Pretraži projekte",
   "start.settingsApplyWholeEdit": "Ove postavke vrijede za cijelu montažu i ne mogu se mijenjati kasnije.",
   "start.shape": "Oblik",

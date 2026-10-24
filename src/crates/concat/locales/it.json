@@ -658,8 +658,6 @@
   "start.removeFromList": "Rimuovi dall'elenco",
   "start.reportProblem": "Segnala un problema",
   "start.reportProblemNote": "Cosa inviare perché si possa correggere",
-  "start.safeMode": "L'ultima volta Concat si è chiuso durante l'avvio, quindi ora disegna via software: più lento, ma si apre. Per riprovare con la scheda grafica, attiva Disegna sulla GPU in Impostazioni > Generale.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Cerca progetti",
   "start.settingsApplyWholeEdit": "Queste impostazioni valgono per tutto il montaggio e non si possono cambiare in seguito.",
   "start.shape": "Forma",

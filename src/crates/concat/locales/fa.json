@@ -658,8 +658,6 @@
   "start.removeFromList": "حذف از فهرست",
   "start.reportProblem": "گزارش مشکل",
   "start.reportProblemNote": "چه چیزی بفرستید تا قابل رفع باشد",
-  "start.safeMode": "Concat دفعهٔ قبل هنگام شروع بسته شد، برای همین اکنون به‌صورت نرم‌افزاری رسم می‌کند: کندتر، اما باز می‌شود. برای امتحان دوبارهٔ کارت گرافیک، «رسم با GPU» را در تنظیمات > عمومی روشن کنید.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "جستجوی پروژه‌ها",
   "start.settingsApplyWholeEdit": "این تنظیمات روی کل ویرایش اعمال می‌شوند و بعداً قابل تغییر نیستند.",
   "start.shape": "شکل",

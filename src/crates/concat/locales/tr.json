@@ -658,8 +658,6 @@
   "start.removeFromList": "Listeden kaldır",
   "start.reportProblem": "Sorun bildir",
   "start.reportProblemNote": "Düzeltilebilmesi için ne gönderilmeli",
-  "start.safeMode": "Concat geçen sefer açılırken kapandı, bu yüzden şimdi yazılımla çiziyor: daha yavaş, ama açılıyor. Ekran kartını yeniden denemek için Ayarlar > Genel bölümünde GPU'da çiz seçeneğini açın.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Projelerde ara",
   "start.settingsApplyWholeEdit": "Bu ayarlar tüm düzenleme için geçerlidir ve sonradan değiştirilemez.",
   "start.shape": "Biçim",
