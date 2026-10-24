@@ -1362,6 +1362,106 @@ mod tests {
     }
 
     #[test]
+    fn audio_consolidation_keeps_exact_span_and_round_trips_with_undo() {
+        use crate::model::{ClipKind, MediaKind};
+        let (mut editor, source, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let second = lane(&mut editor, &source, &track, &[12.0])[0].clone();
+        for id in [&first, &second] {
+            let clip = editor.project_mut().active_mut().clip_mut(id).unwrap();
+            clip.kind = ClipKind::Audio;
+            clip.start += 0.013; // Not tied to the video frame grid.
+            clip.duration = 1.12345;
+            clip.volume = 0.4;
+            clip.fade_in = 0.1;
+            clip.fade_out = 0.2;
+            clip.source_start = 2.0;
+        }
+        let layer_id = editor
+            .apply(Command::AddLayerClip {
+                track_id: None,
+                start: 0.5,
+                duration: Some(5.0),
+                effect_id: "concat.telephone".into(),
+                name: "Telephone".into(),
+                sound: true,
+            })
+            .unwrap()
+            .created_id
+            .unwrap();
+        let layer = editor.project().active().clip(&layer_id).unwrap().clone();
+        let duration = 13.12345;
+        let before = editor.project().clone();
+        let Command::AddMedia { mut item } = media("/project/media/merged.wav", duration, true)
+        else {
+            unreachable!()
+        };
+        item.kind = MediaKind::Audio;
+        item.width = None;
+        item.height = None;
+        item.video_codec = None;
+        item.audio_codec = Some("pcm_f32le".into());
+        let command = Command::ConsolidateClips {
+            clip_ids: vec![second.clone(), first.clone()],
+            item,
+        };
+        editor.apply(command).unwrap();
+        let merged = editor.project().active().clip(&first).unwrap();
+        assert_eq!(merged.kind, ClipKind::Audio);
+        assert!((merged.start - 0.013).abs() < 1e-9);
+        assert!((merged.duration - duration).abs() < 1e-9);
+        assert_eq!(
+            (merged.volume, merged.fade_in, merged.fade_out),
+            (1.0, 0.0, 0.0)
+        );
+        assert_eq!(merged.source_start, 0.0);
+        assert_eq!(editor.project().media.len(), 2);
+        assert_eq!(editor.project().active().clip(&layer_id), Some(&layer));
+        let after = editor.project().clone();
+        assert!(editor.undo());
+        assert_eq!(editor.project(), &before);
+        assert!(editor.redo());
+        assert_eq!(editor.project(), &after);
+        assert_eq!(
+            Editor::from_document(&editor.to_document(&settings()))
+                .unwrap()
+                .project(),
+            &after
+        );
+    }
+
+    #[test]
+    fn audio_consolidation_rejects_wrong_or_short_output_atomically() {
+        use crate::model::{ClipKind, MediaKind};
+        let (mut editor, source, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let second = lane(&mut editor, &source, &track, &[10.0])[0].clone();
+        for id in [&first, &second] {
+            editor.project_mut().active_mut().clip_mut(id).unwrap().kind = ClipKind::Audio;
+        }
+        let before = editor.project().clone();
+        for (kind, duration, has_audio) in [
+            (MediaKind::Video, 20.0, true),
+            (MediaKind::Audio, 19.0, true),
+            (MediaKind::Audio, 20.0, false),
+        ] {
+            let Command::AddMedia { mut item } = media("/wrong.wav", duration, has_audio) else {
+                unreachable!()
+            };
+            item.kind = kind;
+            assert!(
+                editor
+                    .apply(Command::ConsolidateClips {
+                        clip_ids: vec![first.clone(), second.clone()],
+                        item,
+                    })
+                    .is_err()
+            );
+            assert_eq!(editor.project(), &before);
+        }
+    }
+
+    #[test]
     fn consolidation_refuses_invalid_selections_without_changing_the_edit() {
         let (mut editor, media_id, first) = fixture();
         let track = editor.project().active().tracks[0].id.clone();
