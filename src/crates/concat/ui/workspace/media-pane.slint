@@ -2581,6 +2581,17 @@ export component MediaPane inherits Rectangle {
                     }
                     VoiceList {
                         styles: root.audio-category == 11;
+
+                        // A recording of the user's own kept as a voice,
+                        // brought in as Mine brings in a sound.
+                        if root.audio-category == 10: VerticalLayout {
+                            padding-top: 4px;
+                            padding-bottom: 6px;
+                            ImportButton {
+                                label: I18n.t("voices.importVoice");
+                                clicked => { Sounds.voice-import(); }
+                            }
+                        }
                     }
                 }
 

@@ -1178,6 +1178,20 @@ export component PhoneEditor inherits Rectangle {
                 styles: root.audio-shelf == 2;
                 touch-sized: true;
                 opened => { root.hide(); }
+
+                // A recording from the phone's files kept as a voice. The
+                // sheet stays up under the New voice sheet, so the voice
+                // is there to see once it is saved.
+                if root.audio-shelf == 1: VerticalLayout {
+                    padding-top: 6px;
+                    padding-bottom: 8px;
+                    SheetButton {
+                        glyph: Glyph.import;
+                        primary: true;
+                        label: I18n.t("voices.importVoice");
+                        clicked => { Sounds.voice-import(); }
+                    }
+                }
             }
 
             if root.audio-shelf == 0: SheetButton {

@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use concat_host::media::{self, MediaSummary};
-use concat_host::voices::{self, SavedVoice};
+use concat_host::voices::{self, Heard, SavedVoice};
 use concat_project::Command;
 use concat_project::commands::ClipPatch;
 use concat_project::model::{AppliedFilter, ClipKind, MediaItem, MediaOrigin};
@@ -42,7 +42,7 @@ use crate::panes::captions::CHARS_PER_SECOND;
 use crate::panes::pace::{Pace, Stage, Timings};
 use crate::panes::settings::installed;
 use crate::studio::Studio;
-use crate::ui::SpeechSheetData;
+use crate::ui::{NewVoiceData, SpeechSheetData};
 
 /// The default Kokoro speaker: `af_heart`.
 const DEFAULT_VOICE: i32 = 3;
@@ -136,6 +136,24 @@ pub enum SpeechMsg {
     VoiceSaved(Box<Result<SavedVoice, String>>),
     /// A saved voice deleted, by its id.
     ForgetVoice(String),
+    /// A recording picked by the Voices shelf's Import voice: the New
+    /// voice sheet on it.
+    ImportVoice(PathBuf),
+    /// The listen's worker is done: what it heard in that recording.
+    VoiceHeard(PathBuf, Box<Result<Heard, String>>),
+    /// The New voice sheet's name, its description, and the seconds into
+    /// the recording its sample starts at.
+    NewVoiceNameEdited(String),
+    NewVoiceDescriptionEdited(String),
+    NewVoiceStartChanged(f32),
+    /// A picture for the new voice, from the system's picker.
+    NewVoicePicturePicked(PathBuf),
+    /// Keep the new voice.
+    NewVoiceSave,
+    /// That save's worker is done.
+    NewVoiceSaved(Box<Result<SavedVoice, String>>),
+    /// The New voice sheet put away without a save.
+    NewVoiceClose,
     /// The style taken off: the speech lands plain.
     ClearStyle,
     Close,
@@ -162,6 +180,31 @@ pub enum SpeechMsg {
     /// The synthesiser's worker is done: the file it wrote, probed, or
     /// why not.
     Finished(Box<Result<MediaSummary, String>>),
+}
+
+/// The Voices shelf's New voice sheet: a recording from the system's
+/// files, to be kept as a voice under a name, with a picture and a line
+/// about it when given them (#518). It opens on the file's name and, once
+/// the recording has been listened to, on the stretch of it most given to
+/// speech; see `voices::listen`.
+#[derive(Default)]
+pub struct NewVoice {
+    pub open: bool,
+    /// The recording picked.
+    source: PathBuf,
+    name: String,
+    description: String,
+    picture: Option<PathBuf>,
+    /// The recording's length, once it has been listened to; zero before.
+    duration: f64,
+    /// Seconds into the recording the kept sample starts at, and where
+    /// listening to it put the start.
+    start: f64,
+    found: f64,
+    /// The recording being listened to: the start is not known yet.
+    listening: bool,
+    /// A save running.
+    saving: bool,
 }
 
 /// The speech sheet's state.
@@ -220,6 +263,9 @@ pub struct SpeechPane {
     pub save_picture: Option<PathBuf>,
     /// A save running.
     pub saving: bool,
+    /// The Voices shelf's New voice sheet, which keeps a voice of its own
+    /// beside this sheet's.
+    pub new_voice: NewVoice,
     /// Each saved voice's picture, read once, by its id: the rows are
     /// published on every frame of playback.
     pictures: std::cell::RefCell<std::collections::HashMap<String, slint::Image>>,
@@ -263,6 +309,7 @@ impl SpeechPane {
                     speakers: std::mem::take(&mut self.speakers),
                     timings: std::mem::take(&mut self.timings),
                     saved: std::mem::take(&mut self.saved),
+                    new_voice: std::mem::take(&mut self.new_voice),
                     pictures: std::mem::take(&mut self.pictures),
                     ..SpeechPane::default()
                 };
@@ -313,6 +360,68 @@ impl SpeechPane {
                         studio.notify(&tf("voices.removed", &[&voice.name]), false);
                     }
                     Err(error) => studio.notify(&error, true),
+                }
+            }
+            SpeechMsg::ImportVoice(source) => self.import_voice(source),
+            SpeechMsg::VoiceHeard(source, heard) => {
+                // An answer about a recording the sheet has since let go
+                // of is not the sheet's.
+                let sheet = &mut self.new_voice;
+                if !sheet.open || sheet.source != source {
+                    return;
+                }
+                sheet.listening = false;
+                match *heard {
+                    Ok(heard) => {
+                        sheet.duration = heard.duration;
+                        sheet.start = heard.start;
+                        sheet.found = heard.start;
+                    }
+                    // Nothing to keep a voice from: the sheet goes, and
+                    // the notice says why.
+                    Err(error) => {
+                        self.new_voice = NewVoice::default();
+                        studio.notify(&error, true);
+                    }
+                }
+            }
+            SpeechMsg::NewVoiceNameEdited(name) => self.new_voice.name = name,
+            SpeechMsg::NewVoiceDescriptionEdited(text) => self.new_voice.description = text,
+            SpeechMsg::NewVoiceStartChanged(seconds) => {
+                let sheet = &mut self.new_voice;
+                // Held short of the end, as the speech sheet's start is,
+                // so there is always a second of sound left to keep.
+                sheet.start = if seconds.is_finite() {
+                    f64::from(seconds).clamp(0.0, (sheet.duration - 1.0).max(0.0))
+                } else {
+                    sheet.found
+                }
+            }
+            SpeechMsg::NewVoicePicturePicked(path) => self.new_voice.picture = Some(path),
+            SpeechMsg::NewVoiceSave => self.save_new_voice(studio),
+            SpeechMsg::NewVoiceSaved(result) => {
+                self.new_voice.saving = false;
+                match *result {
+                    Ok(voice) => {
+                        self.new_voice = NewVoice::default();
+                        // The new voice lands at the head of the list, so
+                        // the one this sheet reads in is found again by
+                        // its id rather than kept by its row.
+                        let chosen = self
+                            .saved_voice
+                            .and_then(|row| self.saved.get(row))
+                            .map(|held| held.id.clone());
+                        self.reload_saved(studio);
+                        self.saved_voice =
+                            chosen.and_then(|id| self.saved.iter().position(|held| held.id == id));
+                        studio.notify(&tf("voices.saved", &[&voice.name]), false);
+                    }
+                    Err(error) => studio.notify(&error, true),
+                }
+            }
+            SpeechMsg::NewVoiceClose => {
+                if !self.new_voice.saving {
+                    self.new_voice = NewVoice::default();
                 }
             }
             SpeechMsg::ClearStyle => self.style = None,
@@ -1026,6 +1135,94 @@ impl SpeechPane {
                 studio.handle(Msg::Speech(SpeechMsg::VoiceSaved(Box::new(result))));
             },
         );
+    }
+
+    /// The New voice sheet on a recording just picked: named for its file,
+    /// and listened to on a worker for where its voice is, the start held
+    /// until that is known. A save under way keeps the sheet it is saving.
+    fn import_voice(&mut self, source: PathBuf) {
+        if self.new_voice.saving {
+            return;
+        }
+        let name = source
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.new_voice = NewVoice {
+            open: true,
+            source: source.clone(),
+            name,
+            listening: true,
+            ..NewVoice::default()
+        };
+        crate::host::spawn(
+            move || {
+                let heard = voices::listen(&source);
+                (source, heard)
+            },
+            |studio, _, _, (source, heard)| {
+                studio.handle(Msg::Speech(SpeechMsg::VoiceHeard(source, Box::new(heard))));
+            },
+        );
+    }
+
+    /// Keeps the New voice sheet's recording as a voice, on a worker: the
+    /// few seconds from where the sheet's start is, under its name, with
+    /// its picture and its description.
+    fn save_new_voice(&mut self, studio: &Studio) {
+        let sheet = &mut self.new_voice;
+        let name = sheet.name.trim().to_owned();
+        if name.is_empty() || sheet.listening || sheet.saving {
+            return;
+        }
+        let dir = voices::dir_in(&studio.host.dirs);
+        let source = sheet.source.clone();
+        let start = sheet.start;
+        let picture = sheet.picture.clone();
+        let description = sheet.description.clone();
+        sheet.saving = true;
+        crate::host::spawn(
+            move || {
+                voices::save(
+                    &dir,
+                    &name,
+                    &source,
+                    start,
+                    picture.as_deref(),
+                    Some(&description),
+                )
+            },
+            |studio, _, _, result| {
+                studio.handle(Msg::Speech(SpeechMsg::NewVoiceSaved(Box::new(result))));
+            },
+        );
+    }
+
+    /// The New voice sheet as Slint shows it.
+    pub fn new_voice_data(&self) -> NewVoiceData {
+        let sheet = &self.new_voice;
+        let file_name = |path: &std::path::Path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        NewVoiceData {
+            open: sheet.open,
+            source: file_name(&sheet.source).into(),
+            name: sheet.name.as_str().into(),
+            description: sheet.description.as_str().into(),
+            picture: sheet
+                .picture
+                .as_deref()
+                .map(file_name)
+                .unwrap_or_default()
+                .into(),
+            duration: sheet.duration as f32,
+            start: sheet.start as f32,
+            found: sheet.found as f32,
+            listening: sheet.listening,
+            saving: sheet.saving,
+        }
     }
 }
 

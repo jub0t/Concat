@@ -695,6 +695,10 @@ export component Field inherits Rectangle {
     /// one control with a square seam between them.
     in property <length> radius-left: Theme.r;
     in property <length> radius-right: Theme.r;
+    /// The most characters it takes, or zero for no limit. A keystroke or
+    /// a paste that would run past it is refused whole, and what was there
+    /// stays: the expression language has no way to cut a string to fit.
+    in property <int> max-length;
 
     callback edited(text: string);
 
@@ -726,8 +730,12 @@ export component Field inherits Rectangle {
     // goes deaf to the model. This is seeded instead, and never while the
     // field has focus, so a republish mid-sentence cannot yank the caret.
     property <string> draft;
+    /// The draft as it last stood within `max-length`: what a keystroke
+    /// past it is undone to.
+    property <string> kept;
     function seed() {
         root.draft = root.value;
+        root.kept = root.value;
     }
     init => { root.seed(); }
     changed value => {
@@ -781,7 +789,14 @@ export component Field inherits Rectangle {
                 }
             }
 
-            edited => { root.edited(self.text); }
+            edited => {
+                if (root.max-length > 0 && self.text.character-count > root.max-length) {
+                    root.draft = root.kept;
+                } else {
+                    root.kept = self.text;
+                    root.edited(self.text);
+                }
+            }
         }
     }
 

@@ -1484,7 +1484,57 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         sounds.on_voice_remove(on_window!(|state, id: SharedString| {
             state.forget_voice(id.as_str());
         }));
+        // Import voice: a recording from the system's picker, sound or
+        // video, and the New voice sheet on the first one picked.
+        sounds.on_voice_import(|| {
+            host::pick_files_then(
+                i18n::t("voices.importVoice"),
+                Some((
+                    i18n::t("voices.recordings"),
+                    &concat_host::voices::RECORDING_EXTENSIONS,
+                )),
+                |studio, _, _, paths| {
+                    if let Some(path) = paths.into_iter().next() {
+                        studio.handle(Msg::Speech(SpeechMsg::ImportVoice(path)));
+                    }
+                },
+            );
+        });
     }
+    // The New voice sheet: the recording's name, a line about it, where
+    // in it the voice is kept from, a picture through the same picker as
+    // Text to speech's, and the save.
+    app.on_new_voice_closed(on_window!(|state| {
+        state.handle(Msg::Speech(SpeechMsg::NewVoiceClose));
+    }));
+    app.on_new_voice_name_edited(on_window!(|state, name: SharedString| {
+        state.handle(Msg::Speech(SpeechMsg::NewVoiceNameEdited(name.to_string())));
+    }));
+    app.on_new_voice_description_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Speech(SpeechMsg::NewVoiceDescriptionEdited(
+            text.to_string(),
+        )));
+    }));
+    app.on_new_voice_start_changed(on_window!(|state, seconds: f32| {
+        state.handle(Msg::Speech(SpeechMsg::NewVoiceStartChanged(seconds)));
+    }));
+    app.on_new_voice_pick_picture(|| {
+        host::pick_files_then(
+            i18n::t("speech.picture"),
+            Some((
+                i18n::t("speech.picture"),
+                &concat_host::voices::PICTURE_EXTENSIONS,
+            )),
+            |studio, _, _, paths| {
+                if let Some(path) = paths.into_iter().next() {
+                    studio.handle(Msg::Speech(SpeechMsg::NewVoicePicturePicked(path)));
+                }
+            },
+        );
+    });
+    app.on_new_voice_save(on_window!(|state| {
+        state.handle(Msg::Speech(SpeechMsg::NewVoiceSave));
+    }));
     // Text to speech keeps the sample it reads in as a voice of the
     // user's own, with a name and a picture.
     app.on_speech_save_name_edited(on_window!(|state, name: SharedString| {

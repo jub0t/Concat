@@ -63,6 +63,9 @@ export global Sounds {
     callback voice-open(id: string);
     /// A saved voice deleted.
     callback voice-remove(id: string);
+    /// The Import voice button: the system's picker, for a recording to
+    /// keep as a voice, and then the New voice sheet on it.
+    callback voice-import();
 
     /// The Mine shelf: the user's own sounds, newest first.
     in property <[SoundCardData]> mine;
@@ -356,6 +359,12 @@ component ShelfHeading inherits Text {
 
 // The Voices shelf: the user's own voices, then the built-in ones, or the
 // styles. Opening one is a click; on a phone the sheet goes down with it.
+//
+// The children go at the head of the user's own, under its heading: the
+// Import voice button, which is each shell's own - the desk's dashed drop
+// zone, the phone's button the width of its sheet - as Import sounds is.
+// `@children` cannot sit inside a conditional, so a caller shows its
+// button only while the shelf is the voices.
 export component VoiceList inherits VerticalLayout {
     /// The Styles shelf rather than the voices.
     in property <bool> styles;
@@ -365,6 +374,7 @@ export component VoiceList inherits VerticalLayout {
     spacing: 2px;
 
     if !root.styles: ShelfHeading { text: I18n.t("voices.yours"); }
+    @children
     if !root.styles && Sounds.voices-saved.length == 0: Text {
         text: I18n.t("voices.noneSavedYet");
         color: Theme.fg-dim;

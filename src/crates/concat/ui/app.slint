@@ -52,6 +52,7 @@ import {
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
+import { NewVoiceData, NewVoiceDialog } from "dialogs/new-voice.slint";
 import { AvatarData } from "primitives/avatar.slint";
 import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
@@ -177,6 +178,7 @@ export {
     SoundCardData,
     Sounds,
     VoiceCardData,
+    NewVoiceData,
 }
 export component App inherits Window {
     title: "Concat";
@@ -230,7 +232,7 @@ export component App inherits Window {
     }
     property <bool> sheet-open: root.export.open || root.settings.open
         || root.project-sheet.open || root.captions.open || root.speech.open
-        || root.start.composing;
+        || root.start.composing || root.new-voice.open;
     changed sheet-open => {
         if (!root.sheet-open) {
             keys.focus();
@@ -465,6 +467,16 @@ export component App inherits Window {
     callback speech-save-voice();
     callback speech-clear-style();
 
+    /// The Voices shelf's New voice sheet: a recording picked to be kept
+    /// as a voice; see NewVoiceDialog.
+    in property <NewVoiceData> new-voice;
+    callback new-voice-closed();
+    callback new-voice-name-edited(name: string);
+    callback new-voice-description-edited(text: string);
+    callback new-voice-start-changed(seconds: float);
+    callback new-voice-pick-picture();
+    callback new-voice-save();
+
     /// The voiceover panel; see VoiceoverPanel. Its meter and clock come
     /// on the Editor global, from a timer.
     in property <VoiceoverData> voiceover;
@@ -625,6 +637,10 @@ export component App inherits Window {
             if (event.text == Key.Escape || event.text == Key.Back) {
                 if (root.confirm.open) { root.confirm-dismissed(); return accept; }
                 if (root.relink.open) { root.relink-dismiss(); return accept; }
+                if (root.new-voice.open) {
+                    if (!root.new-voice.saving) { root.new-voice-closed(); }
+                    return accept;
+                }
                 if (root.project-sheet.open) { root.project-closed(); return accept; }
                 if (root.settings.open) { root.settings-closed(); return accept; }
                 if (root.export.open) {
@@ -1045,6 +1061,28 @@ export component App inherits Window {
         color-space-changed(index) => { root.project-color-space-changed(index); }
         canvas-changed(value) => { root.project-canvas-changed(value); }
         apply => { root.project-apply(); }
+    }
+
+    // Over the Audio page it was opened from, and over the tool cards,
+    // which may be open beside the page on a desk.
+    NewVoiceDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.new-voice;
+
+        closed => { root.new-voice-closed(); }
+        name-edited(name) => { root.new-voice-name-edited(name); }
+        description-edited(text) => { root.new-voice-description-edited(text); }
+        start-changed(seconds) => { root.new-voice-start-changed(seconds); }
+        pick-picture => { root.new-voice-pick-picture(); }
+        save => { root.new-voice-save(); }
     }
 
     RelinkDialog {

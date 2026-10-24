@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
+import { Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
+import { Rail } from "../inspector/controls.slint";
+import { Fmt } from "../util.slint";
+
+// New voice: what the Voices shelf's Import voice opens on the recording
+// picked (#518).
+//
+// A recording from anywhere - a voice memo, an interview, a video's
+// soundtrack - kept as a voice of the user's own, the way Text to speech
+// keeps the sample it reads in: the few seconds a model listens to, under
+// a name, with a picture and a line about it when they are given. The
+// name starts as the file's. Where the seconds come from starts where
+// Rust heard the most speech in the recording, since one that opens on
+// silence or a jingle would otherwise be kept as that; the rail moves it,
+// and a double-click puts it back. On a phone it is a sheet.
+
+export struct NewVoiceData {
+    open: bool,
+    /// The recording's file name.
+    source: string,
+    name: string,
+    /// The line under the voice's name on the shelf, or empty.
+    description: string,
+    /// The picture's file name, or empty for none.
+    picture: string,
+    /// The recording's length in seconds, once it has been listened to.
+    duration: float,
+    /// Seconds in where the kept sample starts, and where listening to
+    /// the recording put it.
+    start: float,
+    found: float,
+    /// The recording is being listened to for where its voice is.
+    listening: bool,
+    /// The save running.
+    saving: bool,
+}
+
+export component NewVoiceDialog inherits Modal {
+    in property <NewVoiceData> data;
+
+    callback name-edited(name: string);
+    callback description-edited(text: string);
+    callback start-changed(seconds: float);
+    callback pick-picture();
+    callback save();
+
+    open: root.data.open;
+    title: I18n.t("voices.newVoice");
+    glyph: Glyph.mic;
+    surface-width: 460px;
+    dismissable: !root.data.saving;
+
+    // The rail's own copy, seeded the way the speech sheet's are: a Rail
+    // writes to the property it is bound to, which drops the binding, so
+    // it is reseeded from the data whenever that changes.
+    property <float> start-v;
+    changed data => { root.start-v = root.data.start; }
+    init => { root.start-v = root.data.start; }
+
+    VerticalLayout {
+        DialogSection {
+            first: true;
+            title: I18n.t("speech.voice");
+
+            DialogRow {
+                label: I18n.t("common.name");
+                Field {
+                    value: root.data.name;
+                    placeholder: I18n.t("speech.voiceName");
+                    edited(text) => { root.name-edited(text); }
+                }
+            }
+
+            // One line under the name on the shelf, so it is capped where
+            // `voices::DESCRIPTION_CHARS` caps it.
+            DialogRow {
+                label: I18n.t("voices.description");
+                Field {
+                    value: root.data.description;
+                    placeholder: I18n.t("voices.descriptionPlaceholder");
+                    max-length: 140;
+                    edited(text) => { root.description-edited(text); }
+                }
+            }
+
+            // Without one the voice wears its initial in its colour, as
+            // the built-in voices do.
+            DialogRow {
+                label: I18n.t("voices.picture");
+                Button {
+                    label: root.data.picture != "" ? root.data.picture : I18n.t("speech.picture");
+                    glyph: Glyph.image;
+                    ghost: true;
+                    clicked => { root.pick-picture(); }
+                }
+            }
+        }
+
+        // Where in the recording the kept seconds come from: held while
+        // the recording is being listened to, then at what was heard.
+        DialogSection {
+            title: I18n.t("speech.sample");
+
+            Text {
+                text: root.data.source;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+
+            DialogRow {
+                label: I18n.t("speech.voiceFrom");
+                Rail {
+                    value <=> root.start-v;
+                    minimum: 0;
+                    maximum: Math.max(0, root.data.duration - 1);
+                    step: 0.5;
+                    default-value: root.data.found;
+                    enabled: !root.data.listening;
+                    changed(v) => { root.start-changed(v); }
+                }
+                Text {
+                    width: 52px;
+                    text: I18n.t1("speech.sIn", "\{Fmt.round-to(root.start-v, 1)}");
+                    color: Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs-sm;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                }
+            }
+
+            Text {
+                text: root.data.listening ? I18n.t("voices.listening") : I18n.t("voices.keptHint");
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+
+        HorizontalLayout {
+            padding: 14px;
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                label: I18n.t("common.cancel");
+                enabled: !root.data.saving;
+                clicked => { root.closed(); }
+            }
+
+            Button {
+                primary: true;
+                glyph: Glyph.check;
+                label: I18n.t("speech.save");
+                enabled: root.data.name != "" && !root.data.listening && !root.data.saving;
+                clicked => { root.save(); }
+            }
+        }
+    }
+}
