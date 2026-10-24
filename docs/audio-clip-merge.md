@@ -18,6 +18,12 @@ into the WAV; individually muted clips contribute silence. No pictures or GPU
 compositor are needed. Audio duration uses the 48 kHz sample clock, without
 the video merge's frame-grid and lower-picture-layer restrictions.
 
+Timeline sound layers stay separate and continue to process the mix after
+replacement. They are not baked into the selected clips' WAV, which would
+apply them twice. AAC export, WAV merge and sound-layer playback use the
+shared upstream mixer, retaining its source timing and channel-layout fixes.
+Video merge progress also retains upstream's hardware-encoder restart handling.
+
 On success, one audio clip replaces the selection at its original start and
 span. Its gain is unity and fades/filters are cleared because these are baked
 into the WAV. Original source media remains in the bin and on disk. One Undo
@@ -41,12 +47,23 @@ Regression tests added for:
 - Replacement type/duration validation, exact timeline span, no double gain or
   fades, persistence and Undo/Redo. Existing video regression tests remain.
 
-Static wiring, whitespace and locale inventory checks passed. No build was started;
-Rust tests, Clippy and formatting checks remain pending because a local Rust
-toolchain is unavailable. Before a future test build, run the repository's
-normal Rust checks and manually compare edited playback before/after merging.
-Also test cancellation, save/reopen, a muted track, mixed sources and video
-merge regression. Use a copied project for manual tests.
+The original branch's automated tests passed on Linux and Windows, and
+macOS compilation passed, in [fork CI run 40026640497](https://github.com/D3monX/Concat/actions/runs/40026640497).
+That run used the old head `26249a51`; it does not validate this updated branch.
+Its locale inventory failure was also present on its unchanged upstream base.
 
-Branch `feat/audio-clip-merge` starts from official `797c8c70` (upstream main), without
-the other feature branches or personal build workflow changes.
+The branch is now rebased onto upstream main `971ad1d9214e85755c05edc8777c05b4d4e255dc`.
+Additional regressions cover short first decoded frames, sound starting after
+the selected span, and keeping sound layers live through planning, replacement,
+Undo/Redo and persistence. These Rust regressions have not been run after the
+rebase. Read-only locale and model inventory checks and Git whitespace checks
+passed after the update. The locale inventory has no missing or stale keys;
+existing English fallback translations remain. Upstream's shared audio graph,
+channel-layout handling, muxing and all 21 existing audio tests were retained.
+No build, workflow or push was started for this update. Rust formatting,
+Clippy and executable tests still need verification on this new head.
+
+Before publishing, run the normal Rust checks on the updated branch and
+manually compare edited playback before/after merging. Also test cancellation,
+save/reopen, a muted track, mixed sources, sound layers and video merge.
+Use a copied project for manual tests.

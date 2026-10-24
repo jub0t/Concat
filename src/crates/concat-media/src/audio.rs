@@ -924,6 +924,16 @@ fn run_mix(
     // has not consumed yet sits in memory.
     for (index, first) in first_frames.into_iter().enumerate() {
         let mut context = graph.get(&inputs[index].label).expect("source exists");
+        // The file's sound can start after this entire window. End that
+        // source without feeding an empty frame; the graph supplies silence.
+        if first.samples() == 0 {
+            context
+                .source()
+                .flush()
+                .map_err(|error| ffi::fail("filter", &inputs[index].path, error))?;
+            inputs[index].done = true;
+            continue;
+        }
         context
             .source()
             .add(&first)
@@ -1310,6 +1320,51 @@ mod tests {
             mix_to_wav(&[], 60.0, &output, |at| at < 0.01),
             Err(Error::Cancelled)
         ));
+        std::fs::remove_file(output).unwrap();
+    }
+
+    #[test]
+    fn wav_merge_bounds_a_clip_shorter_than_its_first_decoded_frame() {
+        let folder =
+            std::env::temp_dir().join(format!("concat-short-wav-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let source = folder.join("tone.wav");
+        let output = folder.join("merged.wav");
+        tone_wav(&source, 0.1);
+        let piece = AudioClip {
+            start: 0.02,
+            duration: 128.0 / f64::from(MIX_RATE),
+            ..clip(source.to_str().unwrap())
+        };
+        mix_to_wav(&[piece], 0.05, &output, |_| true).unwrap();
+        let samples = wav_samples(&output);
+        assert_eq!(samples.len(), 2400 * 2);
+        assert!(samples[..960 * 2].iter().all(|sample| sample.abs() < 1e-6));
+        assert!(
+            samples[960 * 2..1088 * 2]
+                .iter()
+                .any(|sample| sample.abs() > 0.1)
+        );
+        assert!(samples[1088 * 2..].iter().all(|sample| sample.abs() < 1e-6));
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn wav_merge_is_silent_when_source_sound_starts_after_the_selection() {
+        let source = format!(
+            "{}/fixtures/sound-starts-late.mov",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let output =
+            std::env::temp_dir().join(format!("concat-late-sound-wav-{}.wav", std::process::id()));
+        let piece = AudioClip {
+            duration: 0.05,
+            ..clip(&source)
+        };
+        mix_to_wav(&[piece], 0.05, &output, |_| true).unwrap();
+        let samples = wav_samples(&output);
+        assert_eq!(samples.len(), 2400 * 2);
+        assert!(samples.iter().all(|sample| sample.abs() < 1e-6));
         std::fs::remove_file(output).unwrap();
     }
 

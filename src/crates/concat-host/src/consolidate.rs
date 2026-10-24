@@ -246,6 +246,42 @@ mod tests {
     }
 
     #[test]
+    fn audio_plan_leaves_sound_layers_outside_the_baked_selection() {
+        let (mut project, ids) = selection();
+        for id in &ids {
+            project.active_mut().clip_mut(id).unwrap().kind = ClipKind::Audio;
+        }
+        let track = project.active().tracks[1].id.clone();
+        let mut layer = Clip::blank(
+            "sound-layer",
+            &track,
+            ClipKind::SoundLayer,
+            "Telephone",
+            5.0,
+            4.0,
+        );
+        layer
+            .filters
+            .push(concat_project::model::AppliedFilter::new("concat.telephone"));
+        layer.opacity = 0.5;
+        layer.fade_in = 0.1;
+        layer.fade_out = 0.2;
+        project.active_mut().clips.push(std::sync::Arc::new(layer));
+        let before = project.clone();
+        let full = flatten_timeline_in(&project, None, Some(Path::new("/project")));
+        assert_eq!(concat_export::audio_buses(&full).len(), 1);
+
+        let plan = Consolidation::new(&project, &ids).unwrap();
+        let request = plan.request(&project, Path::new("/project"), Path::new("/merged.wav"));
+        assert_eq!(request.clips.len(), ids.len());
+        assert!(concat_export::audio_buses(&request.clips).is_empty());
+        assert_eq!(
+            project, before,
+            "the sound layer stays live and is not baked twice"
+        );
+    }
+
+    #[test]
     fn render_keeps_source_cuts_audio_settings_and_timeline_gaps() {
         let (project, ids) = selection();
         let plan = Consolidation::new(&project, &ids).unwrap();

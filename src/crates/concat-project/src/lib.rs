@@ -1377,6 +1377,19 @@ mod tests {
             clip.fade_out = 0.2;
             clip.source_start = 2.0;
         }
+        let layer_id = editor
+            .apply(Command::AddLayerClip {
+                track_id: None,
+                start: 0.5,
+                duration: Some(5.0),
+                effect_id: "concat.telephone".into(),
+                name: "Telephone".into(),
+                sound: true,
+            })
+            .unwrap()
+            .created_id
+            .unwrap();
+        let layer = editor.project().active().clip(&layer_id).unwrap().clone();
         let duration = 13.12345;
         let before = editor.project().clone();
         let Command::AddMedia { mut item } = media("/project/media/merged.wav", duration, true)
@@ -1403,6 +1416,7 @@ mod tests {
         );
         assert_eq!(merged.source_start, 0.0);
         assert_eq!(editor.project().media.len(), 2);
+        assert_eq!(editor.project().active().clip(&layer_id), Some(&layer));
         let after = editor.project().clone();
         assert!(editor.undo());
         assert_eq!(editor.project(), &before);
