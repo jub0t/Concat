@@ -451,7 +451,18 @@ pub fn filmstrip_between(
     let mut tiles: Vec<Option<Frame>> = (0..count).map(|_| None).collect();
 
     if span * fps <= STRIP_SEQUENTIAL_FRAMES {
-        read_through(path, from, fps, &instant, width, height, &mut tiles)?;
+        // The pass is exact, but it decodes every frame at full size, and a
+        // minute of 4K is many seconds of that. Where each tile's slice is
+        // long enough to hold a keyframe, the keyframes are tried first:
+        // one decode a tile, kept only when every tile has one of its own
+        // slice, so no tile shows a picture from anywhere else.
+        let slice = span / f64::from(count);
+        let keyed = slice >= KEYFRAME_SLICE
+            && keyframe_tiles(path, from, slice, width, height, &mut tiles).unwrap_or(false);
+        if !keyed {
+            tiles.iter_mut().for_each(|tile| *tile = None);
+            read_through(path, from, fps, &instant, width, height, &mut tiles)?;
+        }
     } else {
         seek_each(path, &instant, width, height, &mut tiles)?;
         if tiles.iter().all(Option::is_none) {
@@ -525,6 +536,58 @@ fn read_through(
         tiles[index] = Some(frame);
     }
     Ok(())
+}
+
+/// How long, in seconds, a filmstrip tile's slice of the footage must be
+/// before keyframes are tried in place of a pass through it. Phones and
+/// cameras write a keyframe every second or so, so a slice this long
+/// can have one in it; screen recordings and some encoders write one
+/// every several seconds, and their tiles fall back to the pass.
+const KEYFRAME_SLICE: f64 = 1.0;
+
+/// One keyframe a tile, for [`filmstrip_between`]: the last keyframe in
+/// each tile's own slice of the footage - `slice` seconds long, the first
+/// beginning at `from` - found by seeking to just short of the slice's
+/// end, and taken only while it lies inside the slice. `Ok(false)` at the
+/// first slice with no keyframe of its own, or a keyframe that will not
+/// say where it is; what was filled by then is the caller's to clear.
+fn keyframe_tiles(
+    path: &str,
+    from: f64,
+    slice: f64,
+    width: u32,
+    height: u32,
+    tiles: &mut [Option<Frame>],
+) -> Result<bool, String> {
+    let mut decoder = Decoder::open(
+        path,
+        &DecodeOptions::default()
+            .scaled_to(width, height)
+            .nearest_keyframes(),
+    )
+    .map_err(describe)?;
+    for (index, tile) in tiles.iter_mut().enumerate() {
+        let end = from + slice * (index as f64 + 1.0) - 1e-3;
+        let time = Rational::approximate(end).unwrap_or(Rational::ZERO);
+        decoder.seek(time).map_err(describe)?;
+        let Some(frame) = decoder.next_frame().map_err(describe)? else {
+            return Ok(false);
+        };
+        let landed = decoder.position().map(|position| position.as_f64());
+        if !landed.is_some_and(|at| in_slice(at, from, slice, index)) {
+            return Ok(false);
+        }
+        *tile = Some(frame);
+    }
+    Ok(true)
+}
+
+/// Whether `at` lies in tile `index`'s slice of a strip whose slices are
+/// `slice` seconds long from `from`, with a millisecond's slack for a
+/// stamp rounded to the container's clock.
+fn in_slice(at: f64, from: f64, slice: f64, index: usize) -> bool {
+    let start = from + slice * index as f64;
+    at >= start - 1e-3 && at < start + slice
 }
 
 /// One seek per tile, to the keyframe at or before its instant. Near
@@ -1105,6 +1168,83 @@ mod tests {
             !serves_as_card(&lit, None, 2.0),
             "footage that says nothing"
         );
+    }
+
+    /// Sixteen seconds of a red ramp at `path`, keyframes wherever the
+    /// encoder puts them: about a second apart for this picture, scene
+    /// cuts among them.
+    fn red_ramp(path: &Path) {
+        use concat_core::time::FrameRate;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let mut encoder =
+            Encoder::create(path, 64, 32, FrameRate::THIRTY, &EncodeOptions::default())
+                .expect("encodes");
+        for index in 0..480u32 {
+            let mut frame = Frame::black(64, 32);
+            frame.fill([(index * 255 / 479) as u8, 60, 60, 255]);
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+    }
+
+    /// Whether each tile of `strip`, `count` across a sixteen-second red
+    /// ramp, is a picture from its own slice of the ramp.
+    fn tiles_in_their_slices(strip: &Frame, count: u32) -> Result<(), String> {
+        let per = 255.0 / f64::from(count);
+        for tile in 0..count {
+            let red = f64::from(strip.pixel(tile * 64 + 32, 16).expect("in bounds")[0]);
+            let low = per * f64::from(tile) - 6.0;
+            let high = per * f64::from(tile + 1) + 6.0;
+            if !(low..=high).contains(&red) {
+                return Err(format!(
+                    "{count} tiles: tile {tile} is red {red}, not from {low}..{high}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// A filmstrip's tile is a picture from its own slice of the footage,
+    /// whether the strip was made from keyframes or read through: the
+    /// keyframes are taken only when every slice has one of its own, and
+    /// a keyframe the decoder hands back from later - FFmpeg's H.264 does,
+    /// asked for keyframes alone on a stream with scene cuts, which this
+    /// one has - sends the strip to the pass rather than onto the tile.
+    #[test]
+    fn a_filmstrip_tile_is_a_picture_from_its_own_slice() {
+        let path = std::env::temp_dir().join(format!(
+            "concat-filmstrip-keyframes-test-{}.mp4",
+            std::process::id()
+        ));
+        red_ramp(&path);
+        let file = path.to_string_lossy().into_owned();
+
+        for count in [4u32, 8, 16] {
+            let slice = 16.0 / f64::from(count);
+            let mut tiles: Vec<Option<Frame>> = vec![None; count as usize];
+            if keyframe_tiles(&file, 0.0, slice, 64, 32, &mut tiles) == Ok(true) {
+                let mut strip = Frame::black(64 * count, 32);
+                for (index, tile) in tiles.iter().enumerate() {
+                    strip.blit(tile.as_ref().expect("every tile"), index as u32 * 64, 0);
+                }
+                tiles_in_their_slices(&strip, count).expect("keyframes from their own slices");
+            }
+            let strip = filmstrip(&file, count, 32).expect("strips");
+            assert_eq!((strip.width(), strip.height()), (count * 64, 32));
+            tiles_in_their_slices(&strip, count).expect("tiles from their own slices");
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_keyframe_is_in_a_slice_from_its_start_to_the_next_ones() {
+        assert!(in_slice(4.0, 0.0, 4.0, 1));
+        assert!(in_slice(3.9995, 0.0, 4.0, 1), "a stamp rounded short");
+        assert!(in_slice(7.9, 0.0, 4.0, 1));
+        assert!(!in_slice(8.0, 0.0, 4.0, 1));
+        assert!(!in_slice(2.0, 0.0, 4.0, 1), "the slice before");
+        assert!(in_slice(12.5, 10.0, 1.0, 2), "a window that starts later");
     }
 
     /// A black frame is dead, a dark scene is not, and a frame with a
