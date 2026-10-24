@@ -326,6 +326,22 @@ fn plan_access(current_next: Option<i64>, target: i64) -> Access {
     }
 }
 
+/// How far a warm reader aimed at `aim` is from serving `target`, or `None`
+/// when it would have to seek. Just ahead is a roll. A few frames behind
+/// counts too: the prefetch workers decode neighbouring frames at once, so
+/// frame k often claims after k+1 has already moved the reader's aim, and
+/// treating k as a seek opened a second and a third reader for plain
+/// playback of one file.
+fn claim_cost(aim: i64, target: i64) -> Option<i64> {
+    match plan_access(Some(aim), target) {
+        Access::Roll(frames) => Some(frames),
+        Access::Seek if target < aim && aim - target <= i64::from(crate::prefetch::AHEAD) => {
+            Some(aim - target)
+        }
+        Access::Seek => None,
+    }
+}
+
 /// An even size no smaller than two on a side: what the scaler and the
 /// codecs are happiest with.
 fn even(width: u32, height: u32) -> (u32, u32) {
@@ -489,9 +505,9 @@ struct Readers {
 
 impl Readers {
     /// The reader of `key` that `target` is just ahead of - the shortest
-    /// roll - or, when none is and the key already holds
-    /// [`READERS_PER_KEY`], its coldest, which will seek. Made the most
-    /// recent and aimed at `target`. `None` means open another.
+    /// roll - or a few frames behind, or, when none is and the key already
+    /// holds [`READERS_PER_KEY`], its coldest, which will seek. Made the
+    /// most recent and aimed at `target`. `None` means open another.
     fn claim(&mut self, key: &ReaderKey, target: i64) -> Option<Arc<Mutex<Reader>>> {
         let mine = || {
             self.warm
@@ -499,22 +515,25 @@ impl Readers {
                 .enumerate()
                 .filter(|(_, warm)| &warm.key == key)
         };
-        let at = mine()
-            .filter_map(|(at, warm)| match plan_access(Some(warm.aim), target) {
-                Access::Roll(frames) => Some((frames, at)),
-                Access::Seek => None,
-            })
+        let near = mine()
+            .filter_map(|(at, warm)| Some((claim_cost(warm.aim, target)?, at)))
             .min()
-            .map(|(_, at)| at)
-            // At the cap the coldest seeks, as the one reader always did: a
-            // seek is an open without the open.
-            .or_else(|| {
-                (mine().count() >= READERS_PER_KEY)
-                    .then(|| mine().next())?
-                    .map(|(at, _)| at)
-            })?;
+            .map(|(_, at)| at);
+        // At the cap the coldest seeks, as the one reader always did: a
+        // seek is an open without the open.
+        let at = near.or_else(|| {
+            (mine().count() >= READERS_PER_KEY)
+                .then(|| mine().next())?
+                .map(|(at, _)| at)
+        })?;
         let mut warm = self.warm.remove(at);
-        warm.aim = target;
+        // A reader claimed from just behind keeps the furthest aim it was
+        // given, so the frame racing past it still rolls there.
+        warm.aim = if near.is_some() {
+            warm.aim.max(target)
+        } else {
+            target
+        };
         warm.touched = std::time::Instant::now();
         let reader = Arc::clone(&warm.reader);
         self.warm.push(warm);
@@ -1262,6 +1281,19 @@ pub(crate) mod tests {
             Access::Seek,
             "unknown position means seek"
         );
+    }
+
+    /// A reader is claimed for a frame just ahead of it, or one the
+    /// prefetch race has already carried it a few frames past; anything
+    /// further behind is a seek, which another reader may serve better.
+    #[test]
+    fn a_reader_serves_a_frame_just_behind_it_as_well_as_one_ahead() {
+        assert_eq!(claim_cost(10, 12), Some(2), "just ahead rolls");
+        assert_eq!(claim_cost(10, 9), Some(1), "one behind: its neighbour won the race");
+        let ahead = i64::from(crate::prefetch::AHEAD);
+        assert_eq!(claim_cost(10 + ahead, 10), Some(ahead));
+        assert_eq!(claim_cost(11 + ahead, 10), None, "further behind seeks");
+        assert_eq!(claim_cost(10, 10 + ROLL_FORWARD_FRAMES + 1), None);
     }
 
     /// The level is the source halved while it still covers the request,
