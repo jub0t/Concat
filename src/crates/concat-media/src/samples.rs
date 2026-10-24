@@ -84,11 +84,14 @@ impl Default for AudioOptions {
 }
 
 /// The graph between the codec and the caller, as one string. `origin` is
-/// the stream's own start, in seconds: the decoded frames carry it on their
+/// where the file starts, in seconds: the decoded frames carry it on their
 /// timestamps, so a cut `start` seconds into the sound is made at
-/// `origin + start` (see `ffi::start_of`).
-fn audio_filter(options: &AudioOptions, origin: f64) -> String {
+/// `origin + start` (see `ffi::origin`). `late` is how long after that the
+/// sound's first sample comes - a file whose picture starts first - and is
+/// put in front as silence, so the sound stays with its picture.
+fn audio_filter(options: &AudioOptions, origin: f64, late: f64) -> String {
     let mut parts: Vec<String> = Vec::new();
+    let pad = (late > 0.0005).then(|| format!("adelay=delays={:.3}:all=1", late * 1000.0));
     match (options.start.map(|start| start + origin), options.duration) {
         (Some(start), Some(duration)) => {
             parts.push(format!("atrim=start={start:.6}:duration={duration:.6}"));
@@ -98,10 +101,28 @@ fn audio_filter(options: &AudioOptions, origin: f64) -> String {
             parts.push(format!("atrim=start={start:.6}"));
             parts.push("asetpts=PTS-STARTPTS".to_owned());
         }
+        // Sound that starts before the picture is cut where the picture
+        // starts, as a cut would cut it.
+        (None, Some(duration)) if late < -0.0005 => {
+            parts.push(format!("atrim=start={origin:.6}:duration={duration:.6}"));
+            parts.push("asetpts=PTS-STARTPTS".to_owned());
+        }
+        (None, None) if late < -0.0005 => {
+            parts.push(format!("atrim=start={origin:.6}"));
+            parts.push("asetpts=PTS-STARTPTS".to_owned());
+        }
         (None, Some(duration)) => {
             parts.push(format!("atrim=duration={duration:.6}"));
         }
         (None, None) => {}
+    }
+    // After the cut, which restamps from its first sample; and cut again
+    // to the length asked for, which the silence has pushed out.
+    if let Some(pad) = pad {
+        parts.push(pad);
+        if let Some(duration) = options.duration {
+            parts.push(format!("atrim=duration={duration:.6}"));
+        }
     }
     parts.extend(
         options
@@ -173,10 +194,10 @@ impl AudioDecoder {
         let stream = input.stream(stream_index).expect("just found");
         let time_base = stream.time_base();
         // A file whose sound starts late - MPEG-TS at 1.4 s, the MTS files
-        // cameras write - is measured from its first sample, as the picture
-        // and the export mix are; without this the preview's sound and a
-        // transcript ran ahead of the picture (audit 2026-10-04, #3).
-        let origin = ffi::start_of(&stream).as_f64();
+        // cameras write - is measured from where the file starts, as the
+        // picture and the export mix are; without this the preview's sound
+        // and a transcript ran ahead of the picture (audit 2026-10-04, #3).
+        let origin = ffi::origin(&input).as_f64();
         let context = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .map_err(|error| ffi::fail("codec parameters", path, error))?;
         let decoder = context
@@ -221,6 +242,14 @@ impl AudioDecoder {
     }
 
     fn build_graph(&self, first: &Audio) -> Result<filter::Graph> {
+        // How long after the cut the first sample comes: past zero only for
+        // sound that starts after the file's origin, the picture first.
+        let late = first
+            .timestamp()
+            .and_then(|ticks| ffi::seconds(ticks, self.time_base))
+            .map_or(0.0, |at| {
+                at.as_f64() - self.origin - self.options.start.unwrap_or(0.0)
+            });
         let mut graph = filter::Graph::new();
         let args = format!(
             "time_base={}/{}:sample_rate={}:sample_fmt={}:channel_layout={}",
@@ -251,7 +280,7 @@ impl AudioDecoder {
         graph
             .output("in", 0)
             .and_then(|parser| parser.input("out", 0))
-            .and_then(|parser| parser.parse(&audio_filter(&self.options, self.origin)))
+            .and_then(|parser| parser.parse(&audio_filter(&self.options, self.origin, late)))
             .map_err(|error| ffi::fail("filter graph", &self.path, error))?;
         graph
             .validate()
@@ -388,7 +417,7 @@ mod tests {
             stream: None,
         };
         assert_eq!(
-            audio_filter(&options, 0.0),
+            audio_filter(&options, 0.0, 0.0),
             "atrim=start=1.500000:duration=2.000000,asetpts=PTS-STARTPTS,atempo=2.000000,\
              aresample=16000,aformat=sample_fmts=flt:sample_rates=16000:channel_layouts=mono"
         );
@@ -396,7 +425,7 @@ mod tests {
 
     #[test]
     fn a_whole_file_has_no_trim() {
-        let graph = audio_filter(&AudioOptions::default(), 1.4);
+        let graph = audio_filter(&AudioOptions::default(), 1.4, 0.0);
         assert!(graph.starts_with("aresample=48000,"), "{graph}");
         assert!(graph.ends_with("channel_layouts=stereo"), "{graph}");
     }
@@ -408,7 +437,40 @@ mod tests {
             start: Some(0.5),
             ..AudioOptions::default()
         };
-        assert!(audio_filter(&options, 1.4).starts_with("atrim=start=1.900000,"));
+        assert!(audio_filter(&options, 1.4, 0.0).starts_with("atrim=start=1.900000,"));
+    }
+
+    /// Sound that starts before the picture is cut where the picture does,
+    /// with no seek to have cut it.
+    #[test]
+    fn sound_that_starts_early_is_cut_where_the_picture_starts() {
+        let whole = audio_filter(&AudioOptions::default(), 0.5, -0.5);
+        assert!(
+            whole.starts_with("atrim=start=0.500000,asetpts=PTS-STARTPTS,aresample"),
+            "{whole}"
+        );
+    }
+
+    /// Sound that starts after the file's origin - after its picture - is
+    /// put in with silence in front, after any cut, so it plays with the
+    /// picture rather than ahead of it.
+    #[test]
+    fn sound_that_starts_late_is_put_in_after_silence() {
+        let whole = audio_filter(&AudioOptions::default(), 0.0, 0.5);
+        assert!(whole.starts_with("adelay=delays=500.000:all=1,"), "{whole}");
+        let cut = AudioOptions {
+            start: Some(0.2),
+            duration: Some(1.0),
+            ..AudioOptions::default()
+        };
+        assert!(
+            audio_filter(&cut, 0.0, 0.3).starts_with(
+                "atrim=start=0.200000:duration=1.000000,asetpts=PTS-STARTPTS,\
+                 adelay=delays=300.000:all=1,atrim=duration=1.000000,"
+            ),
+            "{}",
+            audio_filter(&cut, 0.0, 0.3)
+        );
     }
 
     /// A window into a file whose sound starts at 1.4 s - silence, then a
@@ -449,6 +511,56 @@ mod tests {
         );
         assert!(loud(0..3_800) < 0.01, "silence before the tone");
         assert!(loud(4_200..7_600) > 0.08, "the tone after half a second");
+    }
+
+    /// Where a tone first sounds in what a decoder of `path` hands back,
+    /// in seconds, at 8 kHz mono.
+    fn tone_onset(path: &str, start: Option<f64>) -> f64 {
+        let options = AudioOptions {
+            start,
+            rate: 8_000,
+            channels: 1,
+            format: SampleFormat::F32,
+            ..AudioOptions::default()
+        };
+        let mut decoder = AudioDecoder::open(path, &options).expect("opens");
+        let mut samples: Vec<f32> = Vec::new();
+        while let Some(frame) = decoder.next_frame().expect("decodes") {
+            let bytes = &frame.data(0)[..frame.samples() * 4];
+            samples.extend(
+                bytes
+                    .chunks_exact(4)
+                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])),
+            );
+        }
+        let first = samples
+            .iter()
+            .position(|sample| sample.abs() > 0.05)
+            .expect("a tone");
+        first as f64 / 8_000.0
+    }
+
+    /// A file's sound is measured from where its picture starts, so the two
+    /// play together as they do in a player. Each fixture sounds a tone half
+    /// a second after its first frame: one whose picture starts half a
+    /// second after its sound, one whose sound starts after its picture.
+    /// Each measured from its own first sample, the first played its tone a
+    /// second in and the second a fifth of a second in (#457).
+    #[test]
+    fn sound_plays_with_the_picture_whichever_starts_first() {
+        for fixture in ["picture-starts-late.mov", "sound-starts-late.mov"] {
+            let path = format!("{}/fixtures/{fixture}", env!("CARGO_MANIFEST_DIR"));
+            let whole = tone_onset(&path, None);
+            assert!(
+                (whole - 0.5).abs() < 0.01,
+                "{fixture}: the tone sounds {whole:.3} s after the first frame"
+            );
+            let cut = tone_onset(&path, Some(0.2));
+            assert!(
+                (cut - 0.3).abs() < 0.01,
+                "{fixture}: cut 0.2 s in, the tone sounds at {cut:.3} s"
+            );
+        }
     }
 
     #[test]

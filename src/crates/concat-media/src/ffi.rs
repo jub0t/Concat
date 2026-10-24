@@ -156,17 +156,52 @@ pub(crate) fn seconds(ticks: i64, time_base: ffmpeg::Rational) -> Option<Rationa
     )
 }
 
-/// Where a stream's timestamps start, in seconds: what its frames are
-/// measured from. Zero for a stream that starts at zero or does not say;
-/// 1.4 s for MPEG-TS by default and the MTS files cameras write, which
-/// read as 1.4 s into the picture unless this is taken off every
-/// timestamp and put back on every seek (audit 2026-09-23, #9).
-pub(crate) fn start_of(stream: &ffmpeg::format::stream::Stream<'_>) -> Rational {
+/// Where a stream's timestamps start, in seconds, or `None` where it does
+/// not say. Zero for a stream that starts at or before zero.
+fn start_of(stream: &ffmpeg::format::stream::Stream<'_>) -> Option<Rational> {
     let ticks = stream.start_time();
-    if ticks == ffmpeg::sys::AV_NOPTS_VALUE || ticks <= 0 {
-        return Rational::from_int(0);
+    if ticks == ffmpeg::sys::AV_NOPTS_VALUE {
+        return None;
     }
-    seconds(ticks, stream.time_base()).unwrap_or_else(|| Rational::from_int(0))
+    if ticks <= 0 {
+        return Some(Rational::ZERO);
+    }
+    seconds(ticks, stream.time_base())
+}
+
+/// Where a file's picture and sound are measured from, in seconds: where
+/// its picture starts, or for a file with none, its sound. Taken off every
+/// timestamp read and put back on every seek, by every reader of the file.
+///
+/// 1.4 s for MPEG-TS by default and the MTS files cameras write, which
+/// read as 1.4 s into the picture unless it is taken off (audit 2026-09-23,
+/// #9). One origin for the whole file, not each stream its own: the
+/// streams of a file seldom start together - a camera's MTS sound 5 ms
+/// before its picture, an FLV's 23 ms, a clip cut with `-c copy` whose
+/// picture waits half a second for its first keyframe - and measuring each
+/// from its own first frame slid the picture against the sound by exactly
+/// that gap, in the preview and the export alike (#457). The picture's
+/// start rather than the earliest: its frames then sit on the timeline's
+/// grid as they always did, and the sound carries the gap - cut where it
+/// starts first, put in after silence where it starts later. A cover
+/// picture is no part of the timeline, and a stream that does not say
+/// where it starts says nothing.
+pub(crate) fn origin(input: &ffmpeg::format::context::Input) -> Rational {
+    use ffmpeg::format::stream::Disposition;
+    let picture = input
+        .streams()
+        .best(ffmpeg::media::Type::Video)
+        .filter(|stream| !stream.disposition().contains(Disposition::ATTACHED_PIC))
+        .and_then(|stream| start_of(&stream));
+    picture
+        .or_else(|| {
+            input
+                .streams()
+                .filter(|stream| stream.parameters().medium() == ffmpeg::media::Type::Audio)
+                .filter_map(|stream| start_of(&stream))
+                .min()
+        })
+        .unwrap_or(Rational::ZERO)
 }
 
 /// Seconds in `AV_TIME_BASE` units, which is what container-level seeks take.

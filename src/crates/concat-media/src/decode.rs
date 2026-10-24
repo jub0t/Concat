@@ -619,9 +619,9 @@ pub struct Decoder {
     input: format::context::Input,
     stream: usize,
     time_base: ffmpeg::Rational,
-    /// Where the stream's timestamps start; every timestamp read has this
+    /// Where the file's timestamps start; every timestamp read has this
     /// taken off and every seek has it put back, so the file reads from
-    /// its own first frame. See `ffi::start_of`.
+    /// its own first frame, in step with its sound. See `ffi::origin`.
     start: Rational,
     decoder: decoder::Video,
     rotation: i64,
@@ -697,7 +697,7 @@ impl Decoder {
             })?;
         let stream_index = stream.index();
         let time_base = stream.time_base();
-        let start = ffi::start_of(&stream);
+        let start = ffi::origin(&input);
         let rotation = ffi::rotation(&stream);
         // Wide pixels are shown square: see `ffi::sample_aspect`.
         let aspect = ffi::sample_aspect(&stream);

@@ -218,7 +218,9 @@ pub fn mix_graph(clips: &[AudioClip]) -> Result<String> {
 /// starts, which the graph cuts off the front. A container seek lands on
 /// the packet at or before the target - a whole AAC frame early, 21 ms -
 /// and `mix_to_file` measures the miss from the first decoded frame; on
-/// the continuous clock it stamps, the trim is then exact.
+/// the continuous clock it stamps, the trim is then exact. A lead below
+/// zero is sound that starts after the in-point - a file whose picture
+/// starts before its sound - and that much silence goes in front.
 fn mix_graph_from(clips: &[AudioClip], leads: &[f64]) -> Result<String> {
     let mut chains: Vec<String> = Vec::new();
 
@@ -241,6 +243,8 @@ fn mix_graph_from(clips: &[AudioClip], leads: &[f64]) -> Result<String> {
         let lead = leads.get(index).copied().unwrap_or(0.0);
         let mut stage = if lead > 0.0 {
             format!("[{index}:a]atrim=start={lead:.6},asetpts=PTS-STARTPTS")
+        } else if lead < -0.0005 {
+            format!("[{index}:a]adelay=delays={:.3}:all=1", -lead * 1000.0)
         } else {
             format!("[{index}:a]anull")
         };
@@ -397,10 +401,10 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             })?;
         let stream = input.stream(stream_index).expect("just found");
         let time_base = stream.time_base();
-        // Where the stream's clock starts: taken off what is read, put
-        // back on the seek, so the in-point is measured from the sound's
-        // own first sample. See `ffi::start_of`.
-        let start = ffi::start_of(&stream).as_f64();
+        // Where the file's clock starts: taken off what is read, put back
+        // on the seek, so the in-point is measured from the same instant
+        // the picture's is. See `ffi::origin`.
+        let start = ffi::origin(&input).as_f64();
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| ffi::fail("open decoder", path, error))?;
@@ -428,13 +432,14 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
         })?;
         // How far before the in-point the seek landed, by the first frame's
         // own timestamp - the one place a source timestamp is read, and
-        // only to place the cut. A frame with none, or one past the
-        // in-point, means nothing to cut.
+        // only to place the cut. A frame with none means nothing to cut;
+        // one past the in-point is sound that starts after it, which is
+        // put that far in with silence, so it stays with its picture.
         let landed = first
             .timestamp()
             .and_then(|ticks| ffi::seconds(ticks, time_base))
             .map_or(clip.source_start, |at| at.as_f64() - start);
-        let lead = (clip.source_start - landed).max(0.0);
+        let lead = clip.source_start - landed;
         leads.push(lead);
         // Our continuous PTS: sample count from the start of this clip.
         first.set_pts(Some(0));
@@ -444,7 +449,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
         // the speed factor. The first frame goes into the graph separately
         // below, so it counts towards the total.
         mix_input.samples_sent = first.samples() as i64;
-        mix_input.clip_samples = ((clip.duration * clamp_speed(clip.speed) + lead)
+        mix_input.clip_samples = ((clip.duration * clamp_speed(clip.speed) + lead).max(0.0)
             * f64::from(first.rate()))
         .round() as i64;
         // One sample per time-base tick: the PTS we stamp is a plain
@@ -1138,6 +1143,54 @@ mod tests {
             "the sound is there too, not {} packets",
             counts[1]
         );
+    }
+
+    /// The export's mix keeps a file's sound with its picture whichever
+    /// starts first: each fixture sounds a tone half a second after its
+    /// first frame, and so does its clip in the mix, whole or cut 0.2 s in
+    /// (#457).
+    #[test]
+    fn the_mix_keeps_sound_with_its_picture_whichever_starts_first() {
+        use crate::{AudioDecoder, AudioOptions, SampleFormat};
+        let output =
+            std::env::temp_dir().join(format!("concat-mix-origin-{}.m4a", std::process::id()));
+        for fixture in ["picture-starts-late.mov", "sound-starts-late.mov"] {
+            for (source_start, want) in [(0.0, 0.5), (0.2, 0.3)] {
+                let source = format!("{}/fixtures/{fixture}", env!("CARGO_MANIFEST_DIR"));
+                let piece = AudioClip {
+                    duration: 1.0,
+                    source_start,
+                    ..clip(&source)
+                };
+                mix_to_file(&[piece], 1.0, &output).expect("mixes");
+                let options = AudioOptions {
+                    rate: 8_000,
+                    channels: 1,
+                    format: SampleFormat::F32,
+                    ..AudioOptions::default()
+                };
+                let mut decoder = AudioDecoder::open(&output, &options).expect("opens the mix");
+                let mut samples: Vec<f32> = Vec::new();
+                while let Some(frame) = decoder.next_frame().expect("decodes") {
+                    let bytes = &frame.data(0)[..frame.samples() * 4];
+                    samples.extend(
+                        bytes
+                            .chunks_exact(4)
+                            .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])),
+                    );
+                }
+                let onset = samples
+                    .iter()
+                    .position(|sample| sample.abs() > 0.05)
+                    .expect("the tone is in the mix") as f64
+                    / 8_000.0;
+                assert!(
+                    (onset - want).abs() < 0.015,
+                    "{fixture} cut {source_start} s in: the tone is at {onset:.3} s, not {want}"
+                );
+            }
+        }
+        let _ = std::fs::remove_file(&output);
     }
 
     /// A trimmed clip's mix ends when the timeline does. Two pieces of one
