@@ -4087,6 +4087,16 @@ impl Studio {
         self.request_preview();
     }
 
+    /// Takes a look's showing off the picture, when one is up: what a
+    /// press on a clip, Esc and the monitor's cross do. A look left showing
+    /// after the hand had moved on read as one laid on the clip, with no
+    /// tab to take it off by.
+    pub fn end_audition(&mut self) {
+        if self.audition.take().is_some() {
+            self.request_preview();
+        }
+    }
+
     /// Lays a filter down as a layer at the playhead - what the Filters
     /// page's double-click and plus do - and ends the showing, the layer
     /// now being on the timeline to see.
@@ -4846,6 +4856,7 @@ impl Studio {
         // now lands before the selection moves: a commit flushed after the
         // change would look for it on the newly selected clip and lose it.
         self.flush_commit();
+        self.end_audition();
         // A press on a transition's seam or handles selects the transition,
         // not the clip it rides into; a drag there still sets its length.
         if edge == 2
@@ -12218,6 +12229,7 @@ impl Studio {
             // way a press on an empty lane leaves it.
             "deselect" => {
                 self.flush_commit();
+                self.end_audition();
                 self.selection.clear();
                 self.transition_selected = None;
             }

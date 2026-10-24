@@ -735,6 +735,11 @@ export component PreviewPane inherits Rectangle {
     in property <int> ratio-index;
     in property <int> quality-index;
 
+    /// A library look is shown over the picture without being laid down.
+    in property <bool> previewing;
+    /// Its cross was pressed.
+    callback preview-ended();
+
     // ── where the playhead is ────────────────────────────────────────────
     in property <float> playhead;
     in property <float> duration;
@@ -1078,6 +1083,62 @@ export component PreviewPane inherits Rectangle {
                     frame-menu.request-x = self.absolute-position.x - root.absolute-position.x + x;
                     frame-menu.request-y = self.absolute-position.y - root.absolute-position.y + y;
                     root.frame-token += 1;
+                }
+            }
+
+            // A look shown over the picture from the library, not laid down:
+            // said on the monitor for as long as it is up, with a cross to
+            // take it off - else it read as a filter put on the clip.
+            if root.previewing && root.source-name == "": Rectangle {
+                x: stage.x + (stage.width - self.width) / 2;
+                y: stage.y + 8px;
+                width: look-row.preferred-width;
+                height: 24px;
+                border-radius: 12px;
+                background: Theme.scrim;
+
+                look-row := HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 4px;
+                    spacing: 6px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: Glyph.eye;
+                            size: 12px;
+                            tint: Theme.on-scrim;
+                        }
+                    }
+                    Text {
+                        text: I18n.t("previewPane.lookPreview");
+                        color: Theme.on-scrim;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        max-width: stage.width - 80px;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 9px;
+                            background: end-touch.has-hover ? Theme.on-scrim.with-alpha(0.2) : transparent;
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.close;
+                                size: 10px;
+                                tint: Theme.on-scrim;
+                            }
+                            end-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.preview-ended(); }
+                            }
+                        }
+                    }
                 }
             }
 
