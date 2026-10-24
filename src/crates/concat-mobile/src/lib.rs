@@ -352,7 +352,9 @@ impl Engine {
 /// "30000/1001" as a fraction, 30/1 for anything unreadable.
 fn rate_of(fraction: &str) -> (i64, i64) {
     let mut parts = fraction.split('/');
-    let num = parts.next().and_then(|part| part.trim().parse::<i64>().ok());
+    let num = parts
+        .next()
+        .and_then(|part| part.trim().parse::<i64>().ok());
     let den = parts
         .next()
         .map_or(Some(1), |part| part.trim().parse::<i64>().ok());

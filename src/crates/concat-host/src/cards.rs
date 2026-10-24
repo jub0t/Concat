@@ -513,7 +513,7 @@ mod tests {
     #[ignore = "needs a GPU and writes the cards to a folder of your choosing"]
     fn draw_every_card() {
         let dir = PathBuf::from(std::env::var("CONCAT_CARDS_OUT").expect("CONCAT_CARDS_OUT"));
-        let cards = cards(&Catalogue::builtin(), &dir);
+        let cards = cards(Catalogue::builtin(), &dir);
         let mut drawn = 0;
         draw_all(&dir, &cards, None, |batch, _| drawn += batch.len());
         assert_eq!(drawn, cards.len(), "every card is drawn");

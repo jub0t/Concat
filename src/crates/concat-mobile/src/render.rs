@@ -94,7 +94,13 @@ impl Handle {
     }
 
     /// Draws on `window` from now on; see `Engine::attach_surface`.
-    pub fn attach(&self, window: u64, width: u32, height: u32, mode: &str) -> Result<String, String> {
+    pub fn attach(
+        &self,
+        window: u64,
+        width: u32,
+        height: u32,
+        mode: &str,
+    ) -> Result<String, String> {
         let (reply, answer) = mpsc::channel();
         self.send(Msg::Attach {
             window,
@@ -176,7 +182,11 @@ fn run(rx: mpsc::Receiver<Msg>, playback: Arc<Playback>, stats: Arc<Mutex<Stats>
     let mut window_frames = 0u32;
     let mut scrub_total = 0.0f64;
     let stat = |with: &dyn Fn(&mut Stats)| {
-        with(&mut stats.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        with(
+            &mut stats
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
     };
 
     loop {
@@ -210,7 +220,10 @@ fn run(rx: mpsc::Receiver<Msg>, playback: Arc<Playback>, stats: Arc<Mutex<Stats>
                         old.release_surface();
                     }
                     let made = target::Target::attach(window, width, height, &mode);
-                    let answer = made.as_ref().map(|made| made.describe()).map_err(Clone::clone);
+                    let answer = made
+                        .as_ref()
+                        .map(|made| made.describe())
+                        .map_err(Clone::clone);
                     if let Ok(made) = made {
                         stat(&|stats| {
                             *stats = Stats {
@@ -256,7 +269,10 @@ fn run(rx: mpsc::Receiver<Msg>, playback: Arc<Playback>, stats: Arc<Mutex<Stats>
                         pending = Some((playback.position_now(), Instant::now()));
                     }
                 }
-                Msg::Playing { on, duration: total } => {
+                Msg::Playing {
+                    on,
+                    duration: total,
+                } => {
                     playing = on;
                     duration = total;
                     if on {
@@ -467,7 +483,9 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                     .map(|target| Target::Gpu(Box::new(target))),
                 _ => GpuTarget::new(window.clone(), width, height, wgpu::Backends::VULKAN)
                     .or_else(|error| {
-                        log::warn!("Vulkan would not draw on the surface ({error}); trying OpenGL ES");
+                        log::warn!(
+                            "Vulkan would not draw on the surface ({error}); trying OpenGL ES"
+                        );
                         GpuTarget::new(window, width, height, wgpu::Backends::GL)
                     })
                     .map(|target| Target::Gpu(Box::new(target))),
@@ -550,7 +568,9 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             // target, the surface dropped first.
             let surface = unsafe {
                 instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    raw_display_handle: Some(RawDisplayHandle::Android(AndroidDisplayHandle::new())),
+                    raw_display_handle: Some(
+                        RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+                    ),
                     raw_window_handle: RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(
                         window.ptr().cast(),
                     )),
@@ -648,7 +668,11 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some(if format.is_srgb() { "fs_linear" } else { "fs_plain" }),
+                    entry_point: Some(if format.is_srgb() {
+                        "fs_linear"
+                    } else {
+                        "fs_plain"
+                    }),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
@@ -698,10 +722,10 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             );
             let spec = spec(doc, at, size, moving);
             let started = Instant::now();
-            let sources = self
-                .gpu
-                .monitor
-                .frame_sources(Arc::clone(&doc.clips), &doc.settings, spec)?;
+            let sources =
+                self.gpu
+                    .monitor
+                    .frame_sources(Arc::clone(&doc.clips), &doc.settings, spec)?;
             let decoded = started.elapsed();
             let drawing = Instant::now();
             let texture = self.gpu.monitor.texture_of(&sources, spec)?;
@@ -714,7 +738,9 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                 }
                 other => return Err(format!("no surface texture: {other:?}")),
             };
-            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let view = frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
             let picture = texture.create_view(&wgpu::TextureViewDescriptor::default());
             let bind = self
                 .gpu
@@ -733,12 +759,12 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                         },
                     ],
                 });
-            let mut encoder = self
-                .gpu
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("spike blit"),
-                });
+            let mut encoder =
+                self.gpu
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("spike blit"),
+                    });
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("spike blit"),
