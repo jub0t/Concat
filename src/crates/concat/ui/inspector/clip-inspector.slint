@@ -186,16 +186,14 @@ component StarChip inherits Rectangle {
 
     callback clicked();
 
-    width: 30px;
-    height: Theme.h;
-    border-radius: Theme.r;
-    border-width: 1px;
-    border-color: root.on ? Theme.accent : Theme.line;
+    width: 26px;
+    height: 26px;
+    border-radius: 13px;
     background: root.on ? Theme.accent-soft
         : touch.has-hover ? Theme.field-hover
         : Theme.field;
 
-    animate background, border-color {
+    animate background {
         duration: 100ms;
         easing: cubic-bezier(0.4, 0, 0.2, 1);
     }
@@ -268,7 +266,7 @@ export component PresetStack inherits VerticalLayout {
     property <length> cell-gap: 6px;
     property <length> cell-w: (root.width - 2 * root.pad
         - (root.columns - 1) * root.cell-gap) / root.columns;
-    property <length> cell-h: 44px;
+    property <length> cell-h: 58px;
     property <int> rows: ceil(root.catalogue.length / root.columns);
 
     /// Links that belong to another section's controls - the audio
@@ -326,70 +324,107 @@ export component PresetStack inherits VerticalLayout {
             padding-left: Theme.pad;
             padding-right: Theme.pad;
 
-            for item[index] in root.applied: VerticalLayout {
+            for item[index] in root.applied: link := VerticalLayout {
                 property <bool> hidden: root.is-hidden(item.id);
-                padding-bottom: self.hidden ? 0px : 6px;
+                /// Folded to its header: a long chain stays scannable, and
+                /// what is dialled in stays put.
+                property <bool> open: true;
+                padding-bottom: self.hidden ? 0px : 8px;
 
                 if !self.hidden: Rectangle {
                     border-radius: Theme.r;
                     background: Theme.raised;
                     border-width: 1px;
-                    border-color: Theme.line;
-                    opacity: item.on ? 1.0 : 0.55;
+                    border-color: head-touch.has-hover ? Theme.line-strong : Theme.line;
+
+                    animate border-color { duration: 120ms; }
 
                     VerticalLayout {
-                        padding-bottom: 8px;
-                        spacing: 4px;
+                        padding-bottom: link.open ? 10px : 0px;
+                        spacing: 6px;
 
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 6px;
-                            padding-top: 6px;
-                            spacing: 2px;
+                        // The header: the link's switch, its name - which
+                        // folds the card - and its place in the order.
+                        Rectangle {
+                            height: 38px;
 
-                            Text {
-                                horizontal-stretch: 1;
-                                text: item.name;
-                                color: item.known ? Theme.fg : Theme.fg-dim;
-                                font-size: Theme.fs;
-                                font-weight: Theme.weight-title;
-                                vertical-alignment: center;
-                                overflow: elide;
+                            head-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { link.open = !link.open; }
                             }
 
-                            if !item.known: Text {
-                                text: I18n.t("clipInspector.notInstalled");
-                                color: Theme.fg-dim;
-                                font-size: Theme.fs-xs;
-                                vertical-alignment: center;
-                            }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 4px;
+                                spacing: 8px;
 
-                            IconButton {
-                                glyph: Glyph.eye;
-                                label: item.on ? I18n.t1("clipInspector.bypass", "\{item.name}") : I18n.t1("clipInspector.enable", "\{item.name}");
-                                checked: item.on;
-                                clicked => { root.toggle(index); }
-                            }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Switch {
+                                        checked: item.on;
+                                        toggled(on) => { root.toggle(index); }
+                                    }
+                                }
 
-                            IconButton {
-                                glyph: Glyph.chevron-up;
-                                label: I18n.t1("clipInspector.moveUp", "\{item.name}");
-                                enabled: index > 0;
-                                clicked => { root.move-by(index, -1); }
-                            }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: item.name;
+                                    color: !item.known ? Theme.fg-dim
+                                        : item.on ? Theme.fg : Theme.fg-muted;
+                                    font-size: Theme.fs;
+                                    font-weight: Theme.weight-title;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
 
-                            IconButton {
-                                glyph: Glyph.chevron-down;
-                                label: I18n.t1("clipInspector.moveDown", "\{item.name}");
-                                enabled: index < root.applied.length - 1;
-                                clicked => { root.move-by(index, 1); }
-                            }
+                                if !item.known: Text {
+                                    text: I18n.t("clipInspector.notInstalled");
+                                    color: Theme.fg-dim;
+                                    font-size: Theme.fs-xs;
+                                    vertical-alignment: center;
+                                }
 
-                            IconButton {
-                                glyph: Glyph.close;
-                                label: I18n.t1("clipInspector.remove", "\{item.name}");
-                                clicked => { root.remove(index); }
+                                // Order and removal stay quiet beside the
+                                // name; a chain of one has no order.
+                                if root.applied.length > 1: IconButton {
+                                    glyph: Glyph.chevron-up;
+                                    label: I18n.t1("clipInspector.moveUp", "\{item.name}");
+                                    enabled: index > 0;
+                                    idle: Theme.fg-dim;
+                                    clicked => { root.move-by(index, -1); }
+                                }
+
+                                if root.applied.length > 1: IconButton {
+                                    glyph: Glyph.chevron-down;
+                                    label: I18n.t1("clipInspector.moveDown", "\{item.name}");
+                                    enabled: index < root.applied.length - 1;
+                                    idle: Theme.fg-dim;
+                                    clicked => { root.move-by(index, 1); }
+                                }
+
+                                IconButton {
+                                    glyph: Glyph.trash;
+                                    label: I18n.t1("clipInspector.remove", "\{item.name}");
+                                    idle: Theme.fg-dim;
+                                    danger: true;
+                                    clicked => { root.remove(index); }
+                                }
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        glyph: link.open ? Glyph.chevron-down : Glyph.chevron-right;
+                                        size: 12px;
+                                        tint: Theme.fg-dim;
+                                    }
+                                }
+                                Rectangle { width: 4px; }
                             }
+                        }
+
+                        if link.open && item.known: Rectangle {
+                            height: 1px;
+                            background: Theme.line;
                         }
 
                         // One control per parameter the package declares. The
@@ -399,11 +434,15 @@ export component PresetStack inherits VerticalLayout {
                     // never shows a number that is not the document's.
                     for p in root.params: Rectangle {
                             property <AppliedParamData> data: p;
-                            visible: p.entry == index;
-                            height: p.entry == index ? knob.preferred-height : 0;
+                            visible: link.open && p.entry == index;
+                            height: link.open && p.entry == index ? knob.preferred-height : 0;
+                            opacity: item.on ? 1.0 : 0.5;
                             changed data => { knob.value = self.data.value; }
 
                             knob := Param {
+                                // A slider and the number, rather than the
+                                // number alone: an effect is dialled by eye.
+                                rail: true;
                                 label: p.label;
                                 value: p.value;
                                 minimum: p.min;
@@ -423,8 +462,8 @@ export component PresetStack inherits VerticalLayout {
                         // The link's colours: a swatch that opens the
                         // picker, and the hex, typed as well as read.
                         for c in root.colours: Rectangle {
-                            visible: c.entry == index;
-                            height: c.entry == index ? swatch.preferred-height : 0;
+                            visible: link.open && c.entry == index;
+                            height: link.open && c.entry == index ? swatch.preferred-height : 0;
 
                             swatch := ColourField {
                                 label: c.label;
@@ -439,8 +478,8 @@ export component PresetStack inherits VerticalLayout {
 
                         // The link's wheels, three in a row, and its curves.
                         for g in root.wheel-groups: Rectangle {
-                            visible: g.entry == index;
-                            height: g.entry == index ? trio.preferred-height : 0;
+                            visible: link.open && g.entry == index;
+                            height: link.open && g.entry == index ? trio.preferred-height : 0;
 
                             trio := HorizontalLayout {
                                 padding-left: Theme.pad;
@@ -463,8 +502,8 @@ export component PresetStack inherits VerticalLayout {
                             }
                         }
                         for g in root.curve-groups: Rectangle {
-                            visible: g.entry == index;
-                            height: g.entry == index ? graph.preferred-height : 0;
+                            visible: link.open && g.entry == index;
+                            height: link.open && g.entry == index ? graph.preferred-height : 0;
 
                             graph := CurveEditor {
                                 padding-left: Theme.pad;
@@ -512,24 +551,52 @@ export component PresetStack inherits VerticalLayout {
         // than a segment inside it, and it takes the strip's place when it
         // is on because a shelf inside a starred set is a filter of a filter
         // nobody asked for.
-        if root.library: Row {
+        if root.library: HorizontalLayout {
+            padding-left: root.pad;
+            padding-right: root.pad;
+            spacing: 6px;
+            height: 26px;
+
             StarChip {
                 on: root.favourites-only;
                 clicked => { Library.favourites-changed(root.shelf, !root.favourites-only); }
             }
 
-            if !root.favourites-only: SegmentedControl {
-                options: root.group-labels;
-                current: root.group;
-                changed(index) => { Library.group-changed(root.shelf, index); }
+            // The shelves as pills on the panel, the Library pane's way,
+            // rather than a dark segmented track: picking one also leaves
+            // the starred set, since a shelf is a different question.
+            for label[i] in root.group-labels: Rectangle {
+                property <bool> picked: !root.favourites-only && root.group == i;
+                border-radius: 13px;
+                background: self.picked ? Theme.accent
+                    : pill-touch.has-hover ? Theme.field-hover : Theme.field;
+                min-width: pill-text.preferred-width + 20px;
+                horizontal-stretch: 0;
+
+                animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                pill-text := Text {
+                    text: label;
+                    color: parent.picked ? Theme.on-accent
+                        : pill-touch.has-hover ? Theme.fg : Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    font-weight: parent.picked ? Theme.weight-title : 400;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+
+                pill-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        if (root.favourites-only) {
+                            Library.favourites-changed(root.shelf, false);
+                        }
+                        Library.group-changed(root.shelf, i);
+                    }
+                }
             }
 
-            if root.favourites-only: Text {
-                vertical-alignment: center;
-                text: I18n.t("clipInspector.favourites");
-                color: Theme.fg-muted;
-                font-size: Theme.fs;
-            }
+            Rectangle { horizontal-stretch: 1; }
         }
 
         if root.library: Rectangle {
@@ -568,20 +635,36 @@ export component PresetStack inherits VerticalLayout {
                     easing: cubic-bezier(0.4, 0, 0.2, 1);
                 }
 
-                // The name, centred and given the whole cell: at this size a
-                // glyph would be a guess about what an effect looks like, and
-                // the word is the thing being chosen.
-                Text {
+                // A mark for the shelf it is on, over its name: what kind
+                // of change it makes, at a glance, while the word says
+                // which one.
+                VerticalLayout {
                     x: 4px;
                     width: parent.width - 8px;
-                    height: parent.height;
-                    text: entry.name;
-                    color: tile.in-chain ? Theme.accent : Theme.fg;
-                    font-size: Theme.fs-sm;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    wrap: word-wrap;
-                    overflow: elide;
+                    alignment: center;
+                    spacing: 5px;
+
+                    HorizontalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: tile.in-chain ? Glyph.check
+                                : entry.category == "Voice" ? Glyph.mic
+                                : entry.category == "Tone" ? Glyph.sliders
+                                : entry.category == "Clean" ? Glyph.wand
+                                : Glyph.waveform;
+                            size: 15px;
+                            tint: tile.in-chain ? Theme.accent
+                                : tile-touch.has-hover ? Theme.fg : Theme.fg-muted;
+                        }
+                    }
+
+                    Text {
+                        text: entry.name;
+                        color: tile.in-chain ? Theme.accent : Theme.fg;
+                        font-size: Theme.fs-sm;
+                        horizontal-alignment: center;
+                        overflow: elide;
+                    }
                 }
 
                 // The star rides the tile's corner and takes its own clicks,

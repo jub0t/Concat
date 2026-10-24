@@ -387,7 +387,10 @@ export component Param inherits VerticalLayout {
 
         Rectangle { horizontal-stretch: 1; }
 
-        if root.unit == "": Text {
+        // The readout says what the field cannot: a unit, a word for zero.
+        // A plain number is already in the field beside it, and saying it
+        // twice read as two values ("4  4").
+        if root.unit == "" && root.fmt != ParamFormat.plain: Text {
             text: InspectorFmt.format(root.fmt, root.value);
             color: Theme.fg;
             font-family: Theme.font-technical;
