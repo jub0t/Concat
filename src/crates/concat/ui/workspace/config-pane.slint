@@ -3,6 +3,8 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme, SegmentedControl } from "../primitives/primitives.slint";
+import { SectionTabs } from "../primitives/section-tabs.slint";
+import { Glyph } from "../icons.slint";
 import { Select } from "../primitives/select.slint";
 import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
@@ -294,6 +296,16 @@ export component ConfigPane inherits Rectangle {
         : root.heading == "Effects" ? ["Effects"]
         : root.heading == "Text" ? ["Text"]
         : ["Layer", "Adjust", "Effects"];
+    /// A mark for each section, in the same order: where the clip sits,
+    /// what makes it better, its colour's knobs; its level and its sound's
+    /// chain; a layer's own strength, then its colour and its chain.
+    property <[Glyph]> section-icons: root.heading == "Video"
+            ? (root.is-shape ? [Glyph.move] : [Glyph.move, Glyph.wand, Glyph.sliders])
+        : root.heading == "Audio"
+            ? (root.selected.batch-volume ? [Glyph.volume] : [Glyph.volume, Glyph.waveform])
+        : root.heading == "Effects" ? [Glyph.sparkle]
+        : root.heading == "Text" ? [Glyph.text-mark]
+        : [Glyph.filter, Glyph.sliders, Glyph.sparkle];
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
             ? (root.is-shape ? [I18n.t("configPane.basic")]
@@ -599,9 +611,10 @@ export component ConfigPane inherits Rectangle {
             }
         }
 
-        // The tab's sections, as a second strip under the first, in the
-        // same segmented style. One section needs no strip: the tab already
-        // says where you are.
+        // The tab's sections, as a strip of marks and words under the
+        // tabs: on the panel itself, so it reads as a place inside the tab
+        // and not a second row of tabs. One section needs no strip: the tab
+        // already says where you are.
         if root.has-selection && root.sections.length > 1: Rectangle {
             height: 40px;
             background: Theme.panel;
@@ -615,12 +628,12 @@ export component ConfigPane inherits Rectangle {
             }
 
             HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
+                padding-left: 4px;
+                padding-right: 4px;
                 VerticalLayout {
-                    alignment: center;
-                    SegmentedControl {
+                    SectionTabs {
                         options: root.sections-shown;
+                        icons: root.section-icons;
                         // A press on a segment assigns `current` inside the
                         // control, which ends a plain binding here: the
                         // highlight then stayed where it was pressed while

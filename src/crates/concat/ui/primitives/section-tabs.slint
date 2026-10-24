@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { FocusRing } from "focus-ring.slint";
+
+// The inspector's sections, inside a tab: a row of marks and words on the
+// panel itself, with no track of its own, and a bar under the one that is
+// open. It reads as a place within the tab rather than a second set of
+// tabs, which a second filled segmented control above the panel did - two
+// dark tracks stacked, one choosing the other.
+//
+// The segments share the width equally, so the bar's place is computed
+// from the count rather than measured from the labels.
+export component SectionTabs inherits Rectangle {
+    in property <[string]> options;
+    /// A glyph per option, in the same order, worn before its word.
+    in property <[Glyph]> icons;
+    in-out property <int> current;
+
+    callback changed(index: int);
+
+    property <bool> ring;
+    property <length> seg-w: root.width / Math.max(root.options.length, 1);
+
+    min-width: 120px;
+    horizontal-stretch: 1;
+
+    function select(index: int) {
+        if (index >= 0 && index < root.options.length) {
+            root.current = index;
+            root.changed(index);
+        }
+    }
+
+    fs := FocusScope {
+        // :focus-visible — keyboard focus only, see IconButton.
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == Key.RightArrow || event.text == Key.DownArrow) {
+                root.select(Math.mod(root.current + 1, root.options.length));
+                return EventResult.accept;
+            }
+            if (event.text == Key.LeftArrow || event.text == Key.UpArrow) {
+                root.select(Math.mod(root.current - 1 + root.options.length, root.options.length));
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    for option[index] in root.options: tab := Rectangle {
+        property <bool> on: index == root.current;
+        property <brush> ink: self.on ? Theme.fg : segment.has-hover ? Theme.fg : Theme.fg-muted;
+
+        x: index * root.seg-w;
+        y: 0;
+        width: root.seg-w;
+        height: root.height;
+
+        // A soft wash under the pointer, inset from the strip's edges so
+        // neighbours never touch.
+        Rectangle {
+            x: 3px;
+            y: 5px;
+            width: parent.width - 6px;
+            height: parent.height - 10px;
+            border-radius: Theme.r-sm;
+            background: segment.has-hover && !tab.on ? Theme.field-hover : transparent;
+
+            animate background { duration: 120ms; }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            padding-left: 6px;
+            padding-right: 6px;
+
+            if index < root.icons.length: VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: root.icons[index];
+                    size: 14px;
+                    tint: tab.ink;
+                }
+            }
+            Text {
+                text: option;
+                color: tab.ink;
+                font-size: Theme.fs;
+                font-weight: tab.on ? Theme.weight-title : 400;
+                vertical-alignment: center;
+                overflow: elide;
+
+                animate color { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+            }
+        }
+
+        segment := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                fs.focus();
+                root.select(index);
+            }
+        }
+    }
+
+    // The open section's bar, sitting on the strip's bottom hairline.
+    Rectangle {
+        x: root.current * root.seg-w + 12px;
+        y: root.height - 2px;
+        width: root.seg-w - 24px;
+        height: 2px;
+        border-radius: 1px;
+        background: Theme.accent;
+
+        animate x, width { duration: 180ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    FocusRing {
+        active: root.ring;
+        radius: Theme.r;
+    }
+}

@@ -165,6 +165,11 @@ export enum Glyph {
     // the cutout's brushes
     brush,
     eraser,
+    // the inspector's sections: where a clip sits, what makes it better,
+    // and its colour's knobs
+    move,
+    wand,
+    sliders,
 }
 
 component Stroked inherits Path {
@@ -411,6 +416,26 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.search: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M21 21l-4.34-4.34 M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0";
+    }
+
+    // lucide/move
+    if root.glyph == Glyph.move: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 2v20 M15 19l-3 3-3-3 M19 9l3 3-3 3 M2 12h20 M5 9l-3 3 3 3 M9 5l3-3 3 3";
+    }
+
+    // lucide/wand-sparkles
+    if root.glyph == Glyph.wand: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M21.64 3.64l-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72"
+            + "l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"
+            + " M14 7l3 3 M5 6v4 M19 14v4 M10 2v2 M7 8H3 M21 16h-4 M11 3H9";
+    }
+
+    // lucide/sliders-horizontal
+    if root.glyph == Glyph.sliders: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M21 4H14 M10 4H3 M21 12H12 M8 12H3 M21 20H16 M12 20H3 M14 2V6 M8 10V14 M16 18V22";
     }
 
     // lucide/sparkles
