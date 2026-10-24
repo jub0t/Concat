@@ -2708,19 +2708,25 @@ export component MediaPane inherits Rectangle {
                         glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
                         // A sound has no picture: its cards are the compact kind.
                         compact: root.audio-shelf;
-                        // Effects apply directly on single-click to the selected clip —
-                        // auditions:false means click = apply, no monitor overlay confusion.
-                        auditions: false;
-                        // Dragged onto the lanes, a picture effect is a layer
-                        // like a filter's: it works on everything beneath it
-                        // for as long as it runs, and is moved and trimmed
-                        // like any clip.
+                        // A picture effect is a layer on the timeline, as a
+                        // filter is: dragged onto the lanes, it works on
+                        // everything beneath it for as long as it runs. Short
+                        // of a drag, a click shows it over the monitor and a
+                        // double-click or the plus lays it at the playhead.
+                        // It is no longer put on the selected clip: that was
+                        // a second way to the same picture, found by
+                        // selecting a clip and then hunting for its tab.
+                        // A sound effect still goes on the selected clip - a
+                        // voice changed, not the music under it.
+                        auditions: !root.audio-shelf;
+                        auditioning: root.audio-shelf ? "" : root.audition;
+                        auditioned(id) => { root.audition-filter(id); }
                         payload-kind: root.audio-shelf ? "" : "filter";
                         applied(id, label) => {
                             if (root.audio-shelf) {
                                 root.apply-audio(id);
                             } else {
-                                root.apply-effect(id);
+                                root.apply-filter(id, label);
                             }
                         }
                     }

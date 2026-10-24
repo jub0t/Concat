@@ -244,20 +244,30 @@ export component ConfigPane inherits Rectangle {
     /// panel it grades everything beneath it with, and its chain - are the
     /// tab's sections, so an adjustment layer is graded the way a clip is.
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
-    property <[string]> tabs: root.selected.batch-volume ? ["Audio"] : root.is-text ? ["Text", "Effects"]
+    /// Effects are laid on the timeline as layers now, so a clip's own
+    /// chain is not something to go looking for: its tab shows only on a
+    /// clip that already carries one - from an older project, a template,
+    /// the API - so that chain can still be seen, tuned and taken off.
+    property <bool> has-chain: root.applied-visual.length > 0;
+    property <[string]> tabs: root.selected.batch-volume ? ["Audio"]
+        : root.is-text ? (root.has-chain ? ["Text", "Effects"] : ["Text"])
         : root.is-layer ? ["Filter"]
         : root.is-shape ? ["Video"]
-        : root.is-image ? ["Video", "Effects"]
+        : root.is-image ? (root.has-chain ? ["Video", "Effects"] : ["Video"])
         : root.is-audio ? ["Audio"]
-        : ["Video", "Audio", "Effects"];
+        : root.has-chain ? ["Video", "Audio", "Effects"] : ["Video", "Audio"];
     /// The same tabs in the interface's language. `tabs` stays English,
     /// because the panels are picked by comparing against it.
-    property <[string]> tabs-shown: root.selected.batch-volume ? [I18n.t("common.audio")] : root.is-text ? [I18n.t("common.text"), I18n.t("common.effects")]
+    property <[string]> tabs-shown: root.selected.batch-volume ? [I18n.t("common.audio")]
+        : root.is-text ? (root.has-chain ? [I18n.t("common.text"), I18n.t("common.effects")]
+            : [I18n.t("common.text")])
         : root.is-layer ? [I18n.t("configPane.filter")]
         : root.is-shape ? [I18n.t("configPane.vectorImage")]
-        : root.is-image ? [I18n.t("common.video"), I18n.t("common.effects")]
+        : root.is-image ? (root.has-chain ? [I18n.t("common.video"), I18n.t("common.effects")]
+            : [I18n.t("common.video")])
         : root.is-audio ? [I18n.t("common.audio")]
-        : [I18n.t("common.video"), I18n.t("common.audio"), I18n.t("common.effects")];
+        : root.has-chain ? [I18n.t("common.video"), I18n.t("common.audio"), I18n.t("common.effects")]
+            : [I18n.t("common.video"), I18n.t("common.audio")];
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
@@ -270,6 +280,8 @@ export component ConfigPane inherits Rectangle {
     /// a video's third tab on a title — so the index is pulled back in when the
     /// shape of the strip changes, and left alone when it has not.
     property <ClipKind> strip-kind;
+    // Taking a clip's last effect off takes its tab away under you.
+    changed has-chain => { root.tab = Math.min(root.tab, root.tabs.length - 1); }
     changed selected => {
         if (root.selected.kind != root.strip-kind) {
             root.strip-kind = root.selected.kind;
