@@ -658,8 +658,6 @@
   "start.removeFromList": "Hapus dari daftar",
   "start.reportProblem": "Laporkan masalah",
   "start.reportProblemNote": "Apa yang perlu dikirim agar bisa diperbaiki",
-  "start.safeMode": "Concat tertutup saat dimulai terakhir kali, jadi sekarang menggambar secara perangkat lunak: lebih lambat, tetapi bisa terbuka. Untuk mencoba kartu grafis lagi, aktifkan Menggambar dengan GPU di Pengaturan > Umum.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Cari proyek",
   "start.settingsApplyWholeEdit": "Pengaturan ini berlaku untuk seluruh hasil edit dan tidak dapat diubah nanti.",
   "start.shape": "Bentuk",

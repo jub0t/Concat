@@ -658,8 +658,6 @@
   "start.removeFromList": "Убрать из списка",
   "start.reportProblem": "Сообщить о проблеме",
   "start.reportProblemNote": "Что прислать, чтобы это исправили",
-  "start.safeMode": "В прошлый раз Concat закрылся при запуске, поэтому сейчас отрисовка идёт программно: медленнее, но программа открывается. Чтобы снова попробовать видеокарту, включите «Отрисовка на GPU» в Настройки > Общие.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Поиск проектов",
   "start.settingsApplyWholeEdit": "Эти настройки действуют на весь монтаж и потом не меняются.",
   "start.shape": "Форма",

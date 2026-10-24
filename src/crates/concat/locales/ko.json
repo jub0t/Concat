@@ -658,8 +658,6 @@
   "start.removeFromList": "목록에서 제거",
   "start.reportProblem": "문제 신고",
   "start.reportProblemNote": "고칠 수 있도록 보내야 할 내용",
-  "start.safeMode": "지난번 시작 중에 Concat이 닫혀서 지금은 소프트웨어로 그리고 있습니다. 느리지만 열립니다. 그래픽 카드를 다시 시도하려면 설정 > 일반에서 GPU로 그리기를 켜세요.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "프로젝트 검색",
   "start.settingsApplyWholeEdit": "이 설정은 편집 전체에 적용되며 나중에 바꿀 수 없습니다.",
   "start.shape": "모양",

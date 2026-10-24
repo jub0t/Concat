@@ -658,8 +658,6 @@
   "start.removeFromList": "فہرست سے ہٹائیں",
   "start.reportProblem": "مسئلہ رپورٹ کریں",
   "start.reportProblemNote": "کیا بھیجیں تاکہ اسے ٹھیک کیا جا سکے",
-  "start.safeMode": "پچھلی بار Concat شروع ہوتے وقت بند ہو گیا تھا، اس لیے اب سافٹ ویئر میں ڈرا کر رہا ہے: سست، مگر کھل جاتا ہے۔ گرافکس کارڈ دوبارہ آزمانے کے لیے ترتیبات > عمومی میں GPU پر ڈرا کریں آن کریں۔",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "پروجیکٹس تلاش کریں",
   "start.settingsApplyWholeEdit": "یہ ترتیبات پورے ایڈٹ پر لاگو ہوتی ہیں اور بعد میں بدلی نہیں جا سکتیں۔",
   "start.shape": "شکل",

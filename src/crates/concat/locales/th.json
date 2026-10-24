@@ -658,8 +658,6 @@
   "start.removeFromList": "นำออกจากรายการ",
   "start.reportProblem": "รายงานปัญหา",
   "start.reportProblemNote": "สิ่งที่ควรส่งเพื่อให้แก้ไขได้",
-  "start.safeMode": "ครั้งที่แล้ว Concat ปิดตัวระหว่างเริ่มทำงาน ตอนนี้จึงวาดด้วยซอฟต์แวร์ ช้ากว่า แต่เปิดได้ หากต้องการลองใช้การ์ดจออีกครั้ง ให้เปิด วาดด้วย GPU ใน การตั้งค่า > ทั่วไป",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "ค้นหาโปรเจกต์",
   "start.settingsApplyWholeEdit": "การตั้งค่าเหล่านี้ใช้กับงานตัดต่อทั้งหมดและเปลี่ยนภายหลังไม่ได้",
   "start.shape": "สัดส่วนภาพ",
