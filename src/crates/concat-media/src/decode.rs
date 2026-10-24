@@ -693,6 +693,8 @@ impl Decoder {
         let time_base = stream.time_base();
         let start = ffi::start_of(&stream);
         let rotation = ffi::rotation(&stream);
+        // Wide pixels are shown square: see `ffi::sample_aspect`.
+        let aspect = ffi::sample_aspect(&stream);
         let coded = {
             let parameters = stream.parameters();
             (parameters.width(), parameters.height())
@@ -825,7 +827,7 @@ impl Decoder {
 
         let (width, height) = match options.size {
             Some(size) => size,
-            None => ffi::displayed(coded.0, coded.1, rotation),
+            None => ffi::displayed(coded.0, coded.1, aspect, rotation),
         };
         if width == 0 || height == 0 {
             return Err(Error::Probe {
@@ -1525,6 +1527,34 @@ mod tests {
         assert!(
             (0.45..0.65).contains(&at),
             "after a seek to 0.5 s the frame is at {at}"
+        );
+    }
+
+    /// A picture coded with wide pixels - HDV and AVCHD's 1440 across, DV's
+    /// 720 - is probed and decoded at the width a player shows it, not
+    /// squeezed into a pillarbox. The fixture codes 48 by 32 with pixels a
+    /// third wider than tall, its left third white: shown 64 by 32, the
+    /// white still a third of the width (#457).
+    #[test]
+    fn a_picture_of_wide_pixels_is_decoded_at_its_shown_width() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/wide-pixels-hdv.m2ts");
+        let video = crate::probe(path)
+            .expect("probes")
+            .video
+            .expect("a picture");
+        assert_eq!((video.width, video.height), (64, 32));
+        let mut decoder = Decoder::open(path, &DecodeOptions::default()).expect("opens");
+        assert_eq!((decoder.width(), decoder.height()), (64, 32));
+        let frame = decoder.next_frame().expect("decodes").expect("a frame");
+        assert_eq!((frame.width(), frame.height()), (64, 32));
+        let row: Vec<u8> = frame.pixels()[..64 * 4]
+            .chunks_exact(4)
+            .map(|pixel| pixel[0])
+            .collect();
+        let white = row.iter().filter(|&&level| level > 128).count();
+        assert!(
+            (19..=24).contains(&white),
+            "{white} of 64 columns are white, not a third"
         );
     }
 

@@ -20,8 +20,9 @@ pub struct VideoStream {
     pub index: u32,
     /// Codec short name, for example `h264`.
     pub codec: String,
-    /// Displayed width in pixels: the coded width, swapped with the height
-    /// when the stream carries a quarter-turn display rotation.
+    /// Displayed width in pixels: the coded width stretched to square
+    /// pixels where the stream's are not (HDV, DV), then swapped with the
+    /// height when the stream carries a quarter-turn display rotation.
     pub width: u32,
     /// Displayed height in pixels; see [`VideoStream::width`].
     pub height: u32,
@@ -171,7 +172,12 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
             detail: "video stream has no usable size".to_owned(),
         });
     }
-    let (width, height) = ffi::displayed(width, height, ffi::rotation(stream));
+    let (width, height) = ffi::displayed(
+        width,
+        height,
+        ffi::sample_aspect(stream),
+        ffi::rotation(stream),
+    );
 
     let frame_rate = pick_rate(rational(stream.avg_frame_rate()), rational(stream.rate()))
         .ok_or_else(|| Error::Probe {

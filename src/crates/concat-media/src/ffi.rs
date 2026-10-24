@@ -228,9 +228,49 @@ pub(crate) fn rotation_filters(degrees: i64) -> Option<&'static str> {
     }
 }
 
-/// The displayed size of a picture coded at `width` by `height` with the
-/// given rotation: a quarter turn swaps the two.
-pub(crate) fn displayed(width: u32, height: u32, degrees: i64) -> (u32, u32) {
+/// The shape of one coded pixel, width over height, when it is not square.
+///
+/// HDV and the 1440-wide AVCHD modes code a 1920 by 1080 picture 1440
+/// across with pixels a third wider than tall; DV codes 16:9 into 720 by
+/// 480. A player stretches the picture back; a decoder hands it over
+/// squeezed. The container's word wins over the codec's, as in
+/// `av_guess_sample_aspect_ratio`. `None` for square pixels, for a stream
+/// that says nothing, and for a shape no camera writes - past four to one
+/// either way, which is a broken tag rather than a picture.
+pub(crate) fn sample_aspect(stream: &ffmpeg::format::stream::Stream<'_>) -> Option<Rational> {
+    let usable = |aspect: ffmpeg::sys::AVRational| {
+        (aspect.num > 0 && aspect.den > 0)
+            .then(|| Rational::new(i64::from(aspect.num), i64::from(aspect.den)))
+            .filter(|aspect| (0.25..=4.0).contains(&aspect.as_f64()))
+    };
+    // SAFETY: the stream and its codec parameters are valid for the
+    // stream's lifetime; both fields are plain rationals.
+    let (container, codec) = unsafe {
+        let raw = stream.as_ptr();
+        (
+            (*raw).sample_aspect_ratio,
+            (*(*raw).codecpar).sample_aspect_ratio,
+        )
+    };
+    usable(container)
+        .or_else(|| usable(codec))
+        .filter(|aspect| (aspect.as_f64() - 1.0).abs() > 0.001)
+}
+
+/// The displayed size of a picture coded at `width` by `height` with pixels
+/// of the shape `aspect` (square for `None`) and the given rotation: the
+/// width stretched to square pixels, kept even, as players do; then a
+/// quarter turn swaps the two.
+pub(crate) fn displayed(
+    width: u32,
+    height: u32,
+    aspect: Option<Rational>,
+    degrees: i64,
+) -> (u32, u32) {
+    let width = match aspect {
+        Some(aspect) => ((f64::from(width) * aspect.as_f64() / 2.0).round() as u32 * 2).max(2),
+        None => width,
+    };
     if degrees.rem_euclid(180) == 90 {
         (height, width)
     } else {
@@ -250,10 +290,28 @@ mod tests {
 
     #[test]
     fn a_quarter_turn_swaps_the_dimensions_and_a_half_turn_does_not() {
-        assert_eq!(displayed(1920, 1080, 90), (1080, 1920));
-        assert_eq!(displayed(1920, 1080, 270), (1080, 1920));
-        assert_eq!(displayed(1920, 1080, 180), (1920, 1080));
-        assert_eq!(displayed(1920, 1080, 0), (1920, 1080));
+        assert_eq!(displayed(1920, 1080, None, 90), (1080, 1920));
+        assert_eq!(displayed(1920, 1080, None, 270), (1080, 1920));
+        assert_eq!(displayed(1920, 1080, None, 180), (1920, 1080));
+        assert_eq!(displayed(1920, 1080, None, 0), (1920, 1080));
+    }
+
+    /// Wide pixels are stretched to square ones, as a player shows them:
+    /// HDV's 1440 to 1920, widescreen DV's 720 to 854 (853.3, kept even),
+    /// and the stretch comes before a quarter turn.
+    #[test]
+    fn a_picture_of_wide_pixels_is_shown_at_its_true_width() {
+        let hdv = Some(Rational::new(4, 3));
+        assert_eq!(displayed(1440, 1080, hdv, 0), (1920, 1080));
+        assert_eq!(displayed(1440, 1080, hdv, 90), (1080, 1920));
+        assert_eq!(
+            displayed(720, 480, Some(Rational::new(32, 27)), 0),
+            (854, 480)
+        );
+        assert_eq!(
+            displayed(720, 480, Some(Rational::new(8, 9)), 0),
+            (640, 480)
+        );
     }
 
     #[test]
