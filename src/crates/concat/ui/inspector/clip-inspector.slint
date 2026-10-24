@@ -263,10 +263,10 @@ export component PresetStack inherits VerticalLayout {
     // enough that a shelf of twenty is four rows rather than seven.
     property <int> columns: 3;
     property <length> pad: Theme.pad;
-    property <length> cell-gap: 6px;
+    property <length> cell-gap: 8px;
     property <length> cell-w: (root.width - 2 * root.pad
         - (root.columns - 1) * root.cell-gap) / root.columns;
-    property <length> cell-h: 58px;
+    property <length> cell-h: 64px;
     property <int> rows: ceil(root.catalogue.length / root.columns);
 
     /// Links that belong to another section's controls - the audio
@@ -621,14 +621,15 @@ export component PresetStack inherits VerticalLayout {
                 y: floor(index / root.columns) * (root.cell-h + root.cell-gap);
                 width: root.cell-w;
                 height: root.cell-h;
-                border-radius: Theme.r-sm;
+                // Borderless surfaces rather than drawn boxes: the grid reads
+                // as one shelf, and the one on the clip is the one that
+                // stands out, tinted and outlined in the accent.
+                border-radius: Theme.r;
                 border-width: 1px;
-                border-color: tile.in-chain ? Theme.accent
-                    : tile-touch.has-hover ? Theme.line-strong
-                    : Theme.line;
+                border-color: tile.in-chain ? Theme.accent : Colors.transparent;
                 background: tile.in-chain ? Theme.accent-soft
-                    : tile-touch.has-hover ? Theme.field-hover
-                    : Theme.field;
+                    : tile-touch.has-hover ? Theme.field
+                    : Theme.raised;
 
                 animate background, border-color {
                     duration: 100ms;
@@ -646,15 +647,27 @@ export component PresetStack inherits VerticalLayout {
 
                     HorizontalLayout {
                         alignment: center;
-                        Icon {
-                            glyph: tile.in-chain ? Glyph.check
-                                : entry.category == "Voice" ? Glyph.mic
-                                : entry.category == "Tone" ? Glyph.sliders
-                                : entry.category == "Clean" ? Glyph.wand
-                                : Glyph.waveform;
-                            size: 15px;
-                            tint: tile.in-chain ? Theme.accent
-                                : tile-touch.has-hover ? Theme.fg : Theme.fg-muted;
+                        // The mark in a round badge of its own, which fills
+                        // with the accent once the effect is on the clip.
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 14px;
+                            background: tile.in-chain ? Theme.accent
+                                : tile-touch.has-hover ? Theme.field-active : Theme.field;
+
+                            animate background { duration: 120ms; }
+
+                            Icon {
+                                glyph: tile.in-chain ? Glyph.check
+                                    : entry.category == "Voice" ? Glyph.mic
+                                    : entry.category == "Tone" ? Glyph.sliders
+                                    : entry.category == "Clean" ? Glyph.wand
+                                    : Glyph.waveform;
+                                size: 14px;
+                                tint: tile.in-chain ? Theme.on-accent
+                                    : tile-touch.has-hover ? Theme.fg : Theme.fg-muted;
+                            }
                         }
                     }
 

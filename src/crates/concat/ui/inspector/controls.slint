@@ -3,7 +3,7 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
-import { Fmt } from "../util.slint";
+import { Fmt, Focus } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
@@ -712,23 +712,35 @@ export component SearchField inherits Rectangle {
     // A caller's `focus()` lands in the field, so a list that opens on a
     // search can be typed into at once.
     forward-focus: input;
-    height: Theme.h;
-    border-radius: Theme.r-sm;
-    background: Theme.field;
+    height: Theme.h + 4px;
+    border-radius: Theme.r;
+    // A soft surface at rest, lifting under the pointer, outlined only
+    // while it is being typed into: a box drawn round an empty field
+    // shouted louder than anything in the list it searches.
+    background: input.has-focus || hover.has-hover ? Theme.field : Theme.raised;
     border-width: 1px;
-    border-color: input.has-focus ? Theme.accent : Theme.line;
+    border-color: input.has-focus ? Theme.accent : Colors.transparent;
+
+    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    // Under everything, so the pointer can light the field without taking
+    // a click from the input or the clear button.
+    hover := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { input.focus(); }
+    }
 
     HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 4px;
-        spacing: 6px;
+        padding-left: 10px;
+        padding-right: 6px;
+        spacing: 8px;
 
         VerticalLayout {
             alignment: center;
             Icon {
                 glyph: Glyph.search;
-                size: 12px;
-                tint: Theme.fg-dim;
+                size: 13px;
+                tint: input.has-focus ? Theme.fg : Theme.fg-dim;
             }
         }
 
@@ -745,6 +757,17 @@ export component SearchField inherits Rectangle {
                 single-line: true;
                 text <=> root.text;
                 edited => { root.edited(self.text); }
+                // Enter and Esc are done typing, as on the web: the field lets
+                // go and the window's shortcuts have their keys back. The
+                // words stay; the cross clears them.
+                accepted => { Focus.release(); }
+                key-pressed(event) => {
+                    if (event.text == Key.Escape) {
+                        Focus.release();
+                        return EventResult.accept;
+                    }
+                    return EventResult.reject;
+                }
             }
 
             if root.text == "" && !input.has-focus: Text {
