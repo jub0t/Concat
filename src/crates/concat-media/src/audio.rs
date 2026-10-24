@@ -752,11 +752,11 @@ fn run_mix(
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| ffi::fail("open decoder", path, error))?;
-        // Near the in-point: the packet at or before it. The graph cuts the
-        // rest, by the lead measured off the first frame below.
+        // Near the in-point: the packet of the sound at or before it, on the
+        // sound's own timestamps. The graph cuts the rest, by the lead
+        // measured off the first frame below.
         if in_point > 0.0 {
-            let target = ((in_point + start) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
-            let _ = input.seek(target, ..=target);
+            let _ = ffi::seek_audio(&mut input, stream_index, in_point + start);
         }
         let label = format!("{index}:a");
         let mut mix_input = MixInput {
@@ -1686,6 +1686,34 @@ mod tests {
         let offset = (0.5 * f64::from(MIX_RATE)) as usize;
         let difference = worst(&treated[offset..], &window, 0.0, 3.0);
         assert!(difference <= 1, "the window differs by {difference}");
+    }
+
+    /// A clip trimmed into a Program Stream mixes from its first sample,
+    /// not from behind the in-point. The fixture's sound is interleaved
+    /// behind its picture, and the mix's seek used to be made on the
+    /// picture's timestamps, forward: it landed past the in-point and the
+    /// overshoot went in as silence in front of the clip. The tone has
+    /// sounded from half a second in, so a cut at 3.5 s is inside it.
+    #[test]
+    fn a_trimmed_program_stream_clip_mixes_from_its_first_sample() {
+        let path = format!(
+            "{}/fixtures/sound-behind-the-picture.mpg",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut piece = clip(&path);
+        piece.duration = 0.6;
+        piece.source_start = 3.5;
+        let mixed = left(&[piece], &[], 0.0, 0.6);
+        assert_eq!(mixed.len(), (0.6 * f64::from(MIX_RATE)) as usize);
+        let first = mixed
+            .iter()
+            .position(|sample| i32::from(*sample).abs() > 1_500)
+            .expect("the tone is in the mix");
+        assert!(
+            first < 48 * 30,
+            "the tone starts {} samples in, not at once",
+            first
+        );
     }
 
     #[test]
