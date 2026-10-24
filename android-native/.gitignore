@@ -1,0 +1,9 @@
+.gradle/
+build/
+app/build/
+local.properties
+.kotlin/
+# Built by build-rust.sh.
+app/src/main/jniLibs/
+app/src/main/java/uniffi/
+uniffi-bindgen/Cargo.lock

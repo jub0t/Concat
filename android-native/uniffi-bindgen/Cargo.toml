@@ -1,0 +1,13 @@
+[package]
+name = "uniffi-bindgen"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+description = "UniFFI's binding generator for the spike shell, at the uniffi concat-mobile links."
+
+# Its own workspace: a host tool, built with none of the engine.
+[workspace]
+
+[dependencies]
+uniffi = { version = "=0.32.2", features = ["cli"] }
