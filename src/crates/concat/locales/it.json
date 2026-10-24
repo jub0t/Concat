@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Gomma intelligente",
   "clipInspector.smoothness": "Morbidezza",
   "clipInspector.softness": "Morbidezza",
+  "clipInspector.soundLayerTreatsTheMix": "Un livello sonoro tratta tutto ciò che si sente finché dura. Rifilalo sulla timeline per cambiare ciò che copre.",
   "clipInspector.source": "Source",
   "clipInspector.stabilize": "Stabilizza",
   "clipInspector.stabilizeEased": "Ingrandita al {0}%. Stabilizzare ogni fotogramma richiederebbe il {1}%, quindi i momenti più mossi sono stabilizzati meno; aumenta lo Zoom massimo per stabilizzarli del tutto.",

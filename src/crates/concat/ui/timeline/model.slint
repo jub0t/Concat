@@ -13,8 +13,10 @@
 /// and a filter has no file either — it is a preset dragged from the library's
 /// Filters page that covers a span of time and treats whatever plays under it,
 /// the way a filter bar does in the consumer editors. A shape is a figure
-/// from the Stickers page, drawn over the picture like a title is.
-export enum ClipKind { video, audio, image, text, filter, shape }
+/// from the Stickers page, drawn over the picture like a title is. A sound
+/// layer is a filter's sibling for the ear: an audio effect dragged from
+/// the Effects page's sound shelf, treating everything heard under its span.
+export enum ClipKind { video, audio, image, text, filter, shape, sound-layer }
 
 /// What a press on a clip means. One tool since the razor went - a cut
 /// is made at the playhead, by B or the tray - and the type stays for the

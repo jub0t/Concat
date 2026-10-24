@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "پاک‌کن هوشمند",
   "clipInspector.smoothness": "نرمی",
   "clipInspector.softness": "نرمی",
+  "clipInspector.soundLayerTreatsTheMix": "لایهٔ صدا تا وقتی اجرا می‌شود روی هر چیزی که شنیده می‌شود اثر می‌گذارد. برای تغییر محدوده‌اش، آن را روی خط زمان کوتاه کنید.",
   "clipInspector.source": "منبع",
   "clipInspector.stabilize": "لرزش‌گیر",
   "clipInspector.stabilizeEased": "تا {0}% بزرگ شد. ثابت کردن همهٔ فریم‌ها به {1}% نیاز دارد، پس لرزان‌ترین لحظه‌ها کمتر ثابت می‌شوند؛ برای ثابت کردن کامل، حداکثر بزرگنمایی را بیشتر کنید.",

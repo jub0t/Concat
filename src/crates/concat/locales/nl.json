@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Slimme gum",
   "clipInspector.smoothness": "Vloeiendheid",
   "clipInspector.softness": "Zachtheid",
+  "clipInspector.soundLayerTreatsTheMix": "Een geluidslaag bewerkt alles wat je hoort zolang hij loopt. Trim hem op de tijdlijn om te veranderen wat hij beslaat.",
   "clipInspector.source": "Bron",
   "clipInspector.stabilize": "Stabiliseren",
   "clipInspector.stabilizeEased": "Vergroot tot {0}%. Elk beeld stilhouden zou {1}% vragen, dus de meest schokkerige momenten worden minder gestabiliseerd; verhoog Max. zoom om ze volledig te stabiliseren.",

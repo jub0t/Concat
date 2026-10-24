@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Borrador inteligente",
   "clipInspector.smoothness": "Suavidad",
   "clipInspector.softness": "Suavidad",
+  "clipInspector.soundLayerTreatsTheMix": "Una capa de sonido trata todo lo que se oye mientras dura. Recórtala en la línea de tiempo para cambiar lo que abarca.",
   "clipInspector.source": "Source",
   "clipInspector.stabilize": "Estabilizar",
   "clipInspector.stabilizeEased": "Ampliado al {0}%. Estabilizar todos los fotogramas requeriría un {1}%, así que los momentos más movidos se estabilizan menos; sube el Zoom máximo para estabilizarlos por completo.",

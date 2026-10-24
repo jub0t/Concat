@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Akıllı silgi",
   "clipInspector.smoothness": "Yumuşaklık",
   "clipInspector.softness": "Yumuşaklık",
+  "clipInspector.soundLayerTreatsTheMix": "Ses katmanı sürdüğü boyunca duyulan her şeyi işler. Kapsadığı yeri değiştirmek için zaman çizelgesinde kırpın.",
   "clipInspector.source": "Source",
   "clipInspector.stabilize": "Sabitle",
   "clipInspector.stabilizeEased": "%{0} yakınlaştırıldı. Her kareyi sabitlemek %{1} gerektirirdi, bu yüzden en sarsıntılı anlar daha az sabitlenir; tamamen sabitlemek için En fazla yakınlaştırmayı artırın.",

@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "스마트 지우개",
   "clipInspector.smoothness": "부드러움",
   "clipInspector.softness": "부드러움",
+  "clipInspector.soundLayerTreatsTheMix": "사운드 레이어는 재생되는 동안 들리는 모든 소리를 처리합니다. 적용 범위를 바꾸려면 타임라인에서 잘라 주세요.",
   "clipInspector.source": "Source",
   "clipInspector.stabilize": "흔들림 보정",
   "clipInspector.stabilizeEased": "{0}%로 확대했습니다. 모든 프레임을 안정시키려면 {1}%가 필요해 가장 많이 흔들리는 순간은 덜 보정됩니다. 완전히 보정하려면 최대 확대를 높이세요.",

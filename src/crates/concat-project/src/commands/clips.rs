@@ -205,6 +205,7 @@ pub(super) fn apply(
             duration,
             effect_id,
             name,
+            sound,
         } => {
             let duration = duration
                 .unwrap_or(DEFAULT_LAYER_DURATION)
@@ -216,7 +217,9 @@ pub(super) fn apply(
                 // Over the picture, as a title is: a layer treats what is
                 // beneath it, and the bottom-first walk put one under the
                 // footage whenever a lower lane was free, where it treated
-                // nothing.
+                // nothing. A sound layer treats every lane alike, and goes
+                // over the picture too, where it reads as a treatment and
+                // not as one more sound.
                 None => first_free_track_above(timeline, start, duration)
                     .unwrap_or_else(|| fresh_track(timeline, mint)),
             };
@@ -227,9 +230,17 @@ pub(super) fn apply(
             } else {
                 name
             };
-            let mut clip =
-                Clip::blank(id.clone(), track_id, ClipKind::Layer, name, start, duration);
-            clip.video_effects = vec![AppliedFilter::new(effect_id)];
+            let kind = if sound {
+                ClipKind::SoundLayer
+            } else {
+                ClipKind::Layer
+            };
+            let mut clip = Clip::blank(id.clone(), track_id, kind, name, start, duration);
+            if sound {
+                clip.filters = vec![AppliedFilter::new(effect_id)];
+            } else {
+                clip.video_effects = vec![AppliedFilter::new(effect_id)];
+            }
             timeline.clips.push(Arc::new(clip));
             Ok(Outcome {
                 created_id: Some(id),

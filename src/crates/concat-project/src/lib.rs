@@ -3987,6 +3987,7 @@ mod tests {
                 duration: Some(3.0),
                 effect_id: "concat.adjust".into(),
                 name: "Adjustment".into(),
+                sound: false,
             })
             .expect("adds")
             .created_id
@@ -4003,6 +4004,106 @@ mod tests {
             row(&layer.track_id) > row(&video_track),
             "the layer must sit over the footage, not under it"
         );
+    }
+
+    /// A sound layer carries its package on the sound's chain and none on
+    /// the picture's, lands over the footage as a picture layer does, is
+    /// written as a kind of its own and read back as one, and goes with an
+    /// undo.
+    #[test]
+    fn a_sound_layer_carries_an_audio_chain_and_round_trips() {
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(media("/a.mp4", 10.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let video_track = editor.project().active().tracks[2].id.clone();
+        editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id: video_track.clone(),
+                start: 0.0,
+                ripple: false,
+            })
+            .expect("adds");
+        let layer_id = editor
+            .apply(Command::AddLayerClip {
+                track_id: None,
+                start: 1.0,
+                duration: Some(3.0),
+                effect_id: "concat.telephone".into(),
+                name: "Telephone".into(),
+                sound: true,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let timeline = editor.project().active();
+        let layer = timeline.clip(&layer_id).expect("exists");
+        assert_eq!(layer.kind, ClipKind::SoundLayer);
+        assert_eq!(layer.media_id, "");
+        assert_eq!(layer.filters.len(), 1);
+        assert_eq!(layer.filters[0].id, "concat.telephone");
+        assert!(layer.video_effects.is_empty(), "nothing on the picture");
+        let row = |id: &str| timeline.tracks.iter().position(|t| t.id == id);
+        assert!(row(&layer.track_id) > row(&video_track));
+
+        let document = editor.to_document(&settings());
+        let written = document["timelines"][0]["clips"]
+            .as_array()
+            .expect("clips")
+            .iter()
+            .find(|clip| clip["id"] == layer_id.as_str())
+            .expect("written");
+        assert_eq!(written["kind"], "soundLayer");
+        let reopened = Editor::from_document(&document).expect("reads");
+        assert_eq!(
+            reopened.project().active().clip(&layer_id),
+            editor.project().active().clip(&layer_id),
+            "read back as it was written"
+        );
+
+        // A copy is laid as a layer and then made like the source, the way
+        // the window copies, pastes and duplicates one: kind, chain,
+        // strength and ramps all come with it.
+        let mut source = editor
+            .project()
+            .active()
+            .clip(&layer_id)
+            .expect("exists")
+            .clone();
+        source.filters[0].params.insert("drive".to_owned(), 6.0);
+        source.opacity = 0.5;
+        source.fade_in = 0.25;
+        let copy_id = editor
+            .apply(Command::AddLayerClip {
+                track_id: Some(source.track_id.clone()),
+                start: 4.0,
+                duration: Some(source.duration),
+                effect_id: source.filters[0].id.clone(),
+                name: source.name.clone(),
+                sound: true,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        editor
+            .apply(Command::MatchClip {
+                clip_id: copy_id.clone(),
+                like: Box::new(source.clone()),
+            })
+            .expect("matches");
+        let copy = editor.project().active().clip(&copy_id).expect("exists");
+        assert_eq!(copy.kind, ClipKind::SoundLayer);
+        assert_eq!(copy.filters, source.filters);
+        assert_eq!((copy.opacity, copy.fade_in), (0.5, 0.25));
+        assert_eq!(copy.start, 4.0);
+
+        while editor.project().active().clip(&layer_id).is_some() {
+            assert!(editor.undo());
+        }
+        assert!(editor.project().active().clip(&copy_id).is_none());
     }
 
     #[test]
@@ -5171,6 +5272,7 @@ mod tests {
                     duration: Some(1.0),
                     effect_id: "concat.warm".into(),
                     name: name.into(),
+                    sound: false,
                 })
                 .expect("a layer");
         }

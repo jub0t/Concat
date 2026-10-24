@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Inteligentna gumka",
   "clipInspector.smoothness": "Płynność",
   "clipInspector.softness": "Miękkość",
+  "clipInspector.soundLayerTreatsTheMix": "Warstwa dźwięku przetwarza wszystko, co słychać, dopóki trwa. Przytnij ją na osi czasu, aby zmienić, co obejmuje.",
   "clipInspector.source": "Źródło",
   "clipInspector.stabilize": "Stabilizuj",
   "clipInspector.stabilizeEased": "Powiększono do {0}%. Ustabilizowanie każdej klatki wymagałoby {1}%, więc najbardziej roztrzęsione momenty są stabilizowane słabiej; zwiększ Maks. powiększenie, aby ustabilizować je w pełni.",

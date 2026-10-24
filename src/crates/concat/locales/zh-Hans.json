@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "智能橡皮擦",
   "clipInspector.smoothness": "平滑度",
   "clipInspector.softness": "柔和度",
+  "clipInspector.soundLayerTreatsTheMix": "声音图层在播放期间会处理听到的所有声音。在时间线上修剪它即可改变覆盖范围。",
   "clipInspector.source": "来源",
   "clipInspector.stabilize": "防抖",
   "clipInspector.stabilizeEased": "已放大到 {0}%。要让每一帧都稳定需要 {1}%，因此抖动最厉害的时刻防抖较弱；调高最大缩放即可完全稳定。",

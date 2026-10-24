@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Penghapus pintar",
   "clipInspector.smoothness": "Kehalusan",
   "clipInspector.softness": "Kelembutan",
+  "clipInspector.soundLayerTreatsTheMix": "Lapisan suara mengolah semua yang terdengar selama ia berjalan. Pangkas di linimasa untuk mengubah bagian yang dicakupnya.",
   "clipInspector.source": "Sumber",
   "clipInspector.stabilize": "Stabilkan",
   "clipInspector.stabilizeEased": "Diperbesar ke {0}%. Menstabilkan setiap bingkai butuh {1}%, jadi momen yang paling berguncang distabilkan lebih sedikit; naikkan Zoom maks untuk menstabilkannya sepenuhnya.",

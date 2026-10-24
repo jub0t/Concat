@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Smart eraser",
   "clipInspector.smoothness": "Smoothness",
   "clipInspector.softness": "Softness",
+  "clipInspector.soundLayerTreatsTheMix": "A sound layer treats everything you hear for as long as it runs. Trim it on the timeline to change what it covers.",
   "clipInspector.source": "Source",
   "clipInspector.stabilize": "Stabilize",
   "clipInspector.stabilizeEased": "Zoomed to {0}%. Steadying every frame would take {1}%, so the shakiest moments are steadied less; raise Max zoom to steady them fully.",

@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Cục tẩy thông minh",
   "clipInspector.smoothness": "Độ mượt",
   "clipInspector.softness": "Độ mềm",
+  "clipInspector.soundLayerTreatsTheMix": "Lớp âm thanh xử lý mọi thứ nghe được trong suốt thời gian nó chạy. Cắt nó trên dòng thời gian để thay đổi phần nó bao phủ.",
   "clipInspector.source": "Nguồn",
   "clipInspector.stabilize": "Chống rung",
   "clipInspector.stabilizeEased": "Đã phóng to {0}%. Để giữ yên mọi khung hình cần {1}%, nên những lúc rung nhất được chống rung ít hơn; tăng Thu phóng tối đa để chống rung hoàn toàn.",

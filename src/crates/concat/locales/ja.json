@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "スマート消しゴム",
   "clipInspector.smoothness": "なめらかさ",
   "clipInspector.softness": "やわらかさ",
+  "clipInspector.soundLayerTreatsTheMix": "サウンドレイヤーは、再生されている間に聞こえるすべての音を処理します。範囲を変えるにはタイムラインでトリミングしてください。",
   "clipInspector.source": "ソース",
   "clipInspector.stabilize": "手ぶれ補正",
   "clipInspector.stabilizeEased": "{0}% に拡大しています。すべてのフレームを安定させるには {1}% が必要なため、最も揺れる部分は補正を弱めています。完全に補正するには最大ズームを上げてください。",

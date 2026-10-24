@@ -1167,6 +1167,7 @@ fn kind_of(clip: &Clip) -> ClipKind {
         model::ClipKind::Image => ClipKind::Image,
         model::ClipKind::Text => ClipKind::Text,
         model::ClipKind::Layer => ClipKind::Filter,
+        model::ClipKind::SoundLayer => ClipKind::SoundLayer,
         model::ClipKind::Shape => ClipKind::Shape,
     }
 }
@@ -2634,9 +2635,10 @@ impl Studio {
                         // A title is its name strip alone; a layer has no
                         // picture at all; a shape's name says what it is.
                         // None needs a body's height.
-                        model::ClipKind::Text | model::ClipKind::Layer | model::ClipKind::Shape => {
-                            LANE_SMALL
-                        }
+                        model::ClipKind::Text
+                        | model::ClipKind::Layer
+                        | model::ClipKind::SoundLayer
+                        | model::ClipKind::Shape => LANE_SMALL,
                     })
                     .fold(0.0_f32, f32::max);
                 if tallest > 0.0 { tallest } else { LANE_MEDIUM }
@@ -3917,6 +3919,17 @@ impl Studio {
                 duration: LAYER_DURATION,
                 row: 0,
             }),
+            // A sound effect dragged from the Effects page's sound shelf:
+            // a sound layer over a span, treating everything heard there.
+            // The package id rides in `media`, as a filter's does.
+            "audio-filter" => Some(DropPlan {
+                kind: ClipKind::SoundLayer,
+                label: label.to_owned(),
+                media: id.to_owned(),
+                start: 0.0,
+                duration: LAYER_DURATION,
+                row: 0,
+            }),
             _ => None,
         }
     }
@@ -3982,13 +3995,14 @@ impl Studio {
                 &plan.media,
                 &plan.label,
             )
-        } else if plan.kind == ClipKind::Filter {
+        } else if matches!(plan.kind, ClipKind::Filter | ClipKind::SoundLayer) {
             self.apply(Command::AddLayerClip {
                 track_id: Some(track_id),
                 start: f64::from(plan.start),
                 duration: Some(f64::from(plan.duration)),
                 effect_id: plan.media.clone(),
                 name: plan.label.clone(),
+                sound: plan.kind == ClipKind::SoundLayer,
             })
         } else if let Some(media_ids) = self.dragged_selection(&plan.media) {
             // A card dragged out of a selection in the bin brings the whole
@@ -4034,13 +4048,14 @@ impl Studio {
                 &plan.media,
                 &plan.label,
             )
-        } else if plan.kind == ClipKind::Filter {
+        } else if matches!(plan.kind, ClipKind::Filter | ClipKind::SoundLayer) {
             self.apply(Command::AddLayerClip {
                 track_id: None,
                 start,
                 duration: Some(f64::from(plan.duration)),
                 effect_id: plan.media.clone(),
                 name: plan.label.clone(),
+                sound: plan.kind == ClipKind::SoundLayer,
             })
         } else {
             self.apply(Command::AddClipAtFirstFree {
@@ -8338,6 +8353,29 @@ impl Studio {
                 duration: Some(source.duration),
                 name: source.name.clone(),
             }),
+            // A layer has no file to lay: it is laid as a layer, and the
+            // match then gives it the source's whole chain. It went down
+            // the file's path and was refused, so a layer could be neither
+            // copied nor duplicated.
+            model::ClipKind::Layer | model::ClipKind::SoundLayer => {
+                let sound = source.kind == model::ClipKind::SoundLayer;
+                let chain = if sound {
+                    &source.filters
+                } else {
+                    &source.video_effects
+                };
+                Some(Command::AddLayerClip {
+                    track_id: Some(track_id.to_owned()),
+                    start,
+                    duration: Some(source.duration),
+                    effect_id: chain
+                        .first()
+                        .map(|link| link.id.clone())
+                        .unwrap_or_default(),
+                    name: source.name.clone(),
+                    sound,
+                })
+            }
             _ => None,
         };
         if let Some(add) = drawn {
@@ -12581,45 +12619,10 @@ fn moved_any<'a>(moves: &[ClipMove], before: impl Fn(&str) -> Option<&'a Clip>) 
     })
 }
 
-/// The clips a flattened edit makes audible, as playback takes them:
-/// through the exporter's own cut into pieces, so a curve or a reverse
-/// sounds in the window as it will in the file.
+/// The clips a flattened edit makes audible, as playback takes them; see
+/// `concat_host::playback::audible`.
 pub(crate) fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> {
-    clips
-        .iter()
-        .filter(|clip| {
-            !clip.muted
-                && (clip.kind == concat_export::ClipKind::Audio
-                    || (clip.kind == concat_export::ClipKind::Video
-                        && clip.has_audio.unwrap_or(true)))
-        })
-        // Through the exporter's own cut into pieces, so a curve or a
-        // reverse sounds in the window as it will in the file.
-        .flat_map(concat_export::audio_pieces)
-        .map(|piece| ClipSpec {
-            path: piece.path.to_string_lossy().into_owned(),
-            audio_stream: piece.stream.map(|index| index as u32),
-            start: piece.start,
-            duration: piece.duration,
-            source_start: piece.source_start,
-            volume: piece.volume as f32,
-            volume_curve: piece
-                .volume_curve
-                .keys()
-                .iter()
-                .map(|key| concat_host::playback::GainKey {
-                    at: key.at,
-                    gain: key.value,
-                    ease: [key.ease.x1, key.ease.y1, key.ease.x2, key.ease.y2],
-                })
-                .collect(),
-            fade_in: piece.fade_in,
-            fade_out: piece.fade_out,
-            speed: piece.speed,
-            preserve_pitch: piece.preserve_pitch,
-            chain: piece.filter_chain,
-        })
-        .collect()
+    concat_host::playback::audible(clips)
 }
 
 #[cfg(test)]

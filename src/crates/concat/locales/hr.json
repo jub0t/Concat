@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Pametna gumica",
   "clipInspector.smoothness": "Glatkoća",
   "clipInspector.softness": "Mekoća",
+  "clipInspector.soundLayerTreatsTheMix": "Zvučni sloj obrađuje sve što se čuje dok traje. Skrati ga na vremenskoj crti da promijeniš što pokriva.",
   "clipInspector.source": "Izvor",
   "clipInspector.stabilize": "Stabiliziraj",
   "clipInspector.stabilizeEased": "Uvećano na {0}%. Za stabilizaciju svake sličice trebalo bi {1}%, pa su najtrešniji trenuci manje stabilizirani; povećaj Maks. uvećanje da ih potpuno stabiliziraš.",

@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Умный ластик",
   "clipInspector.smoothness": "Плавность",
   "clipInspector.softness": "Мягкость",
+  "clipInspector.soundLayerTreatsTheMix": "Звуковой слой обрабатывает всё, что слышно, пока он идёт. Обрежьте его на таймлайне, чтобы изменить, что он охватывает.",
   "clipInspector.source": "Источник",
   "clipInspector.stabilize": "Стабилизация",
   "clipInspector.stabilizeEased": "Увеличено до {0}%. Чтобы стабилизировать каждый кадр, нужно {1}%, поэтому самые тряские моменты стабилизированы слабее; увеличьте Макс. увеличение, чтобы стабилизировать их полностью.",

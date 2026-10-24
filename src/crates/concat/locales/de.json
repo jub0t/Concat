@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Smart-Radierer",
   "clipInspector.smoothness": "Glättung",
   "clipInspector.softness": "Weichheit",
+  "clipInspector.soundLayerTreatsTheMix": "Eine Tonebene bearbeitet alles, was zu hören ist, solange sie läuft. Kürze sie auf der Zeitleiste, um zu ändern, was sie abdeckt.",
   "clipInspector.source": "Source",
   "clipInspector.stabilize": "Stabilisieren",
   "clipInspector.stabilizeEased": "Auf {0}% vergrößert. Jedes Bild ruhig zu halten bräuchte {1}%, daher werden die wackligsten Momente weniger stabilisiert; erhöhe Max. Zoom, um sie ganz zu stabilisieren.",

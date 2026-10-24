@@ -397,7 +397,8 @@ pub enum Command {
     /// Places a layer: a look or an effect over a span of the timeline that
     /// treats everything beneath it. No media; the chain starts as the one
     /// package named, at its defaults, and the clip's opacity is how hard it
-    /// is applied.
+    /// is applied. With `sound`, a sound layer: an audio package, run over
+    /// the mix of everything audible for its span.
     AddLayerClip {
         /// The lane to place it on. None picks the first free lane *above*
         /// the highest one occupied over its span, minting one at the top
@@ -409,10 +410,17 @@ pub enum Command {
         /// Seconds on the timeline; the editorial default when absent.
         #[serde(default)]
         duration: Option<f64>,
-        /// The package the layer applies, e.g. "concat.warm".
+        /// The package the layer applies, e.g. "concat.warm", or an audio
+        /// one, e.g. "concat.telephone", with `sound`.
         effect_id: String,
         /// What the lane calls it.
         name: String,
+        /// True lays a sound layer ([`crate::model::ClipKind::SoundLayer`]):
+        /// the package goes on the clip's `filters`, and the layer treats
+        /// the soundtrack rather than the picture. Absent is a picture
+        /// layer.
+        #[serde(default)]
+        sound: bool,
     },
     /// Gives a clip a speed curve, or takes it away. The source covered is
     /// held constant, as a speed change does, so the clip's timeline length

@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "ยางลบอัจฉริยะ",
   "clipInspector.smoothness": "ความนุ่มนวล",
   "clipInspector.softness": "ความนุ่ม",
+  "clipInspector.soundLayerTreatsTheMix": "เลเยอร์เสียงจะปรับทุกเสียงที่ได้ยินตลอดช่วงที่มันเล่น ตัดแต่งบนไทม์ไลน์เพื่อเปลี่ยนช่วงที่มันครอบคลุม",
   "clipInspector.source": "แหล่งที่มา",
   "clipInspector.stabilize": "กันสั่น",
   "clipInspector.stabilizeEased": "ซูมเป็น {0}% การทำให้ทุกเฟรมนิ่งต้องใช้ {1}% ช่วงที่สั่นที่สุดจึงถูกกันสั่นน้อยลง เพิ่มซูมสูงสุดเพื่อกันสั่นได้เต็มที่",

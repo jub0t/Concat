@@ -64,6 +64,18 @@ pub enum ClipKind {
     /// lives in [`Clip::video_effects`], its strength in [`Clip::opacity`]
     /// and its ramps in the fades.
     Layer,
+    /// A treatment of the sound for as long as it runs: its chain, in
+    /// [`Clip::filters`], works on the mix of everything audible over its
+    /// span - a voice changer, a room or a telephone over the whole
+    /// soundtrack, not one clip of it. No media behind it; how much of the
+    /// treated sound replaces the untreated is [`Clip::opacity`], the
+    /// strength a picture layer has, and its ramps are the fades. A kind of
+    /// its own rather than a flag on [`ClipKind::Layer`], so it stays what
+    /// it is with its chain emptied, and a build that predates it leaves it
+    /// out as a clip it cannot play rather than reading it as a picture
+    /// layer that treats nothing.
+    #[serde(rename = "soundLayer")]
+    SoundLayer,
     /// A shape: a square, a circle, an arrow, drawn over the picture. No
     /// media behind it; what it is and how it is painted lives in
     /// [`Clip::shape`], and it is placed and scaled like a still.
@@ -1841,7 +1853,8 @@ pub struct Clip {
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,
-    /// Audio filters, in order - order is audible.
+    /// Audio filters, in order - order is audible. On a sound layer, the
+    /// chain it runs over the mix.
     #[serde(default)]
     #[serde(deserialize_with = "wire::list")]
     pub filters: Vec<AppliedFilter>,

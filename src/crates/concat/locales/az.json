@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Ağıllı pozan",
   "clipInspector.smoothness": "Hamarlıq",
   "clipInspector.softness": "Yumşaqlıq",
+  "clipInspector.soundLayerTreatsTheMix": "Səs qatı işlədiyi müddətdə eşidilən hər şeyi emal edir. Əhatə etdiyini dəyişmək üçün onu zaman xəttində kəsin.",
   "clipInspector.source": "Mənbə",
   "clipInspector.stabilize": "Stabilləşdir",
   "clipInspector.stabilizeEased": "{0}% böyüdüldü. Hər kadrı tam sabitləmək üçün {1}% lazım olardı, ona görə ən çox titrəyən anlar daha az sabitlənib. Onları da tam sabitləmək üçün Maks. böyütməni artırın.",

@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Borracha inteligente",
   "clipInspector.smoothness": "Suavidade",
   "clipInspector.softness": "Suavidade",
+  "clipInspector.soundLayerTreatsTheMix": "Uma camada de som trata tudo o que se ouve enquanto dura. Corte-a na linha do tempo para mudar o que ela cobre.",
   "clipInspector.source": "Origem",
   "clipInspector.stabilize": "Estabilizar",
   "clipInspector.stabilizeEased": "Ampliado para {0}%. Estabilizar todos os quadros exigiria {1}%, então os momentos mais tremidos são menos estabilizados; aumente o Zoom máximo para estabilizá-los por completo.",

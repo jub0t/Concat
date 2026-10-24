@@ -1725,6 +1725,7 @@ fn every_edit_still_exports() {
             duration: Some(3.0),
             effect_id: "concat.glow".to_owned(),
             name: "Glow".to_owned(),
+            sound: false,
         });
         let exported = studio.export("layer");
         exported.expect_length(end);
@@ -2062,6 +2063,96 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
         exported.expect_tone(5.5);
         exported.expect_quiet(4.5);
     }
+}
+
+/// A sound layer over two seconds of the clock changes the export's sound
+/// there and nowhere else. Two clips sound under it, the clock and a
+/// second copy of it a lane up, so what it treats is their sum. The tone
+/// of the clock's third second, inside the layer, comes out of the
+/// low-pass changed; its first and fifth, either side, are what an export
+/// without the layer has, give or take what the encoder does near the
+/// layer's edges. Muting the layer's lane takes it off.
+#[test]
+fn a_sound_layer_treats_the_mix_for_its_span_alone() {
+    let scratch = Scratch::new("sound-layer");
+    let wav = scratch.path().join("clock.wav");
+    clock_wav(&wav, 6);
+    let mut studio = Studio::new(scratch.path(), "Sound layer", video(WIDTH, HEIGHT, 30, 1));
+    let clock = studio.import(&wav);
+    let lanes: Vec<String> = studio
+        .project()
+        .active()
+        .tracks
+        .iter()
+        .map(|track| track.id.clone())
+        .collect();
+    for lane in &lanes[..2] {
+        studio.apply(Command::AddClip {
+            media_id: clock.clone(),
+            track_id: lane.clone(),
+            start: 0.0,
+            ripple: false,
+        });
+    }
+    let plain = studio.export("no layer");
+    plain.expect_sound(6.0);
+
+    let layer = studio
+        .apply(Command::AddLayerClip {
+            track_id: None,
+            start: 2.0,
+            duration: Some(2.0),
+            effect_id: "concat.underwater".to_owned(),
+            name: "Underwater".to_owned(),
+            sound: true,
+        })
+        .expect("a layer has an id");
+    let treated = studio.export("sound layer");
+    treated.expect_length(6.0);
+    treated.expect_sound(6.0);
+
+    // How far apart two exports' sound is over `[from, to)`, as the root
+    // mean square of their difference.
+    let apart = |a: &Exported, b: &Exported, from: f64, to: f64| {
+        let (a, b) = (
+            a.audio.as_ref().expect("sound"),
+            b.audio.as_ref().expect("sound"),
+        );
+        let at = |seconds: f64| (seconds * f64::from(RATE)) as usize * 2;
+        let range = at(from)..at(to).min(a.len()).min(b.len());
+        let count = range.len().max(1) as f64;
+        let sum: f64 = range
+            .map(|index| (f64::from(a[index]) - f64::from(b[index])).powi(2))
+            .sum();
+        (sum / count).sqrt()
+    };
+    let inside = apart(&plain, &treated, 3.1, 3.9);
+    let before = apart(&plain, &treated, 1.1, 1.9);
+    let after = apart(&plain, &treated, 5.1, 5.9);
+    eprintln!("sound layer: {inside:.4} inside, {before:.4} before, {after:.4} after");
+    assert!(
+        inside > 0.1,
+        "the layer's span is {inside:.4} from the plain mix"
+    );
+    assert!(
+        before < 0.01,
+        "before the layer the mix moved by {before:.4}"
+    );
+    assert!(after < 0.01, "after the layer the mix moved by {after:.4}");
+    // The tone is still there to treat: a filter, not a mute.
+    treated.expect_tone(1.5);
+    treated.expect_tone(5.5);
+
+    // A muted lane silences the layer as it silences a clip.
+    let lane = studio.clip(&layer).track_id.clone();
+    studio.apply(Command::SetTrackFlag {
+        track_id: lane,
+        flag: TrackFlag::Muted,
+        value: true,
+    });
+    let muted = studio.export("sound layer muted");
+    let off = apart(&plain, &muted, 3.1, 3.9);
+    assert!(off < 0.01, "a muted layer still moved the mix by {off:.4}");
 }
 
 /// A reversed copy of a span plays its seconds backwards, picture and

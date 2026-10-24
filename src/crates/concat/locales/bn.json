@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "স্মার্ট ইরেজার",
   "clipInspector.smoothness": "মসৃণতা",
   "clipInspector.softness": "কোমলতা",
+  "clipInspector.soundLayerTreatsTheMix": "সাউন্ড লেয়ার যতক্ষণ চলে, ততক্ষণ শোনা সবকিছুর ওপর কাজ করে। কতটা জুড়ে থাকবে তা বদলাতে টাইমলাইনে এটি ট্রিম করুন।",
   "clipInspector.source": "সোর্স",
   "clipInspector.stabilize": "স্থির করুন",
   "clipInspector.stabilizeEased": "{0}% পর্যন্ত জুম করা হয়েছে। প্রতিটি ফ্রেম স্থির করতে {1}% লাগত, তাই সবচেয়ে বেশি কাঁপা মুহূর্তগুলো কম স্থির করা হয়েছে; পুরোপুরি স্থির করতে সর্বোচ্চ জুম বাড়ান।",

@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "ممحاة ذكية",
   "clipInspector.smoothness": "النعومة",
   "clipInspector.softness": "النعومة",
+  "clipInspector.soundLayerTreatsTheMix": "تعالج طبقة الصوت كل ما تسمعه طوال مدة تشغيلها. قصّها على المخطط الزمني لتغيير ما تغطيه.",
   "clipInspector.source": "المصدر",
   "clipInspector.stabilize": "تثبيت الصورة",
   "clipInspector.stabilizeEased": "كُبّرت إلى {0}%. تثبيت كل إطار يتطلب {1}%، لذا تُثبَّت أكثر اللحظات اهتزازًا بدرجة أقل؛ ارفع أقصى تكبير لتثبيتها تمامًا.",

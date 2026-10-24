@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Розумна гумка",
   "clipInspector.smoothness": "Плавність",
   "clipInspector.softness": "М'якість",
+  "clipInspector.soundLayerTreatsTheMix": "Звуковий шар обробляє все, що чути, поки він триває. Обріжте його на таймлайні, щоб змінити, що він охоплює.",
   "clipInspector.source": "Джерело",
   "clipInspector.stabilize": "Стабілізація",
   "clipInspector.stabilizeEased": "Збільшено до {0}%. Щоб стабілізувати кожен кадр, потрібно {1}%, тож найтрясучіші моменти стабілізовано слабше; збільште Макс. збільшення, щоб стабілізувати їх повністю.",

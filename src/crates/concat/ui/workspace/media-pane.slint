@@ -2755,7 +2755,11 @@ export component MediaPane inherits Rectangle {
                         auditions: !root.audio-shelf;
                         auditioning: root.audio-shelf ? "" : root.audition;
                         auditioned(id) => { root.audition-filter(id); }
-                        payload-kind: root.audio-shelf ? "" : "filter";
+                        // A sound effect dragged onto the lanes is a sound
+                        // layer: it treats everything heard under it for as
+                        // long as it runs. A click still puts it on the
+                        // selected clip.
+                        payload-kind: root.audio-shelf ? "audio-filter" : "filter";
                         applied(id, label) => {
                             if (root.audio-shelf) {
                                 root.apply-audio(id);

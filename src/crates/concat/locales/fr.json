@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "Gomme intelligente",
   "clipInspector.smoothness": "Lissage",
   "clipInspector.softness": "Douceur",
+  "clipInspector.soundLayerTreatsTheMix": "Un calque sonore traite tout ce qu’on entend tant qu’il dure. Raccourcissez-le sur la timeline pour changer ce qu’il couvre.",
   "clipInspector.source": "Source",
   "clipInspector.stabilize": "Stabiliser",
   "clipInspector.stabilizeEased": "Agrandi à {0} %. Stabiliser chaque image demanderait {1} %, donc les moments les plus agités sont moins stabilisés ; augmentez Zoom max pour les stabiliser entièrement.",

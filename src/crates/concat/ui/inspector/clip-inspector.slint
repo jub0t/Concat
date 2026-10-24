@@ -2797,6 +2797,9 @@ export component AdjustPanel inherits VerticalLayout {
 // beats a second that means it only on this one.
 export component FilterPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
+    /// What the help says the layer does: a picture layer's or a sound
+    /// layer's, the panel being the same for both.
+    in property <string> help: I18n.t("clipInspector.layerTreatsEverythingUnder");
 
     callback set(field: ClipField, value: float);
     callback commit();
@@ -2826,7 +2829,7 @@ export component FilterPanel inherits VerticalLayout {
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.fraction, root.strength);
             HelpButton {
-                text: I18n.t("clipInspector.layerTreatsEverythingUnder");
+                text: root.help;
             }
         }
 

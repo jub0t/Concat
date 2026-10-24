@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use concat_host::Session;
-use concat_host::playback::{ClipSpec, GainKey, Playback, PlaybackEvents};
+use concat_host::playback::{ClipSpec, Playback, PlaybackEvents};
 use concat_project::Command;
 
 mod render;
@@ -362,45 +362,10 @@ fn rate_of(fraction: &str) -> (i64, i64) {
     }
 }
 
-/// The audible clips of a flattened edit, as playback takes them.
-///
-/// A copy of `studio::audio_specs` in the Slint window's crate - which is
-/// exactly the point of the spike's report: this belongs in the host, where
-/// both shells would share it.
+/// The audible clips of a flattened edit, as playback takes them - the
+/// host's one definition, which the desktop window plays too.
 fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> {
-    clips
-        .iter()
-        .filter(|clip| {
-            !clip.muted
-                && (clip.kind == concat_export::ClipKind::Audio
-                    || (clip.kind == concat_export::ClipKind::Video
-                        && clip.has_audio.unwrap_or(true)))
-        })
-        .flat_map(concat_export::audio_pieces)
-        .map(|piece| ClipSpec {
-            path: piece.path.to_string_lossy().into_owned(),
-            audio_stream: piece.stream.map(|index| index as u32),
-            start: piece.start,
-            duration: piece.duration,
-            source_start: piece.source_start,
-            volume: piece.volume as f32,
-            volume_curve: piece
-                .volume_curve
-                .keys()
-                .iter()
-                .map(|key| GainKey {
-                    at: key.at,
-                    gain: key.value,
-                    ease: [key.ease.x1, key.ease.y1, key.ease.x2, key.ease.y2],
-                })
-                .collect(),
-            fade_in: piece.fade_in,
-            fade_out: piece.fade_out,
-            speed: piece.speed,
-            preserve_pitch: piece.preserve_pitch,
-            chain: piece.filter_chain,
-        })
-        .collect()
+    concat_host::playback::audible(clips)
 }
 
 #[cfg(test)]

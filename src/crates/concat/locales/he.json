@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "מחק חכם",
   "clipInspector.smoothness": "חלקות",
   "clipInspector.softness": "רכות",
+  "clipInspector.soundLayerTreatsTheMix": "שכבת צליל מעבדת את כל מה שנשמע כל עוד היא פועלת. קצצו אותה בציר הזמן כדי לשנות את מה שהיא מכסה.",
   "clipInspector.source": "מקור",
   "clipInspector.stabilize": "ייצוב",
   "clipInspector.stabilizeEased": "הוגדל ל־{0}%. ייצוב כל פריים היה דורש {1}%, ולכן הרגעים הרועדים ביותר מיוצבים פחות; הגדילו את הזום המרבי כדי לייצב אותם לגמרי.",

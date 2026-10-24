@@ -66,6 +66,12 @@ pub enum ClipKind {
     /// composited beneath its track for its span, blended back by its
     /// opacity, ramped by its fades. See `composite_treated`.
     Layer,
+    /// A treatment of the sound: its `filter_chain` runs over the mix of
+    /// every audible clip for its span, its opacity how much of the treated
+    /// sound replaces the untreated, ramped by its fades. No picture, and
+    /// no sound of its own; see [`audio_buses`].
+    #[serde(rename = "soundLayer")]
+    SoundLayer,
 }
 
 impl ClipKind {
@@ -1243,7 +1249,8 @@ pub fn render_on(
             reporter.cancelled()?;
             reporter.emit(0, total_frames, "mixing audio");
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
-            audio::mix_to_file(&mix, timeline_end.as_f64(), &mixed)
+            let buses = audio_buses(&resolved);
+            audio::mix_to_file_with(&mix, &buses, timeline_end.as_f64(), &mixed)
                 .map_err(|error| error.to_string())?;
 
             reporter.cancelled()?;
@@ -1336,6 +1343,31 @@ fn track_slice(track: &AnimTrack, x0: f64, x1: f64) -> AnimTrack {
         ease: closing,
     });
     AnimTrack::new(keys)
+}
+
+/// The sound layers among `clips`, as the mixer runs them over the sum:
+/// those on a lane that is not muted with a chain that does something, in
+/// the order of their lanes from the bottom up and then of their starts,
+/// so two that overlap are heard as the lanes stack them. Playback and
+/// the export both read them from here.
+pub fn audio_buses(clips: &[ExportClip]) -> Vec<audio::AudioBus> {
+    let mut layers: Vec<&ExportClip> = clips
+        .iter()
+        .filter(|clip| clip.kind == ClipKind::SoundLayer && !clip.muted)
+        .collect();
+    layers.sort_by(|a, b| a.track.cmp(&b.track).then(a.start.total_cmp(&b.start)));
+    layers
+        .into_iter()
+        .map(|clip| audio::AudioBus {
+            start: clip.start,
+            duration: clip.duration,
+            filter_chain: clip.filter_chain.clone(),
+            strength: clip.opacity.clamp(0.0, 1.0),
+            fade_in: clip.fade_in,
+            fade_out: clip.fade_out,
+        })
+        .filter(audio::AudioBus::audible)
+        .collect()
 }
 
 /// The engine's view of one audible clip - or several, when its speed
@@ -3317,6 +3349,7 @@ mod tests {
                 duration: Some(2.0),
                 effect_id: "concat.adjust".into(),
                 name: "Adjustment".into(),
+                sound: false,
             })
             .expect("adds the layer")
             .created_id

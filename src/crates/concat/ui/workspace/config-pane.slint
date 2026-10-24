@@ -244,6 +244,10 @@ export component ConfigPane inherits Rectangle {
     /// panel it grades everything beneath it with, and its chain - are the
     /// tab's sections, so an adjustment layer is graded the way a clip is.
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
+    /// A sound layer gets one tab, Audio, for the filter layer's reason:
+    /// its strength and ramps, then its chain and the sound library -
+    /// the Audio effects page a sound clip has, over everything heard.
+    property <bool> is-sound-layer: root.selected.kind == ClipKind.sound-layer;
     /// Effects are laid on the timeline as layers now, so a clip's own
     /// chain is not something to go looking for: its tab shows only on a
     /// clip that already carries one - from an older project, a template,
@@ -252,6 +256,7 @@ export component ConfigPane inherits Rectangle {
     property <[string]> tabs: root.selected.batch-volume ? ["Audio"]
         : root.is-text ? (root.has-chain ? ["Text", "Effects"] : ["Text"])
         : root.is-layer ? ["Filter"]
+        : root.is-sound-layer ? ["Audio"]
         : root.is-shape ? ["Video"]
         : root.is-image ? (root.has-chain ? ["Video", "Effects"] : ["Video"])
         : root.is-audio ? ["Audio"]
@@ -262,6 +267,7 @@ export component ConfigPane inherits Rectangle {
         : root.is-text ? (root.has-chain ? [I18n.t("common.text"), I18n.t("common.effects")]
             : [I18n.t("common.text")])
         : root.is-layer ? [I18n.t("configPane.filter")]
+        : root.is-sound-layer ? [I18n.t("common.audio")]
         : root.is-shape ? [I18n.t("configPane.vectorImage")]
         : root.is-image ? (root.has-chain ? [I18n.t("common.video"), I18n.t("common.effects")]
             : [I18n.t("common.video")])
@@ -304,7 +310,9 @@ export component ConfigPane inherits Rectangle {
         // and the Effects tab's "Effects", since `showing` picks the panel
         // by this name alone.
         : root.heading == "Audio"
-            ? (root.selected.batch-volume ? ["Sound"] : ["Sound", "AudioEffects"])
+            ? (root.selected.batch-volume ? ["Sound"]
+                : root.is-sound-layer ? ["Layer", "AudioEffects"]
+                : ["Sound", "AudioEffects"])
         : root.heading == "Effects" ? ["Effects"]
         : root.heading == "Text" ? ["Text"]
         : ["Layer", "Adjust", "Effects"];
@@ -314,7 +322,9 @@ export component ConfigPane inherits Rectangle {
     property <[Glyph]> section-icons: root.heading == "Video"
             ? (root.is-shape ? [Glyph.move] : [Glyph.move, Glyph.wand, Glyph.sliders])
         : root.heading == "Audio"
-            ? (root.selected.batch-volume ? [Glyph.volume] : [Glyph.volume, Glyph.waveform])
+            ? (root.selected.batch-volume ? [Glyph.volume]
+                : root.is-sound-layer ? [Glyph.filter, Glyph.waveform]
+                : [Glyph.volume, Glyph.waveform])
         : root.heading == "Effects" ? [Glyph.sparkle]
         : root.heading == "Text" ? [Glyph.text-mark]
         : [Glyph.filter, Glyph.sliders, Glyph.sparkle];
@@ -324,6 +334,7 @@ export component ConfigPane inherits Rectangle {
                 : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")])
         : root.heading == "Audio"
             ? (root.selected.batch-volume ? [I18n.t("configPane.basic")]
+                : root.is-sound-layer ? [I18n.t("common.layer"), I18n.t("configPane.audioEffects")]
                 : [I18n.t("configPane.basic"), I18n.t("configPane.audioEffects")])
         : root.heading == "Effects" ? [I18n.t("common.effects")]
         : root.heading == "Text" ? [I18n.t("common.text")]
@@ -370,7 +381,7 @@ export component ConfigPane inherits Rectangle {
             return;
         }
         if (root.jump-tab == "Video") { root.tab = 0; }
-        else if (root.jump-tab == "Audio") { root.tab = root.is-audio ? 0 : 1; }
+        else if (root.jump-tab == "Audio") { root.tab = root.is-audio || root.is-sound-layer ? 0 : 1; }
         else if (root.jump-tab == "Effects") { root.tab = root.tabs.length - 1; }
         // Enhance sits second in the Video tab for a video and a still
         // alike, and Audio effects second in the Audio tab.
@@ -725,6 +736,8 @@ export component ConfigPane inherits Rectangle {
 
                 if root.showing == "Layer": FilterPanel {
                     selected: root.selected;
+                    help: root.is-sound-layer ? I18n.t("clipInspector.soundLayerTreatsTheMix")
+                        : I18n.t("clipInspector.layerTreatsEverythingUnder");
                     set(field, value) => { root.clip-set(field, value); }
                     commit => { root.clip-commit(); }
                 }

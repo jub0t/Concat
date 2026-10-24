@@ -114,6 +114,7 @@
   "clipInspector.smartEraser": "स्मार्ट इरेज़र",
   "clipInspector.smoothness": "स्मूदनेस",
   "clipInspector.softness": "कोमलता",
+  "clipInspector.soundLayerTreatsTheMix": "साउंड लेयर जब तक चलती है, सुनाई देने वाली हर चीज़ पर असर करती है। यह कितना ढके, यह बदलने के लिए इसे टाइमलाइन पर ट्रिम करें।",
   "clipInspector.source": "स्रोत",
   "clipInspector.stabilize": "स्थिर करें",
   "clipInspector.stabilizeEased": "{0}% तक ज़ूम किया गया। हर फ़्रेम स्थिर करने के लिए {1}% चाहिए, इसलिए सबसे ज़्यादा हिलते पल कम स्थिर किए गए हैं; उन्हें पूरी तरह स्थिर करने के लिए अधिकतम ज़ूम बढ़ाएँ।",
