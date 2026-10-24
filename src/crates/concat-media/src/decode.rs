@@ -596,6 +596,17 @@ fn alpha_decoder(stream: &ffmpeg::format::stream::Stream<'_>) -> Option<&'static
     }
 }
 
+/// Where a container seek was asked to land, until the first picture after
+/// it shows whether it did.
+#[derive(Clone, Copy, Debug)]
+struct Landing {
+    /// The instant the caller wants, measured from the stream's first frame.
+    target: Rational,
+    /// The instant the container was last asked for: the target itself, or
+    /// a point before it once the container has overshot.
+    asked: Rational,
+}
+
 /// One decoded picture, before the filtergraph.
 struct Source {
     frame: Video,
@@ -627,6 +638,9 @@ pub struct Decoder {
     /// that moved to software mid-file picks up, after the frame the
     /// device last gave it.
     discard_through: Option<Rational>,
+    /// The seek whose landing is still to be checked; see
+    /// [`Decoder::retreat`].
+    landing: Option<Landing>,
     /// Where the codec runs when it is not on the CPU, or `None` in
     /// software, which is also where a failed device ends.
     hardware: Option<OnChip>,
@@ -834,6 +848,7 @@ impl Decoder {
             graph: None,
             discard_before: None,
             discard_through: None,
+            landing: None,
             hardware: accelerated,
             held: None,
             fed: false,
@@ -946,7 +961,7 @@ impl Decoder {
             Self::open_codec(&self.path, &stream, &self.options, Codec::Software)?.0
         };
         let at = from.unwrap_or(self.origin);
-        self.seek_input(ffi::av_ticks(at + self.start))?;
+        self.seek_to(at)?;
         self.decoder = decoder;
         // The old codec, and its seat on the chip, go now.
         self.hardware = None;
@@ -983,9 +998,111 @@ impl Decoder {
             .map_err(|error| ffi::fail("seek", &self.path, error))
     }
 
+    /// Back to the first packet of the file.
+    ///
+    /// A stream whose clock may jump - MPEG-TS and MPEG-PS, which say so
+    /// with `AVFMT_TS_DISCONT` - goes back by byte. Its first timestamp is
+    /// 1.4 s or more in, and a seek to it by time is a search over the
+    /// file's timestamps that, asked for the very first one (or for a
+    /// microsecond short of it, which is where rounding `start` down to
+    /// whole microseconds puts the request), finds nothing at or before it
+    /// and leaves the demuxer at the end of the file: no picture at all.
+    /// Everything else seeks by time to its own first timestamp.
+    fn seek_top(&mut self) -> Result<()> {
+        // SAFETY: the input is open for the decoder's lifetime, so its
+        // format pointer is valid; `flags` is a plain integer.
+        let by_byte = unsafe {
+            let format = (*self.input.as_ptr()).iformat;
+            !format.is_null() && {
+                let flags = (*format).flags;
+                flags & ffmpeg::sys::AVFMT_TS_DISCONT != 0
+                    && flags & ffmpeg::sys::AVFMT_NO_BYTE_SEEK == 0
+            }
+        };
+        if by_byte {
+            // SAFETY: an open input; a byte seek to offset 0 of every
+            // stream.
+            let done = unsafe {
+                ffmpeg::sys::av_seek_frame(
+                    self.input.as_mut_ptr(),
+                    -1,
+                    0,
+                    ffmpeg::sys::AVSEEK_FLAG_BYTE,
+                )
+            };
+            if done >= 0 {
+                return Ok(());
+            }
+        }
+        self.seek_input(ffi::av_ticks(self.start))
+    }
+
+    /// The container seek to `at`, measured from the stream's first frame,
+    /// with its landing left for the first picture after it to check. The
+    /// start of the stream is the top of the file, which needs no check.
+    fn seek_to(&mut self, at: Rational) -> Result<()> {
+        if at <= Rational::ZERO {
+            self.landing = None;
+            return self.seek_top();
+        }
+        self.landing = Some(Landing {
+            target: at,
+            asked: at,
+        });
+        self.seek_input(ffi::av_ticks(at + self.start))
+    }
+
+    /// Seeks again, further back, after the container landed past the
+    /// picture `landing` wanted - or past the end of the picture stream.
+    ///
+    /// A seek asks for the keyframe at or before the target, and MP4, MOV
+    /// and Matroska keep an index that answers exactly. MPEG-TS and MPEG-PS
+    /// keep none: libavformat searches the file's timestamps and lands a
+    /// group of pictures late, on the next keyframe, or - with one keyframe
+    /// every few seconds - at the end of the file. A camera's MTS showed
+    /// the wrong moment, or no picture at all, wherever a scrub or a
+    /// clip's in-point sought to, and an MPEG-2 .mpg started twelve frames
+    /// in (#457). The first picture after a seek tells: one timestamped
+    /// after the target means the picture on screen at the target was
+    /// skipped. The retry asks for a point a second before the target, then
+    /// four, then sixteen and so on, and for the top of the file once that
+    /// passes the start, which always lands; the frames short of the target
+    /// are decoded and dropped as after any seek.
+    fn retreat(&mut self, landing: Landing) -> Result<()> {
+        let short = landing.target - landing.asked;
+        let step = if short.is_zero() {
+            Rational::from_int(1)
+        } else {
+            short * Rational::from_int(4)
+        };
+        let back = landing.target - step;
+        log::debug!(
+            "{}: a seek for {:.3} s landed past it; seeking from {:.3} s",
+            self.path.display(),
+            landing.target.as_f64(),
+            back.as_f64().max(0.0)
+        );
+        if back <= Rational::ZERO {
+            self.landing = None;
+            self.seek_top()?;
+        } else {
+            self.landing = Some(Landing {
+                target: landing.target,
+                asked: back,
+            });
+            self.seek_input(ffi::av_ticks(back + self.start))?;
+        }
+        if self.fed {
+            self.decoder.flush();
+            self.fed = false;
+        }
+        self.held = None;
+        Ok(())
+    }
+
     /// The container seek, and the state reset that goes with it.
     fn jump(&mut self, to: Rational) -> Result<()> {
-        self.seek_input(ffi::av_ticks(to + self.start))?;
+        self.seek_to(to)?;
         // Every picture and packet the codec holds is from before the
         // seek: out, and so is the packet it refused. For MediaCodec this
         // is the codec's own flush, which it needs before a jump.
@@ -1021,7 +1138,16 @@ impl Decoder {
             let read = || feed::read_packet(&mut self.input, self.stream);
             let mut frame = match feed::next_frame(&mut self.decoder, &mut self.held, read) {
                 Ok(Some(frame)) => frame,
-                Ok(None) => return Ok(None),
+                // Nothing at all after a seek: the container landed past
+                // the end of the picture stream, not on the keyframe asked
+                // for.
+                Ok(None) => match self.landing.take() {
+                    Some(landing) => {
+                        self.retreat(landing)?;
+                        continue;
+                    }
+                    None => return Ok(None),
+                },
                 Err(feed::Stall::Read(error)) => return Err(ffi::fail("read", &self.path, error)),
                 Err(stall) if self.hardware.is_some() => {
                     // The device choked on a stream it had accepted.
@@ -1043,6 +1169,18 @@ impl Decoder {
                 .timestamp()
                 .and_then(|ticks| ffi::seconds(ticks, self.time_base))
                 .map(|pts| pts - self.start);
+            // The first picture after a seek is the keyframe it landed on.
+            // One later than the target - by more than a tick of the
+            // stream's clock, which a container that rounds to milliseconds
+            // can put a frame past its true instant - means the picture on
+            // screen at the target was skipped.
+            if let Some(landing) = self.landing.take() {
+                let slack = ffi::seconds(1, self.time_base).unwrap_or(Rational::ZERO);
+                if pts.is_some_and(|pts| pts > landing.target + slack) {
+                    self.retreat(landing)?;
+                    continue;
+                }
+            }
             // A frame short of a seek's target is let go before it is copied
             // off the chip: a seek decodes from the keyframe before it, up
             // to a second or more of frames, and a full-size copy back of
@@ -1823,12 +1961,54 @@ mod tests {
         assert!(Decoder::open("does-not-exist.mp4", &DecodeOptions::default()).is_err());
     }
 
+    /// An MPEG-TS seek lands on the picture asked for. The container has no
+    /// index, and FFmpeg's search over its timestamps lands past the
+    /// keyframe wanted - here, with the only keyframe at the top, past the
+    /// end of the file - and the stream's first timestamp is 1.4 s in, so
+    /// a seek to its very start found nothing either. A camera's MTS showed
+    /// no picture anywhere in the paused preview, and an MPEG-2 .mpg began
+    /// a group of pictures late (#457).
+    #[test]
+    fn a_transport_stream_seek_lands_on_the_picture_asked_for() {
+        let path = grey_steps_in("transport", "ts");
+        let options = DecodeOptions::default().scaled_to(64, 64).in_software();
+        let walked = drain(&mut Decoder::open(&path, &options).expect("opens"));
+        assert_eq!(walked.len(), 30, "every frame from the top");
+        let mut reused = Decoder::open(&path, &options).expect("opens");
+        for index in [15usize, 27, 0, 1, 15] {
+            let at = Rational::new(index as i64, 30);
+            let mut opened =
+                Decoder::open(&path, &options.clone().starting_at(at)).expect("opens there");
+            reused.seek(at).expect("seeks");
+            for (how, decoder) in [("opened at", &mut opened), ("sought to", &mut reused)] {
+                let landed = decoder
+                    .next_frame()
+                    .expect("decodes")
+                    .unwrap_or_else(|| panic!("{how} frame {index}: no picture"));
+                assert_eq!(decoder.position(), Some(at), "{how} frame {index}");
+                let difference = worst_difference(&walked[index].1, &landed);
+                assert!(
+                    difference <= 2,
+                    "{how} frame {index}: {difference} levels off the picture there"
+                );
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// A thirty-frame H.264 file whose every frame is its own flat grey,
     /// for telling frames apart.
     fn grey_steps(name: &str) -> PathBuf {
+        grey_steps_in(name, "mp4")
+    }
+
+    /// [`grey_steps`] in the container `extension` names.
+    fn grey_steps_in(name: &str, extension: &str) -> PathBuf {
         use crate::{EncodeOptions, Encoder, FrameSink};
-        let path =
-            std::env::temp_dir().join(format!("concat-decode-{name}-{}.mp4", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "concat-decode-{name}-{}.{extension}",
+            std::process::id()
+        ));
         let mut encoder = Encoder::create(
             &path,
             64,
