@@ -15,6 +15,23 @@ use libc::{c_char, c_int, c_void};
 
 use crate::error::Error;
 
+/// Names the channels of a decoded frame whose file did not. A WAV
+/// without a channel mask decodes as "2 channels" in no order, and every
+/// filter that works on named channels - each equaliser, high-pass and
+/// low-pass - passes channels it cannot name through untouched, so a
+/// telephone or an underwater on such a file did nothing at all. FFmpeg's
+/// own command line guesses the usual layout for the count; so does this.
+pub fn name_channels(frame: &mut ffmpeg::util::frame::audio::Audio) {
+    use ffmpeg::util::channel_layout::{ChannelLayout, ChannelOrder};
+    let layout = frame.ch_layout();
+    if layout.order() == ChannelOrder::Unspecified && layout.channels() > 0 {
+        let named = ChannelLayout::default_for_channels(layout.channels());
+        if named.order() != ChannelOrder::Unspecified {
+            frame.set_ch_layout(named);
+        }
+    }
+}
+
 /// Makes sure the libraries are initialised and quiet. Cheap after the
 /// first call; every entry point calls it.
 pub fn init() {

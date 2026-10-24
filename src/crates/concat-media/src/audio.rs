@@ -359,7 +359,10 @@ impl MixInput {
         }
         let read = || crate::feed::read_packet(&mut self.input, self.stream);
         match crate::feed::next_frame(&mut self.decoder, &mut self.held, read) {
-            Ok(Some(frame)) => Ok(Some(frame)),
+            Ok(Some(mut frame)) => {
+                ffi::name_channels(&mut frame);
+                Ok(Some(frame))
+            }
             Ok(None) => {
                 self.done = true;
                 Ok(None)
