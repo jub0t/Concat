@@ -223,9 +223,12 @@ export component ConfigPane inherits Rectangle {
     // picture - its placement, its speed, its colour; Audio
     // the level, the fades and the voice and room chain; Effects the two
     // shelves and the picture's chain. A still loses Audio, a sound clip
-    // keeps Audio alone, and a title gets Text alone: its look is its
+    // keeps Audio alone, and a title gets Text and Effects: its look is its
     // typography, stroke and box, all on the Text tab, and Video or Audio
-    // on a title would be panels that can only say "nothing here".
+    // on a title would be panels that can only say "nothing here". Its
+    // picture chain is real, though - a title draws its effects like any
+    // clip - so the chain has its tab, or one dropped on it could be
+    // neither seen nor taken off (#484).
     property <bool> is-text: root.selected.kind == ClipKind.text;
     property <bool> is-image: root.selected.kind == ClipKind.image;
     /// A shape gets one tab, Vector Image, with the placement panel
@@ -239,7 +242,7 @@ export component ConfigPane inherits Rectangle {
     /// panel it grades everything beneath it with, and its chain - are the
     /// tab's sections, so an adjustment layer is graded the way a clip is.
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
-    property <[string]> tabs: root.selected.batch-volume ? ["Audio"] : root.is-text ? ["Text"]
+    property <[string]> tabs: root.selected.batch-volume ? ["Audio"] : root.is-text ? ["Text", "Effects"]
         : root.is-layer ? ["Filter"]
         : root.is-shape ? ["Video"]
         : root.is-image ? ["Video", "Effects"]
@@ -247,7 +250,7 @@ export component ConfigPane inherits Rectangle {
         : ["Video", "Audio", "Effects"];
     /// The same tabs in the interface's language. `tabs` stays English,
     /// because the panels are picked by comparing against it.
-    property <[string]> tabs-shown: root.selected.batch-volume ? [I18n.t("common.audio")] : root.is-text ? [I18n.t("common.text")]
+    property <[string]> tabs-shown: root.selected.batch-volume ? [I18n.t("common.audio")] : root.is-text ? [I18n.t("common.text"), I18n.t("common.effects")]
         : root.is-layer ? [I18n.t("configPane.filter")]
         : root.is-shape ? [I18n.t("configPane.vectorImage")]
         : root.is-image ? [I18n.t("common.video"), I18n.t("common.effects")]
@@ -262,7 +265,7 @@ export component ConfigPane inherits Rectangle {
     property <int> tab;
     /// The kind the strip was last built for. A selection change can leave the
     /// strip pointing past the end of a shorter list — Audio on a still,
-    /// anything at all on a title — so the index is pulled back in when the
+    /// a video's third tab on a title — so the index is pulled back in when the
     /// shape of the strip changes, and left alone when it has not.
     property <ClipKind> strip-kind;
     changed selected => {
