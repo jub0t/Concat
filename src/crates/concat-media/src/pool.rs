@@ -370,6 +370,11 @@ struct Reader {
     /// The frame index `next_frame` will produce, in the media's own rate,
     /// or `i64::MIN` right after a seek, when only the timestamps know.
     next_index: i64,
+    /// The last frame handed out since the last seek, and its index.
+    last: Option<(i64, Arc<Frame>)>,
+    /// A frame decoded past a target that had no frame of its own, and its
+    /// index: handed out next, before anything more is decoded.
+    ahead: Option<(i64, Arc<Frame>)>,
 }
 
 impl Reader {
@@ -410,10 +415,18 @@ impl Reader {
         Ok(Self {
             decoder,
             next_index: i64::MIN,
+            last: None,
+            ahead: None,
         })
     }
 
-    fn next_frame(&mut self, rate: FrameRate) -> Result<Option<(i64, Frame)>> {
+    /// The next frame and its index, and whether it was decoded just now
+    /// rather than kept from a pull that went past it.
+    fn next_frame(&mut self, rate: FrameRate) -> Result<Option<(i64, Arc<Frame>, bool)>> {
+        if let Some((index, frame)) = self.ahead.take() {
+            self.next_index = index + 1;
+            return Ok(Some((index, frame, false)));
+        }
         let Some(frame) = self.decoder.next_frame()? else {
             return Ok(None);
         };
@@ -425,13 +438,29 @@ impl Reader {
             .map(|position| rate.frame_at(position + rate.frame_duration() / Rational::from_int(2)))
             .unwrap_or(self.next_index.max(0));
         self.next_index = index + 1;
-        Ok(Some((index, frame)))
+        Ok(Some((index, Arc::new(frame), true)))
     }
 
     fn seek(&mut self, rate: FrameRate, index: i64) -> Result<()> {
         self.decoder.seek(rate.time_of_frame(index))?;
         self.next_index = i64::MIN;
+        self.last = None;
+        self.ahead = None;
         Ok(())
+    }
+
+    /// The frame on screen at `target` when no frame has that index: the
+    /// last one handed out, when it is before the target and the frame
+    /// kept after it is past the target. A variable-rate stream has no
+    /// frame for the length of a still stretch, and every index inside it
+    /// is served from here without decoding anything.
+    fn held_at(&self, target: i64) -> Option<Arc<Frame>> {
+        match (&self.last, &self.ahead) {
+            (Some((before, frame)), Some((after, _))) if *before <= target && target < *after => {
+                Some(Arc::clone(frame))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -1042,15 +1071,38 @@ impl ReaderPool {
             reader.seek(rate, target)?;
         }
 
+        if let Some(frame) = reader.held_at(target) {
+            remember(target, Arc::clone(&frame));
+            reader.next_index = target + 1;
+            return Ok(Some(frame));
+        }
+
         // Roll forward to the target, caching everything passed on the way.
         // Stops at end of stream too: a clip trimmed past its media's end,
-        // where the last real frame is the honest answer.
+        // where the last real frame is the honest answer. A frame past the
+        // target, when the one before it fell short, means no frame has the
+        // target's index - a still stretch in a variable-rate recording -
+        // and the one before is on screen there: it is the answer, and the
+        // one past is kept for the reader to hand out next. Answering with
+        // the frame past showed a recording's next movement up to the
+        // length of the pause early (#457).
         let mut latest: Option<Arc<Frame>> = None;
         let mut reached = i64::MIN;
-        while let Some((index, frame)) = reader.next_frame(rate)? {
-            Self::count(&self.counters.decoded);
-            let frame = Arc::new(frame);
-            remember(index, Arc::clone(&frame));
+        while let Some((index, frame, fresh)) = reader.next_frame(rate)? {
+            if fresh {
+                Self::count(&self.counters.decoded);
+                remember(index, Arc::clone(&frame));
+            }
+            if index > target
+                && let Some((before, held)) = reader.last.clone()
+                && before < target
+            {
+                reader.ahead = Some((index, frame));
+                reader.next_index = target + 1;
+                remember(target, Arc::clone(&held));
+                return Ok(Some(held));
+            }
+            reader.last = Some((index, Arc::clone(&frame)));
             latest = Some(frame);
             reached = index;
             if index >= target {
@@ -1078,10 +1130,10 @@ impl ReaderPool {
             for step in [30i64, 240, i64::MAX] {
                 let from = target.saturating_sub(step).max(0);
                 reader.seek(rate, from)?;
-                while let Some((index, frame)) = reader.next_frame(rate)? {
+                while let Some((index, frame, _)) = reader.next_frame(rate)? {
                     Self::count(&self.counters.decoded);
-                    let frame = Arc::new(frame);
                     remember(index, Arc::clone(&frame));
+                    reader.last = Some((index, Arc::clone(&frame)));
                     latest = Some(frame);
                     if index >= target {
                         break;
@@ -1122,10 +1174,14 @@ impl ReaderPool {
                 }
             } else {
                 let info = probe::probe(path)?;
+                // Indexed at the cadence, not the average: a variable-rate
+                // recording's frames at its average shared slots while it
+                // moved - a 60 fps screen capture that averaged 23 played
+                // at 23 - and fell between slots elsewhere.
                 let rate = info
                     .video
                     .as_ref()
-                    .map(|video| video.frame_rate)
+                    .map(|video| video.cadence)
                     .unwrap_or(FrameRate::THIRTY);
                 let size = info
                     .video
@@ -1289,11 +1345,45 @@ pub(crate) mod tests {
     #[test]
     fn a_reader_serves_a_frame_just_behind_it_as_well_as_one_ahead() {
         assert_eq!(claim_cost(10, 12), Some(2), "just ahead rolls");
-        assert_eq!(claim_cost(10, 9), Some(1), "one behind: its neighbour won the race");
+        assert_eq!(
+            claim_cost(10, 9),
+            Some(1),
+            "one behind: its neighbour won the race"
+        );
         let ahead = i64::from(crate::prefetch::AHEAD);
         assert_eq!(claim_cost(10 + ahead, 10), Some(ahead));
         assert_eq!(claim_cost(11 + ahead, 10), None, "further behind seeks");
         assert_eq!(claim_cost(10, 10 + ROLL_FORWARD_FRAMES + 1), None);
+    }
+
+    /// Playing through a variable-rate recording's still stretch shows the
+    /// picture held there at every instant of it, and only then the next
+    /// movement - read once, not decoded again for every frame of the
+    /// pause. The fixture is white to 0.3 s at 30 fps, with no frame until
+    /// black starts at 2 s; its average rate is under 8, and indexed by it
+    /// the white frames shared slots and the black came half a pause early
+    /// (#457).
+    #[test]
+    fn playback_through_a_still_screen_holds_the_picture_until_it_moves() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/vfr-still-screen.mp4");
+        let pool = ReaderPool::new(64 << 20, 4);
+        let mut decoded_in_pause = 0;
+        for index in 0..69 {
+            let time = Rational::new(index, 30);
+            let before = pool.stats();
+            let frame = pool
+                .frame(&FrameRequest::new(path, time, 32, 32))
+                .unwrap_or_else(|error| panic!("{}: {error}", time.as_f64()));
+            if (10..59).contains(&index) {
+                decoded_in_pause += pool.stats().since(before).decoded;
+            }
+            let white = frame.pixels()[0] > 200;
+            assert_eq!(white, index < 60, "at {:.3} s", time.as_f64());
+        }
+        assert!(
+            decoded_in_pause <= 1,
+            "{decoded_in_pause} frames decoded while the screen held still"
+        );
     }
 
     /// The level is the source halved while it still covers the request,

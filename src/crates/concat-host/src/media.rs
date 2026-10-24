@@ -873,6 +873,7 @@ mod tests {
                 width: 1440,
                 height: 1080,
                 frame_rate: concat_core::time::FrameRate::from_int(25),
+                cadence: concat_core::time::FrameRate::from_int(25),
                 color_range: None,
                 signal: Signal::Sdr,
             }),

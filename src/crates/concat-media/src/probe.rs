@@ -28,6 +28,14 @@ pub struct VideoStream {
     pub height: u32,
     /// Average frame rate, exact.
     pub frame_rate: FrameRate,
+    /// The rate one frame can follow another at: the frame rate for a
+    /// constant-rate stream. A variable-rate one - a screen recording, a
+    /// phone clip - runs at its capture rate while the picture moves and
+    /// holds still between, so its average is well under the rate its
+    /// frames come at while they come; its cadence is the grid its
+    /// timestamps sit on, where that is a rate a camera or a screen records
+    /// at. What a reader indexes frames by, so no two land on one slot.
+    pub cadence: FrameRate,
     /// The levels the stream says its numbers span, or `None` where it
     /// says nothing - which a player then takes for video range. What a
     /// person compares the picture against when it looks washed out.
@@ -184,6 +192,7 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
             path: path.to_path_buf(),
             detail: "video stream has no usable frame rate".to_owned(),
         })?;
+    let cadence = pick_cadence(frame_rate, rational(stream.rate()));
 
     // SAFETY: the parameters are live for as long as `stream` is, and the
     // range, the transfer and the primaries are plain fields libavformat
@@ -207,6 +216,7 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
         width,
         height,
         frame_rate: FrameRate::new(frame_rate),
+        cadence: FrameRate::new(cadence),
         color_range: ColorRange::from_ffmpeg(ffmpeg::color::Range::from(range)),
         signal,
     })
@@ -262,9 +272,46 @@ fn pick_rate(average: Option<Rational>, guess: Option<Rational>) -> Option<Ratio
     }
 }
 
+/// The rate a stream's frames come at while they come; see
+/// [`VideoStream::cadence`].
+///
+/// `rate` is what [`pick_rate`] chose. Where the timestamp grid beside it
+/// is faster by more than the two percent `pick_rate` forgives - the
+/// stream is variable - and is itself a rate a picture is captured at, no
+/// faster than 240 fps, the grid is the cadence: a screen recording at 60
+/// whose still stretches bring the average to 23. A grid past that is a
+/// clock's denominator - 90000 for #394's recording - and says nothing
+/// about the frames, so the rate stands.
+fn pick_cadence(rate: Rational, grid: Option<Rational>) -> Rational {
+    grid.filter(|grid| FrameRate::checked(grid.numerator(), grid.denominator()).is_some())
+        .filter(|grid| grid.as_f64() <= 240.0 && grid.as_f64() > rate.as_f64() * 1.02)
+        .unwrap_or(rate)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A variable-rate stream's frames are indexed at the grid they come
+    /// on, not its average; a grid that is a clock's denominator, or a
+    /// constant stream, keeps the rate.
+    #[test]
+    fn a_variable_stream_is_paced_by_its_timestamp_grid() {
+        let sixty = Rational::from_int(60);
+        let average = Rational::new(4620, 179);
+        assert_eq!(pick_cadence(average, Some(sixty)), sixty);
+        assert_eq!(
+            pick_cadence(average, Some(Rational::from_int(90_000))),
+            average
+        );
+        let thirty = Rational::from_int(30);
+        assert_eq!(pick_cadence(thirty, Some(thirty)), thirty);
+        assert_eq!(pick_cadence(thirty, None), thirty);
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/vfr-still-screen.mp4");
+        let video = probe(path).expect("probes").video.expect("a picture");
+        assert!(video.frame_rate.fps().as_f64() < 10.0, "the average is low");
+        assert_eq!(video.cadence, FrameRate::THIRTY);
+    }
 
     #[test]
     fn falls_back_when_avg_frame_rate_is_zero() {
