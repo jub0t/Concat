@@ -1164,6 +1164,9 @@ export component Lanes inherits Rectangle {
     callback hover-ended();
     /// A press on an empty stretch of lane, before the band it may become.
     callback floor-pressed();
+    /// The quick split riding the playhead was clicked: the same cut the
+    /// tray's button and the key make, at the playhead where it already is.
+    callback split-requested();
 
     /// Where the pointer is, for the preview axis, and whether it is here
     /// at all. Every surface reports through `hover-at` - the floor, the
@@ -2034,6 +2037,42 @@ export component Lanes inherits Rectangle {
                 if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                     last-x = 0px;
                 }
+            }
+        }
+
+        // ── the quick split ─────────────────────────────────────────────
+        //
+        // A razor riding the playhead, a few pixels under the ruler. A
+        // rough cut scrubs with the mouse, and the hand that scrubs is not
+        // on ⌘B, so the cut hangs where the eye already is. It asks for the
+        // same split the tray's button makes - the selected clips when there
+        // are any, every unlocked clip under the playhead when there are
+        // none - so button, key and menu stay one verb. Under no finger: a
+        // phone holds the playhead at its middle, where the button would
+        // stand over the clips a tap is aimed at.
+        // https://github.com/jub0t/Concat/issues/468
+        if !root.finger && root.at(root.playhead) >= 0px
+            && root.at(root.playhead) <= root.width: Rectangle {
+            x: root.at(root.playhead) - self.width / 2;
+            y: root.ruler-height + 6px;
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            background: quick-split.has-hover ? Theme.field-hover : Theme.raised;
+            border-width: 1px;
+            border-color: quick-split.has-hover ? Theme.playhead : Theme.line-strong;
+
+            quick-split := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.split-requested(); }
+            }
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.split;
+                size: 12px;
+                tint: quick-split.has-hover ? Theme.playhead : Theme.fg-muted;
             }
         }
 

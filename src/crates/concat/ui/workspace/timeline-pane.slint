@@ -435,6 +435,7 @@ export component TimelinePane inherits Rectangle {
                 preview-axis: root.preview-axis;
 
                 scrubbed(seconds) => { root.scrubbed(seconds); }
+                split-requested => { root.split(); }
                 key-mark-moved(from, to) => { root.key-mark-moved(from, to); }
                 key-mark-opened => { root.key-mark-opened(); }
                 hovered(seconds) => { root.hovered(seconds); }
