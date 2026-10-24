@@ -840,6 +840,63 @@ pub fn still_at(path: &str, seconds: f64, width: u32) -> Result<Frame, String> {
     }
 }
 
+/// A bin card's picture of `path`: the keyframe at or before `seconds`,
+/// scaled to `width` across as it is decoded, with the height following
+/// the picture's shape.
+///
+/// One decoded frame, because a whole import's cards wait on these.
+/// [`still_at`]'s exact frame costs every picture from the keyframe before
+/// it, each at full size before the scale - up to sixty 4K decodes for one
+/// 88-pixel card. And in software: a lone keyframe is the CPU's best case
+/// and a device's worst, which would spend longer making its context than
+/// decoding the frame, and on a phone would hold one of MediaCodec's few
+/// seats while it did.
+///
+/// The exact frame is decoded instead, as it always was, when the
+/// keyframe will not serve: when it is black - a leader, the foot of a
+/// fade, no picture of the file - or cannot be read, or comes from after
+/// `seconds`. That last is FFmpeg's H.264 decoder told to skip all but
+/// keyframes, which on a stream whose keyframes are not all fresh starts
+/// (an encoder's scene cuts) hands them back out of order, a later one
+/// first.
+pub fn card_still(path: &str, seconds: f64, width: u32) -> Result<Frame, String> {
+    match keyframe_still(path, seconds, width) {
+        Ok((frame, landed)) if serves_as_card(&frame, landed, seconds) => Ok(frame),
+        _ => still_at(path, seconds, width),
+    }
+}
+
+/// Whether a keyframe decoded for a card's picture at `seconds`, shown at
+/// `landed`, will do: lit, and not from after `seconds` - by more than a
+/// stamp's rounding, or at all when it says nothing of where it is.
+fn serves_as_card(frame: &Frame, landed: Option<f64>, seconds: f64) -> bool {
+    !is_dead(frame) && landed.map_or(seconds <= 0.0, |at| at <= seconds + 1e-3)
+}
+
+/// The keyframe at or before `seconds`, for [`card_still`], and where the
+/// decoder says it is shown.
+fn keyframe_still(path: &str, seconds: f64, width: u32) -> Result<(Frame, Option<f64>), String> {
+    let info = concat_media::probe(path).map_err(describe)?;
+    let video = info.require_video().map_err(describe)?;
+    let height = ((f64::from(width) * f64::from(video.height) / f64::from(video.width)).round()
+        as u32)
+        .max(2)
+        & !1;
+    let mut options = DecodeOptions::default()
+        .scaled_to(width, height)
+        .nearest_keyframes()
+        .in_software();
+    if seconds > 0.0 {
+        options = options.starting_at(Rational::approximate(seconds).unwrap_or(Rational::ZERO));
+    }
+    let mut decoder = Decoder::open(path, &options).map_err(describe)?;
+    let frame = decoder
+        .next_frame()
+        .map_err(describe)?
+        .ok_or_else(|| format!("no keyframe to show for {path}"))?;
+    Ok((frame, decoder.position().map(|position| position.as_f64())))
+}
+
 /// Flattens an error and its causes into one line.
 ///
 /// `Display` on a `thiserror` enum prints only the outermost message, and the
@@ -978,6 +1035,76 @@ mod tests {
         let poster = still_at(&path.to_string_lossy(), 1.0, 32).expect("still");
         assert_eq!(poster.width(), 32);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A card's picture is a frame from at or before its instant - the
+    /// keyframe there, or the exact frame - at the asked width, and never
+    /// black where the exact frame is not. The encoder puts keyframes
+    /// where it likes, scene cuts included, which is the point: whatever
+    /// the keyframes-only decode hands back, a card is never a picture
+    /// from later in the file, nor a black leader in front of a picture.
+    #[test]
+    fn a_card_picture_is_never_later_than_its_instant_nor_black_before_a_picture() {
+        use concat_core::time::FrameRate;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        // A second of black, then red brightening a step a frame.
+        let path =
+            std::env::temp_dir().join(format!("concat-card-still-test-{}.mp4", std::process::id()));
+        let mut encoder =
+            Encoder::create(&path, 64, 32, FrameRate::THIRTY, &EncodeOptions::default())
+                .expect("encodes");
+        for index in 0..120u32 {
+            let mut frame = Frame::black(64, 32);
+            if index >= 30 {
+                frame.fill([(100 + index) as u8, 30, 30, 255]);
+            }
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        let file = path.to_string_lossy().into_owned();
+        let red = |frame: &Frame| frame.pixel(16, 8).expect("in bounds")[0];
+
+        for seconds in [0.0, 0.5, 1.2, 1.5, 2.0, 2.5, 3.0, 3.8] {
+            let card = card_still(&file, seconds, 32).expect("a picture");
+            let exact = still_at(&file, seconds, 32).expect("a frame");
+            assert_eq!((card.width(), card.height()), (32, 16));
+            assert!(
+                red(&card) <= red(&exact) + 4,
+                "at {seconds}s the card is red {}, from after the frame there (red {})",
+                red(&card),
+                red(&exact)
+            );
+            assert!(
+                is_dead(&exact) || !is_dead(&card),
+                "at {seconds}s the card is black in front of a picture"
+            );
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_keyframe_serves_as_a_card_when_lit_and_not_from_later() {
+        let mut lit = Frame::black(16, 8);
+        lit.fill([200, 40, 40, 255]);
+        assert!(serves_as_card(&lit, Some(1.5), 2.0));
+        assert!(
+            serves_as_card(&lit, Some(2.0005), 2.0),
+            "a stamp rounded long"
+        );
+        assert!(
+            !serves_as_card(&lit, Some(3.0), 2.0),
+            "from after its instant"
+        );
+        assert!(
+            !serves_as_card(&Frame::black(16, 8), Some(0.0), 2.0),
+            "black"
+        );
+        assert!(serves_as_card(&lit, None, 0.0), "a still says nothing");
+        assert!(
+            !serves_as_card(&lit, None, 2.0),
+            "footage that says nothing"
+        );
     }
 
     /// A black frame is dead, a dark scene is not, and a frame with a

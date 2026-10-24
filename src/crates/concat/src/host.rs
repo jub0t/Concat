@@ -764,8 +764,8 @@ fn poster_instant(kind: concat_project::model::MediaKind, duration: Option<f64>)
     duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0))
 }
 
-/// Decodes the card picture for one media item - one small frame - and
-/// files it in the project's artwork cache.
+/// Decodes the card picture for one media item - a single small frame,
+/// see `media::card_still` - and files it in the project's artwork cache.
 ///
 /// On its own and first, at the scheduler's poster priority, so a card
 /// shows its picture the moment that frame is decoded: not after the
@@ -782,7 +782,7 @@ pub fn media_poster(
     use concat_project::model::MediaKind;
     let thumbnail = match kind {
         MediaKind::Video | MediaKind::Image => {
-            media::still_at(&path, poster_instant(kind, duration), POSTER_WIDTH).ok()
+            media::card_still(&path, poster_instant(kind, duration), POSTER_WIDTH).ok()
         }
         MediaKind::Audio => None,
     };
