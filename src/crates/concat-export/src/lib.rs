@@ -606,11 +606,16 @@ pub(crate) fn transitions_at(shapes: &[TransitionShape], frame: i64) -> Vec<Tran
 /// for the compositor to combine over; every other kind needs nothing more
 /// than what it already baked into the clips themselves.
 ///
-/// Track indices are doubled first, so an incoming clip gets an odd lane of
-/// its own directly above the pair it crosses over - stacking against every
-/// other track is preserved, and nothing else occupies odd lanes. Cuts are
-/// collected before anything mutates, so resolving one transition cannot
-/// unhook the adjacency test of the next.
+/// Track indices are spread apart first, so an incoming clip gets a lane of
+/// its own directly above the clip it crosses from - stacking against every
+/// other track is preserved, and nothing else occupies the lanes between
+/// two tracks. They are doubled unless transitions follow one another, when
+/// each incoming clip of the chain sits a lane above the last and the
+/// tracks are spread as far as the longest chain climbs (see
+/// [`lane_spacing`]). Cuts are collected before anything mutates, so
+/// resolving one transition cannot unhook the adjacency test of the next,
+/// and resolved in time order, so each clip of a chain has been lifted
+/// before the clip after it is lifted above it.
 ///
 /// Every kind but the fades to a colour is built on one overlap, centred on
 /// the cut the way the timeline draws it: the incoming clip extends
@@ -639,14 +644,13 @@ fn resolve_transitions_at(
     rate: FrameRate,
     origin: f64,
 ) -> Vec<TransitionSpan> {
-    for clip in clips.iter_mut() {
-        clip.track *= 2;
-    }
     let mut spans: Vec<TransitionSpan> = Vec::new();
 
     let fps = rate.fps().as_f64();
     let frame = 1.0 / fps;
 
+    // Lanes are only compared for equality here, so the cuts read the same
+    // before the tracks are spread as after.
     let mut cuts: Vec<Cut> = Vec::new();
     for (incoming, clip) in clips.iter().enumerate() {
         let Some(transition) = &clip.transition else {
@@ -674,6 +678,15 @@ fn resolve_transitions_at(
             }),
             _ => {}
         }
+    }
+    cuts.sort_by(|one, other| {
+        clips[one.incoming]
+            .start
+            .total_cmp(&clips[other.incoming].start)
+    });
+    let spacing = lane_spacing(clips.len(), &cuts);
+    for clip in clips.iter_mut() {
+        clip.track *= spacing;
     }
 
     for cut in cuts {
@@ -839,6 +852,24 @@ struct Cut {
     kind: String,
     duration: f64,
     params: BTreeMap<String, f64>,
+}
+
+/// How many lanes each track is spread across before its cuts are
+/// resolved: its own, and one for each cut of the longest chain on any
+/// track. A transition lifts its incoming clip a lane above the outgoing
+/// one, and in a chain the outgoing clip was itself lifted for the cut
+/// before it, so a chain of n cuts climbs n lanes. With fewer lanes than
+/// that between two tracks, the chain climbs onto the next track's own
+/// lane, and of two pictures on one lane only one is drawn
+/// (`Timeline::clip_on_track_at`). Two, as it always was, where no
+/// transition follows another. `cuts` are in time order, so a clip's
+/// outgoing clip has its depth before the clip itself is reached.
+fn lane_spacing(clips: usize, cuts: &[Cut]) -> usize {
+    let mut depth = vec![0_usize; clips];
+    for cut in cuts {
+        depth[cut.incoming] = depth[cut.outgoing] + 1;
+    }
+    depth.into_iter().max().unwrap_or(0).max(1) + 1
 }
 
 /// What [`overlap`] built a transition on.
@@ -2070,7 +2101,7 @@ fn combine_transition(
         treatments,
         output,
     };
-    // A layer's track is never the incoming clip's: lanes are doubled when
+    // A layer's track is never the incoming clip's: lanes are spread when
     // the cuts are resolved, so each side of the incoming lane is clear.
     let (below, over): (Vec<PlannedTreatment>, Vec<PlannedTreatment>) = treatments
         .iter()
@@ -2809,6 +2840,132 @@ mod tests {
         }
         let _ = std::fs::remove_file(&red);
         let _ = std::fs::remove_file(&blue);
+    }
+
+    /// The chain as it was met in an edit: three clips with a transition at
+    /// each cut and a logo on the track above. The third clip shared the
+    /// logo's lane, so the monitor and the export drew one or the other for
+    /// the whole clip, whichever was placed last, and the clip was black
+    /// under the logo. Both draw now, whatever order the clips come in.
+    /// Skips without FFmpeg or a GPU.
+    #[test]
+    fn a_logo_over_a_chain_of_transitions_and_the_clips_beneath_it_all_draw() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let (width, height) = (64_u32, 64_u32);
+        let solid = |name: &str, colour: [u8; 3]| -> Option<String> {
+            let path = std::env::temp_dir()
+                .join(format!("concat-chain-{name}-{}.mp4", std::process::id()));
+            let mut encoder = Encoder::create(
+                &path,
+                width,
+                height,
+                FrameRate::THIRTY,
+                &EncodeOptions {
+                    crf: 12,
+                    ..EncodeOptions::default()
+                },
+            )
+            .ok()?;
+            let mut frame = Frame::black(width, height);
+            frame.fill([colour[0], colour[1], colour[2], 255]);
+            for _ in 0..90 {
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+            Some(path.to_string_lossy().into_owned())
+        };
+        let colours = [
+            ("red", [220, 30, 30]),
+            ("green", [30, 200, 30]),
+            ("blue", [30, 30, 220]),
+            ("white", [235, 235, 235]),
+        ];
+        let paths: Vec<String> = colours
+            .iter()
+            .filter_map(|(name, colour)| solid(name, *colour))
+            .collect();
+        let cleanup = || {
+            for path in &paths {
+                let _ = std::fs::remove_file(path);
+            }
+        };
+        if paths.len() < colours.len() || WgpuCompositor::new().is_none() {
+            cleanup();
+            return; // no ffmpeg or no renderer here
+        }
+
+        let footage = |n: usize, track: usize, start: f64, source_start: f64| {
+            let mut one = clip("video", track, start, 2.0, source_start);
+            one.path = paths[n].clone();
+            one.media_width = Some(width);
+            one.media_height = Some(height);
+            one.media_duration = Some(3.0);
+            one
+        };
+        let mut chain = vec![
+            footage(0, 0, 0.0, 0.5),
+            footage(1, 0, 2.0, 0.5),
+            footage(2, 0, 4.0, 0.5),
+        ];
+        chain[1].transition = spec("concat.dissolve", 0.5);
+        chain[2].transition = spec("concat.whip-pan", 0.5);
+        // A logo a quarter of the frame across, in the bottom right corner,
+        // over all three clips.
+        let mut logo = footage(3, 1, 0.0, 0.0);
+        logo.duration = 6.0;
+        logo.scale = 0.25;
+        logo.offset_x = 0.375;
+        logo.offset_y = 0.375;
+
+        let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
+        let pixel = |clips: &[ExportClip], time: f64, x: u32, y: u32| -> [u8; 3] {
+            let request = PreviewFrameRequest {
+                time,
+                width,
+                height,
+                rate_num: 30,
+                rate_den: 1,
+                clips: clips.to_vec(),
+                color_space: concat_project::model::ColorSpace::Sdr,
+            };
+            let bytes = preview_frame(&pool, &request).expect("previews");
+            let i = ((y * width + x) * 4) as usize;
+            [bytes[i], bytes[i + 1], bytes[i + 2]]
+        };
+        let near = |got: [u8; 3], want: [u8; 3]| {
+            got.iter()
+                .zip(want)
+                .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40)
+        };
+        // On one shared lane, the logo placed after the chain hid the third
+        // clip and the logo placed before it was hidden by the third clip.
+        for logo_first in [false, true] {
+            let mut clips = chain.clone();
+            if logo_first {
+                clips.insert(0, logo.clone());
+            } else {
+                clips.push(logo.clone());
+            }
+            for (time, want) in [
+                (1.0, [220, 30, 30]),
+                (3.0, [30, 200, 30]),
+                (5.0, [30, 30, 220]),
+            ] {
+                let centre = pixel(&clips, time, width / 2, height / 2);
+                assert!(
+                    near(centre, want),
+                    "logo first: {logo_first}; at {time}s the clip shows {centre:?}, not {want:?}"
+                );
+                let corner = pixel(&clips, time, width - 8, height - 8);
+                assert!(
+                    near(corner, [235, 235, 235]),
+                    "logo first: {logo_first}; at {time}s the logo shows {corner:?}"
+                );
+            }
+        }
+        cleanup();
     }
 
     /// The monitor draws a crop and a flip as the export does: the crop in
@@ -3876,6 +4033,139 @@ mod tests {
         resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[0].track, 0);
         assert_eq!(clips[1].track, 6);
+    }
+
+    /// No lane holds two pictures at one instant. Where two would, the
+    /// engine draws only the one placed last (`clip_on_track_at`) and the
+    /// other vanishes.
+    fn assert_one_picture_per_lane(clips: &[ExportClip], case: &str) {
+        for (n, one) in clips.iter().enumerate() {
+            for other in &clips[n + 1..] {
+                if one.track != other.track || !one.kind.is_visual() || !other.kind.is_visual() {
+                    continue;
+                }
+                let shared = (one.start + one.duration).min(other.start + other.duration)
+                    - one.start.max(other.start);
+                assert!(
+                    shared < 1e-9,
+                    "{case}: lane {} holds two pictures at once for {shared} s",
+                    one.track
+                );
+            }
+        }
+    }
+
+    /// Two transitions in a row with a logo on the track above. The clip
+    /// after the second cut was lifted one lane above a clip already lifted
+    /// for the first, which is the logo's own lane, and one of the two
+    /// vanished for the whole clip. Every clip of a chain now sits above the
+    /// one it crosses from and beneath the track above.
+    #[test]
+    fn a_chain_of_transitions_stays_beneath_the_track_above() {
+        for (first, second) in [
+            ("concat.dissolve", "concat.whip-pan"),
+            ("cross-fade", "cross-fade"),
+            ("concat.zoom-blur-transition", "push"),
+            ("wipe-left", "concat.dissolve"),
+        ] {
+            let case = format!("{first} then {second}");
+            let mut clips = vec![
+                clip("video", 0, 0.0, 4.0, 0.0),
+                clip("video", 0, 4.0, 4.0, 2.0),
+                clip("video", 0, 8.0, 4.0, 2.0),
+                clip("image", 1, 0.0, 12.0, 0.0),
+            ];
+            for footage in &mut clips[..3] {
+                footage.media_duration = Some(10.0);
+            }
+            clips[1].transition = spec(first, 1.0);
+            clips[2].transition = spec(second, 1.0);
+            let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
+
+            let [a, b, c, logo] = [0, 1, 2, 3].map(|n| clips[n].track);
+            assert!(
+                a < b && b < c,
+                "{case}: each clip sits above the one it crosses from: {a} {b} {c}"
+            );
+            assert!(
+                c < logo,
+                "{case}: the chain stays beneath the logo: {c} {logo}"
+            );
+            assert_one_picture_per_lane(&clips, &case);
+            for span in &spans {
+                assert!(span.to_track < logo, "{case}: a span on the logo's lane");
+            }
+        }
+    }
+
+    /// The cuts of a chain are resolved in time order, whatever order the
+    /// clips are listed in. In list order, a third clip listed before the
+    /// second was lifted before the second was, onto the lane the second
+    /// then took.
+    #[test]
+    fn a_chain_resolves_the_same_whatever_order_its_clips_are_listed_in() {
+        let chain = || {
+            let mut clips = vec![
+                clip("video", 0, 0.0, 4.0, 0.0),
+                clip("video", 0, 4.0, 4.0, 2.0),
+                clip("video", 0, 8.0, 4.0, 2.0),
+            ];
+            for footage in &mut clips {
+                footage.media_duration = Some(10.0);
+            }
+            clips[1].transition = spec("concat.dissolve", 1.0);
+            clips[2].transition = spec("concat.dissolve", 1.0);
+            clips
+        };
+        let mut listed = chain();
+        resolve_transitions(&mut listed, FrameRate::THIRTY);
+        let mut backwards = chain();
+        backwards.reverse();
+        resolve_transitions(&mut backwards, FrameRate::THIRTY);
+        assert_one_picture_per_lane(&backwards, "listed backwards");
+        backwards.reverse();
+        for (one, other) in listed.iter().zip(&backwards) {
+            assert_eq!(
+                (one.start, one.duration, one.track),
+                (other.start, other.duration, other.track)
+            );
+        }
+    }
+
+    /// A long chain climbs a lane for every cut, and the tracks above are
+    /// spread far enough apart to make room for it, in the order they were.
+    #[test]
+    fn the_lanes_spread_as_far_as_the_longest_chain_needs() {
+        let mut clips: Vec<ExportClip> = (0..6)
+            .map(|n| {
+                let mut footage = clip("video", 0, 4.0 * n as f64, 4.0, 2.0);
+                footage.media_duration = Some(10.0);
+                if n > 0 {
+                    footage.transition = spec("concat.dissolve", 1.0);
+                }
+                footage
+            })
+            .collect();
+        clips.push(clip("image", 1, 0.0, 24.0, 0.0));
+        clips.push(clip("image", 2, 0.0, 24.0, 0.0));
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+
+        let chain: Vec<usize> = clips[..6].iter().map(|footage| footage.track).collect();
+        assert!(chain.windows(2).all(|pair| pair[0] < pair[1]), "{chain:?}");
+        let (logo, title) = (clips[6].track, clips[7].track);
+        assert!(chain[5] < logo && logo < title, "{chain:?} {logo} {title}");
+        assert_one_picture_per_lane(&clips, "six clips, five cuts");
+    }
+
+    /// Transitions that never follow one another keep the lanes every
+    /// project has had: doubled, each incoming clip on the odd lane above.
+    #[test]
+    fn single_transitions_keep_the_doubled_lanes() {
+        let mut clips = cut_with_handles();
+        clips[1].transition = spec("concat.dissolve", 1.0);
+        clips.push(clip("image", 1, 0.0, 8.0, 0.0));
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+        assert_eq!([clips[0].track, clips[1].track, clips[2].track], [0, 1, 2]);
     }
 
     #[test]
