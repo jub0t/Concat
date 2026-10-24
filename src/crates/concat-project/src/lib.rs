@@ -41,6 +41,47 @@ pub use model::Project;
 mod tests {
     use serde_json::json;
 
+    #[test]
+    fn typography_preserves_source_and_round_trips() {
+        use crate::model::{TextCase, TextStyle};
+        let original = "«È UNA PROVA!» POI, UN’ALTRA. già qui? sì!";
+        let mut style = TextStyle {
+            content: original.into(),
+            text_case: TextCase::Sentence,
+            underline: true,
+            strikethrough: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            style.display_content(),
+            "«È una prova!» Poi, un’altra. Già qui? Sì!"
+        );
+        assert_eq!(style.content, original);
+        let saved = serde_json::to_value(&style).unwrap();
+        let restored: TextStyle = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored, style);
+        style.text_case = TextCase::Lower;
+        assert_eq!(style.display_content(), original.to_lowercase());
+        style.text_case = TextCase::Upper;
+        assert_eq!(style.display_content(), original.to_uppercase());
+        style.text_case = TextCase::Original;
+        assert_eq!(style.display_content(), original);
+    }
+
+    #[test]
+    fn old_styles_keep_their_original_appearance() {
+        use crate::model::{TextCase, TextStyle};
+        let style: TextStyle = serde_json::from_value(json!({
+            "content": "Keep MY Case", "italic": true, "fontWeight": 500
+        }))
+        .unwrap();
+        assert_eq!(style.text_case, TextCase::Original);
+        assert_eq!(style.display_content(), "Keep MY Case");
+        assert!(!style.underline && !style.strikethrough);
+        assert!(style.italic);
+        assert_eq!(style.font_weight, 500.0);
+    }
+
     use crate::commands::{
         ClipMove, ClipPatch, Command, NewMedia, PlayheadSide, TrackFlag, TrimEdge,
     };
