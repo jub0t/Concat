@@ -658,8 +658,6 @@
   "start.removeFromList": "Uit lijst verwijderen",
   "start.reportProblem": "Een probleem melden",
   "start.reportProblemNote": "Wat je moet sturen zodat het opgelost kan worden",
-  "start.safeMode": "Concat sloot vorige keer tijdens het opstarten, dus het tekent nu in software: trager, maar het opent. Zet Tekenen op de GPU aan in Instellingen > Algemeen om de videokaart opnieuw te proberen.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Projecten zoeken",
   "start.settingsApplyWholeEdit": "Deze instellingen gelden voor de hele montage en kunnen later niet worden gewijzigd.",
   "start.shape": "Beeldverhouding",

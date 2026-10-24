@@ -658,8 +658,6 @@
   "start.removeFromList": "তালিকা থেকে সরান",
   "start.reportProblem": "সমস্যা জানান",
   "start.reportProblemNote": "ঠিক করার জন্য কী পাঠাবেন",
-  "start.safeMode": "গতবার শুরু হওয়ার সময় Concat বন্ধ হয়ে গিয়েছিল, তাই এখন সফটওয়্যারে আঁকছে: ধীর, কিন্তু খোলে। গ্রাফিক্স কার্ড আবার চেষ্টা করতে সেটিংস > সাধারণ-এ GPU-তে আঁকা চালু করুন।",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "প্রকল্প খুঁজুন",
   "start.settingsApplyWholeEdit": "এই সেটিংস পুরো সম্পাদনায় প্রযোজ্য এবং পরে বদলানো যাবে না।",
   "start.shape": "আকৃতি",

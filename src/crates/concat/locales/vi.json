@@ -658,8 +658,6 @@
   "start.removeFromList": "Xóa khỏi danh sách",
   "start.reportProblem": "Báo cáo sự cố",
   "start.reportProblemNote": "Cần gửi gì để có thể sửa",
-  "start.safeMode": "Lần trước Concat bị đóng khi đang khởi động, nên giờ đang vẽ bằng phần mềm: chậm hơn, nhưng vẫn mở được. Để thử lại card đồ họa, hãy bật Vẽ bằng GPU trong Cài đặt > Chung.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Tìm dự án",
   "start.settingsApplyWholeEdit": "Các cài đặt này áp dụng cho toàn bộ bản dựng và không thể thay đổi sau này.",
   "start.shape": "Tỷ lệ khung hình",

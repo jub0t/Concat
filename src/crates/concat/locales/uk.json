@@ -658,8 +658,6 @@
   "start.removeFromList": "Прибрати зі списку",
   "start.reportProblem": "Повідомити про проблему",
   "start.reportProblemNote": "Що надіслати, щоб це виправили",
-  "start.safeMode": "Минулого разу Concat закрився під час запуску, тож зараз малює програмно: повільніше, зате відкривається. Щоб знову спробувати відеокарту, увімкніть «Малювати на GPU» в Налаштування > Загальні.",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Пошук проєктів",
   "start.settingsApplyWholeEdit": "Ці параметри застосовуються до всього монтажу, і змінити їх пізніше не можна.",
   "start.shape": "Формат",

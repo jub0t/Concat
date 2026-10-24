@@ -658,8 +658,6 @@
   "start.removeFromList": "從清單中移除",
   "start.reportProblem": "回報問題",
   "start.reportProblemNote": "需要傳送什麼才能修正",
-  "start.safeMode": "Concat 上次在啟動時關閉，因此現在改用軟體繪製：較慢，但能開啟。若要再次嘗試使用顯示卡，請在「設定 > 一般」中開啟「使用 GPU 繪製」。",
-  "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "搜尋專案",
   "start.settingsApplyWholeEdit": "這些設定作用於整個剪輯，之後無法更改。",
   "start.shape": "形狀",
