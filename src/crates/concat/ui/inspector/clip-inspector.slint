@@ -525,6 +525,11 @@ export component PresetStack inherits VerticalLayout {
             }
         }
 
+        // A breath between the section's title and its search.
+        if root.library: Rectangle {
+            height: 6px;
+        }
+
         if root.library: Row {
             search := SearchField {
                 text: root.query;
