@@ -359,7 +359,7 @@ fn gcd(a: i64, b: i64) -> i64 {
 /// the model a library renders arrives already narrowed, which is what lets
 /// it be laid out as a grid - a tile's place is its index, and an index only
 /// means a place when every entry in the model is one that shows.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct LibraryView {
     /// The search box's text.
     pub query: String,
@@ -369,6 +369,19 @@ pub struct LibraryView {
     pub favourites: bool,
     /// Active category filter (e.g. "All", "Featured", "Retro & Film", etc.).
     pub category: String,
+}
+
+impl Default for LibraryView {
+    /// Every shelf at once: a library opens on All, not on whichever shelf
+    /// happens to be filed first.
+    fn default() -> Self {
+        LibraryView {
+            query: String::new(),
+            group: -1,
+            favourites: false,
+            category: String::new(),
+        }
+    }
 }
 
 /// Which library a shelf index names. The numbers are the panel's own -

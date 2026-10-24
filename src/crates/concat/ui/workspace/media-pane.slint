@@ -2337,6 +2337,13 @@ export component MediaPane inherits Rectangle {
                         }
                         if root.transitions-open: VerticalLayout {
                             spacing: 1px;
+                            // Every shelf at once, first and the default.
+                            CategoryRow {
+                                height: 24px;
+                                label: I18n.t("common.all");
+                                current: Library.view(3).group == -1;
+                                clicked => { Library.group-changed(3, -1); }
+                            }
                             for label[index] in root.transition-groups: CategoryRow {
                                 height: 24px;
                                 label: label;
@@ -2358,6 +2365,16 @@ export component MediaPane inherits Rectangle {
                         }
                         if root.effects-open: VerticalLayout {
                             spacing: 1px;
+                            // Every shelf at once, first and the default.
+                            CategoryRow {
+                                height: 24px;
+                                label: I18n.t("common.all");
+                                current: !root.audio-shelf && Library.view(1).group == -1;
+                                clicked => { 
+                                    root.audio-shelf = false;
+                                    Library.group-changed(1, -1);
+                                 }
+                            }
                             for label[index] in root.effect-groups: CategoryRow {
                                 height: 24px;
                                 label: label;
@@ -2376,6 +2393,16 @@ export component MediaPane inherits Rectangle {
                         }
                         if root.audio-open: VerticalLayout {
                             spacing: 1px;
+                            // Every shelf at once, first and the default.
+                            CategoryRow {
+                                height: 24px;
+                                label: I18n.t("common.all");
+                                current: root.audio-shelf && Library.view(2).group == -1;
+                                clicked => { 
+                                    root.audio-shelf = true;
+                                    Library.group-changed(2, -1);
+                                 }
+                            }
                             for label[index] in root.audio-groups: CategoryRow {
                                 height: 24px;
                                 label: label;
@@ -2401,6 +2428,13 @@ export component MediaPane inherits Rectangle {
                         }
                         if root.filters-open: VerticalLayout {
                             spacing: 1px;
+                            // Every shelf at once, first and the default.
+                            CategoryRow {
+                                height: 24px;
+                                label: I18n.t("common.all");
+                                current: Library.view(0).group == -1;
+                                clicked => { Library.group-changed(0, -1); }
+                            }
                             for label[index] in root.filter-groups: CategoryRow {
                                 height: 24px;
                                 label: label;

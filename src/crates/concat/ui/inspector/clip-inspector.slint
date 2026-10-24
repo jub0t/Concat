@@ -564,7 +564,39 @@ export component PresetStack inherits VerticalLayout {
 
             // The shelves as pills on the panel, the Library pane's way,
             // rather than a dark segmented track: picking one also leaves
-            // the starred set, since a shelf is a different question.
+            // the starred set, since a shelf is a different question. All
+            // leads them, and is where a library opens.
+            for label[i] in [I18n.t("common.all")]: Rectangle {
+                property <bool> picked: !root.favourites-only && root.group == -1;
+                border-radius: 13px;
+                background: self.picked ? Theme.accent
+                    : all-touch.has-hover ? Theme.field-hover : Theme.field;
+                min-width: all-text.preferred-width + 20px;
+                horizontal-stretch: 0;
+
+                animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                all-text := Text {
+                    text: label;
+                    color: parent.picked ? Theme.on-accent
+                        : all-touch.has-hover ? Theme.fg : Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    font-weight: parent.picked ? Theme.weight-title : 400;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+
+                all-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        if (root.favourites-only) {
+                            Library.favourites-changed(root.shelf, false);
+                        }
+                        Library.group-changed(root.shelf, -1);
+                    }
+                }
+            }
+
             for label[i] in root.group-labels: Rectangle {
                 property <bool> picked: !root.favourites-only && root.group == i;
                 border-radius: 13px;
