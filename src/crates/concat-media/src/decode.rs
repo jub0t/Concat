@@ -1174,10 +1174,13 @@ impl Decoder {
             // The first picture after a seek is the keyframe it landed on.
             // One later than the target - by more than a tick of the
             // stream's clock, which a container that rounds to milliseconds
-            // can put a frame past its true instant - means the picture on
-            // screen at the target was skipped.
+            // can put a frame past its true instant, and never more than a
+            // millisecond, which a clock as coarse as the frames would be -
+            // means the picture on screen at the target was skipped.
             if let Some(landing) = self.landing.take() {
-                let slack = ffi::seconds(1, self.time_base).unwrap_or(Rational::ZERO);
+                let slack = ffi::seconds(1, self.time_base)
+                    .unwrap_or(Rational::ZERO)
+                    .min(Rational::new(1, 1000));
                 if pts.is_some_and(|pts| pts > landing.target + slack) {
                     self.retreat(landing)?;
                     continue;
@@ -1359,12 +1362,21 @@ impl Decoder {
 
         // Advance until `pending` is the first frame after the target, so
         // `current` is the one on screen at it. A frame with no timestamp
-        // counts as the next one in line.
+        // counts as the next one in line. A frame within a tick of the
+        // stream's clock past the target is the one meant for it: Matroska,
+        // WebM, FLV and ASF stamp in whole milliseconds, so the 30 fps
+        // frame due at 1.4667 s says 1.467, and taken at its word every
+        // exported frame from MKV, WebM, FLV or WMV footage was the one
+        // before the picture the preview showed (#457). Never more than a
+        // quarter of an output frame, so a clock as coarse as the frames
+        // themselves does not pull the next one in early.
+        let tick = ffi::seconds(1, self.time_base).unwrap_or(Rational::ZERO);
+        let due = target + tick.min(rate.frame_duration() / Rational::from_int(4));
         while !self.source_done
             && self
                 .pending
                 .as_ref()
-                .is_none_or(|next| next.pts.is_none_or(|pts| pts <= target))
+                .is_none_or(|next| next.pts.is_none_or(|pts| pts <= due))
         {
             if let Some(next) = self.pending.take() {
                 self.current = Some(next);
@@ -1385,9 +1397,11 @@ impl Decoder {
         };
         if self.source_done && self.pending.is_none() && !self.options.looping {
             // Past the last frame. It has already shown once at its own
-            // instant; the file is over.
+            // instant; the file is over. Its stamp is read with the same
+            // tick of slack as above: a last frame stamped late would
+            // otherwise be held for one output frame more than it lasts.
             if let Some(pts) = current.pts
-                && pts + rate.frame_duration() <= target
+                && pts + rate.frame_duration() <= due
             {
                 return Ok(None);
             }
@@ -2024,6 +2038,32 @@ mod tests {
             }
         }
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Matroska stamps frames in whole milliseconds, so most 30 fps frames
+    /// say a fraction of a millisecond past their true instant - 67 ms for
+    /// the one due at 66.7. The paced reader the export draws from still
+    /// gives each output frame its own source frame, not the one before
+    /// (#457).
+    #[test]
+    fn a_paced_read_of_millisecond_stamps_keeps_every_frame_in_its_place() {
+        let path = grey_steps_in("milliseconds", "mkv");
+        let options = DecodeOptions::default().scaled_to(64, 64).in_software();
+        let walked = drain(&mut Decoder::open(&path, &options).expect("opens"));
+        let paced = drain(
+            &mut Decoder::open(&path, &options.clone().at_rate(FrameRate::THIRTY))
+                .expect("opens paced"),
+        );
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(walked.len(), 30, "every frame");
+        assert_eq!(paced.len(), 30, "a frame for every output instant");
+        for (index, ((_, want), (_, got))) in walked.iter().zip(&paced).enumerate() {
+            let difference = worst_difference(want, got);
+            assert!(
+                difference <= 2,
+                "output frame {index} is {difference} levels off source frame {index}"
+            );
+        }
     }
 
     /// A thirty-frame H.264 file whose every frame is its own flat grey,
