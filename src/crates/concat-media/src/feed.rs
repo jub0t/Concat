@@ -67,23 +67,40 @@ pub(crate) enum Stall<E> {
 /// output on each round, so this is seconds, not a busy spin.
 const STUCK_AFTER: u32 = 1000;
 
+/// Damaged packets or pictures in a row the codec may refuse before the
+/// stream counts as unreadable rather than damaged in places.
+const DAMAGED_AFTER: u32 = 64;
+
 /// The next frame out of `codec`, or `None` once it has given its last.
 ///
 /// Feeds it from `held` first, then from `read`, and when the codec says
 /// `EAGAIN` to a packet, keeps that packet in `held` and takes frames out
 /// before trying it again. `read` gives [`Input::End`] at the end of the
 /// file, as often as it is asked.
+///
+/// A packet the codec calls damaged (`AVERROR_INVALIDDATA`) is passed over,
+/// as every player passes over it, and so is a picture it could not
+/// rebuild: the frames around it still decode. One used to end the read,
+/// and with it the export; and the first audio packet after a seek into an
+/// MPEG-PS file is always one, cut in half by the seek, so every export of
+/// a .mpg clip with an in-point failed (#457). Only [`DAMAGED_AFTER`] in a
+/// row is a stall, a stream with nothing readable left in it.
 pub(crate) fn next_frame<C: Codec, E>(
     codec: &mut C,
     held: &mut Held<C::Packet>,
     mut read: impl FnMut() -> Result<Input<C::Packet>, E>,
 ) -> Result<Option<C::Frame>, Stall<E>> {
     let mut refused = 0;
+    let mut damaged = 0;
     loop {
         match codec.receive() {
             Ok(frame) => return Ok(Some(frame)),
             Err(ffmpeg::Error::Eof) => return Ok(None),
             Err(error) if ffi::is_again(&error) => {}
+            Err(ffmpeg::Error::InvalidData) if damaged + 1 < DAMAGED_AFTER => {
+                damaged += 1;
+                continue;
+            }
             Err(error) => return Err(Stall::Receive(error)),
         }
         let input = match held.take() {
@@ -91,9 +108,13 @@ pub(crate) fn next_frame<C: Codec, E>(
             None => read().map_err(Stall::Read)?,
         };
         match codec.send(&input) {
-            Ok(()) => refused = 0,
+            Ok(()) => {
+                refused = 0;
+                damaged = 0;
+            }
             // Told twice the stream is over: it heard the first time.
             Err(ffmpeg::Error::Eof) if matches!(input, Input::End) => {}
+            Err(ffmpeg::Error::InvalidData) if damaged + 1 < DAMAGED_AFTER => damaged += 1,
             Err(error) if ffi::is_again(&error) => {
                 *held = Some(input);
                 refused += 1;
@@ -348,6 +369,51 @@ mod tests {
         // The one packet it kept refusing was read once and is still held.
         assert_eq!(reads, 1);
         assert!(matches!(held, Some(Input::Packet(7))));
+    }
+
+    /// A damaged packet is passed over and the stream read on, as a
+    /// player reads on; a stream of nothing but damage is still a stall.
+    #[test]
+    fn a_damaged_packet_is_passed_over() {
+        struct Scarred {
+            sent: Vec<u32>,
+        }
+        impl Codec for Scarred {
+            type Packet = u32;
+            type Frame = u32;
+            fn send(&mut self, input: &Input<u32>) -> Result<(), ffmpeg::Error> {
+                match input {
+                    Input::Packet(2 | 3) => Err(ffmpeg::Error::InvalidData),
+                    Input::Packet(packet) => {
+                        self.sent.push(*packet);
+                        Ok(())
+                    }
+                    Input::End => Ok(()),
+                }
+            }
+            fn receive(&mut self) -> Result<u32, ffmpeg::Error> {
+                match self.sent.pop() {
+                    Some(5) => Err(ffmpeg::Error::InvalidData),
+                    Some(frame) => Ok(frame),
+                    None => Err(again()),
+                }
+            }
+        }
+        let mut codec = Scarred { sent: Vec::new() };
+        let mut held = None;
+        let mut next = 0;
+        let mut frames = Vec::new();
+        while next < 7 {
+            let read = || -> Result<Input<u32>, ()> {
+                next += 1;
+                Ok(Input::Packet(next))
+            };
+            match next_frame(&mut codec, &mut held, read) {
+                Ok(Some(frame)) => frames.push(frame),
+                other => panic!("stopped at packet {next}: {other:?}"),
+            }
+        }
+        assert_eq!(frames, [1, 4, 6, 7]);
     }
 
     #[test]
