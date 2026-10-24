@@ -15,7 +15,7 @@ serde_json.workspace = true
 # Model downloads. Blocking on purpose: downloads run on their own thread,
 # and an async HTTP stack would be a second runtime's worth of dependencies
 # for one GET.
-ureq = "2"
+ureq = "3"
 
 # Kokoro models arrive as tar.bz2 archives, hence tar + bzip2 (pure-Rust
 # decoder) for unpacking them.
