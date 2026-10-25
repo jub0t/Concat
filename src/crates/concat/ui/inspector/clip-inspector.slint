@@ -2694,11 +2694,47 @@ export component AdjustPanel inherits VerticalLayout {
             }
         }
 
-        // The wheels and curves first, the knobs after: the grading tools
-        // are what a colourist reaches for, and they sit above the fold.
-        // See PresetStack for why each knob's row re-seeds it; a subhead
-        // opens each run of rows that share a group.
+        // The knobs first, the wheels and curves after, at the very
+        // bottom: the knobs are what most edits want, and the two big
+        // tools below them would push every knob out of sight. See
+        // PresetStack for why each knob's row re-seeds it; a subhead opens
+        // each run of rows that share a group.
         SectionBody {
+            for p[i] in root.params: VerticalLayout {
+                spacing: Theme.gap;
+
+                if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
+                    title: p.group;
+                }
+
+                Rectangle {
+                    property <AppliedParamData> data: p;
+                    height: knob.preferred-height;
+                    changed data => { knob.value = self.data.value; }
+
+                    knob := Param {
+                        unit: p.unit;
+                        label: p.label;
+                        value: p.value;
+                        minimum: p.min;
+                        maximum: p.max;
+                        step: p.step;
+                        default-value: p.default-value;
+                        fmt: p.fmt;
+                        keyable: p.keyable;
+                        key-name: p.key;
+                        key-state: {
+                            field: ClipField.scale,
+                            keyed: p.keyed,
+                            here: p.here,
+                            prev: p.prev,
+                            next: p.next,
+                        };
+                        changed(v) => { root.set(p.key, v); root.commit(); }
+                    }
+                }
+            }
+
             // The wheels, three in a row: a puck is two knobs of the panel,
             // `<key>.x` and `<key>.y`, and the master a third.
             if root.wheels.length > 0: VerticalLayout {
@@ -2746,41 +2782,6 @@ export component AdjustPanel inherits VerticalLayout {
                     remove(key, point) => {
                         root.curve-remove(key, point);
                         root.commit();
-                    }
-                }
-            }
-
-            for p[i] in root.params: VerticalLayout {
-                spacing: Theme.gap;
-
-                if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
-                    title: p.group;
-                }
-
-                Rectangle {
-                    property <AppliedParamData> data: p;
-                    height: knob.preferred-height;
-                    changed data => { knob.value = self.data.value; }
-
-                    knob := Param {
-                        unit: p.unit;
-                        label: p.label;
-                        value: p.value;
-                        minimum: p.min;
-                        maximum: p.max;
-                        step: p.step;
-                        default-value: p.default-value;
-                        fmt: p.fmt;
-                        keyable: p.keyable;
-                        key-name: p.key;
-                        key-state: {
-                            field: ClipField.scale,
-                            keyed: p.keyed,
-                            here: p.here,
-                            prev: p.prev,
-                            next: p.next,
-                        };
-                        changed(v) => { root.set(p.key, v); root.commit(); }
                     }
                 }
             }
