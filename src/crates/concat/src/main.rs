@@ -66,6 +66,9 @@ fn main() -> Result<(), slint::PlatformError> {
         Launch::Normal(project) => {
             concat::run_with_project(project).inspect_err(concat::report_startup_failure)
         }
+        Launch::Open(files) => {
+            concat::run_with_files(files).inspect_err(concat::report_startup_failure)
+        }
         Launch::Software => {
             concat::draw_in_software();
             concat::run_with_project(None).inspect_err(concat::report_startup_failure)

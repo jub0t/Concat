@@ -155,7 +155,19 @@ pub fn run() -> Result<(), slint::PlatformError> {
 /// unreadable project leaves the launch screen open with the usual error notice.
 /// Each invocation creates its own window; this does not control another instance.
 pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint::PlatformError> {
-    start(project, false)
+    start(project, Vec::new(), false)
+}
+
+/// Builds the window and hands it files before its first frame: a project
+/// folder among them opens, and media goes into a new project in the shape
+/// of its picture, laid on the timeline, with no sheet in between.
+///
+/// This is what a file manager's Open with runs. Relative paths are resolved
+/// against the launcher's working directory; a file that is not there is
+/// reported with the drop's own notice. Each invocation creates its own
+/// window; this does not control another instance.
+pub fn run_with_files(files: Vec<std::path::PathBuf>) -> Result<(), slint::PlatformError> {
+    start(None, files, false)
 }
 
 /// Starts the way [`run`] does, as far as the window's first publish, and
@@ -169,7 +181,7 @@ pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint
 /// No project is opened, so the recents list is not touched; the
 /// preferences are read, and a log file written, as on any launch.
 pub fn smoke() -> Result<(), slint::PlatformError> {
-    start(None, true)
+    start(None, Vec::new(), true)
 }
 
 /// Runs one way out of the open project, in the order that keeps the work
@@ -193,8 +205,12 @@ pub(crate) fn close_window(
     result
 }
 
-/// [`run_with_project`], or [`smoke`] when `smoke` is set.
-fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
+/// [`run_with_project`] or [`run_with_files`], or [`smoke`] when `smoke` is set.
+fn start(
+    project: Option<std::path::PathBuf>,
+    files: Vec<std::path::PathBuf>,
+    smoke: bool,
+) -> Result<(), slint::PlatformError> {
     // What Import and a finished export reach on an iPhone. Android's own
     // crate installs its; iOS runs this crate's binary, so it is here.
     // https://github.com/jub0t/Concat/issues/332
@@ -2463,6 +2479,19 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             log::error!("could not open launch project: {error}");
             shell.studio.borrow_mut().notify(&error, true);
         }
+    }
+
+    if !files.is_empty() {
+        // Absolute for the reason the project's path is above: what goes
+        // into the bin must not depend on the launcher's directory.
+        let files = files
+            .into_iter()
+            .map(|path| std::path::absolute(&path).unwrap_or(path))
+            .collect();
+        shell
+            .studio
+            .borrow_mut()
+            .handle(Msg::Start(StartMsg::OpenWith(files)));
     }
 
     {

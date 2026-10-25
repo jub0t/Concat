@@ -41,6 +41,7 @@
     <Feature Id="Main" Title="Concat" Level="1">
       <ComponentGroupRef Id="Program" />
       <ComponentRef Id="StartMenu" />
+      <ComponentRef Id="OpenWith" />
     </Feature>
 
     <!-- Every file in the staged folder, as it is there. -->
@@ -67,6 +68,29 @@
                 Icon="concat.ico" />
       <RemoveFolder Id="RemoveShortcutFolder" On="uninstall" />
       <RegistryValue Root="HKCU" Key="Software\Concat" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Concat in Explorer's Open with for the video and sound files its
+         Import takes, beside whatever opens them now and never in its
+         place: nothing here makes Concat the default. The file goes to
+         concat.exe, which opens it in a new project in the shape of its
+         picture. Kept in step with concat.iss. -->
+    <Component Id="OpenWith" Directory="INSTALLFOLDER" Guid="F71EBEDE-2451-4CBD-8D58-195BC0EEB529">
+      <RegistryValue Root="HKLM" Key="Software\Classes\Concat.Media" Type="string" Value="Concat media" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\Concat.Media\DefaultIcon" Type="string" Value="&quot;[INSTALLFOLDER]concat.exe&quot;,0" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\Concat.Media\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]concat.exe&quot; &quot;%1&quot;" KeyPath="yes" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.mp4\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.mov\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.mkv\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.webm\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.avi\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.m4v\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.mp3\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.wav\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.aac\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.m4a\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.flac\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.ogg\OpenWithProgids" Name="Concat.Media" Type="string" Value="" />
     </Component>
   </Package>
 </Wix>
