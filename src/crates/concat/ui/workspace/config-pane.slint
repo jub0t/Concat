@@ -191,6 +191,9 @@ export component ConfigPane inherits Rectangle {
 
     callback clip-set(field: ClipField, value: float);
     callback clip-set-text(field: ClipTextField, value: string);
+    callback clip-set-words(text: string, caret: int);
+    callback clip-select-words(anchor: int, cursor: int);
+    callback clip-reset-words();
     callback clip-set-colour(field: ClipTextField, value: color);
     callback clip-commit();
     /// The Text tab's font picker and its import button; see Editor.
@@ -755,6 +758,9 @@ export component ConfigPane inherits Rectangle {
                     families: root.font-families;
                     set(field, value) => { root.clip-set(field, value); }
                     set-text(field, value) => { root.clip-set-text(field, value); }
+                    set-words(text, caret) => { root.clip-set-words(text, caret); }
+                    select-words(anchor, cursor) => { root.clip-select-words(anchor, cursor); }
+                    reset-words => { root.clip-reset-words(); }
                     set-colour(field, value) => { root.clip-set-colour(field, value); }
                     commit => { root.clip-commit(); }
                     import-font => { root.import-font(); }

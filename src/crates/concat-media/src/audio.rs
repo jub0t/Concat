@@ -542,7 +542,8 @@ impl MixInput {
     }
 }
 
-/// Mixes `clips` into one AAC file at `destination`.
+/// Mixes `clips` into one audio file at `destination`: 16-bit PCM for a
+/// `.wav` destination (case-insensitive), AAC otherwise, at 48 kHz stereo.
 ///
 /// Every clip's file must contain an audio stream; see [`mix_graph`].
 pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Result<()> {
@@ -556,6 +557,17 @@ pub fn mix_to_file_with(
     duration: f64,
     destination: &Path,
 ) -> Result<()> {
+    let wav = destination
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"));
+    let (codec_name, mix_format) = if wav {
+        (
+            "pcm_s16le",
+            Sample::I16(ffmpeg::util::format::sample::Type::Packed),
+        )
+    } else {
+        ("aac", MIX_FORMAT)
+    };
     ffi::init();
     // A bad chain is refused before any file is opened.
     for chain in clips
@@ -567,9 +579,9 @@ pub fn mix_to_file_with(
     }
 
     // The encoder, and the file it writes into.
-    let codec = encoder::find_by_name("aac").ok_or_else(|| Error::Missing {
+    let codec = encoder::find_by_name(codec_name).ok_or_else(|| Error::Missing {
         what: "encoder",
-        name: "aac".to_owned(),
+        name: codec_name.to_owned(),
     })?;
     let mut output = ffmpeg::format::output(destination)
         .map_err(|error| ffi::fail("create", destination, error))?;
@@ -582,9 +594,11 @@ pub fn mix_to_file_with(
         .audio()
         .map_err(|error| ffi::fail("audio encoder", destination, error))?;
     audio.set_rate(MIX_RATE as i32);
-    audio.set_format(MIX_FORMAT);
+    audio.set_format(mix_format);
     audio.set_ch_layout(ChannelLayout::STEREO);
-    audio.set_bit_rate(192_000);
+    if !wav {
+        audio.set_bit_rate(192_000);
+    }
     audio.set_time_base(ffmpeg::Rational::new(1, MIX_RATE as i32));
     if global_header {
         audio.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
@@ -592,7 +606,13 @@ pub fn mix_to_file_with(
     let mut encoder = audio
         .open()
         .map_err(|error| ffi::fail("open encoder", destination, error))?;
-    let frame_size = encoder.frame_size().max(1);
+    // PCM accepts variable-size frames. Use blocks rather than one sample
+    // per packet; run_mix keeps the final block's exact sample count.
+    let frame_size = if wav {
+        1024
+    } else {
+        encoder.frame_size().max(1)
+    };
     {
         let mut stream = output
             .add_stream(codec)
@@ -633,7 +653,7 @@ pub fn mix_to_file_with(
         clips,
         buses,
         (0.0, duration),
-        "fltp",
+        mix_format.name(),
         Some(frame_size),
         destination,
         |mixed| {
@@ -752,11 +772,11 @@ fn run_mix(
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| ffi::fail("open decoder", path, error))?;
-        // Near the in-point: the packet at or before it. The graph cuts the
-        // rest, by the lead measured off the first frame below.
+        // Near the in-point: the packet of the sound at or before it, on the
+        // sound's own timestamps. The graph cuts the rest, by the lead
+        // measured off the first frame below.
         if in_point > 0.0 {
-            let target = ((in_point + start) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
-            let _ = input.seek(target, ..=target);
+            let _ = ffi::seek_audio(&mut input, stream_index, in_point + start);
         }
         let label = format!("{index}:a");
         let mut mix_input = MixInput {
@@ -1613,6 +1633,109 @@ mod tests {
         std::fs::write(path, bytes).expect("writes the wav");
     }
 
+    #[test]
+    fn saving_audio_as_wav_writes_pcm_that_decodes_with_the_expected_samples() {
+        use crate::{AudioDecoder, AudioOptions};
+
+        let dir = std::env::temp_dir().join(format!("concat-save-wav-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("creates a folder");
+        let source = dir.join("tone.wav");
+        tone_wav(&source, 1.0);
+        let video = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("sound-starts-late.mov");
+        // A partial final encoder block must not add or discard samples.
+        let duration = 6007.0 / f64::from(MIX_RATE);
+        for (input, extension) in [(&source, "wav"), (&video, "WAV")] {
+            let piece = AudioClip {
+                path: input.clone(),
+                source_start: 0.6,
+                duration,
+                volume: 0.5,
+                fade_in: 0.02,
+                fade_out: 0.03,
+                ..clip("")
+            };
+            let clips = [piece];
+            let output = dir.join(format!("saved.{extension}"));
+            mix_to_file(&clips, duration, &output).expect("saves the WAV");
+            {
+                let input = ffmpeg::format::input(&output).expect("opens the saved file");
+                let stream = input
+                    .streams()
+                    .best(ffmpeg::media::Type::Audio)
+                    .expect("has audio");
+                assert_eq!(stream.parameters().id(), ffmpeg::codec::Id::PCM_S16LE);
+            }
+            let bytes = std::fs::read(&output).expect("reads the WAV");
+            assert_eq!(&bytes[..4], b"RIFF");
+            assert_eq!(&bytes[8..12], b"WAVE");
+            let mut decoder = AudioDecoder::open(&output, &AudioOptions::default())
+                .expect("Concat opens the saved WAV");
+            let mut actual = Vec::new();
+            while let Some(samples) = decoder.next_i16().expect("Concat decodes the WAV") {
+                actual.extend(samples);
+            }
+            assert_eq!(actual.len(), 6007 * 2, "exact stereo sample count");
+            assert!(actual.iter().any(|sample| i32::from(*sample).abs() > 1000));
+
+            let mut expected = Vec::new();
+            mix_pcm(&clips, &[], 0.0, duration, |chunk| {
+                expected.extend_from_slice(chunk);
+                Ok(())
+            })
+            .expect("mixes the reference PCM");
+            let expected: Vec<i16> = expected
+                .chunks_exact(2)
+                .map(|sample| i16::from_le_bytes([sample[0], sample[1]]))
+                .collect();
+            assert_eq!(actual.len(), expected.len());
+            assert!(
+                actual
+                    .iter()
+                    .zip(&expected)
+                    .all(|(a, b)| { (i32::from(*a) - i32::from(*b)).abs() <= 2 }),
+                "the saved audio preserves the cut, gain and fades"
+            );
+        }
+        std::fs::remove_dir_all(dir).expect("removes test files");
+    }
+
+    #[test]
+    fn saving_to_m4a_keeps_aac_encoding_and_audible_samples() {
+        use crate::{AudioDecoder, AudioOptions};
+
+        let dir = std::env::temp_dir().join(format!("concat-save-aac-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("creates a folder");
+        let source = dir.join("tone.wav");
+        tone_wav(&source, 0.25);
+        let piece = AudioClip {
+            path: source,
+            duration: 0.25,
+            ..clip("")
+        };
+        let output = dir.join("saved.m4a");
+        mix_to_file(&[piece], 0.25, &output).expect("saves AAC");
+        {
+            let input = ffmpeg::format::input(&output).expect("opens the saved file");
+            let stream = input
+                .streams()
+                .best(ffmpeg::media::Type::Audio)
+                .expect("has audio");
+            assert_eq!(stream.parameters().id(), ffmpeg::codec::Id::AAC);
+        }
+        {
+            let mut decoder =
+                AudioDecoder::open(&output, &AudioOptions::default()).expect("opens the saved AAC");
+            let mut audible = false;
+            while let Some(samples) = decoder.next_i16().expect("decodes AAC") {
+                audible |= samples.iter().any(|sample| i32::from(*sample).abs() > 1000);
+            }
+            assert!(audible);
+        }
+        std::fs::remove_dir_all(dir).expect("removes test files");
+    }
+
     /// The left channel of `mix_pcm` over `[from, to)`.
     fn left(clips: &[AudioClip], buses: &[AudioBus], from: f64, to: f64) -> Vec<i16> {
         let mut bytes = Vec::new();
@@ -1686,6 +1809,34 @@ mod tests {
         let offset = (0.5 * f64::from(MIX_RATE)) as usize;
         let difference = worst(&treated[offset..], &window, 0.0, 3.0);
         assert!(difference <= 1, "the window differs by {difference}");
+    }
+
+    /// A clip trimmed into a Program Stream mixes from its first sample,
+    /// not from behind the in-point. The fixture's sound is interleaved
+    /// behind its picture, and the mix's seek used to be made on the
+    /// picture's timestamps, forward: it landed past the in-point and the
+    /// overshoot went in as silence in front of the clip. The tone has
+    /// sounded from half a second in, so a cut at 3.5 s is inside it.
+    #[test]
+    fn a_trimmed_program_stream_clip_mixes_from_its_first_sample() {
+        let path = format!(
+            "{}/fixtures/sound-behind-the-picture.mpg",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut piece = clip(&path);
+        piece.duration = 0.6;
+        piece.source_start = 3.5;
+        let mixed = left(&[piece], &[], 0.0, 0.6);
+        assert_eq!(mixed.len(), (0.6 * f64::from(MIX_RATE)) as usize);
+        let first = mixed
+            .iter()
+            .position(|sample| i32::from(*sample).abs() > 1_500)
+            .expect("the tone is in the mix");
+        assert!(
+            first < 48 * 30,
+            "the tone starts {} samples in, not at once",
+            first
+        );
     }
 
     #[test]

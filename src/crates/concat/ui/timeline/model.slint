@@ -169,7 +169,7 @@ export enum ClipField {
     scale, offset-x, offset-y, rotation, stretch-x, stretch-y, opacity,
     volume, speed, preserve-pitch, fade-in, fade-out,
     flip-h, flip-v, blend, crop-left, crop-top, crop-right, crop-bottom,
-    font-size, font-weight, italic, text-opacity, align,
+    font-size, font-weight, italic, underline, strikethrough, text-case, text-opacity, align,
     stroke-width, shadow, line-height, tracking, text-width, text-height,
     stroke-opacity,
     /// the background's opacity is its colour's alpha, as the stroke's is;
@@ -488,6 +488,15 @@ export struct SelectedClipData {
     font-size: float,
     font-weight: float,
     italic: bool,
+    underline: bool,
+    strikethrough: bool,
+    /// Some words are selected in the Text tab's box, and the typography
+    /// above - colour, weight, size, B/I/U/S - shows and styles those
+    /// words, not the whole title.
+    styling-words: bool,
+    /// Those words wear a look of their own somewhere, which Reset clears.
+    words-styled: bool,
+    text-case: int,
     fill: color,
     fill-hex: string,
     align: TextAlignment,

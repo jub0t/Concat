@@ -26,6 +26,7 @@ pub mod doc;
 pub mod editor;
 pub mod model;
 pub mod placement;
+pub mod runs;
 pub mod speed;
 pub mod srt;
 
@@ -40,6 +41,165 @@ pub use model::Project;
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    #[test]
+    fn typography_preserves_source_and_round_trips() {
+        use crate::model::{TextCase, TextStyle};
+        let original = "«È UNA PROVA!» POI, UN’ALTRA. già qui? sì!";
+        let mut style = TextStyle {
+            content: original.into(),
+            text_case: TextCase::Sentence,
+            underline: true,
+            strikethrough: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            style.display_content(),
+            "«È una prova!» Poi, un’altra. Già qui? Sì!"
+        );
+        assert_eq!(style.content, original);
+        let saved = serde_json::to_value(&style).unwrap();
+        let restored: TextStyle = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored, style);
+        style.text_case = TextCase::Lower;
+        assert_eq!(style.display_content(), original.to_lowercase());
+        style.text_case = TextCase::Upper;
+        assert_eq!(style.display_content(), original.to_uppercase());
+        style.text_case = TextCase::Original;
+        assert_eq!(style.display_content(), original);
+    }
+
+    /// Words styled over a range, and cleared, as undoable steps from the
+    /// wire; the title's own look is left alone, and the runs survive a
+    /// save and a reopen.
+    #[test]
+    fn a_range_of_a_titles_words_is_styled_undone_and_saved() {
+        use crate::commands::Command;
+        use crate::editor::Editor;
+        use crate::model::{RunStyle, TextStyle};
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start: 0.0,
+                style: Some(TextStyle {
+                    content: "make this red".into(),
+                    ..TextStyle::default()
+                }),
+                duration: Some(3.0),
+                offset_y: None,
+            })
+            .unwrap()
+            .created_id
+            .unwrap();
+        let command: Command = serde_json::from_value(json!({
+            "op": "styleTextRange", "clipId": id, "start": 10, "end": 13,
+            "patch": { "color": "#ff0000", "fontWeight": 800 }
+        }))
+        .expect("the wire shape parses");
+        assert!(editor.apply(command).unwrap().applied);
+        let text = |editor: &Editor| {
+            editor
+                .project()
+                .active()
+                .clip(&id)
+                .unwrap()
+                .text
+                .clone()
+                .unwrap()
+        };
+        let styled = text(&editor);
+        assert_eq!(styled.color, "#ffffff", "the title's own look is untouched");
+        assert_eq!(styled.runs.len(), 1);
+        assert_eq!((styled.runs[0].start, styled.runs[0].end), (10, 13));
+        assert_eq!(styled.runs[0].style.font_weight, Some(800.0));
+
+        let document = editor.to_document(&settings());
+        let restored = Editor::from_document(&document).expect("loads");
+        assert_eq!(restored.project(), editor.project());
+
+        assert!(editor.undo());
+        assert!(text(&editor).runs.is_empty());
+        assert!(editor.redo());
+        assert!(
+            editor
+                .apply(Command::ClearTextStyles {
+                    clip_id: id.clone(),
+                    start: Some(10),
+                    end: Some(11),
+                })
+                .unwrap()
+                .applied
+        );
+        assert_eq!(
+            (text(&editor).runs[0].start, text(&editor).runs[0].end),
+            (11, 13)
+        );
+        assert!(
+            editor
+                .apply(Command::ClearTextStyles {
+                    clip_id: id.clone(),
+                    start: None,
+                    end: None,
+                })
+                .unwrap()
+                .applied
+        );
+        assert!(text(&editor).runs.is_empty());
+        // Nothing to do is nothing done, and not a step to undo.
+        assert!(
+            !editor
+                .apply(Command::StyleTextRange {
+                    clip_id: id,
+                    start: 4,
+                    end: 4,
+                    patch: RunStyle {
+                        italic: Some(true),
+                        ..RunStyle::default()
+                    },
+                })
+                .unwrap()
+                .applied
+        );
+    }
+
+    /// A timeline's canvas colour is written as `#rrggbb` and read back;
+    /// black is not written at all, so a document without one is the
+    /// document it always was, and junk reads as black (#456).
+    #[test]
+    fn a_canvas_colour_is_written_only_when_it_is_not_black() {
+        use crate::model::VideoSettings;
+        let black = serde_json::to_value(VideoSettings::default()).unwrap();
+        assert!(black.get("canvas").is_none(), "{black}");
+        let green = VideoSettings {
+            canvas: [0, 177, 64],
+            ..VideoSettings::default()
+        };
+        let written = serde_json::to_value(green).unwrap();
+        assert_eq!(written["canvas"], "#00b140");
+        let read: VideoSettings = serde_json::from_value(written).unwrap();
+        assert_eq!(read, green);
+        let junk: VideoSettings = serde_json::from_value(json!({
+            "width": 1920, "height": 1080, "rateNum": 30, "rateDen": 1, "canvas": "teal"
+        }))
+        .unwrap();
+        assert_eq!(junk.canvas, [0, 0, 0]);
+    }
+
+    #[test]
+    fn old_styles_keep_their_original_appearance() {
+        use crate::model::{TextCase, TextStyle};
+        let style: TextStyle = serde_json::from_value(json!({
+            "content": "Keep MY Case", "italic": true, "fontWeight": 500
+        }))
+        .unwrap();
+        assert_eq!(style.text_case, TextCase::Original);
+        assert_eq!(style.display_content(), "Keep MY Case");
+        assert!(!style.underline && !style.strikethrough);
+        assert!(style.italic);
+        assert_eq!(style.font_weight, 500.0);
+    }
 
     use crate::commands::{
         ClipMove, ClipPatch, Command, NewMedia, PlayheadSide, TrackFlag, TrimEdge,
@@ -105,6 +265,7 @@ mod tests {
             height: 1080,
             rate_num: 30,
             rate_den: 1,
+            canvas: [0, 0, 0],
         }
     }
 

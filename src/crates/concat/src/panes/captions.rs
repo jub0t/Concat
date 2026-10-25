@@ -754,6 +754,8 @@ fn caption_clip(
             font_size,
             max_width: 0.0,
             max_height: 0.0,
+            // Runs are some words' looks, and these are other words.
+            runs: Vec::new(),
             ..base.clone()
         },
         None => TextStyle {
