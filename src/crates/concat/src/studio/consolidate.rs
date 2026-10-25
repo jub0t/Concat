@@ -28,6 +28,7 @@ impl Drop for RenderedFile {
     fn drop(&mut self) {
         if !self.keep {
             let _ = std::fs::remove_file(self.folder.join("merged.mp4"));
+            let _ = std::fs::remove_file(self.folder.join("merged.wav"));
             let _ = std::fs::remove_dir(&self.folder);
         }
     }
@@ -111,9 +112,13 @@ impl Studio {
             folder: folder.clone(),
             keep: false,
         };
-        let output = folder.join("merged.mp4");
+        let output = folder.join(plan.output_name());
         let request = plan.request(session.project(), &root, &output);
-        let compositor = self.host.monitor.off_thread();
+        let compositor = if plan.is_audio() {
+            None
+        } else {
+            self.host.monitor.off_thread()
+        };
         self.merge_job = Some(MergeJob {
             cancel: job.cancel_handle(),
             progress: 0.0,
@@ -124,25 +129,25 @@ impl Studio {
         spawn_in_project(
             move || {
                 let mut last = -1.0;
-                let result = concat_host::export::run_on(
-                    &request,
-                    compositor,
-                    job.cancel_flag(),
-                    |progress| {
-                        let fraction =
-                            (progress.frame as f32 / progress.total.max(1) as f32).clamp(0.0, 1.0);
-                        // Down as well as up: an export whose hardware
-                        // encoder stopped starts again from nothing.
-                        if fraction - last >= 0.02 || fraction < last {
-                            last = fraction;
-                            on_ui_in_project(epoch, move |studio, _, _| {
-                                if let Some(job) = studio.merge_job.as_mut() {
-                                    job.progress = fraction;
-                                }
-                            });
-                        }
-                    },
-                );
+                let report = |progress: concat_host::export::Progress| {
+                    let fraction =
+                        (progress.frame as f32 / progress.total.max(1) as f32).clamp(0.0, 1.0);
+                    // Down as well as up: an export whose hardware
+                    // encoder stopped starts again from nothing.
+                    if fraction - last >= 0.02 || fraction < last {
+                        last = fraction;
+                        on_ui_in_project(epoch, move |studio, _, _| {
+                            if let Some(job) = studio.merge_job.as_mut() {
+                                job.progress = fraction;
+                            }
+                        });
+                    }
+                };
+                let result = if plan.is_audio() {
+                    plan.render_audio(&request, job.cancel_flag(), report)
+                } else {
+                    concat_host::export::run_on(&request, compositor, job.cancel_flag(), report)
+                };
                 let cancel = job.cancel_handle();
                 (plan, rendered, output, cancel, result)
             },
@@ -194,6 +199,7 @@ mod tests {
         std::fs::create_dir(&folder).unwrap();
         let output = folder.join("merged.mp4");
         std::fs::write(&output, b"rendered source").unwrap();
+        std::fs::write(folder.join("merged.wav"), b"partial audio render").unwrap();
         drop(RenderedFile {
             folder: folder.clone(),
             keep: false,

@@ -14,6 +14,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// you will ask six months from now is "which file, and what did FFmpeg say".
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// The caller stopped a long-running audio mix.
+    #[error("audio mixing cancelled")]
+    Cancelled,
     /// A libav* call failed.
     #[error("{operation} failed for {path}: {detail}")]
     Ffi {

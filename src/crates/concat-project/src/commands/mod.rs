@@ -657,11 +657,11 @@ pub enum Command {
         /// The pieces to rejoin, any order.
         clip_ids: Vec<String>,
     },
-    /// Replaces selected video clips with their host-rendered media, as one
+    /// Replaces selected audio or video clips with their host-rendered media, as one
     /// undoable edit. Keeps the earliest clip's id, track and timeline span;
     /// resets baked properties. The host must render only these clips first.
     ConsolidateClips {
-        /// Two or more video clips on one track, in any order.
+        /// Two or more audio clips or video clips on one track, in any order.
         clip_ids: Vec<String>,
         /// The completed, probed render stored in the project media folder.
         item: NewMedia,
