@@ -488,6 +488,12 @@ export struct SelectedClipData {
     italic: bool,
     underline: bool,
     strikethrough: bool,
+    /// Some words are selected in the Text tab's box, and the typography
+    /// above - colour, weight, size, B/I/U/S - shows and styles those
+    /// words, not the whole title.
+    styling-words: bool,
+    /// Those words wear a look of their own somewhere, which Reset clears.
+    words-styled: bool,
     text-case: int,
     fill: color,
     fill-hex: string,

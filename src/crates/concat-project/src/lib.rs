@@ -26,6 +26,7 @@ pub mod doc;
 pub mod editor;
 pub mod model;
 pub mod placement;
+pub mod runs;
 pub mod speed;
 pub mod srt;
 
@@ -66,6 +67,101 @@ mod tests {
         assert_eq!(style.display_content(), original.to_uppercase());
         style.text_case = TextCase::Original;
         assert_eq!(style.display_content(), original);
+    }
+
+    /// Words styled over a range, and cleared, as undoable steps from the
+    /// wire; the title's own look is left alone, and the runs survive a
+    /// save and a reopen.
+    #[test]
+    fn a_range_of_a_titles_words_is_styled_undone_and_saved() {
+        use crate::commands::Command;
+        use crate::editor::Editor;
+        use crate::model::{RunStyle, TextStyle};
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start: 0.0,
+                style: Some(TextStyle {
+                    content: "make this red".into(),
+                    ..TextStyle::default()
+                }),
+                duration: Some(3.0),
+                offset_y: None,
+            })
+            .unwrap()
+            .created_id
+            .unwrap();
+        let command: Command = serde_json::from_value(json!({
+            "op": "styleTextRange", "clipId": id, "start": 10, "end": 13,
+            "patch": { "color": "#ff0000", "fontWeight": 800 }
+        }))
+        .expect("the wire shape parses");
+        assert!(editor.apply(command).unwrap().applied);
+        let text = |editor: &Editor| {
+            editor
+                .project()
+                .active()
+                .clip(&id)
+                .unwrap()
+                .text
+                .clone()
+                .unwrap()
+        };
+        let styled = text(&editor);
+        assert_eq!(styled.color, "#ffffff", "the title's own look is untouched");
+        assert_eq!(styled.runs.len(), 1);
+        assert_eq!((styled.runs[0].start, styled.runs[0].end), (10, 13));
+        assert_eq!(styled.runs[0].style.font_weight, Some(800.0));
+
+        let document = editor.to_document(&settings());
+        let restored = Editor::from_document(&document).expect("loads");
+        assert_eq!(restored.project(), editor.project());
+
+        assert!(editor.undo());
+        assert!(text(&editor).runs.is_empty());
+        assert!(editor.redo());
+        assert!(
+            editor
+                .apply(Command::ClearTextStyles {
+                    clip_id: id.clone(),
+                    start: Some(10),
+                    end: Some(11),
+                })
+                .unwrap()
+                .applied
+        );
+        assert_eq!(
+            (text(&editor).runs[0].start, text(&editor).runs[0].end),
+            (11, 13)
+        );
+        assert!(
+            editor
+                .apply(Command::ClearTextStyles {
+                    clip_id: id.clone(),
+                    start: None,
+                    end: None,
+                })
+                .unwrap()
+                .applied
+        );
+        assert!(text(&editor).runs.is_empty());
+        // Nothing to do is nothing done, and not a step to undo.
+        assert!(
+            !editor
+                .apply(Command::StyleTextRange {
+                    clip_id: id,
+                    start: 4,
+                    end: 4,
+                    patch: RunStyle {
+                        italic: Some(true),
+                        ..RunStyle::default()
+                    },
+                })
+                .unwrap()
+                .applied
+        );
     }
 
     #[test]

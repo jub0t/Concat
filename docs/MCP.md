@@ -59,7 +59,7 @@ Tools are named for what they do, and their argument schemas are generated from 
 | Media | `media_probe`, `media_import` |
 | Editing | `clip_add`, `clips_add_sequence`, `clip_trim`, `clips_split`, `clips_move`, `clips_remove`, `clip_update`, `clip_transform`, `clip_speed`, `clip_frame`, `track_add` |
 | Picture | `clip_mask`, `clip_stabilize`, `timeline_background` |
-| Titles and captions | `title_add`, `captions_add` |
+| Titles and captions | `title_add`, `title_style_words` (some words in another colour, weight, size...), `title_clear_word_styles`, `captions_add` |
 | Keyframes and effects | `keyframe_set`, `keyframe_clear`, `effects_list`, `effect_layer_add`, `effect_key_set` |
 | Anything else | `edit_apply` (any edit command, or a batch of them as one undo step), `edit_undo`, `edit_redo` |
 | Templates | `template_list`, `template_instantiate` |

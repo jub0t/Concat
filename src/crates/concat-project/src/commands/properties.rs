@@ -93,6 +93,54 @@ pub(super) fn apply(
             })
         }
 
+        Command::StyleTextRange {
+            clip_id,
+            start,
+            end,
+            patch,
+        } => {
+            let Some(clip) = project.active_mut().clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            if clip.kind != ClipKind::Text {
+                return Ok(Outcome::default());
+            }
+            let Some(text) = clip.text.as_mut() else {
+                return Ok(Outcome::default());
+            };
+            let before = text.runs.clone();
+            text.style_range(start, end, &patch);
+            Ok(Outcome {
+                created_id: None,
+                applied: text.runs != before,
+            })
+        }
+
+        Command::ClearTextStyles {
+            clip_id,
+            start,
+            end,
+        } => {
+            let Some(clip) = project.active_mut().clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            if clip.kind != ClipKind::Text {
+                return Ok(Outcome::default());
+            }
+            let Some(text) = clip.text.as_mut() else {
+                return Ok(Outcome::default());
+            };
+            let before = text.runs.clone();
+            match (start, end) {
+                (Some(start), Some(end)) => text.clear_range(start, end),
+                _ => text.runs.clear(),
+            }
+            Ok(Outcome {
+                created_id: None,
+                applied: text.runs != before,
+            })
+        }
+
         Command::SetClipSpeed {
             clip_id,
             speed,

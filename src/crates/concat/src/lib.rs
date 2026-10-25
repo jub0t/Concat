@@ -1328,6 +1328,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             state.clip_set_text(field, value.as_str());
         }
     ));
+    editor.on_clip_set_words(on_lanes!(|state, text: SharedString, caret: i32| {
+        state.clip_set_words(text.as_str(), caret);
+    }));
+    editor.on_clip_select_words(on_lanes!(|state, anchor: i32, cursor: i32| {
+        state.select_words(anchor, cursor);
+    }));
+    editor.on_clip_reset_words(on_lanes!(|state| {
+        state.reset_words();
+    }));
     editor.on_clip_set_colour(on_lanes!(
         |state, field: ClipTextField, value: slint::Color| {
             state.clip_set_colour(field, value);

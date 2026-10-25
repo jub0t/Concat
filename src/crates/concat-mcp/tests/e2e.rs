@@ -191,6 +191,31 @@ fn an_agent_edits_previews_and_exports_a_project_headless() {
     let title = titled["structuredContent"]["createdId"].clone();
     assert!(title.is_string(), "{titled}");
 
+    // "agent" in yellow, and the summary says which words wear what.
+    let styled = agent.tool(
+        "title_style_words",
+        json!({
+            "path": path,
+            "clipId": title,
+            "start": 7,
+            "end": 12,
+            "patch": { "color": "#ffd400" },
+        }),
+    );
+    let clips = styled["structuredContent"]["timeline"]["clips"]
+        .as_array()
+        .expect("clips");
+    let runs = clips
+        .iter()
+        .find(|clip| clip["id"] == title)
+        .map(|clip| clip["textRuns"].clone())
+        .expect("the title");
+    assert_eq!(
+        runs,
+        json!([{ "start": 7, "end": 12, "color": "#ffd400" }]),
+        "{styled}"
+    );
+
     let captioned = agent.tool(
         "captions_add",
         json!({
