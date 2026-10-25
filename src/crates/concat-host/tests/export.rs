@@ -476,6 +476,7 @@ impl Studio {
             video.height,
             video.rate_num,
             video.rate_den,
+            [0, 0, 0],
         )
         .expect("creates the project");
         let session = Session::open_info(&info).expect("opens the project");
@@ -652,6 +653,7 @@ fn effect(id: &str) -> AppliedFilter {
 
 fn video(width: u32, height: u32, rate_num: i64, rate_den: i64) -> VideoSettings {
     VideoSettings {
+        canvas: [0, 0, 0],
         width,
         height,
         rate_num,
@@ -896,6 +898,7 @@ fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
     ];
     let monitor = |studio: &Studio| {
         let request = concat_export::PreviewFrameRequest {
+            canvas: [0, 0, 0],
             time: 1.0,
             width,
             height,

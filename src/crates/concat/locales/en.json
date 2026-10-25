@@ -618,6 +618,7 @@
   "speedRamp.slowest": "Slowest",
   "speedRamp.smooth": "Smooth",
   "speedRamp.straight": "Straight",
+  "start.background": "Background",
   "start.choose": "Choose…",
   "start.chooseAFolder": "Choose a folder",
   "start.chooseWhereProjectFolder": "Choose where the project folder should go",

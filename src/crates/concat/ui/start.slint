@@ -11,6 +11,7 @@ import { Tip } from "primitives/tooltip.slint";
 import { Focus } from "util.slint";
 import { NumberField } from "primitives/number-field.slint";
 import { Select } from "primitives/select.slint";
+import { ColourField } from "inspector/controls.slint";
 import { SegmentedControl } from "primitives/segmented-control.slint";
 
 // The launch screen: the app's home, and the window's own ground under all
@@ -139,6 +140,8 @@ export struct StartData {
     /// "30/1 fps" — the exact fraction, because 29.97 is 30000/1001 and
     /// never anything else.
     rate-readout: string,
+    /// What shows where no picture covers the frame (#456).
+    canvas: color,
     /// Creating. The button says so and everything is refused meanwhile.
     busy: bool,
     /// Non-empty puts up the notice above the button.
@@ -2155,6 +2158,7 @@ export component NewProjectDialog inherits Modal {
     callback custom-width-edited(width: float);
     callback custom-height-edited(height: float);
     callback custom-fps-edited(fps: float);
+    callback canvas-changed(value: color);
     callback create();
     callback dismiss-error();
 
@@ -2394,7 +2398,6 @@ export component NewProjectDialog inherits Modal {
 
         FormRow {
             label: I18n.upper("common.frameRate");
-            last: true;
             stacked: root.narrow;
 
             VerticalLayout {
@@ -2444,6 +2447,51 @@ export component NewProjectDialog inherits Modal {
                         enabled: !root.data.busy;
                         changed(value) => { root.custom-fps-edited(value); }
                     }
+                }
+            }
+        }
+
+        // What shows where no picture covers the frame - the gaps, the
+        // space around a title. Four to pick at a press - black, white and
+        // the two keying colours, for a picture that is cut out later - and
+        // any other typed or picked on the right. Transparent comes with
+        // an export that keeps it (#456).
+        FormRow {
+            label: I18n.upper("start.background");
+            last: true;
+            stacked: root.narrow;
+
+            HorizontalLayout {
+                spacing: 8px;
+
+                for preset in [#000000, #ffffff, #00b140, #0047bb]: VerticalLayout {
+                    alignment: center;
+
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        border-radius: Theme.r-sm;
+                        border-width: root.data.canvas == preset ? 2px : 1px;
+                        border-color: root.data.canvas == preset ? Theme.accent
+                            : pick.has-hover ? Theme.line-strong : Theme.line;
+                        background: preset;
+
+                        pick := TouchArea {
+                            mouse-cursor: pointer;
+                            enabled: !root.data.busy;
+                            clicked => { root.canvas-changed(preset); }
+                        }
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                ColourField {
+                    horizontal-stretch: 0;
+                    padding-left: 0;
+                    padding-right: 0;
+                    value: root.data.canvas;
+                    changed(value) => { root.canvas-changed(value); }
                 }
             }
         }

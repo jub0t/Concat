@@ -380,6 +380,10 @@ pub struct Timeline {
     pub width: u32,
     /// Output height in pixels.
     pub height: u32,
+    /// What shows where no picture covers the frame, as eight-bit
+    /// `[r, g, b]`: the project's canvas colour, black unless it was given
+    /// another. A transition to black still goes to black.
+    pub canvas: [u8; 3],
     tracks: Arena<Track>,
     clips: Arena<Clip>,
     order: Vec<TrackId>,
@@ -392,6 +396,7 @@ impl Timeline {
             frame_rate,
             width,
             height,
+            canvas: [0, 0, 0],
             tracks: Arena::new(),
             clips: Arena::new(),
             order: Vec::new(),

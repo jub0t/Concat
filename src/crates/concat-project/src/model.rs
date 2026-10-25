@@ -2630,6 +2630,35 @@ pub struct VideoSettings {
     #[serde(default, skip_serializing_if = "ColorSpace::is_sdr")]
     #[serde(deserialize_with = "wire::color_space")]
     pub color_space: ColorSpace,
+    /// What shows where no picture covers the frame - a gap, the space
+    /// around a title, a clip fading in - as `#rrggbb` in the document:
+    /// black unless the project was given another (#456). Left out of the
+    /// document while it is black, so those documents stay as they were.
+    #[serde(default, skip_serializing_if = "is_black", with = "hex_rgb")]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub canvas: [u8; 3],
+}
+
+fn is_black(rgb: &[u8; 3]) -> bool {
+    *rgb == [0, 0, 0]
+}
+
+/// A colour kept as three channels and written as `#rrggbb`, the way the
+/// document writes every colour. One that does not read is black.
+pub mod hex_rgb {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// `#rrggbb`, lower case.
+    pub fn serialize<S: Serializer>(rgb: &[u8; 3], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]))
+    }
+
+    /// `#rrggbb` or `#rrggbbaa`, its alpha ignored; black for anything
+    /// else.
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 3], D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(value.as_str().and_then(super::rgb_of).unwrap_or([0, 0, 0]))
+    }
 }
 
 impl Default for VideoSettings {
@@ -2642,6 +2671,7 @@ impl Default for VideoSettings {
             rate_num: 30,
             rate_den: 1,
             color_space: ColorSpace::Sdr,
+            canvas: [0, 0, 0],
         }
     }
 }
@@ -2693,6 +2723,7 @@ impl VideoSettings {
                 fallback.rate_den
             },
             color_space: self.color_space,
+            canvas: self.canvas,
         }
     }
 

@@ -266,6 +266,7 @@ export component App inherits Window {
     callback settings-accent-changed(index: int);
     callback settings-accent-custom-changed(colour: color);
     callback settings-playhead-changed(colour: color);
+    callback start-canvas-changed(value: color);
     callback settings-playhead-reset();
     callback settings-scale-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
@@ -413,6 +414,7 @@ export component App inherits Window {
 
     // The window's keyboard, and the thing focus falls back to.
     //
+    callback project-canvas-changed(value: color);
     // It wraps the content rather than sitting beside it, and both of its jobs
     // come out of that:
     //
@@ -922,6 +924,7 @@ export component App inherits Window {
         data: root.project-sheet;
 
         closed => { root.project-closed(); }
+        canvas-changed(value) => { root.start-canvas-changed(value); }
         name-edited(name) => { root.project-name-edited(name); }
         size-changed(index) => { root.project-size-changed(index); }
         rate-changed(index) => { root.project-rate-changed(index); }
@@ -1006,3 +1009,4 @@ export component App inherits Window {
         data: root.toast;
     }
 }
+        canvas-changed(value) => { root.project-canvas-changed(value); }

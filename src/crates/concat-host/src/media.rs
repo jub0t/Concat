@@ -1342,6 +1342,7 @@ mod tests {
                 })
                 .expect("places");
             let settings = DocumentSettings {
+                canvas: [0, 0, 0],
                 name: name.to_owned(),
                 width: 64,
                 height: 32,

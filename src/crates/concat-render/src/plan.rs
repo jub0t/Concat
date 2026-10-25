@@ -733,6 +733,9 @@ pub struct FramePlan {
     pub width: u32,
     /// Output height.
     pub height: u32,
+    /// What is drawn under the bottom layer, where no picture covers the
+    /// frame: the timeline's canvas colour, eight-bit `[r, g, b]`.
+    pub canvas: [u8; 3],
     /// Visible layers, bottom-most first.
     pub layers: Vec<PlannedLayer>,
     /// The treatments live at this instant, in ascending track order.
@@ -750,14 +753,15 @@ impl FramePlan {
             time: Rational::ZERO,
             width,
             height,
+            canvas: [0, 0, 0],
             layers: Vec::new(),
             treatments: Vec::new(),
             output: Signal::Sdr,
         }
     }
 
-    /// True if nothing is on screen. The result is a black frame, not an error:
-    /// gaps in a timeline are ordinary.
+    /// True if nothing is on screen. The result is the canvas, not an
+    /// error: gaps in a timeline are ordinary.
     pub fn is_empty(&self) -> bool {
         self.layers.is_empty()
     }
@@ -835,6 +839,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
         time,
         width: timeline.width,
         height: timeline.height,
+        canvas: timeline.canvas,
         layers,
         treatments: Vec::new(),
         output: Signal::Sdr,

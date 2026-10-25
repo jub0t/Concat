@@ -8015,6 +8015,7 @@ impl Studio {
             moving: false,
             proxy: false,
             color_space: self.project().active().video.color_space,
+            canvas: self.project().active().video.canvas,
         };
         let monitor = self.host.monitor.clone();
         let out_dir = project_dir.join("frames");

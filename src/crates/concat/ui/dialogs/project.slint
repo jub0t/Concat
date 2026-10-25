@@ -7,6 +7,7 @@ import { Glyph } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
 import { Select } from "../primitives/select.slint";
 import { NumberField } from "../primitives/number-field.slint";
+import { ColourField } from "../inspector/controls.slint";
 
 // The project sheet: what the Details panel's Modify button opens.
 //
@@ -34,6 +35,8 @@ export struct ProjectSheetData {
     rate-readout: string,
     /// Row in the colour list: SDR, HDR HLG, HDR PQ.
     color-space: int,
+    /// What shows where no picture covers the frame (#456).
+    canvas: color,
 }
 
 export component ProjectDialog inherits Modal {
@@ -46,6 +49,7 @@ export component ProjectDialog inherits Modal {
     callback custom-height-edited(height: float);
     callback custom-fps-edited(fps: float);
     callback color-space-changed(index: int);
+    callback canvas-changed(value: color);
     callback apply();
 
     open: root.data.open;
@@ -185,6 +189,18 @@ export component ProjectDialog inherits Modal {
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
+            }
+
+            // What shows where no picture covers the frame: the gaps, the
+            // space around a title. The timeline's, like the frame above.
+            DialogRow {
+                label: I18n.t("start.background");
+                ColourField {
+                    padding-left: 0;
+                    padding-right: 0;
+                    value: root.data.canvas;
+                    changed(value) => { root.canvas-changed(value); }
+                }
             }
         }
 

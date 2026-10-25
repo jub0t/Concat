@@ -265,6 +265,7 @@ pub(crate) fn build_timeline(
     transitions: Vec<TransitionSpan>,
 ) -> BuiltTimeline {
     let mut timeline = Timeline::new(request.width, request.height, rate);
+    timeline.canvas = request.canvas;
     let mut stills = std::collections::HashSet::new();
     let mut decode_sizes: HashMap<ClipId, (u32, u32)> = HashMap::new();
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();

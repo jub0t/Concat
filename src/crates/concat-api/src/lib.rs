@@ -527,6 +527,7 @@ impl Api {
             video.height,
             video.rate_num,
             video.rate_den,
+            [0, 0, 0],
         )
         .map_err(ApiError::failed)?;
         self.adopt(info)
@@ -861,6 +862,7 @@ impl Api {
                     moving: false,
                     proxy: false,
                     color_space: session.video().color_space,
+                    canvas: session.video().canvas,
                 },
             )
             .map_err(ApiError::failed)?;
@@ -1320,6 +1322,7 @@ mod tests {
             location: location.clone(),
             name: "Round trip".to_owned(),
             video: Some(VideoSettings {
+                canvas: [0, 0, 0],
                 width: 1080,
                 height: 1920,
                 rate_num: 60,
