@@ -40,6 +40,14 @@ export component TextPanel inherits VerticalLayout {
 
     callback set(field: ClipField, value: float);
     callback set-text(field: ClipTextField, value: string);
+    /// The words as typed, and the caret's byte after the edit (-1 when
+    /// not typed), so a coloured word typed into stays coloured.
+    callback set-words(text: string, caret: int);
+    /// Some words selected in the box, by the bytes at either end; the
+    /// two the same is none, and the whole title is styled again.
+    callback select-words(anchor: int, cursor: int);
+    /// The selected words back in the title's own look.
+    callback reset-words();
     callback set-colour(field: ClipTextField, value: color);
     callback commit();
     /// The square beside the font picker: bring a font file of your own in.
@@ -216,6 +224,39 @@ export component TextPanel inherits VerticalLayout {
                     property <string> typed-for;
                     changed clip-id => {
                         self.text = root.selected.content;
+                        self.clear-selection();
+                    }
+
+                    // Words dragged over are the words the typography
+                    // below styles. The selection is told while the box
+                    // has focus, and held when it goes: reaching for the
+                    // colour swatch or B blurs the box, and a blur
+                    // collapses its selection - so it is put back, still
+                    // showing which words the controls are aimed at.
+                    property <int> held-anchor;
+                    property <int> held-cursor;
+                    function hold() {
+                        self.held-anchor = self.anchor-position-byte-offset;
+                        self.held-cursor = self.cursor-position-byte-offset;
+                        root.select-words(self.held-anchor, self.held-cursor);
+                    }
+                    changed cursor-position-byte-offset => {
+                        if (self.has-focus) {
+                            self.hold();
+                        }
+                    }
+                    changed anchor-position-byte-offset => {
+                        if (self.has-focus) {
+                            self.hold();
+                        }
+                    }
+                    // Let go of from outside - Whole title, an undo - the
+                    // highlight goes too.
+                    property <bool> styling: root.selected.styling-words;
+                    changed styling => {
+                        if (!self.styling && !self.has-focus) {
+                            self.clear-selection();
+                        }
                     }
                     // An undo, or the words changed from elsewhere, while the
                     // field is not being typed in.
@@ -233,7 +274,7 @@ export component TextPanel inherits VerticalLayout {
                     // for, since the selection cannot change under a key.
                     edited => {
                         self.typed-for = root.selected.id;
-                        root.set-text(ClipTextField.content, self.text);
+                        root.set-words(self.text, self.cursor-position-byte-offset);
                     }
                     changed has-focus => {
                         if (!self.has-focus) {
@@ -241,10 +282,13 @@ export component TextPanel inherits VerticalLayout {
                             // title they were typed for; written again only
                             // while that title is still the one selected.
                             if (self.typed-for == root.selected.id) {
-                                root.set-text(ClipTextField.content, self.text);
+                                root.set-words(self.text, -1);
                             }
                             self.typed-for = "";
                             root.commit();
+                            if (root.selected.styling-words) {
+                                self.set-selection-offsets(self.held-anchor, self.held-cursor);
+                            }
                         }
                     }
 
@@ -265,6 +309,34 @@ export component TextPanel inherits VerticalLayout {
                     }
                 }
             }
+
+            // What the typography below is aimed at, said where the words
+            // are selected: a person who dragged over a word should not
+            // have to guess whether the colour goes on it or on the lot.
+            HorizontalLayout {
+                padding-top: 6px;
+                spacing: 6px;
+                Text {
+                    text: root.selected.styling-words
+                        ? I18n.t("textPanel.stylingWords")
+                        : I18n.t("textPanel.stylingTitle");
+                    color: root.selected.styling-words ? Theme.accent : Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                if root.selected.styling-words && root.selected.words-styled: Button {
+                    label: I18n.t("textPanel.resetWords");
+                    ghost: true;
+                    clicked => { root.reset-words(); }
+                }
+                if root.selected.styling-words: Button {
+                    label: I18n.t("textPanel.wholeTitle");
+                    ghost: true;
+                    clicked => { root.select-words(0, 0); }
+                }
+            }
         }
     }
 
@@ -282,6 +354,24 @@ export component TextPanel inherits VerticalLayout {
         }
 
         if typography.open: SectionBody {
+        // Folded away, the box above cannot show its selection; this says
+        // the controls here still style those words, and lets them go.
+        if root.selected.styling-words: HorizontalLayout {
+            padding-bottom: 4px;
+            spacing: 6px;
+            Text {
+                text: I18n.t("textPanel.stylingWords");
+                color: Theme.accent;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Button {
+                label: I18n.t("textPanel.wholeTitle");
+                ghost: true;
+                clicked => { root.select-words(0, 0); }
+            }
+        }
         Row {
             label: I18n.t("textPanel.font");
             label-width: root.label-w;
@@ -342,10 +432,58 @@ export component TextPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.font-size, v); root.commit(); }
         }
 
-        SwitchRow {
-            label: I18n.t("textPanel.italic");
-            checked: root.selected.italic;
-            toggled(on) => { root.set(ClipField.italic, on ? 1 : 0); root.commit(); }
+        Row {
+            label: I18n.t("textPanel.style");
+            label-width: root.label-w;
+            IconButton {
+                text: "B";
+                text-weight: 700;
+                label: I18n.t("textPanel.bold");
+                checked: root.selected.font-weight >= 700;
+                clicked => { root.set(ClipField.font-weight, root.selected.font-weight >= 700 ? 400 : 700); root.commit(); }
+            }
+            IconButton {
+                text: "I";
+                text-italic: true;
+                label: I18n.t("textPanel.italic");
+                checked: root.selected.italic;
+                clicked => { root.set(ClipField.italic, root.selected.italic ? 0 : 1); root.commit(); }
+            }
+            IconButton {
+                text: "U̲";
+                label: I18n.t("textPanel.underline");
+                checked: root.selected.underline;
+                clicked => { root.set(ClipField.underline, root.selected.underline ? 0 : 1); root.commit(); }
+            }
+            IconButton {
+                text: "S̶";
+                label: I18n.t("textPanel.strikethrough");
+                checked: root.selected.strikethrough;
+                clicked => { root.set(ClipField.strikethrough, root.selected.strikethrough ? 0 : 1); root.commit(); }
+            }
+        }
+
+        Row {
+            label: I18n.t("textPanel.letterCase");
+            label-width: root.label-w;
+            IconButton {
+                text: "AA";
+                label: I18n.t("textPanel.uppercase");
+                checked: root.selected.text-case == 1;
+                clicked => { root.set(ClipField.text-case, root.selected.text-case == 1 ? 0 : 1); root.commit(); }
+            }
+            IconButton {
+                text: "aa";
+                label: I18n.t("textPanel.lowercase");
+                checked: root.selected.text-case == 2;
+                clicked => { root.set(ClipField.text-case, root.selected.text-case == 2 ? 0 : 2); root.commit(); }
+            }
+            IconButton {
+                text: "Aa";
+                label: I18n.t("textPanel.sentenceCase");
+                checked: root.selected.text-case == 3;
+                clicked => { root.set(ClipField.text-case, root.selected.text-case == 3 ? 0 : 3); root.commit(); }
+            }
         }
 
         // The fill has no alpha of its own: the title's Opacity below is

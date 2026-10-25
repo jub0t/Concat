@@ -227,6 +227,54 @@ pub(crate) fn av_ticks(seconds: Rational) -> i64 {
     scaled.floor()
 }
 
+/// Seeks a file's sound to `at` seconds on the file's clock: the packet of
+/// stream `stream` at or before it, on the sound's own timestamps, never
+/// one after it. The reader cuts exactly at `at`, so a landing short of it
+/// costs a little decoding and a landing past it is sound the cut can never
+/// reach.
+///
+/// The wrapper's `seek` cannot ask this. It seeks by the file's default
+/// stream - the picture, in a file with both - and for the first packet
+/// past the target; a demuxer without an index, MPEG-TS and MPEG-PS,
+/// then finds the packet on the picture's timestamps and hands the sound
+/// interleaved after it. On a Program Stream that is a frame or two of
+/// sound past the cut, which the reader padded as silence: every trimmed
+/// .mpg began its sound late (audit 2026-10-24, E-M2). Asking on the
+/// sound's own stream, and backwards, lands on the packet the cut itself
+/// will keep.
+///
+/// A file whose sound cannot be sought at all - a raw stream with no
+/// timestamps - is read from the top instead, so the cut still comes out
+/// right at the cost of decoding what comes before it; only when even the
+/// top cannot be sought does the error reach the caller.
+pub(crate) fn seek_audio(
+    input: &mut ffmpeg::format::context::Input,
+    stream: usize,
+    at: f64,
+) -> Result<(), ffmpeg::Error> {
+    let time_base = input
+        .stream(stream)
+        .map(|stream| stream.time_base())
+        .ok_or(ffmpeg::Error::StreamNotFound)?;
+    // SAFETY: the input is open for the reader's lifetime, so its format
+    // pointer is valid; the stream index was found in that same input, and
+    // `AVSEEK_FLAG_BACKWARD` is a plain integer.
+    let done = unsafe {
+        ffmpeg::sys::av_seek_frame(
+            input.as_mut_ptr(),
+            stream as libc::c_int,
+            (at * f64::from(time_base.denominator()) / f64::from(time_base.numerator())) as i64,
+            ffmpeg::sys::AVSEEK_FLAG_BACKWARD,
+        )
+    };
+    if done >= 0 {
+        return Ok(());
+    }
+    // The wrapper's fallback: the top of the file, which every demuxer that
+    // can seek at all can reach, and which no index is needed to find.
+    input.seek(0, ..=0).map_err(|_| ffmpeg::Error::from(done))
+}
+
 /// The rotation a stream asks players to apply before showing its frames,
 /// in whole degrees clockwise, normalised to `0..360`.
 ///

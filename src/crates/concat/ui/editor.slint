@@ -154,6 +154,13 @@ export global Editor {
     in-out property <[string]> audio-tracks;
     callback clip-set(field: ClipField, value: float);
     callback clip-set-text(field: ClipTextField, value: string);
+    /// A title's words as typed, and the caret's byte after the edit.
+    callback clip-set-words(text: string, caret: int);
+    /// The Text tab's box selected some of a title's words (or none, when
+    /// anchor and cursor meet): the bytes either end of the selection.
+    callback clip-select-words(anchor: int, cursor: int);
+    /// The selected words back in the title's own look.
+    callback clip-reset-words();
     callback clip-set-colour(field: ClipTextField, value: color);
     callback clip-commit();
     /// The families a title can be set in: the bundled face, the user's

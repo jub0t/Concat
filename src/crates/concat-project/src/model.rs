@@ -1465,6 +1465,101 @@ impl Default for ShapeStyle {
     }
 }
 
+/// Display casing, independent of the editable source text.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TextCase {
+    /// Display all cased letters in uppercase.
+    Upper,
+    /// Display all cased letters in lowercase.
+    Lower,
+    /// Lowercase the text and capitalize sentence initials.
+    Sentence,
+    /// Preserve the editable source's capitalization.
+    #[default]
+    #[serde(other)]
+    Original,
+}
+
+/// What a stretch of a title's words wears over the title's own look: each
+/// field is an override, and one left out is the title's. Every word of a
+/// title is the title's style until a run says otherwise, so a title with
+/// no runs is exactly the title it always was.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RunStyle {
+    /// Fill colour as `#rrggbb`, over the title's `color`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// CSS-scale weight, 100..=900, over the title's `fontWeight`; bold is
+    /// 700, regular 400.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_weight: Option<f64>,
+    /// Italic or upright, over the title's `italic`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
+    /// Underlined or not, over the title's `underline`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub underline: Option<bool>,
+    /// Struck through or not, over the title's `strikethrough`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strikethrough: Option<bool>,
+    /// Size as a multiple of the title's `fontSize`, 0.1..=10: 1.5 is half
+    /// as big again. Relative, not a size of its own, so a word made bigger
+    /// stays bigger by as much when the whole title is resized.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_scale: Option<f64>,
+    /// Outline colour, over the title's `strokeColor`; shows where the
+    /// title has an outline at all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stroke_color: Option<String>,
+}
+
+impl RunStyle {
+    /// No override at all: the title's own look.
+    pub fn is_empty(&self) -> bool {
+        *self == RunStyle::default()
+    }
+
+    /// `over` laid on top of this one: what it says wins, what it leaves
+    /// out stays as this one has it.
+    pub fn and(&self, over: &RunStyle) -> RunStyle {
+        RunStyle {
+            color: over.color.clone().or_else(|| self.color.clone()),
+            font_weight: over.font_weight.or(self.font_weight),
+            italic: over.italic.or(self.italic),
+            underline: over.underline.or(self.underline),
+            strikethrough: over.strikethrough.or(self.strikethrough),
+            font_scale: over.font_scale.or(self.font_scale),
+            stroke_color: over
+                .stroke_color
+                .clone()
+                .or_else(|| self.stroke_color.clone()),
+        }
+    }
+}
+
+/// A stretch of a title's words with a look of its own: some words in
+/// another colour, one in bold. `start` and `end` count characters - Unicode
+/// scalar values, what `str::chars` yields - into the title's `content`,
+/// not bytes, so a caller in any language counts them the way it counts a
+/// string; `end` is one past the last. Kept sorted, apart and non-empty;
+/// see `TextStyle::style_range` and `TextStyle::edit_content`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRun {
+    /// The first character the look covers.
+    pub start: usize,
+    /// One past the last.
+    pub end: usize,
+    /// The look.
+    #[serde(flatten)]
+    pub style: RunStyle,
+}
+
 /// A title's styling. Sizes are fractions of the frame, so a title composed
 /// against 1080p lands correctly exported at 4K. A style arriving in a
 /// command needs only the fields it changes; the rest are the default's, so
@@ -1487,6 +1582,12 @@ pub struct TextStyle {
     pub font_weight: f64,
     /// Italic when true. A style flag, not a separate face.
     pub italic: bool,
+    /// Case is applied for painting; the editable source stays intact.
+    pub text_case: TextCase,
+    /// Draw an underline using the selected face's metrics.
+    pub underline: bool,
+    /// Draw a strike through the text using the selected face's metrics.
+    pub strikethrough: bool,
     /// Fill colour as a CSS hex string, e.g. "#ffffff".
     pub color: String,
     /// Line alignment within the block; see [`TextAlign`].
@@ -1538,9 +1639,24 @@ pub struct TextStyle {
     /// can be a band of a fixed size whatever is written on it.
     /// https://github.com/jub0t/Concat/issues/119
     pub max_height: f64,
+    /// Stretches of the words with a look of their own over the rest of
+    /// this style - a word in another colour, in bold, bigger. Empty for a
+    /// title in one look, and then not written at all, so a document
+    /// without runs is the document it always was and an older build reads
+    /// a document with them as the title in its own look.
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "wire::list")]
+    pub runs: Vec<TextRun>,
 }
 
 impl TextStyle {
+    /// The words as they are painted: the content in the style's case,
+    /// leaving the content itself - what is typed, saved and exported as
+    /// subtitles - as it was written. See [`TextStyle::display`] for the
+    /// runs that go with it.
+    pub fn display_content(&self) -> String {
+        self.display().0
+    }
+
     /// Every number pulled into the range a title can be drawn at: a
     /// hand-edited zero size would render an invisible title, and lines
     /// cannot collapse onto each other.
@@ -1562,6 +1678,7 @@ impl TextStyle {
             finite(self.background_padding_x, base.background_padding_x).max(0.0);
         self.background_padding_y =
             finite(self.background_padding_y, base.background_padding_y).max(0.0);
+        self.tidy_runs();
         self
     }
 }
@@ -1574,6 +1691,9 @@ impl Default for TextStyle {
             font_size: 0.09,
             font_weight: 700.0,
             italic: false,
+            text_case: TextCase::Original,
+            underline: false,
+            strikethrough: false,
             color: "#ffffff".to_owned(),
             align: TextAlign::Center,
             opacity: 1.0,
@@ -1588,6 +1708,7 @@ impl Default for TextStyle {
             tracking: 0.0,
             max_width: 0.0,
             max_height: 0.0,
+            runs: Vec::new(),
         }
     }
 }
@@ -2509,6 +2630,35 @@ pub struct VideoSettings {
     #[serde(default, skip_serializing_if = "ColorSpace::is_sdr")]
     #[serde(deserialize_with = "wire::color_space")]
     pub color_space: ColorSpace,
+    /// What shows where no picture covers the frame - a gap, the space
+    /// around a title, a clip fading in - as `#rrggbb` in the document:
+    /// black unless the project was given another (#456). Left out of the
+    /// document while it is black, so those documents stay as they were.
+    #[serde(default, skip_serializing_if = "is_black", with = "hex_rgb")]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub canvas: [u8; 3],
+}
+
+fn is_black(rgb: &[u8; 3]) -> bool {
+    *rgb == [0, 0, 0]
+}
+
+/// A colour kept as three channels and written as `#rrggbb`, the way the
+/// document writes every colour. One that does not read is black.
+pub mod hex_rgb {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// `#rrggbb`, lower case.
+    pub fn serialize<S: Serializer>(rgb: &[u8; 3], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]))
+    }
+
+    /// `#rrggbb` or `#rrggbbaa`, its alpha ignored; black for anything
+    /// else.
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 3], D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(value.as_str().and_then(super::rgb_of).unwrap_or([0, 0, 0]))
+    }
 }
 
 impl Default for VideoSettings {
@@ -2521,6 +2671,7 @@ impl Default for VideoSettings {
             rate_num: 30,
             rate_den: 1,
             color_space: ColorSpace::Sdr,
+            canvas: [0, 0, 0],
         }
     }
 }
@@ -2572,6 +2723,7 @@ impl VideoSettings {
                 fallback.rate_den
             },
             color_space: self.color_space,
+            canvas: self.canvas,
         }
     }
 

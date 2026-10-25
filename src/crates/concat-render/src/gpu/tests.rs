@@ -130,6 +130,27 @@ fn empty_output_is_opaque_black() {
     assert_eq!(frame.pixel(3, 3), Some([0, 0, 0, 255]));
 }
 
+/// The canvas colour comes back out as it went in: cleared in linear
+/// light through the upload's gamma and resolved back, within a level.
+#[test]
+fn an_empty_frame_is_the_canvas_colour() {
+    let Some(mut gpu) = gpu() else { return };
+    for canvas in [[0, 177, 64], [255, 255, 255], [0, 71, 187], [31, 31, 31]] {
+        let frame = gpu.render(&FramePlan {
+            canvas,
+            ..FramePlan::empty(4, 4)
+        });
+        let pixel = frame.pixel(2, 2).expect("a pixel");
+        for channel in 0..3 {
+            assert!(
+                pixel[channel].abs_diff(canvas[channel]) <= 1,
+                "{canvas:?} came back {pixel:?}"
+            );
+        }
+        assert_eq!(pixel[3], 255);
+    }
+}
+
 #[test]
 fn plain_layers_match_the_cpu_reference_to_the_pixel() {
     let Some(mut gpu) = gpu() else { return };
@@ -925,6 +946,7 @@ fn a_transition_kept_on_the_device_matches_the_read_back_one() {
         time: concat_core::time::Rational::new(1, 2),
         width,
         height,
+        canvas: [0, 0, 0],
         layers: vec![PlannedLayer::picture(
             detached_clip(),
             Arc::new(solid(width, height, colour)),
@@ -982,6 +1004,7 @@ fn a_frame_drawn_before_is_not_uploaded_again() {
             time: concat_core::time::Rational::new(0, 1),
             width: 64,
             height: 36,
+            canvas: [0, 0, 0],
             layers: vec![PlannedLayer::picture(detached_clip(), Arc::clone(frame))],
             treatments: Vec::new(),
             output: concat_core::frame::Signal::Sdr,
@@ -1022,6 +1045,7 @@ fn the_pool_stays_within_its_limits() {
             time: concat_core::time::Rational::new(0, 1),
             width: 4,
             height: 4,
+            canvas: [0, 0, 0],
             layers: vec![PlannedLayer::picture(detached_clip(), frame)],
             treatments: Vec::new(),
             output: concat_core::frame::Signal::Sdr,

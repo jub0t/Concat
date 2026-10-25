@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::model::{
     AppliedFilter, AudioTrack, Background, Clip, ClipKind, ClipMask, ColorRange, ColorSpace, Crop,
     CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty, MediaItem, MediaKind,
-    MediaOrigin, Project, ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track,
-    Transition, VideoSettings,
+    MediaOrigin, Project, RunStyle, ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline,
+    Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -688,6 +688,38 @@ pub enum Command {
         /// Which properties change, and to what.
         patch: ClipPatch,
     },
+    /// Gives some of a title's words a look of their own: each field of
+    /// `patch` is laid over the characters `start..end` of its words, and
+    /// each it leaves out stays as it was there - the title's own look, or
+    /// what an earlier run gave them. `start` and `end` count characters
+    /// (Unicode scalar values), not bytes, and are clamped to the words; an
+    /// empty range, an empty patch, a clip that is not a title or an
+    /// unknown clip is a no-op. The title's own style is untouched, so the
+    /// words left out keep following it. See `TextStyle::runs`.
+    StyleTextRange {
+        /// The title.
+        clip_id: String,
+        /// The first character to style.
+        start: usize,
+        /// One past the last.
+        end: usize,
+        /// The overrides to lay over them.
+        patch: RunStyle,
+    },
+    /// Gives a title's words back to its own look: every run is cut out of
+    /// the characters `start..end`, or out of all of them when either end
+    /// is absent. Counted and clamped as in `styleTextRange`; a clip that
+    /// is not a title or an unknown clip is a no-op.
+    ClearTextStyles {
+        /// The title.
+        clip_id: String,
+        /// The first character, absent for the start of the words.
+        #[serde(default)]
+        start: Option<usize>,
+        /// One past the last, absent for the end of the words.
+        #[serde(default)]
+        end: Option<usize>,
+    },
     /// Changes playback rate while holding the amount of source covered
     /// constant - the clip's timeline duration is what stretches, which is
     /// what makes this a speed change rather than a trim.
@@ -1245,6 +1277,8 @@ pub fn apply(
         | Command::ConsolidateClips { .. }
         | Command::RemoveClips { .. }) => clips::apply(project, mint, command),
         command @ (Command::UpdateClip { .. }
+        | Command::StyleTextRange { .. }
+        | Command::ClearTextStyles { .. }
         | Command::MatchClip { .. }
         | Command::SetClipSpeed { .. }
         | Command::SetClipCutout { .. }

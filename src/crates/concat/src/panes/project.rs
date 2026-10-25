@@ -25,6 +25,8 @@ pub enum ProjectMsg {
     CustomFps(f32),
     /// A row of the colour list: SDR, HDR HLG, HDR PQ.
     ColorSpaceChanged(i32),
+    /// What shows where no picture covers the frame, `[r, g, b]` (#456).
+    CanvasChanged([u8; 3]),
     Apply,
 }
 
@@ -43,6 +45,8 @@ pub struct ProjectPane {
     pub custom_rate: (i64, i64),
     /// What the timeline is output in.
     pub color_space: ColorSpace,
+    /// What shows where no picture covers the frame.
+    pub canvas: [u8; 3],
 }
 
 /// The colour list's rows, in the sheet's order.
@@ -76,6 +80,7 @@ impl ProjectPane {
                     custom_size: (width, height),
                     custom_rate: (num, den),
                     color_space: video.color_space,
+                    canvas: video.canvas,
                 };
             }
             ProjectMsg::Close => self.open = false,
@@ -105,6 +110,7 @@ impl ProjectPane {
                 self.color_space =
                     COLOR_SPACES[(index.max(0) as usize).min(COLOR_SPACES.len() - 1)];
             }
+            ProjectMsg::CanvasChanged(canvas) => self.canvas = canvas,
             ProjectMsg::Apply => self.apply(studio),
         }
     }
@@ -127,6 +133,7 @@ impl ProjectPane {
         video.rate_num = num;
         video.rate_den = den;
         video.color_space = sheet.color_space;
+        video.canvas = sheet.canvas;
         session.prepare_save((!name.is_empty()).then_some(name.as_str()));
         if !name.is_empty() {
             studio.project_name = name;
@@ -177,6 +184,7 @@ impl ProjectPane {
                 .iter()
                 .position(|space| *space == self.color_space)
                 .unwrap_or(0) as i32,
+            canvas: slint::Color::from_rgb_u8(self.canvas[0], self.canvas[1], self.canvas[2]),
         }
     }
 }

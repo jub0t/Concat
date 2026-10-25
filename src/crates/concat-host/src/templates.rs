@@ -299,6 +299,7 @@ pub fn instantiate(
         info.height,
         info.rate_num,
         info.rate_den,
+        [0, 0, 0],
     )?;
     let root = PathBuf::from(&project.path);
 
@@ -347,6 +348,7 @@ pub fn instantiate(
         height: info.height,
         rate_num: info.rate_num,
         rate_den: info.rate_den,
+        canvas: editor.project().active().video.canvas,
     };
     projects::save(&project.path, &editor.to_document(&settings))?;
 
@@ -487,6 +489,7 @@ mod tests {
         }
 
         let settings = DocumentSettings {
+            canvas: [0, 0, 0],
             name: "Beat Intro".to_owned(),
             width: 1920,
             height: 1080,

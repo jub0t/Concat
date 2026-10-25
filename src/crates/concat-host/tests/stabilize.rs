@@ -175,6 +175,7 @@ fn a_shaky_shot_is_measured_and_held_still() {
         HEIGHT,
         30,
         1,
+        [0, 0, 0],
     )
     .expect("creates the project");
     let mut session = Session::open_info(&info).expect("opens the project");
@@ -291,6 +292,7 @@ fn a_shaky_shot_is_measured_and_held_still() {
                 Arc::clone(&clips),
                 &session.settings(),
                 FrameSpec {
+                    canvas: [0, 0, 0],
                     time: k as f64 / 30.0,
                     width: WIDTH,
                     height: HEIGHT,

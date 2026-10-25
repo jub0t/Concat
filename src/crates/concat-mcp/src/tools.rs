@@ -360,8 +360,20 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "title_add",
             "Add a title",
-            "Places a title (text over the picture) at `start` seconds for `duration` seconds (4 s when absent). `style` sets the words and look - `content`, `fontFamily`, `fontSize` (fraction of frame height, 0.09 by default), `fontWeight` (100-900), `color` (\"#rrggbb\"), `align`, `background`, `strokeWidth`... - and needs only the fields that differ from the default. `offsetY` places it vertically as a fraction of frame height from the centre (positive is down). With no `trackId` and `above: true` it lands on a lane above the picture. The new clip's id is `createdId`.",
+            "Places a title (text over the picture) at `start` seconds for `duration` seconds (4 s when absent). `style` sets the words and look - `content`, `fontFamily`, `fontSize` (fraction of frame height, 0.09 by default), `fontWeight` (100-900), `color` (\"#rrggbb\"), `align`, `background`, `strokeWidth`... - and needs only the fields that differ from the default. `offsetY` places it vertically as a fraction of frame height from the centre (positive is down). With no `trackId` and `above: true` it lands on a lane above the picture. The new clip's id is `createdId`. To give some of its words a look of their own afterwards, use `title_style_words`.",
             "addTextClip",
+        ),
+        command(
+            "title_style_words",
+            "Style some of a title's words",
+            "Gives some of a title's words a look of their own, as dragging over them in the window's Text tab does: the characters `start` to `end` (counted in characters of the title's text, not bytes; `end` is one past the last) wear each field of `patch` - `color` (\"#rrggbb\"), `fontWeight` (100-900), `italic`, `underline`, `strikethrough`, `fontScale` (a multiple of the title's size, 0.1-10) and `strokeColor` - over the title's own look. Fields left out stay as they were on those characters; the rest of the title is untouched and keeps following its style. Typed words carry these looks along. `timeline_read` lists them as the clip's `textRuns`.",
+            "styleTextRange",
+        ),
+        command(
+            "title_clear_word_styles",
+            "Clear words' own looks",
+            "Gives a title's words back to its own look: every look of their own between the characters `start` and `end`, or on all of its words when they are left out.",
+            "clearTextStyles",
         ),
         Tool {
             name: "captions_add",
@@ -779,7 +791,12 @@ fn captions(mut arguments: Value) -> Result<Request, ApiError> {
             "fontSize": 0.04,
             "fontWeight": 600,
         }),
-        Some(Value::Object(style)) => Value::Object(style),
+        // Some words' looks are about one title's words, not every
+        // caption's, so a style's runs do not carry over.
+        Some(Value::Object(mut style)) => {
+            style.remove("runs");
+            Value::Object(style)
+        }
         Some(_) => return Err(invalid("`style` is an object")),
     };
     if let Some(unknown) = fields.keys().next() {
@@ -1010,6 +1027,14 @@ mod tests {
             (
                 "title_add",
                 json!({ "path": "/tmp/Cut", "start": 1.0, "duration": 3.0, "above": true, "style": { "content": "Hello", "fontSize": 0.08, "align": "left" }, "offsetY": -0.3 }),
+            ),
+            (
+                "title_style_words",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "start": 0, "end": 4, "patch": { "color": "#ffd400", "fontWeight": 800 } }),
+            ),
+            (
+                "title_clear_word_styles",
+                json!({ "path": "/tmp/Cut", "clipId": "c1" }),
             ),
             (
                 "captions_add",

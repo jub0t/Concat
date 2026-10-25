@@ -29,7 +29,7 @@ use concat_export::{ClipKind, ExportClip};
 use concat_project::model::{
     ClipKind as ModelClipKind, KeyProperty, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
 };
-use concat_text::{Align, Figure, Fonts, TitleStyle, WordRect};
+use concat_text::{Align, Figure, Fonts, TitleRun, TitleStyle, WordRect};
 
 use crate::dirs::AppDirs;
 
@@ -493,8 +493,9 @@ fn key_of(project: &Project, painting: Painting<'_>, width: u32, height: u32) ->
     // Bumped when the painter's output changes for the same input, so stale
     // files are not mistaken for current ones. 3: left- and right-aligned
     // blocks moved to their anchors. 4: the sidecar gained each word's box,
-    // for a per-word reveal effect to read back.
-    bytes.extend_from_slice(&4u32.to_le_bytes());
+    // for a per-word reveal effect to read back. 5: a title's lines are as
+    // tall as their biggest word, and each look is painted on its own.
+    bytes.extend_from_slice(&5u32.to_le_bytes());
     crate::media::fnv1a(&bytes)
 }
 
@@ -569,12 +570,17 @@ fn reveal_of(words: &[WordRect], width: u32, height: u32) -> Arc<RevealMap> {
 
 /// The document's style, field for field, in the painter's terms.
 fn title_style(style: &TextStyle) -> TitleStyle {
+    // The words in their case, and the runs moved onto the characters
+    // their own became in it.
+    let (content, runs) = style.display();
     TitleStyle {
-        content: style.content.clone(),
+        content,
         font_family: style.font_family.clone(),
         font_size: style.font_size,
         font_weight: style.font_weight,
         italic: style.italic,
+        underline: style.underline,
+        strikethrough: style.strikethrough,
         color: style.color.clone(),
         align: match style.align {
             TextAlign::Left => Align::Left,
@@ -592,6 +598,20 @@ fn title_style(style: &TextStyle) -> TitleStyle {
         max_width: style.max_width,
         max_height: style.max_height,
         tracking: style.tracking,
+        runs: runs
+            .into_iter()
+            .map(|run| TitleRun {
+                start: run.start,
+                end: run.end,
+                color: run.style.color,
+                font_weight: run.style.font_weight,
+                italic: run.style.italic,
+                underline: run.style.underline,
+                strikethrough: run.style.strikethrough,
+                font_scale: run.style.font_scale,
+                stroke_color: run.style.stroke_color,
+            })
+            .collect(),
     }
 }
 
@@ -723,6 +743,66 @@ mod tests {
         assert_eq!(title.offset_x, 0.0);
         assert_eq!(title.scale, 1.0, "an unkeyed property keeps the clip's own");
         assert!(!title.animation.is_empty(), "the keys travel with it");
+        let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
+    }
+
+    /// Some words styled are a different picture, painted again, with the
+    /// runs on the characters the painter is given - in capitals, "ß" is
+    /// two of them, and the run after it moves along by one.
+    #[test]
+    fn styled_words_are_a_new_picture_and_follow_the_case() {
+        let dirs = scratch("styled_words");
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddTextClip {
+                above: false,
+                track_id: None,
+                start: 0.0,
+                style: Some(TextStyle {
+                    content: "straße rot".into(),
+                    ..TextStyle::default()
+                }),
+                duration: Some(3.0),
+                offset_y: None,
+            })
+            .expect("a title is added")
+            .created_id
+            .expect("with an id");
+        let titles = Titles::new(&dirs);
+        let plain = titles.clips(editor.project(), 640, 360)[0]
+            .clip
+            .path
+            .clone();
+        editor
+            .apply(Command::StyleTextRange {
+                clip_id: id.clone(),
+                start: 7,
+                end: 10,
+                patch: concat_project::model::RunStyle {
+                    color: Some("#ff0000".into()),
+                    ..Default::default()
+                },
+            })
+            .expect("styles");
+        let styled = titles.clips(editor.project(), 640, 360)[0]
+            .clip
+            .path
+            .clone();
+        assert_ne!(styled, plain, "a different picture");
+
+        let mut text = editor
+            .project()
+            .active()
+            .clip(&id)
+            .unwrap()
+            .text
+            .clone()
+            .unwrap();
+        text.text_case = concat_project::model::TextCase::Upper;
+        let painted = title_style(&text);
+        assert_eq!(painted.content, "STRASSE ROT");
+        assert_eq!((painted.runs[0].start, painted.runs[0].end), (8, 11));
+        assert_eq!(painted.runs[0].color.as_deref(), Some("#ff0000"));
         let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 

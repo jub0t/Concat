@@ -218,8 +218,8 @@ pub fn wave_path(
     /// screen wide reads a column a pixel, few enough that the string stays
     /// under a few hundred kilobytes.
     const COLUMNS: std::ops::RangeInclusive<usize> = 8..=4096;
-    /// Silence still draws a sliver: a hairline through the middle of a
-    /// clip rather than a gap in it.
+    /// Silence still draws a sliver: a hairline along the floor of a clip
+    /// rather than a gap in it.
     const FLOOR: f32 = 0.024;
 
     if duration.is_nan() || duration <= 0.0 || peaks.finest().is_empty() {
@@ -231,9 +231,10 @@ pub fn wave_path(
 
     // Each bar is the peak of everything under its pitch, drawn on the
     // leading `bar` of it: the rest is the gap that makes it a bar and
-    // not a run of columns. Bars stand about the centre line, the way
-    // every editor draws sound, so a beat reads as a spike both ways and
-    // silence as a hairline through the middle (#105).
+    // not a run of columns. Bars stand on the floor, the way CapCut draws
+    // a clip's sound: a beat reads as a spike up and silence as a hairline
+    // along the foot. They stood about the centre line for a while (#105),
+    // and the mirrored fish read as a shape, not as a level.
     let bar = bar.clamp(0.1, 1.0);
     let pitch = 1.0 / columns as f32;
     for column in 0..columns {
@@ -243,15 +244,19 @@ pub fn wave_path(
             source_start + (left + pitch) * duration,
         );
         let right = left + pitch * bar;
-        let amplitude = high.max(-low).clamp(0.0, 1.0).max(FLOOR);
-        let top = 0.5 - amplitude / 2.0;
-        let bottom = 0.5 + amplitude / 2.0;
-        path.push_str(&format!(
-            "M {left:.4} {top:.4} L {right:.4} {top:.4} \
-             L {right:.4} {bottom:.4} L {left:.4} {bottom:.4} Z "
-        ));
+        push_bar(&mut path, left, right, high.max(-low).max(FLOOR));
     }
     path
+}
+
+/// One bar from `left` to `right` of the 1x1 box, standing on its floor
+/// and `amplitude` of the box tall.
+fn push_bar(path: &mut String, left: f32, right: f32, amplitude: f32) {
+    let top = 1.0 - amplitude.clamp(0.0, 1.0);
+    path.push_str(&format!(
+        "M {left:.4} {top:.4} L {right:.4} {top:.4} \
+         L {right:.4} 1.0000 L {left:.4} 1.0000 Z "
+    ));
 }
 
 /// A lane bar's pitch on screen, in pixels: one bar, and the gap after
@@ -269,7 +274,7 @@ pub const WAVE_BAR: f32 = 2.0 / 3.0;
 
 /// An envelope already reduced to one peak a bar - a library sound's,
 /// read once at import - drawn the way [`wave_path`] draws a file's: bars
-/// about the centre line, each the leading `bar` of its pitch, in a 1x1
+/// standing on the floor, each the leading `bar` of its pitch, in a 1x1
 /// box.
 pub fn bars_path(bars: &[f32], bar: f32) -> String {
     /// See `wave_path`: silence is a hairline, not a gap.
@@ -283,13 +288,7 @@ pub fn bars_path(bars: &[f32], bar: f32) -> String {
     for (column, amplitude) in bars.iter().enumerate() {
         let left = column as f32 * pitch;
         let right = left + pitch * bar;
-        let amplitude = amplitude.clamp(0.0, 1.0).max(FLOOR);
-        let top = 0.5 - amplitude / 2.0;
-        let bottom = 0.5 + amplitude / 2.0;
-        path.push_str(&format!(
-            "M {left:.4} {top:.4} L {right:.4} {top:.4} \
-             L {right:.4} {bottom:.4} L {left:.4} {bottom:.4} Z "
-        ));
+        push_bar(&mut path, left, right, amplitude.max(FLOOR));
     }
     path
 }
@@ -451,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn a_waveform_has_one_centred_bar_per_column() {
+    fn a_waveform_has_one_floored_bar_per_column() {
         let peaks = concat_media::Pyramid::of(concat_media::Peaks {
             min: vec![-0.5; 2000],
             max: vec![0.5; 2000],
@@ -459,11 +458,10 @@ mod tests {
         });
         let wave = wave_path(&peaks, 0.0, 2.0, 128, WAVE_BAR);
         assert_eq!(wave.matches('M').count(), 128);
-        // A bar stands about the centre: half amplitude runs from a
-        // quarter of the way down to three quarters.
+        // A bar stands on the floor: its top is one less its height.
         assert!(
-            wave.contains(" 0.2500 L") && wave.contains(" 0.7500 Z"),
-            "half amplitude, centred: {wave}"
+            wave.contains(" 0.5000 L") && wave.contains(" 1.0000 Z"),
+            "half amplitude, floored: {wave}"
         );
         assert!(wave_path(&peaks, 0.0, 0.0, 128, WAVE_BAR).is_empty());
         assert!(wave_path(&peaks, 0.0, f32::NAN, 128, WAVE_BAR).is_empty());
@@ -482,16 +480,16 @@ mod tests {
         );
         // A bar takes `bar` of its pitch; the rest is the gap.
         let eight = wave_path(&peaks, 0.0, 2.0, 8, 0.75);
-        assert!(eight.contains("M 0.0000 0.2500 L 0.0938 0.2500"), "{eight}");
-        assert!(eight.contains("M 0.1250 0.2500 L 0.2188 0.2500"), "{eight}");
+        assert!(eight.contains("M 0.0000 0.5000 L 0.0938 0.5000"), "{eight}");
+        assert!(eight.contains("M 0.1250 0.5000 L 0.2188 0.5000"), "{eight}");
         let thin = wave_path(&peaks, 0.0, 2.0, 8, 0.5);
-        assert!(thin.contains("M 0.0000 0.2500 L 0.0625 0.2500"), "{thin}");
+        assert!(thin.contains("M 0.0000 0.5000 L 0.0625 0.5000"), "{thin}");
         // Held to a sliver at the least, and never over the pitch.
         let hair = wave_path(&peaks, 0.0, 2.0, 8, 0.0);
-        assert!(hair.contains("M 0.0000 0.2500 L 0.0125 0.2500"), "{hair}");
+        assert!(hair.contains("M 0.0000 0.5000 L 0.0125 0.5000"), "{hair}");
         let solid = wave_path(&peaks, 0.0, 2.0, 8, 7.0);
-        assert!(solid.contains("M 0.0000 0.2500 L 0.1250 0.2500"), "{solid}");
-        // Silence is a hairline through the middle, never a gap.
+        assert!(solid.contains("M 0.0000 0.5000 L 0.1250 0.5000"), "{solid}");
+        // Silence is a sliver on the floor, never a gap.
         let silence = concat_media::Pyramid::of(concat_media::Peaks {
             min: vec![0.0; 100],
             max: vec![0.0; 100],
@@ -499,10 +497,7 @@ mod tests {
         });
         let flat = wave_path(&silence, 0.0, 1.0, 10, WAVE_BAR);
         assert_eq!(flat.matches('M').count(), 10);
-        assert!(
-            flat.contains(" 0.4880 L") && flat.contains(" 0.5120 Z"),
-            "{flat}"
-        );
+        assert!(flat.contains(" 0.9760 L"), "{flat}");
     }
 
     /// A zoomed-in clip reads the fine buckets: a single loud millisecond

@@ -69,6 +69,11 @@ pub struct ProjectInfo {
     pub rate_num: i64,
     /// Denominator of the frame rate.
     pub rate_den: i64,
+    /// What shows where no picture covers the frame, for a project's first
+    /// timeline; see `VideoSettings::canvas`. Black for a recents entry
+    /// written before there was one.
+    #[serde(default)]
+    pub canvas: [u8; 3],
     /// Milliseconds since the epoch.
     pub opened_at: u64,
 }
@@ -96,6 +101,17 @@ struct Video {
     height: u32,
     rate_num: i64,
     rate_den: i64,
+    /// `#rrggbb`, left out while black; see `VideoSettings::canvas`.
+    #[serde(
+        default,
+        skip_serializing_if = "is_black",
+        with = "concat_project::model::hex_rgb"
+    )]
+    canvas: [u8; 3],
+}
+
+fn is_black(rgb: &[u8; 3]) -> bool {
+    *rgb == [0, 0, 0]
 }
 
 fn now_millis() -> u64 {
@@ -116,6 +132,7 @@ pub fn create(
     height: u32,
     rate_num: i64,
     rate_den: i64,
+    canvas: [u8; 3],
 ) -> Result<ProjectInfo, String> {
     let root = Path::new(location).join(folder_name(name));
     let manifest = root.join(MANIFEST);
@@ -143,6 +160,7 @@ pub fn create(
             height,
             rate_num,
             rate_den,
+            canvas,
         },
         rest: serde_json::Map::new(),
     };
@@ -159,6 +177,7 @@ pub fn create(
         height,
         rate_num,
         rate_den,
+        canvas,
         opened_at: now_millis(),
     })
 }
@@ -459,6 +478,7 @@ pub fn open(path: &str) -> Result<ProjectInfo, String> {
         name: document.name,
         width: document.video.width,
         height: document.video.height,
+        canvas: document.video.canvas,
         rate_num: document.video.rate_num,
         rate_den: document.video.rate_den,
         opened_at: now_millis(),
@@ -666,7 +686,7 @@ mod tests {
     #[test]
     fn a_project_named_nul_is_created_and_reads_back() {
         let location = scratch("device-name");
-        let info = create(&location, "nul", 1920, 1080, 30, 1).expect("creates");
+        let info = create(&location, "nul", 1920, 1080, 30, 1, [0, 0, 0]).expect("creates");
         assert!(is_project(Path::new(&info.path)));
         assert_eq!(info.name, "nul");
     }

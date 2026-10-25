@@ -339,6 +339,8 @@ impl Painter {
             font_size: 0.26,
             font_weight: 800.0,
             italic: false,
+            underline: false,
+            strikethrough: false,
             color: "#ffffff".to_owned(),
             align: concat_text::Align::Center,
             stroke_width: 0.0,
@@ -352,6 +354,7 @@ impl Painter {
             tracking: 0.0,
             max_width: 0.0,
             max_height: 0.0,
+            runs: Vec::new(),
         };
         let fonts = concat_text::Fonts::new();
         let rendered = concat_text::render_frame(&fonts, &style, width, height)

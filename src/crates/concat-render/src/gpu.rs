@@ -1518,7 +1518,7 @@ impl WgpuCompositor {
                 self.push_layer(&mut draws, &mut vertices, plan, &plan.layers[next]);
                 next += 1;
             }
-            let below = self.render_pooled(width, height, &draws, &vertices, wgpu::Color::BLACK);
+            let below = self.render_pooled(width, height, &draws, &vertices, clear_of(plan.canvas));
             let strength = treatment.strength.clamp(0.0, 1.0);
             if strength <= 0.0 || treatment.effects.is_empty() {
                 ground = Some(below);
@@ -1536,7 +1536,7 @@ impl WgpuCompositor {
                 let mut vertices = Vec::new();
                 self.push_pooled(&mut draws, &mut vertices, width, height, below, 1.0);
                 self.push_pooled(&mut draws, &mut vertices, width, height, treated, strength);
-                self.render_pooled(width, height, &draws, &vertices, wgpu::Color::BLACK)
+                self.render_pooled(width, height, &draws, &vertices, clear_of(plan.canvas))
             });
         }
         let mut draws = Vec::new();
@@ -1791,7 +1791,7 @@ impl WgpuCompositor {
         let (canvas, canvas_texture, canvas_view) = self.canvas(plan.width, plan.height);
         let texture = self.presentable(plan.width, plan.height);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.encode(&canvas_view, &canvas_texture, &draws, wgpu::Color::BLACK);
+        let mut encoder = self.encode(&canvas_view, &canvas_texture, &draws, clear_of(plan.canvas));
         self.resolve(&mut encoder, (plan.width, plan.height), canvas, &view);
         self.queue.submit([encoder.finish()]);
         self.retire();
@@ -2963,7 +2963,7 @@ impl WgpuCompositor {
             let (draws, vertices) = self.prepare(plan);
             self.write_vertices(&vertices);
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let encoder = self.encode(&view, texture, &draws, wgpu::Color::BLACK);
+            let encoder = self.encode(&view, texture, &draws, clear_of(plan.canvas));
             self.queue.submit([encoder.finish()]);
         }
         let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -3530,6 +3530,19 @@ impl WgpuCompositor {
     }
 }
 
+/// A plan's canvas colour as the working space holds it: each eight-bit
+/// level through the 2.4 gamma every picture is uploaded through, so the
+/// canvas and a still of the same colour come out the same, 1.0 SDR white.
+fn clear_of([r, g, b]: [u8; 3]) -> wgpu::Color {
+    let light = |level: u8| (f64::from(level) / 255.0).powf(2.4);
+    wgpu::Color {
+        r: light(r),
+        g: light(g),
+        b: light(b),
+        a: 1.0,
+    }
+}
+
 impl Compositor for WgpuCompositor {
     fn render(&mut self, plan: &FramePlan) -> Frame {
         // A dead device never comes back for this instance. What it hands
@@ -3552,7 +3565,7 @@ impl Compositor for WgpuCompositor {
         let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let (draws, vertices) = self.prepare(plan);
         self.write_vertices(&vertices);
-        let frame = self.render_and_read(plan.width, plan.height, &draws);
+        let frame = self.render_and_read(plan.width, plan.height, &draws, clear_of(plan.canvas));
         let refused = pollster::block_on(validation.pop());
         let exhausted = pollster::block_on(memory.pop());
         let errors = [exhausted, refused].into_iter().flatten();
@@ -3662,14 +3675,20 @@ impl Compositor for WgpuCompositor {
 impl WgpuCompositor {
     /// Draws into the readback target and copies it out: one submit, one
     /// wait. `None` when the device did not deliver the pixels.
-    fn render_and_read(&mut self, width: u32, height: u32, draws: &[Draw]) -> Option<Frame> {
+    fn render_and_read(
+        &mut self,
+        width: u32,
+        height: u32,
+        draws: &[Draw],
+        clear: wgpu::Color,
+    ) -> Option<Frame> {
         let (canvas, canvas_texture, canvas_view) = self.canvas(width, height);
         self.target(width, height);
         let target = self.current_target();
         let view = target
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.encode(&canvas_view, &canvas_texture, draws, wgpu::Color::BLACK);
+        let mut encoder = self.encode(&canvas_view, &canvas_texture, draws, clear);
         self.resolve(&mut encoder, (width, height), canvas, &view);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {

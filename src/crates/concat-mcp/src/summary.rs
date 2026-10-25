@@ -116,6 +116,14 @@ fn clip_of(clip: &Value) -> Value {
     if let Some(text) = clip.pointer("/text/content") {
         out.insert("text".into(), text.clone());
     }
+    // Words in a look of their own, as the document has them: characters
+    // into the text, and only the fields each overrides.
+    if let Some(runs) = clip
+        .pointer("/text/runs")
+        .filter(|runs| runs.as_array().is_some_and(|runs| !runs.is_empty()))
+    {
+        out.insert("textRuns".into(), runs.clone());
+    }
     if let Some(shape) = clip.pointer("/shape/kind") {
         out.insert("shape".into(), shape.clone());
     }

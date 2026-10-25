@@ -210,9 +210,7 @@ impl AudioDecoder {
         if let Some(start) = options.start
             && start > 0.0
         {
-            let target = ((start + origin) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
-            input
-                .seek(target, ..=target)
+            ffi::seek_audio(&mut input, stream_index, start + origin)
                 .map_err(|error| ffi::fail("seek", path, error))?;
         }
 
@@ -631,5 +629,31 @@ mod tests {
     #[test]
     fn a_missing_file_is_an_error_not_a_panic() {
         assert!(AudioDecoder::open("does-not-exist.mp3", &AudioOptions::default()).is_err());
+    }
+
+    /// A window cut into a file with both sound and picture starts its
+    /// sound where the cut is, not behind it. The Program Stream
+    /// interleaves its sound behind its picture, and the seek used to be
+    /// made on the picture's timestamps, forward: it landed on the picture
+    /// at the cut and handed the sound from after it - a frame or two of
+    /// silence in front of every trimmed .mpg. The transport stream
+    /// interleaves tightly and landed either way; it is here to prove the
+    /// seek on the sound's own stream keeps that. Each fixture sounds a
+    /// tone from half a second in, so every cut here is inside it.
+    #[test]
+    fn a_cut_starts_its_sound_where_the_cut_is_whichever_way_the_file_interleaves() {
+        let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        for (name, cut) in [
+            ("sound-behind-the-picture.mpg", 1.0),
+            ("sound-behind-the-picture.mpg", 3.5),
+            ("keyframes-3s-apart.ts", 1.0),
+            ("keyframes-3s-apart.ts", 4.0),
+        ] {
+            let onset = tone_onset(&format!("{fixtures}{name}"), Some(cut));
+            assert!(
+                onset < 0.03,
+                "{name} cut {cut} s in: the tone starts {onset:.3} s behind the cut"
+            );
+        }
     }
 }

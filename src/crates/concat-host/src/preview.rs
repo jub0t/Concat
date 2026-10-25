@@ -50,6 +50,9 @@ pub struct FrameSpec {
     /// What the timeline is output in: an HDR one keeps its clips' light
     /// above white and is rolled off for the SDR screen.
     pub color_space: ColorSpace,
+    /// What shows where no picture covers the frame; see
+    /// `VideoSettings::canvas`.
+    pub canvas: [u8; 3],
 }
 
 /// The reader pool behind the monitor, shareable across threads.
@@ -74,6 +77,7 @@ struct PlanEntry {
     height: u32,
     rate: (i64, i64),
     color_space: ColorSpace,
+    canvas: [u8; 3],
     plan: Arc<concat_export::PreviewPlan>,
 }
 
@@ -228,6 +232,7 @@ impl Monitor {
             // layer of its own.
             let frame = sources.composite(&mut *gpu);
             let mut plan = concat_render::FramePlan::empty(spec.width, spec.height);
+            plan.canvas = spec.canvas;
             plan.layers.push(concat_render::PlannedLayer::picture(
                 concat_render::detached_clip(),
                 Arc::new(frame),
@@ -260,6 +265,7 @@ impl Monitor {
             && entry.height == spec.height
             && entry.rate == rate
             && entry.color_space == spec.color_space
+            && entry.canvas == spec.canvas
             && (Arc::ptr_eq(&entry.clips, &clips) || *entry.clips == *clips)
         {
             return Arc::clone(&entry.plan);
@@ -271,6 +277,7 @@ impl Monitor {
             rate.0,
             rate.1,
             spec.color_space,
+            spec.canvas,
         ));
         *slot = Some(PlanEntry {
             clips,
@@ -278,6 +285,7 @@ impl Monitor {
             height: spec.height,
             rate,
             color_space: spec.color_space,
+            canvas: spec.canvas,
             plan: Arc::clone(&plan),
         });
         plan

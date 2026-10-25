@@ -161,6 +161,7 @@ impl Consolidation {
         let hdr = self.video.color_space.is_hdr();
         ExportRequest {
             output: output.to_string_lossy().into_owned(),
+            canvas: self.video.canvas,
             width: self.video.width,
             height: self.video.height,
             rate_num: self.video.rate_num,

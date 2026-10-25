@@ -976,6 +976,13 @@ pub struct Studio {
     /// The clips the echo was written for; see `commit_now`. Several when
     /// the inspector edits every selected title at once.
     commit_targets: Vec<String>,
+    /// The words of the selected title that the Text tab's styling
+    /// controls are aimed at - (clip, start, end) in characters of its
+    /// content - while some are selected in its text box. None styles the
+    /// whole title, as the tab always did. Kept when the box loses focus,
+    /// since reaching for the colour swatch is what blurs it; read only
+    /// while that clip is still the one selected.
+    words: Option<(String, usize, usize)>,
     commit_timer: slint::Timer,
     /// What the catalogue shelves were last built from; while nothing in
     /// it changes the shelves are not rebuilt.
@@ -1180,6 +1187,15 @@ fn align_of(align: TextAlign) -> TextAlignment {
     }
 }
 
+/// The character a byte offset falls at in `text`, as a text box counts
+/// its caret: bytes, where the document's runs count characters. An
+/// offset inside a character counts that character; one past the end or
+/// below zero is held to the text.
+fn char_at(text: &str, byte: i32) -> usize {
+    let byte = usize::try_from(byte).unwrap_or(0);
+    text.char_indices().take_while(|(at, _)| *at < byte).count()
+}
+
 /// A title as it is first placed: the embedded face, centred, white.
 fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
     // The look a title was kept as, when one was (see
@@ -1191,6 +1207,7 @@ fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
     });
     TextStyle {
         content: t("studio.newTitle"),
+        runs: Vec::new(),
         ..base
     }
 }
@@ -2402,6 +2419,7 @@ impl Studio {
             flat: None,
             commit_pending: false,
             commit_targets: Vec::new(),
+            words: None,
             commit_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
@@ -2866,6 +2884,7 @@ impl Studio {
     pub fn undo(&mut self) {
         self.flush_commit();
         self.echo = None;
+        self.words = None;
         if let Some(session) = self.session.as_mut()
             && session.can_undo()
         {
@@ -2877,6 +2896,7 @@ impl Studio {
     pub fn redo(&mut self) {
         self.flush_commit();
         self.echo = None;
+        self.words = None;
         if let Some(session) = self.session.as_mut()
             && session.can_redo()
         {
@@ -5289,6 +5309,14 @@ impl Studio {
     /// One field of the selected clip, on the echo. `clip_commit` turns the
     /// accumulated edits into commands.
     pub fn clip_set(&mut self, field: ClipField, value: f32) {
+        // Some words selected in the text box: the typography they can
+        // wear goes on those words alone.
+        if let Some((id, start, end)) = self.styled_words()
+            && let Some(patch) = self.word_patch(&id, field, f64::from(value))
+        {
+            self.style_words(&id, start, end, &patch);
+            return;
+        }
         let mut ids = self.edit_targets();
         // A batch of sounds takes the level alone; see `batch_volume`.
         let batch_volume = ids.is_empty() && field == ClipField::Volume;
@@ -5505,6 +5533,16 @@ impl Studio {
                 ClipField::FontSize => text.font_size = value.clamp(0.01, 0.5),
                 ClipField::FontWeight => text.font_weight = value.clamp(100.0, 900.0),
                 ClipField::Italic => text.italic = value != 0.0,
+                ClipField::Underline => text.underline = value != 0.0,
+                ClipField::Strikethrough => text.strikethrough = value != 0.0,
+                ClipField::TextCase => {
+                    text.text_case = match value as i32 {
+                        1 => model::TextCase::Upper,
+                        2 => model::TextCase::Lower,
+                        3 => model::TextCase::Sentence,
+                        _ => model::TextCase::Original,
+                    };
+                }
                 ClipField::TextOpacity => text.opacity = value.clamp(0.0, 1.0),
                 ClipField::Align => {
                     text.align = match value as i32 {
@@ -5557,6 +5595,19 @@ impl Studio {
     }
 
     pub fn clip_set_text(&mut self, field: ClipTextField, value: &str) {
+        self.set_text_at(field, value, None);
+    }
+
+    /// The words typed into the Text tab's box, with where the caret ended
+    /// up - a byte into `value`, as the box counts - so a run beside the
+    /// edit knows whether the new letters are its own; see
+    /// `concat_project::runs`.
+    pub fn clip_set_words(&mut self, value: &str, caret: i32) {
+        let caret = (caret >= 0).then(|| char_at(value, caret));
+        self.set_text_at(ClipTextField::Content, value, caret);
+    }
+
+    fn set_text_at(&mut self, field: ClipTextField, value: &str, caret: Option<usize>) {
         let ids = self.edit_targets();
         if ids.is_empty() {
             return;
@@ -5584,7 +5635,8 @@ impl Studio {
             let text = clip.text.get_or_insert_with(TextStyle::default);
             match field {
                 ClipTextField::Content => {
-                    text.content = value.to_owned();
+                    // The runs ride along with the words they are on.
+                    text.set_content(value.to_owned(), caret);
                     let first = value.lines().next().unwrap_or("").trim().to_owned();
                     clip.name = if first.is_empty() {
                         "Title".into()
@@ -5725,6 +5777,16 @@ impl Studio {
     }
 
     pub fn clip_set_colour(&mut self, field: ClipTextField, value: slint::Color) {
+        if field == ClipTextField::Color
+            && let Some((id, start, end)) = self.styled_words()
+        {
+            let patch = model::RunStyle {
+                color: Some(hex_of(value)),
+                ..model::RunStyle::default()
+            };
+            self.style_words(&id, start, end, &patch);
+            return;
+        }
         let ids = self.edit_targets();
         if ids.is_empty() {
             return;
@@ -5748,6 +5810,97 @@ impl Studio {
         }
     }
 
+    // ── styled words ──
+    //
+    // A title is one look, and over it some of its words can wear their
+    // own: drag over them in the Text tab's box and the colour, B/I/U/S
+    // and size go on those words alone, the way After Effects recolours
+    // a dragged-over word. They are runs on the title's style, kept
+    // with the words as they are typed; see `concat_project::runs`.
+
+    /// The text box's selection, from the box: where its anchor and its
+    /// cursor are, as bytes into its words. A selection with nothing in it
+    /// - a caret - styles the whole title again.
+    pub fn select_words(&mut self, anchor: i32, cursor: i32) {
+        let Some(id) = self.sole_selection() else {
+            self.words = None;
+            return;
+        };
+        let Some(content) = self
+            .clip(&id)
+            .filter(|clip| clip.kind == model::ClipKind::Text)
+            .and_then(|clip| clip.text.as_ref())
+            .map(|text| text.content.clone())
+        else {
+            self.words = None;
+            return;
+        };
+        let (anchor, cursor) = (char_at(&content, anchor), char_at(&content, cursor));
+        let (start, end) = (anchor.min(cursor), anchor.max(cursor));
+        self.words = (start < end).then_some((id, start, end));
+    }
+
+    /// The selected words the styling controls are aimed at, while there
+    /// are some on the title still selected alone: (clip, start, end) in
+    /// characters, clamped to its words.
+    fn styled_words(&self) -> Option<(String, usize, usize)> {
+        let (id, start, end) = self.words.as_ref()?;
+        if self.sole_selection().as_deref() != Some(id.as_str()) {
+            return None;
+        }
+        let text = self
+            .clip(id)
+            .filter(|clip| clip.kind == model::ClipKind::Text)?
+            .text
+            .as_ref()?;
+        let count = text.char_count();
+        let (start, end) = ((*start).min(count), (*end).min(count));
+        (start < end).then(|| (id.clone(), start, end))
+    }
+
+    /// What a typography control means for some words: the override it
+    /// lays on them, or none for a control that is the whole title's -
+    /// its outline, its box, its alignment. A size is kept relative to the
+    /// title's, so the words stay bigger by as much when the title grows.
+    fn word_patch(&self, id: &str, field: ClipField, value: f64) -> Option<model::RunStyle> {
+        let mut patch = model::RunStyle::default();
+        match field {
+            ClipField::FontSize => {
+                let size = self.clip(id)?.text.as_ref()?.font_size.max(0.005);
+                patch.font_scale = Some(value.clamp(0.01, 0.5) / size);
+            }
+            ClipField::FontWeight => patch.font_weight = Some(value.clamp(100.0, 900.0)),
+            ClipField::Italic => patch.italic = Some(value != 0.0),
+            ClipField::Underline => patch.underline = Some(value != 0.0),
+            ClipField::Strikethrough => patch.strikethrough = Some(value != 0.0),
+            _ => return None,
+        }
+        Some(patch)
+    }
+
+    /// Lays `patch` over the characters `start..end` of a title, on the
+    /// echo, for the inspector's commit to land as one step.
+    fn style_words(&mut self, id: &str, start: usize, end: usize, patch: &model::RunStyle) {
+        self.commit_targets = vec![id.to_owned()];
+        self.begin_echo();
+        if let Some(text) = self.echo_clip_mut(id).and_then(|clip| clip.text.as_mut()) {
+            text.style_range(start, end, patch);
+        }
+    }
+
+    /// The selected words back in the title's own look.
+    pub fn reset_words(&mut self) {
+        let Some((id, start, end)) = self.styled_words() else {
+            return;
+        };
+        self.commit_targets = vec![id.clone()];
+        self.begin_echo();
+        if let Some(text) = self.echo_clip_mut(&id).and_then(|clip| clip.text.as_mut()) {
+            text.clear_range(start, end);
+        }
+        self.clip_commit();
+    }
+
     /// The selected title's look becomes the one new titles start from,
     /// and the one generated captions are set in: its family, weight,
     /// colours, stroke, shadow and background, never its words. Kept in
@@ -5763,7 +5916,10 @@ impl Studio {
         else {
             return;
         };
+        // The words are this title's own, and so are the looks of some of
+        // them: a run says nothing about another title's words.
         style.content.clear();
+        style.runs.clear();
         self.prefs.title_style = Some(style);
         self.prefs.save(&self.host.dirs);
         self.notify(&t("textPanel.newTitlesUseThisStyle"), false);
@@ -7859,6 +8015,7 @@ impl Studio {
             moving: false,
             proxy: false,
             color_space: self.project().active().video.color_space,
+            canvas: self.project().active().video.canvas,
         };
         let monitor = self.host.monitor.clone();
         let out_dir = project_dir.join("frames");
@@ -10799,7 +10956,23 @@ impl Studio {
             .font_families()
             .iter()
             .position(|family| family.eq_ignore_ascii_case(text.font_family.trim_matches('"')));
-        let fill = colour_of(&text.color);
+        // Some words selected in the text box: the typography controls
+        // style those words, so they show what the first of them wears -
+        // a run's override where it has one, the title's look elsewhere.
+        let words = self.styled_words().filter(|(id, _, _)| *id == clip.id);
+        let look = words
+            .as_ref()
+            .map(|(_, start, _)| text.run_style_at(*start))
+            .unwrap_or_default();
+        let words_styled = words.as_ref().is_some_and(|(_, start, end)| {
+            text.runs
+                .iter()
+                .any(|run| run.start < *end && *start < run.end)
+        });
+        let fill = look
+            .color
+            .as_deref()
+            .map_or_else(|| colour_of(&text.color), colour_of);
         let stroke = colour_of(&text.stroke_color);
         let plate = colour_of(&text.background);
         let analysis = clip.cutout.as_ref().and_then(|cutout| {
@@ -10884,9 +11057,19 @@ impl Studio {
             family_row: family_row.unwrap_or(0) as i32,
             font_missing: family_row.is_none()
                 && !text.font_family.trim_matches('"').trim().is_empty(),
-            font_size: text.font_size as f32,
-            font_weight: text.font_weight as f32,
-            italic: text.italic,
+            font_size: (text.font_size * look.font_scale.unwrap_or(1.0)) as f32,
+            font_weight: look.font_weight.unwrap_or(text.font_weight) as f32,
+            italic: look.italic.unwrap_or(text.italic),
+            underline: look.underline.unwrap_or(text.underline),
+            strikethrough: look.strikethrough.unwrap_or(text.strikethrough),
+            styling_words: words.is_some(),
+            words_styled,
+            text_case: match text.text_case {
+                model::TextCase::Original => 0,
+                model::TextCase::Upper => 1,
+                model::TextCase::Lower => 2,
+                model::TextCase::Sentence => 3,
+            },
             fill,
             fill_hex: hex_of(fill).into(),
             align: align_of(text.align),
@@ -12632,6 +12815,20 @@ mod tests {
         custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
         wheel_partners, write_keyable,
     };
+
+    /// A text box's caret counts bytes and a run counts characters: an
+    /// accented letter is one character of two bytes, an offset inside a
+    /// character counts it, and one out of the text is held to it.
+    #[test]
+    fn a_caret_byte_is_the_character_it_falls_at() {
+        let text = "été ok";
+        assert_eq!(super::char_at(text, 0), 0);
+        assert_eq!(super::char_at(text, 2), 1, "after é");
+        assert_eq!(super::char_at(text, 1), 1, "inside é");
+        assert_eq!(super::char_at(text, text.len() as i32), 6);
+        assert_eq!(super::char_at(text, 1000), 6);
+        assert_eq!(super::char_at(text, -1), 0);
+    }
 
     /// Every built-in picture package ships a card, decodable at the size
     /// cards are drawn: one added without running scripts/bundle-cards.sh

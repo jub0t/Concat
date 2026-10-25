@@ -299,6 +299,9 @@ pub struct DocumentSettings {
     pub rate_num: i64,
     /// Denominator of the output frame rate, e.g. 1001 for 29.97fps.
     pub rate_den: i64,
+    /// What shows where no picture covers the frame; see
+    /// `VideoSettings::canvas`.
+    pub canvas: [u8; 3],
 }
 
 impl DocumentSettings {
@@ -311,6 +314,7 @@ impl DocumentSettings {
             rate_num: self.rate_num,
             rate_den: self.rate_den,
             color_space: ColorSpace::Sdr,
+            canvas: self.canvas,
         }
     }
 }
