@@ -148,9 +148,10 @@ struct EnhanceReadout {
     fits_4x: bool,
     /// Why a size is greyed, or empty.
     size_note: String,
-    /// Before, after and the estimate for a whole run, when a preview of
-    /// these settings is on hand.
-    preview: Option<(slint::Image, slint::Image, String)>,
+    /// Before, after, the estimate for a whole run and a warning when that
+    /// run would take too long (else empty), when a preview of these
+    /// settings is on hand.
+    preview: Option<(slint::Image, slint::Image, String, String)>,
 }
 
 impl EnhancePreview {
@@ -10810,7 +10811,7 @@ impl Studio {
         let mut enhance = self.enhance_readout(clip);
         let steady = self.stabilize_readout(clip);
         let enhance_preview = enhance.preview.is_some();
-        let (enhance_before, enhance_after, enhance_estimate) =
+        let (enhance_before, enhance_after, enhance_estimate, enhance_warning) =
             enhance.preview.take().unwrap_or_default();
         SelectedClipData {
             present: true,
@@ -10979,6 +10980,7 @@ impl Studio {
             enhance_before,
             enhance_after,
             enhance_estimate: enhance_estimate.into(),
+            enhance_warning: enhance_warning.into(),
         }
     }
 
@@ -11046,7 +11048,21 @@ impl Studio {
                         ],
                     )
                 };
-                (preview.before.clone(), preview.after.clone(), estimate)
+                let warning = if concat_host::enhance::too_long(
+                    per_frame,
+                    total,
+                    clip.kind == model::ClipKind::Image,
+                ) {
+                    tf("studio.enhanceTooLong", &[&crate::format::span(total)])
+                } else {
+                    String::new()
+                };
+                (
+                    preview.before.clone(),
+                    preview.after.clone(),
+                    estimate,
+                    warning,
+                )
             });
         readout
     }

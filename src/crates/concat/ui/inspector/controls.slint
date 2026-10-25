@@ -689,6 +689,8 @@ export component ResetButton inherits Rectangle {
 
 export component Note inherits HorizontalLayout {
     in property <string> text;
+    /// Drawn in the danger colour: something to read before going on.
+    in property <bool> warn: false;
 
     padding-left: Theme.pad;
     padding-right: Theme.pad;
@@ -697,7 +699,7 @@ export component Note inherits HorizontalLayout {
 
     Text {
         text: root.text;
-        color: Theme.fg-muted;
+        color: root.warn ? Theme.danger : Theme.fg-muted;
         font-size: Theme.fs-sm;
         wrap: word-wrap;
     }

@@ -703,6 +703,7 @@
   "studio.enhanceEstimateStill": "The whole picture would take about {0} here.",
   "studio.enhanceNoFourTimes": "4x would make it {0} × {1}, past the {2}-pixel limit.",
   "studio.enhanceOnlyRestore": "At {0} pixels across, this picture would pass the {1}-pixel limit if enlarged; it can only be restored at its own size.",
+  "studio.enhanceTooLong": "This would take a very long time on this machine (about {0}). Try a shorter clip or a smaller size.",
   "studio.enhancedClipNowShows": "Enhanced; the clip now shows the copy",
   "studio.enhancingWayFrameFrame": "Enhancing {0}: {1}× on its way, frame by frame",
   "studio.exit": "Exit",

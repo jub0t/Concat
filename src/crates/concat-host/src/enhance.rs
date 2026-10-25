@@ -131,6 +131,20 @@ pub fn estimate_seconds(tile_seconds: f64, tiles_per_frame: usize, frames: f64) 
     tile_seconds * tiles_per_frame as f64 * frames.max(1.0)
 }
 
+/// Seconds of model work a frame may take before a run is too long to
+/// sit through: at more than this, a few minutes of footage is hours.
+pub const TOO_LONG_PER_FRAME: f64 = 20.0;
+
+/// Seconds a whole run may take before it is too long to sit through.
+pub const TOO_LONG_TOTAL: f64 = 30.0 * 60.0;
+
+/// Whether a run estimated at `per_frame` seconds a frame and `total` in
+/// all is worth a warning before it starts. A still is one frame, so only
+/// its total counts: half a minute on one picture is no hardship.
+pub fn too_long(per_frame: f64, total: f64, still: bool) -> bool {
+    total > TOO_LONG_TOTAL || (!still && per_frame > TOO_LONG_PER_FRAME)
+}
+
 /// The enhancement service: the model, loaded once, and the one-job slot.
 pub struct Enhancers {
     gate: Arc<SingleFlight>,
@@ -474,6 +488,17 @@ pub(crate) fn crop(frame: &concat_core::Frame, width: u32, height: u32) -> conca
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_is_too_long_past_either_limit() {
+        // The run that asked for this: 37 s a frame, hours in all.
+        assert!(too_long(37.0, 37.0 * 3600.0, false));
+        assert!(!too_long(1.0, 300.0, false));
+        // Quick frames, but two hours of them.
+        assert!(too_long(1.0, 7200.0, false));
+        // A still is judged on its total alone.
+        assert!(!too_long(25.0, 25.0, true));
+    }
 
     #[test]
     fn the_copy_is_named_after_the_file_and_the_factor() {
