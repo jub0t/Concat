@@ -48,8 +48,7 @@ impl Compositor for CpuCompositor {
         // besides its effects, which are the GPU's alone and are held to
         // their packages' probes instead.
         let mut ground = Frame::black(plan.width, plan.height);
-        let [r, g, b] = plan.canvas;
-        ground.fill([r, g, b, 255]);
+        ground.fill(plan.canvas);
         let next = 0;
         for layer in &plan.layers[next..] {
             draw(&mut ground, plan, layer);
@@ -165,14 +164,20 @@ impl Weighing<'_> {
         }
         // In linear light, as the GPU blends: the layer's colour and the
         // ground decoded from their stored gamma, weighed, and encoded back.
+        // The ground is weighed by its own coverage, which is all of it
+        // unless the canvas is see-through (#456): the GPU blends over
+        // premultiplied colour, so this mixes over the premultiplied
+        // ground and divides the coverage that results back out.
+        let coverage = f32::from(under[3]) / 255.0;
+        let covered = alpha + coverage * (1.0 - alpha);
         for channel in 0..3 {
             let colour = self.shading.colour(channel, linear(sample[channel]));
-            let ground = linear(f32::from(under[channel]));
-            under[channel] = encoded(mix(self.blend, colour, ground, alpha))
+            let ground = linear(f32::from(under[channel])) * coverage;
+            under[channel] = encoded(mix(self.blend, colour, ground, alpha) / covered)
                 .round()
                 .clamp(0.0, 255.0) as u8;
         }
-        under[3] = 255;
+        under[3] = (covered * 255.0).round().clamp(0.0, 255.0) as u8;
     }
 }
 
@@ -366,7 +371,7 @@ mod tests {
         use crate::Compositor;
         use crate::plan::{FramePlan, PlannedLayer, detached_clip};
         let gap = FramePlan {
-            canvas: [0, 177, 64],
+            canvas: [0, 177, 64, 255],
             ..FramePlan::empty(8, 4)
         };
         let frame = super::CpuCompositor.render(&gap);
@@ -390,6 +395,36 @@ mod tests {
         // Fitted into an 8x4 frame, the 4x4 square leaves the sides bare.
         assert_eq!(frame.pixel(0, 2), Some([0, 177, 64, 255]));
         assert_eq!(frame.pixel(4, 2), Some([255, 255, 255, 255]));
+    }
+
+    /// On a see-through canvas the frame keeps its alpha: clear where
+    /// nothing covers it, opaque under an opaque picture, and as covered
+    /// as a half-faded picture is, in that picture's own colour (#456).
+    #[test]
+    fn a_see_through_canvas_keeps_the_alpha_of_what_covers_it() {
+        use crate::Compositor;
+        use crate::plan::{FramePlan, PlannedLayer, detached_clip};
+        let mut square = concat_core::Frame::black(4, 4);
+        square.fill([200, 40, 40, 255]);
+        let square = std::sync::Arc::new(square);
+        let plan = FramePlan {
+            canvas: [0, 0, 0, 0],
+            layers: vec![PlannedLayer::picture(detached_clip(), square.clone())],
+            ..FramePlan::empty(8, 4)
+        };
+        let frame = super::CpuCompositor.render(&plan);
+        assert_eq!(frame.pixel(0, 2).map(|p| p[3]), Some(0));
+        assert_eq!(frame.pixel(4, 2), Some([200, 40, 40, 255]));
+
+        let mut faded = PlannedLayer::picture(detached_clip(), square);
+        faded.opacity = 0.5;
+        let frame = super::CpuCompositor.render(&FramePlan {
+            layers: vec![faded],
+            ..plan
+        });
+        let pixel = frame.pixel(4, 2).expect("a pixel");
+        assert!(pixel[3].abs_diff(128) <= 1, "{pixel:?}");
+        assert!(pixel[0].abs_diff(200) <= 1 && pixel[1].abs_diff(40) <= 1, "{pixel:?}");
     }
 
     #[test]

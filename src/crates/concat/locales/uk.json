@@ -665,6 +665,8 @@
   "start.showInFolder": "Показати в папці",
   "start.sortName": "Назва",
   "start.sortRecent": "Нещодавні",
+  "start.transparent": "Прозорий",
+  "start.transparentHint": "Прозоро там, де нічого немає. Щоб зберегти прозорість, експортуйте в ProRes 4444 (.mov) або WebM; в інших форматах там буде чорний.",
   "start.welcome": "Ласкаво просимо до Concat",
   "start.welcomeBack": "З поверненням",
   "start.welcomeBackNote": "Продовжте з того місця, де зупинилися, або почніть щось нове.",

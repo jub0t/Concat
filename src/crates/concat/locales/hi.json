@@ -665,6 +665,8 @@
   "start.showInFolder": "फ़ोल्डर में दिखाएं",
   "start.sortName": "नाम",
   "start.sortRecent": "हाल के",
+  "start.transparent": "पारदर्शी",
+  "start.transparentHint": "जहाँ कुछ नहीं ढका, वहाँ पारदर्शी। इसे बनाए रखने के लिए ProRes 4444 (.mov) या WebM में एक्सपोर्ट करें; दूसरे फ़ॉर्मैट वहाँ काला दिखाते हैं।",
   "start.welcome": "Concat में आपका स्वागत है",
   "start.welcomeBack": "फिर से स्वागत है",
   "start.welcomeBackNote": "जहां छोड़ा था वहीं से जारी रखें, या कुछ नया शुरू करें।",

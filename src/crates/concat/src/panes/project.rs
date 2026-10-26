@@ -25,8 +25,8 @@ pub enum ProjectMsg {
     CustomFps(f32),
     /// A row of the colour list: SDR, HDR HLG, HDR PQ.
     ColorSpaceChanged(i32),
-    /// What shows where no picture covers the frame, `[r, g, b]` (#456).
-    CanvasChanged([u8; 3]),
+    /// What shows where no picture covers the frame, `[r, g, b, a]` (#456).
+    CanvasChanged([u8; 4]),
     Apply,
 }
 
@@ -46,7 +46,7 @@ pub struct ProjectPane {
     /// What the timeline is output in.
     pub color_space: ColorSpace,
     /// What shows where no picture covers the frame.
-    pub canvas: [u8; 3],
+    pub canvas: [u8; 4],
 }
 
 /// The colour list's rows, in the sheet's order.
@@ -184,7 +184,7 @@ impl ProjectPane {
                 .iter()
                 .position(|space| *space == self.color_space)
                 .unwrap_or(0) as i32,
-            canvas: slint::Color::from_rgb_u8(self.canvas[0], self.canvas[1], self.canvas[2]),
+            canvas: slint::Color::from_argb_u8(self.canvas[3], self.canvas[0], self.canvas[1], self.canvas[2]),
         }
     }
 }

@@ -70,10 +70,13 @@ pub struct ProjectInfo {
     /// Denominator of the frame rate.
     pub rate_den: i64,
     /// What shows where no picture covers the frame, for a project's first
-    /// timeline; see `VideoSettings::canvas`. Black for a recents entry
-    /// written before there was one.
-    #[serde(default)]
-    pub canvas: [u8; 3],
+    /// timeline; see `VideoSettings::canvas`. Opaque black for a recents
+    /// entry written before there was one.
+    #[serde(
+        default = "opaque_black",
+        deserialize_with = "concat_project::model::rgba_array"
+    )]
+    pub canvas: [u8; 4],
     /// Milliseconds since the epoch.
     pub opened_at: u64,
 }
@@ -101,17 +104,22 @@ struct Video {
     height: u32,
     rate_num: i64,
     rate_den: i64,
-    /// `#rrggbb`, left out while black; see `VideoSettings::canvas`.
+    /// `#rrggbb` or `#rrggbbaa`, left out while opaque black; see
+    /// `VideoSettings::canvas`.
     #[serde(
-        default,
+        default = "opaque_black",
         skip_serializing_if = "is_black",
-        with = "concat_project::model::hex_rgb"
+        with = "concat_project::model::hex_rgba"
     )]
-    canvas: [u8; 3],
+    canvas: [u8; 4],
 }
 
-fn is_black(rgb: &[u8; 3]) -> bool {
-    *rgb == [0, 0, 0]
+fn opaque_black() -> [u8; 4] {
+    concat_project::model::OPAQUE_BLACK
+}
+
+fn is_black(rgba: &[u8; 4]) -> bool {
+    *rgba == concat_project::model::OPAQUE_BLACK
 }
 
 fn now_millis() -> u64 {
@@ -132,7 +140,7 @@ pub fn create(
     height: u32,
     rate_num: i64,
     rate_den: i64,
-    canvas: [u8; 3],
+    canvas: [u8; 4],
 ) -> Result<ProjectInfo, String> {
     let root = Path::new(location).join(folder_name(name));
     let manifest = root.join(MANIFEST);
@@ -662,6 +670,22 @@ fn count_files(dir: &Path) -> usize {
 mod tests {
     use super::*;
 
+    /// A recents list written while the canvas was three channels still
+    /// reads, each entry opaque, and a four-channel one keeps its alpha
+    /// (#456): a list that failed to read would be an empty Start screen.
+    #[test]
+    fn recents_with_a_three_channel_canvas_still_read() {
+        let entry = |canvas: &str| {
+            format!(
+                r#"{{"path":"/p","name":"p","width":8,"height":8,"rateNum":30,"rateDen":1,"canvas":{canvas},"openedAt":1}}"#
+            )
+        };
+        let list = format!("[{},{}]", entry("[0,177,64]"), entry("[0,0,0,0]"));
+        let read: Vec<ProjectInfo> = serde_json::from_str(&list).expect("reads");
+        assert_eq!(read[0].canvas, [0, 177, 64, 255]);
+        assert_eq!(read[1].canvas, [0, 0, 0, 0]);
+    }
+
     #[test]
     fn sanitises_names_windows_would_reject() {
         assert_eq!(folder_name("My: Project?"), "My- Project-");
@@ -686,7 +710,7 @@ mod tests {
     #[test]
     fn a_project_named_nul_is_created_and_reads_back() {
         let location = scratch("device-name");
-        let info = create(&location, "nul", 1920, 1080, 30, 1, [0, 0, 0]).expect("creates");
+        let info = create(&location, "nul", 1920, 1080, 30, 1, [0, 0, 0, 255]).expect("creates");
         assert!(is_project(Path::new(&info.path)));
         assert_eq!(info.name, "nul");
     }

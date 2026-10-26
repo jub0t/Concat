@@ -722,6 +722,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             colour.red(),
             colour.green(),
             colour.blue(),
+            colour.alpha(),
         ])));
     }));
     app.on_start_create(on_window!(|state| {
@@ -1847,6 +1848,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             colour.red(),
             colour.green(),
             colour.blue(),
+            colour.alpha(),
         ])));
     }));
     app.on_project_custom_width_edited(on_window!(|state, width: f32| {
@@ -2864,7 +2866,7 @@ mod tests {
     #[test]
     fn a_failed_save_keeps_the_real_session_and_its_edit() {
         let scratch = Scratch::new("session");
-        let info = projects::create(&scratch.location(), "Closing", 1920, 1080, 30, 1, [0, 0, 0])
+        let info = projects::create(&scratch.location(), "Closing", 1920, 1080, 30, 1, [0, 0, 0, 255])
             .expect("creates the project");
         let manifest = projects::manifest_path(Path::new(&info.path));
 
@@ -2942,7 +2944,7 @@ mod tests {
     #[test]
     fn a_delayed_autosave_cannot_replace_the_close_snapshot() {
         let scratch = Scratch::new("ordered-close");
-        let info = projects::create(&scratch.location(), "Ordered", 1920, 1080, 30, 1, [0, 0, 0])
+        let info = projects::create(&scratch.location(), "Ordered", 1920, 1080, 30, 1, [0, 0, 0, 255])
             .expect("creates the project");
         let mut session = Session::open_info(&info).expect("opens the session");
         let (old_path, old_document) = session.prepare_save(None);

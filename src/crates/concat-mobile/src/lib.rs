@@ -160,7 +160,7 @@ impl Engine {
                 1920,
                 30,
                 1,
-                [0, 0, 0],
+                [0, 0, 0, 255],
             )?
         };
         let session = Session::open_info(&info)?;

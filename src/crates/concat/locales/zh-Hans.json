@@ -665,6 +665,8 @@
   "start.showInFolder": "在文件夹中显示",
   "start.sortName": "名称",
   "start.sortRecent": "最近",
+  "start.transparent": "透明",
+  "start.transparentHint": "没有画面覆盖的地方是透明的。导出为 ProRes 4444 (.mov) 或 WebM 可保留透明；其他格式在那里显示为黑色。",
   "start.welcome": "欢迎使用 Concat",
   "start.welcomeBack": "欢迎回来",
   "start.welcomeBackNote": "从上次中断的地方继续，或开始新的创作。",

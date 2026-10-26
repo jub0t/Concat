@@ -34,8 +34,8 @@ pub enum StartMsg {
     CustomWidth(f32),
     CustomHeight(f32),
     CustomFps(f32),
-    /// What shows where no picture covers the frame, `[r, g, b]`.
-    CanvasChanged([u8; 3]),
+    /// What shows where no picture covers the frame, `[r, g, b, a]`.
+    CanvasChanged([u8; 4]),
     DismissError,
     /// Pick where the project folder goes.
     Browse,
@@ -138,7 +138,7 @@ pub struct StartPane {
     pub custom_rate: (i64, i64),
     /// What shows where no picture covers the frame (#456): black, as
     /// every project before it had.
-    pub canvas: [u8; 3],
+    pub canvas: [u8; 4],
     pub busy: bool,
     pub error: String,
     /// The projects' search, as typed; empty shows them all.
@@ -164,7 +164,7 @@ impl Default for StartPane {
             rate: 3,
             custom_size: (1920, 1080),
             custom_rate: (30, 1),
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             busy: false,
             error: String::new(),
             query: String::new(),
@@ -525,7 +525,7 @@ impl StartPane {
             size: self.size as i32,
             rate: self.rate as i32,
             size_readout: format!("{width} x {height}").into(),
-            canvas: slint::Color::from_rgb_u8(self.canvas[0], self.canvas[1], self.canvas[2]),
+            canvas: slint::Color::from_argb_u8(self.canvas[3], self.canvas[0], self.canvas[1], self.canvas[2]),
             custom_width: width as f32,
             custom_height: height as f32,
             custom_fps: fps_of(num, den) as f32,
@@ -596,7 +596,7 @@ mod tests {
     fn the_projects_search_and_sort() {
         let recent = |name: &str, path: &str| projects::Recent {
             info: projects::ProjectInfo {
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 path: path.into(),
                 name: name.into(),
                 width: 1920,

@@ -320,7 +320,7 @@ mod tests {
 
     fn settings() -> DocumentSettings {
         DocumentSettings {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             name: "Test".to_owned(),
             width: 1920,
             height: 1080,
@@ -342,7 +342,7 @@ mod tests {
             1080,
             30,
             1,
-            [0, 0, 0],
+            [0, 0, 0, 255],
         )
         .expect("creates");
 
@@ -359,7 +359,7 @@ mod tests {
         assert!(view.can_undo);
         session
             .set_video(VideoSettings {
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 width: 1280,
                 height: 720,
                 rate_num: 25,

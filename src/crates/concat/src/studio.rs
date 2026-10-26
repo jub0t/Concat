@@ -9590,6 +9590,7 @@ impl Studio {
             .as_ref()
             .filter(|source| source.kind != model::MediaKind::Audio);
         editor.set_has_picture(source.is_some() || showing.is_some());
+        editor.set_see_through(self.project().active().video.canvas[3] < 255);
         editor.set_preview_clip_name(
             source
                 .map(|source| source.name.as_str())

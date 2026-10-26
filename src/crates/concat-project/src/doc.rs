@@ -301,7 +301,7 @@ pub struct DocumentSettings {
     pub rate_den: i64,
     /// What shows where no picture covers the frame; see
     /// `VideoSettings::canvas`.
-    pub canvas: [u8; 3],
+    pub canvas: [u8; 4],
 }
 
 impl DocumentSettings {

@@ -665,6 +665,8 @@
   "start.showInFolder": "Prikaži u mapi",
   "start.sortName": "Naziv",
   "start.sortRecent": "Nedavno",
+  "start.transparent": "Prozirno",
+  "start.transparentHint": "Prozirno gdje ga ništa ne prekriva. Izvezite kao ProRes 4444 (.mov) ili WebM da to zadržite; drugi formati ondje prikazuju crno.",
   "start.welcome": "Dobro došli u Concat",
   "start.welcomeBack": "Dobro došli natrag",
   "start.welcomeBackNote": "Nastavite gdje ste stali ili započnite nešto novo.",

@@ -7,7 +7,7 @@ import { Glyph } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
 import { Select } from "../primitives/select.slint";
 import { NumberField } from "../primitives/number-field.slint";
-import { ColourField } from "../inspector/controls.slint";
+import { CanvasPicker } from "canvas-picker.slint";
 
 // The project sheet: what the Details panel's Modify button opens.
 //
@@ -192,12 +192,11 @@ export component ProjectDialog inherits Modal {
             }
 
             // What shows where no picture covers the frame: the gaps, the
-            // space around a title. The timeline's, like the frame above.
+            // space around a title. The timeline's, like the frame above;
+            // see CanvasPicker.
             DialogRow {
                 label: I18n.t("start.background");
-                ColourField {
-                    padding-left: 0;
-                    padding-right: 0;
+                CanvasPicker {
                     value: root.data.canvas;
                     changed(value) => { root.canvas-changed(value); }
                 }

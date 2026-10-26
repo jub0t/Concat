@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Tip } from "../primitives/tooltip.slint";
+import { ColourField } from "../inspector/controls.slint";
+
+// What shows where no picture covers the frame - the gaps, the space
+// around a title (#456) - as the New Project screen and Project settings
+// both pick it. Five at a press: black, white and the two keying colours,
+// for a picture that is cut out later, and Transparent, for an overlay
+// bound for another editor or a stream; any other colour typed or picked
+// on the right. A colour typed or picked is opaque: only Transparent lets
+// the frame show through.
+//
+// Transparent is a checker, as every editor draws it, and says under the
+// row what keeps it: an export that drops alpha gets black there.
+
+export component CanvasPicker inherits VerticalLayout {
+    in property <color> value;
+    in property <bool> enabled: true;
+
+    callback changed(value: color);
+
+    property <bool> see-through: root.value.to-hsv().alpha < 1;
+
+    spacing: 6px;
+
+    HorizontalLayout {
+        spacing: 8px;
+
+        for preset in [#000000, #ffffff, #00b140, #0047bb, #00000000]: VerticalLayout {
+            alignment: center;
+
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                border-radius: Theme.r-sm;
+                clip: true;
+                border-width: root.value == preset ? 2px : 1px;
+                border-color: root.value == preset ? Theme.accent
+                    : pick.has-hover ? Theme.line-strong : Theme.line;
+                background: preset;
+
+                if preset.to-hsv().alpha < 1: Rectangle {
+                    x: 1px;
+                    y: 1px;
+                    width: parent.width - 2px;
+                    height: parent.height - 2px;
+                    border-radius: Theme.r-sm - 1px;
+                    clip: true;
+
+                    for cell in 16: Rectangle {
+                        x: Math.floor(cell / 4) * 6px;
+                        y: Math.mod(cell, 4) * 6px;
+                        width: 6px;
+                        height: 6px;
+                        background: Math.mod(Math.floor(cell / 4) + Math.mod(cell, 4), 2) == 0 ? #c8c8c8 : #7a7a7a;
+                    }
+                }
+
+                pick := TouchArea {
+                    mouse-cursor: pointer;
+                    enabled: root.enabled;
+                    clicked => { root.changed(preset); }
+                }
+
+                if preset.to-hsv().alpha < 1: Tip {
+                    text: I18n.t("start.transparent");
+                    active: pick.has-hover;
+                }
+            }
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        ColourField {
+            horizontal-stretch: 0;
+            padding-left: 0;
+            padding-right: 0;
+            value: root.value;
+            changed(value) => { root.changed(value.with-alpha(1)); }
+        }
+    }
+
+    if root.see-through: Text {
+        text: I18n.t("start.transparentHint");
+        color: Theme.fg-dim;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+}

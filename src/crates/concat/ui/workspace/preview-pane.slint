@@ -758,6 +758,8 @@ export component PreviewPane inherits Rectangle {
     callback source-closed();
     /// The decoded frame. Drawn fitted to the stage when there is one.
     in property <image> frame;
+    /// The frame lets something show through; see `Editor.see-through`.
+    in property <bool> see-through;
     /// Every picture under the playhead, for the selection drawn over the
     /// frame. See StageOverlay.
     in property <[StageItemData]> stage-items;
@@ -1042,6 +1044,18 @@ export component PreviewPane inherits Rectangle {
                         font-size: Theme.fs;
                         horizontal-alignment: center;
                     }
+                }
+
+                // Under a see-through frame, the checker every editor draws
+                // where nothing covers it: one tile, repeated.
+                if root.see-through && root.has-picture: Image {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    source: @image-url("../assets/checker.png");
+                    horizontal-tiling: repeat;
+                    vertical-tiling: repeat;
                 }
 
                 // The engine's frame, when one has arrived. It is already

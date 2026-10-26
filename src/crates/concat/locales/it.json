@@ -665,6 +665,8 @@
   "start.showInFolder": "Mostra nella cartella",
   "start.sortName": "Nome",
   "start.sortRecent": "Recenti",
+  "start.transparent": "Trasparente",
+  "start.transparentHint": "Trasparente dove nulla lo copre. Esporta in ProRes 4444 (.mov) o WebM per mantenerlo; gli altri formati lì mostrano nero.",
   "start.welcome": "Ti diamo il benvenuto in Concat",
   "start.welcomeBack": "Bentornato",
   "start.welcomeBackNote": "Riprendi da dove avevi lasciato o inizia qualcosa di nuovo.",

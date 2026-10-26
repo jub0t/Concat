@@ -665,6 +665,8 @@
   "start.showInFolder": "Klasörde göster",
   "start.sortName": "Ad",
   "start.sortRecent": "Son kullanılan",
+  "start.transparent": "Saydam",
+  "start.transparentHint": "Hiçbir şeyin örtmediği yerler saydamdır. Bunu korumak için ProRes 4444 (.mov) veya WebM olarak dışa aktarın; diğer biçimler orada siyah gösterir.",
   "start.welcome": "Concat'e hoş geldiniz",
   "start.welcomeBack": "Tekrar hoş geldiniz",
   "start.welcomeBackNote": "Kaldığınız yerden devam edin ya da yeni bir şey başlatın.",

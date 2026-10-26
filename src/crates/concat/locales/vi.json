@@ -665,6 +665,8 @@
   "start.showInFolder": "Hiện trong thư mục",
   "start.sortName": "Tên",
   "start.sortRecent": "Gần đây",
+  "start.transparent": "Trong suốt",
+  "start.transparentHint": "Trong suốt ở chỗ không có gì che. Xuất dưới dạng ProRes 4444 (.mov) hoặc WebM để giữ lại; các định dạng khác hiển thị màu đen ở đó.",
   "start.welcome": "Chào mừng bạn đến với Concat",
   "start.welcomeBack": "Chào mừng bạn trở lại",
   "start.welcomeBackNote": "Tiếp tục từ chỗ bạn dừng lại, hoặc bắt đầu điều gì đó mới.",

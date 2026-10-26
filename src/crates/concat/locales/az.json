@@ -665,6 +665,8 @@
   "start.showInFolder": "Qovluqda göstər",
   "start.sortName": "Ad",
   "start.sortRecent": "Ən son",
+  "start.transparent": "Şəffaf",
+  "start.transparentHint": "Heç nəyin örtmədiyi yerlər şəffafdır. Bunu saxlamaq üçün ProRes 4444 (.mov) və ya WebM kimi ixrac edin; digər formatlarda orada qara görünür.",
   "start.welcome": "Concat-a xoş gəlmisiniz",
   "start.welcomeBack": "Yenidən xoş gəlmisiniz",
   "start.welcomeBackNote": "Qaldığınız yerdən davam edin, ya da yeni bir şeyə başlayın.",

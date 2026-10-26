@@ -665,6 +665,8 @@
   "start.showInFolder": "فولڈر میں دکھائیں",
   "start.sortName": "نام",
   "start.sortRecent": "حالیہ",
+  "start.transparent": "شفاف",
+  "start.transparentHint": "جہاں کچھ نہ ڈھکا ہو وہاں شفاف۔ اسے برقرار رکھنے کے لیے ProRes 4444 (‎.mov) یا WebM میں ایکسپورٹ کریں؛ دوسرے فارمیٹ وہاں سیاہ دکھاتے ہیں۔",
   "start.welcome": "Concat میں خوش آمدید",
   "start.welcomeBack": "دوبارہ خوش آمدید",
   "start.welcomeBackNote": "جہاں چھوڑا تھا وہیں سے جاری رکھیں، یا کچھ نیا شروع کریں۔",

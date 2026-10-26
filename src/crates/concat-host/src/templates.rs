@@ -299,7 +299,7 @@ pub fn instantiate(
         info.height,
         info.rate_num,
         info.rate_den,
-        [0, 0, 0],
+        [0, 0, 0, 255],
     )?;
     let root = PathBuf::from(&project.path);
 
@@ -489,7 +489,7 @@ mod tests {
         }
 
         let settings = DocumentSettings {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             name: "Beat Intro".to_owned(),
             width: 1920,
             height: 1080,

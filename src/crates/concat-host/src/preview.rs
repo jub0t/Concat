@@ -52,7 +52,7 @@ pub struct FrameSpec {
     pub color_space: ColorSpace,
     /// What shows where no picture covers the frame; see
     /// `VideoSettings::canvas`.
-    pub canvas: [u8; 3],
+    pub canvas: [u8; 4],
 }
 
 /// The reader pool behind the monitor, shareable across threads.
@@ -77,7 +77,7 @@ struct PlanEntry {
     height: u32,
     rate: (i64, i64),
     color_space: ColorSpace,
-    canvas: [u8; 3],
+    canvas: [u8; 4],
     plan: Arc<concat_export::PreviewPlan>,
 }
 

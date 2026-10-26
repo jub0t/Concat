@@ -956,7 +956,7 @@ export component ColourField inherits HorizontalLayout {
                     y: Math.mod(cell, 3) * 8px;
                     width: 8px;
                     height: 8px;
-                    background: Math.mod(cell + Math.floor(cell / 3), 2) == 0 ? #c8c8c8 : #7a7a7a;
+                    background: Math.mod(Math.floor(cell / 3) + Math.mod(cell, 3), 2) == 0 ? #c8c8c8 : #7a7a7a;
                 }
             }
             if !root.alpha: Rectangle { background: Theme.fg-dim; }

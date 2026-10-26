@@ -665,6 +665,8 @@
   "start.showInFolder": "הצגה בתיקייה",
   "start.sortName": "שם",
   "start.sortRecent": "אחרונים",
+  "start.transparent": "שקוף",
+  "start.transparentHint": "שקוף במקום ששום דבר לא מכסה אותו. ייצאו כ־ProRes 4444 ‏(.mov) או WebM כדי לשמור על כך; פורמטים אחרים מציגים שם שחור.",
   "start.welcome": "ברוכים הבאים ל-Concat",
   "start.welcomeBack": "ברוכים השבים",
   "start.welcomeBackNote": "אפשר להמשיך מאיפה שהפסקת, או להתחיל משהו חדש.",

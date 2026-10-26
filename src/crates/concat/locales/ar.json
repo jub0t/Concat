@@ -665,6 +665,8 @@
   "start.showInFolder": "إظهار في المجلد",
   "start.sortName": "الاسم",
   "start.sortRecent": "الأحدث",
+  "start.transparent": "شفاف",
+  "start.transparentHint": "شفاف حيث لا يغطيه شيء. صدّر بصيغة ProRes 4444 (‎.mov) أو WebM للحفاظ على ذلك؛ الصيغ الأخرى تُظهر الأسود هناك.",
   "start.welcome": "مرحبًا بك في Concat",
   "start.welcomeBack": "مرحبًا بعودتك",
   "start.welcomeBackNote": "تابع من حيث توقفت، أو ابدأ شيئًا جديدًا.",

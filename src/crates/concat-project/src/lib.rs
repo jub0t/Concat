@@ -164,7 +164,8 @@ mod tests {
         );
     }
 
-    /// A timeline's canvas colour is written as `#rrggbb` and read back;
+    /// A timeline's canvas colour is written as `#rrggbb` (`#rrggbbaa` when
+    /// it is see-through) and read back;
     /// black is not written at all, so a document without one is the
     /// document it always was, and junk reads as black (#456).
     #[test]
@@ -173,7 +174,7 @@ mod tests {
         let black = serde_json::to_value(VideoSettings::default()).unwrap();
         assert!(black.get("canvas").is_none(), "{black}");
         let green = VideoSettings {
-            canvas: [0, 177, 64],
+            canvas: [0, 177, 64, 255],
             ..VideoSettings::default()
         };
         let written = serde_json::to_value(green).unwrap();
@@ -184,7 +185,22 @@ mod tests {
             "width": 1920, "height": 1080, "rateNum": 30, "rateDen": 1, "canvas": "teal"
         }))
         .unwrap();
-        assert_eq!(junk.canvas, [0, 0, 0]);
+        assert_eq!(junk.canvas, [0, 0, 0, 255]);
+        // A see-through canvas carries its alpha, and an opaque one written
+        // with an `ff` alpha reads as the same colour.
+        let clear = VideoSettings {
+            canvas: [0, 0, 0, 0],
+            ..VideoSettings::default()
+        };
+        let written = serde_json::to_value(clear).unwrap();
+        assert_eq!(written["canvas"], "#00000000");
+        let read: VideoSettings = serde_json::from_value(written).unwrap();
+        assert_eq!(read.canvas, [0, 0, 0, 0]);
+        let opaque: VideoSettings = serde_json::from_value(json!({
+            "width": 1920, "height": 1080, "rateNum": 30, "rateDen": 1, "canvas": "#00b140ff"
+        }))
+        .unwrap();
+        assert_eq!(opaque.canvas, [0, 177, 64, 255]);
     }
 
     #[test]
@@ -265,7 +281,7 @@ mod tests {
             height: 1080,
             rate_num: 30,
             rate_den: 1,
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
         }
     }
 

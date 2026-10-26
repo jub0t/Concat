@@ -665,6 +665,8 @@
   "start.showInFolder": "نمایش در پوشه",
   "start.sortName": "نام",
   "start.sortRecent": "اخیر",
+  "start.transparent": "شفاف",
+  "start.transparentHint": "جایی که چیزی آن را نپوشانده شفاف است. برای حفظ آن با ProRes 4444 (‎.mov) یا WebM خروجی بگیرید؛ قالب‌های دیگر آنجا سیاه نشان می‌دهند.",
   "start.welcome": "به Concat خوش آمدید",
   "start.welcomeBack": "خوش برگشتید",
   "start.welcomeBackNote": "از همان جایی که ماندید ادامه دهید، یا چیز تازه‌ای شروع کنید.",

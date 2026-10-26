@@ -665,6 +665,8 @@
   "start.showInFolder": "폴더에서 보기",
   "start.sortName": "이름",
   "start.sortRecent": "최근",
+  "start.transparent": "투명",
+  "start.transparentHint": "아무것도 덮지 않은 곳은 투명합니다. 유지하려면 ProRes 4444(.mov) 또는 WebM으로 내보내세요. 다른 형식은 그 부분이 검게 보입니다.",
   "start.welcome": "Concat에 오신 것을 환영합니다",
   "start.welcomeBack": "다시 오신 것을 환영합니다",
   "start.welcomeBackNote": "하던 작업을 이어서 하거나 새로 시작하세요.",

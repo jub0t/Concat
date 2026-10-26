@@ -130,12 +130,45 @@ fn empty_output_is_opaque_black() {
     assert_eq!(frame.pixel(3, 3), Some([0, 0, 0, 255]));
 }
 
+/// On a see-through canvas the frame comes back with straight alpha, as
+/// the CPU reference makes it: clear where nothing covers it, opaque under
+/// an opaque picture, and half covered under a half-faded one, in that
+/// picture's own colour rather than darkened towards the clear (#456).
+#[test]
+fn a_see_through_canvas_keeps_the_alpha_of_what_covers_it() {
+    let Some(mut gpu) = gpu() else { return };
+    let square = Arc::new(solid(4, 4, [200, 40, 40, 255]));
+    let plan = FramePlan {
+        canvas: [0, 0, 0, 0],
+        layers: vec![PlannedLayer::picture(detached_clip(), square.clone())],
+        ..FramePlan::empty(8, 4)
+    };
+    let frame = gpu.render(&plan);
+    assert_eq!(frame.pixel(0, 2).map(|p| p[3]), Some(0));
+    let pixel = frame.pixel(4, 2).expect("a pixel");
+    assert!(pixel[3] == 255 && pixel[0].abs_diff(200) <= 1, "{pixel:?}");
+
+    let mut faded = PlannedLayer::picture(detached_clip(), square);
+    faded.opacity = 0.5;
+    let frame = gpu.render(&FramePlan {
+        layers: vec![faded],
+        ..plan
+    });
+    let pixel = frame.pixel(4, 2).expect("a pixel");
+    assert!(pixel[3].abs_diff(128) <= 1, "{pixel:?}");
+    assert!(pixel[0].abs_diff(200) <= 2 && pixel[1].abs_diff(40) <= 2, "{pixel:?}");
+
+    // And an opaque canvas after it is opaque again.
+    let frame = gpu.render(&FramePlan::empty(4, 4));
+    assert_eq!(frame.pixel(1, 1), Some([0, 0, 0, 255]));
+}
+
 /// The canvas colour comes back out as it went in: cleared in linear
 /// light through the upload's gamma and resolved back, within a level.
 #[test]
 fn an_empty_frame_is_the_canvas_colour() {
     let Some(mut gpu) = gpu() else { return };
-    for canvas in [[0, 177, 64], [255, 255, 255], [0, 71, 187], [31, 31, 31]] {
+    for canvas in [[0, 177, 64, 255], [255, 255, 255, 255], [0, 71, 187, 255], [31, 31, 31, 255]] {
         let frame = gpu.render(&FramePlan {
             canvas,
             ..FramePlan::empty(4, 4)
@@ -946,7 +979,7 @@ fn a_transition_kept_on_the_device_matches_the_read_back_one() {
         time: concat_core::time::Rational::new(1, 2),
         width,
         height,
-        canvas: [0, 0, 0],
+        canvas: [0, 0, 0, 255],
         layers: vec![PlannedLayer::picture(
             detached_clip(),
             Arc::new(solid(width, height, colour)),
@@ -1004,7 +1037,7 @@ fn a_frame_drawn_before_is_not_uploaded_again() {
             time: concat_core::time::Rational::new(0, 1),
             width: 64,
             height: 36,
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             layers: vec![PlannedLayer::picture(detached_clip(), Arc::clone(frame))],
             treatments: Vec::new(),
             output: concat_core::frame::Signal::Sdr,
@@ -1045,7 +1078,7 @@ fn the_pool_stays_within_its_limits() {
             time: concat_core::time::Rational::new(0, 1),
             width: 4,
             height: 4,
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             layers: vec![PlannedLayer::picture(detached_clip(), frame)],
             treatments: Vec::new(),
             output: concat_core::frame::Signal::Sdr,

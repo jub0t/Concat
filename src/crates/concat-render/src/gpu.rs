@@ -387,6 +387,32 @@ fn fs_resolve_tone_mapped(@builtin(position) at: vec4<f32>) -> @location(0) vec4
     let clipped = clamp(light, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
 }
+
+// A frame on a canvas that lets something show through (#456): the working
+// space holds it premultiplied, and a file that keeps alpha takes it
+// straight, so the light is divided out of its coverage before the gamma.
+// Nothing covers a texel of alpha zero, which comes out clear black.
+fn unpremultiplied(colour: vec4<f32>) -> vec4<f32> {
+    if (colour.a <= 0.0) {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(colour.rgb / colour.a, min(colour.a, 1.0));
+}
+
+@fragment
+fn fs_resolve_straight(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = unpremultiplied(textureLoad(picture, vec2<i32>(at.xy), 0));
+    let clipped = clamp(colour.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
+}
+
+@fragment
+fn fs_resolve_tone_mapped_straight(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = unpremultiplied(textureLoad(picture, vec2<i32>(at.xy), 0));
+    let light = to_sdr(colour.rgb * 203.0) / 203.0;
+    let clipped = clamp(light, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
+}
 "#;
 
 /// SMPTE ST 2084 and BT.2390's roll-off, which the deep upload and the
@@ -691,6 +717,13 @@ pub struct WgpuCompositor {
     /// screen.
     resolve_pipeline: wgpu::RenderPipeline,
     tone_mapped_pipeline: wgpu::RenderPipeline,
+    /// The same two for a see-through canvas: the frame handed back with
+    /// straight alpha rather than opaque.
+    straight_pipelines: [wgpu::RenderPipeline; 2],
+    /// Whether the plan being drawn has a canvas that lets something show
+    /// through (`FramePlan::canvas`), so its frame keeps its alpha: taken
+    /// up by `prepare`, as `output` is.
+    see_through: bool,
     /// What the plan being drawn is output in (`FramePlan::output`): taken
     /// up by `prepare`, and read by the uploads and the resolve after it.
     output: concat_core::frame::Signal,
@@ -1269,6 +1302,8 @@ impl WgpuCompositor {
         let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve");
         let tone_mapped_pipeline =
             copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve_tone_mapped");
+        let straight_pipelines = ["fs_resolve_straight", "fs_resolve_tone_mapped_straight"]
+            .map(|entry| copy_into(wgpu::TextureFormat::Rgba8Unorm, entry));
         let hdr_pipelines = ["fs_resolve_hlg", "fs_resolve_pq"]
             .map(|entry| copy_into(wgpu::TextureFormat::Rgba16Uint, entry));
 
@@ -1372,6 +1407,8 @@ impl WgpuCompositor {
             upload_pipeline,
             resolve_pipeline,
             tone_mapped_pipeline,
+            straight_pipelines,
+            see_through: false,
             output: concat_core::frame::Signal::Sdr,
             hdr_pipelines,
             deliver_hdr: false,
@@ -1500,6 +1537,7 @@ impl WgpuCompositor {
     /// final render, into whichever target the caller wants.
     fn prepare(&mut self, plan: &FramePlan) -> (Vec<Draw>, Vec<Vertex>) {
         self.output = plan.output;
+        self.see_through = plan.see_through();
         self.used.values_mut().for_each(|used| *used = 0);
         self.composites += 1;
         let (width, height) = (plan.width, plan.height);
@@ -2417,10 +2455,14 @@ impl WgpuCompositor {
     ) {
         let pipeline = if self.delivering_hdr() {
             &self.hdr_pipelines[usize::from(self.output == concat_core::frame::Signal::Pq)]
-        } else if self.output == concat_core::frame::Signal::Sdr {
-            &self.resolve_pipeline
         } else {
-            &self.tone_mapped_pipeline
+            let sdr = self.output == concat_core::frame::Signal::Sdr;
+            match (self.see_through, sdr) {
+                (false, true) => &self.resolve_pipeline,
+                (false, false) => &self.tone_mapped_pipeline,
+                (true, true) => &self.straight_pipelines[0],
+                (true, false) => &self.straight_pipelines[1],
+            }
         };
         Self::copy(
             encoder,
@@ -3519,10 +3561,14 @@ impl WgpuCompositor {
                 let from = &data[row * padded_row..row * padded_row + row_bytes];
                 pixels[row * row_bytes..(row + 1) * row_bytes].copy_from_slice(from);
             }
-            // The output goes to a screen or an encoder; neither has anything
-            // to show through, and blending may have left alpha short of one.
-            for pixel in pixels.chunks_exact_mut(4) {
-                pixel[3] = 255;
+            // The output goes to a screen or an encoder, which have nothing
+            // to show through, and blending may have left alpha short of
+            // one - unless the canvas is see-through, when the alpha is
+            // the point (#456).
+            if !self.see_through {
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel[3] = 255;
+                }
             }
         }
         target.staging.unmap();
@@ -3532,14 +3578,16 @@ impl WgpuCompositor {
 
 /// A plan's canvas colour as the working space holds it: each eight-bit
 /// level through the 2.4 gamma every picture is uploaded through, so the
-/// canvas and a still of the same colour come out the same, 1.0 SDR white.
-fn clear_of([r, g, b]: [u8; 3]) -> wgpu::Color {
-    let light = |level: u8| (f64::from(level) / 255.0).powf(2.4);
+/// canvas and a still of the same colour come out the same, 1.0 SDR white;
+/// premultiplied by its alpha, as everything drawn over it is.
+fn clear_of([r, g, b, a]: [u8; 4]) -> wgpu::Color {
+    let alpha = f64::from(a) / 255.0;
+    let light = |level: u8| (f64::from(level) / 255.0).powf(2.4) * alpha;
     wgpu::Color {
         r: light(r),
         g: light(g),
         b: light(b),
-        a: 1.0,
+        a: alpha,
     }
 }
 

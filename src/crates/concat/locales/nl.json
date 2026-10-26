@@ -665,6 +665,8 @@
   "start.showInFolder": "Tonen in map",
   "start.sortName": "Naam",
   "start.sortRecent": "Recent",
+  "start.transparent": "Transparant",
+  "start.transparentHint": "Doorzichtig waar niets het bedekt. Exporteer als ProRes 4444 (.mov) of WebM om dat te behouden; andere formaten tonen daar zwart.",
   "start.welcome": "Welkom bij Concat",
   "start.welcomeBack": "Welkom terug",
   "start.welcomeBackNote": "Ga verder waar je gebleven was, of begin iets nieuws.",

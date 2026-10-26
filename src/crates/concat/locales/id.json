@@ -665,6 +665,8 @@
   "start.showInFolder": "Tampilkan di folder",
   "start.sortName": "Nama",
   "start.sortRecent": "Terbaru",
+  "start.transparent": "Transparan",
+  "start.transparentHint": "Transparan di bagian yang tidak tertutup apa pun. Ekspor sebagai ProRes 4444 (.mov) atau WebM untuk mempertahankannya; format lain menampilkan hitam di sana.",
   "start.welcome": "Selamat datang di Concat",
   "start.welcomeBack": "Selamat datang kembali",
   "start.welcomeBackNote": "Lanjutkan dari bagian terakhir, atau mulai sesuatu yang baru.",

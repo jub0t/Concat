@@ -665,6 +665,8 @@
   "start.showInFolder": "Show in folder",
   "start.sortName": "Name",
   "start.sortRecent": "Recent",
+  "start.transparent": "Transparent",
+  "start.transparentHint": "Clear where nothing covers it. Export as ProRes 4444 (.mov) or WebM to keep that; other formats show black there.",
   "start.welcome": "Welcome to Concat",
   "start.welcomeBack": "Welcome back",
   "start.welcomeBackNote": "Pick up where you left off, or start something new.",

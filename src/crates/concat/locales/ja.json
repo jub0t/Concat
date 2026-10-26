@@ -665,6 +665,8 @@
   "start.showInFolder": "フォルダーで表示",
   "start.sortName": "名前",
   "start.sortRecent": "最近",
+  "start.transparent": "透明",
+  "start.transparentHint": "何も重なっていない部分は透明です。透明を保つには ProRes 4444 (.mov) か WebM で書き出します。ほかの形式ではそこが黒になります。",
   "start.welcome": "Concat へようこそ",
   "start.welcomeBack": "おかえりなさい",
   "start.welcomeBackNote": "前回の続きから、または新しく始めましょう。",

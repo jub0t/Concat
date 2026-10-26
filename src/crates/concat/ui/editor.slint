@@ -251,6 +251,10 @@ export global Editor {
     /// The engine's composited frame at the playhead, or an empty image
     /// while one is on its way. Set from Rust; see `Studio::request_preview`.
     in-out property <image> preview-frame;
+    /// The timeline's canvas lets something show through (#456): the
+    /// monitor draws a checker under the frame, so what is clear reads as
+    /// clear rather than as the stage's black.
+    in-out property <bool> see-through;
 
     callback play-toggled();
     callback seek(seconds: float);
