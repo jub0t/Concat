@@ -415,7 +415,7 @@ fn unity() -> f64 {
 
 /// Everything a full export needs: the destination, the output format, and
 /// the flattened clip list.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     /// The file to write. Siblings named `.{stem}.concat-*` are used as
@@ -1143,6 +1143,20 @@ pub fn render_on(
     compositor: Option<WgpuCompositor>,
     mut reporter: Reporter<'_>,
 ) -> Result<String, String> {
+    // A clear canvas bound for a format that keeps no alpha is laid over
+    // black first, as the frame is drawn, rather than having its alpha
+    // dropped by the encoder after: dropped, a soft edge or a glow keeps
+    // its full colour and comes out as a solid halo (#456).
+    let flattened;
+    let request = if request.canvas[3] < 255 && !request.codec.keeps_alpha() {
+        flattened = ExportRequest {
+            canvas: over_black(request.canvas),
+            ..request.clone()
+        };
+        &flattened
+    } else {
+        request
+    };
     if !request.effect_time_offset.is_finite()
         || request.effect_time_offset.abs() > concat_project::model::ranges::MAX_TIME
     {
@@ -2309,6 +2323,13 @@ pub struct PreviewFrameRequest {
         deserialize_with = "concat_project::model::rgba_array"
     )]
     pub canvas: [u8; 4],
+}
+
+/// A straight `[r, g, b, a]` canvas laid over opaque black: what a frame
+/// with no alpha to keep shows where nothing covers it.
+fn over_black([r, g, b, a]: [u8; 4]) -> [u8; 4] {
+    let weigh = |level: u8| ((u16::from(level) * u16::from(a) + 127) / 255) as u8;
+    [weigh(r), weigh(g), weigh(b), 255]
 }
 
 /// The canvas of a request that does not name one: what every frame had
@@ -3723,8 +3744,10 @@ mod tests {
         ) else {
             return; // no ffmpeg here
         };
+        let mut red = Frame::black(64, 64);
+        red.fill([200, 40, 40, 255]);
         for _ in 0..15 {
-            encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+            encoder.write_frame(&red).expect("writes");
         }
         encoder.finish().expect("finishes");
         // Half a second of a 440 Hz tone, 16-bit stereo at 48 kHz.
@@ -3764,11 +3787,14 @@ mod tests {
         footage.media_width = Some(64);
         footage.media_height = Some(64);
         footage.has_audio = Some(false);
+        // Half the frame's size on a clear canvas: the corners are what
+        // the file has to keep clear, and the middle the picture (#456).
+        footage.scale = 0.5;
         let mut sound = clip("audio", 1, 0.0, 0.5, 0.0);
         sound.path = tone.to_string_lossy().into_owned();
         sound.has_audio = Some(true);
         let request = |codec: VideoCodec, output: &Path| ExportRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 0],
             output: output.to_string_lossy().into_owned(),
             width: 64,
             height: 64,
@@ -3816,6 +3842,17 @@ mod tests {
             let info = concat_media::probe(&output).expect("probes");
             assert_eq!(info.video.expect("a picture").codec, picture);
             assert_eq!(info.audio.expect("a sound").codec, heard);
+            let mut decoder = Decoder::open(&output, &DecodeOptions::default()).expect("opens");
+            let frame = decoder.next_frame().expect("decodes").expect("a frame");
+            let corner = frame.pixel(2, 2).expect("a pixel");
+            let middle = frame.pixel(32, 32).expect("a pixel");
+            assert!(corner[3] <= 4, "{}: the corner is {corner:?}", codec.label());
+            assert!(middle[3] >= 250, "{}: the middle is {middle:?}", codec.label());
+            assert!(
+                middle[0].abs_diff(200) <= 12 && middle[1].abs_diff(40) <= 12,
+                "{}: the middle is {middle:?}",
+                codec.label()
+            );
             let leftovers: Vec<_> = std::fs::read_dir(&dir)
                 .expect("lists")
                 .filter_map(|entry| entry.ok())
@@ -3823,6 +3860,24 @@ mod tests {
                 .collect();
             assert!(leftovers.is_empty(), "scratch files are removed");
         }
+
+        // An .mp4 keeps no alpha, so the clear canvas is laid over black as
+        // the frame is drawn: a half-faded picture comes out half way to
+        // black, not at its full colour with the alpha dropped after.
+        let mut faded = footage.clone();
+        faded.opacity = 0.5;
+        let output = dir.join("flat.mp4");
+        render(&ExportRequest {
+            clips: vec![faded],
+            ..request(VideoCodec::H264, &output)
+        })
+        .expect("an .mp4 of a clear canvas renders");
+        let mut decoder = Decoder::open(&output, &DecodeOptions::default()).expect("opens");
+        let frame = decoder.next_frame().expect("decodes").expect("a frame");
+        let middle = frame.pixel(32, 32).expect("a pixel");
+        assert!((130..=170).contains(&middle[0]), "the middle is {middle:?}");
+        let corner = frame.pixel(2, 2).expect("a pixel");
+        assert!(corner[0] <= 8 && corner[3] == 255, "the corner is {corner:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

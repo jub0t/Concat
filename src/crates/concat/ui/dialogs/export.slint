@@ -46,13 +46,25 @@ export struct ExportData {
     /// it; the export is at the timeline's rate unless another is picked
     rates: [string],
     rate-details: [string],
-    /// index into the codec list: H.264, HEVC, AV1
+    /// index into the codec list: H.264, HEVC, AV1, ProRes 4444, VP9 alpha
     codec: int,
     /// Which of them this device can encode. A phone's chip may lack
     /// HEVC or AV1; the picker says so rather than failing on Export.
     h264-encodable: bool,
     hevc-encodable: bool,
     av1-encodable: bool,
+    /// The two that keep a transparent frame's alpha (#456): ProRes 4444
+    /// in a .mov, and VP9 with alpha in a .webm, which a phone's FFmpeg
+    /// does not carry.
+    prores-encodable: bool,
+    vp9-alpha-encodable: bool,
+    /// The timeline's canvas lets something show through.
+    see-through: bool,
+    /// The codec picked keeps alpha.
+    keeps-alpha: bool,
+    /// The codec picked is held to a bitrate; ProRes is not, its profile
+    /// sets its rate.
+    rate-controlled: bool,
     ten-bit: bool,
     /// The timeline is HDR, so the file can be written HDR or SDR.
     hdr-timeline: bool,
@@ -133,6 +145,9 @@ component PreviewSection inherits DialogSection {
     in property <float> playhead;
     in property <float> duration;
     in property <float> frame-rate;
+    /// The frame lets something show through (#456): a checker under it,
+    /// as on the monitor.
+    in property <bool> see-through;
 
     callback seek(seconds: float);
 
@@ -146,6 +161,18 @@ component PreviewSection inherits DialogSection {
         border-radius: Theme.r;
         background: Theme.stage;
         clip: true;
+
+        // Under the frame's own rectangle, not the letterbox around it.
+        if root.see-through && root.frame.width > 0: Image {
+            property <float> aspect: root.frame.width / Math.max(1, root.frame.height);
+            width: Math.min(parent.width, parent.height * self.aspect);
+            height: Math.min(parent.height, parent.width / self.aspect);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            source: @image-url("../assets/checker.png");
+            horizontal-tiling: repeat;
+            vertical-tiling: repeat;
+        }
 
         Image {
             width: 100%;
@@ -325,14 +352,25 @@ component OutputSection inherits DialogSection {
         label: I18n.t("export.codec");
         Select {
             current: root.data.codec;
-            options: ["H.264", "HEVC", "AV1"];
+            options: ["H.264", "HEVC", "AV1", "ProRes 4444", "VP9 alpha"];
             details: [
                 root.data.h264-encodable ? I18n.t("export.playsEverywhere") : I18n.t("export.notOnThisDevice"),
                 root.data.hevc-encodable ? I18n.t("export.halfTheSize") : I18n.t("export.notOnThisDevice"),
                 root.data.av1-encodable ? I18n.t("export.smallest") : I18n.t("export.notOnThisDevice"),
+                root.data.prores-encodable ? I18n.t("export.keepsTransparencyMov") : I18n.t("export.notOnThisDevice"),
+                root.data.vp9-alpha-encodable ? I18n.t("export.keepsTransparencyWebm") : I18n.t("export.notOnThisDevice"),
             ];
             changed(index) => { root.codec-changed(index); }
         }
+    }
+
+    // A transparent timeline in a format that keeps no alpha: said before
+    // Export rather than found in the file.
+    if root.data.see-through && !root.data.keeps-alpha: Text {
+        text: I18n.t("export.noTransparency");
+        color: Theme.fg-dim;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
     }
 
     if root.data.hdr: DialogRow {
@@ -352,7 +390,7 @@ component OutputSection inherits DialogSection {
     // recommendation, which every platform takes) until it is dragged,
     // stepped or typed to another. The encoder keeps to it as an average,
     // so the size on the Export button is the size written.
-    DialogRow {
+    if root.data.rate-controlled: DialogRow {
         label: I18n.t("export.bitrate");
         HorizontalLayout {
             alignment: end;
@@ -371,7 +409,9 @@ component OutputSection inherits DialogSection {
     }
 
     // HDR is ten bits always, so the switch is for SDR alone.
-    if !root.data.hdr && root.data.deep-available: DialogRow {
+    // The alpha codecs have their depth set: ProRes 4444 is ten bits,
+    // VP9 with alpha eight.
+    if !root.data.hdr && root.data.deep-available && !root.data.keeps-alpha: DialogRow {
         label: I18n.t("export.tenBitColour");
         HorizontalLayout {
             alignment: end;
@@ -720,6 +760,7 @@ export component ExportDialog inherits Rectangle {
                                 playhead: root.playhead;
                                 duration: root.duration-seconds;
                                 frame-rate: root.frame-rate;
+                                see-through: root.data.see-through;
                                 seek(seconds) => { root.seek(seconds); }
                             }
                             SummarySection { data: root.data; }
@@ -760,6 +801,7 @@ export component ExportDialog inherits Rectangle {
                                 playhead: root.playhead;
                                 duration: root.duration-seconds;
                                 frame-rate: root.frame-rate;
+                                see-through: root.data.see-through;
                                 seek(seconds) => { root.seek(seconds); }
                             }
                             SummarySection { data: root.data; }
