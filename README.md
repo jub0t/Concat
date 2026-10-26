@@ -60,7 +60,7 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 - 🎞️ **Keyframes.** Position, scale, rotation, opacity, volume, effect parameters. Curve editor built in.
 - ✨ **100 effects, filters and transitions.** GPU-rendered, live in the preview.
 - ✂️ **Cut fast.** Split, trim, ripple, merge, freeze frame, speed. Magnetic timeline if you want it.
-- 🎚️ **Multi-track, multi-timeline.** Several cuts in one project. Blend modes, crop, flips.
+- 🎚️ **Multi-track, multi-timeline.** Overlays and picture-in-picture: stack video, stills and titles on as many tracks as you like. Several cuts in one project. Blend modes (screen, add, multiply…), crop, flips.
 - 📝 **Titles.** Fonts, stroke, shadow, background plate. Presets to start from.
 - 🎙️ **One-switch voice cleanup.** Denoise, enhance voice, level the loudness. Plus chipmunk, robot, telephone and friends.
 - 📤 **Export.** H.264, HEVC, AV1. Up to 4K 60, 10-bit colour.
