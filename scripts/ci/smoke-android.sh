@@ -44,7 +44,7 @@
 # whole logcat from before the launch to the end, the app's lines alone,
 # a screenshot of the screen at the end, the window focus, and the
 # device's properties. CI uploads that folder. The package is
-# app.concat.editor unless --package names another.
+# org.standalones.concat unless --package names another.
 #
 # --no-install starts what is already installed, which leaves a device
 # somebody is using as it was apart from the restart of the app. Runs in
@@ -56,7 +56,7 @@ out=smoke-android
 wait_secs=45
 ready=""
 install=1
-package=app.concat.editor
+package=org.standalones.concat
 
 usage() {
   echo "usage: $0 [--out DIR] [--wait SECS] [--ready REGEX] [--no-install] [--package NAME] APK" >&2

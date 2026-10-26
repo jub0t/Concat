@@ -40,7 +40,7 @@ android-build = "0.1"
 # sherpa-onnx runtime libraries and the manifest below into an APK. The
 # runtime libraries come from scripts/sherpa-mobile.sh.
 [package.metadata.android]
-package = "app.concat.editor"
+package = "org.standalones.concat"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
 runtime_libs = "../../vendor/sherpa-onnx/jniLibs"

@@ -4,7 +4,7 @@
 //! The two things UniFFI cannot carry: the app's `Context` (which cpal's
 //! AAudio host reads through ndk-context to size its buffers) and a
 //! `Surface` (whose ANativeWindow the render thread draws on). Both are
-//! plain JNI functions on `app.concat.editor.spike.ConcatNative`, which the
+//! plain JNI functions on `org.standalones.concat.spike.ConcatNative`, which the
 //! Kotlin side reaches after `System.loadLibrary("concat_mobile")`.
 
 use jni_sys::{JNIEnv, jclass, jlong, jobject};
@@ -12,7 +12,7 @@ use jni_sys::{JNIEnv, jclass, jlong, jobject};
 /// `ConcatNative.init(context)`: logcat, and the JavaVM and Context for
 /// ndk-context. Once per process; later calls do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_init(
+pub unsafe extern "system" fn Java_org_standalones_concat_spike_ConcatNative_init(
     env: *mut JNIEnv,
     _class: jclass,
     context: jobject,
@@ -44,7 +44,7 @@ pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_init(
 /// with one reference acquired, as a long, or 0. `Engine.attachSurface`
 /// takes that reference over.
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_windowFromSurface(
+pub unsafe extern "system" fn Java_org_standalones_concat_spike_ConcatNative_windowFromSurface(
     env: *mut JNIEnv,
     _class: jclass,
     surface: jobject,

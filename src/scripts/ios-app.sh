@@ -64,7 +64,7 @@ cat > "$app/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>Concat</string>
   <key>CFBundleDisplayName</key><string>Concat</string>
-  <key>CFBundleIdentifier</key><string>app.concat.editor</string>
+  <key>CFBundleIdentifier</key><string>org.standalones.concat</string>
   <key>CFBundleVersion</key><string>${version}</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleExecutable</key><string>Concat</string>

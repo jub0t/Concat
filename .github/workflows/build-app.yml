@@ -600,7 +600,7 @@ jobs:
           <dict>
             <key>CFBundleName</key><string>Concat</string>
             <key>CFBundleDisplayName</key><string>Concat</string>
-            <key>CFBundleIdentifier</key><string>app.concat.editor</string>
+            <key>CFBundleIdentifier</key><string>org.standalones.concat</string>
             <key>CFBundleVersion</key><string>${VERSION}</string>
             <key>CFBundleShortVersionString</key><string>${VERSION}</string>
             <key>CFBundleExecutable</key><string>concat</string>
