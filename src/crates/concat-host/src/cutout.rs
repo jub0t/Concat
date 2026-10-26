@@ -24,7 +24,7 @@
 //! on first use and stays loaded.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use concat_core::time::{FrameRate, Rational};
@@ -407,51 +407,22 @@ pub(crate) fn fetch(
         total: spec.bytes,
     });
 
-    let mut last: String = String::new();
-    for url in crate::models::sources(spec.file, spec.upstream) {
-        match stream(&url, &partial, spec.bytes, cancel, progress) {
-            Ok(()) => {
-                if let Err(error) = crate::models::verify(&partial, spec.sha256) {
-                    let _ = std::fs::remove_file(&partial);
-                    // A mirror that serves the wrong bytes is not something
-                    // upstream can fix, and trying it next would only hide
-                    // which of the two is wrong.
-                    return Err(error);
-                }
-                return std::fs::rename(&partial, file)
-                    .map_err(|error| format!("could not finish {}: {error}", file.display()));
-            }
-            // The partial stays for the next source, or the next time:
-            // whichever answers takes up where this one stopped.
-            Err(error) => {
-                if cancel.load(Ordering::Relaxed) {
-                    return Err(error);
-                }
-                last = error;
-            }
-        }
-    }
-    Err(format!("could not fetch the {} model: {last}", spec.file))
-}
-
-/// One attempt at one URL, through the shared downloader: into `partial`,
-/// taking up from whatever of it is already there.
-fn stream(
-    url: &str,
-    partial: &Path,
-    estimate: u64,
-    cancel: &AtomicBool,
-    progress: &mut dyn FnMut(Progress),
-) -> Result<(), String> {
-    crate::models::download(
-        url,
-        partial,
-        estimate,
+    // A mirror that serves the wrong bytes is refused there and not tried
+    // past: upstream cannot fix it, and trying it next would only hide
+    // which of the two is wrong. A partial left by a source that stopped
+    // is where the next one, or the next time, takes up.
+    crate::models::fetch(
+        spec.file,
+        spec.upstream,
+        &partial,
+        spec.bytes,
+        spec.sha256,
         cancel,
         "cutout analysis cancelled",
         &mut |received, total| progress(Progress::Fetching { received, total }),
-    )
-    .map(|_| ())
+    )?;
+    std::fs::rename(&partial, file)
+        .map_err(|error| format!("could not finish {}: {error}", file.display()))
 }
 
 /// Every instant the ranges need that the store lacks, ascending, once.

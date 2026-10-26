@@ -78,16 +78,14 @@ pub struct DownloadProgress {
     pub done: bool,
 }
 
-/// Streams a model into `partial`: Concat's own mirror first, the upstream
-/// it was filled from second, and the finished file checked against the
-/// digest its table carries before the caller is told it arrived.
+/// Streams a model into `partial` through the host's downloader:
+/// Concat's own mirror first, the upstream it was filled from after it,
+/// or the copy the person chose themselves, and the finished file checked
+/// against the digest its table carries before the caller is told it
+/// arrived. See [`concat_host::models::fetch`], which also says - when
+/// every source fails - which hosts were tried and why they likely failed.
 ///
-/// `file` is what the model is called on the mirror. Two tries and not one
-/// because a mirror that cannot be reached - a proxy that blocks our host,
-/// a release still being published - should cost a retry rather than a
-/// feature; see [`concat_host::models`]. A file that arrives and hashes
-/// wrong is refused outright rather than retried, since the second try
-/// would only hide which source served it.
+/// `file` is what the model is called on the mirror.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fetch_model(
     file: &str,
@@ -99,45 +97,12 @@ pub(crate) fn fetch_model(
     cancel: &std::sync::atomic::AtomicBool,
     progress: &mut dyn FnMut(DownloadProgress),
 ) -> Result<(u64, u64), String> {
-    use std::sync::atomic::Ordering;
-
-    let mut last = String::new();
-    for url in concat_host::models::sources(file, upstream) {
-        match download_to(&url, partial, id, estimate, cancel, progress) {
-            Ok(totals) => {
-                concat_host::models::verify(partial, sha256).inspect_err(|_| {
-                    let _ = std::fs::remove_file(partial);
-                })?;
-                return Ok(totals);
-            }
-            // The partial stays for the next source, or the next time:
-            // whichever answers takes up where this one stopped.
-            Err(error) => {
-                if cancel.load(Ordering::Relaxed) {
-                    return Err(error);
-                }
-                last = error;
-            }
-        }
-    }
-    Err(last)
-}
-
-/// Streams `url` into `partial` through the shared downloader - taking
-/// up from whatever of `partial` is already there - reporting every
-/// couple of megabytes and stopping when `cancel` is set.
-fn download_to(
-    url: &str,
-    partial: &std::path::Path,
-    id: &str,
-    estimate: u64,
-    cancel: &std::sync::atomic::AtomicBool,
-    progress: &mut dyn FnMut(DownloadProgress),
-) -> Result<(u64, u64), String> {
-    concat_host::models::download(
-        url,
+    concat_host::models::fetch(
+        file,
+        upstream,
         partial,
         estimate,
+        sha256,
         cancel,
         "download cancelled",
         &mut |received, total| {

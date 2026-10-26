@@ -2133,6 +2133,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_model_remove(on_window!(|state, id: SharedString| {
         state.handle(Msg::Settings(SettingsMsg::ModelRemove(id.to_string())));
     }));
+    app.on_model_open_link(on_window!(|state, id: SharedString| {
+        state.handle(Msg::Settings(SettingsMsg::ModelOpenLink(id.to_string())));
+    }));
+    app.on_model_choose_file(on_window!(|state, id: SharedString| {
+        state.handle(Msg::Settings(SettingsMsg::ModelChooseFile(id.to_string())));
+    }));
 
     // ── the tray's sound and word tools ──
     // The tray's panel buttons are toggles: a press opens the panel, or

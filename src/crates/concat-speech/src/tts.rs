@@ -692,6 +692,20 @@ impl Speech {
         result
     }
 
+    /// What bundle `id` is called as a file, and every address a download
+    /// of it tries, in order; see [`crate::Transcriber::model_sources`].
+    /// `None` for one Concat does not know, and for Chatterbox, which is
+    /// several files rather than one.
+    pub fn model_sources(id: &str) -> Option<(String, Vec<String>)> {
+        known(id)?;
+        if family_of(id) == Family::Chatterbox {
+            return None;
+        }
+        let file = model_archive(id);
+        let sources = concat_host::models::sources(&file, &model_upstream(id));
+        Some((file, sources))
+    }
+
     /// Asks the running download to stop. Idle is a harmless no-op.
     pub fn cancel_download(&self) {
         self.downloads.cancel();

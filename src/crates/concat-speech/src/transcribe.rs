@@ -449,6 +449,18 @@ impl Transcriber {
         Ok(())
     }
 
+    /// What model `id` is called as a file, and every address a download
+    /// of it tries, in order: for a person whose network lets their
+    /// browser through and not Concat, who can fetch the first in the
+    /// browser and hand the file to [`concat_host::models::supply`] under
+    /// that name. `None` for a model Concat does not know.
+    pub fn model_sources(id: &str) -> Option<(String, Vec<String>)> {
+        known(id)?;
+        let file = model_archive(id);
+        let sources = concat_host::models::sources(&file, &model_upstream(id));
+        Some((file, sources))
+    }
+
     /// Asks the running download to stop. Idle is a harmless no-op.
     pub fn cancel_download(&self) {
         self.downloads.cancel();

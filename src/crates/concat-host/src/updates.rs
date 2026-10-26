@@ -669,16 +669,25 @@ fn detach(command: &mut Command) -> Result<(), String> {
 /// One GET, read whole as text. GitHub wants a user agent and says so with
 /// a 403 otherwise.
 fn get_text(url: &str) -> Result<String, String> {
-    let agent = crate::net::strict_agent(
+    let agent = format!("Concat/{}", Version::current());
+    let response = crate::net::get(
+        url,
         std::time::Duration::from_secs(20),
         std::time::Duration::from_secs(30),
-    );
-    let response = agent
-        .get(url)
-        .set("User-Agent", &format!("Concat/{}", Version::current()))
-        .set("Accept", "application/vnd.github+json")
-        .call()
-        .map_err(|error| match error {
+        crate::net::Trust::Shipped,
+        &|request| {
+            request
+                .set("User-Agent", &agent)
+                .set("Accept", "application/vnd.github+json")
+        },
+    )
+    .map_err(|failure| {
+        let crate::net::Failure {
+            error,
+            cause,
+            proxy,
+        } = *failure;
+        match error {
             ureq::Error::Status(code, response) => {
                 let body = response.into_string().unwrap_or_default();
                 let said = serde_json::from_str::<serde_json::Value>(&body)
@@ -686,8 +695,17 @@ fn get_text(url: &str) -> Result<String, String> {
                     .unwrap_or_else(|_| body.chars().take(200).collect());
                 format!("{url} answered {code}: {said}")
             }
-            other => format!("{url} did not answer: {other}"),
-        })?;
+            other => {
+                let through = proxy
+                    .map(|proxy| format!(" (through the proxy {proxy})"))
+                    .unwrap_or_default();
+                format!(
+                    "{url} did not answer: {}{through}: {other}",
+                    cause.describe()
+                )
+            }
+        }
+    })?;
     response
         .into_string()
         .map_err(|error| format!("{url} was cut short: {error}"))

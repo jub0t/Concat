@@ -402,6 +402,8 @@ export component App inherits Window {
     callback model-download(id: string);
     callback model-cancel(id: string);
     callback model-remove(id: string);
+    callback model-open-link(id: string);
+    callback model-choose-file(id: string);
 
     callback open-settings();
     callback export-clicked();
@@ -1033,6 +1035,8 @@ export component App inherits Window {
         model-download(id) => { root.model-download(id); }
         model-cancel(id) => { root.model-cancel(id); }
         model-remove(id) => { root.model-remove(id); }
+        model-open-link(id) => { root.model-open-link(id); }
+        model-choose-file(id) => { root.model-choose-file(id); }
     }
 
     in property <RelinkData> relink;

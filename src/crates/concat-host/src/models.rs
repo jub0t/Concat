@@ -24,7 +24,11 @@
 //! than parsed from that file because a model's identity is something the
 //! engine should not be able to start without.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::net::Cause;
 
 /// The repository the mirror lives on.
 pub const REPO: &str = "jub0t/Concat";
@@ -205,6 +209,255 @@ fn sources_for(
     ordered
 }
 
+/// Why a model could not be had, for the window to say in the reader's
+/// language and to offer what can be done instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Failure {
+    /// Every source was tried and none answered; `cause` is the one that
+    /// best explains them all, and `proxy` the proxy they went through.
+    Unreachable {
+        /// Why, as [`crate::net::get`] classed it.
+        cause: Cause,
+        /// The proxy the requests went through, as a message names it.
+        proxy: Option<String>,
+    },
+    /// The file the person chose is not the model: its digest is another.
+    NotTheFile,
+}
+
+/// The last [`fetch`] of each file that failed, and how.
+static FAILURES: Mutex<Vec<(String, Failure)>> = Mutex::new(Vec::new());
+
+/// Files the person downloaded themselves, each standing in for the
+/// download of the model file it is named for; see [`supply`].
+static SUPPLIED: Mutex<Vec<(String, PathBuf)>> = Mutex::new(Vec::new());
+
+/// How the last [`fetch`] of `file` failed, if it did and nothing since
+/// has fetched it.
+pub fn last_failure(file: &str) -> Option<Failure> {
+    let held = FAILURES.lock().ok()?;
+    held.iter()
+        .find(|(name, _)| name == file)
+        .map(|(_, failure)| failure.clone())
+}
+
+fn record_failure(file: &str, failure: Option<Failure>) {
+    if let Ok(mut held) = FAILURES.lock() {
+        held.retain(|(name, _)| name != file);
+        if let Some(failure) = failure {
+            held.push((file.to_owned(), failure));
+        }
+    }
+}
+
+/// Hands [`fetch`] a copy of `file` the person downloaded themselves - in
+/// a browser the network lets through when it does not let Concat - for
+/// the next fetch of that file to install instead of downloading.
+///
+/// It is held to the same digest as a download, so a wrong file is
+/// refused rather than installed; and it is copied, not moved, so the
+/// person's own copy stays where they put it.
+pub fn supply(file: &str, path: PathBuf) {
+    if let Ok(mut held) = SUPPLIED.lock() {
+        held.retain(|(name, _)| name != file);
+        held.push((file.to_owned(), path));
+    }
+}
+
+fn take_supplied(file: &str) -> Option<PathBuf> {
+    let mut held = SUPPLIED.lock().ok()?;
+    let at = held.iter().position(|(name, _)| name == file)?;
+    Some(held.remove(at).1)
+}
+
+/// Fetches the model file `file` into `partial` and checks it: from the
+/// copy the person chose with [`supply`], when there is one, or else from
+/// each of [`sources`] in turn, taking up from whatever of `partial` an
+/// earlier attempt left. The bytes are checked against `sha256` whichever
+/// way they came, and a file that hashes wrong is deleted and refused
+/// rather than tried again elsewhere, which would only hide which source
+/// served it.
+///
+/// When every source fails, the error names every host tried and the
+/// likeliest reason in plain words - a firewall on this computer, no
+/// network, a proxy that is not running - rather than whatever the last
+/// host said, and [`last_failure`] has it for the window. Each source's
+/// own error is in the log.
+///
+/// `progress` is called with (received, total); `cancelled` is the error
+/// to return when `cancel` is set.
+pub fn fetch(
+    file: &str,
+    upstream: &str,
+    partial: &Path,
+    estimate: u64,
+    sha256: &str,
+    cancel: &AtomicBool,
+    cancelled: &str,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(u64, u64), String> {
+    record_failure(file, None);
+    if let Some(chosen) = take_supplied(file) {
+        return adopt(&chosen, file, partial, sha256, cancel, cancelled, progress);
+    }
+    let mut missed: Vec<(String, Missed)> = Vec::new();
+    for url in sources(file, upstream) {
+        match attempt(&url, partial, estimate, cancel, cancelled, progress) {
+            Ok(totals) => {
+                verify(partial, sha256).inspect_err(|_| {
+                    let _ = std::fs::remove_file(partial);
+                })?;
+                return Ok(totals);
+            }
+            Err(miss) => {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(cancelled.to_owned());
+                }
+                log::warn!("models: {}", miss.message);
+                // Not the network's doing - a full disk, a folder that
+                // cannot be written - and no other source would fix it.
+                if miss.cause.is_none() {
+                    return Err(miss.message);
+                }
+                let host = url
+                    .split_once("://")
+                    .map_or(url.as_str(), |(_, rest)| rest)
+                    .split('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
+                missed.push((host, miss));
+            }
+        }
+    }
+    let cause =
+        Cause::telling(missed.iter().filter_map(|(_, miss)| miss.cause)).unwrap_or(Cause::Other);
+    let proxy = missed.iter().find_map(|(_, miss)| miss.proxy.clone());
+    record_failure(
+        file,
+        Some(Failure::Unreachable {
+            cause,
+            proxy: proxy.clone(),
+        }),
+    );
+    let mut hosts: Vec<&str> = Vec::new();
+    for (host, _) in &missed {
+        if !hosts.contains(&host.as_str()) {
+            hosts.push(host);
+        }
+    }
+    let through = proxy
+        .map(|proxy| format!(" through the proxy {proxy}"))
+        .unwrap_or_default();
+    let last = missed
+        .last()
+        .map_or("there was nowhere to download it from", |(_, miss)| {
+            miss.message.as_str()
+        });
+    Err(format!(
+        "could not download {file} from {}{through}: {}. The last one said: {last}",
+        hosts.join(", "),
+        cause.describe(),
+    ))
+}
+
+/// Installs the person's own copy of `file` as if it had been downloaded:
+/// copied into `partial` by way of a file of its own, hashed as it is
+/// copied, and kept only if the hash is the table's. A download half done
+/// in `partial` survives a wrong file.
+fn adopt(
+    chosen: &Path,
+    file: &str,
+    partial: &Path,
+    sha256: &str,
+    cancel: &AtomicBool,
+    cancelled: &str,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(u64, u64), String> {
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Write};
+
+    if sha256.is_empty() {
+        return Err(format!(
+            "{file} cannot be checked: the model table carries no digest for it"
+        ));
+    }
+    let mut source = std::fs::File::open(chosen)
+        .map_err(|error| format!("could not read {}: {error}", chosen.display()))?;
+    let total = source.metadata().map(|meta| meta.len()).unwrap_or(0);
+    let copy = partial.with_extension("chosen");
+    let mut out = std::fs::File::create(&copy)
+        .map_err(|error| format!("could not write {}: {error}", copy.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut copied = 0u64;
+    let mut reported = 0u64;
+    progress(0, total);
+    let result = loop {
+        if cancel.load(Ordering::Relaxed) {
+            break Err(cancelled.to_owned());
+        }
+        let read = match source.read(&mut buffer) {
+            Ok(0) => break Ok(()),
+            Ok(read) => read,
+            Err(error) => break Err(format!("could not read {}: {error}", chosen.display())),
+        };
+        hasher.update(&buffer[..read]);
+        if let Err(error) = out.write_all(&buffer[..read]) {
+            break Err(format!("could not write {}: {error}", copy.display()));
+        }
+        copied += read as u64;
+        if copied - reported >= 8 * 1024 * 1024 {
+            reported = copied;
+            progress(copied, total.max(copied));
+        }
+    }
+    .and_then(|()| {
+        out.flush()
+            .map_err(|error| format!("could not write {}: {error}", copy.display()))
+    });
+    drop(out);
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&copy);
+        return Err(error);
+    }
+    let actual = hex(&hasher.finalize());
+    if actual != sha256 {
+        let _ = std::fs::remove_file(&copy);
+        record_failure(file, Some(Failure::NotTheFile));
+        return Err(format!(
+            "{} is not {file}: its sha256 is {actual}, where {file}'s is {sha256}",
+            chosen.display()
+        ));
+    }
+    std::fs::rename(&copy, partial)
+        .map_err(|error| format!("could not write {}: {error}", partial.display()))?;
+    progress(copied, copied);
+    Ok((copied, copied))
+}
+
+/// One source that did not answer, or stopped answering.
+struct Missed {
+    message: String,
+    /// The network's reason; `None` for a cancel or a local failure.
+    cause: Option<Cause>,
+    proxy: Option<String>,
+}
+
+/// One attempt at one URL, streamed into `partial`, taking up from
+/// however much of `partial` is already there. [`attempt`] with its
+/// reasons spelled out as text, for a caller that tries its own sources.
+pub fn download(
+    url: &str,
+    partial: &Path,
+    estimate: u64,
+    cancel: &AtomicBool,
+    cancelled: &str,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(u64, u64), String> {
+    attempt(url, partial, estimate, cancel, cancelled, progress).map_err(|miss| miss.message)
+}
+
 /// One attempt at one URL, streamed into `partial`, taking up from
 /// however much of `partial` is already there.
 ///
@@ -221,17 +474,21 @@ fn sources_for(
 /// `progress` is called with (received, total) every couple of megabytes.
 /// `cancelled` is the error to return when `cancel` is set: the caller's
 /// words, since it knows what was being fetched.
-pub fn download(
+fn attempt(
     url: &str,
     partial: &Path,
     estimate: u64,
-    cancel: &std::sync::atomic::AtomicBool,
+    cancel: &AtomicBool,
     cancelled: &str,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<(u64, u64), String> {
+) -> Result<(u64, u64), Missed> {
     use std::io::{Read, Write};
-    use std::sync::atomic::Ordering;
 
+    let local = |message: String| Missed {
+        message,
+        cause: None,
+        proxy: None,
+    };
     let already = std::fs::metadata(partial)
         .map(|meta| meta.len())
         .unwrap_or(0);
@@ -239,20 +496,32 @@ pub fn download(
     // A read timeout: a stalled connection blocks in `read` with the
     // cancel flag unreachable, and thirty seconds without a byte means
     // the download is dead.
-    let agent = crate::net::agent(
+    let response = match crate::net::get(
+        url,
         std::time::Duration::from_secs(20),
         std::time::Duration::from_secs(30),
-    );
-    let mut request = agent.get(url);
-    if already > 0 {
-        request = request.set("Range", &format!("bytes={already}-"));
-    }
-    let response = match request.call() {
+        crate::net::Trust::System,
+        &|request| {
+            if already > 0 {
+                request.set("Range", &format!("bytes={already}-"))
+            } else {
+                request
+            }
+        },
+    ) {
         Ok(response) => response,
         // Range not satisfiable: everything is already here. Let the
         // caller's digest check say whether it is the file.
-        Err(ureq::Error::Status(416, _)) if already > 0 => return Ok((already, already)),
-        Err(error) => return Err(format!("{url} did not answer: {error}")),
+        Err(failure) if already > 0 && matches!(failure.error, ureq::Error::Status(416, _)) => {
+            return Ok((already, already));
+        }
+        Err(failure) => {
+            return Err(Missed {
+                message: format!("{url} did not answer: {failure}"),
+                cause: Some(failure.cause),
+                proxy: failure.proxy,
+            });
+        }
     };
 
     let resumed = response.status() == 206;
@@ -272,7 +541,7 @@ pub fn download(
     } else {
         std::fs::File::create(partial)
     }
-    .map_err(|error| format!("could not write {}: {error}", partial.display()))?;
+    .map_err(|error| local(format!("could not write {}: {error}", partial.display())))?;
 
     let mut reader = response.into_reader();
     let mut buffer = [0u8; 64 * 1024];
@@ -281,16 +550,18 @@ pub fn download(
     loop {
         if cancel.load(Ordering::Relaxed) {
             // The partial stays: it is where the next attempt picks up.
-            return Err(cancelled.to_owned());
+            return Err(local(cancelled.to_owned()));
         }
-        let read = reader
-            .read(&mut buffer)
-            .map_err(|error| format!("download interrupted: {error}"))?;
+        let read = reader.read(&mut buffer).map_err(|error| Missed {
+            message: format!("{url} stopped partway: {error}"),
+            cause: Some(crate::net::classify_io(&error)),
+            proxy: None,
+        })?;
         if read == 0 {
             break;
         }
         file.write_all(&buffer[..read])
-            .map_err(|error| format!("could not write {}: {error}", partial.display()))?;
+            .map_err(|error| local(format!("could not write {}: {error}", partial.display())))?;
         received += read as u64;
         // Every 2 MB, not every chunk: a progress bar cannot use more.
         if received - reported >= 2 * 1024 * 1024 {
@@ -299,9 +570,13 @@ pub fn download(
         }
     }
     file.flush()
-        .map_err(|error| format!("could not write {}: {error}", partial.display()))?;
+        .map_err(|error| local(format!("could not write {}: {error}", partial.display())))?;
     if received == 0 {
-        return Err(format!("{url} came back empty"));
+        return Err(Missed {
+            message: format!("{url} came back empty"),
+            cause: Some(Cause::Other),
+            proxy: None,
+        });
     }
     Ok((received, received.max(total)))
 }
@@ -350,14 +625,18 @@ fn sha256(file: &Path) -> Result<String, String> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(hasher
-        .finalize()
+    Ok(hex(&hasher.finalize()))
+}
+
+/// Bytes as lowercase hex.
+fn hex(bytes: &[u8]) -> String {
+    bytes
         .iter()
-        .fold(String::with_capacity(64), |mut out, byte| {
+        .fold(String::with_capacity(bytes.len() * 2), |mut out, byte| {
             use std::fmt::Write;
             let _ = write!(out, "{byte:02x}");
             out
-        }))
+        })
 }
 
 #[cfg(test)]
@@ -489,6 +768,73 @@ mod tests {
             download(&url, &partial, 0, &cancel, "stopped", &mut |_, _| {}).expect("again");
         assert!(received > 0);
         let _ = std::fs::remove_file(&partial);
+    }
+
+    #[test]
+    fn a_file_the_person_chose_is_installed_only_if_it_is_the_model() {
+        use sha2::{Digest, Sha256};
+
+        let dir = std::env::temp_dir().join(format!("concat-models-chosen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let chosen = dir.join("ggml-test.bin");
+        let body = vec![7u8; 3 * 1024 * 1024 + 11];
+        std::fs::write(&chosen, &body).expect("the chosen file");
+        let digest = hex(&Sha256::digest(&body));
+        let partial = dir.join("ggml-test.bin.part");
+        // Half a download from before: a wrong file must not cost it.
+        std::fs::write(&partial, b"half").expect("a partial");
+        let cancel = AtomicBool::new(false);
+        // The name is one no table has, and nothing is downloaded: the
+        // chosen file stands in for every source.
+        let file = "concat-test-chosen.bin";
+
+        supply(file, chosen.clone());
+        let wrong = "0".repeat(64);
+        let refused = fetch(
+            file,
+            "",
+            &partial,
+            0,
+            &wrong,
+            &cancel,
+            "stopped",
+            &mut |_, _| {},
+        )
+        .expect_err("not the model");
+        assert!(refused.contains("is not"), "{refused}");
+        assert_eq!(last_failure(file), Some(Failure::NotTheFile));
+        assert_eq!(std::fs::read(&partial).expect("the partial"), b"half");
+        assert!(
+            std::fs::exists(&chosen).unwrap_or(false),
+            "the person's copy stays"
+        );
+
+        supply(file, chosen.clone());
+        let mut last = (0, 0);
+        let totals = fetch(
+            file,
+            "",
+            &partial,
+            0,
+            &digest,
+            &cancel,
+            "stopped",
+            &mut |got, of| last = (got, of),
+        )
+        .expect("the model");
+        assert_eq!(totals, (body.len() as u64, body.len() as u64));
+        assert_eq!(last, totals, "progress ends full");
+        assert_eq!(std::fs::read(&partial).expect("installed"), body);
+        assert_eq!(
+            last_failure(file),
+            None,
+            "a fetch that worked clears the failure"
+        );
+        assert!(
+            std::fs::exists(&chosen).unwrap_or(false),
+            "copied, not moved"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

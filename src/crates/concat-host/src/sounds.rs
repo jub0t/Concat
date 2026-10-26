@@ -382,14 +382,21 @@ pub fn cached_catalogue(dirs: &AppDirs) -> Option<Catalogue> {
 /// error.
 pub fn fetch_catalogue(dirs: &AppDirs) -> Result<Option<Catalogue>, String> {
     use std::io::Read;
-    let agent = crate::net::strict_agent(
+    let response = match crate::net::get(
+        crate::models::SOUNDS_MANIFEST,
         std::time::Duration::from_secs(15),
         std::time::Duration::from_secs(30),
-    );
-    let response = match agent.get(crate::models::SOUNDS_MANIFEST).call() {
+        crate::net::Trust::Shipped,
+        &|request| request,
+    ) {
         Ok(response) => response,
-        Err(ureq::Error::Status(404, _)) => return Ok(None),
-        Err(error) => return Err(format!("the sound list did not answer: {error}")),
+        Err(failure) if matches!(failure.error, ureq::Error::Status(404, _)) => return Ok(None),
+        Err(failure) => {
+            return Err(format!(
+                "the sound list did not answer: {}: {failure}",
+                failure.cause.describe()
+            ));
+        }
     };
     let mut bytes = Vec::new();
     response

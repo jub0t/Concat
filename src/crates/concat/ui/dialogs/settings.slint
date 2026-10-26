@@ -39,6 +39,11 @@ export struct ModelData {
     /// "42 MB of 142 MB · 3.1 MB/s"
     transferred: string,
     eta: string,
+    /// why the last download failed, in a sentence; "" when it did not
+    problem: string,
+    /// the failure can be got round: the model is one file, which the
+    /// browser can fetch and the row can take
+    manual: bool,
 }
 
 /// One line of the system report: what it is called, and what it says.
@@ -201,6 +206,8 @@ component ModelRow inherits Rectangle {
     callback download();
     callback cancel();
     callback remove();
+    callback open-link();
+    callback choose-file();
 
     border-radius: Theme.r;
     border-width: 1px;
@@ -337,6 +344,41 @@ component ModelRow inherits Rectangle {
                     font-family: Theme.font-technical;
                     font-size: Theme.fs-sm;
                     vertical-alignment: center;
+                }
+            }
+        }
+
+        // A download that failed says why under the name, and - when the
+        // model is one file - offers the way round a network that lets the
+        // browser through and not Concat: fetch it there, then hand the
+        // file over. Download stays the retry.
+        if root.model.problem != "" && !root.model.downloading && !root.model.installed: VerticalLayout {
+            padding-left: 26px;
+            spacing: 8px;
+
+            Text {
+                text: root.model.problem;
+                color: Theme.danger;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+
+            if root.model.manual: HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+
+                Button {
+                    label: I18n.t("settings.downloadInBrowser");
+                    glyph: Glyph.arrow-up-right;
+                    ghost: true;
+                    clicked => { root.open-link(); }
+                }
+
+                Button {
+                    label: I18n.t("settings.chooseFile");
+                    glyph: Glyph.folder;
+                    ghost: true;
+                    clicked => { root.choose-file(); }
                 }
             }
         }
@@ -639,6 +681,8 @@ export component SettingsDialog inherits Modal {
     callback model-download(id: string);
     callback model-cancel(id: string);
     callback model-remove(id: string);
+    callback model-open-link(id: string);
+    callback model-choose-file(id: string);
     /// The Shortcuts page: a row asked for the next keys it should be
     /// bound to, one row put back as it ships, and all of them put back.
     callback shortcut-capture(id: string);
@@ -1187,6 +1231,8 @@ export component SettingsDialog inherits Modal {
                         download => { root.model-download(model.id); }
                         cancel => { root.model-cancel(model.id); }
                         remove => { root.model-remove(model.id); }
+                        open-link => { root.model-open-link(model.id); }
+                        choose-file => { root.model-choose-file(model.id); }
                     }
 
                     HorizontalLayout {
@@ -1230,6 +1276,8 @@ export component SettingsDialog inherits Modal {
                         download => { root.model-download(model.id); }
                         cancel => { root.model-cancel(model.id); }
                         remove => { root.model-remove(model.id); }
+                        open-link => { root.model-open-link(model.id); }
+                        choose-file => { root.model-choose-file(model.id); }
                     }
                 }
             }

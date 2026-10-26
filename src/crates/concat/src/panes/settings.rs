@@ -76,6 +76,16 @@ pub enum SettingsMsg {
     ModelDownload(String),
     ModelCancel(String),
     ModelRemove(String),
+    /// A failed download's way round: open the model's first source in
+    /// the browser, which the network may let through where it did not
+    /// let Concat ...
+    ModelOpenLink(String),
+    /// ... and install the file that browser saved, once it is picked.
+    ModelChooseFile(String),
+    ModelChosen {
+        id: String,
+        path: std::path::PathBuf,
+    },
     /// A download's worker reporting where it is.
     ModelProgress {
         id: String,
@@ -130,6 +140,9 @@ pub struct ModelState {
     /// Megabytes fetched so far while a download runs.
     pub fetched: Option<f32>,
     pub unpacking: bool,
+    /// Why the last download failed, when it failed for a reason the row
+    /// can say and offer a way round.
+    pub failure: Option<concat_host::models::Failure>,
 }
 
 impl ModelState {
@@ -161,7 +174,46 @@ impl ModelState {
                 .into()
             },
             eta: SharedString::new(),
+            problem: self
+                .failure
+                .as_ref()
+                .map(failure_line)
+                .unwrap_or_default()
+                .into(),
+            manual: self.failure.is_some() && model_sources(&self.id).is_some(),
         }
+    }
+}
+
+/// What model `id` is called as a file and where it is downloaded from,
+/// whichever list it is on; `None` for one that cannot be installed from
+/// a single file.
+fn model_sources(id: &str) -> Option<(String, Vec<String>)> {
+    concat_speech::Transcriber::model_sources(id)
+        .or_else(|| concat_speech::Speech::model_sources(id))
+}
+
+/// A failed download, as the row under the model says it.
+fn failure_line(failure: &concat_host::models::Failure) -> String {
+    use concat_host::models::Failure;
+    use concat_host::net::Cause;
+
+    match failure {
+        Failure::NotTheFile => t("settings.notTheModelFile"),
+        Failure::Unreachable { cause, proxy } => match cause {
+            Cause::Blocked => t("settings.downloadBlocked"),
+            Cause::Offline => t("settings.downloadOffline"),
+            Cause::Dns => t("settings.downloadDns"),
+            Cause::Proxy => tf(
+                "settings.downloadProxy",
+                &[&proxy.as_deref().unwrap_or_default()],
+            ),
+            Cause::Certificate => t("settings.downloadCertificate"),
+            Cause::Reset => t("settings.downloadReset"),
+            Cause::Refused | Cause::Timeout => t("settings.downloadNoAnswer"),
+            Cause::Status(code) => tf("settings.downloadStatus", &[code]),
+            Cause::Other => t("settings.downloadFailed"),
+        },
     }
 }
 
@@ -386,6 +438,33 @@ impl SettingsPane {
                 self.refresh(studio);
             }
             SettingsMsg::ModelDownload(id) => self.download(&id, studio),
+            SettingsMsg::ModelOpenLink(id) => {
+                if let Some(url) = model_sources(&id).and_then(|(_, urls)| urls.into_iter().next())
+                    && let Err(error) = platform::open_link(&url)
+                {
+                    studio.notify(&error, true);
+                }
+            }
+            SettingsMsg::ModelChooseFile(id) => {
+                crate::host::pick_files_then(
+                    t("settings.chooseModelFile"),
+                    None,
+                    move |studio, _, _, paths| {
+                        if let Some(path) = paths.into_iter().next() {
+                            studio.handle(Msg::Settings(SettingsMsg::ModelChosen { id, path }));
+                        }
+                    },
+                );
+            }
+            // The file goes the way a download does - into the model's
+            // partial, checked against the digest, unpacked if it is an
+            // archive - so a wrong file is refused the same way.
+            SettingsMsg::ModelChosen { id, path } => {
+                if let Some((file, _)) = model_sources(&id) {
+                    concat_host::models::supply(&file, path);
+                    self.download(&id, studio);
+                }
+            }
             SettingsMsg::ModelCancel(id) => {
                 if self.is_transcriber(&id) {
                     studio.host.transcriber.cancel_download();
@@ -419,9 +498,16 @@ impl SettingsPane {
                 }
             }
             SettingsMsg::ModelFinished { id, result } => {
+                // The host's account of a failed fetch, when it was the
+                // network or the file and not a cancel or the disk.
+                let failure = result.as_ref().err().and_then(|_| {
+                    model_sources(&id)
+                        .and_then(|(file, _)| concat_host::models::last_failure(&file))
+                });
                 if let Some(model) = self.model_mut(&id) {
                     model.fetched = None;
                     model.unpacking = false;
+                    model.failure = failure.clone();
                 }
                 match result {
                     Ok(()) => {
@@ -433,7 +519,10 @@ impl SettingsPane {
                         }
                         studio.prefs.save(&studio.host.dirs);
                     }
-                    Err(error) => studio.notify(&error, true),
+                    Err(error) => match &failure {
+                        Some(failure) => studio.notify(&failure_line(failure), true),
+                        None => studio.notify(&error, true),
+                    },
                 }
                 self.refresh(studio);
             }
@@ -703,6 +792,12 @@ impl SettingsPane {
             .filter(|model| model.fetched.is_some())
             .map(|model| (model.id.clone(), (model.fetched, model.unpacking)))
             .collect();
+        let failed: HashMap<String, concat_host::models::Failure> = self
+            .transcribers
+            .iter()
+            .chain(self.voices.iter())
+            .filter_map(|model| Some((model.id.clone(), model.failure.clone()?)))
+            .collect();
         let chosen_transcriber = studio.prefs.transcriber_model.clone();
         let chosen_voice = studio.prefs.tts_model.clone();
         if let Ok(status) = concat_speech::Transcriber::status(dirs) {
@@ -728,6 +823,7 @@ impl SettingsPane {
                         active: chosen_transcriber.as_deref() == Some(model.id.as_str()),
                         fetched,
                         unpacking,
+                        failure: failed.get(&model.id).cloned(),
                     }
                 })
                 .collect();
@@ -750,6 +846,7 @@ impl SettingsPane {
                         active: chosen_voice.as_deref() == Some(model.id.as_str()),
                         fetched,
                         unpacking,
+                        failure: failed.get(&model.id).cloned(),
                     }
                 })
                 .collect();
@@ -786,6 +883,7 @@ impl SettingsPane {
             return;
         }
         model.fetched = Some(0.0);
+        model.failure = None;
         let id = id.to_owned();
         let dirs = studio.host.dirs.clone();
         let whisper = Arc::clone(&studio.host.transcriber);
@@ -1016,11 +1114,52 @@ mod tests {
             active: true,
             fetched: Some(50.0),
             unpacking: false,
+            failure: None,
         };
         let row = model.row();
         assert!(row.downloading);
         assert!(!row.active, "a model that is not installed is not active");
         assert!((row.progress - 0.25).abs() < 1e-6);
+        assert!(row.problem.is_empty() && !row.manual);
+    }
+
+    #[test]
+    fn a_failed_download_says_why_and_offers_the_way_round() {
+        use concat_host::models::Failure;
+        use concat_host::net::Cause;
+
+        let failed = |id: &str, failure| ModelState {
+            id: id.into(),
+            name: id.into(),
+            note: String::new(),
+            megabytes: 75.0,
+            accuracy: 2,
+            installed: false,
+            active: false,
+            fetched: None,
+            unpacking: false,
+            failure: Some(failure),
+        };
+        let blocked = Failure::Unreachable {
+            cause: Cause::Blocked,
+            proxy: None,
+        };
+        let row = failed("tiny", blocked.clone()).row();
+        assert_eq!(row.problem.as_str(), t("settings.downloadBlocked"));
+        assert!(row.manual, "a whisper model is one file, so it can be chosen");
+        let row = failed("no-such-model", blocked).row();
+        assert!(!row.problem.is_empty());
+        assert!(!row.manual, "nothing to download it from, nothing to choose");
+        let proxy = Failure::Unreachable {
+            cause: Cause::Proxy,
+            proxy: Some("127.0.0.1:7890".into()),
+        };
+        assert!(failure_line(&proxy).contains("127.0.0.1:7890"));
+        assert!(failure_line(&Failure::Unreachable {
+            cause: Cause::Status(404),
+            proxy: None
+        })
+        .contains("404"));
     }
 
     #[test]
@@ -1035,6 +1174,7 @@ mod tests {
             active: false,
             fetched: None,
             unpacking: false,
+            failure: None,
         };
         let list = [model("a", true), model("b", false), model("c", true)];
         let ids: Vec<&str> = installed(&list).iter().map(|m| m.id.as_str()).collect();
