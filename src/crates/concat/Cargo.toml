@@ -83,6 +83,11 @@ wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
 libc = "0.2"
 
+# `_exit`, the way out past the C++ libraries' static destructors; see
+# `leave` in lib.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "ios")'.dependencies]
 slint = { version = "1.18", default-features = false, features = [
     "std",

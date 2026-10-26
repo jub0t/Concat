@@ -271,11 +271,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         // https://github.com/jub0t/Concat/issues/437
         || {
             let terminating = std::cell::Cell::new(false);
+            // Whether the studio was free to borrow: `stop_exports` borrows it.
+            let free = std::cell::Cell::new(false);
             Shell::with(|shell, _| {
                 let Ok(mut studio) = shell.studio.try_borrow_mut() else {
                     log::warn!("close: app terminating mid-edit; project not saved");
                     return;
                 };
+                free.set(true);
                 if studio.session.is_some() {
                     log::info!("close: app terminating");
                     terminating.set(true);
@@ -285,8 +288,19 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 }
             });
             // What `run` returning would have done next, had it returned.
-            if terminating.get() {
+            if terminating.get() || (cfg!(target_os = "macos") && free.get()) {
                 stop_exports();
+            }
+            // On a Mac the process ends here, by every road. Past this
+            // hook, ⌘Q's terminate calls `exit`, and `exit` runs the C++
+            // libraries' static destructors under the threads still
+            // running: whisper's, with a model loaded since the first
+            // caption, asserts its Metal buffers were all freed and aborts
+            // ("concat quit unexpectedly"). See `leave`.
+            #[cfg(target_os = "macos")]
+            {
+                log::info!("close: event loop exiting; leaving");
+                leave(0);
             }
         },
     )?;
@@ -2782,9 +2796,16 @@ pub fn draw_in_software() {
 /// would have had the same crash. Nothing those handlers do is anything
 /// a closing app needs: the log is flushed here, and the files a project
 /// writes are written before the window closes.
+///
+/// On a Mac too, for the C++ libraries' static destructors: whisper.cpp's
+/// Metal device is a static whose destructor asserts that every Metal
+/// buffer was freed, and the model a caption loaded stays loaded for the
+/// rest of the run - so a quit after any transcription died of SIGABRT in
+/// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
+/// that way itself when it opts into sudden termination.
 fn leave(code: i32) -> ! {
     log::logger().flush();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -2793,7 +2814,7 @@ fn leave(code: i32) -> ! {
         // this one's is touched after it.
         unsafe { libc::_exit(code) }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     std::process::exit(code);
 }
 
