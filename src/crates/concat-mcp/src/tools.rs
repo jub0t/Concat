@@ -290,7 +290,7 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "clip_trim",
             "Trim a clip",
-            "Moves one edge of a clip by `delta` seconds of timeline: `edge` \"start\" with a positive delta shortens it from the head (the picture does not slide), \"end\" with a positive delta lengthens it. A clip is never shorter than 1/60 s or longer than its media allows. `ripple: true` closes or opens the gap behind it on that lane.",
+            "Moves one edge of a clip by `delta` seconds of timeline: `edge` \"start\" with a positive delta shortens it from the head (the picture does not slide), \"end\" with a positive delta lengthens it. A clip is never shorter than 1/60 s or longer than its media allows. `ripple: true` closes or opens the gap behind it on that lane, and on the main lane the other lanes follow while the timeline's linkage is on (`timeline_linkage`).",
             "trimClip",
         ),
         command(
@@ -308,7 +308,7 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "clips_remove",
             "Delete clips",
-            "Deletes clips from the active timeline. `ripple: true` closes the gaps they leave on their lanes; false leaves the gaps.",
+            "Deletes clips from the active timeline. `ripple: true` closes the gaps they leave on their lanes, and on the main lane the other lanes follow while the timeline's linkage is on (`timeline_linkage`); false leaves the gaps.",
             "removeClips",
         )
         .destroying(),
@@ -344,6 +344,12 @@ pub fn catalogue() -> Vec<Tool> {
             "Set the background",
             "Sets what shows behind pictures that do not cover the frame, on a whole timeline (`timelineId` from `timeline_read`): `{\"kind\": \"none\"}` (black), `{\"kind\": \"blur\", \"amount\": 0-1}` (the clip itself, enlarged and blurred), `{\"kind\": \"color\", \"color\": \"#rrggbb\"}` or `{\"kind\": \"image\", \"mediaId\": ...}`. One clip's own background is `clip_update`'s `background`.",
             "setTimelineBackground",
+        ),
+        command(
+            "timeline_linkage",
+            "Link the lanes to the main one",
+            "Turns linkage on or off for a timeline (`timelineId` from `timeline_read`, `on`). On - the default - a ripple on the main lane (the lowest one with a picture) moves the other lanes with it: clips after the edit follow, a clip running across it stays, and a title wholly over footage a ripple delete removed goes with it. Off, a ripple moves only its own lane.",
+            "setTimelineLinkage",
         ),
         command(
             "clip_transform",
@@ -1076,6 +1082,10 @@ mod tests {
             (
                 "timeline_background",
                 json!({ "path": "/tmp/Cut", "timelineId": "tl1", "background": { "kind": "blur", "amount": 0.5 } }),
+            ),
+            (
+                "timeline_linkage",
+                json!({ "path": "/tmp/Cut", "timelineId": "tl1", "on": false }),
             ),
             ("effects_list", json!({ "kind": "transition" })),
             ("template_list", json!({})),

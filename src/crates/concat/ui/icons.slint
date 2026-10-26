@@ -124,6 +124,7 @@ export enum Glyph {
     trash,
     magnet,
     fold,
+    link,
     /// the preview axis: a hairline with the pointer beside it
     axis,
     /// trim follow: the playhead between two arrows pulling an edge
@@ -754,6 +755,14 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M2 12h6 M22 12h-6 M12 2v2 M12 8v2 M12 14v2 M12 20v2"
             + " M19 9l-3 3 3 3 M5 15l3-3-3-3";
+    }
+
+    // lucide/link: two links of a chain, for linkage - the lanes held to
+    // the main one.
+    if root.glyph == Glyph.link: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"
+            + " M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
     }
 
     // The preview axis: a hairline down the lanes and the pointer beside

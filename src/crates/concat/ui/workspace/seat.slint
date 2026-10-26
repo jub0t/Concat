@@ -383,6 +383,7 @@ export component Seat inherits Rectangle {
             tool: Editor.tool;
             snap: Editor.snap;
             magnetic: Editor.magnetic;
+            linkage: Editor.linkage;
             pan-mode: Editor.pan-mode;
             trim-follow: Editor.trim-follow;
             meters-shown: Editor.meters-shown;
@@ -415,6 +416,7 @@ export component Seat inherits Rectangle {
             tool-changed(tool) => { Editor.tool-changed(tool); }
             snap-changed(snap) => { Editor.snap-changed(snap); }
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
+            linkage-changed(on) => { Editor.linkage-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }
             trim-follow-changed(on) => { Editor.trim-follow-changed(on); }
             meters-shown-changed(on) => { Editor.meters-shown-changed(on); }

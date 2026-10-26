@@ -276,6 +276,7 @@ pub(super) fn apply(
             ripple,
         } => {
             let timeline = project.active_mut();
+            let main = timeline.background_lane().map(str::to_owned);
             let Some(clip) = timeline.clip_mut(&clip_id) else {
                 return Ok(Outcome::default());
             };
@@ -365,6 +366,23 @@ pub(super) fn apply(
                 }) {
                     other.start = (other.start + by).max(0.0);
                 }
+                // In the lane's old time the edit is at the tail's old end
+                // or the clip's start, whichever edge moved: what came off
+                // went from there, what was restored went in there.
+                let at = match edge {
+                    TrimEdge::End => old_end,
+                    TrimEdge::Start => anchor,
+                };
+                let ripple = if by < 0.0 {
+                    let from = match edge {
+                        TrimEdge::End => old_end + by,
+                        TrimEdge::Start => anchor,
+                    };
+                    Ripple::Removed(vec![(from, from - by)])
+                } else {
+                    Ripple::Inserted { at, length: by }
+                };
+                follow_main(timeline, main.as_deref(), &track_id, ripple);
             }
             Ok(Outcome {
                 created_id: None,
@@ -597,6 +615,7 @@ pub(super) fn apply(
             };
 
             let timeline = project.active_mut();
+            let main = timeline.background_lane().map(str::to_owned);
             let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
                 return Ok(Outcome::default());
             };
@@ -631,6 +650,15 @@ pub(super) fn apply(
             {
                 clip.start += hold;
             }
+            follow_main(
+                timeline,
+                main.as_deref(),
+                &track_id,
+                Ripple::Inserted {
+                    at: time,
+                    length: hold,
+                },
+            );
 
             // The still is the source clip turned into a picture: cloning it
             // first carries every look field - transform, effects, crop,
@@ -753,6 +781,9 @@ pub(super) fn apply(
                     )
                 })
                 .collect();
+            // The main lane before it loses anything: deleting its last
+            // picture is still an edit of it.
+            let main = timeline.background_lane().map(str::to_owned);
             let clip_count = timeline.clips.len();
             timeline
                 .clips
@@ -760,6 +791,14 @@ pub(super) fn apply(
             let applied = timeline.clips.len() != clip_count;
             if ripple && applied {
                 close_gaps(timeline, &removed);
+                if let Some(main) = main.as_deref() {
+                    let spans = removed
+                        .iter()
+                        .filter(|(track, _, _)| track == main)
+                        .map(|(_, start, end)| (*start, *end))
+                        .collect();
+                    follow_main(timeline, Some(main), main, Ripple::Removed(spans));
+                }
             }
             Ok(Outcome {
                 created_id: None,
@@ -789,28 +828,94 @@ fn close_gaps(timeline: &mut Timeline, removed: &[(String, f64, f64)]) {
             .any(|(track, start, _)| *track == clip.track_id && *start < clip.start)
     };
     for clip in timeline.clips_where(behind_a_span) {
-        let mut spans: Vec<(f64, f64)> = removed
+        let spans: Vec<(f64, f64)> = removed
             .iter()
-            .filter(|(track, start, _)| *track == clip.track_id && *start < clip.start)
-            .map(|(_, start, end)| (*start, end.min(clip.start)))
+            .filter(|(track, _, _)| *track == clip.track_id)
+            .map(|(_, start, end)| (*start, *end))
             .collect();
-        if spans.is_empty() {
-            continue;
+        clip.start = (clip.start - removed_before(&spans, clip.start)).max(0.0);
+    }
+}
+
+/// How much of `spans` lies before `at`, counting what they share once: a
+/// span reaching past `at` counts only up to it.
+fn removed_before(spans: &[(f64, f64)], at: f64) -> f64 {
+    let mut before: Vec<(f64, f64)> = spans
+        .iter()
+        .filter(|(start, _)| *start < at)
+        .map(|&(start, end)| (start, end.min(at)))
+        .collect();
+    if before.is_empty() {
+        return 0.0;
+    }
+    before.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut gap = 0.0;
+    let (mut from, mut to) = before[0];
+    for (start, end) in before.into_iter().skip(1) {
+        if start <= to {
+            to = to.max(end);
+        } else {
+            gap += to - from;
+            from = start;
+            to = end;
         }
-        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut gap = 0.0;
-        let (mut from, mut to) = spans[0];
-        for (start, end) in spans.into_iter().skip(1) {
-            if start <= to {
-                to = to.max(end);
-            } else {
-                gap += to - from;
-                from = start;
-                to = end;
+    }
+    gap + (to - from)
+}
+
+/// What an edit did to the main lane's time, counted in the lane as it was
+/// before: spans taken out of it, or a length put in at a time.
+pub(crate) enum Ripple {
+    Removed(Vec<(f64, f64)>),
+    Inserted { at: f64, length: f64 },
+}
+
+/// Linkage: the rest of the timeline follows a ripple on its main lane, so
+/// what was placed against the footage stays on the frames it was placed
+/// against. A clip on another lane that starts at or after an insertion
+/// moves along by its length, and one after a removal moves back by what
+/// was taken out before it - landing where the cut is when it started
+/// inside what went. A clip that runs across the edit stays: a music bed
+/// is not cut up or dragged. Words wholly inside footage that went - a
+/// caption, a title - go with it, as they would have been spoken over
+/// nothing. `main` is the timeline's main lane as it stood before the
+/// edit; a ripple on any other lane, or with linkage off, moves only its
+/// own lane, as it always did.
+pub(crate) fn follow_main(timeline: &mut Timeline, main: Option<&str>, lane: &str, ripple: Ripple) {
+    if !timeline.linkage || main != Some(lane) {
+        return;
+    }
+    match ripple {
+        Ripple::Inserted { at, length } => {
+            if length <= 0.0 {
+                return;
+            }
+            for clip in timeline
+                .clips_where(|clip| clip.track_id != lane && clip.start >= at - JOIN_EPSILON)
+            {
+                clip.start += length;
             }
         }
-        gap += to - from;
-        clip.start = (clip.start - gap).max(0.0);
+        Ripple::Removed(spans) => {
+            let spans: Vec<(f64, f64)> = spans.into_iter().filter(|(s, e)| e > s).collect();
+            if spans.is_empty() {
+                return;
+            }
+            let spoken_over_nothing = |clip: &Clip| {
+                clip.track_id != lane
+                    && clip.kind == ClipKind::Text
+                    && spans.iter().any(|&(start, end)| {
+                        clip.start >= start - JOIN_EPSILON
+                            && clip.start + clip.duration <= end + JOIN_EPSILON
+                    })
+            };
+            timeline.clips.retain(|clip| !spoken_over_nothing(clip));
+            for clip in timeline.clips_where(|clip| {
+                clip.track_id != lane && spans.iter().any(|&(start, _)| start < clip.start)
+            }) {
+                clip.start = (clip.start - removed_before(&spans, clip.start)).max(0.0);
+            }
+        }
     }
 }
 
@@ -855,9 +960,19 @@ fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &
     if !overlaps {
         return start;
     }
+    let main = timeline.background_lane().map(str::to_owned);
     for clip in timeline.clips_where(|clip| clip.track_id == track_id && clip.start >= start) {
         clip.start += duration;
     }
+    follow_main(
+        timeline,
+        main.as_deref(),
+        track_id,
+        Ripple::Inserted {
+            at: start,
+            length: duration,
+        },
+    );
     start
 }
 

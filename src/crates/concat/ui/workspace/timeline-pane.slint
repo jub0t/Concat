@@ -39,6 +39,7 @@ export component TimelinePane inherits Rectangle {
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
     in property <bool> magnetic: false;
+    in property <bool> linkage: true;
     in property <bool> pan-mode: false;
     in property <bool> trim-follow: false;
     in property <bool> preview-axis: false;
@@ -62,6 +63,7 @@ export component TimelinePane inherits Rectangle {
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
+    callback linkage-changed(on: bool);
     callback pan-changed(on: bool);
     callback trim-follow-changed(on: bool);
     callback preview-axis-changed(on: bool);
@@ -319,6 +321,7 @@ export component TimelinePane inherits Rectangle {
             tool: root.tool;
             snap: root.snap;
             magnetic: root.magnetic;
+            linkage: root.linkage;
             pan-mode: root.pan-mode;
             trim-follow: root.trim-follow;
             preview-axis: root.preview-axis;
@@ -339,6 +342,7 @@ export component TimelinePane inherits Rectangle {
             tool-changed(tool) => { root.tool-changed(tool); }
             snap-changed(snap) => { root.snap-changed(snap); }
             magnetic-changed(on) => { root.magnetic-changed(on); }
+            linkage-changed(on) => { root.linkage-changed(on); }
             pan-changed(on) => { root.pan-changed(on); }
             trim-follow-changed(on) => { root.trim-follow-changed(on); }
             preview-axis-changed(on) => { root.preview-axis-changed(on); }

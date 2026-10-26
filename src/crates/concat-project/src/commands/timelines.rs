@@ -39,6 +39,8 @@ pub(super) fn apply(
             // And with its background, for the same reason: a second cut of
             // a vertical edit wants the same bars filled the same way.
             let background = project.active().background.clone();
+            // And with the linkage it was set to: it is how the cut edits.
+            let linkage = project.active().linkage;
             project.timelines.push(Arc::new(Timeline {
                 id: id.clone(),
                 name,
@@ -46,6 +48,7 @@ pub(super) fn apply(
                 background,
                 tracks,
                 clips: Vec::new(),
+                linkage,
                 extra: Default::default(),
             }));
             project.active_timeline_id = id.clone();
@@ -81,6 +84,18 @@ pub(super) fn apply(
                 .is_some_and(|timeline| {
                     assign(&mut Arc::make_mut(timeline).background, background.tidy())
                 });
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetTimelineLinkage { timeline_id, on } => {
+            let applied = project
+                .timelines
+                .iter_mut()
+                .find(|timeline| timeline.id == timeline_id)
+                .is_some_and(|timeline| assign(&mut Arc::make_mut(timeline).linkage, on));
             Ok(Outcome {
                 created_id: None,
                 applied,

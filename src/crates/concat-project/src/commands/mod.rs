@@ -842,6 +842,15 @@ pub enum Command {
         /// The background.
         background: Background,
     },
+    /// Turns a timeline's linkage on or off: whether its other lanes follow
+    /// an edit that closes up or opens its main lane. See
+    /// `Timeline::linkage`.
+    SetTimelineLinkage {
+        /// The timeline. An unknown id is a no-op.
+        timeline_id: String,
+        /// On: the other lanes follow the main one.
+        on: bool,
+    },
     /// Renames a timeline tab. Whitespace-only names are ignored so a tab
     /// can never end up blank; unknown ids are tolerated.
     RenameTimeline {
@@ -1316,6 +1325,7 @@ pub fn apply(
         command @ (Command::AddTimeline
         | Command::SetTimelineVideo { .. }
         | Command::SetTimelineBackground { .. }
+        | Command::SetTimelineLinkage { .. }
         | Command::RemoveTimeline { .. }
         | Command::RenameTimeline { .. }
         | Command::SelectTimeline { .. }

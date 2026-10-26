@@ -9785,6 +9785,7 @@ impl Studio {
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
         editor.set_magnetic(self.prefs.magnetic());
+        editor.set_linkage(self.timeline().linkage);
         editor.set_trim_follow(self.prefs.trim_follow);
         editor.set_meters_shown(self.prefs.meters_shown());
         editor.set_preview_axis(self.prefs.preview_axis);
@@ -12378,6 +12379,17 @@ impl Studio {
                     danger: false,
                     checkable: true,
                     checked: self.prefs.magnetic(),
+                },
+                MenuItemData {
+                    id: "linkage".into(),
+                    label: t("common.linkage").into(),
+                    kind: MenuRow::Action,
+                    glyph: Glyph::None,
+                    shortcut: "".into(),
+                    enabled: true,
+                    danger: false,
+                    checkable: true,
+                    checked: self.timeline().linkage,
                 },
             ],
             2 => vec![

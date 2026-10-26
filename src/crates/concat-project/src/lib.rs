@@ -1033,8 +1033,76 @@ mod tests {
 
     // ── ripple delete: https://github.com/jub0t/Concat/issues/106 ──
 
+    fn unlink(editor: &mut Editor) {
+        let timeline_id = editor.project().active().id.clone();
+        editor
+            .apply(Command::SetTimelineLinkage {
+                timeline_id,
+                on: false,
+            })
+            .expect("unlinks");
+    }
+
+    fn text_at(editor: &mut Editor, start: f64, duration: f64) -> String {
+        editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start,
+                style: None,
+                duration: Some(duration),
+                offset_y: None,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id")
+    }
+
+    /// Linkage: a ripple delete on the main lane pulls the other lanes
+    /// with it. What started inside the footage that went lands where the
+    /// cut is, what is after it moves back by as much, and words wholly
+    /// over the footage that went go with it.
     #[test]
-    fn ripple_delete_closes_the_gap_on_its_own_track_only() {
+    fn ripple_delete_on_the_main_lane_pulls_the_linked_lanes() {
+        let (mut editor, media_id, first) = fixture();
+        let (video, sound) = {
+            let tracks = &editor.project().active().tracks;
+            (tracks[0].id.clone(), tracks[1].id.clone())
+        };
+        let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
+        let other = lane(&mut editor, &media_id, &sound, &[15.0, 25.0]);
+        let over_the_gone = text_at(&mut editor, 12.0, 3.0);
+        let over_the_kept = text_at(&mut editor, 22.0, 3.0);
+        let across = text_at(&mut editor, 8.0, 4.0);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![rest[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &rest[1]), 10.0, "the main lane closes up");
+        assert_eq!(start_of(&editor, &other[0]), 10.0, "started in what went");
+        assert_eq!(start_of(&editor, &other[1]), 15.0, "follows its footage");
+        assert_eq!(
+            start_of(&editor, &over_the_kept),
+            12.0,
+            "follows its footage"
+        );
+        assert_eq!(
+            start_of(&editor, &across),
+            8.0,
+            "runs across the cut: stays"
+        );
+        assert!(
+            editor.project().active().clip(&over_the_gone).is_none(),
+            "words over footage that went go with it"
+        );
+        assert_eq!(start_of(&editor, &first), 0.0);
+    }
+
+    /// With linkage off a ripple delete closes its own lane and no other.
+    #[test]
+    fn ripple_delete_closes_the_gap_on_its_own_track_only_unlinked() {
         let (mut editor, media_id, first) = fixture();
         let (video, sound) = {
             let tracks = &editor.project().active().tracks;
@@ -1042,6 +1110,7 @@ mod tests {
         };
         let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
         let other = lane(&mut editor, &media_id, &sound, &[15.0]);
+        unlink(&mut editor);
 
         let outcome = editor
             .apply(Command::RemoveClips {
@@ -1245,13 +1314,95 @@ mod tests {
             18.0,
             "and the one behind that"
         );
-        assert_eq!(start_of(&editor, &other[0]), 12.0, "another lane stays");
+        assert_eq!(start_of(&editor, &other[0]), 10.0, "a linked lane follows");
 
         editor
             .apply(trim(&first, TrimEdge::End, 3.0, true))
             .expect("lengthens");
         assert_eq!(start_of(&editor, &behind[0]), 11.0, "makes room");
         assert_eq!(start_of(&editor, &behind[1]), 21.0);
+        assert_eq!(start_of(&editor, &other[0]), 13.0, "and follows back");
+
+        unlink(&mut editor);
+        editor
+            .apply(trim(&first, TrimEdge::End, -2.0, true))
+            .expect("shortens");
+        assert_eq!(start_of(&editor, &behind[0]), 9.0);
+        assert_eq!(
+            start_of(&editor, &other[0]),
+            13.0,
+            "unlinked, another lane stays"
+        );
+    }
+
+    /// Only the main lane leads: a ripple on any other lane moves that lane
+    /// alone, so deleting a caption never pulls the next ones off their
+    /// words, and the picture never moves for a sound.
+    #[test]
+    fn a_ripple_on_another_lane_leads_nothing() {
+        let (mut editor, media_id, first) = fixture();
+        let sound = editor.project().active().tracks[1].id.clone();
+        let sounds = lane(&mut editor, &media_id, &sound, &[0.0, 10.0]);
+        let words = text_at(&mut editor, 12.0, 2.0);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![sounds[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &sounds[1]), 0.0, "its own lane closes");
+        assert_eq!(start_of(&editor, &first), 0.0);
+        assert_eq!(start_of(&editor, &words), 12.0, "nothing else moves");
+    }
+
+    /// A freeze on the main lane opens it, and what is after the freeze on
+    /// the other lanes moves along by the hold.
+    #[test]
+    fn a_freeze_on_the_main_lane_moves_the_linked_lanes_along() {
+        let (mut editor, media_id, first) = fixture();
+        let sound = editor.project().active().tracks[1].id.clone();
+        let later = lane(&mut editor, &media_id, &sound, &[6.0]);
+        let earlier = text_at(&mut editor, 1.0, 2.0);
+        let still = NewMedia {
+            path: "/freeze.jpg".into(),
+            name: "freeze.jpg".into(),
+            duration: None,
+            kind: MediaKind::Image,
+            width: Some(1920),
+            height: Some(1080),
+            frame_rate: None,
+            frame_rate_fraction: None,
+            video_codec: None,
+            audio_codec: None,
+            has_audio: false,
+            audio_tracks: Vec::new(),
+            origin: None,
+            color_space: Default::default(),
+        };
+        editor
+            .apply(Command::FreezeFrame {
+                clip_id: first.clone(),
+                time: 4.0,
+                duration: Some(1.0),
+                still: Some(still),
+            })
+            .expect("freezes");
+        assert_eq!(start_of(&editor, &later[0]), 7.0, "after the hold: along");
+        assert_eq!(start_of(&editor, &earlier), 1.0, "before it: stays");
+    }
+
+    /// The document leaves linkage out while it is on, as every timeline
+    /// before it was written, and a timeline read without it is linked.
+    #[test]
+    fn linkage_is_on_unless_written_off() {
+        let (mut editor, _, _) = fixture();
+        let text = serde_json::to_string(editor.project().active()).expect("writes");
+        assert!(!text.contains("linkage"));
+        let read: crate::model::Timeline = serde_json::from_str(&text).expect("reads");
+        assert!(read.linkage);
+        unlink(&mut editor);
+        let text = serde_json::to_string(editor.project().active()).expect("writes");
+        assert!(text.contains("\"linkage\":false"));
     }
 
     #[test]

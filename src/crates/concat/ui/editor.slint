@@ -331,6 +331,9 @@ export global Editor {
     /// leave. A remembered preference, which Rust owns; the tray's button
     /// and the Settings switch both show it.
     in-out property <bool> magnetic;
+    /// Linkage: the other lanes follow an edit that closes up or opens
+    /// the main one. The active timeline's, which Rust owns.
+    in-out property <bool> linkage: true;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in-out property <bool> pan-mode: false;
     /// Trim follow: the playhead rides a clip edge while it is dragged. A
@@ -382,6 +385,7 @@ export global Editor {
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
+    callback linkage-changed(on: bool);
     callback pan-changed(on: bool);
     callback trim-follow-changed(on: bool);
     callback meters-shown-changed(on: bool);

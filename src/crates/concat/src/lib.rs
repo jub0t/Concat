@@ -1060,6 +1060,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_magnetic_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::MagneticChanged(on)));
     }));
+    editor.on_linkage_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Timeline(TimelineMsg::LinkageChanged(on)));
+    }));
     editor.on_trim_follow_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::TrimFollowChanged(on)));
     }));
@@ -1707,7 +1710,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         .on_release(|| Shell::with(|_, app| app.invoke_blur()));
     editor.on_shortcut(move |action: SharedString| match action.as_str() {
         "import" | "export" | "settings" | "zoom-in" | "zoom-out" | "start" | "end"
-        | "prev-edit" | "next-edit" | "snap" | "magnetic" | "pan" | "preview-axis" => {
+        | "prev-edit" | "next-edit" | "snap" | "magnetic" | "linkage" | "pan" | "preview-axis" => {
             Shell::with(|_, app| app.invoke_app_menu_selected(action.clone()));
         }
         _ => Shell::with(|shell, app| {
@@ -2327,6 +2330,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                             state.handle(Msg::Timeline(TimelineMsg::PreviewAxisChanged(on)))
                         }
                         "magnetic" => state.handle(Msg::Timeline(TimelineMsg::MagneticToggled)),
+                        "linkage" => {
+                            let on = !state.timeline().linkage;
+                            state.handle(Msg::Timeline(TimelineMsg::LinkageChanged(on)))
+                        }
                         "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
                         "sort-name" => state.handle(Msg::Media(MediaMsg::SortChanged(1))),
                         "sort-kind" => state.handle(Msg::Media(MediaMsg::SortChanged(2))),

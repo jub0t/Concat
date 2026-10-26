@@ -497,6 +497,7 @@ fn make_room(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool)
     let moved = start + duration - old_end;
     let pushed = moved > 0.0 && !timeline.is_free(&track_id, start, duration, &[clip_id]);
     if (ripple && moved != 0.0) || pushed {
+        let main = timeline.background_lane().map(str::to_owned);
         for other in timeline.clips_where(|other| {
             other.id != clip_id
                 && other.track_id == track_id
@@ -504,5 +505,16 @@ fn make_room(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool)
         }) {
             other.start = (other.start + moved).max(0.0);
         }
+        // Linkage: sped up, the clip gave back the end of its old span;
+        // slowed down, it put more in at its old end.
+        let ripple = if moved < 0.0 {
+            clips::Ripple::Removed(vec![(old_end + moved, old_end)])
+        } else {
+            clips::Ripple::Inserted {
+                at: old_end,
+                length: moved,
+            }
+        };
+        clips::follow_main(timeline, main.as_deref(), &track_id, ripple);
     }
 }
