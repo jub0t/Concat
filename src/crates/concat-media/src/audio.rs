@@ -542,8 +542,27 @@ impl MixInput {
     }
 }
 
+/// The Opus encoder to mix into and the samples it takes: libopus where it
+/// is linked, which the desktops' builds and Homebrew carry, and FFmpeg's
+/// own otherwise, which every build has - a phone's included. A WebM takes
+/// Opus or Vorbis and nothing else, and Opus is the better of the two.
+fn opus_encoder() -> Result<(&'static str, Sample)> {
+    use ffmpeg::util::format::sample::Type;
+    if encoder::find_by_name("libopus").is_some() {
+        return Ok(("libopus", Sample::F32(Type::Packed)));
+    }
+    if encoder::find_by_name("opus").is_some() {
+        return Ok(("opus", Sample::F32(Type::Planar)));
+    }
+    Err(Error::Missing {
+        what: "encoder",
+        name: "opus".to_owned(),
+    })
+}
+
 /// Mixes `clips` into one audio file at `destination`: 16-bit PCM for a
-/// `.wav` destination (case-insensitive), AAC otherwise, at 48 kHz stereo.
+/// `.wav` destination (case-insensitive), Opus for a `.webm`, `.opus`,
+/// `.ogg` or `.mka` one, AAC otherwise, at 48 kHz stereo.
 ///
 /// Every clip's file must contain an audio stream; see [`mix_graph`].
 pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Result<()> {
@@ -557,18 +576,22 @@ pub fn mix_to_file_with(
     duration: f64,
     destination: &Path,
 ) -> Result<()> {
-    let wav = destination
+    let extension = destination
         .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"));
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
+    let wav = extension.as_deref() == Some("wav");
+    let opus = matches!(extension.as_deref(), Some("webm" | "opus" | "ogg" | "mka"));
+    ffi::init();
     let (codec_name, mix_format) = if wav {
         (
             "pcm_s16le",
             Sample::I16(ffmpeg::util::format::sample::Type::Packed),
         )
+    } else if opus {
+        opus_encoder()?
     } else {
         ("aac", MIX_FORMAT)
     };
-    ffi::init();
     // A bad chain is refused before any file is opened.
     for chain in clips
         .iter()
@@ -602,6 +625,11 @@ pub fn mix_to_file_with(
     audio.set_time_base(ffmpeg::Rational::new(1, MIX_RATE as i32));
     if global_header {
         audio.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
+    }
+    // FFmpeg's own Opus encoder is still marked experimental, and opens
+    // only when told that is all right; libopus needs no such word.
+    if codec_name == "opus" {
+        audio.compliance(ffmpeg::codec::Compliance::Experimental);
     }
     let mut encoder = audio
         .open()
@@ -1000,6 +1028,12 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
             .map_err(|error| ffi::fail("add stream", output, error))?;
         stream.set_parameters(video_stream.parameters());
         stream.set_time_base(video_tb);
+        // A WebM's alpha layer is in the packets, but the track only says
+        // it has one in its header: without the word a reader takes the
+        // picture for opaque and never opens the decoder that reads it.
+        if let Some(mode) = video_stream.metadata().get("alpha_mode") {
+            stream.metadata_mut().set("alpha_mode", mode);
+        }
     }
     {
         let mut stream = out
@@ -1008,7 +1042,15 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
         stream.set_parameters(audio_stream.parameters());
         stream.set_time_base(audio_tb);
     }
-    out.write_header_with(ffmpeg::dict! { "movflags" => "+faststart" })
+    // The index up front, as the picture's own file had it - but not for
+    // ProRes, where moving it writes gigabytes a minute again for a file
+    // an editor reads whole.
+    let header = if video_stream.parameters().id() == ffmpeg::codec::Id::PRORES {
+        ffmpeg::Dictionary::new()
+    } else {
+        ffmpeg::dict! { "movflags" => "+faststart" }
+    };
+    out.write_header_with(header)
         .map_err(|error| ffi::fail("write header", output, error))?;
     let out_video_tb = out
         .stream(0)
@@ -1697,6 +1739,103 @@ mod tests {
                     .all(|(a, b)| { (i32::from(*a) - i32::from(*b)).abs() <= 2 }),
                 "the saved audio preserves the cut, gain and fades"
             );
+        }
+        std::fs::remove_dir_all(dir).expect("removes test files");
+    }
+
+    /// An overlay with alpha and its sound, joined the way an export joins
+    /// them: a ProRes picture with AAC in a .mov, a VP9 one with Opus in a
+    /// .webm, the only sound a WebM takes besides Vorbis. The joined WebM
+    /// still says it has an alpha layer, so the import reads it with the
+    /// decoder that keeps it.
+    #[test]
+    fn an_overlay_with_alpha_takes_its_sound_in_its_own_container() {
+        use crate::decode::{DecodeOptions, Decoder, FrameSource};
+        use crate::{AudioDecoder, AudioOptions, EncodeOptions, Encoder, FrameSink, VideoCodec};
+        use concat_core::frame::Frame;
+        use concat_core::time::FrameRate;
+
+        let dir = std::env::temp_dir().join(format!("concat-alpha-mux-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("creates a folder");
+        let tone = dir.join("tone.wav");
+        tone_wav(&tone, 1.0);
+        for codec in [VideoCodec::ProRes4444, VideoCodec::Vp9Alpha] {
+            if !codec.available() {
+                eprintln!("{} not in the linked FFmpeg; skipped", codec.label());
+                continue;
+            }
+            let container = codec.container();
+            let webm = container == "webm";
+            let video = dir.join(format!("picture.{container}"));
+            let sound = dir.join(if webm { "sound.webm" } else { "sound.m4a" });
+            let output = dir.join(format!("joined.{container}"));
+
+            // A second of a frame clear on its right half.
+            let mut frame = Frame::transparent(64, 64);
+            for y in 0..64 {
+                for x in 0..32 {
+                    frame.set_pixel(x, y, [200, 40, 40, 255]);
+                }
+            }
+            let options = EncodeOptions {
+                codec,
+                preset: "ultrafast".to_owned(),
+                hardware: false,
+                ..EncodeOptions::default()
+            };
+            let mut encoder =
+                Encoder::create(&video, 64, 64, FrameRate::THIRTY, &options).expect("opens");
+            for _ in 0..30 {
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+            let piece = AudioClip {
+                path: tone.clone(),
+                duration: 1.0,
+                ..clip("")
+            };
+            mix_to_file(&[piece], 1.0, &sound).expect("mixes");
+            mux(&video, &sound, &output).expect("muxes");
+
+            let counts = packets_of(&output);
+            assert_eq!(counts[0], 30, "{}: every picture packet", codec.label());
+            {
+                let input = ffmpeg::format::input(&output).expect("opens");
+                let picture = input
+                    .streams()
+                    .best(ffmpeg::media::Type::Video)
+                    .expect("video");
+                if webm {
+                    assert_eq!(
+                        picture.metadata().get("alpha_mode"),
+                        Some("1"),
+                        "the joined track still says it has alpha"
+                    );
+                }
+                let heard = input
+                    .streams()
+                    .best(ffmpeg::media::Type::Audio)
+                    .expect("audio");
+                let wanted = if webm {
+                    ffmpeg::codec::Id::OPUS
+                } else {
+                    ffmpeg::codec::Id::AAC
+                };
+                assert_eq!(heard.parameters().id(), wanted, "{}", codec.label());
+            }
+            let mut decoder =
+                Decoder::open(&output, &DecodeOptions::default().in_software()).expect("opens");
+            let back = decoder.next_frame().expect("decodes").expect("a frame");
+            let [.., opaque] = back.pixel(16, 32).expect("inside");
+            let [.., clear] = back.pixel(48, 32).expect("inside");
+            assert!(opaque > 250, "{}: opaque came back {opaque}", codec.label());
+            assert!(clear < 8, "{}: clear came back {clear}", codec.label());
+            let mut sound = AudioDecoder::open(&output, &AudioOptions::default()).expect("opens");
+            let mut audible = false;
+            while let Some(samples) = sound.next_i16().expect("decodes") {
+                audible |= samples.iter().any(|sample| i32::from(*sample).abs() > 1000);
+            }
+            assert!(audible, "{}: the tone is heard", codec.label());
         }
         std::fs::remove_dir_all(dir).expect("removes test files");
     }

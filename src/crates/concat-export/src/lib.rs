@@ -433,7 +433,9 @@ pub struct ExportRequest {
     pub crf: u8,
     /// The x264 speed/size preset name, e.g. "medium".
     pub preset: String,
-    /// What to encode to, by name: "h264", "hevc" or "av1". H.264 when a
+    /// What to encode to, by name: "h264", "hevc", "av1", or "prores-4444"
+    /// or "vp9-alpha" to keep the frame's alpha, whose `output` must then
+    /// be a .mov or a .webm (see [`VideoCodec::container`]). H.264 when a
     /// request does not say.
     #[serde(default, deserialize_with = "codec_by_name")]
     pub codec: VideoCodec,
@@ -509,7 +511,9 @@ fn codec_by_name<'de, D: serde::Deserializer<'de>>(
 ) -> Result<VideoCodec, D::Error> {
     let name = String::deserialize(deserializer)?;
     VideoCodec::parse(&name).ok_or_else(|| {
-        serde::de::Error::custom(format!("unknown codec {name:?}: h264, hevc or av1"))
+        serde::de::Error::custom(format!(
+            "unknown codec {name:?}: h264, hevc, av1, prores-4444 or vp9-alpha"
+        ))
     })
 }
 
@@ -1168,6 +1172,24 @@ pub fn render_on(
         ));
     }
     let output = PathBuf::from(&request.output);
+    // An alpha codec's file is only what it says in its own container: a
+    // ProRes picture in a file named .mp4 opens nowhere, and a WebM's
+    // alpha means nothing to a reader that takes the name for an MP4. The
+    // three ordinary codecs keep writing an MP4 under whatever name they
+    // are given, as they always have.
+    if request.codec.keeps_alpha() {
+        let wanted = request.codec.container();
+        let named = output
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(wanted));
+        if !named {
+            return Err(format!(
+                "{} is written to a .{wanted} file, and {} is not one",
+                request.codec.label(),
+                output.display()
+            ));
+        }
+    }
 
     // Transitions become overlaps, ramps and fade filters before anything
     // else reads the clip list, so the picture and sound paths below never
@@ -1231,9 +1253,15 @@ pub fn render_on(
             directory.display()
         ));
     }
-    let silent = directory.join(format!(".{stem}.concat-video.mp4"));
-    let mixed = directory.join(format!(".{stem}.concat-audio.m4a"));
-    let muxed = directory.join(format!(".{stem}.concat-muxed.mp4"));
+    // Each in the container the codec is written in, which the muxers pick
+    // by the extension: a ProRes picture goes in a QuickTime file, and a
+    // WebM's sound is Opus, the one a WebM takes besides Vorbis. A .mov
+    // takes the AAC an MP4 does.
+    let container = request.codec.container();
+    let sound_container = if container == "webm" { "webm" } else { "m4a" };
+    let silent = directory.join(format!(".{stem}.concat-video.{container}"));
+    let mixed = directory.join(format!(".{stem}.concat-audio.{sound_container}"));
+    let muxed = directory.join(format!(".{stem}.concat-muxed.{container}"));
 
     // The output path is touched once, by the rename at the end, whichever
     // way the file was made. The mux used to write it directly, and a mux
@@ -1751,7 +1779,10 @@ fn render_picture(
     // An HDR file comes out of the compositor as its signal, sixteen bits a
     // channel; anything else, SDR - an HDR timeline's tone-mapped.
     let signal = output_of(request.color_space);
-    let hdr = request.hdr && signal != Signal::Sdr;
+    // The alpha codecs are written SDR alone (see `Encoder::create_hdr`):
+    // an HDR timeline is tone-mapped into one, as it is on a phone that
+    // cannot write ten bits, rather than the export failing.
+    let hdr = request.hdr && signal != Signal::Sdr && !request.codec.keeps_alpha();
     compositor.deliver_hdr(hdr);
 
     // How many devices have died under this export so far; see `recovered`.
@@ -3666,6 +3697,133 @@ mod tests {
         let result = render_on(&request, Some(failing), reporter);
         let _ = std::fs::remove_dir_all(&dir);
         result.expect("the export goes on on a fresh device");
+    }
+
+    /// An export in an alpha codec writes its own container with its sound
+    /// in it - a .mov of ProRes and AAC, a .webm of VP9 and Opus - and one
+    /// named for another container is refused before a frame is drawn.
+    #[test]
+    fn an_alpha_export_writes_its_own_container_with_its_sound() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        if WgpuCompositor::new().is_none() {
+            eprintln!("nothing to draw on here; skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("concat-export-alpha-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let source = dir.join("source.mp4");
+        let Ok(mut encoder) = Encoder::create(
+            &source,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        ) else {
+            return; // no ffmpeg here
+        };
+        for _ in 0..15 {
+            encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        // Half a second of a 440 Hz tone, 16-bit stereo at 48 kHz.
+        let tone = dir.join("tone.wav");
+        {
+            let samples: Vec<u8> = (0..24_000)
+                .flat_map(|index| {
+                    let t = f64::from(index) / 48_000.0;
+                    let value = (0.5 * (std::f64::consts::TAU * 440.0 * t).sin() * 32767.0) as i16;
+                    let [low, high] = value.to_le_bytes();
+                    [low, high, low, high]
+                })
+                .collect();
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"RIFF");
+            bytes.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(b"WAVEfmt ");
+            for (value, width) in [
+                (16u32, 4),
+                (1, 2),
+                (2, 2),
+                (48_000, 4),
+                (192_000, 4),
+                (4, 2),
+                (16, 2),
+            ] {
+                bytes.extend_from_slice(&value.to_le_bytes()[..width]);
+            }
+            bytes.extend_from_slice(b"data");
+            bytes.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&samples);
+            std::fs::write(&tone, bytes).expect("writes the tone");
+        }
+
+        let mut footage = clip("video", 0, 0.0, 0.5, 0.0);
+        footage.path = source.to_string_lossy().into_owned();
+        footage.media_width = Some(64);
+        footage.media_height = Some(64);
+        footage.has_audio = Some(false);
+        let mut sound = clip("audio", 1, 0.0, 0.5, 0.0);
+        sound.path = tone.to_string_lossy().into_owned();
+        sound.has_audio = Some(true);
+        let request = |codec: VideoCodec, output: &Path| ExportRequest {
+            canvas: [0, 0, 0],
+            output: output.to_string_lossy().into_owned(),
+            width: 64,
+            height: 64,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 30,
+            preset: "ultrafast".into(),
+            codec,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            clips: vec![footage.clone(), sound.clone()],
+        };
+        let render = |request: &ExportRequest| {
+            let cancel = AtomicBool::new(false);
+            let mut progress = |_: i64, _: i64, _: &'static str| {};
+            let reporter = Reporter {
+                progress: &mut progress,
+                cancel: &cancel,
+            };
+            render_on(request, None, reporter)
+        };
+
+        for (codec, picture, heard) in [
+            (VideoCodec::ProRes4444, "prores", "aac"),
+            (VideoCodec::Vp9Alpha, "vp9", "opus"),
+        ] {
+            if !codec.available() {
+                eprintln!("{} not in the linked FFmpeg; skipped", codec.label());
+                continue;
+            }
+            let misnamed = dir.join("overlay.mp4");
+            let error = render(&request(codec, &misnamed)).expect_err("an .mp4 is refused");
+            assert!(error.contains(codec.container()), "{error}");
+            assert!(!misnamed.exists());
+
+            let output = dir.join(format!("overlay.{}", codec.container()));
+            let written = render(&request(codec, &output))
+                .unwrap_or_else(|error| panic!("{}: {error}", codec.label()));
+            assert_eq!(Path::new(&written), output);
+            let info = concat_media::probe(&output).expect("probes");
+            assert_eq!(info.video.expect("a picture").codec, picture);
+            assert_eq!(info.audio.expect("a sound").codec, heard);
+            let leftovers: Vec<_> = std::fs::read_dir(&dir)
+                .expect("lists")
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".concat-"))
+                .collect();
+            assert!(leftovers.is_empty(), "scratch files are removed");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A device that dies under an export is replaced: first by a fresh

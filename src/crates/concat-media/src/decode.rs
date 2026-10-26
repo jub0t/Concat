@@ -1280,6 +1280,24 @@ impl Decoder {
                     self.hardware = None;
                 }
             }
+            // FFmpeg's ProRes decoder reads the picture's matrix into the
+            // stream and leaves every frame it makes untagged, and swscale
+            // then reads BT.601 into what is a BT.709 picture: a ProRes
+            // 4444 overlay's reds came back orange. Its frames are given
+            // the stream's matrix where they say none. Only ProRes: the
+            // other decoders tag their frames as their streams are tagged.
+            if self.decoder.id() == ffmpeg::codec::Id::PRORES
+                && self.color.matrix != ffmpeg::color::Space::Unspecified
+            {
+                // SAFETY: a frame this reader owns; the matrix is a plain
+                // field the filtergraph reads with the picture.
+                unsafe {
+                    let raw = frame.as_mut_ptr();
+                    if (*raw).colorspace == ffmpeg::sys::AVColorSpace::UNSPECIFIED {
+                        (*raw).colorspace = self.color.matrix.into();
+                    }
+                }
+            }
             self.discard_before = None;
             self.discard_through = None;
             self.last_pts = pts;
