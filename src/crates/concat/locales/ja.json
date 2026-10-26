@@ -663,7 +663,7 @@
   "start.safeMode": "前回 Concat が起動中に終了したため、現在はソフトウェアで描画しています。遅くなりますが、開くことはできます。グラフィックカードをもう一度試すには、設定 > 全般 で「GPU で描画」をオンにしてください。",
   "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "プロジェクトを検索",
-  "start.settingsApplyWholeEdit": "これらの設定は編集全体に適用され、後から変更できません。",
+  "start.settingsApplyWholeEdit": "フレーム、フレームレート、背景はあとからプロジェクト設定で変更できます。",
   "start.shape": "形",
   "start.showInFolder": "フォルダーで表示",
   "start.sortName": "名前",

@@ -663,7 +663,7 @@
   "start.safeMode": "Concat se cerró al iniciarse la última vez, así que ahora dibuja por software: más lento, pero se abre. Para volver a probar la tarjeta gráfica, activa Dibujar en la GPU en Ajustes > General.",
   "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Buscar proyectos",
-  "start.settingsApplyWholeEdit": "Estos ajustes se aplican a toda la edición y no se pueden cambiar después.",
+  "start.settingsApplyWholeEdit": "El encuadre, la velocidad y el fondo se pueden cambiar más tarde en Ajustes del proyecto.",
   "start.shape": "Forma",
   "start.showInFolder": "Mostrar en la carpeta",
   "start.sortName": "Nombre",

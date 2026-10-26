@@ -663,7 +663,7 @@
   "start.safeMode": "Concat sloot vorige keer tijdens het opstarten, dus het tekent nu in software: trager, maar het opent. Zet Tekenen op de GPU aan in Instellingen > Algemeen om de videokaart opnieuw te proberen.",
   "start.safeModePhone": "Concat closed while starting once, so it draws with OpenGL ES instead of Vulkan until its next update.",
   "start.searchProjects": "Projecten zoeken",
-  "start.settingsApplyWholeEdit": "Deze instellingen gelden voor de hele montage en kunnen later niet worden gewijzigd.",
+  "start.settingsApplyWholeEdit": "Het beeld, de framerate en de achtergrond kun je later wijzigen in de projectinstellingen.",
   "start.shape": "Beeldverhouding",
   "start.showInFolder": "Tonen in map",
   "start.sortName": "Naam",
