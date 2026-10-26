@@ -1584,7 +1584,7 @@ pub struct TextStyle {
     /// snapshotted from the first non-empty line.
     pub content: String,
     /// CSS-style family name, quotes included where the name needs them,
-    /// e.g. `"Cabinet Grotesk"`. May name a [`CustomFont`] the user added.
+    /// e.g. `"Hanken Grotesk"`. May name a [`CustomFont`] the user added.
     pub font_family: String,
     /// Cap height as a fraction of frame height.
     pub font_size: f64,
@@ -1698,7 +1698,10 @@ impl Default for TextStyle {
     fn default() -> Self {
         Self {
             content: "Your text".to_owned(),
-            font_family: "\"Cabinet Grotesk\"".to_owned(),
+            // The face Concat ships (`concat_text::BUNDLED_FAMILY`), so a
+            // title made without one - by the API, a template, the agent -
+            // is drawn in it everywhere rather than in a fallback.
+            font_family: "Hanken Grotesk".to_owned(),
             font_size: 0.09,
             font_weight: 700.0,
             italic: false,
