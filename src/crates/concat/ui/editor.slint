@@ -97,6 +97,11 @@ export global Editor {
     callback media-remove(id: int);
     callback media-remove-selected();
     callback media-activate(id: int);
+    /// The phone's Add: what is picked, in the order it was picked, onto
+    /// the main lane at the playhead - or after its last clip, `at-end`.
+    callback media-add-picked(at-end: bool);
+    /// The phone's Media sheet opened: nothing is picked yet.
+    callback media-clear-picks();
     /// Right-click on a card in the bin: Rust fills `menu-items` for the
     /// file and bumps `menu-token`, the same round trip as `clip-context`.
     callback media-context(id: int);

@@ -53,6 +53,12 @@ pub enum MediaMsg {
     Imported(Vec<Result<MediaSummary, String>>),
     /// Everything selected goes on the timeline at the playhead.
     AddSelectedAtPlayhead,
+    /// The phone's Add: what was picked, in the order it was picked, onto
+    /// the main lane - at the playhead, or after the last picture on it
+    /// when `at_end` (the lanes' plus).
+    AddPicked { at_end: bool },
+    /// The phone's Media sheet opened: a pick starts from nothing.
+    ClearPicks,
 }
 
 /// The bin's state.
@@ -63,6 +69,11 @@ pub struct MediaBin {
     rows: HashMap<String, i32>,
     next_row: i32,
     pub selected: HashSet<String>,
+    /// The selection in the order it was made, oldest first: the order a
+    /// phone's picks are numbered and laid down in, as every phone
+    /// editor's picker numbers them. May name what has since been let go
+    /// of; [`MediaBin::picked_in_order`] reads it against `selected`.
+    picked: Vec<String>,
     pub filter: MediaFilter,
     /// 0 = Added, 1 = Name, 2 = Kind
     pub sort: usize,
@@ -81,6 +92,7 @@ impl Default for MediaBin {
             rows: HashMap::new(),
             next_row: 1,
             selected: HashSet::new(),
+            picked: Vec::new(),
             filter: MediaFilter::All,
             sort: 0,
             thumbs: HashMap::new(),
@@ -125,6 +137,8 @@ impl MediaBin {
                     (from_row, to_row),
                     additive,
                 );
+                let selected = &self.selected;
+                self.picked.retain(|id| selected.contains(id));
             }
             MediaMsg::Remove(row) => {
                 if let Some(id) = self
@@ -174,7 +188,29 @@ impl MediaBin {
                 }
                 let added = commands.len();
                 if !commands.is_empty() {
+                    let before: HashSet<String> = studio
+                        .project()
+                        .media
+                        .iter()
+                        .map(|item| item.id.clone())
+                        .collect();
                     studio.apply(Command::Batch { commands });
+                    // On a phone the files just brought in come back picked,
+                    // in the order the system's picker gave them, so Add is
+                    // the one tap left between the picker and the timeline.
+                    if crate::platform::phone() {
+                        let fresh: Vec<String> = studio
+                            .project()
+                            .media
+                            .iter()
+                            .filter(|item| !before.contains(&item.id))
+                            .map(|item| item.id.clone())
+                            .collect();
+                        if !fresh.is_empty() {
+                            self.selected = fresh.iter().cloned().collect();
+                            self.picked = fresh;
+                        }
+                    }
                 }
                 if let Some(error) = failures.first() {
                     studio.notify(&probe_error(error), true);
@@ -209,6 +245,120 @@ impl MediaBin {
                     ripple: false,
                 });
             }
+            MediaMsg::AddPicked { at_end } => self.add_picked(studio, at_end),
+            MediaMsg::ClearPicks => {
+                self.selected.clear();
+                self.picked.clear();
+            }
+        }
+    }
+
+    /// The selection in the order it was picked: what was picked one by
+    /// one first, then anything selected another way, in the bin's order.
+    pub fn picked_in_order(&self, project: &Project) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        for id in &self.picked {
+            if self.selected.contains(id)
+                && !ids.contains(id)
+                && project.media_by_id(id).is_some()
+            {
+                ids.push(id.clone());
+            }
+        }
+        for item in &project.media {
+            if self.selected.contains(&item.id) && !ids.contains(&item.id) {
+                ids.push(item.id.clone());
+            }
+        }
+        ids
+    }
+
+    /// The phone's Add. Pictures go onto the main lane - the lowest one
+    /// holding a picture, CapCut's main track - inserted where the playhead
+    /// is (at the nearer edge of the clip under it, the rest of the lane
+    /// moved along to make room) or after the lane's last clip, never past
+    /// it into a gap; a timeline with no picture yet starts one. Anything
+    /// with a sound file in it keeps the desk's rule, on the lowest lane
+    /// free at the playhead for the whole run, since a song inserted into
+    /// the picture would push the cut apart. The playhead goes to the last
+    /// frame of what landed, so the next Add follows on, and the picks are
+    /// let go of.
+    fn add_picked(&mut self, studio: &mut Studio, at_end: bool) {
+        let project = studio.project();
+        let ids = self.picked_in_order(project);
+        if ids.is_empty() {
+            return;
+        }
+        let sound = ids.iter().any(|id| {
+            project
+                .media_by_id(id)
+                .is_some_and(|item| item.kind == model::MediaKind::Audio)
+        });
+        let timeline = studio.timeline();
+        let playhead = f64::from(studio.playhead.max(0.0));
+        let lane = if sound {
+            None
+        } else {
+            timeline.background_lane().map(str::to_owned)
+        };
+        let (track_id, start, ripple) = match lane {
+            Some(lane) => {
+                let end = timeline
+                    .clips
+                    .iter()
+                    .filter(|clip| clip.track_id == lane)
+                    .map(|clip| clip.start + clip.duration)
+                    .fold(0.0, f64::max);
+                // Under a clip, the nearer of its two edges: a playhead a
+                // second into a long take means before it, not after it.
+                let start = if at_end {
+                    end
+                } else {
+                    timeline
+                        .clips
+                        .iter()
+                        .find(|clip| {
+                            clip.track_id == lane
+                                && clip.start < playhead
+                                && playhead < clip.start + clip.duration
+                        })
+                        .map_or(playhead.min(end), |clip| {
+                            if playhead - clip.start < clip.duration / 2.0 {
+                                clip.start
+                            } else {
+                                clip.start + clip.duration
+                            }
+                        })
+                };
+                (Some(lane), start, true)
+            }
+            None if at_end && !sound => (None, f64::from(studio.duration()), false),
+            None => (None, playhead, false),
+        };
+        let before: HashSet<String> = timeline.clips.iter().map(|clip| clip.id.clone()).collect();
+        // Onto the timeline: the monitor goes back to it.
+        studio.close_source();
+        studio.apply(Command::AddClipsInSequence {
+            media_ids: ids,
+            track_id,
+            start,
+            ripple,
+        });
+        let landed = studio
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| !before.contains(&clip.id))
+            .map(|clip| clip.start + clip.duration)
+            .fold(None, |end: Option<f64>, at| Some(end.map_or(at, |end| end.max(at))));
+        self.selected.clear();
+        self.picked.clear();
+        // A frame short of the end, so the monitor shows the last of what
+        // landed rather than the black past it, and the next Add - nearer
+        // that clip's end than its start - follows on after it.
+        if let Some(end) = landed {
+            let frame = 1.0 / f64::from(studio.frame_rate().max(1.0));
+            studio.seek((end - frame).max(0.0) as f32);
         }
     }
 
@@ -253,12 +403,17 @@ impl MediaBin {
     /// A click: the one card, or toggled into what is held.
     fn select(&mut self, id: String, additive: bool) {
         if additive {
-            if !self.selected.remove(&id) {
-                self.selected.insert(id);
+            if self.selected.remove(&id) {
+                self.picked.retain(|held| *held != id);
+            } else {
+                self.selected.insert(id.clone());
+                self.picked.retain(|held| *held != id);
+                self.picked.push(id);
             }
         } else {
             self.selected.clear();
-            self.selected.insert(id);
+            self.selected.insert(id.clone());
+            self.picked = vec![id];
         }
     }
 
@@ -321,6 +476,7 @@ impl MediaBin {
 
     /// The cards, as Slint shows them.
     pub fn rows(&self, studio: &Studio) -> Vec<MediaItemData> {
+        let order = self.picked_in_order(studio.project());
         self.visible(studio.project())
             .into_iter()
             .map(|item| {
@@ -362,6 +518,10 @@ impl MediaBin {
                     thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
                     wave,
                     selected: self.selected.contains(&item.id),
+                    pick: order
+                        .iter()
+                        .position(|id| *id == item.id)
+                        .map_or(0, |at| at as i32 + 1),
                 }
             })
             .collect()
@@ -494,6 +654,27 @@ mod tests {
         assert_eq!(bin.selected.len(), 2);
         bin.select("a".into(), true);
         assert!(!bin.selected.contains("a"));
+    }
+
+    #[test]
+    fn picks_are_numbered_in_the_order_they_were_made() {
+        let mut bin = MediaBin::default();
+        let project = project();
+        bin.select("i1".into(), true);
+        bin.select("v1".into(), true);
+        bin.select("a1".into(), true);
+        assert_eq!(bin.picked_in_order(&project), ["i1", "v1", "a1"]);
+        // Let go of and picked again, it goes to the back of the line.
+        bin.select("i1".into(), true);
+        assert_eq!(bin.picked_in_order(&project), ["v1", "a1"]);
+        bin.select("i1".into(), true);
+        assert_eq!(bin.picked_in_order(&project), ["v1", "a1", "i1"]);
+        // Selected some other way, it follows in the bin's order.
+        bin.selected.insert("v2".into());
+        assert_eq!(bin.picked_in_order(&project), ["v1", "a1", "i1", "v2"]);
+        // A plain click starts over.
+        bin.select("v2".into(), false);
+        assert_eq!(bin.picked_in_order(&project), ["v2"]);
     }
 
     #[test]

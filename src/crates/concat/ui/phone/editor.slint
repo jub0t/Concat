@@ -55,9 +55,11 @@ import { Sounds, SoundList, VoiceList } from "../workspace/audio-page.slint";
 // the way the seats do it; there is no phone-only state on the Rust side
 // beyond the two facts named above.
 
-/// A grid of the bin's cards for a finger: a tap on a card puts the file
-/// on the timeline at the playhead, which on a phone is the whole of what
-/// the bin is for - there is nowhere to drag a card to.
+/// A grid of the bin's cards for a finger. A tap picks a card or lets it
+/// go, and a picked card wears its place in the order - 1, 2, 3 - the way
+/// every phone editor's picker numbers them, since that is the order Add
+/// lays them down in. Five photos are five taps and an Add, not five trips
+/// in and out of the sheet; there is nowhere to drag a card to.
 component PhoneMediaGrid inherits Rectangle {
     in property <[MediaItemData]> items;
 
@@ -81,8 +83,32 @@ component PhoneMediaGrid inherits Rectangle {
         item: entry;
         removable: false;
 
+        // A second tap toggles back; a double tap is two taps, not a third
+        // thing.
         clicked(additive) => { root.picked(entry.id); }
-        activated => { root.picked(entry.id); }
+    }
+
+    // The pick's mark, over the picture's corner. Draws only: the card under
+    // it takes the tap. Empty for a card not picked, so it reads as
+    // something to tap.
+    for entry[index] in root.items: Rectangle {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap) + root.card-w - self.width - 6px;
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap) + 6px;
+        width: 24px;
+        height: 24px;
+        border-radius: 12px;
+        background: entry.pick > 0 ? Theme.accent : #00000059;
+        border-width: entry.pick > 0 ? 0px : 1.5px;
+        border-color: #ffffffd9;
+
+        if entry.pick > 0: Text {
+            text: entry.pick;
+            color: Theme.on-accent;
+            font-size: Theme.fs-sm;
+            font-weight: Theme.weight-title;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
     }
 }
 
@@ -356,6 +382,9 @@ export component PhoneEditor inherits Rectangle {
     changed close-asked => { root.hide(); }
     /// The Audio sheet's shelf: 0 my sounds, 1 voices, 2 styles.
     property <int> audio-shelf;
+    /// The Media sheet was opened from the lanes' plus: Add goes after the
+    /// main lane's last clip rather than at the playhead.
+    property <bool> media-at-end;
     /// The sheet up is one of the clip's, and goes with the clip.
     property <bool> sheet-needs-clip;
 
@@ -388,6 +417,12 @@ export component PhoneEditor inherits Rectangle {
     function hide() {
         root.sheet = "";
         root.sheet-needs-clip = false;
+    }
+    /// The bin, with nothing picked yet.
+    function show-media(at-end: bool) {
+        Editor.media-clear-picks();
+        root.media-at-end = at-end;
+        root.show("media", false);
     }
 
     pure function sheet-title(name: string) -> string {
@@ -426,6 +461,18 @@ export component PhoneEditor inherits Rectangle {
     property <length> bar-h: 74px;
     property <length> lanes-y: root.height - root.bar-h - root.lanes-h;
     property <length> transport-y: root.lanes-y - root.transport-h;
+    /// How tall the sheet is when one is up. The bin's is lower: it is a
+    /// grid to pick from, and the picture is what the picks are judged in.
+    property <length> sheet-h: root.sheet == "media" ? root.height * 0.52 : root.height * 0.6;
+    /// The foot of the monitor: the transport's head, or the sheet's while
+    /// one is up - the monitor shrinks to the room left above the sheet
+    /// rather than going under it, so the whole picture stays in view
+    /// while a sheet works on it.
+    property <length> monitor-foot: root.sheet != ""
+        ? Math.min(root.transport-y, root.height - root.sheet-h)
+        : root.transport-y;
+    /// The Add bar under the bin while something is picked.
+    property <length> add-bar-h: 68px;
 
     // ── the top bar ──────────────────────────────────────────────────
     Rectangle {
@@ -529,7 +576,7 @@ export component PhoneEditor inherits Rectangle {
         x: 0;
         y: root.top-h;
         width: root.width;
-        height: Math.max(0px, root.transport-y - root.top-h);
+        height: Math.max(0px, root.monitor-foot - root.top-h);
 
         monitor := PreviewPane {
             x: 8px;
@@ -708,17 +755,21 @@ export component PhoneEditor inherits Rectangle {
 
         // The stack scrolls here rather than in Rust, as it does in the
         // timeline pane and for the same reason: it is a property of
-        // looking at the lanes, not of the edit. Clamped on read, so a
-        // stack that gets shorter cannot leave the view parked past its
-        // end.
-        property <length> track-scroll;
+        // looking at the lanes, not of the edit. Measured up from the
+        // foot, where the main lane is: CapCut's main track is the row
+        // always in view, with the overlays stacked above it, and a stack
+        // read from its head left the main lane - the video, and every
+        // picture added to it - below the card once there were four lanes.
+        // Clamped on read, so a stack that gets shorter cannot leave the
+        // view parked past its end.
+        property <length> lift;
         property <length> stack-h: Editor.tracks.length > 0
             ? Editor.tracks[Editor.tracks.length - 1].top
                 + Editor.tracks[Editor.tracks.length - 1].height
             : 0px;
         property <length> overflow: Math.max(0px,
             self.stack-h - Math.max(0px, lanes.height - lanes.ruler-height));
-        property <length> at: Math.max(0px, Math.min(self.overflow, self.track-scroll));
+        property <length> at: Math.max(0px, self.overflow - Math.min(self.overflow, self.lift));
 
         Rectangle {
             x: 8px;
@@ -779,8 +830,8 @@ export component PhoneEditor inherits Rectangle {
                 }
                 scrolled(seconds) => { Editor.scrolled(seconds); }
                 track-scrolled(pixels) => {
-                    stack.track-scroll = Math.max(0px,
-                        Math.min(stack.overflow, stack.at + pixels));
+                    stack.lift = Math.max(0px,
+                        Math.min(stack.overflow, stack.overflow - stack.at - pixels));
                 }
                 zoomed(factor, anchor) => { Editor.zoom(factor, anchor); }
                 drag-hovered(payload, seconds, row) => {
@@ -804,6 +855,34 @@ export component PhoneEditor inherits Rectangle {
                 font-size: Theme.fs;
                 horizontal-alignment: center;
                 wrap: word-wrap;
+            }
+
+            // The way in from the lanes: CapCut's plus at the end of the
+            // main track. The bin, and Add lays the picks after the main
+            // lane's last clip, wherever the playhead is.
+            add-media := Rectangle {
+                x: parent.width - self.width - 8px;
+                y: lanes.ruler-height
+                    + Math.max(4px, (parent.height - lanes.ruler-height - 50px - self.height) / 2);
+                width: 44px;
+                height: 44px;
+                border-radius: Theme.r;
+                background: add-touch.pressed ? Theme.accent-hover : Theme.accent;
+                drop-shadow-blur: 8px;
+                drop-shadow-color: #00000066;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.plus;
+                    size: 20px;
+                    weight: 2.4;
+                    tint: Theme.on-accent;
+                }
+
+                add-touch := TouchArea {
+                    clicked => { root.show-media(true); }
+                }
             }
 
             // The zoom, about the playhead - which is the middle, so the
@@ -856,7 +935,7 @@ export component PhoneEditor inherits Rectangle {
                 glyph: Glyph.film;
                 label: I18n.t("common.media");
                 current: root.sheet == "media";
-                clicked => { root.show("media", false); }
+                clicked => { root.show-media(false); }
             }
             // Beside Media, as CapCut keeps it: the user's own sounds.
             ToolItem {
@@ -1114,11 +1193,12 @@ export component PhoneEditor inherits Rectangle {
     // panel bound to the Editor global the way the seats bind it; the
     // library's pages close themselves once something is placed, so what
     // was placed is seen, and the inspector's stay up to be worked in.
-    PhoneSheet {
+    sheet := PhoneSheet {
         x: 0;
         y: 0;
         width: root.width;
         height: root.height;
+        sheet-height: root.sheet-h;
         open: root.sheet != "";
         title: root.sheet-title(root.sheet);
         closed => { root.hide(); }
@@ -1136,15 +1216,17 @@ export component PhoneEditor inherits Rectangle {
                 clicked => { Editor.import-media(); }
             }
             SheetNote {
-                text: Editor.media.length == 0
-                    ? I18n.t("phone.noMediaYet") : I18n.t("phone.tapToAdd");
+                text: Editor.media.length == 0 ? I18n.t("phone.noMediaYet")
+                    : root.media-at-end ? I18n.t("phone.pickToAddAtEnd")
+                    : I18n.t("phone.pickToAdd");
             }
             PhoneMediaGrid {
                 items: Editor.media;
-                picked(id) => {
-                    Editor.media-activate(id);
-                    root.hide();
-                }
+                picked(id) => { Editor.media-select(id, true); }
+            }
+            // Room under the last row for the Add bar over it.
+            if Editor.media-selected-count > 0: Rectangle {
+                height: root.add-bar-h - 12px;
             }
         }
 
@@ -1554,6 +1636,49 @@ export component PhoneEditor inherits Rectangle {
                 clicked => {
                     root.hide();
                     Editor.modify-project();
+                }
+            }
+        }
+    }
+
+    // ── the Add bar ──────────────────────────────────────────────────
+    //
+    // Pinned to the foot of the bin while anything is picked, over the
+    // grid rather than in its scroll, so it is under the thumb however far
+    // down the picks are; it follows the sheet when the sheet is dragged.
+    if root.sheet == "media" && Editor.media-selected-count > 0: Rectangle {
+        x: 0;
+        y: root.height - root.add-bar-h + sheet.drag;
+        width: root.width;
+        height: root.add-bar-h;
+        background: Theme.panel;
+
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 1px;
+            background: Theme.line;
+        }
+
+        // Swallows the presses around the button, so they do not fall
+        // through to the grid under the bar.
+        TouchArea { }
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-top: 12px;
+            padding-bottom: 12px;
+
+            SheetButton {
+                horizontal-stretch: 1;
+                glyph: Glyph.plus;
+                primary: true;
+                label: I18n.t1("phone.addPicked", Editor.media-selected-count);
+                clicked => {
+                    Editor.media-add-picked(root.media-at-end);
+                    root.hide();
                 }
             }
         }

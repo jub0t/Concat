@@ -29,7 +29,7 @@ export component PhoneSheet inherits Rectangle {
     /// How far the header has been dragged down, while it is held: the
     /// sheet follows the finger, and past `dismiss-at` on release it is
     /// closed, as a phone's sheets are. Zero when nothing is held.
-    property <length> drag;
+    out property <length> drag;
     property <length> dismiss-at: 80px;
 
     visible: root.open;

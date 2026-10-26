@@ -933,6 +933,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_media_activate(on_window!(|state, id: i32| {
         state.place_at_playhead(&format!("media:{id}"));
     }));
+    editor.on_media_add_picked(on_window!(|state, at_end: bool| {
+        state.handle(Msg::Media(MediaMsg::AddPicked { at_end }));
+    }));
+    editor.on_media_clear_picks(on_window!(|state| {
+        state.handle(Msg::Media(MediaMsg::ClearPicks));
+    }));
     editor.on_library_add_text(on_window!(|state, preset: SharedString| {
         state.place_at_playhead(&format!("text:{preset}:Title"));
     }));

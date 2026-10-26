@@ -75,6 +75,10 @@ export struct MediaItemData {
     /// a file should look like itself wherever it is drawn.
     wave: string,
     selected: bool,
+    /// Where the file is in the order of the selection, from 1, or 0 when
+    /// it is not selected: the number a phone's pick wears, and the order
+    /// Add lays the picks down in.
+    pick: int,
 }
 
 // ── the page strip ───────────────────────────────────────────────────────────
