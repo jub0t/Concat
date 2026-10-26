@@ -561,26 +561,75 @@ pub(crate) fn crop(frame: &concat_core::Frame, width: u32, height: u32) -> conca
     out
 }
 
-/// The model on the fastest thing this machine has. On Apple's, CoreML
-/// with the network's shape fixed, which runs it on the GPU through
-/// Apple's own kernels: 1.8 s a 1080p frame on an M5, where our shaders
-/// take 4.2. Everywhere else our shaders on the GPU (Windows' ONNX Runtime
-/// has no GPU provider at all), and ONNX Runtime on the CPU only when no
-/// GPU opens.
+/// The model on whichever engine is fastest here, found by running both:
+/// our own shaders on the GPU, and ONNX Runtime with the platform's
+/// accelerator (CoreML on Apple's machines). Neither wins everywhere. On
+/// an M5, CoreML beat our shaders 45 ms to 105 ms a window in a test of
+/// its own, yet in the running app it took about 0.2 s a window, seven
+/// times our shaders, so a choice made from a benchmark was the wrong one
+/// where it mattered. Each candidate is warmed on one window and timed on
+/// the next two, in the app as it is, and both times are logged. ONNX
+/// Runtime on the CPU is what is left when no GPU opens.
 fn fastest(file: &Path) -> Result<Enhancer, String> {
-    if cfg!(target_vendor = "apple") {
+    let gpu = on_gpu(file);
+    // The CPU is never a contender: where only it would answer, our
+    // shaders' Enhancer stands alone and no runtime is raced against it.
+    let runtime = if cfg!(target_vendor = "apple") || gpu.is_none() {
         match Enhancer::load(file) {
-            Ok(enhancer) => {
-                log::info!("enhance: through CoreML");
-                return Ok(enhancer);
+            Ok(enhancer) => Some(enhancer),
+            Err(error) => {
+                log::warn!("enhance: ONNX Runtime would not load it: {error}");
+                None
             }
-            Err(error) => log::warn!("enhance: CoreML would not load it: {error}"),
+        }
+    } else {
+        None
+    };
+    match (gpu, runtime) {
+        (Some(gpu), Some(runtime)) => {
+            let ours = window_seconds(&gpu);
+            let theirs = window_seconds(&runtime);
+            log::info!(
+                "enhance: a window takes {:.0} ms on our shaders, {:.0} ms through ONNX Runtime",
+                ours * 1000.0,
+                theirs * 1000.0
+            );
+            if theirs < ours {
+                log::info!("enhance: through ONNX Runtime");
+                Ok(runtime)
+            } else {
+                log::info!("enhance: on our shaders");
+                Ok(gpu)
+            }
+        }
+        (Some(gpu), None) => Ok(gpu),
+        (None, Some(runtime)) => Ok(runtime),
+        (None, None) => Err("enhance: nothing here could run the model".to_owned()),
+    }
+}
+
+/// Seconds `enhancer` takes over one window once warm: the first run
+/// compiles and is not counted, the better of the next two is.
+fn window_seconds(enhancer: &Enhancer) -> f64 {
+    let side = vision::WINDOW;
+    let frame = Frame::black(side - 2 * vision::PAD, side - 2 * vision::PAD);
+    let region = vision::Tile {
+        x: 0,
+        y: 0,
+        width: frame.width(),
+        height: frame.height(),
+    };
+    let mut best = f64::INFINITY;
+    for run in 0..3 {
+        let started = std::time::Instant::now();
+        if enhancer.enhance_region(&frame, region, 1).is_err() {
+            return f64::INFINITY;
+        }
+        if run > 0 {
+            best = best.min(started.elapsed().as_secs_f64());
         }
     }
-    match on_gpu(file) {
-        Some(enhancer) => Ok(enhancer),
-        None => Enhancer::load(file),
-    }
+    best
 }
 
 /// The model on the GPU, in compute shaders of our own
