@@ -213,6 +213,7 @@ impl AudioDecoder {
             ffi::seek_audio(&mut input, stream_index, start + origin)
                 .map_err(|error| ffi::fail("seek", path, error))?;
         }
+        ffi::read_only(&mut input, stream_index);
 
         Ok(Self {
             path: path.to_path_buf(),
@@ -638,8 +639,11 @@ mod tests {
     /// at the cut and handed the sound from after it - a frame or two of
     /// silence in front of every trimmed .mpg. The transport stream
     /// interleaves tightly and landed either way; it is here to prove the
-    /// seek on the sound's own stream keeps that. Each fixture sounds a
-    /// tone from half a second in, so every cut here is inside it.
+    /// seek on the sound's own stream keeps that. The same stream remuxed
+    /// into Matroska is sought on its picture's index instead, a second
+    /// short (see `ffi::seek_audio`), and must land no later - the cut at
+    /// 3 s is the picture's keyframe itself. Each fixture sounds a tone
+    /// from half a second in, so every cut here is inside it.
     #[test]
     fn a_cut_starts_its_sound_where_the_cut_is_whichever_way_the_file_interleaves() {
         let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
@@ -648,12 +652,107 @@ mod tests {
             ("sound-behind-the-picture.mpg", 3.5),
             ("keyframes-3s-apart.ts", 1.0),
             ("keyframes-3s-apart.ts", 4.0),
+            ("keyframes-3s-apart.mkv", 1.0),
+            ("keyframes-3s-apart.mkv", 3.0),
+            ("keyframes-3s-apart.mkv", 4.0),
         ] {
             let onset = tone_onset(&format!("{fixtures}{name}"), Some(cut));
             assert!(
                 onset < 0.03,
                 "{name} cut {cut} s in: the tone starts {onset:.3} s behind the cut"
             );
+        }
+    }
+}
+
+/// Timings for the sound of a clip cut into a long file, by hand: what it
+/// costs to reach the first sample at the top and minutes in, through the
+/// seek as 0.2.8 made it and as it is made now, and how fast a window of
+/// it decodes. `CONCAT_AUDIO_PROBE` names the files, separated by `:`.
+#[cfg(test)]
+mod probe {
+    use super::*;
+    use std::time::Instant;
+
+    fn first_sample(path: &str, at: f64, old_seek: bool) -> std::time::Duration {
+        let started = Instant::now();
+        let options = AudioOptions {
+            start: (!old_seek).then_some(at),
+            duration: Some(1.0),
+            ..AudioOptions::default()
+        };
+        let mut decoder = AudioDecoder::open(path, &options).expect("opens");
+        if old_seek {
+            // 0.2.8 read every stream's packets.
+            // SAFETY: as in `ffi::read_only`.
+            unsafe {
+                let context = decoder.input.as_mut_ptr();
+                for index in 0..(*context).nb_streams as usize {
+                    (*(*(*context).streams.add(index))).discard = ffmpeg::Discard::Default.into();
+                }
+            }
+        }
+        if old_seek && at > 0.0 {
+            // The seek 0.2.8 made: on the default stream, the first packet
+            // at or past the target - then the cut by the graph.
+            let target = ((at + decoder.origin) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
+            decoder.input.seek(target, ..=target).expect("seeks");
+            decoder.options.start = Some(at);
+        }
+        decoder.next_frame().expect("decodes").expect("a frame");
+        started.elapsed()
+    }
+
+    #[test]
+    #[ignore = "a probe"]
+    fn audio_seek_and_decode_timing() {
+        let Ok(files) = std::env::var("CONCAT_AUDIO_PROBE") else {
+            return;
+        };
+        for path in files.split(':') {
+            for at in [0.0, 480.0, 1100.0] {
+                let old = first_sample(path, at, true);
+                let new = first_sample(path, at, false);
+                eprintln!("{path} at {at:>6.0} s: first sample 0.2.8 seek {old:?}, now {new:?}");
+            }
+            for (at, window, old) in [
+                (0.0, 300.0, true),
+                (480.0, 300.0, true),
+                (0.0, 300.0, false),
+                (480.0, 300.0, false),
+            ] {
+                let started = Instant::now();
+                let mut decoder = AudioDecoder::open(
+                    path,
+                    &AudioOptions {
+                        start: Some(at),
+                        duration: Some(window),
+                        format: SampleFormat::I16,
+                        ..AudioOptions::default()
+                    },
+                )
+                .expect("opens");
+                if old {
+                    // SAFETY: as in `ffi::read_only`.
+                    unsafe {
+                        let context = decoder.input.as_mut_ptr();
+                        for index in 0..(*context).nb_streams as usize {
+                            (*(*(*context).streams.add(index))).discard =
+                                ffmpeg::Discard::Default.into();
+                        }
+                    }
+                }
+                let mut bytes = 0usize;
+                while let Some(frame) = decoder.next_frame().expect("decodes") {
+                    bytes += decoder.bytes_of(&frame).len();
+                }
+                let took = started.elapsed();
+                eprintln!(
+                    "{path}: {window} s from {at} s, every stream read {old}: {took:?} ({:.0}x real time, {} MB)",
+                    window / took.as_secs_f64(),
+                    bytes / 1_000_000
+                );
+            }
         }
     }
 }

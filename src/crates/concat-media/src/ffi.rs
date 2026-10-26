@@ -243,6 +243,19 @@ pub(crate) fn av_ticks(seconds: Rational) -> i64 {
 /// sound's own stream, and backwards, lands on the packet the cut itself
 /// will keep.
 ///
+/// Matroska is the exception. Its index, the Cues, lists only the
+/// picture's keyframes in a file with both - what FFmpeg, OBS and mkvmerge
+/// all write - so a seek asked on the sound finds no index of its own and
+/// libavformat falls back to reading the file from the top until it
+/// reaches the cut: every packet of a 20-minute recording to reach minute
+/// 18, 0.19 s on a warm cache where the index takes 0.02 s, and seconds to
+/// minutes off a cold disk. A Matroska file is sought on its picture's
+/// index instead, a second short of the cut so the keyframe it lands on
+/// comes before every sample the cut keeps: the demuxer hands its blocks
+/// in time order across the streams, and its sound is never a second
+/// behind its picture. The cut decodes a keyframe interval of sound it
+/// throws away, a matter of milliseconds.
+///
 /// A file whose sound cannot be sought at all - a raw stream with no
 /// timestamps - is read from the top instead, so the cut still comes out
 /// right at the cost of decoding what comes before it; only when even the
@@ -256,6 +269,21 @@ pub(crate) fn seek_audio(
         .stream(stream)
         .map(|stream| stream.time_base())
         .ok_or(ffmpeg::Error::StreamNotFound)?;
+    // A cover picture is one frame with no index to speak of; a file with
+    // only that is sought on its sound like any other.
+    let pictured = input.streams().any(|other| {
+        other.index() != stream
+            && other.parameters().medium() == ffmpeg::media::Type::Video
+            && !other
+                .disposition()
+                .contains(ffmpeg::format::stream::Disposition::ATTACHED_PIC)
+    });
+    if pictured && input.format().name().contains("matroska") {
+        let ticks = ((at - 1.0).max(0.0) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
+        if input.seek(ticks, ..=ticks).is_ok() {
+            return Ok(());
+        }
+    }
     // SAFETY: the input is open for the reader's lifetime, so its format
     // pointer is valid; the stream index was found in that same input, and
     // `AVSEEK_FLAG_BACKWARD` is a plain integer.
@@ -273,6 +301,33 @@ pub(crate) fn seek_audio(
     // The wrapper's fallback: the top of the file, which every demuxer that
     // can seek at all can reach, and which no index is needed to find.
     input.seek(0, ..=0).map_err(|_| ffmpeg::Error::from(done))
+}
+
+/// Tells the demuxer that only stream `keep` will be read, so it hands no
+/// packet of any other. A sound reader reads past every packet of the
+/// picture to reach its own, and for most containers that is nearly all of
+/// the file's bytes: a demuxer told the picture is unwanted skips them -
+/// an MP4 or MOV seeks past each picture sample unread, and the rest at
+/// least never copy them into packets.
+///
+/// Called after the seek, not before it: a demuxer without an index seeks
+/// by reading packets of the stream it seeks on, and finds none of one it
+/// was told to drop.
+pub(crate) fn read_only(input: &mut ffmpeg::format::context::Input, keep: usize) {
+    // SAFETY: the input is open, so its stream array holds `nb_streams`
+    // valid stream pointers; `discard` is a plain field the demuxer reads
+    // on each packet.
+    unsafe {
+        let context = input.as_mut_ptr();
+        for index in 0..(*context).nb_streams as usize {
+            let stream = *(*context).streams.add(index);
+            (*stream).discard = if index == keep {
+                ffmpeg::Discard::Default.into()
+            } else {
+                ffmpeg::Discard::All.into()
+            };
+        }
+    }
 }
 
 /// The rotation a stream asks players to apply before showing its frames,

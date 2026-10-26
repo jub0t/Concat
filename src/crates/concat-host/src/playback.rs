@@ -15,6 +15,16 @@
 //!   memory stays bounded however long the material is, and a reopened
 //!   project pays nothing.
 //!
+//! - A span not decoded yet borrows the sound of one that is, from the same
+//!   file under the same treatment: what a split, a trim inwards or an
+//!   undo leaves is a stretch of a span already mapped, and it plays from
+//!   that span's samples the moment the edit lands - see [`stand_in`]. A
+//!   cut used to wait out a decode of everything after it, seconds to
+//!   minutes of silence on a long recording. Where the borrowed samples
+//!   are exactly the decode's - no speed change, no filter - the decode is
+//!   a copy of them; otherwise FFmpeg decodes it, and the stand-in plays
+//!   until it lands.
+//!
 //! - Where a sound layer runs, the clips cannot each carry it: its chain is
 //!   over their sum. The stretch is mixed once instead, through the
 //!   exporter's own mix with the layer over it, and plays as one span in
@@ -360,14 +370,25 @@ impl Pcm {
         Ok(Pcm { map, start, frames })
     }
 
-    /// One sample as a float in [-1, 1]. Out of range reads are silence.
-    fn sample(&self, frame: u64, channel: usize) -> f32 {
+    /// One sample as a float in [-1, 1]. Out of range reads are silence,
+    /// before the first frame as after the last.
+    fn sample(&self, frame: i64, channel: usize) -> f32 {
+        let Ok(frame) = u64::try_from(frame) else {
+            return 0.0;
+        };
         if frame >= self.frames {
             return 0.0;
         }
         let at = self.start + (frame as usize * 2 + channel) * 2;
         let raw = i16::from_le_bytes([self.map[at], self.map[at + 1]]);
         f32::from(raw) / 32768.0
+    }
+
+    /// The bytes of `count` frames from `from`, as many as there are.
+    fn frames_bytes(&self, from: u64, count: u64) -> &[u8] {
+        let from = from.min(self.frames);
+        let to = from.saturating_add(count).min(self.frames);
+        &self.map[self.start + from as usize * 4..self.start + to as usize * 4]
     }
 }
 
@@ -423,6 +444,10 @@ struct ActiveClip {
     fade_in: f64,
     fade_out: f64,
     pcm: Arc<Pcm>,
+    /// The frame of `pcm` the clip's first instant is: zero for the clip's
+    /// own decode, and where the clip falls inside a span that stands in
+    /// for it - negative where the clip begins before that span does.
+    lead: i64,
     /// Timeline stretches where a mixed span under sound layers plays in
     /// this clip's place, so it is silent there; empty for that span
     /// itself and wherever no layer is.
@@ -589,6 +614,108 @@ struct DecodeQueue {
 struct CacheEntry {
     pcm: Arc<Pcm>,
     last_used: u64,
+    /// Where in its file the span lies, for spans it can stand in for; none
+    /// for a mix under sound layers, which is no one file's.
+    reach: Option<Reach>,
+}
+
+/// Where in its file a decoded span lies, and under what treatment: what
+/// [`stand_in`] matches a span still to decode against.
+#[derive(Clone, Debug)]
+struct Reach {
+    /// Everything about the decode but where it starts and how long it
+    /// runs - the file, the stream, the speed and the filters - so that two
+    /// spans with the same one are the same sound at the same instant.
+    source: String,
+    /// Source seconds the span starts and ends at.
+    from: f64,
+    to: f64,
+    /// The speed the span plays at: a second of it is this many of the
+    /// file's.
+    speed: f64,
+    /// Whether the span's samples are the file's own, only resampled: at
+    /// its own speed and through no filter. A stretch of such a span is
+    /// then exactly what decoding that stretch would give, so it is copied
+    /// rather than decoded.
+    plain: bool,
+}
+
+impl Reach {
+    /// The reach of the span `spec` decodes to, or none for a mixed span.
+    fn of(spec: &ClipSpec) -> Option<Reach> {
+        if spec.bus.is_some() {
+            return None;
+        }
+        let speed = concat_media::audio::clamp_speed(spec.speed);
+        Some(Reach {
+            source: format!(
+                "{}\0{:?}\0{:016x}\0{}\0{}",
+                spec.path,
+                spec.audio_stream,
+                speed.to_bits(),
+                spec.preserve_pitch,
+                spec.chain
+            ),
+            from: spec.source_start,
+            to: spec.source_start + spec.duration * speed,
+            speed,
+            plain: concat_media::audio::speed_filters(speed, spec.preserve_pitch).is_empty()
+                && spec.chain.is_empty(),
+        })
+    }
+
+    /// The frame of this span's samples where `other`'s first instant is.
+    fn lead_of(&self, other: &Reach) -> i64 {
+        ((other.from - self.from) / self.speed * f64::from(PCM_RATE)).round() as i64
+    }
+}
+
+/// Half a sample, in seconds: how far apart two source positions may be
+/// and still be the same instant, so the arithmetic of a split cannot
+/// leave a span a hair outside the one it was cut from.
+const HAIR: f64 = 0.5 / PCM_RATE as f64;
+
+/// The decoded span that plays for `spec` while its own decode is still to
+/// come, and the frame of it where `spec` begins.
+///
+/// Any span from the same file under the same treatment will do: what is
+/// left of a clip after a split, a trim inwards, an undo, a second use of
+/// the same recording - each is a stretch of a span already mapped. Of
+/// those, the one that covers most of `spec`; past where it reaches, the
+/// stand-in is silent until the decode lands. None for a span already
+/// decoded, a mixed span, or one nothing decoded overlaps.
+fn stand_in<'a>(cache: &'a HashMap<String, CacheEntry>, spec: &ClipSpec) -> Option<(&'a str, i64)> {
+    let wanted = Reach::of(spec)?;
+    cache
+        .iter()
+        .filter_map(|(key, entry)| {
+            let reach = entry.reach.as_ref()?;
+            if reach.source != wanted.source {
+                return None;
+            }
+            let covered = reach.to.min(wanted.to) - reach.from.max(wanted.from);
+            (covered > HAIR).then_some((key, entry, reach, covered))
+        })
+        .max_by(|a, b| a.3.total_cmp(&b.3).then(a.1.last_used.cmp(&b.1.last_used)))
+        .map(|(key, _, reach, _)| (key.as_str(), reach.lead_of(&wanted)))
+}
+
+/// The decoded span whose samples `spec`'s decode would be, stretch for
+/// stretch, and the frame of it where `spec` begins: a plain span (see
+/// [`Reach::plain`]) that covers all of `spec`. Copying from it is the
+/// decode, at the speed of a copy.
+fn copy_source(cache: &HashMap<String, CacheEntry>, spec: &ClipSpec) -> Option<(Arc<Pcm>, u64)> {
+    let wanted = Reach::of(spec)?;
+    if !wanted.plain {
+        return None;
+    }
+    cache.values().find_map(|entry| {
+        let reach = entry.reach.as_ref()?;
+        let covers = reach.source == wanted.source
+            && reach.from <= wanted.from + HAIR
+            && reach.to >= wanted.to - HAIR;
+        covers.then(|| (Arc::clone(&entry.pcm), reach.lead_of(&wanted).max(0) as u64))
+    })
 }
 
 /// The audio engine: decode workers, the supervised output stream, and the
@@ -813,7 +940,16 @@ impl Playback {
         let active: Vec<ActiveClip> = specs
             .iter()
             .filter_map(|spec| {
-                let entry = cache.get_mut(&decode_key(spec))?;
+                // The span's own decode, or until it lands a span that
+                // holds its sound already; see `stand_in`.
+                let own = decode_key(spec);
+                let (key, lead) = if cache.contains_key(&own) {
+                    (own, 0)
+                } else {
+                    let (key, lead) = stand_in(&cache, spec)?;
+                    (key.to_owned(), lead)
+                };
+                let entry = cache.get_mut(&key)?;
                 entry.last_used = now;
                 Some(ActiveClip {
                     start: spec.start,
@@ -823,6 +959,7 @@ impl Playback {
                     fade_in: spec.fade_in,
                     fade_out: spec.fade_out,
                     pcm: Arc::clone(&entry.pcm),
+                    lead,
                     covered: if spec.bus.is_some() {
                         Arc::clone(&none)
                     } else {
@@ -841,8 +978,22 @@ impl Playback {
     /// space and page cache, not copies - but a long session accumulates a
     /// mapping per edit of every trimmed span, and those add up.
     fn evict_memory(&self) {
-        let live: HashSet<String> = locked(&self.specs).iter().map(decode_key).collect();
+        // The clip set first and the cache after, the order `resync` takes
+        // them in, so the two can never hold one each and wait on the other.
+        let specs = locked(&self.specs).clone();
         let mut cache = locked(&self.cache);
+        // Live: every span the clip set names, and every span standing in
+        // for one of them that is still to decode.
+        let live: HashSet<String> = specs
+            .iter()
+            .flat_map(|spec| {
+                let own = decode_key(spec);
+                let standing = (!cache.contains_key(&own))
+                    .then(|| stand_in(&cache, spec).map(|(key, _)| key.to_owned()))
+                    .flatten();
+                std::iter::once(own).chain(standing)
+            })
+            .collect();
         while cache.len() > MEMORY_CACHE_CAP {
             let doomed = cache
                 .iter()
@@ -915,7 +1066,8 @@ fn decode_worker(playback: &Arc<Playback>) {
             continue;
         }
 
-        match decode(&job.spec, &job.project, &job.key) {
+        let within = copy_source(&locked(&playback.cache), &job.spec);
+        match decode(&job.spec, &job.project, &job.key, within) {
             Ok(pcm) => {
                 let now = playback.tick.fetch_add(1, Ordering::Relaxed) + 1;
                 locked(&playback.cache).insert(
@@ -923,6 +1075,7 @@ fn decode_worker(playback: &Arc<Playback>) {
                     CacheEntry {
                         pcm: Arc::new(pcm),
                         last_used: now,
+                        reach: Reach::of(&job.spec),
                     },
                 );
             }
@@ -1068,8 +1221,17 @@ fn decode_key(spec: &ClipSpec) -> String {
 ///
 /// The decode mirrors the exporter's treatment of filters and speed, so
 /// what the preview mixes is what the export renders. A file already in the
-/// cache is reused as is - that is the point of the cache.
-fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
+/// cache is reused as is - that is the point of the cache. `within` is a
+/// mapped span whose samples from a frame on are this one's (see
+/// [`copy_source`]): they are copied, which for the rest of a long
+/// recording after a cut is a fraction of a second where the decode is
+/// many.
+fn decode(
+    spec: &ClipSpec,
+    project: &Path,
+    key: &str,
+    within: Option<(Arc<Pcm>, u64)>,
+) -> Result<Pcm, String> {
     use concat_media::{AudioDecoder, AudioOptions, SampleFormat};
 
     concat_media::audio::validate_chain(&spec.chain).map_err(|error| error.to_string())?;
@@ -1084,6 +1246,20 @@ fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
 
     if let Some(bus) = &spec.bus {
         return mix_span(spec, bus, &directory, key, &destination);
+    }
+    if let Some((pcm, from)) = within {
+        let frames = (spec.duration * f64::from(PCM_RATE)).round() as u64;
+        return write_span(&directory, key, &destination, |file, writer| {
+            // In pieces, so the writer's buffer is never the whole span.
+            let mut at = from;
+            let end = from.saturating_add(frames).min(pcm.frames);
+            while at < end {
+                let count = (end - at).min(u64::from(PCM_RATE) * 10);
+                writer.write(file, pcm.frames_bytes(at, count))?;
+                at += count;
+            }
+            Ok(())
+        });
     }
 
     // Speed first, then the clip's own filters - the same order the export
@@ -1114,6 +1290,23 @@ fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
     )
     .map_err(|error| error.to_string())?;
 
+    write_span(&directory, key, &destination, |file, writer| {
+        while let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
+            writer.write(file, &decoder.bytes_of(&frame))?;
+        }
+        Ok(())
+    })
+}
+
+/// Writes a span's cache file through `fill`, under a temporary name until
+/// it is whole, and maps it: a crash or a failure mid-way leaves no file a
+/// later run would take for a finished one.
+fn write_span(
+    directory: &Path,
+    key: &str,
+    destination: &Path,
+    fill: impl FnOnce(&mut std::io::BufWriter<std::fs::File>, &mut WavWriter) -> Result<(), String>,
+) -> Result<Pcm, String> {
     let temporary = directory.join(format!("{key}.wav.decoding"));
     let result = (|| -> Result<(), String> {
         let mut file = std::io::BufWriter::new(
@@ -1121,9 +1314,7 @@ fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
                 .map_err(|error| format!("could not create {}: {error}", temporary.display()))?,
         );
         let mut writer = WavWriter::start(&mut file)?;
-        while let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
-            writer.write(&mut file, &decoder.bytes_of(&frame))?;
-        }
+        fill(&mut file, &mut writer)?;
         writer.finish(&mut file)
     })();
     if let Err(error) = result {
@@ -1131,9 +1322,9 @@ fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
         return Err(error);
     }
 
-    std::fs::rename(&temporary, &destination)
+    std::fs::rename(&temporary, destination)
         .map_err(|error| format!("could not commit {}: {error}", destination.display()))?;
-    Pcm::open(&destination)
+    Pcm::open(destination)
 }
 
 /// Mixes a stretch under sound layers to the cache and maps it: the
@@ -1150,13 +1341,7 @@ fn mix_span(
         bus.clips.iter().map(ClipSpec::engine).collect();
     let layers: Vec<concat_media::audio::AudioBus> =
         bus.layers.iter().map(BusSpec::engine).collect();
-    let temporary = directory.join(format!("{key}.wav.decoding"));
-    let result = (|| -> Result<(), String> {
-        let mut file = std::io::BufWriter::new(
-            std::fs::File::create(&temporary)
-                .map_err(|error| format!("could not create {}: {error}", temporary.display()))?,
-        );
-        let mut writer = WavWriter::start(&mut file)?;
+    write_span(directory, key, destination, |file, writer| {
         let mut failed: Option<String> = None;
         concat_media::audio::mix_pcm(
             &clips,
@@ -1164,25 +1349,15 @@ fn mix_span(
             spec.start,
             spec.start + spec.duration,
             |bytes| {
-                if let Err(error) = writer.write(&mut file, bytes) {
+                if let Err(error) = writer.write(file, bytes) {
                     failed = Some(error);
                 }
                 Ok(())
             },
         )
         .map_err(|error| error.to_string())?;
-        if let Some(error) = failed {
-            return Err(error);
-        }
-        writer.finish(&mut file)
-    })();
-    if let Err(error) = result {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error);
-    }
-    std::fs::rename(&temporary, destination)
-        .map_err(|error| format!("could not commit {}: {error}", destination.display()))?;
-    Pcm::open(destination)
+        failed.map_or(Ok(()), Err)
+    })
 }
 
 /// Writes the RIFF/WAVE framing around 16-bit stereo samples at
@@ -1457,7 +1632,7 @@ where
                         // exact when the device runs at 48k, inaudibly close
                         // when it does not.
                         let read = local * f64::from(PCM_RATE);
-                        let index = read.floor() as u64;
+                        let index = read.floor() as i64 + clip.lead;
                         let fraction = (read - read.floor()) as f32;
                         let pcm = &clip.pcm;
                         left += gain
@@ -1675,9 +1850,9 @@ mod tests {
             .find(|spec| spec.bus.is_some())
             .expect("a stretch");
         let key = super::decode_key(stretch);
-        let pcm = super::decode(stretch, &dir, &key).expect("mixes");
+        let pcm = super::decode(stretch, &dir, &key, None).expect("mixes");
         let peak = (rate / 10..rate * 9 / 10)
-            .map(|frame| pcm.sample(u64::from(frame), 0).abs())
+            .map(|frame| pcm.sample(i64::from(frame), 0).abs())
             .fold(0.0_f32, f32::max);
         let frames = pcm.frames;
         let _ = std::fs::remove_dir_all(&dir);
@@ -1692,11 +1867,261 @@ mod tests {
             fade_in: 0.0,
             fade_out: 0.0,
             pcm: std::sync::Arc::new(pcm),
+            lead: 0,
             covered: std::sync::Arc::from(vec![(1.0, 2.0)]),
         };
         assert_eq!(super::gain_at(&clip, 0.5), 1.0);
         assert_eq!(super::gain_at(&clip, 1.5), 0.0, "the stretch plays here");
         assert_eq!(super::gain_at(&clip, 2.0), 1.0);
+    }
+
+    /// A cache holding `spec` decoded, as the decode workers leave it.
+    fn cached(
+        spec: &super::ClipSpec,
+        project: &std::path::Path,
+    ) -> std::collections::HashMap<String, super::CacheEntry> {
+        let key = super::decode_key(spec);
+        let pcm = super::decode(spec, project, &key, None).expect("decodes");
+        std::collections::HashMap::from([(
+            key,
+            super::CacheEntry {
+                pcm: std::sync::Arc::new(pcm),
+                last_used: 0,
+                reach: super::Reach::of(spec),
+            },
+        )])
+    }
+
+    /// Three seconds of a rising tone, so that every instant of it sounds
+    /// unlike every other and a stretch played from the wrong place shows.
+    fn rising_tone(dir: &std::path::Path) -> std::path::PathBuf {
+        let rate = super::PCM_RATE;
+        let mut data = Vec::new();
+        for index in 0..rate * 3 {
+            let t = f64::from(index) / f64::from(rate);
+            let phase = 2.0 * std::f64::consts::PI * (200.0 * t + 100.0 * t * t);
+            let value = (0.5 * phase.sin() * 32767.0) as i16;
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        let source = dir.join("rising.wav");
+        let mut file = std::fs::File::create(&source).expect("creates");
+        let mut writer = super::WavWriter::start(&mut file).expect("starts");
+        writer.write(&mut file, &data).expect("writes");
+        writer.finish(&mut file).expect("finishes");
+        source
+    }
+
+    /// Both halves of a split clip play the moment the cut is made, from
+    /// the span the whole clip had decoded, at the instant each half
+    /// begins - and what each half's own decode then writes, a copy of that
+    /// stretch, is what decoding it afresh gives. The half after the cut
+    /// used to be silent until a decode of all of it had run: seconds to
+    /// minutes on a long recording.
+    #[test]
+    fn a_split_clip_plays_at_once_from_the_span_it_was_cut_from() {
+        let dir = std::env::temp_dir().join(format!("concat-split-{}", std::process::id()));
+        let fresh = dir.join("fresh");
+        std::fs::create_dir_all(&fresh).expect("a folder");
+        let source = rising_tone(&dir);
+        let whole = tone_spec(&source, 0.0, 3.0);
+        let cache = cached(&whole, &dir);
+
+        let mut after = tone_spec(&source, 1.25, 1.75);
+        after.source_start = 1.25;
+        let before = tone_spec(&source, 0.0, 1.25);
+        let (key, lead) = super::stand_in(&cache, &after).expect("the whole stands in");
+        assert_eq!(key, super::decode_key(&whole));
+        assert_eq!(lead, 60_000, "the half after the cut, from the cut on");
+        assert_eq!(
+            super::stand_in(&cache, &before).map(|(_, lead)| lead),
+            Some(0)
+        );
+
+        for half in [&before, &after] {
+            let key = super::decode_key(half);
+            let within = super::copy_source(&cache, half);
+            assert!(within.is_some(), "a plain stretch is copied, not decoded");
+            let copied = super::decode(half, &dir, &key, within).expect("copies");
+            let decoded = super::decode(half, &fresh, &key, None).expect("decodes");
+            assert!(
+                copied.frames.abs_diff(decoded.frames) <= 1,
+                "{} frames copied, {} decoded",
+                copied.frames,
+                decoded.frames
+            );
+            let worst = (0..copied.frames.min(decoded.frames) as i64)
+                .map(|frame| (copied.sample(frame, 0) - decoded.sample(frame, 0)).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(worst < 0.001, "the copy differs from the decode by {worst}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    struct Quiet;
+
+    impl super::PlaybackEvents for Quiet {
+        fn position(&self, _: f64) {}
+        fn error(&self, message: String) {
+            panic!("{message}");
+        }
+    }
+
+    /// The engine with no decode workers and no output: what `set_clips`
+    /// hands the mix stays put to be looked at, and what it queues waits.
+    fn idle(cache: std::collections::HashMap<String, super::CacheEntry>) -> super::Playback {
+        let (tx, _) = std::sync::mpsc::channel();
+        super::Playback {
+            tx,
+            shared: std::sync::Arc::new(super::Shared::new()),
+            events: std::sync::Arc::new(Quiet),
+            cache: std::sync::Mutex::new(cache),
+            tick: std::sync::atomic::AtomicU64::new(0),
+            decoding: std::sync::Mutex::new(std::collections::HashSet::new()),
+            specs: std::sync::Mutex::new(Vec::new()),
+            project: std::sync::Mutex::new(None),
+            sweeping: std::sync::atomic::AtomicBool::new(true),
+            queue: std::sync::Arc::new(super::DecodeQueue {
+                jobs: std::sync::Mutex::new(std::collections::VecDeque::new()),
+                available: std::sync::Condvar::new(),
+            }),
+            last_active: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            fine: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// The engine itself, as the window drives it: a clip decoded, then
+    /// split. Both halves are in what the mix plays the moment the split is
+    /// handed over, before any decode of theirs has run, each from where it
+    /// begins in the whole; the decodes are queued all the same, so each
+    /// half comes to have a span of its own.
+    #[test]
+    fn the_engine_plays_both_halves_of_a_split_the_moment_it_is_made() {
+        let dir = std::env::temp_dir().join(format!("concat-engine-split-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let source = rising_tone(&dir);
+        let whole = tone_spec(&source, 0.0, 3.0);
+        let playback = std::sync::Arc::new(idle(cached(&whole, &dir)));
+        playback.set_clips(dir.clone(), vec![whole.clone()]);
+        assert_eq!(super::locked(&playback.last_active).len(), 1);
+
+        let before = tone_spec(&source, 0.0, 1.25);
+        let mut after = tone_spec(&source, 1.25, 1.75);
+        after.source_start = 1.25;
+        playback.set_clips(dir.clone(), vec![before, after]);
+        let playing: Vec<(f64, i64)> = super::locked(&playback.last_active)
+            .iter()
+            .map(|clip| (clip.start, clip.lead))
+            .collect();
+        assert_eq!(playing, vec![(0.0, 0), (1.25, 60_000)]);
+        assert_eq!(
+            super::locked(&playback.queue.jobs).len(),
+            2,
+            "both decodes queued"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What may stand in, and what may be copied. The same file under a
+    /// filter is the same sound under that filter, so it stands in, but a
+    /// filter carries what came before the cut into the stretch after it,
+    /// so it is decoded all the same; another filter, another speed or a
+    /// stretch the span never reached is another sound. A span reaching
+    /// only part of the way plays where it reaches.
+    #[test]
+    fn only_the_same_sound_stands_in_and_only_a_plain_one_is_copied() {
+        let dir = std::env::temp_dir().join(format!("concat-stand-in-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let source = rising_tone(&dir);
+        let mut filtered = tone_spec(&source, 0.0, 2.0);
+        filtered.chain = "lowpass=f=2000".to_owned();
+        let cache = cached(&filtered, &dir);
+
+        let mut half = filtered.clone();
+        half.duration = 1.0;
+        half.source_start = 1.0;
+        assert_eq!(
+            super::stand_in(&cache, &half).map(|(_, lead)| lead),
+            Some(48_000)
+        );
+        assert!(
+            super::copy_source(&cache, &half).is_none(),
+            "filtered: decoded"
+        );
+
+        let mut other = half.clone();
+        other.chain = "highpass=f=2000".to_owned();
+        assert!(super::stand_in(&cache, &other).is_none(), "another filter");
+        let mut faster = half.clone();
+        faster.speed = 2.0;
+        assert!(super::stand_in(&cache, &faster).is_none(), "another speed");
+        let mut later = half.clone();
+        later.source_start = 2.5;
+        later.duration = 0.5;
+        assert!(super::stand_in(&cache, &later).is_none(), "never reached");
+
+        // Out past the span: it plays the second it has, then waits.
+        let mut longer = filtered.clone();
+        longer.source_start = 1.0;
+        longer.duration = 2.0;
+        assert_eq!(
+            super::stand_in(&cache, &longer).map(|(_, lead)| lead),
+            Some(48_000)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Times what a cut costs the half after it before it sounds, by hand:
+    /// its own decode as before, against the copy and the stand-in now.
+    /// `CONCAT_SPLIT_PROBE` names a long recording; `CONCAT_SPLIT_AT` the
+    /// cut, in seconds (120 by default).
+    #[test]
+    #[ignore = "a probe"]
+    fn split_timing() {
+        let Some(path) = std::env::var_os("CONCAT_SPLIT_PROBE") else {
+            return;
+        };
+        let cut: f64 = std::env::var("CONCAT_SPLIT_AT")
+            .ok()
+            .and_then(|at| at.parse().ok())
+            .unwrap_or(120.0);
+        let path = std::path::PathBuf::from(path);
+        let length = concat_media::probe(&path)
+            .expect("probes")
+            .duration
+            .expect("a length")
+            .as_f64();
+        let dir = std::env::temp_dir().join(format!("concat-split-timing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("fresh")).expect("a folder");
+        let whole = tone_spec(&path, 0.0, length);
+        let started = std::time::Instant::now();
+        let cache = cached(&whole, &dir);
+        eprintln!(
+            "the whole {length:.0} s clip decoded in {:?}",
+            started.elapsed()
+        );
+
+        let mut after = tone_spec(&path, cut, length - cut);
+        after.source_start = cut;
+        let key = super::decode_key(&after);
+        let started = std::time::Instant::now();
+        let standing = super::stand_in(&cache, &after);
+        eprintln!(
+            "after the cut at {cut} s: a stand-in found in {:?}",
+            started.elapsed()
+        );
+        assert!(standing.is_some());
+        let started = std::time::Instant::now();
+        super::decode(&after, &dir.join("fresh"), &key, None).expect("decodes");
+        eprintln!(
+            "  its own decode, as every cut ran it: {:?}",
+            started.elapsed()
+        );
+        let started = std::time::Instant::now();
+        super::decode(&after, &dir, &key, super::copy_source(&cache, &after)).expect("copies");
+        eprintln!("  its copy now: {:?}", started.elapsed());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

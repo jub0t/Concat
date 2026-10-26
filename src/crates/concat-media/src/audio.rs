@@ -806,6 +806,7 @@ fn run_mix(
         if in_point > 0.0 {
             let _ = ffi::seek_audio(&mut input, stream_index, in_point + start);
         }
+        ffi::read_only(&mut input, stream_index);
         let label = format!("{index}:a");
         let mut mix_input = MixInput {
             path: path.to_path_buf(),
