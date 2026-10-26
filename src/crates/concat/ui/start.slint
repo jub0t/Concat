@@ -2305,6 +2305,9 @@ export component NewProjectDialog inherits Modal {
                     // A typed frame is its own shape.
                     enabled: !root.data.busy && root.data.size < root.sizes.length;
                     block: root.narrow;
+                    // Seven shapes are past a phone's width; four to a
+                    // row there, as the sizes wrap three.
+                    per-row: root.narrow ? 4 : 0;
                     changed(index) => { root.aspect-changed(index); }
                 }
 

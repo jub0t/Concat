@@ -74,12 +74,16 @@ use crate::presets::{self, TextPreset};
 use crate::speed_ramp;
 use crate::ui::*;
 
-/// The monitor's output sizes, matching the picker's rows.
-pub const OUTPUTS: [(i32, i32); 6] = [
+/// The monitor's output sizes, matching the picker's rows. 4:5 and 3:4
+/// are the upright frames an Instagram post is cut to: its feed and its
+/// grid. Typing 1080 x 1350 by hand was the only way to them.
+pub const OUTPUTS: [(i32, i32); 8] = [
     (1920, 1080),
     (3840, 2160),
     (1080, 1920),
     (1080, 1080),
+    (1080, 1350),
+    (1080, 1440),
     (1440, 1080),
     (2560, 1080),
 ];
@@ -229,11 +233,18 @@ pub(crate) const AUDIO_BPS: f32 = 192_000.0;
 /// cut at 4K was not a thing the form could ask for. Every pair of indices
 /// resolves through [`frame_size`], which is the one place that knows what
 /// a label means in pixels.
-pub const ASPECTS: [(&str, u32, u32); 4] = [
+///
+/// 4:5 and 3:4 are an Instagram post's feed and grid frames. 21:9 is the
+/// 64:27 every screen sold as 21:9 is, so it lands on the 2560 x 1080 the
+/// monitor's picker calls 21:9 rather than a 2520 of its own.
+pub const ASPECTS: [(&str, u32, u32); 7] = [
     ("16:9", 16, 9),
     ("9:16", 9, 16),
     ("1:1", 1, 1),
+    ("4:5", 4, 5),
+    ("3:4", 3, 4),
     ("4:3", 4, 3),
+    ("21:9", 64, 27),
 ];
 
 /// The sizes, as the *short* edge in pixels.
@@ -2687,6 +2698,22 @@ impl Studio {
         self.timeline().clips.iter().fold(0.0_f64, |longest, clip| {
             longest.max(clip.start + clip.duration)
         }) as f32
+    }
+
+    /// The edit point next to the playhead - the nearest clip start or end
+    /// on any lane, the origin or the project's end - after it when
+    /// `forward`, before it otherwise; the playhead itself when there is
+    /// none that way. Counted in whole frames, so a playhead parked on a
+    /// cut is on it and the next press goes on to the one beyond, however
+    /// the seconds round. Up and Down, as Premiere and Resolve put them.
+    pub fn edit_point(&self, forward: bool) -> f32 {
+        let spans: Vec<(f64, f64)> = self
+            .timeline()
+            .clips
+            .iter()
+            .map(|clip| (clip.start, clip.duration))
+            .collect();
+        edit_point(&spans, self.playhead, self.frame_rate(), forward)
     }
 
     /// Clip edges, the playhead and zero all pull, and the nearest inside
@@ -12387,6 +12414,20 @@ impl Studio {
                     &keymap::label(&self.prefs, "end"),
                     true,
                 ),
+                row(
+                    "prev-edit",
+                    t("shortcuts.prevEdit"),
+                    Glyph::None,
+                    &keymap::label(&self.prefs, "prev-edit"),
+                    true,
+                ),
+                row(
+                    "next-edit",
+                    t("shortcuts.nextEdit"),
+                    Glyph::None,
+                    &keymap::label(&self.prefs, "next-edit"),
+                    true,
+                ),
             ],
             _ => Vec::new(),
         }
@@ -12866,6 +12907,29 @@ pub(crate) fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> 
     concat_host::playback::audible(clips)
 }
 
+/// The edit point beside `playhead` among the `(start, duration)` spans,
+/// the origin and the last span's end: the nearest after it when
+/// `forward`, before it otherwise, and `playhead` itself when there is
+/// none that way. Counted in whole frames at `rate`, so a playhead parked
+/// on a cut is on it and the next press goes on to the one beyond,
+/// however the seconds round.
+fn edit_point(spans: &[(f64, f64)], playhead: f32, rate: f32, forward: bool) -> f32 {
+    let fps = f64::from(rate.round().max(1.0));
+    let frame = |seconds: f64| (seconds * fps).round() as i64;
+    let here = frame(f64::from(playhead));
+    let points = spans
+        .iter()
+        .flat_map(|&(start, duration)| [start, start + duration])
+        .chain([0.0])
+        .map(frame);
+    let next = if forward {
+        points.filter(|&point| point > here).min()
+    } else {
+        points.filter(|&point| point < here).max()
+    };
+    next.map_or(playhead, |point| (point as f64 / fps) as f32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -12873,6 +12937,27 @@ mod tests {
         custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
         wheel_partners, write_keyable,
     };
+
+    /// Up and Down walk the cuts on every lane in order, a playhead a
+    /// hair off a cut by rounding counts as on it, and past the last cut
+    /// (or before the first) the playhead stays where it is.
+    #[test]
+    fn the_edit_points_are_walked_in_order_across_lanes() {
+        // One lane: 0-2, 2-5. Another: 1-3.
+        let spans = [(0.0, 2.0), (2.0, 3.0), (1.0, 2.0)];
+        let walk = |from: f32, forward: bool| super::edit_point(&spans, from, 30.0, forward);
+        assert_eq!(walk(0.0, true), 1.0);
+        assert_eq!(walk(1.0, true), 2.0);
+        assert_eq!(walk(2.0, true), 3.0);
+        assert_eq!(walk(3.0, true), 5.0);
+        assert_eq!(walk(5.0, true), 5.0);
+        assert_eq!(walk(5.0, false), 3.0);
+        assert_eq!(walk(0.5, false), 0.0);
+        assert_eq!(walk(0.0, false), 0.0);
+        // A thousandth of a second past the cut at 2 is that cut's frame.
+        assert_eq!(walk(2.001, true), 3.0);
+        assert_eq!(walk(2.001, false), 1.0);
+    }
 
     /// A text box's caret counts bytes and a run counts characters: an
     /// accented letter is one character of two bytes, an offset inside a

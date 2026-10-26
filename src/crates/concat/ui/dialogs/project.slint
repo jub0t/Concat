@@ -86,23 +86,24 @@ export component ProjectDialog inherits Modal {
             // a second cut keeps its own frame whatever is picked here.
             title: I18n.t1("project.output", root.data.timeline);
 
-            // The same six frames the monitor's picker offers, in the same
+            // The same eight frames the monitor's picker offers, in the same
             // order, so the two controls can never disagree about what a
             // row means; then Custom, for any frame at all.
             DialogRow {
                 label: I18n.t("common.frame");
                 Select {
                     current: root.data.size;
-                    options: ["1920 × 1080", "3840 × 2160", "1080 × 1920",
-                        "1080 × 1080", "1440 × 1080", "2560 × 1080", I18n.t("common.custom")];
-                    details: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9", ""];
+                    options: ["1920 × 1080", "3840 × 2160", "1080 × 1920", "1080 × 1080",
+                        "1080 × 1350", "1080 × 1440", "1440 × 1080", "2560 × 1080",
+                        I18n.t("common.custom")];
+                    details: ["16:9", "16:9 4K", "9:16", "1:1", "4:5", "3:4", "4:3", "21:9", ""];
                     changed(index) => { root.size-changed(index); }
                 }
             }
 
             // Each side even and within 16 to 8192: Rust rounds what is
             // typed to the nearest frame the project can hold.
-            if root.data.size == 6: DialogRow {
+            if root.data.size == 8: DialogRow {
                 HorizontalLayout {
                     spacing: 8px;
 
