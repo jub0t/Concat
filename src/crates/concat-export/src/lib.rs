@@ -206,6 +206,12 @@ pub struct ExportClip {
     /// The source's pixel height; see `media_width`.
     #[serde(default)]
     pub media_height: Option<u32>,
+    /// How many times the frame the source is, for a picture drawn for
+    /// the frame at one pixel to one rather than fitted into it: a title
+    /// whose canvas grew past the frame to hold its ink. One for every
+    /// other clip. See `concat_core::timeline::Clip::overscan`.
+    #[serde(default = "unity")]
+    pub overscan: f64,
     /// The source's length in seconds, when the UI knows it: how much
     /// footage lies past the clip's out-point for a transition to run the
     /// clip on into. Absent, a transition holds the clip's last frame
@@ -350,6 +356,7 @@ impl ExportClip {
             hold: false,
             media_width: None,
             media_height: None,
+            overscan: 1.0,
             media_duration: None,
             has_audio: None,
             cutout: None,

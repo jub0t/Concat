@@ -326,6 +326,7 @@ pub(crate) fn build_timeline(
         engine_clip.animation = animation_of(&clip.animation);
         engine_clip.blend = concat_core::timeline::Blend::parse(&clip.blend);
         engine_clip.mask = clip.mask.map(|mask| mask.engine());
+        engine_clip.overscan = overscan_of(clip);
         engine_clip.transform = Transform {
             scale: clip.scale,
             offset_x: clip.offset_x,
@@ -556,7 +557,8 @@ pub(crate) fn fitted_size(
     };
 
     let fit = (f64::from(request.width) / f64::from(media_width))
-        .min(f64::from(request.height) / f64::from(media_height));
+        .min(f64::from(request.height) / f64::from(media_height))
+        * overscan_of(clip);
     let (fit_width, fit_height) = if whole {
         (source_width, source_height)
     } else {
@@ -567,6 +569,16 @@ pub(crate) fn fitted_size(
     // Even, because a decoder asked for an odd width may round it itself and
     // then every frame read is misaligned by a pixel's worth of bytes.
     Some((width & !1, height & !1))
+}
+
+/// The clip's overscan, held to what it can mean: one, or more for a
+/// picture several frames across; a number that is not one is one.
+fn overscan_of(clip: &ExportClip) -> f64 {
+    if clip.overscan.is_finite() {
+        clip.overscan.max(1.0)
+    } else {
+        1.0
+    }
 }
 
 pub(crate) fn quantise(seconds: f64, rate: FrameRate) -> Rational {

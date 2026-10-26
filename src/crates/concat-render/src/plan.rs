@@ -294,6 +294,12 @@ pub struct PlannedLayer {
     pub blend: Blend,
     /// Blend strength over everything beneath, in `0.0..=1.0`.
     pub opacity: f32,
+    /// How many times the frame the picture is, along the axis it is most:
+    /// one for every picture but a title painted on a canvas grown past the
+    /// frame to hold its ink. It is fitted this many times larger than the
+    /// frame would fit it, which for such a title is one of its pixels to
+    /// one of the frame's. See [`Geometry::of`].
+    pub overscan: f32,
 }
 
 impl PlannedLayer {
@@ -321,6 +327,7 @@ impl PlannedLayer {
             transitions: Vec::new(),
             blend: Blend::Normal,
             opacity: 1.0,
+            overscan: 1.0,
         }
     }
 
@@ -612,7 +619,16 @@ impl Geometry {
     ) -> Geometry {
         let source_rect = layer.crop.rect(source_width, source_height);
         let [_, _, cw, ch] = source_rect;
-        let fit = (width as f32 / cw).min(height as f32 / ch);
+        // A picture that is the frame several times over - a title whose
+        // canvas grew to hold its ink - fits that many times larger: at one
+        // to one, where the plain fit would shrink it into the frame. One,
+        // or anything that is not a number past it, is the plain fit.
+        let overscan = if layer.overscan.is_finite() {
+            layer.overscan.max(1.0)
+        } else {
+            1.0
+        };
+        let fit = (width as f32 / cw).min(height as f32 / ch) * overscan;
         let fitted = (
             ((cw * fit).round() as u32).max(1),
             ((ch * fit).round() as u32).max(1),
@@ -841,6 +857,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
             // The fade ramp multiplies in here, so the compositor only ever
             // sees a per-frame opacity - it has no idea fades exist.
             opacity: (clip.opacity_at(time) * clip.video_fade_factor(time)).clamp(0.0, 1.0),
+            overscan: clip.overscan as f32,
         });
     }
 
@@ -1026,6 +1043,30 @@ mod tests {
         assert_eq!(cropped.source_of(0.0, 0.0, false, false), (24.5, -0.5));
         assert_eq!(cropped.source_of(1.0, 0.0, true, false), (24.5, -0.5));
         assert_eq!(cropped.uv_of(1.0, 1.0, false, false), (0.75, 1.0));
+    }
+
+    /// A title's canvas grown past the frame is drawn at one to one,
+    /// centred where the frame's centre is - so the frame-sized middle of it
+    /// lands exactly where a frame-sized canvas would - and it keeps that
+    /// placement at any output size; one that did not grow fits as before.
+    #[test]
+    fn an_overscanned_picture_is_drawn_one_to_one_about_the_centre() {
+        // A 100 by 50 frame's canvas grown by 20 either side across and 5
+        // above and below: 140 by 60, 1.4 frames across.
+        let mut layer = PlannedLayer::picture(a_clip(), Arc::new(Frame::black(140, 60)));
+        layer.overscan = 1.4;
+        let own = Geometry::of(&layer, 140, 60, 100, 50);
+        assert_eq!(own.fitted, (140, 60));
+        assert_eq!(own.centre, (50.0, 25.0));
+        assert_eq!(own.corner(), (-20, -5));
+        assert!(own.fits_source() && own.is_aligned());
+        // At twice the size it is twice as big, still about the centre.
+        let doubled = Geometry::of(&layer, 140, 60, 200, 100);
+        assert_eq!(doubled.fitted, (280, 120));
+        assert_eq!(doubled.centre, (100.0, 50.0));
+        // A number that is not one is the plain fit, not a broken frame.
+        layer.overscan = f32::NAN;
+        assert_eq!(Geometry::of(&layer, 140, 60, 100, 50).fitted, (100, 43));
     }
 
     /// A picture covers the frame only drawn whole and solid over every

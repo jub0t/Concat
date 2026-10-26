@@ -15,6 +15,15 @@
 //! and puts the canvas's centre where the clip's centre is. The clip's offset
 //! and rotation then mean the same thing for a title as for footage.
 //!
+//! Frame-sized at the least, that is. Ink past the frame's edges - a box
+//! pulled wider than the frame, a word too long for any line, the outline,
+//! shadow or lean of letters on a line as wide as the frame - would be cut
+//! off at the canvas's edge, and a title scaled down, moved or turned
+//! showed the cut. The canvas grows instead, by the same margin either
+//! side, so its centre stays the clip's centre; [`Rendered::overscan`] says
+//! by how much, for the compositor to draw it at one pixel to one rather
+//! than fit it into the frame.
+//!
 //! Where the block sits on that canvas is the alignment's to say. A centred
 //! title has its block centred, so the clip's position is the block's middle.
 //! A left-aligned one has its block's left edge on the canvas's centre, a
@@ -162,10 +171,12 @@ pub struct WordRect {
 pub struct RenderedFrame {
     /// The canvas, `width` by `height` RGBA, alpha straight.
     pub rgba: Vec<u8>,
-    /// The canvas width: the frame's.
+    /// See [`Rendered::width`].
     pub width: u32,
-    /// The canvas height: the frame's.
+    /// See [`Rendered::height`].
     pub height: u32,
+    /// See [`Rendered::overscan`].
+    pub overscan: f64,
     /// See [`Rendered::block_width`].
     pub block_width: u32,
     /// See [`Rendered::block_height`].
@@ -183,10 +194,18 @@ pub struct RenderedFrame {
 pub struct Rendered {
     /// The canvas, PNG-encoded, RGBA with alpha.
     pub png: Vec<u8>,
-    /// The canvas width: the frame's.
+    /// The canvas width: the frame's, and more where the title's ink runs
+    /// past the frame's left or right edge - the same margin either side.
     pub width: u32,
-    /// The canvas height: the frame's.
+    /// The canvas height: the frame's, grown the same way for ink past the
+    /// top or the bottom.
     pub height: u32,
+    /// How many times the frame the canvas is, along the axis it grew the
+    /// most: one for a title inside the frame, which is nearly every title.
+    /// A picture this many times the frame is drawn at one canvas pixel to
+    /// one frame pixel, where the compositor would otherwise fit the whole
+    /// canvas into the frame.
+    pub overscan: f64,
     /// The painted block's width in pixels, plate included - what an
     /// outline on a monitor should be drawn around.
     pub block_width: u32,
@@ -1484,8 +1503,9 @@ pub fn render(
         .map_err(|error| Error::Encode(error.to_string()))?;
     Ok(Rendered {
         png,
-        width,
-        height,
+        width: canvas.width(),
+        height: canvas.height(),
+        overscan: overscan_of(&canvas, width, height),
         block_width: block.0,
         block_height: block.1,
         block_dx: block.2,
@@ -1507,8 +1527,9 @@ pub fn render_frame(
     let (canvas, block, words) = paint(fonts, style, width, height)?;
     Ok(RenderedFrame {
         rgba: straight_rgba(&canvas),
-        width,
-        height,
+        width: canvas.width(),
+        height: canvas.height(),
+        overscan: overscan_of(&canvas, width, height),
         block_width: block.0,
         block_height: block.1,
         block_dx: block.2,
@@ -1520,6 +1541,62 @@ pub fn render_frame(
 /// A painted block: (width, height, dx, dy), on [`Rendered`]'s terms.
 type Block = (u32, u32, i32, i32);
 
+/// The longest side a canvas may grow to: the largest texture every GPU
+/// takes, `concat_core::frame::MAX_SIDE`. Ink past it is cut as all ink
+/// past the frame once was, which takes a box several frames wide.
+const MAX_SIDE: u32 = 8192;
+
+/// How many times a `width` by `height` frame `canvas` is, along the axis
+/// it grew the most; see [`Rendered::overscan`].
+fn overscan_of(canvas: &Pixmap, width: u32, height: u32) -> f64 {
+    (f64::from(canvas.width()) / f64::from(width.max(1)))
+        .max(f64::from(canvas.height()) / f64::from(height.max(1)))
+        .max(1.0)
+}
+
+/// Where ink lands, as left, top, right and bottom edges in pixels: what
+/// the canvas has to hold. Empty until something is added.
+#[derive(Clone, Copy)]
+struct Ink(Option<[f32; 4]>);
+
+impl Ink {
+    /// Takes in `rect`, moved by `(dx, dy)` and grown by `by` on every side.
+    fn add(&mut self, rect: Rect, (dx, dy): (f32, f32), by: f32) {
+        let edges = [
+            rect.left() + dx - by,
+            rect.top() + dy - by,
+            rect.right() + dx + by,
+            rect.bottom() + dy + by,
+        ];
+        self.0 = Some(match self.0 {
+            None => edges,
+            Some([l, t, r, b]) => [
+                l.min(edges[0]),
+                t.min(edges[1]),
+                r.max(edges[2]),
+                b.max(edges[3]),
+            ],
+        });
+    }
+
+    /// The margin a `width` by `height` canvas needs on each side to hold
+    /// the ink, x and y, in whole pixels; nothing for ink inside it. The
+    /// same either side, so the canvas's centre does not move, and held so
+    /// the canvas grows no larger than [`MAX_SIDE`].
+    fn margins(&self, width: u32, height: u32) -> (u32, u32) {
+        let Some([left, top, right, bottom]) = self.0 else {
+            return (0, 0);
+        };
+        let past = |low: f32, high: f32, side: u32| -> u32 {
+            let over = (-low).max(high - side as f32).max(0.0);
+            // A hair over is anti-aliasing's guess at an edge, not ink.
+            let over = if over < 0.01 { 0 } else { over.ceil() as u32 };
+            over.min(MAX_SIDE.saturating_sub(side) / 2)
+        };
+        (past(left, right, width), past(top, bottom, height))
+    }
+}
+
 /// The canvas with the title on it, the block, and every word's box on the
 /// canvas in reading order.
 fn paint(
@@ -1528,7 +1605,9 @@ fn paint(
     width: u32,
     height: u32,
 ) -> Result<(Pixmap, Block, Vec<WordRect>), Error> {
-    let mut canvas = Pixmap::new(width, height).ok_or(Error::Canvas(width, height))?;
+    // The frame's canvas, for a title with nothing to paint; one with ink
+    // gets a canvas as big as its ink needs, below.
+    let empty = Pixmap::new(width, height).ok_or(Error::Canvas(width, height))?;
     let frame_h = height as f32;
     let em = (style.font_size.clamp(0.005, 1.0) as f32) * frame_h;
     let tracking = style.tracking as f32 * frame_h;
@@ -1630,7 +1709,7 @@ fn paint(
     let words_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
     if words_w <= 0.0 || lines.is_empty() {
         // Nothing to paint: an empty, valid canvas.
-        return Ok((canvas, (0, 0, 0, 0), Vec::new()));
+        return Ok((empty, (0, 0, 0, 0), Vec::new()));
     }
     // Each baseline below the first by the pitch of the bigger of the two
     // lines it sits between, so a line with a big word in it pushes its
@@ -1763,6 +1842,75 @@ fn paint(
         .filter_map(|(look, builder)| Some((look, builder.finish()?)))
         .collect();
 
+    // Everything about to be painted, in the frame's pixels: the plate,
+    // the words with the outer half of their outline, their shadow and
+    // its blur, and the glyphs that paint their own colours. The words'
+    // advances are not their ink - a letter's outline, an italic's lean, a
+    // side bearing below zero all reach past them - so the outlines are
+    // measured, not the line. Whatever reaches past the frame's edge
+    // grows the canvas by that much on both sides, so it is painted
+    // rather than cut, and the canvas's centre stays the frame's.
+    let stroke_w = style.stroke_width.max(0.0) as f32 * frame_h;
+    let shadow_offset = (em * 0.05, em * 0.07);
+    let shadow_blur = (em * 0.04).round().max(1.0) as usize;
+    let plate_rect = plate
+        .and_then(|_| Rect::from_xywh(outer_left, (frame_h - outer_h) / 2.0, outer_w, outer_h));
+    // A pixel more than the edges, for the anti-aliasing either side.
+    let mut ink = Ink(None);
+    if let Some(rect) = plate_rect {
+        ink.add(rect, (0.0, 0.0), 1.0);
+    }
+    for (look, path) in &words {
+        let edge = if stroke_w > 0.0 && looks[*look].edge.is_some() {
+            stroke_w
+        } else {
+            0.0
+        };
+        ink.add(path.bounds(), (0.0, 0.0), edge + 1.0);
+        if style.shadow {
+            // The blur is a box run twice, so it spreads twice its radius.
+            ink.add(path.bounds(), shadow_offset, 2.0 * shadow_blur as f32 + 1.0);
+        }
+    }
+    for (row, line) in lines.iter().enumerate() {
+        let at = (left + indent_of(line), baseline_of(row));
+        for mark in &line.marks {
+            match mark {
+                Mark::Bitmap {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                } => {
+                    if let Some(rect) = Rect::from_xywh(*x, *y, *width, *height) {
+                        ink.add(rect, at, 1.0);
+                    }
+                }
+                Mark::Layers(layers) => {
+                    for (path, _) in layers {
+                        ink.add(path.bounds(), at, 1.0);
+                    }
+                }
+            }
+        }
+    }
+    let (margin_x, margin_y) = ink.margins(width, height);
+    let mut canvas = if (margin_x, margin_y) == (0, 0) {
+        empty
+    } else {
+        let (grown_w, grown_h) = (width + 2 * margin_x, height + 2 * margin_y);
+        Pixmap::new(grown_w, grown_h).ok_or(Error::Canvas(grown_w, grown_h))?
+    };
+    // Everything below is laid out in the frame's pixels and painted
+    // through this, onto the canvas the frame sits in the middle of.
+    let (shift_x, shift_y) = (margin_x as f32, margin_y as f32);
+    let shift = Transform::from_translate(shift_x, shift_y);
+    for word in &mut word_rects {
+        word.x += margin_x as i32;
+        word.y += margin_y as i32;
+    }
+
     let mut paint = Paint {
         anti_alias: true,
         ..Paint::default()
@@ -1770,20 +1918,14 @@ fn paint(
 
     // The plate, first and under everything: the whole box.
     if let Some(fill) = plate
-        && let Some(rect) = Rect::from_xywh(outer_left, (frame_h - outer_h) / 2.0, outer_w, outer_h)
+        && let Some(rect) = plate_rect
     {
         paint.set_color(fill);
         let radius = (style.background_radius.max(0.0) as f32) * frame_h;
         let mut plate_path = PathBuilder::new();
         push_rounded_rect(&mut plate_path, rect, radius);
         if let Some(plate_path) = plate_path.finish() {
-            canvas.fill_path(
-                &plate_path,
-                &paint,
-                FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
+            canvas.fill_path(&plate_path, &paint, FillRule::Winding, shift, None);
         }
     }
 
@@ -1792,18 +1934,19 @@ fn paint(
     // under all of them, one shadow for the title.
     if style.shadow
         && !words.is_empty()
-        && let Some(mut layer) = Pixmap::new(width, height)
+        && let Some(mut layer) = Pixmap::new(canvas.width(), canvas.height())
     {
         let mut shade = Paint {
             anti_alias: true,
             ..Paint::default()
         };
         shade.set_color(Color::from_rgba8(0, 0, 0, 150));
-        let offset = Transform::from_translate(em * 0.05, em * 0.07);
+        let offset =
+            Transform::from_translate(shadow_offset.0 + shift_x, shadow_offset.1 + shift_y);
         for (_, path) in &words {
             layer.fill_path(path, &shade, FillRule::Winding, offset, None);
         }
-        blur(&mut layer, (em * 0.04).round().max(1.0) as usize);
+        blur(&mut layer, shadow_blur);
         canvas.draw_pixmap(
             0,
             0,
@@ -1818,7 +1961,6 @@ fn paint(
     // why it is drawn at twice the asked-for width. Every look's outline
     // goes down before any fill, so one word's outline never covers its
     // neighbour's letters.
-    let stroke_w = style.stroke_width.max(0.0) as f32 * frame_h;
     if stroke_w > 0.0 {
         let stroke = Stroke {
             width: stroke_w * 2.0,
@@ -1829,7 +1971,7 @@ fn paint(
         for (look, path) in &words {
             if let Some(edge) = looks[*look].edge {
                 paint.set_color(edge);
-                canvas.stroke_path(path, &paint, &stroke, Transform::identity(), None);
+                canvas.stroke_path(path, &paint, &stroke, shift, None);
             }
         }
     }
@@ -1837,7 +1979,7 @@ fn paint(
     // The words, each look in its own colour.
     for (look, path) in &words {
         paint.set_color(looks[*look].fill);
-        canvas.fill_path(path, &paint, FillRule::Winding, Transform::identity(), None);
+        canvas.fill_path(path, &paint, FillRule::Winding, shift, None);
     }
 
     // The glyphs that paint their own colours - an emoji's picture, a
@@ -1851,7 +1993,7 @@ fn paint(
         }
         let indent = indent_of(line);
         let baseline = baseline_of(row);
-        let placed = Transform::from_translate(left + indent, baseline);
+        let placed = Transform::from_translate(left + indent + shift_x, baseline + shift_y);
         for mark in &line.marks {
             match mark {
                 Mark::Bitmap {
@@ -1878,8 +2020,8 @@ fn paint(
                             0.0,
                             0.0,
                             scale_y,
-                            left + indent + *x,
-                            baseline + *y,
+                            left + indent + *x + shift_x,
+                            baseline + *y + shift_y,
                         ),
                         None,
                     );
@@ -1990,6 +2132,8 @@ pub fn render_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<Rende
         png,
         width,
         height,
+        // A shape is painted on the frame alone, as it always was.
+        overscan: 1.0,
         block_width: block.0,
         block_height: block.1,
         block_dx: block.2,
@@ -2010,6 +2154,8 @@ pub fn render_shape_frame(
         rgba: straight_rgba(&canvas),
         width,
         height,
+        // A shape is painted on the frame alone, as it always was.
+        overscan: 1.0,
         block_width: block.0,
         block_height: block.1,
         block_dx: block.2,
@@ -2866,6 +3012,122 @@ mod tests {
                 "{align:?}"
             );
         }
+    }
+
+    /// Whether any paint touches the canvas's outermost column or row: ink
+    /// that reached the edge, and so was cut there.
+    fn touches_an_edge(png: &[u8]) -> bool {
+        let pixmap = Pixmap::decode_png(png).expect("our own PNG decodes");
+        let (width, height) = (pixmap.width(), pixmap.height());
+        pixmap.pixels().iter().enumerate().any(|(index, pixel)| {
+            let (x, y) = (index as u32 % width, index as u32 / width);
+            pixel.alpha() > 0 && (x == 0 || y == 0 || x == width - 1 || y == height - 1)
+        })
+    }
+
+    /// A title inside the frame is painted on the frame, as every title
+    /// was: nothing about it changes for the canvas being able to grow.
+    #[test]
+    fn a_title_inside_the_frame_is_painted_on_the_frame() {
+        let fonts = Fonts::new();
+        let mut outlined = style("Your text");
+        outlined.stroke_width = 0.01;
+        outlined.background = "#000000".to_owned();
+        let out = render(&fonts, &outlined, 640, 360).expect("renders");
+        assert_eq!((out.width, out.height), (640, 360));
+        assert_eq!(out.overscan, 1.0);
+        assert!(!touches_an_edge(&out.png));
+    }
+
+    /// The situations that cut a title's sides off - its box pulled wider
+    /// than the frame with the side grips, a word too long for any line, a
+    /// line as wide as the frame with an outline, a shadow and an italic's
+    /// lean past its last letter - all paint whole: the canvas grows by
+    /// the same margin either side, so nothing reaches its edge and its
+    /// centre is still the frame's. Scaled down, moved or turned, such a
+    /// title showed the cut as a straight edge through its plate or its
+    /// letters.
+    #[test]
+    fn ink_past_the_frame_grows_the_canvas_rather_than_being_cut() {
+        let fonts = Fonts::new();
+        let (width, height) = (640_u32, 360_u32);
+        let mut boxed = style("a box wider than the frame");
+        boxed.background = "#2040a0".to_owned();
+        boxed.max_width = 1.6;
+        let mut long = style("Unbelievably");
+        long.font_family = BUNDLED_FAMILY.to_owned();
+        long.font_size = 0.4;
+        long.stroke_width = 0.02;
+        // A word sized so its letters' advances fill the frame but for two
+        // pixels a side: its outline, shadow and lean run past the edge.
+        let mut edge = style("Overhang");
+        edge.font_family = BUNDLED_FAMILY.to_owned();
+        edge.italic = true;
+        edge.shadow = false;
+        let natural = render(&fonts, &edge, width, height).expect("renders");
+        edge.font_size *= f64::from(width - 4) / f64::from(natural.block_width);
+        let fitted = render(&fonts, &edge, width, height).expect("renders");
+        assert!(
+            fitted.block_width <= width && fitted.block_width >= width - 8,
+            "{}",
+            fitted.block_width
+        );
+        edge.shadow = true;
+        edge.stroke_width = 0.02;
+        let mut left = boxed.clone();
+        left.align = Align::Left;
+        for (name, title) in [
+            ("box", boxed),
+            ("word", long),
+            ("edge", edge),
+            ("left", left),
+        ] {
+            let out = render(&fonts, &title, width, height).expect("renders");
+            assert!(out.width > width, "{name}: {} wide", out.width);
+            assert_eq!(
+                (out.width - width) % 2,
+                0,
+                "{name}: the same margin either side"
+            );
+            assert_eq!((out.height - height) % 2, 0, "{name}");
+            let expected = (f64::from(out.width) / f64::from(width))
+                .max(f64::from(out.height) / f64::from(height));
+            assert_eq!(out.overscan, expected, "{name}");
+            assert!(!touches_an_edge(&out.png), "{name}: ink was cut");
+            for word in &out.words {
+                assert!(
+                    word.x >= 0 && word.x as u32 + word.width <= out.width,
+                    "{name}: a word at {} leaves the canvas",
+                    word.x
+                );
+            }
+            // The live painting is the same canvas, pixel for pixel.
+            let live = render_frame(&fonts, &title, width, height).expect("renders");
+            assert_eq!((live.width, live.height), (out.width, out.height), "{name}");
+            assert_eq!(live.words, out.words, "{name}");
+        }
+    }
+
+    /// A box wider than the frame keeps its plate whole and centred on
+    /// the canvas: the canvas's centre is still where the clip's is.
+    #[test]
+    fn a_box_wider_than_the_frame_is_centred_on_the_grown_canvas() {
+        let fonts = Fonts::new();
+        let mut boxed = style("wide");
+        boxed.background = "#2040a0".to_owned();
+        boxed.shadow = false;
+        boxed.max_width = 1.5;
+        let out = render(&fonts, &boxed, 640, 360).expect("renders");
+        assert_eq!(out.block_width, 960);
+        assert_eq!(out.block_dx, 0);
+        let (left, right) = painted_span(&out.png);
+        let middle = (left + right) as f32 / 2.0;
+        assert!(
+            (middle - out.width as f32 / 2.0).abs() <= 1.0,
+            "{left}..{right} in {}",
+            out.width
+        );
+        assert!(right - left + 1 >= 959, "the plate whole: {left}..{right}");
     }
 
     // ── scripts the style's face lacks ──
