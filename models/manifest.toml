@@ -92,8 +92,8 @@ upstream = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve
 id = "kokoro-int8-multi-lang-v1_0"
 family = "tts"
 file = "kokoro-int8-multi-lang-v1_0.tar.bz2"
-bytes = 132303094
-sha256 = "4c3052abaa60943a341f193888cf6abd68787dae6ab8ae5c925a706caa247e4e"
+bytes = 132353410
+sha256 = "72c347230107ef8a31098ec4d468a605244beef5f1ed00db97efa13518800653"
 licence = "Apache-2.0"
 upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2"
 
@@ -101,8 +101,8 @@ upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/k
 id = "kokoro-multi-lang-v1_0"
 family = "tts"
 file = "kokoro-multi-lang-v1_0.tar.bz2"
-bytes = 349906910
-sha256 = "c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298"
+bytes = 349886476
+sha256 = "60703707bc05ccd48d60e1eb723f38b07d6e474795a0b6a588d7220400e0f7a4"
 licence = "Apache-2.0"
 upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
 
