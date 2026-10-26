@@ -274,7 +274,17 @@ export component ConfigPane inherits Rectangle {
         : root.has-chain ? ["Video", "Audio", "Effects"] : ["Video", "Audio"];
     /// The same tabs in the interface's language. `tabs` stays English,
     /// because the panels are picked by comparing against it.
-    property <[string]> tabs-shown: root.selected.batch-volume ? [I18n.t("common.audio")]
+    ///
+    /// Held, not bound (#549): bound, it was worked out again whenever
+    /// anything in `selected` changed - every frame of playback on a keyed
+    /// clip - and each time the strip's repeater got a new model, so its
+    /// segments were torn down and rebuilt sixty times a second, their
+    /// colour fade replaying (the blink) and a click landing on a segment
+    /// already gone. Now it is set again only when `strip-key` - which
+    /// tabs, in which language - says the strip is a different one.
+    property <[string]> tabs-shown;
+    pure function strip-labels() -> [string] {
+        return root.selected.batch-volume ? [I18n.t("common.audio")]
         : root.is-text ? (root.has-chain ? [I18n.t("common.text"), I18n.t("common.effects")]
             : [I18n.t("common.text")])
         : root.is-layer ? [I18n.t("configPane.filter")]
@@ -285,6 +295,13 @@ export component ConfigPane inherits Rectangle {
         : root.is-audio ? [I18n.t("common.audio")]
         : root.has-chain ? [I18n.t("common.video"), I18n.t("common.audio"), I18n.t("common.effects")]
             : [I18n.t("common.video"), I18n.t("common.audio")];
+    }
+    property <string> strip-key: root.tabs.length + ":" + root.tabs[0] + ":"
+        + (root.tabs.length > 1 ? root.tabs[1] : "") + ":"
+        + (root.tabs.length > 2 ? root.tabs[2] : "") + ":"
+        + (root.is-shape ? "shape" : "") + ":" + I18n.t("common.video");
+    changed strip-key => { root.tabs-shown = root.strip-labels(); }
+    init => { root.tabs-shown = root.strip-labels(); }
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
