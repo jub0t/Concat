@@ -187,7 +187,13 @@ export component TimelinePane inherits Rectangle {
         : 0px;
     property <length> overflow: Math.max(0px,
         root.stack-h - Math.max(0px, lanes.height - root.ruler-height));
-    property <length> at: Math.max(0px, Math.min(root.overflow, root.track-scroll));
+    /// `track-scroll` is measured up from the foot of the stack, where the
+    /// main lane is: CapCut's main track is the row always in view, with the
+    /// overlays stacked above it. Read from the head, a project with more
+    /// lanes than the pane holds opened on its top lanes, empty, with the
+    /// video under the fold - as the phone did until 1e683882.
+    property <length> at: Math.max(0px,
+        root.overflow - Math.min(root.overflow, root.track-scroll));
 
     // The preview axis button's menu. Hosted here and not in the tray,
     // because the surface a ContextMenu opens into is the element it is:
@@ -397,7 +403,9 @@ export component TimelinePane inherits Rectangle {
                 track-scroll: root.at;
                 overflow: root.overflow;
 
-                scrolled(to) => { root.track-scroll = to; }
+                scrolled(to) => {
+                    root.track-scroll = Math.max(0px, Math.min(root.overflow, root.overflow - to));
+                }
                 flag-changed(index, visible, muted, locked) => {
                     root.track-flag-changed(index, visible, muted, locked);
                 }
@@ -471,7 +479,7 @@ export component TimelinePane inherits Rectangle {
                 // the Rust side needs to know where the view is parked.
                 track-scrolled(pixels) => {
                     root.track-scroll = Math.max(0px,
-                        Math.min(root.overflow, root.at + pixels));
+                        Math.min(root.overflow, root.overflow - root.at - pixels));
                 }
                 zoomed(factor, anchor) => { root.zoom(factor, anchor); }
                 // How wide the lanes are decides which clips Rust sends;
