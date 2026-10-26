@@ -93,10 +93,35 @@ pub struct Model {
 impl Model {
     /// Loads a model from its bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Model, String> {
+        Model::build(bytes, &[], accelerators())
+    }
+
+    /// Loads a model whose input is always one size: its free dimensions
+    /// fixed by name, and on Apple's machines CoreML asked for Apple's
+    /// newer MLProgram format with the shape known up front, which is what
+    /// lets it put the whole network on the GPU. Without that it took only
+    /// what its older format could, and gave the rest to the CPU: Enhance
+    /// ran at 27 seconds a 1080p frame through it, and 1.8 like this.
+    pub fn from_file_fixed(path: &std::path::Path, dims: &[(&str, i64)]) -> Result<Model, String> {
+        let bytes = std::fs::read(path)
+            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+        Model::build(&bytes, dims, fixed_accelerators())
+    }
+
+    fn build(
+        bytes: &[u8],
+        dims: &[(&str, i64)],
+        providers: Vec<ort::ep::ExecutionProviderDispatch>,
+    ) -> Result<Model, String> {
         ready()?;
         let mut builder = Session::builder().map_err(|error| format!("onnx runtime: {error}"))?;
+        for (name, size) in dims {
+            builder = builder
+                .with_dimension_override(*name, *size)
+                .map_err(|error| format!("onnx runtime: {error}"))?;
+        }
         builder = builder
-            .with_execution_providers(accelerators())
+            .with_execution_providers(providers)
             .map_err(|error| format!("onnx runtime: {error}"))?;
         // Every core on one frame at a time: the models are convolutional
         // and a frame fills a machine on its own.
@@ -173,6 +198,30 @@ fn accelerators() -> Vec<ort::ep::ExecutionProviderDispatch> {
 #[cfg(target_vendor = "apple")]
 fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
     Some(ort::ep::CoreML::default().build())
+}
+
+/// [`accelerators`] for a model of one fixed shape; see
+/// [`Model::from_file_fixed`]. The GPU rather than the Neural Engine:
+/// measured on an M5, CoreML ran Enhance's network four times faster on
+/// the GPU than on the Neural Engine with the CPU.
+fn fixed_accelerators() -> Vec<ort::ep::ExecutionProviderDispatch> {
+    #[cfg(target_vendor = "apple")]
+    {
+        use ort::ep::coreml::{ComputeUnits, ModelFormat, SpecializationStrategy};
+        vec![
+            ort::ep::CoreML::default()
+                .with_model_format(ModelFormat::MLProgram)
+                .with_static_input_shapes(true)
+                .with_specialization_strategy(SpecializationStrategy::FastPrediction)
+                .with_compute_units(ComputeUnits::CPUAndGPU)
+                .build(),
+            ort::ep::CPU::default().build(),
+        ]
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        accelerators()
+    }
 }
 
 #[cfg(target_os = "android")]

@@ -168,17 +168,29 @@ fn conv_shader_for(bw: u32, bh: u32) -> String {
         }
     }
     for g in 0..4u32 {
-        for tap in 0..9u32 {
-            code += &format!("        let m{g}_{tap} = taps[{}u];\n", g * 9 + tap);
+        // A group's nine taps summed in the stored type, then carried into
+        // the f32 sum: one conversion a group rather than one a product,
+        // and only 36 terms ever added at sixteen bits. One tap's matrix is
+        // read and spent on every pixel of the block before the next is
+        // read, so a single matrix is ever held in registers: holding all
+        // nine at once, with the neighbourhood and the sums, was past what
+        // a thread has, and spilled.
+        for p in 0..pixels.len() {
+            code += &format!("        var s{p}_{g} = vec4<T>(0.0);\n");
         }
-        // A group's nine taps summed in the stored type, then the partial
-        // carried into the f32 sum: one conversion a group rather than one
-        // a product, and only 36 terms ever added at sixteen bits.
-        for (p, (dy, dx)) in pixels.iter().enumerate() {
-            let terms: Vec<String> = (0..9u32)
-                .map(|tap| format!("m{g}_{tap} * n{}_{}", tap / 3 + dy, tap % 3 + dx))
-                .collect();
-            code += &format!("        a{p}_{g} += vec4<f32>({});\n", terms.join(" + "));
+        for tap in 0..9u32 {
+            code += &format!("        {{\n            let m = taps[{}u];\n", g * 9 + tap);
+            for (p, (dy, dx)) in pixels.iter().enumerate() {
+                code += &format!(
+                    "            s{p}_{g} += m * n{}_{};\n",
+                    tap / 3 + dy,
+                    tap % 3 + dx
+                );
+            }
+            code += "        }\n";
+        }
+        for p in 0..pixels.len() {
+            code += &format!("        a{p}_{g} += vec4<f32>(s{p}_{g});\n");
         }
     }
     code += "    }\n";

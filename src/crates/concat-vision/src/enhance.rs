@@ -387,8 +387,9 @@ impl Enhancer {
     /// [`crate::models::ModelId::Enhance`].
     #[cfg(feature = "infer")]
     pub fn load(file: &std::path::Path) -> Result<Enhancer, String> {
+        let side = i64::from(WINDOW);
         Ok(Enhancer::with(Box::new(Runtime(
-            crate::runtime::Model::from_file(file)?,
+            crate::runtime::Model::from_file_fixed(file, &[("height", side), ("width", side)])?,
         ))))
     }
 
@@ -720,5 +721,66 @@ mod tests {
         let half = mix(enhanced.clone(), &original, 0.5);
         assert_eq!((half.width(), half.height()), (2, 1));
         assert_eq!(half.pixel(0, 0), Some([150, 100, 128, 255]));
+    }
+}
+
+/// A probe, run by hand: the model through CoreML as Apple's newer
+/// MLProgram, its shape fixed so the Neural Engine can take it, timed a
+/// window at a time against what the GPU upscaler does.
+#[cfg(all(test, feature = "infer", target_vendor = "apple"))]
+mod coreml_probe {
+    use ort::ep::coreml::{ComputeUnits, ModelFormat, SpecializationStrategy};
+
+    #[test]
+    #[ignore = "a probe; needs the fetched model"]
+    fn coreml_on_the_neural_engine() {
+        let Some(file) = crate::compact::tests_support::fetched_model() else {
+            eprintln!("no model here");
+            return;
+        };
+        for (units, side) in [
+            (ComputeUnits::CPUAndGPU, 288usize),
+            (ComputeUnits::CPUAndGPU, 544),
+            (ComputeUnits::CPUAndGPU, 1056),
+            (ComputeUnits::All, 544),
+        ] {
+            let ep = ort::ep::CoreML::default()
+                .with_model_format(ModelFormat::MLProgram)
+                .with_static_input_shapes(true)
+                .with_specialization_strategy(SpecializationStrategy::FastPrediction)
+                .with_compute_units(units)
+                .build();
+            let mut session = ort::session::Session::builder()
+                .expect("a builder")
+                .with_dimension_override("height", side as i64)
+                .expect("height")
+                .with_dimension_override("width", side as i64)
+                .expect("width")
+                .with_execution_providers([ep])
+                .expect("coreml")
+                .commit_from_file(&file)
+                .expect("loads");
+            let planes = vec![0.5f32; 3 * side * side];
+            let input = || {
+                ort::value::Tensor::from_array(([1usize, 3, side, side], planes.clone()))
+                    .expect("a tensor")
+            };
+            let started = std::time::Instant::now();
+            session.run(ort::inputs!["input" => input()]).expect("runs");
+            let first = started.elapsed();
+            let runs = 10;
+            let started = std::time::Instant::now();
+            for _ in 0..runs {
+                session.run(ort::inputs!["input" => input()]).expect("runs");
+            }
+            let each = started.elapsed().as_secs_f64() / f64::from(runs);
+            let core = (side - 32) as f64;
+            let windows = (1920.0 / core).ceil() * (1080.0 / core).ceil();
+            eprintln!(
+                "{units:?} {side}: first {first:?}, then {:.1} ms a window = {:.2} s a 1080p frame",
+                each * 1000.0,
+                each * windows
+            );
+        }
     }
 }

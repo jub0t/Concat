@@ -390,6 +390,12 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// What the tests of this crate share.
+#[cfg(test)]
+pub(crate) mod tests_support {
+    pub(crate) use super::tests::fetched_model;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

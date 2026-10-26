@@ -237,7 +237,7 @@ impl Enhancers {
         if !self.installed() {
             crate::cutout::fetch(ModelId::Enhance, &file, cancel, progress)?;
         }
-        let enhancer = Arc::new(on_gpu(&file).map_or_else(|| Enhancer::load(&file), Ok)?);
+        let enhancer = Arc::new(fastest(&file)?);
         *self.model.lock().map_err(|_| "model slot poisoned")? = Some(Arc::clone(&enhancer));
         Ok(enhancer)
     }
@@ -404,24 +404,43 @@ fn footage(
     .map_err(|error| error.to_string())?;
     let encoded = (|| {
         let mut count = 0u64;
+        // Where the time went, said once at the end: the model is nine
+        // tenths of it on a Mac, and the rest is what overlapping the
+        // stages could win back.
+        let mut t = [std::time::Duration::ZERO; 4];
+        let mut at = std::time::Instant::now();
+        let mut lap = |slot: usize, t: &mut [std::time::Duration; 4]| {
+            let now = std::time::Instant::now();
+            t[slot] += now - at;
+            at = now;
+        };
         while let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
+            lap(0, &mut t);
             if job.cancelled() {
                 return Err("enhance cancelled".to_owned());
             }
-            let enhanced = vision::mix(
-                enhancer.enhance(&frame, request.factor)?,
-                &frame,
-                request.strength,
-            );
+            let model = enhancer.enhance(&frame, request.factor)?;
+            lap(1, &mut t);
+            let enhanced = vision::mix(model, &frame, request.strength);
+            lap(2, &mut t);
             let enhanced = crop(&enhanced, width, height);
             encoder
                 .write_frame(&enhanced)
                 .map_err(|error| error.to_string())?;
+            lap(3, &mut t);
             count += 1;
             progress(Progress::Analysing(
                 (count as f64 / expected).min(0.99) as f32
             ));
         }
+        let per = |d: std::time::Duration| d.as_secs_f64() / count.max(1) as f64;
+        log::info!(
+            "enhance: {count} frames, a frame: decode {:.3}s, model {:.3}s, mix {:.3}s, encode {:.3}s",
+            per(t[0]),
+            per(t[1]),
+            per(t[2]),
+            per(t[3])
+        );
         encoder.finish().map_err(|error| error.to_string())
     })();
     // Windows will not rename or delete a file something still holds open,
@@ -469,6 +488,28 @@ pub(crate) fn crop(frame: &concat_core::Frame, width: u32, height: u32) -> conca
         pixels[y * bytes..(y + 1) * bytes].copy_from_slice(&source[y * stride..y * stride + bytes]);
     }
     out
+}
+
+/// The model on the fastest thing this machine has. On Apple's, CoreML
+/// with the network's shape fixed, which runs it on the GPU through
+/// Apple's own kernels: 1.8 s a 1080p frame on an M5, where our shaders
+/// take 4.2. Everywhere else our shaders on the GPU (Windows' ONNX Runtime
+/// has no GPU provider at all), and ONNX Runtime on the CPU only when no
+/// GPU opens.
+fn fastest(file: &Path) -> Result<Enhancer, String> {
+    if cfg!(target_vendor = "apple") {
+        match Enhancer::load(file) {
+            Ok(enhancer) => {
+                log::info!("enhance: through CoreML");
+                return Ok(enhancer);
+            }
+            Err(error) => log::warn!("enhance: CoreML would not load it: {error}"),
+        }
+    }
+    match on_gpu(file) {
+        Some(enhancer) => Ok(enhancer),
+        None => Enhancer::load(file),
+    }
 }
 
 /// The model on the GPU, in compute shaders of our own
@@ -519,7 +560,46 @@ impl vision::WindowRunner for GpuWindows {
 mod tests {
     use super::*;
 
-    /// The model on the GPU and through ONNX Runtime give the same picture,
+    /// Times the stages of a real run, by hand.
+    #[test]
+    #[ignore = "a probe"]
+    fn enhance_stage_timing() {
+        let dir = std::env::temp_dir().join("concat-enhance-timing");
+        let _ = std::fs::create_dir_all(&dir);
+        let clip = dir.join("clip.mp4");
+        let made = std::process::Command::new("ffmpeg")
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30:duration=1"])
+            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(&clip)
+            .status();
+        if !made.is_ok_and(|s| s.success()) {
+            return;
+        }
+        let data = ["org.standalones.concat", "app.concat.editor"]
+            .iter()
+            .filter_map(|id| {
+                let p = PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support").join(id);
+                p.join("cutout-models/realesr-general-x4v3.onnx").is_file().then_some(p)
+            })
+            .next()
+            .expect("the model");
+        let enhancers = Enhancers::new(&data);
+        let target = dir.join("out.mp4");
+        let _ = std::fs::remove_file(&target);
+        let request = EnhanceRequest {
+            media_path: clip.to_string_lossy().into_owned(),
+            still: false,
+            factor: 2,
+            strength: 0.8,
+            target,
+        };
+        let started = std::time::Instant::now();
+        enhancers.enhance(&request, &mut |_| {}).expect("enhances");
+        eprintln!("whole run: {:?}", started.elapsed());
+    }
+
+    /// The model on our shaders and through ONNX Runtime - CoreML on a Mac,
+    /// the CPU elsewhere - give the same picture,
     /// tiles, margins and pasting included: a few levels at the worst pixel
     /// and well under one on average, the
     /// GPU working in half floats. Needs the fetched model and a GPU.
