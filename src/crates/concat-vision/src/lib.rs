@@ -47,6 +47,7 @@
 pub mod apply;
 #[cfg(feature = "infer")]
 pub mod brush;
+pub mod compact;
 pub mod enhance;
 pub mod mask;
 pub mod models;

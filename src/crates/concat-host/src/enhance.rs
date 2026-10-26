@@ -237,7 +237,7 @@ impl Enhancers {
         if !self.installed() {
             crate::cutout::fetch(ModelId::Enhance, &file, cancel, progress)?;
         }
-        let enhancer = Arc::new(Enhancer::load(&file)?);
+        let enhancer = Arc::new(on_gpu(&file).map_or_else(|| Enhancer::load(&file), Ok)?);
         *self.model.lock().map_err(|_| "model slot poisoned")? = Some(Arc::clone(&enhancer));
         Ok(enhancer)
     }
@@ -471,9 +471,103 @@ pub(crate) fn crop(frame: &concat_core::Frame, width: u32, height: u32) -> conca
     out
 }
 
+/// The model on the GPU, in compute shaders of our own
+/// (`concat_render::upscale`), when its file reads as the compact network
+/// and a GPU opens: about six times what ONNX Runtime does on this
+/// machine's CPU, and the CPU is where ONNX Runtime ran nearly everywhere -
+/// Windows' runtime has no GPU provider at all. `None` sends Enhance the
+/// slow way rather than not at all.
+fn on_gpu(file: &Path) -> Option<Enhancer> {
+    let bytes = std::fs::read(file).ok()?;
+    let net = match concat_vision::compact::CompactNet::read(&bytes) {
+        Ok(net) => net,
+        Err(error) => {
+            log::warn!("enhance: {error}; on the CPU instead");
+            return None;
+        }
+    };
+    let layers: Vec<concat_render::upscale::ConvLayer> = net
+        .layers
+        .into_iter()
+        .map(|layer| concat_render::upscale::ConvLayer {
+            in_channels: layer.in_channels,
+            out_channels: layer.out_channels,
+            weight: layer.weight,
+            bias: layer.bias,
+            prelu: layer.prelu,
+        })
+        .collect();
+    let upscaler =
+        concat_render::upscale::Upscaler::new(&layers, net.scale as u32, vision::WINDOW)?;
+    log::info!(
+        "enhance: on the GPU{}",
+        if upscaler.half() { ", in half floats" } else { "" }
+    );
+    Some(Enhancer::with(Box::new(GpuWindows(upscaler))))
+}
+
+/// The GPU upscaler as the model `Enhancer` runs window by window.
+struct GpuWindows(concat_render::upscale::Upscaler);
+
+impl vision::WindowRunner for GpuWindows {
+    fn run(&mut self, planes: Vec<f32>) -> Result<Vec<f32>, String> {
+        self.0.run(&planes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The model on the GPU and through ONNX Runtime give the same picture,
+    /// tiles, margins and pasting included: a few levels at the worst pixel
+    /// and well under one on average, the
+    /// GPU working in half floats. Needs the fetched model and a GPU.
+    #[test]
+    fn the_gpu_enhances_as_onnx_runtime_does() {
+        let Some(file) = ["org.standalones.concat", "app.concat.editor"]
+            .iter()
+            .filter_map(|id| {
+                let home = std::env::var_os("HOME")?;
+                let file = PathBuf::from(home)
+                    .join("Library/Application Support")
+                    .join(id)
+                    .join("cutout-models/realesr-general-x4v3.onnx");
+                file.is_file().then_some(file)
+            })
+            .next()
+        else {
+            eprintln!("no Enhance model here; skipped");
+            return;
+        };
+        let Some(gpu) = on_gpu(&file) else {
+            eprintln!("no GPU here; skipped");
+            return;
+        };
+        let cpu = Enhancer::load(&file).expect("loads");
+        // Wider than one tile, so a seam between two is in the comparison.
+        let (width, height) = (300u32, 120u32);
+        let pixels: Vec<u8> = (0..width * height)
+            .flat_map(|at| {
+                let (x, y) = (at % width, at / width);
+                [(x * 255 / width) as u8, (y * 2) as u8, ((x ^ y) & 0xff) as u8, 255]
+            })
+            .collect();
+        let frame = Frame::from_rgba(width, height, pixels).expect("a frame");
+        let a = gpu.enhance(&frame, 2).expect("the GPU enhances");
+        let b = cpu.enhance(&frame, 2).expect("the CPU enhances");
+        assert_eq!((a.width(), a.height()), (b.width(), b.height()));
+        let diffs: Vec<u32> = a
+            .pixels()
+            .iter()
+            .zip(b.pixels())
+            .map(|(x, y)| u32::from(x.abs_diff(*y)))
+            .collect();
+        let worst = diffs.iter().max().copied().unwrap_or(0);
+        let mean = diffs.iter().sum::<u32>() as f64 / diffs.len() as f64;
+        eprintln!("GPU against ONNX Runtime: worst {worst}, mean {mean:.3} levels");
+        assert!(worst <= 6 && mean < 0.5, "worst {worst}, mean {mean}");
+    }
 
     #[test]
     fn the_copy_is_named_after_the_file_and_the_factor() {

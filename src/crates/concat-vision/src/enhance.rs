@@ -347,19 +347,56 @@ pub fn downscale(frame: &Frame, by: u32) -> Frame {
     Frame::from_rgba(ow as u32, oh as u32, pixels).expect("sides and bytes agree")
 }
 
-/// The model, loaded once and run tile by tile.
-#[cfg(feature = "infer")]
-pub struct Enhancer {
-    model: std::sync::Mutex<crate::runtime::Model>,
+/// What runs the model over one window: the [`WINDOW`]-square planes
+/// [`window_planes`] cuts, in; the planes [`paste`] takes, [`SCALE`] times
+/// the side, out. ONNX Runtime is one, on the CPU almost everywhere; the
+/// host's GPU upscaler, the same network in compute shaders of our own, is
+/// the other, and the one used wherever a GPU opens.
+pub trait WindowRunner: Send {
+    /// The model's answer for one window.
+    fn run(&mut self, planes: Vec<f32>) -> Result<Vec<f32>, String>;
 }
 
+/// The model through ONNX Runtime.
 #[cfg(feature = "infer")]
+struct Runtime(crate::runtime::Model);
+
+#[cfg(feature = "infer")]
+impl WindowRunner for Runtime {
+    fn run(&mut self, planes: Vec<f32>) -> Result<Vec<f32>, String> {
+        let side = WINDOW as usize;
+        let mut answer = self.0.run(
+            vec![crate::runtime::Input {
+                name: "input",
+                dims: vec![1, 3, side, side],
+                data: planes.into(),
+            }],
+            &["output"],
+        )?;
+        Ok(std::mem::take(&mut answer[0].data))
+    }
+}
+
+/// The model, loaded once and run tile by tile.
+pub struct Enhancer {
+    model: std::sync::Mutex<Box<dyn WindowRunner>>,
+}
+
 impl Enhancer {
-    /// Loads the model from its file; see [`crate::models::ModelId::Enhance`].
+    /// Loads the model from its file into ONNX Runtime; see
+    /// [`crate::models::ModelId::Enhance`].
+    #[cfg(feature = "infer")]
     pub fn load(file: &std::path::Path) -> Result<Enhancer, String> {
-        Ok(Enhancer {
-            model: std::sync::Mutex::new(crate::runtime::Model::from_file(file)?),
-        })
+        Ok(Enhancer::with(Box::new(Runtime(
+            crate::runtime::Model::from_file(file)?,
+        ))))
+    }
+
+    /// The model run by `runner`.
+    pub fn with(runner: Box<dyn WindowRunner>) -> Enhancer {
+        Enhancer {
+            model: std::sync::Mutex::new(runner),
+        }
     }
 
     /// `frame` restored at [`SCALE`] times its size.
@@ -386,7 +423,6 @@ impl Enhancer {
             return Err("enhance: an empty picture".to_owned());
         }
         let mut out = Frame::black(region.width * SCALE, region.height * SCALE);
-        let side = WINDOW as usize;
         let mut model = self.model.lock().map_err(|_| "enhance: model poisoned")?;
         let mut times = Vec::new();
         for tile in tiles(region.width, region.height) {
@@ -397,16 +433,9 @@ impl Enhancer {
             };
             let planes = window_planes(frame, placed);
             let started = std::time::Instant::now();
-            let answer = model.run(
-                vec![crate::runtime::Input {
-                    name: "input",
-                    dims: vec![1, 3, side, side],
-                    data: planes.into(),
-                }],
-                &["output"],
-            )?;
+            let answer = model.run(planes)?;
             times.push(started.elapsed());
-            paste(&mut out, tile, &answer[0].data)?;
+            paste(&mut out, tile, &answer)?;
         }
         Ok((out, times))
     }
