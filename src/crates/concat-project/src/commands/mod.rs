@@ -621,6 +621,11 @@ pub enum Command {
         /// one - ends the clip's Enhance, which was of the media now gone.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         enhanced: bool,
+        /// With `enhanced`, the seconds into the original the copy starts
+        /// at (see [`crate::model::Enhanced::offset`]); `source_start` is
+        /// then the clip's in-point in the copy.
+        #[serde(default)]
+        offset: f64,
     },
     /// Shows a clip's enhanced copy, or its original again. A no-op for a
     /// clip Enhance has not made a copy for.
@@ -1136,8 +1141,17 @@ impl Command {
             Command::SplitClips { time, .. } => bad([*time]),
             Command::FreezeFrame { time, duration, .. } => bad([*time]) || bad(*duration),
             Command::ReplaceClipMedia {
-                item, source_start, ..
-            } => bad(item.duration) || bad(item.frame_rate) || bad(*source_start),
+                item,
+                source_start,
+                offset,
+                ..
+            } => {
+                bad(item.duration)
+                    || bad(item.frame_rate)
+                    || bad(*source_start)
+                    || bad([*offset])
+                    || *offset < 0.0
+            }
             Command::UpdateClip { patch, .. } => {
                 bad(patch.volume)
                     || bad(patch.fade_in)

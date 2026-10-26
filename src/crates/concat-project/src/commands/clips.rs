@@ -428,6 +428,7 @@ pub(super) fn apply(
             item,
             source_start,
             enhanced,
+            offset,
         } => {
             if project.active().clip(&clip_id).is_none() {
                 return Ok(Outcome::default());
@@ -478,6 +479,7 @@ pub(super) fn apply(
                     original,
                     copy: media_id.clone(),
                     on: true,
+                    offset,
                 })
             } else {
                 None
@@ -509,7 +511,15 @@ pub(super) fn apply(
             } else {
                 link.original.clone()
             };
+            // The in-point moves with the media, from one's seconds to the
+            // other's, so the frame on screen is the same frame.
+            let start = match (link.on, on) {
+                (false, true) => (clip.source_start - link.offset).max(0.0),
+                (true, false) => clip.source_start + link.offset,
+                _ => clip.source_start,
+            };
             let applied = assign(&mut clip.media_id, media)
+                | assign(&mut clip.source_start, start)
                 | assign(&mut clip.enhanced, Some(Enhanced { on, ..link }));
             Ok(Outcome {
                 created_id: None,

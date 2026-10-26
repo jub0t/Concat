@@ -73,6 +73,11 @@ pub struct EnhanceRequest {
     pub strength: f32,
     /// Where the copy goes; see [`target_for`].
     pub target: PathBuf,
+    /// Seconds into the file to start at and how many to cover: the span
+    /// a clip shows, with a little either side, rather than the whole
+    /// file - an hour's recording with ten seconds of it on the timeline
+    /// is ten seconds' work. `None` for the whole file, and for a still.
+    pub span: Option<(f64, f64)>,
 }
 
 /// What a preview covers: one frame of a file, at the size it would be
@@ -145,17 +150,24 @@ pub struct Enhancers {
 /// made before it had a strength - keeps the old name, so a copy made
 /// then is found again rather than made twice. None for a file that
 /// cannot be stat'ed, which cannot be read either.
+///
+/// A copy of a span is named by the span too, to the millisecond, so a
+/// clip's copy is not mistaken for another clip's of the same file.
 pub fn target_for(
     project: &Path,
     media: &str,
     factor: u32,
     strength: f32,
     still: bool,
+    span: Option<(f64, f64)>,
 ) -> Option<PathBuf> {
     let meta = std::fs::metadata(media).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     media.hash(&mut hasher);
     meta.len().hash(&mut hasher);
+    if let Some((start, duration)) = span {
+        ((start * 1000.0).round() as u64, (duration * 1000.0).round() as u64).hash(&mut hasher);
+    }
     if let Ok(modified) = meta.modified()
         && let Ok(since) = modified.duration_since(std::time::UNIX_EPOCH)
     {
@@ -362,11 +374,11 @@ fn footage(
     let rate = video.frame_rate;
     // About how many frames there are, for the readout; the count is not
     // known until the last one is read.
-    let expected = info
-        .duration
-        .map(|duration| duration.as_f64() * rate.fps().as_f64())
-        .unwrap_or(0.0)
-        .max(1.0);
+    let seconds = match request.span {
+        Some((_, duration)) => duration,
+        None => info.duration.map_or(0.0, |duration| duration.as_f64()),
+    };
+    let expected = (seconds * rate.fps().as_f64()).max(1.0);
     // Even sides, which the encoder wants: a stray pixel at the right or
     // bottom is cropped rather than the whole copy refused.
     let width = (video.width * request.factor) & !1;
@@ -377,7 +389,11 @@ fn footage(
 
     let partial_video = request.target.with_extension("part.mp4");
     let partial_muxed = request.target.with_extension("muxed.part.mp4");
-    let options = DecodeOptions::default().in_software().threaded(2);
+    let mut options = DecodeOptions::default().in_software().threaded(2);
+    if let Some((start, _)) = request.span {
+        options = options.starting_at(Rational::approximate(start).unwrap_or(Rational::ZERO));
+    }
+    let end = request.span.map(|(start, duration)| start + duration);
     let mut decoder =
         Decoder::open(&request.media_path, &options).map_err(|error| error.to_string())?;
     let mut encoder = Encoder::create(
@@ -414,16 +430,42 @@ fn footage(
             t[slot] += now - at;
             at = now;
         };
+        // The frame before and what it came to: a frame the same to the
+        // byte - a held shot, a slide, a still screen, a title card - is the
+        // same answer, and the model is not asked twice.
+        let mut last: Option<(Frame, Frame)> = None;
+        let mut repeated = 0u64;
         while let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
+            // The span's end by the frame's own clock where the container
+            // keeps one, and by count where it does not.
+            if let Some(end) = end {
+                let past = match decoder.position() {
+                    Some(at) => at.as_f64() >= end,
+                    None => count as f64 >= expected,
+                };
+                if past {
+                    break;
+                }
+            }
             lap(0, &mut t);
             if job.cancelled() {
                 return Err("enhance cancelled".to_owned());
             }
-            let model = enhancer.enhance(&frame, request.factor)?;
-            lap(1, &mut t);
-            let enhanced = vision::mix(model, &frame, request.strength);
-            lap(2, &mut t);
-            let enhanced = crop(&enhanced, width, height);
+            let enhanced = match &last {
+                Some((before, answer)) if before.pixels() == frame.pixels() => {
+                    repeated += 1;
+                    answer.clone()
+                }
+                _ => {
+                    let model = enhancer.enhance(&frame, request.factor)?;
+                    lap(1, &mut t);
+                    let enhanced = vision::mix(model, &frame, request.strength);
+                    lap(2, &mut t);
+                    let enhanced = crop(&enhanced, width, height);
+                    last = Some((frame, enhanced.clone()));
+                    enhanced
+                }
+            };
             encoder
                 .write_frame(&enhanced)
                 .map_err(|error| error.to_string())?;
@@ -435,7 +477,8 @@ fn footage(
         }
         let per = |d: std::time::Duration| d.as_secs_f64() / count.max(1) as f64;
         log::info!(
-            "enhance: {count} frames, a frame: decode {:.3}s, model {:.3}s, mix {:.3}s, encode {:.3}s",
+            "enhance: {count} frames ({repeated} repeats reused), a frame: decode {:.3}s, \
+             model {:.3}s, mix {:.3}s, encode {:.3}s",
             per(t[0]),
             per(t[1]),
             per(t[2]),
@@ -452,11 +495,39 @@ fn footage(
         return Err(error);
     }
     let finished = if info.audio.is_some() {
-        let muxed = concat_media::audio::mux(
-            &partial_video,
-            Path::new(&request.media_path),
-            &partial_muxed,
-        )
+        // A span's sound is mixed out for the same seconds, so the copy's
+        // sound starts where its picture does; a whole file's is the
+        // file's own, muxed in as it is.
+        let muxed = match request.span {
+            Some((start, duration)) => {
+                let partial_audio = request.target.with_extension("part.m4a");
+                let clip = concat_media::audio::AudioClip {
+                    path: PathBuf::from(&request.media_path),
+                    stream: None,
+                    start: 0.0,
+                    duration,
+                    source_start: start,
+                    speed: 1.0,
+                    preserve_pitch: true,
+                    volume: 1.0,
+                    volume_curve: concat_core::animate::Track::new(Vec::new()),
+                    fade_in: 0.0,
+                    fade_out: 0.0,
+                    filter_chain: String::new(),
+                };
+                let muxed = concat_media::audio::mix_to_file(&[clip], duration, &partial_audio)
+                    .and_then(|()| {
+                        concat_media::audio::mux(&partial_video, &partial_audio, &partial_muxed)
+                    });
+                let _ = std::fs::remove_file(&partial_audio);
+                muxed
+            }
+            None => concat_media::audio::mux(
+                &partial_video,
+                Path::new(&request.media_path),
+                &partial_muxed,
+            ),
+        }
         .map_err(|error| error.to_string());
         let _ = std::fs::remove_file(&partial_video);
         muxed.and_then(|()| {
@@ -560,6 +631,80 @@ impl vision::WindowRunner for GpuWindows {
 mod tests {
     use super::*;
 
+    /// A span of a file enhanced on its own: the copy is the span long, its
+    /// picture starts at the span's start, and its sound is there beside
+    /// it. Needs the fetched model and ffmpeg on the path.
+    #[test]
+    fn a_span_is_enhanced_on_its_own() {
+        let Some(data) = ["org.standalones.concat", "app.concat.editor"]
+            .iter()
+            .filter_map(|id| {
+                let p = PathBuf::from(std::env::var_os("HOME")?)
+                    .join("Library/Application Support")
+                    .join(id);
+                p.join("cutout-models/realesr-general-x4v3.onnx").is_file().then_some(p)
+            })
+            .next()
+        else {
+            eprintln!("no Enhance model here; skipped");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("concat-enhance-span-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let clip = dir.join("clip.mp4");
+        // Four seconds whose frame number is drawn on it, with a tone.
+        let made = std::process::Command::new("ffmpeg")
+            .args(["-y", "-v", "error"])
+            .args(["-f", "lavfi", "-i", "testsrc2=size=160x96:rate=10:duration=4"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=4"])
+            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"])
+            .arg(&clip)
+            .status();
+        if !made.is_ok_and(|status| status.success()) {
+            eprintln!("no ffmpeg here; skipped");
+            return;
+        }
+        let enhancers = Enhancers::new(&data);
+        let target = dir.join("span.mp4");
+        let request = EnhanceRequest {
+            media_path: clip.to_string_lossy().into_owned(),
+            still: false,
+            factor: 2,
+            strength: 1.0,
+            target: target.clone(),
+            span: Some((1.0, 1.5)),
+        };
+        enhancers.enhance(&request, &mut |_| {}).expect("enhances");
+        let info = concat_media::probe(&target).expect("probes");
+        let length = info.duration.expect("a length").as_f64();
+        assert!((length - 1.5).abs() < 0.15, "{length}");
+        assert!(info.audio.is_some(), "the span's sound is there");
+        let video = info.video.expect("a picture");
+        assert_eq!((video.width, video.height), (320, 192));
+        // The copy's first frame is the original's frame at one second.
+        let first = frame_at(&target.to_string_lossy(), 0.0).expect("reads");
+        let at_one = frame_at(&clip.to_string_lossy(), 1.0).expect("reads");
+        let plain = vision::resize(&at_one, first.width(), first.height());
+        let off: f64 = first
+            .pixels()
+            .iter()
+            .zip(plain.pixels())
+            .map(|(a, b)| f64::from(a.abs_diff(*b)))
+            .sum::<f64>()
+            / first.pixels().len() as f64;
+        let at_zero = frame_at(&clip.to_string_lossy(), 0.0).expect("reads");
+        let wrong = vision::resize(&at_zero, first.width(), first.height());
+        let off_wrong: f64 = first
+            .pixels()
+            .iter()
+            .zip(wrong.pixels())
+            .map(|(a, b)| f64::from(a.abs_diff(*b)))
+            .sum::<f64>()
+            / first.pixels().len() as f64;
+        assert!(off < off_wrong, "starts at one second: {off} against {off_wrong}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Times the stages of a real run, by hand.
     #[test]
     #[ignore = "a probe"]
@@ -592,6 +737,7 @@ mod tests {
             factor: 2,
             strength: 0.8,
             target,
+            span: None,
         };
         let started = std::time::Instant::now();
         enhancers.enhance(&request, &mut |_| {}).expect("enhances");
@@ -659,18 +805,18 @@ mod tests {
         let project = dir.join("project");
         // Full strength keeps the name Enhance gave copies before it had
         // one, so those are found again.
-        let two = target_for(&project, &media, 2, 1.0, false).expect("named");
+        let two = target_for(&project, &media, 2, 1.0, false, None).expect("named");
         assert!(two.starts_with(project.join("cache")));
         assert!(two.to_string_lossy().ends_with("-2x.mp4"), "{two:?}");
         assert_eq!(
-            target_for(&project, &media, 2, 1.0, false),
+            target_for(&project, &media, 2, 1.0, false, None),
             Some(two.clone())
         );
         assert_ne!(
-            target_for(&project, &media, 1, 1.0, false),
+            target_for(&project, &media, 1, 1.0, false, None),
             Some(two.clone())
         );
-        let still = target_for(&project, &media, 2, 1.0, true).expect("named");
+        let still = target_for(&project, &media, 2, 1.0, true, None).expect("named");
         assert!(still.to_string_lossy().ends_with("-2x.png"), "{still:?}");
         assert_eq!(
             target_for(
@@ -678,26 +824,27 @@ mod tests {
                 &dir.join("gone.mp4").to_string_lossy(),
                 2,
                 1.0,
-                false
+                false,
+                None
             ),
             None
         );
         // Another strength is another copy, keyed by its whole percent so
         // a slider's float noise is not.
-        let blended = target_for(&project, &media, 2, 0.75, false).expect("named");
+        let blended = target_for(&project, &media, 2, 0.75, false, None).expect("named");
         assert!(
             blended.to_string_lossy().ends_with("-2x-75pc.mp4"),
             "{blended:?}"
         );
         assert_ne!(blended, two);
         assert_eq!(
-            target_for(&project, &media, 2, 0.750_001, false),
+            target_for(&project, &media, 2, 0.750_001, false, None),
             Some(blended.clone())
         );
-        assert_ne!(target_for(&project, &media, 4, 0.75, false), Some(blended));
+        assert_ne!(target_for(&project, &media, 4, 0.75, false, None), Some(blended));
         // A file with different bytes is a different copy.
         std::fs::write(&media, b"not really, but longer").expect("write");
-        assert_ne!(target_for(&project, &media, 2, 1.0, false), Some(two));
+        assert_ne!(target_for(&project, &media, 2, 1.0, false, None), Some(two));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

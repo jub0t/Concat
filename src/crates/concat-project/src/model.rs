@@ -1325,6 +1325,18 @@ pub struct Enhanced {
     pub copy: String,
     /// Whether the clip shows the copy.
     pub on: bool,
+    /// Seconds into the original the copy starts at: a copy of the span the
+    /// clip covers, rather than of the whole file, starts partway in. The
+    /// clip's in-point is in the copy's seconds while it shows the copy, so
+    /// switching between the two moves it by this much and the same moment
+    /// stays on screen. Zero, and left out of the document, for a copy of
+    /// the whole file.
+    #[serde(default, skip_serializing_if = "is_zero_seconds")]
+    pub offset: f64,
+}
+
+fn is_zero_seconds(seconds: &f64) -> bool {
+    *seconds == 0.0
 }
 
 /// A transition on the cut into a clip.

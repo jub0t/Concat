@@ -817,6 +817,10 @@ pub fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, next: Vec<T>) {
     }
 }
 
+/// Seconds of the original an enhanced copy covers beyond each end of the
+/// clip it was made for, so a small trim after does not run off the copy.
+const ENHANCE_MARGIN: f64 = 1.0;
+
 /// The window's state. See the module docs for what is whose.
 pub struct Studio {
     pub host: Host,
@@ -7365,10 +7369,13 @@ impl Studio {
             return;
         }
         let factor = self.enhance_factor(&media);
+        // The moment under the playhead in the original's seconds, which is
+        // the file the preview reads, the clip may be showing a copy of a
+        // span that starts partway into it.
         let seconds = if clip.kind == model::ClipKind::Image {
             0.0
         } else {
-            self.source_at_playhead(&clip)
+            self.source_at_playhead(&clip) + Self::original_start(&clip) - clip.source_start
         };
         let request = concat_host::enhance::PreviewRequest {
             media_path: media.path.clone(),
@@ -7468,8 +7475,18 @@ impl Studio {
         let factor = self.enhance_factor(&media);
         let strength = self.enhance_strength;
         let still = clip.kind == model::ClipKind::Image;
+        // The span the clip shows of the original, and a second either side
+        // so a small trim after is still inside the copy: the work is the
+        // clip's, not the whole file's.
+        let span = (!still).then(|| {
+            let start = Self::original_start(&clip);
+            let covered = clip.duration * clip.speed;
+            let from = (start - ENHANCE_MARGIN).max(0.0);
+            let to = (start + covered + ENHANCE_MARGIN).min(media.duration.unwrap_or(f64::MAX));
+            (from, (to - from).max(covered))
+        });
         let Some(target) =
-            concat_host::enhance::target_for(&project, &media.path, factor, strength, still)
+            concat_host::enhance::target_for(&project, &media.path, factor, strength, still, span)
         else {
             self.notify(&tf("studio.couldNotRead", &[&media.path]), true);
             return;
@@ -7480,6 +7497,7 @@ impl Studio {
             factor,
             strength,
             target,
+            span,
         };
         let percent = concat_host::enhance::strength_percent(strength);
         let clip_id = clip.id.clone();
@@ -7526,7 +7544,8 @@ impl Studio {
                 match result {
                     Ok(path) if ticked => {
                         studio.enhance_ticked.remove(&clip_id);
-                        studio.adopt_enhanced(&clip_id, &path, factor, percent);
+                        let offset = span.map_or(0.0, |(start, _)| start);
+                        studio.adopt_enhanced(&clip_id, &path, factor, percent, offset);
                     }
                     Ok(_) => {}
                     Err(error) if error.contains("cancelled") => {}
@@ -7650,14 +7669,43 @@ impl Studio {
             item,
             source_start: Some(0.0),
             enhanced: false,
+            offset: 0.0,
         });
         self.request_preview();
         self.notify(&t("studio.reversedClipNowShows"), false);
     }
 
+    /// Clip `clip`'s in-point in its original's seconds: its own, or, while
+    /// it shows an enhanced copy of a span, its own moved by where that
+    /// copy starts.
+    fn original_start(clip: &Clip) -> f64 {
+        match &clip.enhanced {
+            Some(link) if link.on => clip.source_start + link.offset,
+            _ => clip.source_start,
+        }
+    }
+
     /// Points clip `id` at the enhanced copy at `path`, probed the way an
     /// import is, and shows it.
-    fn adopt_enhanced(&mut self, id: &str, path: &std::path::Path, factor: u32, percent: u32) {
+    fn adopt_enhanced(
+        &mut self,
+        id: &str,
+        path: &std::path::Path,
+        factor: u32,
+        percent: u32,
+        offset: f64,
+    ) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        // The clip's in-point in the copy, which starts `offset` into the
+        // original; a clip moved off the copy's span while it was made is
+        // left as it is rather than pointed past the copy's ends.
+        let start = Self::original_start(&clip) - offset;
+        if start < -1e-6 {
+            self.notify(&t("studio.clipChangedWhileBeing"), true);
+            return;
+        }
         let summary = match media::probe(&path.to_string_lossy()) {
             Ok(summary) => summary,
             Err(error) => {
@@ -7672,11 +7720,18 @@ impl Studio {
         if let Some(original) = self.clip(id).and_then(|clip| self.enhance_source(clip)) {
             item.name = format!("{} (enhanced {factor}x, {percent}%)", original.name);
         }
+        if let Some(length) = item.duration
+            && start + clip.duration * clip.speed > length + 1e-3
+        {
+            self.notify(&t("studio.clipChangedWhileBeing"), true);
+            return;
+        }
         self.apply(Command::ReplaceClipMedia {
             clip_id: id.to_owned(),
             item,
-            source_start: None,
+            source_start: Some(start.max(0.0)),
             enhanced: true,
+            offset,
         });
         self.request_preview();
         self.notify(&t("studio.enhancedClipNowShows"), false);
