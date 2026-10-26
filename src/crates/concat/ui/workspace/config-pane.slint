@@ -301,7 +301,6 @@ export component ConfigPane inherits Rectangle {
         + (root.tabs.length > 2 ? root.tabs[2] : "") + ":"
         + (root.is-shape ? "shape" : "") + ":" + I18n.t("common.video");
     changed strip-key => { root.tabs-shown = root.strip-labels(); }
-    init => { root.tabs-shown = root.strip-labels(); }
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
@@ -417,7 +416,10 @@ export component ConfigPane inherits Rectangle {
             ? 1 : 0);
     }
     changed jump-token => { root.jump(); }
-    init => { root.jump(); }
+    init => {
+        root.tabs-shown = root.strip-labels();
+        root.jump();
+    }
 
     Pane {
         // ── details ──────────────────────────────────────────────────────
