@@ -13,6 +13,7 @@
 
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{Error, Result};
 
@@ -47,15 +48,34 @@ pub fn readable(path: &Path) -> Result<PathBuf> {
         return Ok(drawn);
     }
     let bytes = std::fs::read(path).map_err(|error| fail(error.to_string()))?;
-    let png = draw(&bytes).map_err(fail)?;
+    let png = draw(&bytes, path.parent()).map_err(fail)?;
     if let Some(dir) = drawn.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     // Written beside and renamed over, so a reader on another thread never
-    // opens half a PNG.
-    let partial = drawn.with_extension(format!("{}.part", std::process::id()));
+    // opens half a PNG. Beside under a name of this call's own: the
+    // monitor, the prefetcher and an export's decoders all open the file,
+    // and when its drawing is not there yet - a new SVG, an edited one, or
+    // one the system's cleaner took out of the temporary folder - several
+    // draw it at once. Under one name per process they wrote into each
+    // other's file, so one renamed a PNG another was still writing, which
+    // then stood as the drawing for good, and the others' renames found
+    // nothing to move and failed the decoder: the SVG was missing from the
+    // export.
+    static DRAWING: AtomicU64 = AtomicU64::new(0);
+    let partial = drawn.with_extension(format!(
+        "{}-{}.part",
+        std::process::id(),
+        DRAWING.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::write(&partial, png).map_err(|error| fail(error.to_string()))?;
-    std::fs::rename(&partial, &drawn).map_err(|error| fail(error.to_string()))?;
+    if let Err(error) = std::fs::rename(&partial, &drawn) {
+        let _ = std::fs::remove_file(&partial);
+        // Another drawing of the same file landed first; it is as good.
+        if !drawn.is_file() {
+            return Err(fail(error.to_string()));
+        }
+    }
     Ok(drawn)
 }
 
@@ -73,8 +93,15 @@ fn drawing_of(path: &Path, metadata: &std::fs::Metadata) -> PathBuf {
 }
 
 /// The SVG in `bytes`, drawn with its long side at [`LONG_SIDE`], as a PNG.
-fn draw(bytes: &[u8]) -> std::result::Result<Vec<u8>, String> {
-    let mut options = resvg::usvg::Options::default();
+/// `folder` is the one the file is in, where a picture it names by a
+/// relative path - `<image href="photo.png">`, as a design tool writes a
+/// placed bitmap - is found; without it such pictures were looked for
+/// beside the app and left out of the drawing.
+fn draw(bytes: &[u8], folder: Option<&Path>) -> std::result::Result<Vec<u8>, String> {
+    let mut options = resvg::usvg::Options {
+        resources_dir: folder.map(Path::to_path_buf),
+        ..resvg::usvg::Options::default()
+    };
     options.fontdb_mut().load_system_fonts();
     let tree = resvg::usvg::Tree::from_data(bytes, &options)
         .map_err(|error| format!("not an SVG Concat can read: {error}"))?;
@@ -115,6 +142,70 @@ mod tests {
         assert_eq!(info.path, svg, "the project keeps the SVG");
         let video = info.video.expect("a picture");
         assert_eq!((video.width, video.height), (3840, 1920));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Everything that reads pictures asks for a drawing not made yet at
+    /// once - the monitor, the prefetcher, an export's decoders - and every
+    /// one of them gets it, whole.
+    #[test]
+    fn an_svg_asked_for_on_many_threads_at_once_is_drawn_for_all_of_them() {
+        let dir = std::env::temp_dir().join(format!("concat-svg-race-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let svg = dir.join("race.svg");
+        std::fs::write(&svg, HELIX).unwrap();
+
+        let drawings: Vec<PathBuf> = std::thread::scope(|scope| {
+            let asks: Vec<_> = (0..8).map(|_| scope.spawn(|| readable(&svg))).collect();
+            asks.into_iter()
+                .map(|ask| ask.join().expect("no panic").expect("drawn"))
+                .collect()
+        });
+        assert!(drawings.iter().all(|drawn| *drawn == drawings[0]));
+        let png = std::fs::read(&drawings[0]).unwrap();
+        let pixmap = resvg::tiny_skia::Pixmap::decode_png(&png).expect("a whole PNG");
+        assert_eq!((pixmap.width(), pixmap.height()), (3840, 1920));
+        let leftovers = std::fs::read_dir(drawings[0].parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".part"))
+            .filter(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let stem = drawings[0].file_stem().unwrap().to_string_lossy().into_owned();
+                name.starts_with(&stem)
+            })
+            .count();
+        assert_eq!(leftovers, 0, "no half-written drawing is left behind");
+        let _ = std::fs::remove_file(&drawings[0]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A picture the SVG places by a path relative to itself is drawn:
+    /// it is looked for beside the SVG.
+    #[test]
+    fn a_picture_named_beside_the_svg_is_drawn() {
+        let dir = std::env::temp_dir().join(format!("concat-svg-image-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut dot = resvg::tiny_skia::Pixmap::new(4, 4).unwrap();
+        dot.fill(resvg::tiny_skia::Color::from_rgba8(255, 0, 0, 255));
+        std::fs::write(dir.join("dot.png"), dot.encode_png().unwrap()).unwrap();
+        let svg = dir.join("placed.svg");
+        std::fs::write(
+            &svg,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100"><image x="0" y="0" width="100" height="100" xlink:href="dot.png"/></svg>"#,
+        )
+        .unwrap();
+
+        let drawn = readable(&svg).unwrap();
+        let pixmap = resvg::tiny_skia::Pixmap::decode_png(&std::fs::read(&drawn).unwrap())
+            .expect("a whole PNG");
+        let middle = pixmap.pixel(1920, 1920).expect("inside");
+        assert_eq!(
+            (middle.red(), middle.green(), middle.blue(), middle.alpha()),
+            (255, 0, 0, 255),
+            "the placed picture is in the drawing"
+        );
+        let _ = std::fs::remove_file(&drawn);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
