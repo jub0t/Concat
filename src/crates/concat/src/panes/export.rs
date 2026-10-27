@@ -33,6 +33,7 @@ pub enum ExportMsg {
     /// The sheet is dismissed.
     Close,
     NameEdited(String),
+    PresetChanged(i32),
     RateChanged(i32),
     CodecChanged(i32),
     TenBitChanged(bool),
@@ -76,6 +77,7 @@ pub struct ExportPane {
     /// The bitrate is the typed one, not the recommended one for the
     /// frame and the rate.
     pub custom: bool,
+    pub preset: usize,
     /// Index into `VideoCodec::ALL`.
     pub codec: usize,
     pub ten_bit: bool,
@@ -109,6 +111,7 @@ impl Default for ExportPane {
             resolution: 2,
             rate: 0,
             custom: false,
+            preset: 0,
             codec: 0,
             ten_bit: false,
             sdr: false,
@@ -141,6 +144,26 @@ impl ExportPane {
             }
             ExportMsg::Close => self.open = false,
             ExportMsg::NameEdited(name) => self.name = name,
+            ExportMsg::PresetChanged(index) => {
+                self.preset = (index.max(0) as usize).min(2);
+                match self.preset {
+                    1 => {
+                        self.codec = 0;
+                        self.custom = true;
+                        self.bitrate = 16000;
+                        self.sdr = true;
+                    }
+                    2 => {
+                        self.codec = 0;
+                        self.custom = true;
+                        self.bitrate = 25000;
+                        self.sdr = true;
+                    }
+                    _ => {
+                        self.custom = false;
+                    }
+                }
+            }
             ExportMsg::RateChanged(index) => {
                 self.rate = (index.max(0) as usize).min(Self::rates(studio).len() - 1);
             }
@@ -617,6 +640,7 @@ impl ExportPane {
                 words.join(" ")
             }
             .into(),
+            preset: self.preset as i32,
             size_chosen: bytes(self.size_bytes(studio)).into(),
             phase: self.phase,
             progress: self.progress,

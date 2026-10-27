@@ -11331,6 +11331,42 @@ impl Studio {
                 "",
                 frameable,
             ));
+            rows.push(action(
+                "auto-zoom",
+                t("studio.autoZoom"),
+                Glyph::Maximize,
+                "",
+                frameable,
+            ));
+            rows.push(rule());
+            rows.push(action(
+                "quick-transition-zoom",
+                t("studio.transitionZoom"),
+                Glyph::Sparkle,
+                "",
+                frameable,
+            ));
+            rows.push(action(
+                "quick-transition-whip",
+                t("studio.transitionWhip"),
+                Glyph::Sparkle,
+                "",
+                frameable,
+            ));
+            rows.push(action(
+                "quick-transition-flash",
+                t("studio.transitionFlash"),
+                Glyph::Sparkle,
+                "",
+                frameable,
+            ));
+            rows.push(action(
+                "quick-transition-dissolve",
+                t("studio.transitionDissolve"),
+                Glyph::Sparkle,
+                "",
+                frameable,
+            ));
             rows.push(rule());
         }
         // One slot, two verbs: the sound is either on its picture or off it.
@@ -11391,6 +11427,22 @@ impl Studio {
                 "auto-duck",
                 t("studio.autoDuck"),
                 Glyph::Volume,
+                "",
+                !locked && self.clip_has_sound(clip),
+            ));
+            let has_enhance = clip.filters.iter().any(|f| f.id == "concat.enhance-voice" && f.enabled);
+            let has_denoise = clip.filters.iter().any(|f| f.id == "concat.denoise" && f.enabled);
+            rows.push(action(
+                "toggle-enhance-voice",
+                if has_enhance { t("studio.removeEnhanceVoice") } else { t("studio.enhanceVoice") },
+                Glyph::Sparkle,
+                "",
+                !locked && self.clip_has_sound(clip),
+            ));
+            rows.push(action(
+                "toggle-denoise",
+                if has_denoise { t("studio.removeDenoise") } else { t("studio.denoise") },
+                Glyph::Waveform,
                 "",
                 !locked && self.clip_has_sound(clip),
             ));
@@ -12186,6 +12238,13 @@ impl Studio {
             }
             "auto-cut-silence" => self.auto_cut_silence(id),
             "auto-duck" => self.auto_duck(id),
+            "auto-zoom" => self.toggle_auto_zoom(id),
+            "toggle-enhance-voice" => self.toggle_audio_filter(id, "concat.enhance-voice", true),
+            "toggle-denoise" => self.toggle_audio_filter(id, "concat.denoise", false),
+            "quick-transition-zoom" => self.apply_quick_transition(id, "concat.zoom-transition"),
+            "quick-transition-whip" => self.apply_quick_transition(id, "concat.whip-pan"),
+            "quick-transition-flash" => self.apply_quick_transition(id, "concat.fade-white"),
+            "quick-transition-dissolve" => self.apply_quick_transition(id, "concat.dissolve"),
             _ => {}
         }
     }
@@ -12343,6 +12402,96 @@ impl Studio {
 
         self.apply(Command::Batch { commands });
         self.notify(&t("studio.autoDuckSuccess"), false);
+    }
+
+    /// Toggles or alternates punch-in dynamic zoom (1.0x <-> 1.15x) for viral video retention.
+    pub fn toggle_auto_zoom(&mut self, id: &str) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        let mut visual_targets: Vec<String> = if self.selection.len() > 1 && self.selection.iter().any(|s| s == id) {
+            self.selection
+                .iter()
+                .filter(|s| self.clip(s).map_or(false, |c| c.kind.is_visual()))
+                .cloned()
+                .collect()
+        } else {
+            vec![id.to_owned()]
+        };
+
+        if visual_targets.len() > 1 {
+            visual_targets.sort_by(|a, b| {
+                let a_start = self.clip(a).map_or(0.0, |c| c.start);
+                let b_start = self.clip(b).map_or(0.0, |c| c.start);
+                a_start.total_cmp(&b_start)
+            });
+            let mut commands = Vec::new();
+            for (idx, target_id) in visual_targets.iter().enumerate() {
+                let scale = if idx % 2 == 1 { 1.15 } else { 1.0 };
+                commands.push(Command::SetClipTransform {
+                    clip_id: target_id.clone(),
+                    scale: Some(scale),
+                    offset_x: None,
+                    offset_y: None,
+                    rotation: None,
+                    stretch_x: None,
+                    stretch_y: None,
+                });
+            }
+            self.apply(Command::Batch { commands });
+        } else {
+            let scale = if clip.scale > 1.05 { 1.0 } else { 1.15 };
+            self.apply(Command::SetClipTransform {
+                clip_id: id.to_owned(),
+                scale: Some(scale),
+                offset_x: None,
+                offset_y: None,
+                rotation: None,
+                stretch_x: None,
+                stretch_y: None,
+            });
+        }
+        self.notify(&t("studio.autoZoomApplied"), false);
+    }
+
+    /// Toggles an audio effect filter on the clip (e.g. enhance-voice or denoise).
+    pub fn toggle_audio_filter(&mut self, id: &str, filter_id: &str, is_enhance: bool) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        let mut filters = clip.filters.clone();
+        let was_present = filters.iter().position(|f| f.id == filter_id);
+        let notice = if let Some(idx) = was_present {
+            filters.remove(idx);
+            if is_enhance {
+                t("studio.enhanceVoiceRemoved")
+            } else {
+                t("studio.denoiseRemoved")
+            }
+        } else {
+            filters.push(concat_project::model::AppliedFilter::new(filter_id));
+            if is_enhance {
+                t("studio.enhanceVoiceApplied")
+            } else {
+                t("studio.denoiseApplied")
+            }
+        };
+        self.apply(Command::UpdateClip {
+            clip_id: id.to_owned(),
+            patch: concat_project::ClipPatch {
+                filters: Some(filters),
+                ..Default::default()
+            },
+        });
+        self.notify(&notice, false);
+    }
+
+    /// Applies a quick transition to the clip's incoming cut.
+    pub fn apply_quick_transition(&mut self, id: &str, transition_id: &str) {
+        self.flush_commit();
+        self.selection = vec![id.to_owned()];
+        self.transition_selected = None;
+        self.apply_transition(transition_id);
     }
 
     /// Every clip on an unlocked lane.

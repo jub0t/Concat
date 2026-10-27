@@ -69,6 +69,7 @@ export struct ExportData {
     encoding: string,
     /// What the file will weigh at the bitrate.
     size-chosen: string,
+    preset: int,
     phase: ExportPhase,
     /// 0..1
     progress: float,
@@ -270,6 +271,7 @@ component DestinationSection inherits DialogSection {
 component OutputSection inherits DialogSection {
     in property <ExportData> data;
 
+    callback preset-changed(index: int);
     callback rate-changed(index: int);
     callback bitrate-changed(mbps: float);
     callback codec-changed(index: int);
@@ -277,6 +279,19 @@ component OutputSection inherits DialogSection {
     callback hdr-changed(on: bool);
 
     title: I18n.t("export.output");
+
+    DialogRow {
+        label: I18n.t("export.preset");
+        SegmentedControl {
+            options: [
+                I18n.t("export.presetCustom"),
+                "Reels / TikTok",
+                "YouTube HD"
+            ];
+            current: root.data.preset;
+            changed(index) => { root.preset-changed(index); }
+        }
+    }
 
     DialogRow {
         label: I18n.t("export.resolution");
@@ -562,6 +577,7 @@ export component ExportDialog inherits Rectangle {
     callback closed();
     callback name-edited(name: string);
     callback browse();
+    callback preset-changed(index: int);
     callback rate-changed(index: int);
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
@@ -698,6 +714,7 @@ export component ExportDialog inherits Rectangle {
                         }
                         if !root.running: OutputSection {
                             data: root.data;
+                            preset-changed(index) => { root.preset-changed(index); }
                             bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                             rate-changed(index) => { root.rate-changed(index); }
                             codec-changed(index) => { root.codec-changed(index); }
@@ -737,6 +754,7 @@ export component ExportDialog inherits Rectangle {
                             OutputSection {
                                 first: true;
                                 data: root.data;
+                                preset-changed(index) => { root.preset-changed(index); }
                                 bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                                 rate-changed(index) => { root.rate-changed(index); }
                                 codec-changed(index) => { root.codec-changed(index); }
@@ -771,6 +789,7 @@ export component ExportDialog inherits Rectangle {
                             OutputSection {
                                 first: true;
                                 data: root.data;
+                                preset-changed(index) => { root.preset-changed(index); }
                                 bitrate-changed(mbps) => { root.bitrate-changed(mbps); }
                                 rate-changed(index) => { root.rate-changed(index); }
                                 codec-changed(index) => { root.codec-changed(index); }

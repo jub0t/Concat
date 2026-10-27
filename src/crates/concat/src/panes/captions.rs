@@ -67,6 +67,7 @@ pub enum CaptionsMsg {
     ColorThemeChanged(i32),
     UppercaseToggled(bool),
     AutoEmojiToggled(bool),
+    RemoveFillersToggled(bool),
     /// Run the pass the sheet describes.
     Begin,
     Cancel,
@@ -96,9 +97,11 @@ struct Subject {
     style: usize,
     /// Sync offset index: 0 (0ms), 1 (+100ms), 2 (+200ms), 3 (-100ms)
     sync: usize,
+    clip_id: Option<String>,
     color_theme: usize,
     uppercase: bool,
     auto_emoji: bool,
+    remove_fillers: bool,
     /// The transcriber model, and the thirty-second windows whisper reads
     /// the sound in: what the run's timing is kept by.
     model: String,
@@ -140,6 +143,7 @@ pub struct CaptionsPane {
     pub color_theme: usize,
     pub uppercase: bool,
     pub auto_emoji: bool,
+    pub remove_fillers: bool,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -167,6 +171,7 @@ impl Default for CaptionsPane {
             color_theme: 0,
             uppercase: true,
             auto_emoji: false,
+            remove_fillers: false,
             running: false,
             pace: Pace::default(),
             message: String::new(),
@@ -227,6 +232,7 @@ impl CaptionsPane {
             }
             CaptionsMsg::UppercaseToggled(on) => self.uppercase = on,
             CaptionsMsg::AutoEmojiToggled(on) => self.auto_emoji = on,
+            CaptionsMsg::RemoveFillersToggled(on) => self.remove_fillers = on,
             CaptionsMsg::Begin => {
                 if self.from_voice {
                     self.run_sound(studio);
@@ -248,10 +254,52 @@ impl CaptionsPane {
                         .keep(&subject.model, self.pace.learned(subject.windows));
                 }
                 match result {
-                    Ok(segments) => {
+                    Ok(mut segments) => {
                         let Some(subject) = subject else {
                             return;
                         };
+
+                        if subject.remove_fillers {
+                            if let Some(clip_id) = &subject.clip_id {
+                                let mut filler_spans: Vec<(f64, f64)> = Vec::new();
+                                for seg in &segments {
+                                    for w in &seg.words {
+                                        if is_filler_word(&w.word) {
+                                            filler_spans.push((w.start as f64, w.end as f64));
+                                        }
+                                    }
+                                }
+                                if !filler_spans.is_empty() {
+                                    let ripple = studio.prefs.magnetic;
+                                    let count = filler_spans.len();
+                                    studio.apply(Command::CutClipSilences {
+                                        clip_id: clip_id.clone(),
+                                        silences: filler_spans.clone(),
+                                        ripple,
+                                    });
+                                    studio.notify(&tf("captions.fillersRemoved", &[&count]), false);
+                                    if ripple {
+                                        for seg in &mut segments {
+                                            for w in &mut seg.words {
+                                                let orig_s = w.start as f64;
+                                                let orig_e = w.end as f64;
+                                                w.start = shift_time_for_removed_spans(orig_s, &filler_spans) as f32;
+                                                w.end = shift_time_for_removed_spans(orig_e, &filler_spans) as f32;
+                                            }
+                                            let seg_s = seg.start as f64;
+                                            let seg_e = seg.end as f64;
+                                            seg.start = shift_time_for_removed_spans(seg_s, &filler_spans) as f32;
+                                            seg.end = shift_time_for_removed_spans(seg_e, &filler_spans) as f32;
+                                        }
+                                    }
+                                    for seg in &mut segments {
+                                        seg.words.retain(|w| !is_filler_word(&w.word));
+                                    }
+                                    segments.retain(|seg| !seg.words.is_empty() && !seg.text.trim().is_empty());
+                                }
+                            }
+                        }
+
                         let look = subject.look;
                         let base = studio.prefs.title_style.clone();
                         let sync_offset = match subject.sync {
@@ -553,6 +601,7 @@ impl CaptionsPane {
             color_theme: self.color_theme,
             uppercase: self.uppercase,
             auto_emoji: self.auto_emoji,
+            remove_fillers: self.remove_fillers,
             timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
@@ -684,6 +733,7 @@ impl CaptionsPane {
             (Stage::Working, windows * per_window),
         ]);
         self.subject = Some(Subject {
+            clip_id: Some(clip.id.clone()),
             start: clip.start,
             speed: clip.speed,
             look: self.look(),
@@ -692,6 +742,7 @@ impl CaptionsPane {
             color_theme: self.color_theme,
             uppercase: self.uppercase,
             auto_emoji: self.auto_emoji,
+            remove_fillers: self.remove_fillers,
             model,
             windows,
         });
@@ -739,6 +790,7 @@ impl CaptionsPane {
             color_theme: self.color_theme as i32,
             uppercase: self.uppercase,
             auto_emoji: self.auto_emoji,
+            remove_fillers: self.remove_fillers,
             running: self.running,
             progress: self.pace.floor,
             ceiling: self.pace.ceiling,
@@ -909,6 +961,26 @@ fn source_label(name: &str, start: f64) -> String {
     } else {
         format!("{name} · {minutes}:{seconds:02}")
     }
+}
+
+fn is_filler_word(w: &str) -> bool {
+    let clean = w.trim().trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+    matches!(
+        clean.as_str(),
+        "é" | "éé" | "ééé" | "eh" | "hum" | "humm" | "hummm" | "tipo" | "né" | "ne" | "uh" | "um" | "umm" | "ah" | "er" | "ahm" | "like"
+    )
+}
+
+fn shift_time_for_removed_spans(t: f64, removed: &[(f64, f64)]) -> f64 {
+    let mut shift = 0.0;
+    for (start, end) in removed {
+        if t >= *end {
+            shift += end - start;
+        } else if t > *start {
+            shift += t - start;
+        }
+    }
+    (t - shift).max(0.0)
 }
 
 fn theme_color(theme: usize) -> &'static str {

@@ -53,6 +53,7 @@ export struct CaptionsSheetData {
     color-theme: int,
     uppercase: bool,
     auto-emoji: bool,
+    remove-fillers: bool,
     running: bool,
     /// 0..1: where the transcription surely is.
     progress: float,
@@ -87,6 +88,7 @@ export component CaptionsDialog inherits Modal {
     callback color-theme-changed(index: int);
     callback uppercase-toggled(bool);
     callback auto-emoji-toggled(bool);
+    callback remove-fillers-toggled(bool);
     callback begin();
     callback cancel();
     callback import-srt();
@@ -312,6 +314,18 @@ export component CaptionsDialog inherits Modal {
                     ];
                     current: root.data.auto-emoji ? 1 : 0;
                     changed(index) => { root.auto-emoji-toggled(index == 1); }
+                }
+            }
+
+            if root.from-voice: DialogRow {
+                label: I18n.t("captions.removeFillers");
+                SegmentedControl {
+                    options: [
+                        I18n.t("common.off"),
+                        I18n.t("common.on")
+                    ];
+                    current: root.data.remove-fillers ? 1 : 0;
+                    changed(index) => { root.remove-fillers-toggled(index == 1); }
                 }
             }
 

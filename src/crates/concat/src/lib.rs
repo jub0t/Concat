@@ -1850,6 +1850,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_export_name_edited(on_window!(|state, name: SharedString| {
         state.handle(Msg::Export(ExportMsg::NameEdited(name.to_string())));
     }));
+    app.on_export_preset_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Export(ExportMsg::PresetChanged(index)));
+    }));
     app.on_export_rate_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Export(ExportMsg::RateChanged(index)));
     }));
@@ -2063,6 +2066,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_captions_auto_emoji_toggled(on_window!(|state, on: bool| {
         state.handle(Msg::Captions(CaptionsMsg::AutoEmojiToggled(on)));
+    }));
+    app.on_captions_remove_fillers_toggled(on_window!(|state, on: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::RemoveFillersToggled(on)));
     }));
     app.on_captions_begin(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Begin));
