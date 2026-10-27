@@ -2215,6 +2215,10 @@ export component EnhancePanel inherits VerticalLayout {
             if root.selected.enhance-preview: Note {
                 text: root.selected.enhance-estimate;
             }
+            if root.selected.enhance-preview && root.selected.enhance-warning != "": Note {
+                text: root.selected.enhance-warning;
+                warn: true;
+            }
         }
     }
 }

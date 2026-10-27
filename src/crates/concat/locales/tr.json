@@ -725,6 +725,7 @@
   "studio.enhanceEstimateStill": "Resmin tamamı burada yaklaşık {0} sürerdi.",
   "studio.enhanceNoFourTimes": "4x ile {0} × {1} olurdu; bu, {2} piksel sınırını aşar.",
   "studio.enhanceOnlyRestore": "{0} piksel genişliğindeki bu resim büyütülürse {1} piksel sınırını aşar; yalnızca kendi boyutunda onarılabilir.",
+  "studio.enhanceTooLong": "Bu, bu makinede çok uzun sürer (yaklaşık {0}). Daha kısa bir klip ya da daha küçük bir boyut deneyin.",
   "studio.enhancedClipNowShows": "İyileştirildi; klip artık kopyayı gösteriyor",
   "studio.enhancingWayFrameFrame": "{0} iyileştiriliyor: {1}× kare kare yolda",
   "studio.exit": "Çıkış",
