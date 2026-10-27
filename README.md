@@ -34,10 +34,7 @@
       <a href="https://proxyon.io/?ref=concat"><b>Proxyon</b></a><br />
       <sub>Pay-as-you-go proxies for developers<br />Use code <code>JUB0T</code> for 20% off</sub>
     </td>
-  </tr>
-
-  <tr>
-    <td align="center">
+      <td align="center">
       <a href="https://www.patreon.com/c/jub0t/posts"><b>Support Concat</b></a><br />
       <sub>Concat needs your donations to continue development, we have come too far to stop 😢</sub>
     </td>
