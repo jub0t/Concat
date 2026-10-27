@@ -909,5 +909,14 @@
   "voices.styles": "スタイル",
   "voices.stylesHint": "スタイルはエフェクト付きのボイスです。選ぶとその声で書けます。エフェクトは音声クリップに付き、あとから変更できます。",
   "voices.voices": "ボイス",
-  "voices.yours": "あなたのボイス"
+  "voices.yours": "あなたのボイス",
+  "captions.color": "色",
+  "captions.colorYellow": "黄",
+  "captions.colorGreen": "緑",
+  "captions.colorCyan": "シアン",
+  "captions.colorWhite": "白",
+  "captions.uppercase": "大文字",
+  "captions.autoEmoji": "自動絵文字",
+  "common.on": "オン",
+  "studio.blurBackground": "背景をぼかす"
 }

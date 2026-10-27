@@ -63,6 +63,10 @@ pub enum CaptionsMsg {
     StyleChanged(i32),
     /// 0: 0ms, 1: +100ms, 2: +200ms, 3: -100ms
     SyncChanged(i32),
+    /// 0: #FFE600, 1: #22E574, 2: #00F0FF, 3: #FFFFFF
+    ColorThemeChanged(i32),
+    UppercaseToggled(bool),
+    AutoEmojiToggled(bool),
     /// Run the pass the sheet describes.
     Begin,
     Cancel,
@@ -92,6 +96,9 @@ struct Subject {
     style: usize,
     /// Sync offset index: 0 (0ms), 1 (+100ms), 2 (+200ms), 3 (-100ms)
     sync: usize,
+    color_theme: usize,
+    uppercase: bool,
+    auto_emoji: bool,
     /// The transcriber model, and the thirty-second windows whisper reads
     /// the sound in: what the run's timing is kept by.
     model: String,
@@ -104,7 +111,6 @@ struct Subject {
 const WINDOW_SECONDS_PER_MB: f32 = 1.0 / 160.0;
 
 /// The captions sheet's state.
-#[derive(Default)]
 pub struct CaptionsPane {
     pub open: bool,
     /// "Use Sample Voice": the words come from [`Self::clip`]'s sound
@@ -131,6 +137,9 @@ pub struct CaptionsPane {
     pub style: usize,
     /// 0: 0ms, 1: +100ms, 2: +200ms, 3: -100ms
     pub sync: usize,
+    pub color_theme: usize,
+    pub uppercase: bool,
+    pub auto_emoji: bool,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -140,6 +149,31 @@ pub struct CaptionsPane {
     subject: Option<Subject>,
     /// How long each model took this session, for the next run's bar.
     timings: Timings,
+}
+
+impl Default for CaptionsPane {
+    fn default() -> Self {
+        Self {
+            open: false,
+            from_voice: false,
+            clip: None,
+            chosen_with: None,
+            text: String::new(),
+            model: 0,
+            placement: 0,
+            size: 1,
+            style: 0,
+            sync: 0,
+            color_theme: 0,
+            uppercase: true,
+            auto_emoji: false,
+            running: false,
+            pace: Pace::default(),
+            message: String::new(),
+            subject: None,
+            timings: Timings::default(),
+        }
+    }
 }
 
 impl CaptionsPane {
@@ -188,6 +222,11 @@ impl CaptionsPane {
             CaptionsMsg::SizeChanged(index) => self.size = (index.max(0) as usize).min(2),
             CaptionsMsg::StyleChanged(index) => self.style = (index.max(0) as usize).min(2),
             CaptionsMsg::SyncChanged(index) => self.sync = (index.max(0) as usize).min(3),
+            CaptionsMsg::ColorThemeChanged(index) => {
+                self.color_theme = (index.max(0) as usize).min(3);
+            }
+            CaptionsMsg::UppercaseToggled(on) => self.uppercase = on,
+            CaptionsMsg::AutoEmojiToggled(on) => self.auto_emoji = on,
             CaptionsMsg::Begin => {
                 if self.from_voice {
                     self.run_sound(studio);
@@ -221,14 +260,17 @@ impl CaptionsPane {
                             3 => -0.10,
                             _ => 0.0,
                         };
+                        let color = theme_color(subject.color_theme);
                         let commands: Vec<Command> = match subject.style {
                             // 1: Dynamic Word-by-Word (CapCut / TikTok viral short-form style)
                             1 => segments
                                 .into_iter()
                                 .flat_map(|segment| {
                                     let base_ref = base.as_ref();
+                                    let uppercase = subject.uppercase;
+                                    let auto_emoji = subject.auto_emoji;
                                     segment.words.into_iter().filter_map(move |w| {
-                                        let text = w.word.trim().to_uppercase();
+                                        let text = format_caption_text(&w.word, uppercase, auto_emoji);
                                         (!text.is_empty()).then(|| {
                                             dynamic_word_clip(
                                                 text,
@@ -236,6 +278,7 @@ impl CaptionsPane {
                                                 ((w.end - w.start) / subject.speed).max(0.16),
                                                 look,
                                                 base_ref,
+                                                color,
                                             )
                                         })
                                     })
@@ -252,6 +295,8 @@ impl CaptionsPane {
                                         .map(|w| w.word.trim().to_owned())
                                         .filter(|w| !w.is_empty())
                                         .collect();
+                                    let uppercase = subject.uppercase;
+                                    let auto_emoji = subject.auto_emoji;
                                     segment.words.into_iter().enumerate().filter_map(move |(idx, w)| {
                                         let active = w.word.trim();
                                         if active.is_empty() {
@@ -264,10 +309,16 @@ impl CaptionsPane {
                                             }
                                             if i == idx {
                                                 text_line.push('[');
-                                                text_line.push_str(&word.to_uppercase());
+                                                let word_text = format_caption_text(word, uppercase, auto_emoji);
+                                                text_line.push_str(&word_text);
                                                 text_line.push(']');
                                             } else {
-                                                text_line.push_str(word);
+                                                let word_text = if uppercase {
+                                                    word.to_uppercase()
+                                                } else {
+                                                    word.clone()
+                                                };
+                                                text_line.push_str(&word_text);
                                             }
                                         }
                                         Some(karaoke_caption_clip(
@@ -276,6 +327,7 @@ impl CaptionsPane {
                                             ((w.end - w.start) / subject.speed).max(0.18),
                                             look,
                                             base_ref,
+                                            color,
                                         ))
                                     })
                                 })
@@ -284,7 +336,7 @@ impl CaptionsPane {
                             _ => segments
                                 .into_iter()
                                 .filter_map(|segment| {
-                                    let text = segment.text.trim().to_owned();
+                                    let text = format_caption_text(&segment.text, subject.uppercase, subject.auto_emoji);
                                     (!text.is_empty()).then(|| {
                                         caption_clip(
                                             text,
@@ -292,6 +344,7 @@ impl CaptionsPane {
                                             ((segment.end - segment.start) / subject.speed).max(0.2),
                                             look,
                                             base.as_ref(),
+                                            color,
                                         )
                                     })
                                 })
@@ -497,6 +550,9 @@ impl CaptionsPane {
             size: 1,
             style: self.style,
             sync: self.sync,
+            color_theme: self.color_theme,
+            uppercase: self.uppercase,
+            auto_emoji: self.auto_emoji,
             timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
@@ -535,6 +591,9 @@ impl CaptionsPane {
         let look = self.look();
         let mut at = f64::from(studio.playhead);
         let base = studio.prefs.title_style.clone();
+        let color = theme_color(self.color_theme);
+        let uppercase = self.uppercase;
+        let auto_emoji = self.auto_emoji;
         let commands: Vec<Command> = if self.style == 1 {
             self.text
                 .split_whitespace()
@@ -542,12 +601,14 @@ impl CaptionsPane {
                 .map(|word| {
                     let seconds =
                         (word.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(0.22, 1.2);
+                    let text = format_caption_text(word, uppercase, auto_emoji);
                     let cmd = dynamic_word_clip(
-                        word.to_uppercase(),
+                        text,
                         at,
                         seconds,
                         look,
                         base.as_ref(),
+                        color,
                     );
                     at += seconds;
                     cmd
@@ -557,7 +618,8 @@ impl CaptionsPane {
             lines
                 .into_iter()
                 .map(|(text, seconds)| {
-                    let cmd = caption_clip(text, at, seconds, look, base.as_ref());
+                    let formatted = format_caption_text(&text, uppercase, auto_emoji);
+                    let cmd = caption_clip(formatted, at, seconds, look, base.as_ref(), color);
                     at += seconds;
                     cmd
                 })
@@ -627,6 +689,9 @@ impl CaptionsPane {
             look: self.look(),
             style: self.style,
             sync: self.sync,
+            color_theme: self.color_theme,
+            uppercase: self.uppercase,
+            auto_emoji: self.auto_emoji,
             model,
             windows,
         });
@@ -671,6 +736,9 @@ impl CaptionsPane {
             size: self.size as i32,
             style: self.style as i32,
             sync: self.sync as i32,
+            color_theme: self.color_theme as i32,
+            uppercase: self.uppercase,
+            auto_emoji: self.auto_emoji,
             running: self.running,
             progress: self.pace.floor,
             ceiling: self.pace.ceiling,
@@ -701,6 +769,7 @@ fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>)
                 cue.end - cue.start,
                 look,
                 base,
+                "#FFFFFF",
             )
         })
         .collect()
@@ -842,6 +911,71 @@ fn source_label(name: &str, start: f64) -> String {
     }
 }
 
+fn theme_color(theme: usize) -> &'static str {
+    match theme {
+        1 => "#22E574",
+        2 => "#00F0FF",
+        3 => "#FFFFFF",
+        _ => "#FFE600",
+    }
+}
+
+fn add_smart_emoji(text: &str) -> String {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut emojis = Vec::new();
+    for w in words {
+        let emoji = match w {
+            "dinheiro" | "grana" | "lucro" | "money" | "cash" | "faturar" | "rico" | "rich"
+            | "milhao" | "milhão" | "milhoes" | "milhões" | "vendas" | "pix" => Some("💰"),
+            "fogo" | "quente" | "fire" | "viral" | "chama" | "hype" | "bombando" => Some("🔥"),
+            "ideia" | "idea" | "segredo" | "dica" | "hack" | "insight" | "pensar" | "mentoria"
+            | "aprender" => Some("💡"),
+            "foguete" | "rocket" | "crescer" | "escala" | "futuro" | "voar" | "topo" | "alturas" => {
+                Some("🚀")
+            }
+            "atencao" | "atenção" | "cuidado" | "pare" | "wait" | "stop" | "alerta" | "perigo"
+            | "urgente" => Some("⚠️"),
+            "amor" | "coracao" | "coração" | "love" | "paixao" | "paixão" | "gostar" | "adorar" => {
+                Some("❤️")
+            }
+            "sucesso" | "meta" | "alvo" | "win" | "vitoria" | "vitória" | "ganhar" | "campeao"
+            | "campeão" => Some("🎯"),
+            "tempo" | "hora" | "minuto" | "segundo" | "time" | "rapido" | "rápido" | "tarde"
+            | "relogio" | "relógio" => Some("⏱️"),
+            "uau" | "wow" | "choque" | "loucura" | "surpresa" | "chocado" | "incrivel"
+            | "incrível" => Some("😱"),
+            "veja" | "olha" | "olhar" | "look" | "ver" | "olhe" | "repara" => Some("👀"),
+            _ => None,
+        };
+        if let Some(e) = emoji {
+            if !emojis.contains(&e) {
+                emojis.push(e);
+            }
+        }
+    }
+    if emojis.is_empty() {
+        text.to_owned()
+    } else {
+        format!("{text} {}", emojis.join(" "))
+    }
+}
+
+fn format_caption_text(raw: &str, uppercase: bool, auto_emoji: bool) -> String {
+    let mut text = if uppercase {
+        raw.trim().to_uppercase()
+    } else {
+        raw.trim().to_owned()
+    };
+    if auto_emoji && !text.is_empty() {
+        text = add_smart_emoji(&text);
+    }
+    text
+}
+
 /// One caption as a title clip: its words, when and for how long, and
 /// its look.
 fn caption_clip(
@@ -850,24 +984,30 @@ fn caption_clip(
     duration: f64,
     look: (f64, f64),
     base: Option<&TextStyle>,
+    color: &str,
 ) -> Command {
     let (offset_y, font_size) = look;
-    // The kept look where there is one - family, weight, colours, stroke,
-    // shadow, background - at the caption's own size and place; the
-    // bundled face otherwise.
     let style = match base {
         Some(base) => TextStyle {
             content: text,
             font_size,
             max_width: 0.0,
             max_height: 0.0,
+            color: color.to_owned(),
+            stroke_width: 0.009,
+            stroke_color: "#000000".to_owned(),
+            shadow: true,
             ..base.clone()
         },
         None => TextStyle {
             content: text,
             font_family: "Hanken Grotesk".to_owned(),
             font_size,
-            font_weight: 600.0,
+            font_weight: 650.0,
+            color: color.to_owned(),
+            stroke_width: 0.009,
+            stroke_color: "#000000".to_owned(),
+            shadow: true,
             ..TextStyle::default()
         },
     };
@@ -889,6 +1029,7 @@ fn dynamic_word_clip(
     duration: f64,
     look: (f64, f64),
     base: Option<&TextStyle>,
+    color: &str,
 ) -> Command {
     let (offset_y, font_size) = look;
     let dynamic_font_size = font_size * 1.25;
@@ -897,11 +1038,7 @@ fn dynamic_word_clip(
             content: text,
             font_size: dynamic_font_size,
             font_weight: 800.0,
-            color: if base.color.is_empty() {
-                "#FFE600".to_owned()
-            } else {
-                base.color.clone()
-            },
+            color: color.to_owned(),
             stroke_width: 0.014,
             stroke_color: "#000000".to_owned(),
             shadow: true,
@@ -914,7 +1051,7 @@ fn dynamic_word_clip(
             font_family: "Hanken Grotesk".to_owned(),
             font_size: dynamic_font_size,
             font_weight: 800.0,
-            color: "#FFE600".to_owned(),
+            color: color.to_owned(),
             stroke_width: 0.014,
             stroke_color: "#000000".to_owned(),
             shadow: true,
@@ -938,14 +1075,16 @@ fn karaoke_caption_clip(
     duration: f64,
     look: (f64, f64),
     base: Option<&TextStyle>,
+    color: &str,
 ) -> Command {
     let (offset_y, font_size) = look;
     let style = match base {
         Some(base) => TextStyle {
             content: text,
-            font_size,
-            font_weight: 700.0,
-            stroke_width: 0.010,
+            font_size: font_size * 1.05,
+            font_weight: 750.0,
+            color: color.to_owned(),
+            stroke_width: 0.011,
             stroke_color: "#000000".to_owned(),
             shadow: true,
             max_width: 0.0,
@@ -955,10 +1094,10 @@ fn karaoke_caption_clip(
         None => TextStyle {
             content: text,
             font_family: "Hanken Grotesk".to_owned(),
-            font_size,
-            font_weight: 700.0,
-            color: "#FFFFFF".to_owned(),
-            stroke_width: 0.010,
+            font_size: font_size * 1.05,
+            font_weight: 750.0,
+            color: color.to_owned(),
+            stroke_width: 0.011,
             stroke_color: "#000000".to_owned(),
             shadow: true,
             ..TextStyle::default()

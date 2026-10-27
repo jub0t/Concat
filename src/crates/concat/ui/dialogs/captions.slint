@@ -49,6 +49,10 @@ export struct CaptionsSheetData {
     style: int,
     /// 0: 0ms, 1: +100ms, 2: +200ms, 3: -100ms
     sync: int,
+    /// 0: #FFE600, 1: #22E574, 2: #00F0FF, 3: #FFFFFF
+    color-theme: int,
+    uppercase: bool,
+    auto-emoji: bool,
     running: bool,
     /// 0..1: where the transcription surely is.
     progress: float,
@@ -80,6 +84,9 @@ export component CaptionsDialog inherits Modal {
     callback size-changed(index: int);
     callback style-changed(index: int);
     callback sync-changed(index: int);
+    callback color-theme-changed(index: int);
+    callback uppercase-toggled(bool);
+    callback auto-emoji-toggled(bool);
     callback begin();
     callback cancel();
     callback import-srt();
@@ -267,6 +274,44 @@ export component CaptionsDialog inherits Modal {
                     ];
                     current: root.data.sync;
                     changed(index) => { root.sync-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.color");
+                SegmentedControl {
+                    options: [
+                        I18n.t("captions.colorYellow"),
+                        I18n.t("captions.colorGreen"),
+                        I18n.t("captions.colorCyan"),
+                        I18n.t("captions.colorWhite")
+                    ];
+                    current: root.data.color-theme;
+                    changed(index) => { root.color-theme-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.uppercase");
+                SegmentedControl {
+                    options: [
+                        "Aa",
+                        "AA"
+                    ];
+                    current: root.data.uppercase ? 1 : 0;
+                    changed(index) => { root.uppercase-toggled(index == 1); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.autoEmoji");
+                SegmentedControl {
+                    options: [
+                        I18n.t("common.off"),
+                        I18n.t("common.on")
+                    ];
+                    current: root.data.auto-emoji ? 1 : 0;
+                    changed(index) => { root.auto-emoji-toggled(index == 1); }
                 }
             }
 

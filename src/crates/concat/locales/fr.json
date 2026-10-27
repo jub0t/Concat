@@ -909,5 +909,14 @@
   "voices.styles": "Styles",
   "voices.stylesHint": "Un style est une voix avec des effets. Choisissez-en un pour écrire avec : les effets vont sur le clip de parole, où vous pouvez les modifier.",
   "voices.voices": "Voix",
-  "voices.yours": "Vos voix"
+  "voices.yours": "Vos voix",
+  "captions.color": "Couleur",
+  "captions.colorYellow": "Jaune",
+  "captions.colorGreen": "Vert",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "Blanc",
+  "captions.uppercase": "Majuscules",
+  "captions.autoEmoji": "Emoji auto",
+  "common.on": "activé",
+  "studio.blurBackground": "Arrière-plan flou"
 }

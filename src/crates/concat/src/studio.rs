@@ -11324,6 +11324,13 @@ impl Studio {
                 "",
                 frameable,
             ));
+            rows.push(action(
+                "blur-background",
+                t("studio.blurBackground"),
+                Glyph::Sparkle,
+                "",
+                frameable,
+            ));
             rows.push(rule());
         }
         // One slot, two verbs: the sound is either on its picture or off it.
@@ -12129,6 +12136,13 @@ impl Studio {
                 self.selection = vec![id.to_owned()];
                 self.transition_selected = None;
                 self.frame_selected(action == "fill");
+            }
+            "blur-background" => {
+                self.flush_commit();
+                self.selection = vec![id.to_owned()];
+                self.transition_selected = None;
+                self.frame_selected(false);
+                self.backdrop_set_mode(true, 1);
             }
             // The menu opens the clip's Enhance in the inspector, where its
             // switch starts it and later turns it off and on again.

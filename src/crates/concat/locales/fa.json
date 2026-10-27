@@ -909,5 +909,14 @@
   "voices.styles": "سبک‌ها",
   "voices.stylesHint": "سبک، صدایی با افکت است. یکی را برای نوشتن انتخاب کنید: افکت‌ها روی کلیپ گفتار می‌نشینند و آنجا قابل تغییرند.",
   "voices.voices": "صداهای گوینده",
-  "voices.yours": "صداهای شما"
+  "voices.yours": "صداهای شما",
+  "captions.color": "Color",
+  "captions.colorYellow": "Yellow",
+  "captions.colorGreen": "Green",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "White",
+  "captions.uppercase": "Uppercase",
+  "captions.autoEmoji": "Auto Emoji",
+  "common.on": "on",
+  "studio.blurBackground": "Blur background"
 }

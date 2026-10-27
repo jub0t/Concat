@@ -909,5 +909,14 @@
   "voices.styles": "स्टाइल",
   "voices.stylesHint": "स्टाइल यानी इफ़ेक्ट वाली आवाज़। उसमें लिखने के लिए कोई एक चुनें: इफ़ेक्ट स्पीच क्लिप पर लगते हैं, जहाँ आप उन्हें बदल सकते हैं।",
   "voices.voices": "आवाज़ें",
-  "voices.yours": "आपकी आवाज़ें"
+  "voices.yours": "आपकी आवाज़ें",
+  "captions.color": "Color",
+  "captions.colorYellow": "Yellow",
+  "captions.colorGreen": "Green",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "White",
+  "captions.uppercase": "Uppercase",
+  "captions.autoEmoji": "Auto Emoji",
+  "common.on": "on",
+  "studio.blurBackground": "Blur background"
 }

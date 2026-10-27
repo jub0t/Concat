@@ -909,5 +909,14 @@
   "voices.styles": "Stilovi",
   "voices.stylesHint": "Stil je glas s efektima. Odaberite jedan da biste njime pisali: efekti idu na govorni isječak, gdje ih možete mijenjati.",
   "voices.voices": "Glasovi",
-  "voices.yours": "Vaši glasovi"
+  "voices.yours": "Vaši glasovi",
+  "captions.color": "Color",
+  "captions.colorYellow": "Yellow",
+  "captions.colorGreen": "Green",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "White",
+  "captions.uppercase": "Uppercase",
+  "captions.autoEmoji": "Auto Emoji",
+  "common.on": "on",
+  "studio.blurBackground": "Blur background"
 }

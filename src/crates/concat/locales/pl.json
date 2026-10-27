@@ -909,5 +909,14 @@
   "voices.styles": "Style",
   "voices.stylesHint": "Styl to głos z efektami. Wybierz jeden, aby nim pisać: efekty trafią na klip mowy, gdzie możesz je zmienić.",
   "voices.voices": "Głosy",
-  "voices.yours": "Twoje głosy"
+  "voices.yours": "Twoje głosy",
+  "captions.color": "Color",
+  "captions.colorYellow": "Yellow",
+  "captions.colorGreen": "Green",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "White",
+  "captions.uppercase": "Uppercase",
+  "captions.autoEmoji": "Auto Emoji",
+  "common.on": "on",
+  "studio.blurBackground": "Blur background"
 }

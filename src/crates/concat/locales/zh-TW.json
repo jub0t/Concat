@@ -909,5 +909,14 @@
   "voices.styles": "風格",
   "voices.stylesHint": "風格就是加了效果的嗓音。選一個用它來寫：效果會加在語音片段上，之後可以修改。",
   "voices.voices": "嗓音",
-  "voices.yours": "你的嗓音"
+  "voices.yours": "你的嗓音",
+  "captions.color": "顏色",
+  "captions.colorYellow": "黃色",
+  "captions.colorGreen": "綠色",
+  "captions.colorCyan": "青色",
+  "captions.colorWhite": "白色",
+  "captions.uppercase": "大寫",
+  "captions.autoEmoji": "自動表情",
+  "common.on": "開",
+  "studio.blurBackground": "模糊背景"
 }

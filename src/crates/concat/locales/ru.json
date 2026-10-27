@@ -909,5 +909,14 @@
   "voices.styles": "Стили",
   "voices.stylesHint": "Стиль — это голос с эффектами. Выберите стиль, чтобы писать им: эффекты лягут на речевой клип, где их можно изменить.",
   "voices.voices": "Голоса",
-  "voices.yours": "Ваши голоса"
+  "voices.yours": "Ваши голоса",
+  "captions.color": "Цвет",
+  "captions.colorYellow": "Жёлтый",
+  "captions.colorGreen": "Зелёный",
+  "captions.colorCyan": "Циан",
+  "captions.colorWhite": "Белый",
+  "captions.uppercase": "Прописные",
+  "captions.autoEmoji": "Авто-эмодзи",
+  "common.on": "вкл",
+  "studio.blurBackground": "Размыть фон"
 }

@@ -909,5 +909,14 @@
   "voices.styles": "স্টাইল",
   "voices.stylesHint": "স্টাইল মানে ইফেক্টসহ একটি কণ্ঠ। কোনোটি দিয়ে লিখতে সেটি বেছে নিন: ইফেক্টগুলো স্পিচ ক্লিপে যায়, সেখানে বদলানো যায়।",
   "voices.voices": "কণ্ঠ",
-  "voices.yours": "আপনার কণ্ঠ"
+  "voices.yours": "আপনার কণ্ঠ",
+  "captions.color": "Color",
+  "captions.colorYellow": "Yellow",
+  "captions.colorGreen": "Green",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "White",
+  "captions.uppercase": "Uppercase",
+  "captions.autoEmoji": "Auto Emoji",
+  "common.on": "on",
+  "studio.blurBackground": "Blur background"
 }

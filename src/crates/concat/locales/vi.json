@@ -909,5 +909,14 @@
   "voices.styles": "Phong cách",
   "voices.stylesHint": "Phong cách là một giọng có hiệu ứng. Chọn một phong cách để viết bằng nó: hiệu ứng được đặt lên clip giọng nói, nơi bạn có thể thay đổi.",
   "voices.voices": "Giọng nói",
-  "voices.yours": "Giọng của bạn"
+  "voices.yours": "Giọng của bạn",
+  "captions.color": "Color",
+  "captions.colorYellow": "Yellow",
+  "captions.colorGreen": "Green",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "White",
+  "captions.uppercase": "Uppercase",
+  "captions.autoEmoji": "Auto Emoji",
+  "common.on": "on",
+  "studio.blurBackground": "Blur background"
 }

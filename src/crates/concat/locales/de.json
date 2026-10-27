@@ -909,5 +909,14 @@
   "voices.styles": "Stile",
   "voices.stylesHint": "Ein Stil ist eine Stimme mit Effekten. Wähle einen, um in ihm zu schreiben: Die Effekte landen auf dem Sprachclip, wo du sie ändern kannst.",
   "voices.voices": "Stimmen",
-  "voices.yours": "Deine Stimmen"
+  "voices.yours": "Deine Stimmen",
+  "captions.color": "Farbe",
+  "captions.colorYellow": "Gelb",
+  "captions.colorGreen": "Grün",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "Weiß",
+  "captions.uppercase": "Großbuchstaben",
+  "captions.autoEmoji": "Auto-Emoji",
+  "common.on": "an",
+  "studio.blurBackground": "Hintergrund weichzeichnen"
 }

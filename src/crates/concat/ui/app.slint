@@ -321,6 +321,9 @@ export component App inherits Window {
     callback captions-size-changed(index: int);
     callback captions-style-changed(index: int);
     callback captions-sync-changed(index: int);
+    callback captions-color-theme-changed(index: int);
+    callback captions-uppercase-toggled(bool);
+    callback captions-auto-emoji-toggled(bool);
     callback captions-begin();
     callback captions-cancel();
     callback captions-import-srt();
@@ -702,6 +705,9 @@ export component App inherits Window {
             size-changed(index) => { root.captions-size-changed(index); }
             style-changed(index) => { root.captions-style-changed(index); }
             sync-changed(index) => { root.captions-sync-changed(index); }
+            color-theme-changed(index) => { root.captions-color-theme-changed(index); }
+            uppercase-toggled(on) => { root.captions-uppercase-toggled(on); }
+            auto-emoji-toggled(on) => { root.captions-auto-emoji-toggled(on); }
             begin => { root.captions-begin(); }
             cancel => { root.captions-cancel(); }
             import-srt => { root.captions-import-srt(); }

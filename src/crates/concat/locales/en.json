@@ -909,5 +909,14 @@
   "voices.styles": "Styles",
   "voices.stylesHint": "A style is a voice with effects on it. Pick one to write in it: the effects go on the speech clip, where you can change them.",
   "voices.voices": "Voices",
-  "voices.yours": "Your voices"
+  "voices.yours": "Your voices",
+  "captions.color": "Color",
+  "captions.colorYellow": "Yellow",
+  "captions.colorGreen": "Green",
+  "captions.colorCyan": "Cyan",
+  "captions.colorWhite": "White",
+  "captions.uppercase": "Uppercase",
+  "captions.autoEmoji": "Auto Emoji",
+  "common.on": "on",
+  "studio.blurBackground": "Blur background"
 }

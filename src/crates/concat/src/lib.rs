@@ -2055,6 +2055,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_captions_sync_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Captions(CaptionsMsg::SyncChanged(index)));
     }));
+    app.on_captions_color_theme_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::ColorThemeChanged(index)));
+    }));
+    app.on_captions_uppercase_toggled(on_window!(|state, on: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::UppercaseToggled(on)));
+    }));
+    app.on_captions_auto_emoji_toggled(on_window!(|state, on: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::AutoEmojiToggled(on)));
+    }));
     app.on_captions_begin(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Begin));
     }));
