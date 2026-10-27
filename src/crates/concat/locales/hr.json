@@ -762,6 +762,7 @@
   "studio.savingFrame": "Spremanje sličice…",
   "studio.selectClipTimelineFirst": "Prvo odaberite klip na vremenskoj liniji",
   "studio.selectClipToCut": "Pod playheadom je više od jednog klipa: odaberi onaj koji treba izrezati",
+  "studio.selectFollowing": "Odaberi sljedeće na traci",
   "studio.selectTwoAdjacentClips": "Odaberite dva isječka koja se dodiruju na istoj traci, zatim odaberite prijelaz",
   "studio.selectVideoImageClip": "Prvo odaberite video ili slikovni klip na vremenskoj liniji",
   "studio.selectVideoImageText": "Prvo odaberite video, slikovni ili tekstualni klip na vremenskoj liniji",

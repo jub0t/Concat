@@ -762,6 +762,7 @@
   "studio.savingFrame": "Сохранение кадра…",
   "studio.selectClipTimelineFirst": "Сначала выберите клип на таймлайне",
   "studio.selectClipToCut": "Под курсором больше одного клипа: выберите, какой резать",
+  "studio.selectFollowing": "Выбрать следующие на дорожке",
   "studio.selectTwoAdjacentClips": "Выберите два клипа, которые стыкуются на одной дорожке, затем выберите переход",
   "studio.selectVideoImageClip": "Сначала выберите видео или изображение на таймлайне",
   "studio.selectVideoImageText": "Сначала выберите видео, изображение или текстовый клип на таймлайне",

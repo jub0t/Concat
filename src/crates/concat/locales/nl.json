@@ -762,6 +762,7 @@
   "studio.savingFrame": "Frame opslaan…",
   "studio.selectClipTimelineFirst": "Selecteer eerst een clip op de tijdlijn",
   "studio.selectClipToCut": "Er staat meer dan één clip onder de afspeelkop: selecteer de clip die je wilt knippen",
+  "studio.selectFollowing": "Volgende op spoor selecteren",
   "studio.selectTwoAdjacentClips": "Selecteer twee clips die elkaar raken op hetzelfde spoor en kies dan een overgang",
   "studio.selectVideoImageClip": "Selecteer eerst een video- of afbeeldingsclip op de tijdlijn",
   "studio.selectVideoImageText": "Selecteer eerst een video-, afbeeldings- of tekstclip op de tijdlijn",

@@ -762,6 +762,7 @@
   "studio.savingFrame": "फ़्रेम सेव हो रहा है…",
   "studio.selectClipTimelineFirst": "पहले टाइमलाइन पर कोई क्लिप चुनें",
   "studio.selectClipToCut": "प्लेहेड के नीचे एक से ज़्यादा क्लिप हैं: जिसे काटना है उसे चुनें",
+  "studio.selectFollowing": "ट्रैक पर अगले क्लिप चुनें",
   "studio.selectTwoAdjacentClips": "एक ही ट्रैक पर आपस में मिलती दो क्लिप चुनें, फिर कोई ट्रांज़िशन चुनें",
   "studio.selectVideoImageClip": "पहले टाइमलाइन पर कोई वीडियो या इमेज क्लिप चुनें",
   "studio.selectVideoImageText": "पहले टाइमलाइन पर कोई वीडियो, इमेज या टेक्स्ट क्लिप चुनें",

@@ -762,6 +762,7 @@
   "studio.savingFrame": "Salvataggio del fotogramma…",
   "studio.selectClipTimelineFirst": "Seleziona prima una clip sulla timeline",
   "studio.selectClipToCut": "Sotto la testina c'è più di una clip: seleziona quella da tagliare",
+  "studio.selectFollowing": "Seleziona successivi sulla traccia",
   "studio.selectTwoAdjacentClips": "Seleziona due clip che si toccano sulla stessa traccia, poi scegli una transizione",
   "studio.selectVideoImageClip": "Seleziona prima una clip video o immagine sulla timeline",
   "studio.selectVideoImageText": "Seleziona prima una clip video, immagine o testo sulla timeline",

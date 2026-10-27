@@ -762,6 +762,7 @@
   "studio.savingFrame": "正在儲存畫格…",
   "studio.selectClipTimelineFirst": "請先在時間軸上選取一個片段",
   "studio.selectClipToCut": "播放磁頭下有多個片段：請選擇要切開的那個",
+  "studio.selectFollowing": "選取軌道上後續片段",
   "studio.selectTwoAdjacentClips": "選取同一軌道上相鄰的兩個片段，然後選擇一個轉場",
   "studio.selectVideoImageClip": "請先在時間軸上選取一個影片或圖片片段",
   "studio.selectVideoImageText": "請先在時間軸上選取一個影片、圖片或文字片段",

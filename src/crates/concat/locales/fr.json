@@ -762,6 +762,7 @@
   "studio.savingFrame": "Enregistrement de l’image…",
   "studio.selectClipTimelineFirst": "Sélectionnez d'abord un clip sur la timeline",
   "studio.selectClipToCut": "Plusieurs clips se trouvent sous la tête de lecture : sélectionnez celui à couper",
+  "studio.selectFollowing": "Sélectionner les suivants sur la piste",
   "studio.selectTwoAdjacentClips": "Sélectionnez deux clips qui se touchent sur la même piste, puis choisissez une transition",
   "studio.selectVideoImageClip": "Sélectionnez d'abord un clip vidéo ou image sur la timeline",
   "studio.selectVideoImageText": "Sélectionnez d'abord un clip vidéo, image ou texte sur la timeline",

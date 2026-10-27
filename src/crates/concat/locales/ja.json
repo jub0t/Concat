@@ -762,6 +762,7 @@
   "studio.savingFrame": "フレームを保存中…",
   "studio.selectClipTimelineFirst": "まずタイムラインでクリップを選択してください",
   "studio.selectClipToCut": "再生ヘッドの下に複数のクリップがあります。切るクリップを選択してください",
+  "studio.selectFollowing": "トラックの後続クリップを選択",
   "studio.selectTwoAdjacentClips": "同じトラックで隣り合う 2つのクリップを選び、トランジションを選択してください",
   "studio.selectVideoImageClip": "まずタイムラインで映像または画像のクリップを選択してください",
   "studio.selectVideoImageText": "まずタイムラインでビデオ、画像、またはテキストのクリップを選択してください",

@@ -762,6 +762,7 @@
   "studio.savingFrame": "Bild wird gespeichert…",
   "studio.selectClipTimelineFirst": "Wähle zuerst einen Clip auf der Zeitleiste",
   "studio.selectClipToCut": "Unter dem Abspielkopf liegt mehr als ein Clip: Wähle den aus, der geschnitten werden soll",
+  "studio.selectFollowing": "Folgende auf Spur auswählen",
   "studio.selectTwoAdjacentClips": "Wähle zwei Clips, die auf derselben Spur aneinanderstoßen, und dann einen Übergang",
   "studio.selectVideoImageClip": "Wähle zuerst einen Video- oder Bildclip auf der Zeitleiste",
   "studio.selectVideoImageText": "Wähle zuerst einen Video-, Bild- oder Textclip auf der Zeitleiste",

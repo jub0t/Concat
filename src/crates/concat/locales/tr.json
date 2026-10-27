@@ -762,6 +762,7 @@
   "studio.savingFrame": "Kare kaydediliyor…",
   "studio.selectClipTimelineFirst": "Önce zaman çizelgesinde bir klip seçin",
   "studio.selectClipToCut": "Oynatma imlecinin altında birden fazla klip var: kesilecek olanı seçin",
+  "studio.selectFollowing": "Kanalda sonrakileri seç",
   "studio.selectTwoAdjacentClips": "Aynı parçada birbirine değen iki klip seçin, sonra bir geçiş seçin",
   "studio.selectVideoImageClip": "Önce zaman çizelgesinde bir video veya görüntü klibi seçin",
   "studio.selectVideoImageText": "Önce zaman çizelgesinde bir video, görüntü veya metin klibi seçin",

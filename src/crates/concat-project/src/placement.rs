@@ -136,16 +136,83 @@ impl Timeline {
         let shift = shifts
             .into_iter()
             .filter(|&shift| fits(shift))
-            .min_by(|a, b| a.abs().total_cmp(&b.abs()))?;
-        Some(
-            wanted
+            .min_by(|a, b| a.abs().total_cmp(&b.abs()));
+
+        if let Some(shift) = shift {
+            return Some(
+                wanted
+                    .into_iter()
+                    .map(|(m, _)| ClipMove {
+                        start: (m.start + shift).max(0.0),
+                        ..m
+                    })
+                    .collect(),
+            );
+        }
+
+        // When no collision-free gap exists on the lane, ripple-push downstream
+        // clips so moving clips forward (e.g. aligning subtitles to vocal onset)
+        // never stalls or drops the gesture.
+        let mut result = Vec::new();
+        let track_ids: HashSet<String> = wanted.iter().map(|(m, _)| m.track_id.clone()).collect();
+        for track_id in track_ids {
+            let mut track_wanted: Vec<(ClipMove, f64)> = wanted
+                .iter()
+                .filter(|(m, _)| m.track_id == track_id)
+                .cloned()
+                .collect();
+            let mut track_staying: Vec<_> = staying
+                .iter()
+                .filter(|clip| clip.track_id == track_id)
+                .cloned()
+                .collect();
+            track_staying.sort_by(|a, b| a.start.total_cmp(&b.start));
+
+            let mut t_earliest = track_wanted
+                .iter()
+                .map(|(m, _)| m.start)
+                .fold(f64::INFINITY, f64::min);
+
+            // Do not cover an upstream clip that ends after t_earliest
+            for s in &track_staying {
+                let s_end = s.start + s.duration;
+                if s.start <= t_earliest && s_end > t_earliest + TOUCH {
+                    let adjust = s_end - t_earliest;
+                    for (m, _) in &mut track_wanted {
+                        m.start += adjust;
+                    }
+                    t_earliest = s_end;
+                }
+            }
+
+            let t_latest_end = track_wanted
+                .iter()
+                .map(|(m, len)| m.start + len)
+                .fold(0.0_f64, f64::max);
+
+            for (m, _) in track_wanted {
+                result.push(m);
+            }
+
+            let downstream: Vec<_> = track_staying
                 .into_iter()
-                .map(|(m, _)| ClipMove {
-                    start: (m.start + shift).max(0.0),
-                    ..m
-                })
-                .collect(),
-        )
+                .filter(|s| s.start + s.duration > t_earliest + TOUCH)
+                .collect();
+
+            if let Some(first) = downstream.first() {
+                let push = (t_latest_end - first.start).max(0.0);
+                if push > 0.0 {
+                    for s in downstream {
+                        result.push(ClipMove {
+                            clip_id: s.id.clone(),
+                            start: s.start + push,
+                            track_id: s.track_id.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        Some(result)
     }
 
     /// The gap a clip sits in on its lane: where the clip before it ends

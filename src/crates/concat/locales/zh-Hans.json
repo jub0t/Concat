@@ -762,6 +762,7 @@
   "studio.savingFrame": "正在保存帧…",
   "studio.selectClipTimelineFirst": "请先在时间线上选择一个片段",
   "studio.selectClipToCut": "播放头下有多个片段：请选择要切开的那个",
+  "studio.selectFollowing": "选择轨道上后续片段",
   "studio.selectTwoAdjacentClips": "选择同一轨道上相邻的两个片段，然后选择一个转场",
   "studio.selectVideoImageClip": "请先在时间线上选择一个视频或图片片段",
   "studio.selectVideoImageText": "请先在时间线上选择一个视频、图片或文本片段",

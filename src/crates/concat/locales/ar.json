@@ -762,6 +762,7 @@
   "studio.savingFrame": "جارٍ حفظ الإطار…",
   "studio.selectClipTimelineFirst": "حدّد مقطعًا على المخطط الزمني أولًا",
   "studio.selectClipToCut": "يوجد أكثر من مقطع تحت مؤشر التشغيل: حدّد المقطع الذي تريد قصّه",
+  "studio.selectFollowing": "تحديد ما يلي على المسار",
   "studio.selectTwoAdjacentClips": "حدّد مقطعين يلتقيان على المسار نفسه، ثم اختر انتقالًا",
   "studio.selectVideoImageClip": "حدّد مقطع فيديو أو صورة على المخطط الزمني أولًا",
   "studio.selectVideoImageText": "حدّد مقطع فيديو أو صورة أو نص على المخطط الزمني أولًا",

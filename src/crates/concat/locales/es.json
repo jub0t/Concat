@@ -762,6 +762,7 @@
   "studio.savingFrame": "Guardando el fotograma…",
   "studio.selectClipTimelineFirst": "Selecciona primero un clip en la línea de tiempo",
   "studio.selectClipToCut": "Hay más de un clip bajo el cabezal: selecciona el que quieres cortar",
+  "studio.selectFollowing": "Seleccionar siguientes en pista",
   "studio.selectTwoAdjacentClips": "Selecciona dos clips que se toquen en la misma pista y luego elige una transición",
   "studio.selectVideoImageClip": "Selecciona primero un clip de vídeo o imagen en la línea de tiempo",
   "studio.selectVideoImageText": "Selecciona primero un clip de vídeo, imagen o texto en la línea de tiempo",

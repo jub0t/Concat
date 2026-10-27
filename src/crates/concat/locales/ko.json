@@ -762,6 +762,7 @@
   "studio.savingFrame": "프레임 저장 중…",
   "studio.selectClipTimelineFirst": "먼저 타임라인에서 클립을 선택하세요",
   "studio.selectClipToCut": "재생 헤드 아래에 클립이 둘 이상 있습니다. 자를 클립을 선택하세요",
+  "studio.selectFollowing": "트랙에서 다음 클립 선택",
   "studio.selectTwoAdjacentClips": "같은 트랙에서 맞닿은 두 클립을 선택한 뒤 전환을 고르세요",
   "studio.selectVideoImageClip": "먼저 타임라인에서 영상 또는 이미지 클립을 선택하세요",
   "studio.selectVideoImageText": "먼저 타임라인에서 영상, 이미지 또는 텍스트 클립을 선택하세요",

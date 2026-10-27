@@ -4866,6 +4866,9 @@ impl Studio {
                 // the drag: the echo shows where the clips will land, in the
                 // nearest gap rather than on top of a clip, or back where
                 // they started when they would cover each other.
+                if let Some(session) = self.session.as_ref() {
+                    self.echo = Some(session.project().clone());
+                }
                 let landed = self.timeline().resolve_moves(&moves).unwrap_or_else(|| {
                     origins
                         .iter()
@@ -11225,6 +11228,13 @@ impl Studio {
                 !locked,
             ),
             action(
+                "select-following",
+                t("studio.selectFollowing"),
+                Glyph::None,
+                "",
+                true,
+            ),
+            action(
                 "paste",
                 t("studio.paste"),
                 Glyph::Plus,
@@ -12066,6 +12076,24 @@ impl Studio {
             return;
         };
         match action {
+            "select-following" => {
+                let track_id = clip.track_id.clone();
+                let start = clip.start;
+                let mut following: Vec<String> = self
+                    .timeline()
+                    .clips
+                    .iter()
+                    .filter(|other| other.track_id == track_id && other.start >= start - 1e-4)
+                    .map(|other| other.id.clone())
+                    .collect();
+                following.sort_by(|a, b| {
+                    let a_start = self.clip(a).map_or(0.0, |c| c.start);
+                    let b_start = self.clip(b).map_or(0.0, |c| c.start);
+                    a_start.total_cmp(&b_start)
+                });
+                self.selection = following;
+                self.transition_selected = None;
+            }
             "copy" => self.copy_clips(Some(id)),
             "duplicate" => self.duplicate_selected(),
             // Pasted after the clip that was right-clicked, on its lane.

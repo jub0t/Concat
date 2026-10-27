@@ -762,6 +762,7 @@
   "studio.savingFrame": "Menyimpan bingkai…",
   "studio.selectClipTimelineFirst": "Pilih klip di linimasa dulu",
   "studio.selectClipToCut": "Ada lebih dari satu klip di penanda putar: pilih klip yang akan dipotong",
+  "studio.selectFollowing": "Pilih berikutnya di trek",
   "studio.selectTwoAdjacentClips": "Pilih dua klip yang bersambung di trek yang sama, lalu pilih transisi",
   "studio.selectVideoImageClip": "Pilih klip video atau gambar di linimasa dulu",
   "studio.selectVideoImageText": "Pilih klip video, gambar, atau teks di linimasa dulu",

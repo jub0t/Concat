@@ -762,6 +762,7 @@
   "studio.savingFrame": "Zapisywanie klatki…",
   "studio.selectClipTimelineFirst": "Najpierw zaznacz klip na osi czasu",
   "studio.selectClipToCut": "Pod głowicą jest więcej niż jeden klip: zaznacz ten, który chcesz przeciąć",
+  "studio.selectFollowing": "Zaznacz następne na ścieżce",
   "studio.selectTwoAdjacentClips": "Zaznacz dwa klipy, które stykają się na tej samej ścieżce, a potem wybierz przejście",
   "studio.selectVideoImageClip": "Najpierw zaznacz na osi czasu klip wideo lub obraz",
   "studio.selectVideoImageText": "Najpierw zaznacz na osi czasu klip wideo, obraz lub tekst",
