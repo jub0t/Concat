@@ -281,15 +281,15 @@ impl CaptionsPane {
                                     if ripple {
                                         for seg in &mut segments {
                                             for w in &mut seg.words {
-                                                let orig_s = w.start as f64;
-                                                let orig_e = w.end as f64;
-                                                w.start = shift_time_for_removed_spans(orig_s, &filler_spans) as f32;
-                                                w.end = shift_time_for_removed_spans(orig_e, &filler_spans) as f32;
+                                                let orig_s = w.start;
+                                                let orig_e = w.end;
+                                                w.start = shift_time_for_removed_spans(orig_s, &filler_spans);
+                                                w.end = shift_time_for_removed_spans(orig_e, &filler_spans);
                                             }
-                                            let seg_s = seg.start as f64;
-                                            let seg_e = seg.end as f64;
-                                            seg.start = shift_time_for_removed_spans(seg_s, &filler_spans) as f32;
-                                            seg.end = shift_time_for_removed_spans(seg_e, &filler_spans) as f32;
+                                            let seg_s = seg.start;
+                                            let seg_e = seg.end;
+                                            seg.start = shift_time_for_removed_spans(seg_s, &filler_spans);
+                                            seg.end = shift_time_for_removed_spans(seg_e, &filler_spans);
                                         }
                                     }
                                     for seg in &mut segments {

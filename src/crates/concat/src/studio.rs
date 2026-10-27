@@ -12478,7 +12478,7 @@ impl Studio {
         };
         self.apply(Command::UpdateClip {
             clip_id: id.to_owned(),
-            patch: concat_project::ClipPatch {
+            patch: ClipPatch {
                 filters: Some(filters),
                 ..Default::default()
             },
