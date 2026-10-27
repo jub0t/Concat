@@ -36,7 +36,7 @@
     </td>
       <td align="center">
       <a href="https://www.patreon.com/cw/jub0t"><b>Support Concat</b></a><br />
-      <sub>Concat needs your donations to continue development,<br/>we have come too far to stop 😢</sub>
+      <sub>Concat needs your donations to continue development,<br/>we have come too far to back down now 😢</sub>
     </td>
   </tr>
 </table>
