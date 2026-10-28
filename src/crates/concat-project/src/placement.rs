@@ -72,7 +72,7 @@ impl Timeline {
     /// track leaves its clip on the lane it is on. None when the moved
     /// clips would cover each other, which no shift in time can fix.
     pub fn resolve_moves(&self, moves: &[ClipMove]) -> Option<Vec<ClipMove>> {
-        let wanted: Vec<(ClipMove, f64)> = moves
+        let mut wanted: Vec<(ClipMove, f64)> = moves
             .iter()
             .filter_map(|wanted| {
                 let clip = self.clip(&wanted.clip_id)?;
@@ -94,12 +94,17 @@ impl Timeline {
         if wanted.is_empty() {
             return Some(Vec::new());
         }
-        for (i, (a, a_len)) in wanted.iter().enumerate() {
-            for (b, b_len) in &wanted[i + 1..] {
-                if a.track_id == b.track_id
-                    && covers(a.start, a.start + a_len, b.start, b.start + b_len)
-                {
-                    return None;
+        // Ensure moved clips on the same track do not cover each other;
+        // if micro-overlaps exist (from speech captions, float rounding, or group clamping),
+        // adjust downstream starts so the drag never locks up.
+        wanted.sort_by(|(a, _), (b, _)| {
+            a.track_id.cmp(&b.track_id).then_with(|| a.start.total_cmp(&b.start))
+        });
+        for i in 0..wanted.len().saturating_sub(1) {
+            if wanted[i].0.track_id == wanted[i + 1].0.track_id {
+                let a_end = wanted[i].0.start + wanted[i].1;
+                if wanted[i + 1].0.start < a_end {
+                    wanted[i + 1].0.start = a_end;
                 }
             }
         }

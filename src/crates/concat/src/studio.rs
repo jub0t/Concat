@@ -4841,7 +4841,11 @@ impl Studio {
                     })
                     .flatten()
                     .collect();
-                let shift = seconds + self.snap_shift(&edges, threshold, &moving);
+                let earliest_origin = origins
+                    .iter()
+                    .map(|o| o.start)
+                    .fold(f32::INFINITY, f32::min);
+                let shift = (seconds + self.snap_shift(&edges, threshold, &moving)).max(-earliest_origin);
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
                 let moves: Vec<ClipMove> = origins
