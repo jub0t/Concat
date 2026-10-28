@@ -253,6 +253,8 @@ export global Editor {
     callback step-frames(frames: float);
     callback ratio-changed(index: int);
     callback quality-changed(index: int);
+    in-out property <bool> fullscreen-preview: false;
+    callback toggle-fullscreen-preview();
 
     /// Every picture under the playhead, placed as the compositor places it.
     /// The stage outlines the selected ones and lets them be moved, scaled

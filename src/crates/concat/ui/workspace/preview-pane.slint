@@ -13,6 +13,7 @@ import { Pane, PaneHeader } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { ClipKind, StageGuideData, StageItemData } from "../timeline/model.slint";
 import { ContextMenu, MenuMetrics, MenuRow } from "../primitives/context-menu.slint";
+import { Editor } from "../editor.slint";
 
 // The programme monitor: a header that says what the output is, a stage on a
 // sunken viewport, and a transport tray under it in three parts — timecode on
@@ -1265,16 +1266,22 @@ export component PreviewPane inherits Rectangle {
                         }
                     }
 
-                    // The one control the view needs: the way back. The
-                    // zoom itself is the wheel's, and a readout of it was
-                    // width spent on a number nobody steers by.
+                    if !viewport.fitted: VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            glyph: Glyph.reset;
+                            label: I18n.t("previewPane.fitFramePane");
+                            clicked => { viewport.fit(); }
+                        }
+                    }
+
                     VerticalLayout {
                         alignment: center;
                         IconButton {
                             glyph: Glyph.fit;
-                            label: I18n.t("previewPane.fitFramePane");
-                            enabled: !viewport.fitted;
-                            clicked => { viewport.fit(); }
+                            label: I18n.t("previewPane.fullscreen");
+                            enabled: true;
+                            clicked => { Editor.toggle-fullscreen-preview(); }
                         }
                     }
                 }

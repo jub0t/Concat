@@ -1353,6 +1353,20 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
     }));
+    editor.on_toggle_fullscreen_preview({
+        let app = app.as_weak();
+        move || {
+            let Some(app) = app.upgrade() else { return };
+            let editor = app.global::<Editor>();
+            let next = !editor.get_fullscreen_preview();
+            editor.set_fullscreen_preview(next);
+            if next {
+                platform::toggle_fullscreen(app.window());
+            } else if platform::is_fullscreen(app.window()) {
+                platform::toggle_fullscreen(app.window());
+            }
+        }
+    });
     app.global::<FontSearch>()
         .on_query_changed(on_window!(|state, text: SharedString| {
             state.font_query = text.to_string();
@@ -1631,6 +1645,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             let Some(chord) = chord else {
                 return;
             };
+            if chord == "escape" {
+                let editor = app.global::<Editor>();
+                if editor.get_fullscreen_preview() {
+                    editor.set_fullscreen_preview(false);
+                    if platform::is_fullscreen(app.window()) {
+                        platform::toggle_fullscreen(app.window());
+                    }
+                    handled = true;
+                    return;
+                }
+            }
             if on_start {
                 // The launch screen has no project to act on. Capture
                 // is handled above, so its keys work there too.
@@ -1672,6 +1697,16 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 // The chords that are also menu rows go through the
                 // menu's own handler, so the key and the row cannot come
                 // apart — the same door on_shortcut keeps open.
+                "fullscreen" => {
+                    let editor = app.global::<Editor>();
+                    let next = !editor.get_fullscreen_preview();
+                    editor.set_fullscreen_preview(next);
+                    if next {
+                        platform::toggle_fullscreen(app.window());
+                    } else if platform::is_fullscreen(app.window()) {
+                        platform::toggle_fullscreen(app.window());
+                    }
+                }
                 "save" | "undo" | "redo" | "import" | "export" | "settings" | "zoom-in"
                 | "zoom-out" | "start" | "end" | "snap" | "pan" | "preview-axis" | "delete" => {
                     app.invoke_app_menu_selected(SharedString::from(action));

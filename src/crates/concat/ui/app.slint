@@ -33,6 +33,7 @@ import { AvatarData } from "primitives/avatar.slint";
 import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
+import { FullscreenPreview } from "workspace/fullscreen-preview.slint";
 import { PaneKind, Panes } from "workspace/pane-switcher.slint";
 import { ChipOption, NewProjectDialog, RecentProjectData, StartData, StartScreen } from "start.slint";
 import { TitleBar } from "title-bar.slint";
@@ -951,6 +952,22 @@ export component App inherits Window {
         dismissed => { root.confirm-dismissed(); }
     }
 
+
+    if Editor.fullscreen-preview: FullscreenPreview {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        frame: Editor.preview-frame;
+        playhead: Editor.playhead;
+        duration: Editor.duration-seconds;
+        playing: Editor.playing;
+        has-picture: Editor.has-picture;
+        play-toggled => { Editor.play-toggled(); }
+        seek(seconds) => { Editor.seek(seconds); }
+        step(frames) => { Editor.step-frames(frames); }
+        close => { Editor.toggle-fullscreen-preview(); }
+    }
 
     // Over the workspace and both sheets, under the menus. A tooltip has to
     // clear the pane it belongs to — panes clip — and it has no business over

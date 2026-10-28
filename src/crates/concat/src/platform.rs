@@ -671,6 +671,47 @@ pub fn toggle_maximize(window: &slint::Window) {
     let _ = window;
 }
 
+/// Toggles fullscreen, or restores it.
+pub fn toggle_fullscreen(window: &slint::Window) -> bool {
+    #[cfg(not(target_os = "android"))]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        use slint::winit_030::winit::window::Fullscreen;
+        window
+            .with_winit_window(|window| {
+                if window.fullscreen().is_some() {
+                    window.set_fullscreen(None);
+                    false
+                } else {
+                    window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                    true
+                }
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = window;
+        false
+    }
+}
+
+/// Whether the window is currently in fullscreen mode.
+pub fn is_fullscreen(window: &slint::Window) -> bool {
+    #[cfg(not(target_os = "android"))]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        window
+            .with_winit_window(|window| window.fullscreen().is_some())
+            .unwrap_or(false)
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = window;
+        false
+    }
+}
+
 /// Asks for a folder, starting at `start` when there is one.
 pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]

@@ -1,0 +1,264 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { Fmt } from "../util.slint";
+import { I18n } from "../i18n.slint";
+
+export component FullscreenPreview inherits Rectangle {
+    in property <image> frame;
+    in property <float> playhead;
+    in property <float> duration;
+    in property <bool> playing;
+    in property <bool> has-picture;
+
+    callback play-toggled();
+    callback seek(seconds: float);
+    callback step(frames: float);
+    callback close();
+
+    property <bool> show-controls: true;
+    property <bool> timer-running: true;
+
+    width: 100%;
+    height: 100%;
+    background: #000000;
+
+    // Controls auto-fade timer after inactivity while playing
+    Timer {
+        interval: 3500ms;
+        running: root.timer-running && root.playing;
+        triggered => {
+            root.show-controls = false;
+            root.timer-running = false;
+        }
+    }
+
+    function ping-controls() {
+        root.show-controls = true;
+        root.timer-running = true;
+    }
+
+    // Video Image layer (centered, full size, aspect-preserved)
+    if root.has-picture && root.frame.width > 0: Image {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        source: root.frame;
+        image-fit: contain;
+    }
+
+    if !root.has-picture: VerticalLayout {
+        alignment: center;
+        spacing: 12px;
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                glyph: Glyph.film;
+                size: 40px;
+                tint: Theme.fg-dim;
+            }
+        }
+        Text {
+            text: I18n.t("previewPane.nothingUnderThePlayhead");
+            color: Theme.fg-dim;
+            font-size: Theme.fs-lg;
+            horizontal-alignment: center;
+        }
+    }
+
+    // Full screen gesture area (click toggles play/pause, move shows controls)
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: root.show-controls ? MouseCursor.default : MouseCursor.none;
+        moved => { root.ping-controls(); }
+        clicked => {
+            root.ping-controls();
+            root.play-toggled();
+        }
+        double-clicked => {
+            root.close();
+        }
+    }
+
+    // Top Right Exit Button
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: 72px;
+        opacity: root.show-controls ? 1.0 : 0.0;
+        animate opacity { duration: 180ms; easing: ease-out; }
+
+        HorizontalLayout {
+            padding-right: 24px;
+            padding-top: 20px;
+            alignment: end;
+
+            close_btn := Rectangle {
+                width: 40px;
+                height: 40px;
+                border-radius: 20px;
+                background: close_touch.has-hover ? #2a2a2eee : #161618cc;
+                border-width: 1px;
+                border-color: #ffffff1f;
+                animate background { duration: 120ms; }
+
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: Glyph.close;
+                            size: 18px;
+                            tint: #ffffff;
+                        }
+                    }
+                }
+
+                close_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+    }
+
+    // Bottom Floating HUD Player
+    hud := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - (root.show-controls ? 24px : -80px);
+        width: Math.min(parent.width - 48px, 720px);
+        height: 56px;
+        background: #121214e6;
+        border-radius: 14px;
+        border-width: 1px;
+        border-color: #ffffff26;
+        opacity: root.show-controls ? 1.0 : 0.0;
+        animate opacity { duration: 200ms; easing: ease-out; }
+        animate y { duration: 220ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+        clip: true;
+
+        TouchArea {
+            // Keep controls alive when interacting with the HUD
+            moved => { root.ping-controls(); }
+        }
+
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 12px;
+            alignment: center;
+
+            // Step back 1 frame
+            IconButton {
+                glyph: Glyph.step-back;
+                label: I18n.t("previewPane.previousFrame");
+                clicked => {
+                    root.ping-controls();
+                    root.step(-1);
+                }
+            }
+
+            // Play / Pause Circle Button
+            play_circle := Rectangle {
+                width: 36px;
+                height: 36px;
+                border-radius: 18px;
+                background: play_touch.has-hover ? Theme.accent-hover : Theme.accent;
+                animate background { duration: 120ms; }
+
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: root.playing ? Glyph.pause : Glyph.play;
+                            size: 16px;
+                            tint: Theme.on-accent;
+                        }
+                    }
+                }
+
+                play_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.ping-controls();
+                        root.play-toggled();
+                    }
+                }
+            }
+
+            // Step forward 1 frame
+            IconButton {
+                glyph: Glyph.step-forward;
+                label: I18n.t("previewPane.nextFrame");
+                clicked => {
+                    root.ping-controls();
+                    root.step(1);
+                }
+            }
+
+            // Timecode display
+            Text {
+                text: "\{Fmt.timecode(root.playhead)} / \{Fmt.timecode(root.duration)}";
+                color: #ffffff;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+            }
+
+            // Scrubber Bar
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 24px;
+
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    height: 5px;
+                    border-radius: 2.5px;
+                    background: #ffffff33;
+
+                    Rectangle {
+                        x: 0;
+                        width: root.duration > 0
+                            ? parent.width * Math.max(0.0, Math.min(1.0, root.playhead / root.duration))
+                            : 0px;
+                        height: parent.height;
+                        border-radius: 2.5px;
+                        background: Theme.accent;
+                    }
+                }
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    pointer-event(event) => {
+                        root.ping-controls();
+                        if (event.kind == PointerEventKind.down && root.duration > 0) {
+                            let frac = Math.max(0.0, Math.min(1.0, self.mouse-x / self.width));
+                            root.seek(frac * root.duration);
+                        }
+                    }
+                    moved => {
+                        root.ping-controls();
+                        if (self.pressed && root.duration > 0) {
+                            let frac = Math.max(0.0, Math.min(1.0, self.mouse-x / self.width));
+                            root.seek(frac * root.duration);
+                        }
+                    }
+                }
+            }
+
+            // Exit Fullscreen Button
+            IconButton {
+                glyph: Glyph.fit;
+                label: I18n.t("previewPane.fullscreen");
+                clicked => { root.close(); }
+            }
+        }
+    }
+}
