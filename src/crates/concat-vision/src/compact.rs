@@ -390,8 +390,12 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// What the tests of this crate share.
-#[cfg(test)]
+/// What the tests of this crate share: the one caller is the CoreML
+/// probe, which only exists on Apple targets with the inference engine
+/// built. Elsewhere the re-export has no reader, and `-D warnings` calls
+/// it an unused import - so it wears the probe's own gate, and a test
+/// build on any other target never sees it.
+#[cfg(all(test, feature = "infer", target_vendor = "apple"))]
 pub(crate) mod tests_support {
     pub(crate) use super::tests::fetched_model;
 }
