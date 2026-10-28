@@ -812,7 +812,7 @@ export component ConfigPane inherits Rectangle {
                         applied: root.applied-audio;
                         params: root.audio-params;
                         add(id) => { root.chain-add(true, id); }
-                        remove(index) => { root.chain-remove(true, index); }
+                        toggle-entry(index) => { root.chain-toggle(true, index); }
                         set-param(index, key, value) => {
                             root.chain-set-param(true, index, key, value);
                         }

@@ -1543,7 +1543,7 @@ export component PhoneEditor inherits Rectangle {
                 applied: Editor.applied-audio;
                 params: Editor.audio-params;
                 add(id) => { Editor.chain-add(true, id); }
-                remove(index) => { Editor.chain-remove(true, index); }
+                toggle-entry(index) => { Editor.chain-toggle(true, index); }
                 set-param(index, key, value) => {
                     Editor.chain-set-param(true, index, key, value);
                 }

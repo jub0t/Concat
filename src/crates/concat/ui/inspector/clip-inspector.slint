@@ -838,8 +838,9 @@ component Processor inherits VerticalLayout {
 /// the effect library and onto the tab itself.
 ///
 /// They are ordinary links of the audio chain - the same packages the
-/// library lists, added and removed by the same callbacks - and nothing here
-/// knows what they do. What they get is a switch instead of a search: a
+/// library lists, added and bypassed by the same callbacks - and nothing here
+/// knows what they do. Bypassing keeps their settings for the next use.
+/// What they get is a switch instead of a search: a
 /// person opening the Sound tab to fix a noisy lavalier should not have to
 /// know that "Reduce noise" is filed under a shelf.
 ///
@@ -851,7 +852,7 @@ export component ProcessorRows inherits VerticalLayout {
     in property <[AppliedParamData]> params;
 
     callback add(id: string);
-    callback remove(index: int);
+    callback toggle-entry(index: int);
     callback set-param(index: int, key: string, value: float);
     callback commit();
 
@@ -869,9 +870,13 @@ export component ProcessorRows inherits VerticalLayout {
             : -1;
     }
 
-    function toggle(id: string) {
+    public pure function is-on(id: string) -> bool {
+        return root.at(id) >= 0 && root.applied[root.at(id)].on;
+    }
+
+    public function toggle(id: string) {
         if (root.at(id) >= 0) {
-            root.remove(root.at(id));
+            root.toggle-entry(root.at(id));
         } else {
             root.add(id);
         }
@@ -886,7 +891,7 @@ export component ProcessorRows inherits VerticalLayout {
             Processor {
                 label: I18n.t("clipInspector.normalizeLoudness");
                 note: I18n.t("clipInspector.bringsClipBroadcastLevel");
-                on: root.at("concat.loudness") >= 0;
+                on: root.is-on("concat.loudness");
                 entry: root.at("concat.loudness");
                 params: root.params;
                 toggled => { root.toggle("concat.loudness"); }
@@ -897,7 +902,7 @@ export component ProcessorRows inherits VerticalLayout {
             Processor {
                 label: I18n.t("clipInspector.reduceNoise");
                 note: I18n.t("clipInspector.takesRoomsHissHum");
-                on: root.at("concat.denoise") >= 0;
+                on: root.is-on("concat.denoise");
                 entry: root.at("concat.denoise");
                 params: root.params;
                 toggled => { root.toggle("concat.denoise"); }
@@ -908,7 +913,7 @@ export component ProcessorRows inherits VerticalLayout {
             Processor {
                 label: I18n.t("clipInspector.enhanceVoice");
                 note: I18n.t("clipInspector.liftsSpeechOutMix");
-                on: root.at("concat.enhance-voice") >= 0;
+                on: root.is-on("concat.enhance-voice");
                 entry: root.at("concat.enhance-voice");
                 params: root.params;
                 toggled => { root.toggle("concat.enhance-voice"); }

@@ -178,5 +178,9 @@ slint-build = "1.18"
 # Used only when the target is Windows; see build.rs.
 winresource = "0.1"
 
+[dev-dependencies]
+i-slint-backend-testing = "1.18"
+tempfile = "3"
+
 [lints]
 workspace = true

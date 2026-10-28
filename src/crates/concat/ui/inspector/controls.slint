@@ -561,8 +561,9 @@ export component Switch inherits Rectangle {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
-            root.checked = !root.checked;
-            root.toggled(root.checked);
+            // The caller owns the value. Assigning here breaks its binding
+            // to the selected clip, so later selections and undo go stale.
+            root.toggled(!root.checked);
         }
     }
 }
