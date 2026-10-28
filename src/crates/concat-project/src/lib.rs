@@ -2610,14 +2610,14 @@ mod tests {
         clip["scale"] = serde_json::json!(50.0);
         clip["offsetX"] = serde_json::json!(-9.0);
         clip["rotation"] = serde_json::json!(540.0);
-        clip["speed"] = serde_json::json!(100.0);
+        clip["speed"] = serde_json::json!(500.0);
         let loaded = Editor::from_document(&document).expect("loads");
         let clip = &loaded.project().active().clips[0];
         assert_eq!(clip.duration, 1.0 / 60.0);
         assert_eq!(clip.scale, 8.0);
         assert_eq!(clip.offset_x, -3.0);
         assert_eq!(clip.rotation, 180.0);
-        assert_eq!(clip.speed, 16.0);
+        assert_eq!(clip.speed, 100.0);
     }
 
     #[test]
@@ -3245,10 +3245,10 @@ mod tests {
             .apply(Command::SetClipSpeed {
                 clip_id: clip_id.clone(),
                 ripple: false,
-                speed: 100.0,
+                speed: 500.0,
             })
             .expect("ok");
-        assert_eq!(editor.project().active().clips[0].speed, 16.0);
+        assert_eq!(editor.project().active().clips[0].speed, 100.0);
         editor
             .apply(Command::SetClipSpeed {
                 clip_id,
@@ -5347,7 +5347,7 @@ mod tests {
             "clips": [
                 { "id": "c1", "trackId": "T1", "mediaId": "m1", "kind": "video",
                   "start": -4.0, "duration": -3.0, "sourceStart": -1.0,
-                  "volume": -2.0, "opacity": 2.0, "speed": 100.0, "scale": 0.0,
+                  "volume": -2.0, "opacity": 2.0, "speed": 500.0, "scale": 0.0,
                   "transitionIn": { "id": "cross-fade", "duration": 0.0 } },
                 { "id": "c2", "trackId": "T1", "kind": "text", "start": 0.0, "duration": 1.0,
                   "text": { "content": "Hi", "fontSize": 0.0, "fontWeight": 9999.0,
@@ -5361,7 +5361,7 @@ mod tests {
         assert_eq!(clip.source_start, 0.0);
         assert_eq!(clip.volume, 0.0);
         assert_eq!(clip.opacity, 1.0);
-        assert_eq!(clip.speed, 16.0);
+        assert_eq!(clip.speed, 100.0);
         assert_eq!(clip.scale, 0.05);
         assert_eq!(clip.transition_in.as_ref().expect("kept").duration, 0.1);
 
