@@ -23,6 +23,12 @@ use concat_project::Command;
 use concat_project::model::{ClipKind, TextStyle};
 use concat_project::srt;
 use concat_speech::JobStage;
+
+struct CaptionDraft {
+    text: String,
+    start: f64,
+    duration: f64,
+}
 use concat_speech::transcribe::Segment;
 
 use crate::host::{on_ui_in_project, spawn_in_project};
@@ -309,25 +315,19 @@ impl CaptionsPane {
                             _ => 0.0,
                         };
                         let color = theme_color(subject.color_theme);
-                        let commands: Vec<Command> = match subject.style {
+                        let mut drafts: Vec<CaptionDraft> = match subject.style {
                             // 1: Dynamic Word-by-Word (CapCut / TikTok viral short-form style)
                             1 => segments
                                 .into_iter()
                                 .flat_map(|segment| {
-                                    let base_ref = base.as_ref();
                                     let uppercase = subject.uppercase;
                                     let auto_emoji = subject.auto_emoji;
                                     segment.words.into_iter().filter_map(move |w| {
                                         let text = format_caption_text(&w.word, uppercase, auto_emoji);
-                                        (!text.is_empty()).then(|| {
-                                            dynamic_word_clip(
-                                                text,
-                                                (subject.start + (w.start + sync_offset) / subject.speed).max(0.0),
-                                                ((w.end - w.start) / subject.speed).max(0.16),
-                                                look,
-                                                base_ref,
-                                                color,
-                                            )
+                                        (!text.is_empty()).then(|| CaptionDraft {
+                                            text,
+                                            start: (subject.start + (w.start + sync_offset) / subject.speed).max(0.0),
+                                            duration: ((w.end - w.start) / subject.speed).max(0.12),
                                         })
                                     })
                                 })
@@ -336,7 +336,6 @@ impl CaptionsPane {
                             2 => segments
                                 .into_iter()
                                 .flat_map(|segment| {
-                                    let base_ref = base.as_ref();
                                     let full_words: Vec<String> = segment
                                         .words
                                         .iter()
@@ -369,14 +368,11 @@ impl CaptionsPane {
                                                 text_line.push_str(&word_text);
                                             }
                                         }
-                                        Some(karaoke_caption_clip(
-                                            text_line,
-                                            (subject.start + (w.start + sync_offset) / subject.speed).max(0.0),
-                                            ((w.end - w.start) / subject.speed).max(0.18),
-                                            look,
-                                            base_ref,
-                                            color,
-                                        ))
+                                        Some(CaptionDraft {
+                                            text: text_line,
+                                            start: (subject.start + (w.start + sync_offset) / subject.speed).max(0.0),
+                                            duration: ((w.end - w.start) / subject.speed).max(0.15),
+                                        })
                                     })
                                 })
                                 .collect(),
@@ -385,19 +381,34 @@ impl CaptionsPane {
                                 .into_iter()
                                 .filter_map(|segment| {
                                     let text = format_caption_text(&segment.text, subject.uppercase, subject.auto_emoji);
-                                    (!text.is_empty()).then(|| {
-                                        caption_clip(
-                                            text,
-                                            (subject.start + (segment.start + sync_offset) / subject.speed).max(0.0),
-                                            ((segment.end - segment.start) / subject.speed).max(0.2),
-                                            look,
-                                            base.as_ref(),
-                                            color,
-                                        )
+                                    (!text.is_empty()).then(|| CaptionDraft {
+                                        text,
+                                        start: (subject.start + (segment.start + sync_offset) / subject.speed).max(0.0),
+                                        duration: ((segment.end - segment.start) / subject.speed).max(0.2),
                                     })
                                 })
                                 .collect(),
                         };
+
+                        // Anti-overlap: sort and clamp durations so no two captions ever overlap or split tracks
+                        if !drafts.is_empty() {
+                            drafts.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal));
+                            for i in 0..drafts.len().saturating_sub(1) {
+                                let next_start = drafts[i + 1].start;
+                                if drafts[i].start + drafts[i].duration > next_start {
+                                    drafts[i].duration = (next_start - drafts[i].start).max(0.04);
+                                }
+                            }
+                        }
+
+                        let commands: Vec<Command> = drafts
+                            .into_iter()
+                            .map(|d| match subject.style {
+                                1 => dynamic_word_clip(d.text, d.start, d.duration, look, base.as_ref(), color),
+                                2 => karaoke_caption_clip(d.text, d.start, d.duration, look, base.as_ref(), color),
+                                _ => caption_clip(d.text, d.start, d.duration, look, base.as_ref(), color),
+                            })
+                            .collect();
                         let count = commands.len();
                         self.open = false;
                         if count == 0 {
