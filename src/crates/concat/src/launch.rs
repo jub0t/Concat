@@ -6,13 +6,17 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --software | --mcp [auto|window|headless] | --version | --smoke | --whisper-cpu]";
+const USAGE: &str = "usage: concat [<FILE>... | --project <PROJECT_DIRECTORY> | --software | --mcp [auto|window|headless] | --version | --smoke | --whisper-cpu]";
 
 /// What one run of the binary was asked to do.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Launch {
     /// The window, on the launch screen or on the project it names.
     Normal(Option<PathBuf>),
+    /// The window with files handed to it: what a file manager's Open with
+    /// runs. A project folder among them opens; media goes into a new
+    /// project in the shape of its picture, on the timeline.
+    Open(Vec<PathBuf>),
     /// The window on the launch screen, drawn in software from now on: what
     /// the Start menu's "Concat (safe graphics)" runs, for a driver that
     /// draws the window as coloured squares, where Settings' GPU switch
@@ -42,12 +46,23 @@ pub enum Launch {
     WhisperCpu,
 }
 
-/// No arguments preserves the launch screen; a project names its directory.
+/// No arguments preserves the launch screen; a project names its directory;
+/// anything that is not an option is a file to open.
 pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String> {
     let mut args = args.into_iter();
     let Some(option) = args.next() else {
         return Ok(Launch::Normal(None));
     };
+    if is_path(&option) {
+        let mut paths = vec![PathBuf::from(option)];
+        for arg in args {
+            if !is_path(&arg) {
+                return Err(USAGE.into());
+            }
+            paths.push(PathBuf::from(arg));
+        }
+        return Ok(Launch::Open(paths));
+    }
     let launch = if option == "--version" {
         Launch::Version
     } else if option == "--smoke" {
@@ -78,6 +93,13 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String>
         return Err(USAGE.into());
     }
     Ok(launch)
+}
+
+/// Whether an argument names a file rather than an option. Explorer and
+/// the desktop's file managers hand over full paths, so one that starts
+/// with a dash is an option, known or not, and never a file.
+fn is_path(arg: &OsString) -> bool {
+    !arg.is_empty() && !arg.as_encoded_bytes().starts_with(b"-")
 }
 
 #[cfg(test)]
@@ -151,7 +173,40 @@ mod tests {
             vec!["--project", "--project"],
             vec!["--project", "one", "--project", "two"],
             vec!["--unknown"],
-            vec!["one"],
+            vec!["-u"],
+            vec![""],
+        ] {
+            assert!(parse_strs(&args).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn opens_the_files_it_is_handed() {
+        assert_eq!(
+            parse_strs(&[r"C:\Users\me\Videos\Café com amigos.mp4"]).unwrap(),
+            Launch::Open(vec![PathBuf::from(
+                r"C:\Users\me\Videos\Café com amigos.mp4"
+            )])
+        );
+        assert_eq!(
+            parse_strs(&["one.mp4", "two.wav", "podcasts/episode"]).unwrap(),
+            Launch::Open(vec![
+                PathBuf::from("one.mp4"),
+                PathBuf::from("two.wav"),
+                PathBuf::from("podcasts/episode"),
+            ])
+        );
+    }
+
+    #[test]
+    fn files_and_options_do_not_mix() {
+        for args in [
+            vec!["one.mp4", "--version"],
+            vec!["one.mp4", "--project", "two"],
+            vec!["one.mp4", "-u"],
+            vec!["one.mp4", ""],
+            vec!["--project", "one", "two.mp4"],
+            vec!["--software", "one.mp4"],
         ] {
             assert!(parse_strs(&args).is_err(), "{args:?}");
         }
@@ -164,7 +219,11 @@ mod tests {
         let path = OsString::from_vec(vec![b'/', 0xff]);
         assert_eq!(
             parse([OsString::from("--project"), path.clone()]).unwrap(),
-            Launch::Normal(Some(PathBuf::from(path)))
+            Launch::Normal(Some(PathBuf::from(path.clone())))
+        );
+        assert_eq!(
+            parse([path.clone()]).unwrap(),
+            Launch::Open(vec![PathBuf::from(path)])
         );
     }
 }

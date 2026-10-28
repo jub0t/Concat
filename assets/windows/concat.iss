@@ -58,6 +58,9 @@ ArchitecturesInstallIn64BitMode={#Arch}
 ; administrator to install a video editor into one's own account.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; Explorer is told when the Open with entries below come and go, so they
+; show without a sign-out.
+ChangesAssociations=yes
 ; Follow Windows' display language when the setup speaks it, and ask only
 ; when it does not.
 ShowLanguageDialog=auto
@@ -113,6 +116,29 @@ Name: "{autoprograms}\Concat"; Filename: "{app}\concat.exe"; IconFilename: "{app
 ; it turns off Settings > General > Draw on the GPU, which that window hides.
 Name: "{autoprograms}\Concat (safe graphics)"; Filename: "{app}\concat.exe"; Parameters: "--software"; IconFilename: "{app}\concat.ico"
 Name: "{autodesktop}\Concat"; Filename: "{app}\concat.exe"; IconFilename: "{app}\concat.ico"; Tasks: desktopicon
+
+[Registry]
+; Concat in Explorer's Open with for the video and sound files its Import
+; takes, beside whatever opens them now and never in its place: nothing
+; here makes Concat the default. The file goes to concat.exe, which opens
+; it in a new project in the shape of its picture. HKA is the user's
+; own classes for a per-user install and the machine's for an all-users
+; one. Kept in step with concat.wxs.
+Root: HKA; Subkey: "Software\Classes\Concat.Media"; ValueType: string; ValueName: ""; ValueData: "Concat media"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Concat.Media\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\concat.exe"",0"
+Root: HKA; Subkey: "Software\Classes\Concat.Media\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\concat.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.mp4\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.mov\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.mkv\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.avi\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.m4v\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.mp3\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.wav\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.aac\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.m4a\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.flac\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.ogg\OpenWithProgids"; ValueType: string; ValueName: "Concat.Media"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
 
 [Run]
 Filename: "{app}\concat.exe"; Description: "{cm:LaunchProgram,Concat}"; Flags: nowait postinstall skipifsilent

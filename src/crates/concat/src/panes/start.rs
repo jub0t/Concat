@@ -7,12 +7,17 @@
 
 use std::path::{Path, PathBuf};
 
+use concat_host::media::MediaSummary;
 use concat_host::projects;
+use concat_project::Command;
+use concat_project::model::MediaKind;
 
+use crate::host::probe_error;
 use crate::i18n::{t, tf};
 use crate::platform;
 use crate::studio::{
-    ASPECTS, RATES, SIZES, Studio, custom_frame, custom_rate, fps_of, frame_size, home_folder,
+    ASPECTS, FRAME_RATES, FRAME_SIDES, RATES, SIZES, Studio, custom_frame, custom_rate, fps_of,
+    frame_size, home_folder,
 };
 use crate::ui::StartData;
 
@@ -60,6 +65,20 @@ pub enum StartMsg {
     /// Files or folders dropped on the launch screen: a project folder
     /// opens, and anything else starts a new project to go into.
     Dropped(Vec<PathBuf>),
+    /// Files a file manager's Open with handed over at launch: a project
+    /// folder opens, as a drop's does, and media goes straight into a
+    /// project made in its picture's shape, with no sheet in between.
+    OpenWith(Vec<PathBuf>),
+    /// The files [`StartMsg::OpenWith`] handed over, probed on a worker.
+    OpenWithProbed(Vec<Result<OpenedFile, String>>),
+}
+
+/// A file Open with handed over, probed: what goes in the bin, and the
+/// frame and rate its picture asks of a project, when it has a picture.
+#[derive(Clone, Debug)]
+pub struct OpenedFile {
+    summary: MediaSummary,
+    frame: Option<((u32, u32), (i64, i64))>,
 }
 
 /// The projects in the order they were last opened, newest first.
@@ -235,11 +254,65 @@ fn is_untitled(name: &str) -> bool {
 /// refused as "already exists" until it was renamed by hand.
 /// https://github.com/jub0t/Concat/issues/151
 fn first_free_untitled(taken: impl Fn(&str) -> bool) -> String {
-    let untitled = untitled();
-    std::iter::once(untitled.clone())
-        .chain((2..).map(|n| format!("{untitled} {n}")))
+    first_free(&untitled(), taken)
+}
+
+/// The first of `name`, "`name` 2", ... whose folder is not `taken`.
+fn first_free(name: &str, taken: impl Fn(&str) -> bool) -> String {
+    std::iter::once(name.to_owned())
+        .chain((2..).map(|n| format!("{name} {n}")))
         .find(|name| !taken(&projects::folder_name(name)))
         .expect("the numbers do not run out")
+}
+
+/// The rate a project made for a picture runs at: the rate its frames come
+/// at, exactly, when it is one the sheet's Custom field would take, and the
+/// closest one it would take otherwise.
+fn project_rate(num: i64, den: i64) -> (i64, i64) {
+    let fps = num as f64 / den.max(1) as f64;
+    let (low, high) = FRAME_RATES;
+    if num > 0 && den > 0 && (low..=high).contains(&fps) {
+        (num, den)
+    } else {
+        custom_rate(fps)
+    }
+}
+
+/// The frame of a project made for a picture `width` x `height`: its own,
+/// scaled down whole where it is larger than a project may be, so the shape
+/// is kept, and held to what the sheet's Custom fields take.
+fn project_frame(width: u32, height: u32) -> (u32, u32) {
+    let (_, high) = FRAME_SIDES;
+    let scale = (f64::from(high) / f64::from(width.max(height).max(1))).min(1.0);
+    custom_frame(
+        (f64::from(width) * scale) as f32,
+        (f64::from(height) * scale) as f32,
+    )
+}
+
+/// Probes a file Open with handed over: the bin entry an import would make
+/// of it, and for a video the frame and rate of a project in its shape -
+/// the size it is displayed at, rotation and all, and the rate its frames
+/// come at, which for a phone or a screen recording that varies its rate
+/// is the rate it records at rather than its average. A still has no rate
+/// of its own and a sound no frame, so neither gives a project its shape.
+fn probe_opened(path: &Path) -> Result<OpenedFile, String> {
+    let info = concat_media::probe(path).map_err(concat_host::media::describe)?;
+    let picture = info
+        .video
+        .as_ref()
+        .map(|video| (video.width, video.height, video.cadence.fps()));
+    let summary = MediaSummary::from(info);
+    let frame =
+        picture
+            .filter(|_| summary.kind == MediaKind::Video)
+            .map(|(width, height, rate)| {
+                (
+                    project_frame(width, height),
+                    project_rate(rate.numerator(), rate.denominator()),
+                )
+            });
+    Ok(OpenedFile { summary, frame })
 }
 
 impl StartPane {
@@ -362,6 +435,114 @@ impl StartPane {
                 }
             }
             StartMsg::Dropped(paths) => self.dropped_on(paths, studio),
+            StartMsg::OpenWith(paths) => self.open_with(paths, studio),
+            StartMsg::OpenWithProbed(probed) => self.open_probed(probed, studio),
+        }
+    }
+
+    /// Files handed over by Open with. A project folder among them opens,
+    /// as a drop's does; media is probed on a worker, and held as what was
+    /// dropped meanwhile, so a drop while it runs is ignored as it is while
+    /// a project is being made.
+    fn open_with(&mut self, paths: Vec<PathBuf>, studio: &mut Studio) {
+        if self.busy {
+            return;
+        }
+        if paths.iter().any(|path| projects::is_project(path)) {
+            self.dropped_on(paths, studio);
+            return;
+        }
+        let media: Vec<PathBuf> = paths.into_iter().filter(|path| path.is_file()).collect();
+        if media.is_empty() {
+            studio.notify(&t("start.dropNothingToOpen"), true);
+            return;
+        }
+        self.busy = true;
+        self.dropped = media.clone();
+        crate::host::spawn(
+            move || {
+                media
+                    .iter()
+                    .map(|path| probe_opened(path))
+                    .collect::<Vec<_>>()
+            },
+            |studio, _, _, probed| {
+                studio.handle(crate::panes::Msg::Start(StartMsg::OpenWithProbed(probed)));
+            },
+        );
+    }
+
+    /// The files Open with handed over, probed. With a picture among them,
+    /// a project in the shape of the first is made where the sheet would
+    /// make one, named after its file, and opened with every file in the
+    /// bin and laid end to end on the timeline. Without one there is no
+    /// shape to go by, and they wait on the sheet as a drop's do; that is
+    /// also where a project that could not be made says why.
+    fn open_probed(&mut self, probed: Vec<Result<OpenedFile, String>>, studio: &mut Studio) {
+        self.busy = false;
+        let files = std::mem::take(&mut self.dropped);
+        if studio.session.is_some() {
+            // A project was opened from the launch screen meanwhile.
+            return;
+        }
+        if !probed.iter().any(Result::is_ok) {
+            if let Some(Err(error)) = probed.first() {
+                studio.notify(&probe_error(error), true);
+            }
+            return;
+        }
+        let Some((path, ((width, height), (num, den)))) = probed
+            .iter()
+            .flatten()
+            .find_map(|file| Some((&file.summary.path, file.frame?)))
+        else {
+            self.dropped_on(files, studio);
+            return;
+        };
+        let location = self.location.trim().to_owned();
+        if location.is_empty() {
+            self.dropped_on(files, studio);
+            return;
+        }
+        let stem = Path::new(path)
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().trim().to_owned())
+            .filter(|stem| !stem.is_empty())
+            .unwrap_or_else(untitled);
+        let name = first_free(&stem, |folder| Path::new(&location).join(folder).exists());
+        let opened = projects::create(&location, &name, width, height, num, den, self.canvas)
+            .and_then(|info| studio.open_project(info));
+        if let Err(error) = opened {
+            self.dropped_on(files, studio);
+            self.error = error;
+            return;
+        }
+        let mut commands = Vec::new();
+        let mut failures = Vec::new();
+        for result in probed {
+            match result {
+                Ok(file) => commands.push(Command::AddMedia {
+                    item: file.summary.to_new_media(),
+                }),
+                Err(error) => failures.push(error),
+            }
+        }
+        studio.apply(Command::Batch { commands });
+        // The project is new, so everything in its bin came from here.
+        let media_ids = studio
+            .project()
+            .media
+            .iter()
+            .map(|item| item.id.clone())
+            .collect();
+        studio.apply(Command::AddClipsInSequence {
+            media_ids,
+            track_id: None,
+            start: 0.0,
+            ripple: false,
+        });
+        if let Some(error) = failures.first() {
+            studio.notify(&probe_error(error), true);
         }
     }
 
@@ -588,6 +769,79 @@ mod tests {
             first_free_untitled(|folder| taken.contains(&folder)),
             "Untitled project"
         );
+    }
+
+    /// A project opened from a file is named after it, and numbered past
+    /// the folders already there, by the folder its name would make.
+    #[test]
+    fn a_project_from_a_file_gets_a_name_of_its_own() {
+        assert_eq!(first_free("Holiday", |_| false), "Holiday");
+        let taken = ["Holiday", "Holiday 2"];
+        assert_eq!(
+            first_free("Holiday", |folder| taken.contains(&folder)),
+            "Holiday 3"
+        );
+        let taken = ["Take- one"];
+        assert_eq!(
+            first_free("Take: one", |folder| taken.contains(&folder)),
+            "Take: one 2"
+        );
+    }
+
+    /// A picture's rate is the project's, exactly, where the sheet would
+    /// take it, and the nearest one it would take where not.
+    #[test]
+    fn a_project_runs_at_its_picture_s_rate() {
+        assert_eq!(project_rate(30, 1), (30, 1));
+        assert_eq!(project_rate(30000, 1001), (30000, 1001));
+        assert_eq!(project_rate(120, 1), (120, 1));
+        let (low, high) = FRAME_RATES;
+        assert_eq!(project_rate(1, 2), custom_rate(low));
+        assert_eq!(project_rate(1000, 1), custom_rate(high));
+    }
+
+    /// A picture's frame is the project's, kept to even sides, and scaled
+    /// down whole rather than cut to a side where it is too large.
+    #[test]
+    fn a_project_takes_its_picture_s_frame() {
+        assert_eq!(project_frame(1080, 1920), (1080, 1920));
+        assert_eq!(project_frame(1081, 1921), (1082, 1922));
+        assert_eq!(project_frame(10240, 4320), (8192, 3456));
+        assert_eq!(project_frame(4320, 10240), (3456, 8192));
+        let (low, _) = FRAME_SIDES;
+        assert_eq!(project_frame(2, 2), (low, low));
+    }
+
+    /// A probed file gives the frame it is displayed at - wide pixels
+    /// stretched square - and the rate its frames come at, not the average
+    /// a variable-rate recording that holds still comes out at.
+    #[test]
+    fn a_probed_file_gives_its_picture_s_frame_and_rate() {
+        let fixture = |name: &str| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../concat-media/fixtures")
+                .join(name)
+        };
+        let hdv = probe_opened(&fixture("wide-pixels-hdv.m2ts")).expect("probes");
+        assert_eq!(hdv.frame, Some(((64, 32), (25, 1))));
+        let still = probe_opened(&fixture("vfr-still-screen.mp4")).expect("probes");
+        assert_eq!(still.frame, Some(((32, 32), (30, 1))));
+        assert!(still.summary.video.is_some());
+        assert!(probe_opened(&fixture("no-such-file.mp4")).is_err());
+    }
+
+    /// A still goes in the bin but gives a project no shape: it has no rate
+    /// of its own, and a photograph's frame is not a video's.
+    #[test]
+    fn a_still_gives_no_project_its_shape() {
+        let root = std::env::temp_dir().join(format!("concat-still-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("still.png");
+        image::RgbImage::new(64, 48).save(&path).unwrap();
+        let still = probe_opened(&path).expect("probes");
+        assert_eq!(still.summary.kind, MediaKind::Image);
+        assert_eq!(still.frame, None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The search finds by every word, in the name or the folder, and the
