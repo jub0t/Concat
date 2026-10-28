@@ -923,6 +923,14 @@ struct Slot {
     key: String,
     offset: usize,
     kind: ParamType,
+    /// The knob's own default, carried from the manifest so the layout
+    /// never walks the parameter list to find it again on every frame.
+    default: f64,
+    /// The compound names this slot reads: a wheel's puck axes and
+    /// master, a point's axes, nothing for the rest. Spelled once here
+    /// at compile; the per-frame layout reads them straight, where it
+    /// built each name again on every frame of every layer.
+    reads: Box<[String]>,
 }
 
 /// A package's shader, stitched, checked and laid out.
@@ -965,33 +973,38 @@ impl Shader {
     }
 
     /// The `Params` buffer for these resolved values, laid out to the
-    /// struct. Every declared parameter is present in `values` by the time
-    /// the catalogue calls this; anything missing reads as zero.
-    pub fn params_bytes(&self, values: &BTreeMap<String, f64>, params: &[Param]) -> Vec<u8> {
-        lay_params(&self.slots, self.span, values, params)
+    /// struct. Every declared parameter is present in `values` by the
+    /// time the catalogue calls this; anything missing reads as its
+    /// default, which the slots carry from compile.
+    pub fn params_bytes(&self, values: &BTreeMap<String, f64>) -> Vec<u8> {
+        lay_params(&self.slots, self.span, values)
     }
 
-    /// A pass over a layer with these values: the uniform buffer written
-    /// from them, the values themselves for a renderer that reads by name,
-    /// and the stages before the last, their pictures sized from them.
+    /// A pass over a layer with these values, taken as they are: the
+    /// uniform buffer written from them, the values themselves for a
+    /// renderer that reads by name, and the stages before the last, their
+    /// pictures sized from them. The values are moved in rather than
+    /// copied, because this runs per frame per layer and the map the
+    /// caller resolved for the frame has nowhere else to be.
     pub fn pass(
         &self,
-        values: &BTreeMap<String, f64>,
-        params: &[Param],
+        values: BTreeMap<String, f64>,
         intensity: f32,
         lut: Option<Arc<Lut>>,
         reveal_map: Option<Arc<RevealMap>>,
     ) -> ShaderPass {
+        let bytes = self.params_bytes(&values);
+        let stages = self.stages.iter().map(|rule| rule.stage(&values)).collect();
         ShaderPass {
             package: self.package.clone(),
             key: self.key.clone(),
             source: Arc::clone(&self.source),
-            params: self.params_bytes(values, params),
-            values: values.clone(),
+            params: bytes,
+            values,
             intensity,
             lut,
             reveal_map,
-            stages: self.stages.iter().map(|rule| rule.stage(values)).collect(),
+            stages,
         }
     }
 }
@@ -1606,6 +1619,18 @@ fn stitch(
             key: param.key.clone(),
             offset: member.offset as usize,
             kind: param.kind,
+            default: param.default,
+            reads: match param.kind {
+                ParamType::Wheel => Box::from([
+                    format!("{}.x", param.key),
+                    format!("{}.y", param.key),
+                    format!("{}.m", param.key),
+                ]),
+                ParamType::Point => {
+                    Box::from([format!("{}.x", param.key), format!("{}.y", param.key)])
+                }
+                _ => Box::default(),
+            },
         });
     }
 
@@ -1615,12 +1640,10 @@ fn stitch(
 
 /// The `Params` uniform for `values`, laid out to `slots` over a buffer of
 /// `span` bytes. Shared by both shaders, which store parameters identically.
-fn lay_params(
-    slots: &[Slot],
-    span: usize,
-    values: &BTreeMap<String, f64>,
-    params: &[Param],
-) -> Vec<u8> {
+/// Everything the layout needs beyond `values` the slots carry from
+/// compile - the names a compound knob reads, and every knob's default -
+/// so nothing is walked or spelled out on the frame's own time.
+fn lay_params(slots: &[Slot], span: usize, values: &BTreeMap<String, f64>) -> Vec<u8> {
     let mut bytes = vec![0u8; span];
     let mut put = |offset: usize, value: f64| {
         let at = offset..offset + 4;
@@ -1628,21 +1651,20 @@ fn lay_params(
             bytes[at].copy_from_slice(&(value as f32).to_le_bytes());
         }
     };
-    let default_of = |key: &str| {
-        params
-            .iter()
-            .find(|param| param.key == key)
-            .map_or(0.0, |param| param.default)
-    };
     for slot in slots {
         match slot.kind {
             ParamType::Wheel => {
-                let sub = |axis: &str| values.get(&format!("{}.{axis}", slot.key)).copied();
-                put(slot.offset, sub("x").unwrap_or(0.0));
-                put(slot.offset + 4, sub("y").unwrap_or(0.0));
+                put(
+                    slot.offset,
+                    values.get(&slot.reads[0]).copied().unwrap_or(0.0),
+                );
+                put(
+                    slot.offset + 4,
+                    values.get(&slot.reads[1]).copied().unwrap_or(0.0),
+                );
                 put(
                     slot.offset + 8,
-                    sub("m").unwrap_or_else(|| default_of(&slot.key)),
+                    values.get(&slot.reads[2]).copied().unwrap_or(slot.default),
                 );
             }
             ParamType::Curve => {
@@ -1659,17 +1681,11 @@ fn lay_params(
             ParamType::Point => {
                 put(
                     slot.offset,
-                    values
-                        .get(&format!("{}.x", slot.key))
-                        .copied()
-                        .unwrap_or(0.5),
+                    values.get(&slot.reads[0]).copied().unwrap_or(0.5),
                 );
                 put(
                     slot.offset + 4,
-                    values
-                        .get(&format!("{}.y", slot.key))
-                        .copied()
-                        .unwrap_or(0.5),
+                    values.get(&slot.reads[1]).copied().unwrap_or(0.5),
                 );
             }
             ParamType::Color => {
@@ -1683,14 +1699,9 @@ fn lay_params(
                 }
             }
             _ => {
-                let fallback = params
-                    .iter()
-                    .find(|param| param.key == slot.key)
-                    .map(|param| param.default)
-                    .unwrap_or(0.0);
                 put(
                     slot.offset,
-                    values.get(&slot.key).copied().unwrap_or(fallback),
+                    values.get(&slot.key).copied().unwrap_or(slot.default),
                 );
             }
         }
@@ -1711,6 +1722,17 @@ enum Width {
 /// fewer than two is the straight line from black to white. Two points at
 /// one place along the curve are one, the later.
 pub fn curve_points(values: &BTreeMap<String, f64>, key: &str) -> Vec<(f64, f64)> {
+    // Nothing under `key.` at all: the straight line, without spelling
+    // all eight points' names to find that out. The map is ordered, so
+    // one look from there answers, and a curve nobody has drawn - which
+    // is most of them, most frames - costs the one look.
+    let under = format!("{key}.");
+    if !values.range(under..).next().is_some_and(|(name, _)| {
+        name.strip_prefix(key)
+            .is_some_and(|rest| rest.starts_with('.'))
+    }) {
+        return vec![(0.0, 0.0), (1.0, 1.0)];
+    }
     let mut points: Vec<(f64, f64)> = (0..MAX_CURVE_POINTS)
         .filter_map(|n| {
             let x = values.get(&format!("{key}.{n}.x"))?;
@@ -1829,23 +1851,24 @@ impl TransitionShader {
         &self.source
     }
 
-    /// The `Params` buffer for these resolved values, laid out to the struct.
-    pub fn params_bytes(&self, values: &BTreeMap<String, f64>, params: &[Param]) -> Vec<u8> {
-        lay_params(&self.slots, self.span, values, params)
+    /// The `Params` buffer for these resolved values, laid out to the
+    /// struct; anything missing reads as its default, which the slots
+    /// carry from compile.
+    pub fn params_bytes(&self, values: &BTreeMap<String, f64>) -> Vec<u8> {
+        lay_params(&self.slots, self.span, values)
     }
 
     /// A combine of two layers at `progress` with these values.
     pub fn pass(
         &self,
         values: &BTreeMap<String, f64>,
-        params: &[Param],
         progress: f32,
         lut: Option<Arc<Lut>>,
     ) -> TransitionPass {
         TransitionPass {
             key: self.key.clone(),
             source: Arc::clone(&self.source),
-            params: self.params_bytes(values, params),
+            params: self.params_bytes(values),
             progress,
             lut,
             xfade: None,
@@ -1908,7 +1931,7 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
         // radius first at 0, amount at 4; the buffer padded to sixteen.
         let mut values = BTreeMap::new();
         values.insert("amount".to_owned(), 0.5);
-        let bytes = shader.params_bytes(&values, &manifest.params);
+        let bytes = shader.params_bytes(&values);
         assert_eq!(bytes.len(), 16);
         assert_eq!(f32::from_le_bytes(bytes[0..4].try_into().unwrap()), 2.0);
         assert_eq!(f32::from_le_bytes(bytes[4..8].try_into().unwrap()), 0.5);
@@ -2003,7 +2026,7 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
             "fn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }",
         )
         .expect("compiles");
-        assert_eq!(shader.params_bytes(&BTreeMap::new(), &[]).len(), 16);
+        assert_eq!(shader.params_bytes(&BTreeMap::new()).len(), 16);
     }
 
     /// A community shader may not bind what the host did not declare,
@@ -2110,12 +2133,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         assert!(shader.source().contains("fn fs_main"));
         assert!(shader.source().contains("frame.progress"));
         assert!(shader.source().contains("to_texture"));
-        let pass = shader.pass(
-            &BTreeMap::from([("softness".to_owned(), 0.5)]),
-            &manifest.params,
-            0.25,
-            None,
-        );
+        let pass = shader.pass(&BTreeMap::from([("softness".to_owned(), 0.5)]), 0.25, None);
         assert_eq!(pass.progress, 0.25);
         assert_eq!(pass.params.len(), 16);
     }
@@ -2195,7 +2213,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         let stages = |radius: f64| {
             let values = BTreeMap::from([("radius".to_owned(), radius)]);
             shader
-                .pass(&values, &manifest.params, 1.0, None, None)
+                .pass(values, 1.0, None, None)
                 .stages
                 .iter()
                 .map(|stage| (stage.entry.clone(), stage.shrink))
@@ -2220,7 +2238,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         .expect("compiles");
         assert!(
             single
-                .pass(&BTreeMap::new(), &[], 1.0, None, None)
+                .pass(BTreeMap::new(), 1.0, None, None)
                 .stages
                 .is_empty(),
             "a package drawn in one pass has no stages"
@@ -2332,7 +2350,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                 .collect()
         };
-        let at_rest = floats(shader.params_bytes(&BTreeMap::new(), &manifest.params));
+        let at_rest = floats(shader.params_bytes(&BTreeMap::new()));
         assert_eq!(
             &at_rest[..3],
             &[0.0, 0.0, 0.25],
@@ -2357,7 +2375,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value))
         .collect();
-        let laid = floats(shader.params_bytes(&set, &manifest.params));
+        let laid = floats(shader.params_bytes(&set));
         assert_eq!(&laid[..3], &[0.5, -0.5, -1.0]);
         let points: Vec<[f32; 4]> = laid[4..16]
             .chunks_exact(4)
@@ -2427,6 +2445,22 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
             ),
             [(0.2, 0.6), (1.0, 0.0)],
             "held to the square, in order, one point to a place"
+        );
+
+        // Keys that merely start the same, or spell a point the eight
+        // slots do not hold, are not points under the curve.
+        assert_eq!(
+            curve_points(
+                &values(&[("c", 0.5), ("cc.0.x", 0.1), ("cc.0.y", 0.9)]),
+                "c"
+            ),
+            [(0.0, 0.0), (1.0, 1.0)],
+            "a key that merely starts the same is not a point under it"
+        );
+        assert_eq!(
+            curve_points(&values(&[("c.10.x", 0.1), ("c.10.y", 0.9)]), "c"),
+            [(0.0, 0.0), (1.0, 1.0)],
+            "a ninth point is not one of the eight"
         );
     }
 
