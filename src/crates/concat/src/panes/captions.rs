@@ -64,6 +64,7 @@ pub enum CaptionsMsg {
     TextEdited(String),
     ModelChanged(i32),
     PlacementChanged(i32),
+    PresetTemplateChanged(i32),
     SizeChanged(i32),
     /// 0 Sentence, 1 WordByWord (Dynamic pop), 2 Karaoke highlight
     StyleChanged(i32),
@@ -99,6 +100,7 @@ struct Subject {
     speed: f64,
     /// The look chosen when the run began.
     look: (f64, f64),
+    preset_template: usize,
     /// Caption style chosen: 0 Sentence, 1 WordByWord, 2 Karaoke.
     style: usize,
     /// Sync offset index: 0 (0ms), 1 (+100ms), 2 (+200ms), 3 (-100ms)
@@ -142,6 +144,7 @@ pub struct CaptionsPane {
     pub placement: usize,
     /// 0 small, 1 medium, 2 large.
     pub size: usize,
+    pub preset_template: usize,
     /// 0 Sentence, 1 WordByWord (Dynamic pop), 2 Karaoke highlight.
     pub style: usize,
     /// 0: 0ms, 1: +100ms, 2: +200ms, 3: -100ms
@@ -172,6 +175,7 @@ impl Default for CaptionsPane {
             model: 0,
             placement: 0,
             size: 1,
+            preset_template: 0,
             style: 0,
             sync: 0,
             color_theme: 0,
@@ -227,6 +231,49 @@ impl CaptionsPane {
             }
             CaptionsMsg::TextEdited(text) => self.text = text,
             CaptionsMsg::ModelChanged(index) => self.model = index.max(0) as usize,
+            CaptionsMsg::PresetTemplateChanged(index) => {
+                let idx = (index.max(0) as usize).min(4);
+                self.preset_template = idx;
+                match idx {
+                    1 => {
+                        // Hormozi
+                        self.style = 1;
+                        self.color_theme = 0;
+                        self.uppercase = true;
+                        self.auto_emoji = true;
+                        self.size = 2;
+                        self.sync = 1;
+                    }
+                    2 => {
+                        // MrBeast
+                        self.style = 2;
+                        self.color_theme = 2;
+                        self.uppercase = true;
+                        self.auto_emoji = true;
+                        self.size = 1;
+                        self.sync = 0;
+                    }
+                    3 => {
+                        // Clean
+                        self.style = 0;
+                        self.color_theme = 3;
+                        self.uppercase = false;
+                        self.auto_emoji = false;
+                        self.size = 1;
+                        self.sync = 0;
+                    }
+                    4 => {
+                        // Neon
+                        self.style = 2;
+                        self.color_theme = 1;
+                        self.uppercase = true;
+                        self.auto_emoji = true;
+                        self.size = 2;
+                        self.sync = 1;
+                    }
+                    _ => {}
+                }
+            }
             CaptionsMsg::PlacementChanged(index) => {
                 self.placement = (index.max(0) as usize).min(2);
             }
@@ -507,13 +554,13 @@ impl CaptionsPane {
                     &title,
                     &folder,
                     &name,
-                    (family.as_str(), &["srt"]),
+                    (family.as_str(), &["srt", "vtt"]),
                 )?;
+                let has_ext = chosen
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("srt") || ext.eq_ignore_ascii_case("vtt"));
                 Some(
-                    if chosen
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("srt"))
-                    {
+                    if has_ext {
                         chosen
                     } else {
                         chosen.with_extension("srt")
@@ -533,7 +580,12 @@ impl CaptionsPane {
             return;
         };
         let cues = srt::title_cues(studio.timeline(), Some(&lane.track_id));
-        if let Err(error) = std::fs::write(path, srt::write(&cues)) {
+        let content = if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("vtt")) {
+            srt::write_vtt(&cues)
+        } else {
+            srt::write(&cues)
+        };
+        if let Err(error) = std::fs::write(path, content) {
             log::warn!("captions: could not write {}: {error}", path.display());
             self.message = tf("captions.couldNotWriteSubtitles", &[&error]);
             return;
@@ -607,6 +659,7 @@ impl CaptionsPane {
             model,
             placement: 0,
             size: 1,
+            preset_template: self.preset_template,
             style: self.style,
             sync: self.sync,
             color_theme: self.color_theme,
@@ -748,6 +801,7 @@ impl CaptionsPane {
             start: clip.start,
             speed: clip.speed,
             look: self.look(),
+            preset_template: self.preset_template,
             style: self.style,
             sync: self.sync,
             color_theme: self.color_theme,
@@ -794,6 +848,7 @@ impl CaptionsPane {
             source,
             text: self.text.as_str().into(),
             model: self.model as i32,
+            preset_template: self.preset_template as i32,
             placement: self.placement as i32,
             size: self.size as i32,
             style: self.style as i32,
@@ -1013,25 +1068,35 @@ fn add_smart_emoji(text: &str) -> String {
     for w in words {
         let emoji = match w {
             "dinheiro" | "grana" | "lucro" | "money" | "cash" | "faturar" | "rico" | "rich"
-            | "milhao" | "milhão" | "milhoes" | "milhões" | "vendas" | "pix" => Some("💰"),
-            "fogo" | "quente" | "fire" | "viral" | "chama" | "hype" | "bombando" => Some("🔥"),
+            | "milhao" | "milhão" | "milhoes" | "milhões" | "vendas" | "pix" | "faturamento"
+            | "dolar" | "dólar" | "ouro" | "investir" | "renda" => Some("💰"),
+            "fogo" | "quente" | "fire" | "viral" | "chama" | "hype" | "bombando" | "explodir"
+            | "explosao" | "explosão" | "top" => Some("🔥"),
             "ideia" | "idea" | "segredo" | "dica" | "hack" | "insight" | "pensar" | "mentoria"
-            | "aprender" => Some("💡"),
-            "foguete" | "rocket" | "crescer" | "escala" | "futuro" | "voar" | "topo" | "alturas" => {
-                Some("🚀")
-            }
+            | "aprender" | "segredos" | "truque" | "estrategia" | "estratégia" => Some("💡"),
+            "foguete" | "rocket" | "crescer" | "escala" | "futuro" | "voar" | "topo" | "alturas"
+            | "escalar" | "crescimento" | "avançar" => Some("🚀"),
             "atencao" | "atenção" | "cuidado" | "pare" | "wait" | "stop" | "alerta" | "perigo"
-            | "urgente" => Some("⚠️"),
-            "amor" | "coracao" | "coração" | "love" | "paixao" | "paixão" | "gostar" | "adorar" => {
-                Some("❤️")
-            }
+            | "urgente" | "erro" | "errado" | "aviso" => Some("⚠️"),
+            "proibido" | "nunca" | "jamais" | "bloqueado" | "cancelado" | "perda" => Some("🚫"),
+            "amor" | "coracao" | "coração" | "love" | "paixao" | "paixão" | "gostar" | "adorar"
+            | "parabens" | "parabéns" => Some("❤️"),
             "sucesso" | "meta" | "alvo" | "win" | "vitoria" | "vitória" | "ganhar" | "campeao"
-            | "campeão" => Some("🎯"),
+            | "campeão" | "vencer" | "resultado" | "foco" => Some("🎯"),
             "tempo" | "hora" | "minuto" | "segundo" | "time" | "rapido" | "rápido" | "tarde"
-            | "relogio" | "relógio" => Some("⏱️"),
+            | "relogio" | "relógio" | "cronometro" | "agora" | "ja" | "já" => Some("⏱️"),
             "uau" | "wow" | "choque" | "loucura" | "surpresa" | "chocado" | "incrivel"
-            | "incrível" => Some("😱"),
-            "veja" | "olha" | "olhar" | "look" | "ver" | "olhe" | "repara" => Some("👀"),
+            | "incrível" | "inacreditavel" | "inacreditável" | "absurdo" => Some("😱"),
+            "veja" | "olha" | "olhar" | "look" | "ver" | "olhe" | "repara" | "assista" | "repare" => {
+                Some("👀")
+            }
+            "alta" | "subir" | "ganho" | "estatistica" | "estatística" | "metrica" | "métrica" => {
+                Some("📈")
+            }
+            "forte" | "forca" | "força" | "disciplina" | "treino" | "gym" | "resiliencia" => {
+                Some("💪")
+            }
+            "estrela" | "destaque" | "especial" | "premium" | "vip" | "brilho" => Some("⭐"),
             _ => None,
         };
         if let Some(e) = emoji {

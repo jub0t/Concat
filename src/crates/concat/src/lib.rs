@@ -381,6 +381,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.global::<KeyEditor>()
             .set_rows(ModelRc::from(models.key_editor_rows.clone()));
         editor.set_key_marks(ModelRc::from(models.key_marks.clone()));
+        editor.set_beat_marks(ModelRc::from(models.beat_marks.clone()));
         app.global::<Library>()
             .set_views(ModelRc::from(models.library_views.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
@@ -2068,6 +2069,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
 
     app.on_captions_closed(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Close));
+    }));
+    app.on_captions_preset_template_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::PresetTemplateChanged(index)));
     }));
     app.on_captions_voice_toggled(on_window!(|state, on: bool| {
         state.handle(Msg::Captions(CaptionsMsg::VoiceToggled(on)));

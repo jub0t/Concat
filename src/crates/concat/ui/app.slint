@@ -315,6 +315,7 @@ export component App inherits Window {
     in property <CaptionsSheetData> captions;
     in property <[string]> caption-models;
     callback captions-closed();
+    callback captions-preset-template-changed(index: int);
     callback captions-voice-toggled(on: bool);
     callback captions-source-changed(index: int);
     callback captions-text-edited(text: string);
@@ -700,6 +701,7 @@ export component App inherits Window {
             models: root.caption-models;
 
             closed => { root.captions-closed(); }
+            preset-template-changed(index) => { root.captions-preset-template-changed(index); }
             voice-toggled(on) => { root.captions-voice-toggled(on); }
             source-changed(index) => { root.captions-source-changed(index); }
             text-edited(text) => { root.captions-text-edited(text); }

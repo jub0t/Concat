@@ -1042,6 +1042,7 @@ export component Lanes inherits Rectangle {
     in property <float> playhead;
     /// The selected clip's keys as instants; see `Editor.key-marks`.
     in property <[float]> key-marks;
+    in property <[float]> beat-marks;
     in property <float> frame-rate: 30;
     /// Seconds at the left edge of the lanes.
     in property <float> scroll-left;
@@ -1807,6 +1808,18 @@ export component Lanes inherits Rectangle {
                         self.dragging = false;
                     }
                 }
+            }
+
+            // Music beat markers: bright yellow rhythmic indicators on the ruler floor
+            for beat in root.beat-marks: Rectangle {
+                x: root.at(beat) - 3px;
+                y: root.ruler-height - 8px;
+                width: 6px;
+                height: 6px;
+                border-radius: 3px;
+                background: #FFE600;
+                border-color: #000000;
+                border-width: 1px;
             }
         }
 

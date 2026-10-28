@@ -94,6 +94,7 @@ export component TimelinePane inherits Rectangle {
     in property <[ClipData]> clips;
     in property <float> playhead;
     in property <[float]> key-marks;
+    in property <[float]> beat-marks;
     in property <float> frame-rate: 30;
     in property <float> scroll-left;
     in property <float> seconds-per-pixel: 0.05;
@@ -423,6 +424,7 @@ export component TimelinePane inherits Rectangle {
                 tracks: root.tracks;
                 clips: root.clips;
                 key-marks: root.key-marks;
+                beat-marks: root.beat-marks;
                 tool: root.tool;
                 playhead: root.playhead;
                 frame-rate: root.frame-rate;

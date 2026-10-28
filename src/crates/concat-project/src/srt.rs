@@ -153,6 +153,39 @@ fn stamp(seconds: f64) -> String {
     )
 }
 
+/// Writes cues as WebVTT format.
+pub fn write_vtt(cues: &[Cue]) -> String {
+    let mut out = String::from("WEBVTT\n\n");
+    for (index, cue) in cues.iter().enumerate() {
+        out.push_str(&format!(
+            "{}\n{} --> {}\n",
+            index + 1,
+            stamp_vtt(cue.start),
+            stamp_vtt(cue.end)
+        ));
+        for line in cue.text.lines().map(str::trim_end) {
+            if !line.is_empty() {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Seconds as `HH:MM:SS.mmm` for WebVTT.
+fn stamp_vtt(seconds: f64) -> String {
+    let millis = (seconds.max(0.0) * 1_000.0).round() as u64;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        millis / 3_600_000,
+        millis / 60_000 % 60,
+        millis / 1_000 % 60,
+        millis % 1_000
+    )
+}
+
 /// The cues the title clips on `track_id` make - on every lane, for None -
 /// in the order they play: each title's words, from where it starts to
 /// where it ends.

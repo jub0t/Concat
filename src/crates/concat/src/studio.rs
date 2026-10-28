@@ -663,6 +663,7 @@ pub struct Models {
     pub key_editor_rows: Rc<VecModel<KeyRowData>>,
     /// The ruler's diamonds; see `Studio::key_marks`.
     pub key_marks: Rc<VecModel<f32>>,
+    pub beat_marks: Rc<VecModel<f32>>,
     pub library_views: Rc<VecModel<LibraryViewData>>,
     pub menu: Rc<VecModel<MenuItemData>>,
     pub bar: Rc<VecModel<MenuItemData>>,
@@ -743,6 +744,7 @@ impl Models {
             key_rows: Rc::new(VecModel::default()),
             key_editor_rows: Rc::new(VecModel::default()),
             key_marks: Rc::new(VecModel::default()),
+            beat_marks: Rc::new(VecModel::default()),
             library_views: Rc::new(VecModel::default()),
             menu: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
@@ -850,6 +852,7 @@ pub struct Studio {
     pub lanes: crate::panes::timeline::TimelinePane,
     pub selection: Vec<String>,
     pub playhead: f32,
+    pub beats: Vec<f32>,
     pub playing: bool,
     transport: slint::Timer,
     /// The phone's lanes carrying on after a finger throws them, and the
@@ -2318,6 +2321,7 @@ impl Studio {
             lanes: crate::panes::timeline::TimelinePane::default(),
             selection: Vec::new(),
             playhead: 0.0,
+            beats: Vec::new(),
             // ~20px a second: a ten-second cut fits a pane at its default width.
             playing: false,
             transport: slint::Timer::default(),
@@ -2637,6 +2641,9 @@ impl Studio {
             return 0.0;
         }
         let mut targets = vec![0.0, self.playhead];
+        for &beat in &self.beats {
+            targets.push(beat);
+        }
         for clip in &self.timeline().clips {
             if moving.contains(&clip.id.as_str()) {
                 continue;
@@ -2673,6 +2680,9 @@ impl Studio {
         };
         consider(0.0);
         consider(self.playhead);
+        for &beat in &self.beats {
+            consider(beat);
+        }
         for clip in &self.timeline().clips {
             if clip.id == exclude {
                 continue;
@@ -9173,6 +9183,7 @@ impl Studio {
         editor.set_timeline_current_tab(active as i32);
         editor.set_playhead(self.playhead);
         sync(&models.key_marks, self.key_marks());
+        sync(&models.beat_marks, self.beats.clone());
         editor.set_scroll_left(self.lanes.scroll_left);
         editor.set_seconds_per_pixel(self.lanes.seconds_per_pixel);
         editor.set_duration_seconds(self.duration());
@@ -11342,6 +11353,13 @@ impl Studio {
                 "",
                 frameable,
             ));
+            rows.push(action(
+                "smart-reframe",
+                t("studio.smartReframe"),
+                Glyph::Fit,
+                "",
+                frameable,
+            ));
             rows.push(rule());
             rows.push(action(
                 "quick-transition-zoom",
@@ -11401,6 +11419,22 @@ impl Studio {
         // muted still renders, since the file is the clip's and not the
         // mix's.
         if clip.kind == model::ClipKind::Audio || clip.kind == model::ClipKind::Video {
+            rows.push(action(
+                "detect-beats",
+                t("studio.detectBeats"),
+                Glyph::Waveform,
+                "",
+                !locked,
+            ));
+            if !self.beats.is_empty() {
+                rows.push(action(
+                    "clear-beats",
+                    t("studio.clearBeats"),
+                    Glyph::Delete,
+                    "",
+                    true,
+                ));
+            }
             rows.push(action(
                 "export-audio",
                 t("studio.exportAudio"),
@@ -12249,6 +12283,9 @@ impl Studio {
             "quick-transition-whip" => self.apply_quick_transition(id, "concat.whip-pan"),
             "quick-transition-flash" => self.apply_quick_transition(id, "concat.fade-white"),
             "quick-transition-dissolve" => self.apply_quick_transition(id, "concat.dissolve"),
+            "smart-reframe" => self.smart_reframe(id),
+            "detect-beats" => self.detect_beats(id),
+            "clear-beats" => self.clear_beats(),
             _ => {}
         }
     }
@@ -12530,6 +12567,121 @@ impl Studio {
             index,
         });
     }
+    /// Automatically reframes a 16:9 video clip to fit 9:16 vertical video without black bars,
+    /// centering on the subject.
+    pub fn smart_reframe(&mut self, clip_id: &str) {
+        let Some(clip) = self.clip(clip_id).cloned() else {
+            return;
+        };
+        let (frame_w, frame_h) = self.timeline().frame;
+        let proj_aspect = frame_w as f64 / (frame_h.max(1) as f64);
+        let media_aspect = self.project().media_by_id(&clip.media_id)
+            .and_then(|m| m.first_video_stream())
+            .map(|v| v.width as f64 / (v.height.max(1) as f64))
+            .unwrap_or(16.0 / 9.0);
+
+        let auto_scale = if proj_aspect < 1.0 && media_aspect > 1.0 {
+            media_aspect / proj_aspect
+        } else if proj_aspect > 1.0 && media_aspect < 1.0 {
+            proj_aspect / media_aspect
+        } else {
+            1.25
+        };
+
+        let mut commands = Vec::new();
+        commands.push(Command::SetClipScale {
+            clip_id: clip_id.to_owned(),
+            scale: auto_scale,
+        });
+        commands.push(Command::SetClipOffsetX {
+            clip_id: clip_id.to_owned(),
+            offset_x: 0.0,
+        });
+        commands.push(Command::SetClipOffsetY {
+            clip_id: clip_id.to_owned(),
+            offset_y: 0.0,
+        });
+
+        self.apply(Command::Batch { commands });
+        self.notify(&t("studio.smartReframeApplied"), false);
+    }
+
+    /// Detects musical beats / rhythmic onsets in the clip's audio and adds them to timeline snapping.
+    pub fn detect_beats(&mut self, clip_id: &str) {
+        let Some(clip) = self.clip(clip_id).cloned() else {
+            return;
+        };
+        let art = art_key(&clip.media_id, clip.audio_stream);
+        let Some(pyramid) = self.peaks.get(&art) else {
+            self.notify(&t("studio.beatsNoneFound"), false);
+            return;
+        };
+        let peaks = pyramid.finest();
+        let count = peaks.min.len().min(peaks.max.len());
+        if count < 10 {
+            self.notify(&t("studio.beatsNoneFound"), false);
+            return;
+        }
+        let bps = peaks.buckets_per_second.max(1.0);
+        let mut energies = Vec::with_capacity(count);
+        for i in 0..count {
+            energies.push(peaks.max[i] - peaks.min[i]);
+        }
+        let window_size = ((0.35 * bps) as usize).max(4);
+        let min_interval = ((0.2 * bps) as usize).max(2);
+        let mut beats = Vec::new();
+        let clip_source_start = clip.source_start as f32;
+        let clip_timeline_start = clip.start as f32;
+        let clip_dur = clip.duration as f32;
+        let clip_speed = clip.speed.max(0.01) as f32;
+
+        let start_bucket = ((clip_source_start * bps) as usize).min(count);
+        let end_bucket = (((clip_source_start + clip.duration * clip.speed) as f32 * bps) as usize).min(count);
+
+        let mut last_beat_bucket = 0;
+        for i in start_bucket..end_bucket {
+            if i < window_size || i + window_size >= count {
+                continue;
+            }
+            if i.saturating_sub(last_beat_bucket) < min_interval {
+                continue;
+            }
+            let current = energies[i];
+            if current < 0.12 {
+                continue;
+            }
+            if current < energies[i - 1] || current < energies[i + 1] {
+                continue;
+            }
+            let local_sum: f32 = energies[i - window_size..i + window_size].iter().sum();
+            let local_mean = local_sum / ((window_size * 2) as f32);
+            let threshold = (local_mean * 1.55).max(0.18);
+            if current > threshold {
+                let source_sec = i as f32 / bps;
+                let offset_in_clip = (source_sec - clip_source_start) / clip_speed;
+                if offset_in_clip >= 0.0 && offset_in_clip <= clip_dur {
+                    beats.push(clip_timeline_start + offset_in_clip);
+                    last_beat_bucket = i;
+                }
+            }
+        }
+        if beats.is_empty() {
+            self.notify(&t("studio.beatsNoneFound"), false);
+        } else {
+            let n = beats.len();
+            self.beats = beats;
+            self.notify(&format!("{n} batidas detectadas! Snapping ativado no ritmo."), false);
+            self.publish();
+        }
+    }
+
+    /// Clears active rhythm beats from timeline snapping.
+    pub fn clear_beats(&mut self) {
+        self.beats.clear();
+        self.notify(&t("studio.beatsCleared"), false);
+        self.publish();
+    }
+
 }
 
 /// How a detach goes, or why it cannot; see [`detach_plan`].

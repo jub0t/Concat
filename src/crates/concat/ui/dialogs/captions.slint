@@ -41,6 +41,8 @@ export struct CaptionsSheetData {
     text: string,
     /// Row in the installed transcriber list.
     model: int,
+    /// 0: Custom, 1: Hormozi, 2: MrBeast, 3: Clean, 4: Neon
+    preset-template: int,
     /// 0 Bottom, 1 Centre, 2 Top
     placement: int,
     /// 0 Small, 1 Medium, 2 Large
@@ -78,6 +80,7 @@ export component CaptionsDialog inherits Modal {
     in property <[string]> models;
 
     callback voice-toggled(on: bool);
+    callback preset-template-changed(index: int);
     callback source-changed(index: int);
     callback text-edited(text: string);
     callback model-changed(index: int);
@@ -233,6 +236,21 @@ export component CaptionsDialog inherits Modal {
 
         if !root.data.running: DialogSection {
             title: I18n.t("captions.captions");
+
+            DialogRow {
+                label: "Template";
+                SegmentedControl {
+                    options: [
+                        I18n.t("captions.templateCustom"),
+                        I18n.t("captions.templateHormozi"),
+                        I18n.t("captions.templateMrBeast"),
+                        I18n.t("captions.templateMinimalist"),
+                        I18n.t("captions.templateNeonGlow")
+                    ];
+                    current: root.data.preset-template;
+                    changed(index) => { root.preset-template-changed(index); }
+                }
+            }
 
             DialogRow {
                 label: I18n.t("captions.style");
