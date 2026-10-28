@@ -360,7 +360,7 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "clip_speed",
             "Change a clip's speed",
-            "Plays a clip faster or slower: `speed` from 0.0625 to 16 (2 is double speed). The same stretch of source is kept, so the clip's length on the timeline changes.",
+            "Plays a clip faster or slower: `speed` from 0.0625 to 100 (2 is double speed). The same stretch of source is kept, so the clip's length on the timeline changes.",
             "setClipSpeed",
         ),
         command(

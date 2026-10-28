@@ -731,7 +731,7 @@ pub enum Command {
     SetClipSpeed {
         /// The clip to retime. An unknown id is a no-op.
         clip_id: String,
-        /// The new rate, clamped into 0.0625..=16 (the engine's range).
+        /// The new rate, clamped into 0.0625..=100 (the engine's range).
         speed: f64,
         /// When true - the magnetic timeline - the clips after it on its
         /// lane move by however far its end moved, either way, so a clip

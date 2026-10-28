@@ -4769,7 +4769,10 @@ impl Studio {
         let mut points = clip.speed_curve.clone();
         edit(&mut points, clip.speed);
         if let Some(curve) = points.as_deref() {
-            let mean = concat_project::speed::mean_of(curve).clamp(0.0625, 16.0);
+            let mean = concat_project::speed::mean_of(curve).clamp(
+                concat_project::model::ranges::MIN_SPEED,
+                concat_project::model::ranges::MAX_SPEED,
+            );
             clip.speed = mean;
             clip.duration = (covered / mean).max(f64::from(MIN_DURATION));
         }
@@ -5524,7 +5527,10 @@ impl Studio {
                 ClipField::Speed => {
                     // A rate set by hand is a constant rate: the curve goes,
                     // as SetClipSpeed takes it.
-                    let speed = value.clamp(0.0625, 16.0);
+                    let speed = value.clamp(
+                        concat_project::model::ranges::MIN_SPEED,
+                        concat_project::model::ranges::MAX_SPEED,
+                    );
                     clip.duration =
                         (clip.duration * clip.speed / speed).max(f64::from(MIN_DURATION));
                     clip.speed = speed;

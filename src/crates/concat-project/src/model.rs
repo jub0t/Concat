@@ -1884,7 +1884,7 @@ pub mod ranges {
     /// The engine's speed range (concat-media `SPEED_RANGE`), verbatim.
     pub const MIN_SPEED: f64 = 0.0625;
     /// The top of the engine's speed range.
-    pub const MAX_SPEED: f64 = 16.0;
+    pub const MAX_SPEED: f64 = 100.0;
     /// The smallest a picture can be scaled to.
     pub const MIN_SCALE: f64 = 0.05;
     /// The largest a picture can be scaled to.
