@@ -8,6 +8,7 @@
 //! package the app knows, findable by id or alias, and it is what turns a
 //! clip's applied effects into one FFmpeg chain.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -499,13 +500,7 @@ impl Package {
             1.0
         };
         let values = self.resolve(set);
-        Some(shader.pass(
-            &values,
-            &self.manifest.params,
-            intensity,
-            self.lut.clone(),
-            reveal_map,
-        ))
+        Some(shader.pass(values, intensity, self.lut.clone(), reveal_map))
     }
 
     /// The pass a probe checks: the parameters at its starting point with
@@ -521,7 +516,6 @@ impl Package {
         let values = self.resolve(&self.set_at(probe.at, &probe.params));
         Some(shader.pass(
             &values,
-            &self.manifest.params,
             probe.progress.unwrap_or(0.0).clamp(0.0, 1.0),
             self.lut.clone(),
         ))
@@ -1172,7 +1166,11 @@ impl Catalogue {
         effects: &[AppliedFilter],
         reveal_map: Option<Arc<RevealMap>>,
     ) -> Vec<ShaderPass> {
-        self.passes_with(effects, |applied| applied.params.clone(), reveal_map)
+        self.passes_with(
+            effects,
+            |applied| Cow::Borrowed(&applied.params),
+            reveal_map,
+        )
     }
 
     /// The same passes at one instant of the clip, `at` in `0..=1`: a
@@ -1202,7 +1200,6 @@ impl Catalogue {
         let values = package.resolve(params);
         Some(shader.pass(
             &values,
-            &package.manifest.params,
             progress.clamp(0.0, 1.0) as f32,
             package.lut.clone(),
         ))
@@ -1211,7 +1208,7 @@ impl Catalogue {
     fn passes_with(
         &self,
         effects: &[AppliedFilter],
-        params_of: impl Fn(&AppliedFilter) -> BTreeMap<String, f64>,
+        params_of: impl Fn(&AppliedFilter) -> Cow<'_, BTreeMap<String, f64>>,
         reveal_map: Option<Arc<RevealMap>>,
     ) -> Vec<ShaderPass> {
         effects

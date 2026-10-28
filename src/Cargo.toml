@@ -50,6 +50,12 @@ pollster = "0.4"
 # manifest adds it, and says why.
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "tracing", "download-binaries", "tls-native", "copy-dylibs"] }
 
+# Measuring the paths a renderer walks every frame: a knob's ride read off
+# the document, and the passes a chain of effects hands its renderer. A
+# development dependency of two benches, never linked into anything shipped,
+# and without the plotting half - the numbers are read as text.
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
 [workspace.lints.rust]
 missing_docs = "warn"
 

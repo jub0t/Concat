@@ -168,23 +168,7 @@ impl Track {
     /// The value at `x`: `rest` with no keys, the first key's before it,
     /// the last key's after it, and eased between neighbours.
     pub fn value_at(&self, x: f64, rest: f64) -> f64 {
-        let Some(first) = self.keys.first() else {
-            return rest;
-        };
-        if x <= first.at {
-            return first.value;
-        }
-        for pair in self.keys.windows(2) {
-            let (a, b) = (pair[0], pair[1]);
-            if x <= b.at {
-                if b.at <= a.at {
-                    return b.value;
-                }
-                let t = b.ease.apply((x - a.at) / (b.at - a.at));
-                return a.value + (b.value - a.value) * t;
-            }
-        }
-        self.keys[self.keys.len() - 1].value
+        value_at_over(self.keys.iter().copied(), x, rest)
     }
 
     /// The same ride, with every eased segment replaced by `steps` straight
@@ -225,6 +209,35 @@ impl Track {
         }
         Track { keys: out }
     }
+}
+
+/// The value at `x` over `keys`: `rest` with none, the first key's before
+/// it, the last key's after it, and eased between neighbours - the walk
+/// [`Track::value_at`] takes, over keys their keeper has already ordered
+/// and sifted. A document that only wants a value reads its run through
+/// this directly, and never builds a track to throw away a moment later;
+/// `Track::new` sorts and sifts for callers whose keys arrive any old
+/// how, which is not the state a document keeps them in.
+pub fn value_at_over(keys: impl IntoIterator<Item = Key>, x: f64, rest: f64) -> f64 {
+    let mut keys = keys.into_iter();
+    let Some(first) = keys.next() else {
+        return rest;
+    };
+    if x <= first.at {
+        return first.value;
+    }
+    let mut a = first;
+    for b in keys {
+        if x <= b.at {
+            if b.at <= a.at {
+                return b.value;
+            }
+            let t = b.ease.apply((x - a.at) / (b.at - a.at));
+            return a.value + (b.value - a.value) * t;
+        }
+        a = b;
+    }
+    a.value
 }
 
 /// Every animatable property's keys.
@@ -478,5 +491,30 @@ mod tests {
             key(1.0, 1.0, Ease::LINEAR),
         ]);
         assert_eq!(straight.resample(12), straight);
+    }
+
+    #[test]
+    fn the_walk_over_keys_reads_what_a_track_would() {
+        // The same keys read one at a time, without the track: what a
+        // document that keeps its run ordered reads, and it must not be
+        // able to tell the difference.
+        let keys = [
+            key(0.1, 0.0, Ease::LINEAR),
+            key(0.4, 2.0, Ease::OUT),
+            key(0.8, 4.0, Ease::IN),
+        ];
+        let track = Track::new(keys.to_vec());
+        for x in [-0.5, 0.0, 0.1, 0.2, 0.4, 0.5, 0.6, 0.8, 0.9, 1.0] {
+            assert_eq!(
+                value_at_over(keys, x, 7.0),
+                track.value_at(x, 7.0),
+                "at {x}"
+            );
+        }
+
+        // No keys is the rest, and one key holds both ends of it.
+        assert_eq!(value_at_over([], 0.5, 7.0), 7.0);
+        assert_eq!(value_at_over([key(0.3, 5.0, Ease::LINEAR)], 0.9, 7.0), 5.0);
+        assert_eq!(value_at_over([key(0.3, 5.0, Ease::LINEAR)], 0.1, 7.0), 5.0);
     }
 }
