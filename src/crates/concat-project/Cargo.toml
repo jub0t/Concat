@@ -22,5 +22,14 @@ schemars = { workspace = true, optional = true }
 # Off by default: the engine and the window do not need it.
 schema = ["dep:schemars"]
 
+[dev-dependencies]
+# The ride bench: what a renderer asks of an applied filter on every
+# frame of every layer that carries one.
+criterion.workspace = true
+
+[[bench]]
+name = "rides"
+harness = false
+
 [lints]
 workspace = true

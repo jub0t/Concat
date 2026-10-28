@@ -452,13 +452,7 @@ impl Monitor {
                     .filter_map(|package| {
                         let shader = package.shader()?;
                         let values = package.resolve(&Default::default());
-                        Some(shader.pass(
-                            &values,
-                            &package.manifest.params,
-                            1.0,
-                            package.lut().cloned(),
-                            None,
-                        ))
+                        Some(shader.pass(values, 1.0, package.lut().cloned(), None))
                     })
                     .collect();
                 let forge = {
