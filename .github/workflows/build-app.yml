@@ -612,6 +612,16 @@ jobs:
             <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
             <key>NSHumanReadableCopyright</key><string>AGPL-3.0-or-later. See THIRD_PARTY_NOTICES.md.</string>
             <key>NSMicrophoneUsageDescription</key><string>Concat records voiceovers from your microphone.</string>
+            <key>CFBundleDocumentTypes</key>
+            <array>
+              <dict>
+                <key>CFBundleTypeName</key><string>MPEG-4 video</string>
+                <key>CFBundleTypeRole</key><string>Editor</string>
+                <key>LSHandlerRank</key><string>Alternate</string>
+                <key>LSItemContentTypes</key>
+                <array><string>public.mpeg-4</string></array>
+              </dict>
+            </array>
           </dict>
           </plist>
           PLIST
