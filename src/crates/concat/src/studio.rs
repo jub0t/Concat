@@ -12576,7 +12576,7 @@ impl Studio {
         let (frame_w, frame_h) = self.output_size();
         let proj_aspect = frame_w as f64 / (frame_h.max(1) as f64);
         let media_aspect = self.project().media_by_id(&clip.media_id)
-            .map(|m| m.width as f64 / (m.height.max(1) as f64))
+            .and_then(|m| Some(m.width? as f64 / m.height?.max(1) as f64))
             .unwrap_or(16.0 / 9.0);
 
         let auto_scale = if proj_aspect < 1.0 && media_aspect > 1.0 {
@@ -12589,7 +12589,7 @@ impl Studio {
 
         self.apply(Command::UpdateClip {
             clip_id: clip_id.to_owned(),
-            patch: concat_project::ClipPatch {
+            patch: ClipPatch {
                 scale: Some(auto_scale),
                 offset_x: Some(0.0),
                 offset_y: Some(0.0),
