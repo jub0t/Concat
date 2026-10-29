@@ -14,10 +14,11 @@
 //! them. A tool is added, never renamed; a removed one would be a version
 //! bump of this server.
 
+use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use concat_api::{ApiError, ErrorCode, Request};
+use concat_api::{ApiError, AppDirs, ErrorCode, Request};
 use serde_json::{Map, Value, json};
 
 use crate::backend::Backend;
@@ -996,8 +997,8 @@ fn preview(mut arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, A
 }
 
 /// `auto_edit`: a prompt describes an edit, Gemini's free API answers with
-/// a plan, and the plan is applied to the project. `GEMINI_API_KEY` must be
-/// in the environment.
+/// a plan, and the plan is applied to the project. The key is the person's
+/// own, stored in Settings, never shared.
 fn auto_edit(arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, ApiError> {
     let invalid = |why: &str| ApiError::invalid(format!("invalid arguments: {why}"));
     let fields = arguments
@@ -1011,8 +1012,10 @@ fn auto_edit(arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, Api
         .get("project")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    let api_key = std::env::var("GEMINI_API_KEY")
-        .map_err(|_| invalid("GEMINI_API_KEY is not set"))?;
+    // The key is the person's own, remembered in settings.json; fall back
+    // to GEMINI_API_KEY in the environment for a headless run.
+    let api_key = studio_api_key().or_else(|| std::env::var("GEMINI_API_KEY").ok())
+        .ok_or_else(|| invalid("no Gemini API key: enter it in Settings > Automation, or set GEMINI_API_KEY"))?;
     // Ask Gemini for a plan as JSON: an array of {op, ...} edit commands.
     let system = "You are a video editor. The user describes an edit. Answer with ONLY a JSON array of commands, each an object with an \"op\" field and the command's fields. Known ops: addClip, addTrack, addTextClip, addLayerClip, removeClip, trimClip, setClipKey, splitClips. No markdown fences, no explanation, just the JSON array.";
     let body = json!({
@@ -1053,6 +1056,22 @@ fn auto_edit(arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, Api
     }
     let result = backend.call(request("edit.apply", request_body)?)?;
     Ok(Outcome::json(summary::view(&result)))
+}
+
+/// The person's own Gemini API key, remembered in settings.json, or None
+/// when it has never been entered. Reads the settings file the window
+/// writes, so a key entered once is here for every run - window, headless,
+/// or an agent's `concat --mcp`.
+fn studio_api_key() -> Option<String> {
+    let dirs = AppDirs::locate().ok()?;
+    let path = dirs.config.join("settings.json");
+    let bytes = fs::read(&path).ok()?;
+    let settings: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    settings
+        .get("geminiApiKey")
+        .and_then(Value::as_str)
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
 }
 
 #[cfg(test)]

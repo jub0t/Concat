@@ -2116,6 +2116,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_server_token_generated(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
     }));
+    app.on_settings_gemini_api_key_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Settings(SettingsMsg::GeminiApiKeyChanged(
+            text.to_string(),
+        )));
+    }));
     app.on_settings_check_updates(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::CheckUpdates));
     }));

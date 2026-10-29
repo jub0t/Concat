@@ -88,6 +88,8 @@ export struct SettingsData {
     download-source: int,
     /// the base URL of a custom source
     download-base: string,
+    /// the person's own Gemini API key for auto-edit
+    gemini-api-key: string,
     /// the Concat API served on a socket while the window is open
     server-enabled: bool,
     /// the two halves of "127.0.0.1:7420"
@@ -672,6 +674,9 @@ export component SettingsDialog inherits Modal {
     callback server-token-edited(text: string);
     /// A fresh random token, in place of whatever is there.
     callback server-token-generated();
+    /// The person's own Gemini API key, entered in Settings: each user has
+    /// their own, not one shared key.
+    callback gemini-api-key-edited(text: string);
     /// the Version page: look for the releases, pick one, put it in place
     callback check-updates();
     callback version-chosen(index: int);
@@ -752,12 +757,15 @@ export component SettingsDialog inherits Modal {
     /// Off each time the sheet opens: showing it is a decision for the
     /// moment, not a setting.
     property <bool> token-shown;
+    /// The Gemini API key is shown in clear rather than as dots.
+    property <bool> gemini-shown;
     /// Copy was pressed a moment ago: its mark is a tick for a second
     /// and a half, so the press is seen to have worked.
     property <bool> token-copied;
     changed open => {
         if (!root.open) {
             root.token-shown = false;
+            root.gemini-shown = false;
         }
     }
 
@@ -1476,13 +1484,49 @@ export component SettingsDialog inherits Modal {
                             read-only: true;
                         }
 
-                        Timer {
-                            interval: 1500ms;
-                            running: root.token-copied;
-                            triggered => { root.token-copied = false; }
+                    Timer {
+                        interval: 1500ms;
+                        running: root.token-copied;
+                        triggered => { root.token-copied = false; }
+                    }
+                }
+
+                DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.geminiApiKey");
+                    hint: I18n.t("settings.geminiApiKeyHint");
+
+                    // Dots until asked: the key is what lets auto-edit call
+                    // Gemini, and Settings is open on screens other people
+                    // look at. The eye shows it for as long as the sheet is up.
+                    Rectangle {
+                        min-height: 28px;
+                        max-height: 28px;
+                        border-radius: Theme.r;
+                        background: Theme.field;
+                        clip: true;
+
+                        HorizontalLayout {
+                            spacing: 6px;
+
+                            Field {
+                                value: root.data.gemini-api-key;
+                                placeholder: I18n.t("common.none");
+                                technical: true;
+                                secret: !root.gemini-shown;
+                                edited(text) => { root.gemini-api-key-edited(text); }
+                            }
+
+                            Button {
+                                square: true;
+                                glyph: root.gemini-shown ? Glyph.eye-off : Glyph.eye;
+                                label: root.gemini-shown ? I18n.t("settings.hideTheKey") : I18n.t("settings.showTheKey");
+                                clicked => { root.gemini-shown = !root.gemini-shown; }
+                            }
                         }
                     }
                 }
+            }
             }
 
             // The Version page: which release this is, whether a newer one
