@@ -1493,6 +1493,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         sounds.on_shown(on_window!(|state, on: bool| {
             state.handle(Msg::Sounds(SoundsMsg::Shown(on)));
         }));
+        // A YouTube URL pasted in: yt-dlp fetches it as MP3 into the library.
+        sounds.on_download_from_url(on_window!(|state, url: SharedString| {
+            state.handle(Msg::Sounds(SoundsMsg::DownloadFromUrl(url.to_string())));
+        }));
         // Voices: Text to speech on the voice or style clicked.
         // Concat's own sounds: the list asked for by a click, never at
         // startup.

@@ -11788,6 +11788,8 @@ impl Studio {
         }
         app.global::<crate::ui::Sounds>()
             .set_importing(self.sounds.importing);
+        app.global::<crate::ui::Sounds>()
+            .set_ytdl_available(concat_host::ytdl::ytdl_available());
         let (saved, builtin, styles, ready) = self.voice_cards();
         sync(&models.voices_saved, saved);
         sync(&models.voices_builtin, builtin);

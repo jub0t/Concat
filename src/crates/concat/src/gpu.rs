@@ -45,13 +45,14 @@ impl Gpu {
     pub fn acquire() -> Option<Gpu> {
         // Only the backend Slint's Skia renderer can share a device on:
         // Skia is built against the platform's own API, so a device on any
-        // other backend is refused at selection time. PRIMARY let wgpu pick
-        // Vulkan on Windows machines that offer it, and the window then
-        // failed to open with "Unsupported WGPU backend for use with Skia".
+        // other backend is refused at selection time. On Windows try DX12
+        // first, then Vulkan as a fallback - a machine whose driver does not
+        // offer DX12 can still get a GPU device through Vulkan instead of
+        // running with no adapter at all (#575).
         let backends = if cfg!(target_vendor = "apple") {
             wgpu::Backends::METAL
         } else if cfg!(windows) {
-            wgpu::Backends::DX12
+            wgpu::Backends::DX12 | wgpu::Backends::VULKAN
         } else {
             wgpu::Backends::VULKAN
         };

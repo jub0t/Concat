@@ -1,0 +1,22 @@
+format = 2
+
+[effect]
+id = "concat.zoom"
+name = "Zoom"
+kind = "transition"
+category = "Slide"
+order = 8
+description = "Zoom through: the camera pushes into the outgoing shot, then pulls back out of the incoming one."
+
+[[param]]
+key = "scale"
+label = "Scale"
+type = "float"
+min = 1.0
+max = 4.0
+default = 2.0
+step = 0.5
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"
