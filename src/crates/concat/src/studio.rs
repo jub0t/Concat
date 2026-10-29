@@ -12587,14 +12587,14 @@ impl Studio {
             1.25
         };
 
-        self.apply(Command::UpdateClip {
+        self.apply(Command::SetClipTransform {
             clip_id: clip_id.to_owned(),
-            patch: ClipPatch {
-                scale: Some(auto_scale),
-                offset_x: Some(0.0),
-                offset_y: Some(0.0),
-                ..Default::default()
-            },
+            scale: Some(auto_scale),
+            offset_x: Some(0.0),
+            offset_y: Some(0.0),
+            rotation: None,
+            stretch_x: None,
+            stretch_y: None,
         });
         self.notify(&t("studio.smartReframeApplied"), false);
     }
