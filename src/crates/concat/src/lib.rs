@@ -1493,6 +1493,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         sounds.on_shown(on_window!(|state, on: bool| {
             state.handle(Msg::Sounds(SoundsMsg::Shown(on)));
         }));
+        // A YouTube URL pasted in: yt-dlp fetches it as MP3 into the library.
+        sounds.on_download_from_url(on_window!(|state, url: SharedString| {
+            state.handle(Msg::Sounds(SoundsMsg::DownloadFromUrl(url.to_string())));
+        }));
         // Voices: Text to speech on the voice or style clicked.
         // Concat's own sounds: the list asked for by a click, never at
         // startup.
@@ -2111,6 +2115,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_settings_server_token_generated(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
+    }));
+    app.on_settings_gemini_api_key_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Settings(SettingsMsg::GeminiApiKeyChanged(
+            text.to_string(),
+        )));
     }));
     app.on_settings_check_updates(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::CheckUpdates));

@@ -14,10 +14,11 @@
 //! them. A tool is added, never renamed; a removed one would be a version
 //! bump of this server.
 
+use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use concat_api::{ApiError, ErrorCode, Request};
+use concat_api::{ApiError, AppDirs, ErrorCode, Request};
 use serde_json::{Map, Value, json};
 
 use crate::backend::Backend;
@@ -79,6 +80,9 @@ pub enum Action {
     Mask,
     /// `preview.frame`, as an image.
     PreviewFrame,
+    /// `auto_edit`: a prompt describes an edit, Gemini's free API answers
+    /// with a plan, and the plan is applied to the project.
+    AutoEdit,
 }
 
 /// How a reply is shown to the agent.
@@ -488,6 +492,15 @@ pub fn catalogue() -> Vec<Tool> {
             idempotent: true,
             action: Action::PreviewFrame,
         },
+        Tool {
+            name: "auto_edit",
+            title: "Auto-edit with Gemini",
+            description: "Describe an edit in `prompt` - \"make a 30-second montage with jump cuts and music\" - and Gemini's free API answers with a plan of edit commands, applied to `project` (the active project when absent). Needs `GEMINI_API_KEY` in the environment; without it the tool refuses. The model is gemini-1.5-flash, which is free within Google's limits.",
+            read_only: false,
+            destructive: false,
+            idempotent: false,
+            action: Action::AutoEdit,
+        },
     ]
 }
 
@@ -632,6 +645,24 @@ fn input_schema(schemas: &Schemas, tool: &Tool) -> Option<Value> {
             Some(schema)
         }
         Action::PreviewFrame => schemas.method("preview.frame"),
+        Action::AutoEdit => {
+            let mut schema = json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "What to make: \"a 30-second montage with jump cuts and music\", \"cut this into a trailer\", ..."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "The project path, or absent for the active one."
+                    }
+                },
+                "required": ["prompt"],
+                "additionalProperties": false,
+            });
+            Some(schema)
+        }
         Action::Mask => {
             let update = schemas.command("updateClip")?;
             let mut mask = schemas.def("ClipMask")?;
@@ -741,6 +772,7 @@ fn run(tool: &Tool, arguments: Value, context: Context<'_>) -> Result<Outcome, A
         }
         Action::ExportWait => export_wait(arguments, backend, context.cancelled, context.progress),
         Action::PreviewFrame => preview(arguments, backend),
+        Action::AutoEdit => auto_edit(arguments, backend),
         Action::Mask => {
             let result = backend.call(mask(arguments)?)?;
             Ok(Outcome::json(summary::view(&result)))
@@ -964,6 +996,84 @@ fn preview(mut arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, A
     })
 }
 
+/// `auto_edit`: a prompt describes an edit, Gemini's free API answers with
+/// a plan, and the plan is applied to the project. The key is the person's
+/// own, stored in Settings, never shared.
+fn auto_edit(arguments: Value, backend: &mut dyn Backend) -> Result<Outcome, ApiError> {
+    let invalid = |why: &str| ApiError::invalid(format!("invalid arguments: {why}"));
+    let fields = arguments
+        .as_object()
+        .ok_or_else(|| invalid("the arguments are an object"))?;
+    let prompt = fields
+        .get("prompt")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("missing field `prompt`"))?;
+    let project = fields
+        .get("project")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    // The key is the person's own, remembered in settings.json; fall back
+    // to GEMINI_API_KEY in the environment for a headless run.
+    let api_key = studio_api_key().or_else(|| std::env::var("GEMINI_API_KEY").ok())
+        .ok_or_else(|| invalid("no Gemini API key: enter it in Settings > Automation, or set GEMINI_API_KEY"))?;
+    // Ask Gemini for a plan as JSON: an array of {op, ...} edit commands.
+    let system = "You are a video editor. The user describes an edit. Answer with ONLY a JSON array of commands, each an object with an \"op\" field and the command's fields. Known ops: addClip, addTrack, addTextClip, addLayerClip, removeClip, trimClip, setClipKey, splitClips. No markdown fences, no explanation, just the JSON array.";
+    let body = json!({
+        "contents": [{
+            "parts": [{"text": format!("{system}\n\nEdit: {prompt}")}]
+        }]
+    });
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    );
+    let response = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .map_err(|error| ApiError::invalid(format!("gemini request failed: {error}")))?;
+    let text = response
+        .into_string()
+        .map_err(|error| ApiError::invalid(format!("gemini response unreadable: {error}")))?;
+    // The model may wrap the JSON in markdown fences; strip them.
+    let text = text
+        .trim()
+        .strip_prefix("```json")
+        .unwrap_or(text.trim())
+        .strip_suffix("```")
+        .unwrap_or(text.trim())
+        .trim();
+    let commands: Value = serde_json::from_str(text)
+        .map_err(|error| ApiError::invalid(format!("gemini plan is not JSON: {error}")))?;
+    let commands = commands
+        .as_array()
+        .ok_or_else(|| invalid("gemini plan is not a JSON array"))?;
+    let mut batch_commands = Vec::with_capacity(commands.len());
+    for command in commands {
+        batch_commands.push(command.clone());
+    }
+    let mut request_body = json!({ "command": { "op": "batch", "commands": batch_commands } });
+    if let Some(path) = project {
+        request_body.as_object_mut().unwrap().insert("path".to_owned(), json!(path));
+    }
+    let result = backend.call(request("edit.apply", request_body)?)?;
+    Ok(Outcome::json(summary::view(&result)))
+}
+
+/// The person's own Gemini API key, remembered in settings.json, or None
+/// when it has never been entered. Reads the settings file the window
+/// writes, so a key entered once is here for every run - window, headless,
+/// or an agent's `concat --mcp`.
+fn studio_api_key() -> Option<String> {
+    let dirs = AppDirs::locate().ok()?;
+    let path = dirs.config.join("settings.json");
+    let bytes = fs::read(&path).ok()?;
+    let settings: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    settings
+        .get("geminiApiKey")
+        .and_then(Value::as_str)
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1104,6 +1214,10 @@ mod tests {
                 "preview_frame",
                 json!({ "path": "/tmp/Cut", "time": 1.5, "width": 320, "height": 180 }),
             ),
+            (
+                "auto_edit",
+                json!({ "prompt": "make a 30-second montage with jump cuts" }),
+            ),
         ]
     }
 
@@ -1159,6 +1273,7 @@ mod tests {
                 }
                 Action::PreviewFrame => request("preview.frame", sample.clone()),
                 Action::Mask => mask(sample.clone()),
+                Action::AutoEdit => auto_edit(sample.clone()),
             };
             let built = built.unwrap_or_else(|error| panic!("{name}: {error}"));
             // Back again: the request as the API writes it fits the API's

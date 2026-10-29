@@ -45,6 +45,7 @@ mod route;
 pub mod session;
 pub mod sounds;
 pub mod stabilize;
+pub mod ytdl;
 pub mod templates;
 pub mod titles;
 pub mod updates;

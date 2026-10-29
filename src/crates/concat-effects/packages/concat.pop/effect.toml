@@ -1,0 +1,22 @@
+format = 2
+
+[effect]
+id = "concat.pop"
+name = "Pop"
+kind = "transition"
+category = "Pop"
+order = 6
+description = "The incoming shot pops in from the centre with a little bounce, overlaying the outgoing one."
+
+[[param]]
+key = "scale"
+label = "Scale"
+type = "float"
+min = 0.5
+max = 2.0
+default = 1.2
+step = 0.1
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

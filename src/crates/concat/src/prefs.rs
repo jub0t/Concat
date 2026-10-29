@@ -118,6 +118,9 @@ pub struct Preferences {
     pub download_source: Option<String>,
     /// The base URL a custom download source appends a model's file to.
     pub download_base: Option<String>,
+    /// The person's own Gemini API key, for auto-edit: entered in Settings,
+    /// never shared. Absent means the tool refuses until one is given.
+    pub gemini_api_key: Option<String>,
     /// The Concat API on a socket while the window is open.
     #[serde(default)]
     pub server: ServerPrefs,

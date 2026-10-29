@@ -64,6 +64,7 @@ pub enum SettingsMsg {
     MagneticChanged(bool),
     DownloadSourceChanged(i32),
     DownloadBaseEdited(String),
+    GeminiApiKeyChanged(String),
     ServerEnabledChanged(bool),
     /// The address half of where the server listens; the port is its own
     /// field, so a person types "127.0.0.1" and "7420" and never a colon.
@@ -400,6 +401,11 @@ impl SettingsPane {
                 studio.prefs.download_base = (!base.is_empty()).then_some(base);
                 studio.prefs.save(&studio.host.dirs);
                 Self::apply_download_source(studio);
+            }
+            SettingsMsg::GeminiApiKeyChanged(text) => {
+                let key = text.trim().to_owned();
+                studio.prefs.gemini_api_key = (!key.is_empty()).then_some(key);
+                studio.prefs.save(&studio.host.dirs);
             }
             SettingsMsg::ServerEnabledChanged(on) => {
                 studio.prefs.server.enabled = on;
@@ -957,6 +963,7 @@ impl SettingsPane {
             magnetic: studio.prefs.magnetic(),
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
+            gemini_api_key: studio.prefs.gemini_api_key.as_deref().unwrap_or_default().into(),
             server_enabled: studio.prefs.server.enabled,
             server_host: split_listen(&studio.prefs.server.listen).0.into(),
             server_port: i32::from(split_listen(&studio.prefs.server.listen).1),

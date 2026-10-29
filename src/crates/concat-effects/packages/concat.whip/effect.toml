@@ -1,0 +1,32 @@
+format = 2
+
+[effect]
+id = "concat.whip"
+name = "Whip"
+kind = "transition"
+category = "Slide"
+order = 7
+description = "A fast whip pan: the camera whips from the outgoing shot to the incoming one along an axis."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+min = 0
+max = 3
+default = 0
+values = [0, 1, 2, 3]
+labels = ["Left", "Right", "Up", "Down"]
+
+[[param]]
+key = "speed"
+label = "Speed"
+type = "float"
+min = 1.0
+max = 5.0
+default = 2.5
+step = 0.5
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"
