@@ -3,6 +3,7 @@
 
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
+import { ThinScrollbar } from "scrollbar.slint";
 
 // The right-click menu: an icon slot every row shares, a label, a right-set
 // shortcut hint, checkbox rows, group labels, separators, and one row that may
@@ -59,6 +60,13 @@ export component ContextMenu inherits Rectangle {
     in property <[MenuItemData]> items;
     /// The summed height of `items` plus MenuMetrics.padding.
     in property <length> menu-height;
+    /// Maximum visible height before the menu starts scrolling
+    in property <length> max-menu-height: 440px;
+
+    property <length> visible-height: Math.min(root.menu-height, root.max-menu-height);
+    property <length> overflow: Math.max(0px, root.menu-height - root.visible-height);
+    property <length> content-y: 0px;
+    property <length> at: Math.max(0px, Math.min(root.overflow, -root.content-y));
 
     callback selected(id: string);
     /// Left or right from the keyboard: the menu beside this one, for a
@@ -71,6 +79,25 @@ export component ContextMenu inherits Rectangle {
     in property <bool> keyboard;
     /// The row the keyboard is on, or -1.
     property <int> hot: -1;
+
+    pure function approx-row-y(index: int) -> length {
+        return 6px + index * MenuMetrics.action;
+    }
+    function reveal-hot(index: int) {
+        if (index >= 0 && root.overflow > 0px) {
+            let row-top = root.approx-row-y(index);
+            let row-bottom = row-top + MenuMetrics.action;
+            if (row-top - 6px < root.at) {
+                root.content-y = -(row-top - 6px);
+            } else if (row-bottom + 6px > root.at + root.visible-height) {
+                root.content-y = -(row-bottom + 6px - root.visible-height);
+            }
+        }
+    }
+
+    changed hot => {
+        root.reveal-hot(root.hot);
+    }
 
     /// Whether row `i` is one the keyboard can land on.
     pure function usable(i: int) -> bool {
@@ -118,13 +145,14 @@ export component ContextMenu inherits Rectangle {
         // worse than none. It also lets a caller bump unconditionally, which
         // is what keeps the arming in lanes.slint honest.
         if (root.token > 0 && root.items.length > 0) {
+            root.content-y = 0px;
             // Flipped back over the pointer near an edge, so the menu is
             // always fully on screen and always touching the click.
             root.at-x = root.request-x + MenuMetrics.width > root.width
                 ? Math.max(0px, root.request-x - MenuMetrics.width)
                 : root.request-x;
-            root.at-y = root.request-y + root.menu-height > root.height
-                ? Math.max(0px, root.request-y - root.menu-height)
+            root.at-y = root.request-y + root.visible-height > root.height
+                ? Math.max(0px, root.request-y - root.visible-height)
                 : root.request-y;
             // From the top down, the way a menu opens from the keyboard
             // everywhere: -1 steps onto row 0 or the first usable one.
@@ -172,7 +200,7 @@ export component ContextMenu inherits Rectangle {
         x: root.at-x;
         y: root.at-y;
         width: MenuMetrics.width;
-        height: root.menu-height;
+        height: root.visible-height;
         close-policy: close-on-click-outside;
 
         // Made afresh each time the surface shows, so this is each opening.
@@ -209,116 +237,139 @@ export component ContextMenu inherits Rectangle {
             border-radius: Theme.r-lg;
             clip: true;
 
-            VerticalLayout {
-                padding: 6px;
-                alignment: start;
+            flick := Flickable {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                content-y <=> root.content-y;
+                content-width: self.width;
+                content-height: root.menu-height;
+                interactive: root.overflow > 0px;
 
-                for item[index] in root.items: Rectangle {
-                    height: item.kind == MenuRow.separator ? MenuMetrics.separator
-                        : item.kind == MenuRow.label ? MenuMetrics.label
-                        : MenuMetrics.action;
+                VerticalLayout {
+                    width: flick.width;
+                    height: root.menu-height;
+                    padding: 6px;
+                    alignment: start;
 
-                    if item.kind == MenuRow.separator: Rectangle {
-                        x: 8px;
-                        y: (parent.height - 1px) / 2;
-                        width: parent.width - 16px;
-                        height: 1px;
-                        background: Theme.line;
-                    }
+                    for item[index] in root.items: Rectangle {
+                        height: item.kind == MenuRow.separator ? MenuMetrics.separator
+                            : item.kind == MenuRow.label ? MenuMetrics.label
+                            : MenuMetrics.action;
 
-                    if item.kind == MenuRow.label: Text {
-                        x: 10px;
-                        y: 0;
-                        width: parent.width - 20px;
-                        height: parent.height;
-                        text: item.label;
-                        color: Theme.fg-dim;
-                        font-size: Theme.fs-sm;
-                        letter-spacing: 0.72px;
-                        vertical-alignment: bottom;
-                        overflow: elide;
-                    }
+                        if item.kind == MenuRow.separator: Rectangle {
+                            x: 8px;
+                            y: (parent.height - 1px) / 2;
+                            width: parent.width - 16px;
+                            height: 1px;
+                            background: Theme.line;
+                        }
 
-                    if item.kind == MenuRow.action: row := Rectangle {
-                        border-radius: Theme.r-xs;
-                        property <bool> lit: (touch.has-hover || root.hot == index) && item.enabled;
-                        background: !row.lit ? Colors.transparent
-                            : item.danger ? Theme.danger-soft
-                            : Theme.field;
+                        if item.kind == MenuRow.label: Text {
+                            x: 10px;
+                            y: 0;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: item.label;
+                            color: Theme.fg-dim;
+                            font-size: Theme.fs-sm;
+                            letter-spacing: 0.72px;
+                            vertical-alignment: bottom;
+                            overflow: elide;
+                        }
 
-                        property <brush> ink: !item.enabled ? Theme.fg-dim
-                            : (item.danger && row.lit) ? Theme.danger
-                            : Theme.fg;
+                        if item.kind == MenuRow.action: row := Rectangle {
+                            border-radius: Theme.r-xs;
+                            property <bool> lit: (touch.has-hover || root.hot == index) && item.enabled;
+                            background: !row.lit ? Colors.transparent
+                                : item.danger ? Theme.danger-soft
+                                : Theme.field;
 
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
-                            spacing: 8px;
+                            property <brush> ink: !item.enabled ? Theme.fg-dim
+                                : (item.danger && row.lit) ? Theme.danger
+                                : Theme.fg;
 
-                            // A fixed slot even when a row has no mark, so
-                            // every label starts on the same x. Ragged labels
-                            // are what make a menu feel thrown together.
-                            VerticalLayout {
-                                alignment: center;
-                                Rectangle {
-                                    width: 14px;
-                                    height: 14px;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: root.overflow > 0px ? 14px : 10px;
+                                spacing: 8px;
 
-                                    if item.checkable && item.checked: Icon {
-                                        x: 0;
-                                        y: 0;
-                                        glyph: Glyph.check;
-                                        size: 13px;
-                                        tint: item.enabled ? Theme.accent : Theme.fg-dim;
+                                // A fixed slot even when a row has no mark, so
+                                // every label starts on the same x. Ragged labels
+                                // are what make a menu feel thrown together.
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 14px;
+                                        height: 14px;
+
+                                        if item.checkable && item.checked: Icon {
+                                            x: 0;
+                                            y: 0;
+                                            glyph: Glyph.check;
+                                            size: 13px;
+                                            tint: item.enabled ? Theme.accent : Theme.fg-dim;
+                                        }
+
+                                        if !item.checkable && item.glyph != Glyph.none: Icon {
+                                            x: 0;
+                                            y: 0;
+                                            glyph: item.glyph;
+                                            size: 13px;
+                                            tint: item.enabled ? Theme.fg-muted : Theme.fg-dim;
+                                        }
                                     }
+                                }
 
-                                    if !item.checkable && item.glyph != Glyph.none: Icon {
-                                        x: 0;
-                                        y: 0;
-                                        glyph: item.glyph;
-                                        size: 13px;
-                                        tint: item.enabled ? Theme.fg-muted : Theme.fg-dim;
-                                    }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: item.label;
+                                    color: row.ink;
+                                    font-size: Theme.fs;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                if item.shortcut != "": Text {
+                                    text: item.shortcut;
+                                    color: item.enabled ? Theme.fg-dim : Theme.line-strong;
+                                    font-family: Theme.font-technical;
+                                    font-size: Theme.fs-sm;
+                                    vertical-alignment: center;
                                 }
                             }
 
-                            Text {
-                                horizontal-stretch: 1;
-                                text: item.label;
-                                color: row.ink;
-                                font-size: Theme.fs;
-                                vertical-alignment: center;
-                                overflow: elide;
-                            }
-
-                            if item.shortcut != "": Text {
-                                text: item.shortcut;
-                                color: item.enabled ? Theme.fg-dim : Theme.line-strong;
-                                font-family: Theme.font-technical;
-                                font-size: Theme.fs-sm;
-                                vertical-alignment: center;
-                            }
-                        }
-
-                        touch := TouchArea {
-                            enabled: item.enabled;
-                            mouse-cursor: pointer;
-                            clicked => {
-                                // The id first, while the row still exists;
-                                // the report after the close - see `chosen`.
-                                // The timer is armed before the close, not
-                                // after: closing tears down the surface this
-                                // handler runs in, and anything after it
-                                // never ran, so no row reported at all (#220).
-                                // It still fires on the next turn of the
-                                // loop, when the surface is gone.
-                                root.chosen = item.id;
-                                report.running = true;
-                                surface.close();
+                            touch := TouchArea {
+                                enabled: item.enabled;
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    // The id first, while the row still exists;
+                                    // the report after the close - see `chosen`.
+                                    // The timer is armed before the close, not
+                                    // after: closing tears down the surface this
+                                    // handler runs in, and anything after it
+                                    // never ran, so no row reported at all (#220).
+                                    // It still fires on the next turn of the
+                                    // loop, when the surface is gone.
+                                    root.chosen = item.id;
+                                    report.running = true;
+                                    surface.close();
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            ThinScrollbar {
+                x: parent.width - self.width - 2px;
+                y: 2px;
+                height: parent.height - 4px;
+                viewport: root.visible-height;
+                content: root.menu-height;
+                offset: root.at;
+                scrolled(to) => { root.content-y = -to; }
             }
         }
     }
