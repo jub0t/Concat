@@ -11430,7 +11430,7 @@ impl Studio {
                 rows.push(action(
                     "clear-beats",
                     t("studio.clearBeats"),
-                    Glyph::Delete,
+                    Glyph::Trash,
                     "",
                     true,
                 ));
@@ -12573,11 +12573,10 @@ impl Studio {
         let Some(clip) = self.clip(clip_id).cloned() else {
             return;
         };
-        let (frame_w, frame_h) = self.timeline().frame;
+        let (frame_w, frame_h) = self.output_size();
         let proj_aspect = frame_w as f64 / (frame_h.max(1) as f64);
         let media_aspect = self.project().media_by_id(&clip.media_id)
-            .and_then(|m| m.first_video_stream())
-            .map(|v| v.width as f64 / (v.height.max(1) as f64))
+            .map(|m| m.width as f64 / (m.height.max(1) as f64))
             .unwrap_or(16.0 / 9.0);
 
         let auto_scale = if proj_aspect < 1.0 && media_aspect > 1.0 {
@@ -12588,21 +12587,15 @@ impl Studio {
             1.25
         };
 
-        let mut commands = Vec::new();
-        commands.push(Command::SetClipScale {
+        self.apply(Command::UpdateClip {
             clip_id: clip_id.to_owned(),
-            scale: auto_scale,
+            patch: concat_project::ClipPatch {
+                scale: Some(auto_scale),
+                offset_x: Some(0.0),
+                offset_y: Some(0.0),
+                ..Default::default()
+            },
         });
-        commands.push(Command::SetClipOffsetX {
-            clip_id: clip_id.to_owned(),
-            offset_x: 0.0,
-        });
-        commands.push(Command::SetClipOffsetY {
-            clip_id: clip_id.to_owned(),
-            offset_y: 0.0,
-        });
-
-        self.apply(Command::Batch { commands });
         self.notify(&t("studio.smartReframeApplied"), false);
     }
 
@@ -12636,7 +12629,7 @@ impl Studio {
         let clip_speed = clip.speed.max(0.01) as f32;
 
         let start_bucket = ((clip_source_start * bps) as usize).min(count);
-        let end_bucket = (((clip_source_start + clip.duration * clip.speed) as f32 * bps) as usize).min(count);
+        let end_bucket = (((clip_source_start as f64 + clip.duration * clip.speed) * bps as f64) as usize).min(count);
 
         let mut last_beat_bucket = 0;
         for i in start_bucket..end_bucket {
@@ -12671,7 +12664,6 @@ impl Studio {
             let n = beats.len();
             self.beats = beats;
             self.notify(&format!("{n} batidas detectadas! Snapping ativado no ritmo."), false);
-            self.publish();
         }
     }
 
@@ -12679,7 +12671,6 @@ impl Studio {
     pub fn clear_beats(&mut self) {
         self.beats.clear();
         self.notify(&t("studio.beatsCleared"), false);
-        self.publish();
     }
 
 }
