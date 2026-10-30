@@ -1131,9 +1131,9 @@ mod tests {
                 "Base — Português (Brasil) / Multilíngue",
             ),
         ] {
-            let locale: HashMap<String, String> = serde_json::from_str(text).unwrap();
+            let locale: serde_json::Value = serde_json::from_str(text).unwrap();
             assert_eq!(locale["settings.baseMultilingual"], expected);
-            assert!(locale["captions.portugueseRequiresMultilingual"].contains(expected));
+            assert!(locale["captions.portugueseRequiresMultilingual"].as_str().unwrap().contains(expected));
         }
     }
 

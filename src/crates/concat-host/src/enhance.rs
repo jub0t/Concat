@@ -826,6 +826,7 @@ mod tests {
             .flat_map(|at| {
                 let (x, y) = (at % width, at / width);
                 [(x * 255 / width) as u8, (y * 2) as u8, ((x ^ y) & 0xff) as u8, 255]
+            })
             .collect();
         let frame = Frame::from_rgba(width, height, pixels).expect("a frame");
         let a = gpu.enhance(&frame, 2).expect("the GPU enhances");
