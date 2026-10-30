@@ -219,6 +219,65 @@ impl OpenProjects {
     }
 }
 
+/// The way to the project open in the window, for a window that lets
+/// scripts edit it ("live mode", #337).
+///
+/// A request naming that project is not refused but run against the
+/// window's own session, on the window's thread: the edit lands on screen
+/// and in the window's undo history, one step a call. What a request means
+/// stays here; the window only lends its session. Every method names the
+/// project it was asked about, and answers [`ErrorCode::NotOpen`] when, by
+/// the time the window gets to it, the window has moved on to another
+/// project or the switch has been turned off.
+///
+/// The methods block until the window has answered, so they are called
+/// from the API's thread and never from the window's.
+pub trait WindowLink: Send + Sync {
+    /// Whether the window lets scripts edit its project just now - the
+    /// switch on its Automation page.
+    fn live(&self) -> bool;
+
+    /// The window's session as it stands.
+    fn view(&self, path: &str) -> Result<EditorView, ApiError>;
+
+    /// A copy of the window's session to read or render from; see
+    /// [`Session::snapshot`].
+    fn snapshot(&self, path: &str) -> Result<Session, ApiError>;
+
+    /// Applies one edit, as one undo step.
+    fn apply(&self, path: &str, command: Command) -> Result<EditorView, ApiError>;
+
+    /// Sets the frame and rate of the timeline on screen, as an edit.
+    fn set_video(&self, path: &str, video: VideoSettings) -> Result<EditorView, ApiError>;
+
+    /// Steps the window's history back one edit.
+    fn undo(&self, path: &str) -> Result<EditorView, ApiError>;
+
+    /// Steps the window's history forward one edit.
+    fn redo(&self, path: &str) -> Result<EditorView, ApiError>;
+
+    /// Saves the project as the window's own save does.
+    fn save(&self, path: &str) -> Result<(), ApiError>;
+}
+
+/// A session to read from: one of the API's own, or a copy of the
+/// window's.
+enum Held<'a> {
+    Here(&'a Session),
+    Window(Box<Session>),
+}
+
+impl std::ops::Deref for Held<'_> {
+    type Target = Session;
+
+    fn deref(&self) -> &Session {
+        match self {
+            Held::Here(session) => session,
+            Held::Window(session) => session,
+        }
+    }
+}
+
 /// The dispatcher: the open sessions and the services behind them.
 pub struct Api {
     dirs: AppDirs,
@@ -243,6 +302,8 @@ pub struct Api {
     book: Arc<job::Book>,
     /// [`VersionInfo::capabilities`], in the order they were added.
     capabilities: Vec<String>,
+    /// The window this API is embedded in, when it lends its project.
+    window: Option<Arc<dyn WindowLink>>,
 }
 
 /// A way to stop the jobs of one [`Api`] from any thread, without waiting
@@ -302,6 +363,7 @@ impl Api {
             jobs: Jobs::default(),
             dirs,
             capabilities: CAPABILITIES.iter().map(|name| (*name).to_owned()).collect(),
+            window: None,
         }
     }
 
@@ -355,6 +417,28 @@ impl Api {
     /// round.
     pub fn share_open_projects(&mut self, open: OpenProjects) {
         self.open = open;
+    }
+
+    /// Takes the way to the window's open project: a request naming it is
+    /// run there while [`WindowLink::live`] says so, and refused as before
+    /// while it does not. Pairs with [`Api::share_open_projects`], whose
+    /// register says which project that is.
+    pub fn share_window(&mut self, window: Arc<dyn WindowLink>) {
+        self.window = Some(window);
+        self.add_capability("project.live");
+    }
+
+    /// The window, when `path` is the project it has open and lets
+    /// scripts edit. A project of the API's own is never the window's.
+    fn live(&self, path: &str) -> Option<Arc<dyn WindowLink>> {
+        let window = self.window.as_ref()?;
+        if self.sessions.contains_key(&key_of(path))
+            || self.open.holder(path) != Some(Holder::Window)
+            || !window.live()
+        {
+            return None;
+        }
+        Some(Arc::clone(window))
     }
 
     /// Confines every write to `roots`: from here on a created project, an
@@ -444,7 +528,7 @@ impl Api {
                 Ok(Reply::Done(Done {}))
             }
             Request::ProjectList => Ok(Reply::Projects(self.recents())),
-            Request::ProjectGet { path } => view(self.session(&path)?.view()),
+            Request::ProjectGet { path } => view(self.view_of(&path)?),
             Request::ProjectDocument { path } => {
                 Ok(Reply::Document(self.session(&path)?.document()))
             }
@@ -452,12 +536,10 @@ impl Api {
                 self.save(&path, name.as_deref())?;
                 Ok(Reply::Done(Done {}))
             }
-            Request::ProjectSetVideo { path, video } => {
-                view(self.session_mut(&path)?.set_video(video).map_err(refused)?)
-            }
+            Request::ProjectSetVideo { path, video } => view(self.set_video(&path, video)?),
             Request::EditApply { path, command } => view(self.apply(&path, *command)?),
-            Request::EditUndo { path } => view(self.session_mut(&path)?.undo()),
-            Request::EditRedo { path } => view(self.session_mut(&path)?.redo()),
+            Request::EditUndo { path } => view(self.undo(&path)?),
+            Request::EditRedo { path } => view(self.redo(&path)?),
             Request::MediaProbe { path } => {
                 Ok(Reply::Media(media::probe(&path).map_err(ApiError::failed)?))
             }
@@ -539,6 +621,10 @@ impl Api {
         if let Some(session) = self.sessions.get(&key) {
             return Ok(session.view());
         }
+        // The window's, lent: nothing to claim, the window keeps it.
+        if let Some(window) = self.live(path) {
+            return window.view(path);
+        }
         let info = projects::open(path).map_err(ApiError::failed)?;
         self.adopt(info)
     }
@@ -551,9 +637,12 @@ impl Api {
             // go through that window instead of around it.
             let how = match &refusal {
                 Refusal::Elsewhere(owner) if owner.role == "window" => {
-                    ". To work on it from an agent, turn on Settings > Automation in that window and run the agent with `concat --mcp window`; the project on screen stays the window's until live mode lands"
+                    ". To work on it from an agent, turn on Settings > Automation in that window, with \"Let scripts edit the project that's open\", and run the agent with `concat --mcp window`"
                 }
                 Refusal::Elsewhere(_) => ". Close it there first",
+                Refusal::Here(Holder::Window) if self.window.is_some() => {
+                    ". To let a script edit it, turn on \"Let scripts edit the project that's open\" in Settings > Automation"
+                }
                 Refusal::Here(_) => "",
             };
             return Err(ApiError::new(
@@ -578,6 +667,14 @@ impl Api {
 
     /// [`Request::ProjectClose`].
     pub fn close(&mut self, path: &str, save: bool) -> Result<(), ApiError> {
+        if self.live(path).is_some() {
+            return Err(ApiError::new(
+                ErrorCode::Refused,
+                format!(
+                    "{path} is open in the window, which keeps it and saves it as it goes: leave it open, or close it there"
+                ),
+            ));
+        }
         if save {
             self.save(path, None)?;
         }
@@ -599,12 +696,49 @@ impl Api {
 
     /// [`Request::ProjectSave`].
     pub fn save(&mut self, path: &str, name: Option<&str>) -> Result<(), ApiError> {
-        self.session_mut(path)?.save(name).map_err(ApiError::failed)
+        let renames = name.is_some_and(|name| !name.trim().is_empty());
+        match self.live(path) {
+            // A rename moves the window's title and its recents; that is
+            // the window's to do.
+            Some(_) if renames => Err(ApiError::new(
+                ErrorCode::Refused,
+                format!("{path} is open in the window: rename it there"),
+            )),
+            Some(window) => window.save(path),
+            None => self.session_mut(path)?.save(name).map_err(ApiError::failed),
+        }
+    }
+
+    /// [`Request::ProjectSetVideo`].
+    pub fn set_video(&mut self, path: &str, video: VideoSettings) -> Result<EditorView, ApiError> {
+        match self.live(path) {
+            Some(window) => window.set_video(path, video),
+            None => self.session_mut(path)?.set_video(video).map_err(refused),
+        }
     }
 
     /// [`Request::EditApply`].
     pub fn apply(&mut self, path: &str, command: Command) -> Result<EditorView, ApiError> {
-        self.session_mut(path)?.apply(command).map_err(refused)
+        match self.live(path) {
+            Some(window) => window.apply(path, command),
+            None => self.session_mut(path)?.apply(command).map_err(refused),
+        }
+    }
+
+    /// [`Request::EditUndo`].
+    pub fn undo(&mut self, path: &str) -> Result<EditorView, ApiError> {
+        match self.live(path) {
+            Some(window) => window.undo(path),
+            None => Ok(self.session_mut(path)?.undo()),
+        }
+    }
+
+    /// [`Request::EditRedo`].
+    pub fn redo(&mut self, path: &str) -> Result<EditorView, ApiError> {
+        match self.live(path) {
+            Some(window) => window.redo(path),
+            None => Ok(self.session_mut(path)?.redo()),
+        }
     }
 
     /// [`Request::MediaImport`]: the probe and the add, as one.
@@ -730,8 +864,8 @@ impl Api {
                 .into_iter()
                 .filter(|(_, request)| !Stabilizers::outstanding(request).is_empty())
                 .collect();
-        let titles = self.title_clips(session, width, height);
-        let mut request = export::request(session, &host_spec, titles);
+        let titles = self.title_clips(&session, width, height);
+        let mut request = export::request(&session, &host_spec, titles);
         request.width = width;
         request.height = height;
         request.rate_num = rate_num;
@@ -849,7 +983,7 @@ impl Api {
         let (width, height) = size.unwrap_or((settings.width, settings.height));
         let (width, height) = checked_size(width, height)?;
         let mut clips = session.flattened_clips();
-        clips.extend(self.title_clips(session, width, height));
+        clips.extend(self.title_clips(&session, width, height));
         let pixels = self
             .monitor
             .frame(
@@ -869,10 +1003,25 @@ impl Api {
         Ok((width, height, pixels))
     }
 
-    fn session(&self, path: &str) -> Result<&Session, ApiError> {
+    /// The session to read `path` from: the API's own, or a copy of the
+    /// window's when it lends it.
+    fn session(&self, path: &str) -> Result<Held<'_>, ApiError> {
+        if let Some(window) = self.live(path) {
+            return Ok(Held::Window(Box::new(window.snapshot(path)?)));
+        }
         self.sessions
             .get(&key_of(path))
+            .map(Held::Here)
             .ok_or_else(|| not_open(path))
+    }
+
+    /// [`Request::ProjectGet`]: the window's own view of a project it
+    /// lends, since a copy has no history to say what undo would do.
+    fn view_of(&self, path: &str) -> Result<EditorView, ApiError> {
+        match self.live(path) {
+            Some(window) => window.view(path),
+            None => Ok(self.session(path)?.view()),
+        }
     }
 
     fn session_mut(&mut self, path: &str) -> Result<&mut Session, ApiError> {
@@ -1185,6 +1334,7 @@ mod tests {
     use concat_project::model::MediaKind;
     use serde_json::json;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     /// An API whose config and data live in a scratch folder that goes
     /// away with the test, and whose events pile up where a test can read
@@ -1781,5 +1931,263 @@ mod tests {
             "{}",
             refused.message
         );
+    }
+
+    /// The window as the API sees it: a session it alone edits, and the
+    /// switch on its Automation page.
+    struct WindowStandIn {
+        session: Mutex<Session>,
+        live: AtomicBool,
+    }
+
+    impl WindowStandIn {
+        /// Opens `path` as the window does, claiming it in `open`.
+        fn open(path: &str, open: &OpenProjects, live: bool) -> Arc<WindowStandIn> {
+            open.claim(path, Holder::Window).expect("the window has it");
+            let info = projects::open(path).expect("a project");
+            Arc::new(WindowStandIn {
+                session: Mutex::new(Session::open_info(&info).expect("opens")),
+                live: AtomicBool::new(live),
+            })
+        }
+
+        fn session(&self) -> std::sync::MutexGuard<'_, Session> {
+            self.session.lock().expect("session")
+        }
+
+        fn tracks(&self) -> usize {
+            self.session().project().active().tracks.len()
+        }
+
+        /// Runs `body` on the window's session, as long as it is still the
+        /// project asked about.
+        fn with<T>(
+            &self,
+            path: &str,
+            body: impl FnOnce(&mut Session) -> Result<T, ApiError>,
+        ) -> Result<T, ApiError> {
+            let mut session = self.session();
+            if key_of(session.path()) != key_of(path) {
+                return Err(not_open(path));
+            }
+            body(&mut session)
+        }
+    }
+
+    impl WindowLink for WindowStandIn {
+        fn live(&self) -> bool {
+            self.live.load(Ordering::Relaxed)
+        }
+        fn view(&self, path: &str) -> Result<EditorView, ApiError> {
+            self.with(path, |session| Ok(session.view()))
+        }
+        fn snapshot(&self, path: &str) -> Result<Session, ApiError> {
+            self.with(path, |session| Ok(session.snapshot()))
+        }
+        fn apply(&self, path: &str, command: Command) -> Result<EditorView, ApiError> {
+            self.with(path, |session| session.apply(command).map_err(refused))
+        }
+        fn set_video(&self, path: &str, video: VideoSettings) -> Result<EditorView, ApiError> {
+            self.with(path, |session| session.set_video(video).map_err(refused))
+        }
+        fn undo(&self, path: &str) -> Result<EditorView, ApiError> {
+            self.with(path, |session| Ok(session.undo()))
+        }
+        fn redo(&self, path: &str) -> Result<EditorView, ApiError> {
+            self.with(path, |session| Ok(session.redo()))
+        }
+        fn save(&self, path: &str) -> Result<(), ApiError> {
+            self.with(path, |session| session.save(None).map_err(ApiError::failed))
+        }
+    }
+
+    /// A project made through `api` and closed again, then opened by a
+    /// window that shares its register with `api`, its switch `live`.
+    fn handed_to_window(
+        api: &mut Api,
+        scratch: &tempfile::TempDir,
+        name: &str,
+        live: bool,
+    ) -> (String, OpenProjects, Arc<WindowStandIn>) {
+        let path = project(api, scratch, name);
+        ok(api.dispatch(Request::ProjectClose {
+            path: path.clone(),
+            save: false,
+        }));
+        let open = OpenProjects::default();
+        api.share_open_projects(open.clone());
+        let window = WindowStandIn::open(&path, &open, live);
+        api.share_window(Arc::clone(&window) as Arc<dyn WindowLink>);
+        (path, open, window)
+    }
+
+    fn add_track(path: &str) -> Request {
+        Request::EditApply {
+            path: path.to_owned(),
+            command: Box::new(Command::AddTrack { bottom: false }),
+        }
+    }
+
+    #[test]
+    fn a_project_the_window_holds_is_refused_as_before_while_its_switch_is_off() {
+        let (mut api, scratch, _events) = api();
+        let (path, open, window) = handed_to_window(&mut api, &scratch, "Off", false);
+
+        let refused = err(api.dispatch(Request::ProjectOpen { path: path.clone() }));
+        assert_eq!(refused.code, ErrorCode::Refused);
+        assert!(
+            refused
+                .message
+                .contains("Let scripts edit the project that's open"),
+            "and says where the switch is: {}",
+            refused.message
+        );
+        let refused = err(api.dispatch(add_track(&path)));
+        assert_eq!(refused.code, ErrorCode::NotOpen);
+        assert!(
+            !window.session().can_undo(),
+            "the window's project untouched"
+        );
+        assert_eq!(open.holder(&path), Some(Holder::Window));
+    }
+
+    #[test]
+    fn edits_to_the_window_s_project_land_in_its_session_and_history() {
+        let (mut api, scratch, _events) = api();
+        let (path, open, window) = handed_to_window(&mut api, &scratch, "Edits", true);
+        let before = window.tracks();
+
+        let opened = view(ok(api.dispatch(Request::ProjectOpen { path: path.clone() })));
+        assert_eq!(opened.project.active().tracks.len(), before);
+        assert_eq!(open.holder(&path), Some(Holder::Window), "nothing claimed");
+
+        let edited = view(ok(api.dispatch(add_track(&path))));
+        assert_eq!(window.tracks(), before + 1, "the edit is the window's");
+        assert!(edited.can_undo, "and in its history");
+        let got = view(ok(api.dispatch(Request::ProjectGet { path: path.clone() })));
+        assert!(got.can_undo, "which a read sees too");
+
+        ok(api.dispatch(Request::EditUndo { path: path.clone() }));
+        assert_eq!(window.tracks(), before);
+        ok(api.dispatch(Request::EditRedo { path: path.clone() }));
+        assert_eq!(window.tracks(), before + 1);
+
+        let mut video = window.session().video();
+        video.width = 1280;
+        ok(api.dispatch(Request::ProjectSetVideo { path, video }));
+        assert_eq!(window.session().video().width, 1280);
+    }
+
+    #[test]
+    fn reads_and_renders_of_the_window_s_project_see_its_session() {
+        let (mut api, scratch, _events) = api();
+        let (path, _open, window) = handed_to_window(&mut api, &scratch, "Reads", true);
+        ok(api.dispatch(add_track(&path)));
+
+        let document = match ok(api.dispatch(Request::ProjectDocument { path: path.clone() })) {
+            Reply::Document(document) => document,
+            _ => panic!("not a document"),
+        };
+        assert_eq!(document, window.session().document());
+
+        let picture = match ok(api.dispatch(Request::PreviewFrame {
+            path: path.clone(),
+            time: 0.0,
+            output: None,
+            width: Some(16),
+            height: Some(9),
+        })) {
+            Reply::Picture(picture) => picture,
+            _ => panic!("not a picture"),
+        };
+        assert_eq!((picture.width, picture.height), (16, 9));
+
+        let output = scratch.path().join("out.mp4");
+        let export = err(api.dispatch(Request::ExportRun {
+            path,
+            spec: ExportSpec {
+                output: output.to_string_lossy().into_owned(),
+                ..ExportSpec::default()
+            },
+        }));
+        assert!(
+            export.message.contains("nothing on the timeline"),
+            "an export reads the window's project, not a missing one: {}",
+            export.message
+        );
+    }
+
+    #[test]
+    fn the_window_saves_and_keeps_the_project_it_lends() {
+        let (mut api, scratch, _events) = api();
+        let (path, open, window) = handed_to_window(&mut api, &scratch, "Keeps", true);
+        ok(api.dispatch(add_track(&path)));
+
+        ok(api.dispatch(Request::ProjectSave {
+            path: path.clone(),
+            name: None,
+        }));
+        let saved = projects::read_document(&path)
+            .expect("reads")
+            .expect("saved");
+        assert_eq!(saved, window.session().document());
+
+        let renamed = err(api.dispatch(Request::ProjectSave {
+            path: path.clone(),
+            name: Some("Other".to_owned()),
+        }));
+        assert_eq!(renamed.code, ErrorCode::Refused, "a rename is the window's");
+
+        let closed = err(api.dispatch(Request::ProjectClose {
+            path: path.clone(),
+            save: true,
+        }));
+        assert_eq!(closed.code, ErrorCode::Refused, "and so is a close");
+        assert_eq!(open.holder(&path), Some(Holder::Window));
+    }
+
+    #[test]
+    fn the_switch_is_read_at_every_call() {
+        let (mut api, scratch, _events) = api();
+        let (path, _open, window) = handed_to_window(&mut api, &scratch, "Switch", true);
+        ok(api.dispatch(add_track(&path)));
+
+        window.live.store(false, Ordering::Relaxed);
+        let refused = err(api.dispatch(add_track(&path)));
+        assert_eq!(refused.code, ErrorCode::NotOpen);
+
+        window.live.store(true, Ordering::Relaxed);
+        ok(api.dispatch(add_track(&path)));
+    }
+
+    #[test]
+    fn a_window_that_has_moved_on_says_the_project_is_not_open() {
+        let (mut api, scratch, _events) = api();
+        let (path, open, _window) = handed_to_window(&mut api, &scratch, "First", true);
+        let other = project(&mut api, &scratch, "Second");
+        ok(api.dispatch(Request::ProjectClose {
+            path: other.clone(),
+            save: false,
+        }));
+        // The register still says the window has the first, but the
+        // window's session is the second by the time the call lands.
+        let moved = WindowStandIn::open(&other, &open, true);
+        api.share_window(Arc::clone(&moved) as Arc<dyn WindowLink>);
+
+        let refused = err(api.dispatch(add_track(&path)));
+        assert_eq!(refused.code, ErrorCode::NotOpen);
+        assert!(
+            !moved.session().can_undo(),
+            "and the edit did not land on the project the window has now"
+        );
+    }
+
+    #[test]
+    fn a_window_that_lends_its_project_says_so_in_the_version() {
+        let (mut api, scratch, _events) = api();
+        let live = || "project.live".to_owned();
+        assert!(!api.version().capabilities.contains(&live()));
+        handed_to_window(&mut api, &scratch, "Version", false);
+        assert!(api.version().capabilities.contains(&live()));
     }
 }
