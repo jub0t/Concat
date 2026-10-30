@@ -56,9 +56,7 @@ pub enum MediaMsg {
     /// The phone's Add: what was picked, in the order it was picked, onto
     /// the main lane - at the playhead, or after the last picture on it
     /// when `at_end` (the lanes' plus).
-    AddPicked {
-        at_end: bool,
-    },
+    AddPicked { at_end: bool },
     /// The phone's Media sheet opened: a pick starts from nothing.
     ClearPicks,
 }
@@ -260,7 +258,9 @@ impl MediaBin {
     pub fn picked_in_order(&self, project: &Project) -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();
         for id in &self.picked {
-            if self.selected.contains(id) && !ids.contains(id) && project.media_by_id(id).is_some()
+            if self.selected.contains(id)
+                && !ids.contains(id)
+                && project.media_by_id(id).is_some()
             {
                 ids.push(id.clone());
             }
@@ -350,9 +350,7 @@ impl MediaBin {
             .iter()
             .filter(|clip| !before.contains(&clip.id))
             .map(|clip| clip.start + clip.duration)
-            .fold(None, |end: Option<f64>, at| {
-                Some(end.map_or(at, |end| end.max(at)))
-            });
+            .fold(None, |end: Option<f64>, at| Some(end.map_or(at, |end| end.max(at))));
         self.selected.clear();
         self.picked.clear();
         // A frame short of the end, so the monitor shows the last of what

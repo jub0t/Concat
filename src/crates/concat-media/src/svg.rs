@@ -171,11 +171,7 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".part"))
             .filter(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                let stem = drawings[0]
-                    .file_stem()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned();
+                let stem = drawings[0].file_stem().unwrap().to_string_lossy().into_owned();
                 name.starts_with(&stem)
             })
             .count();

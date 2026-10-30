@@ -1193,28 +1193,20 @@ mod tests {
         };
         let row = failed("tiny", blocked.clone()).row();
         assert_eq!(row.problem.as_str(), t("settings.downloadBlocked"));
-        assert!(
-            row.manual,
-            "a whisper model is one file, so it can be chosen"
-        );
+        assert!(row.manual, "a whisper model is one file, so it can be chosen");
         let row = failed("no-such-model", blocked).row();
         assert!(!row.problem.is_empty());
-        assert!(
-            !row.manual,
-            "nothing to download it from, nothing to choose"
-        );
+        assert!(!row.manual, "nothing to download it from, nothing to choose");
         let proxy = Failure::Unreachable {
             cause: Cause::Proxy,
             proxy: Some("127.0.0.1:7890".into()),
         };
         assert!(failure_line(&proxy).contains("127.0.0.1:7890"));
-        assert!(
-            failure_line(&Failure::Unreachable {
-                cause: Cause::Status(404),
-                proxy: None
-            })
-            .contains("404")
-        );
+        assert!(failure_line(&Failure::Unreachable {
+            cause: Cause::Status(404),
+            proxy: None
+        })
+        .contains("404"));
     }
 
     #[test]

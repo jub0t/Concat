@@ -386,9 +386,7 @@ impl ExportPane {
         } else {
             None
         };
-        if let Some(index) =
-            wanted.and_then(|codec| VideoCodec::ALL.iter().position(|c| *c == codec))
-        {
+        if let Some(index) = wanted.and_then(|codec| VideoCodec::ALL.iter().position(|c| *c == codec)) {
             self.codec = index;
         }
     }

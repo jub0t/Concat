@@ -203,9 +203,7 @@ fn link(target: &Path, at: &Path) -> std::io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(std::io::Error::other(format!(
-            "mklink /J answered {status}"
-        )))
+        Err(std::io::Error::other(format!("mklink /J answered {status}")))
     }
 }
 

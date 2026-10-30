@@ -424,10 +424,7 @@ mod tests {
         });
         let pixel = frame.pixel(4, 2).expect("a pixel");
         assert!(pixel[3].abs_diff(128) <= 1, "{pixel:?}");
-        assert!(
-            pixel[0].abs_diff(200) <= 1 && pixel[1].abs_diff(40) <= 1,
-            "{pixel:?}"
-        );
+        assert!(pixel[0].abs_diff(200) <= 1 && pixel[1].abs_diff(40) <= 1,"{pixel:?}");
     }
 
     #[test]

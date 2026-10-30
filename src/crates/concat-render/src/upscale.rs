@@ -95,11 +95,7 @@ fn shuffle(@builtin(global_invocation_id) id: vec3<u32>) {
 /// memory read and the registers a block of pixels takes, and the sums
 /// kept at thirty-two so 576 of them a channel do not drift.
 fn shader(half: bool) -> String {
-    let (head, ty) = if half {
-        ("enable f16;\n", "f16")
-    } else {
-        ("", "f32")
-    };
+    let (head, ty) = if half { ("enable f16;\n", "f16") } else { ("", "f32") };
     let body = SHADER_COMMON.to_owned() + &conv_shader();
     format!("{head}alias T = {ty};\n{body}")
 }
@@ -146,9 +142,7 @@ fn conv_shader_for(bw: u32, bh: u32) -> String {
          \x20   let py = i32(group.y * {ph}u) - 1;\n\
          \x20   let base = local.y * {bh}u * {tw}u + local.x * {bw}u;\n"
     );
-    let pixels: Vec<(u32, u32)> = (0..bh)
-        .flat_map(|dy| (0..bw).map(move |dx| (dy, dx)))
-        .collect();
+    let pixels: Vec<(u32, u32)> = (0..bh).flat_map(|dy| (0..bw).map(move |dx| (dy, dx))).collect();
     for g in 0..4 {
         code += &format!("    let b{g} = bias[o0 + {g}u];\n");
         for p in 0..pixels.len() {
@@ -273,20 +267,18 @@ impl Upscaler {
             return None;
         }
         let half = adapter.features().contains(wgpu::Features::SHADER_F16);
-        let (device, queue) = pollster::block_on(
-            adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("concat upscaler"),
-                required_features: if half {
-                    wgpu::Features::SHADER_F16
-                } else {
-                    wgpu::Features::empty()
-                },
-                required_limits: wgpu::Limits::default()
-                    .or_worse_values_from(&adapter.limits())
-                    .using_resolution(adapter.limits()),
-                ..Default::default()
-            }),
-        )
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("concat upscaler"),
+            required_features: if half {
+                wgpu::Features::SHADER_F16
+            } else {
+                wgpu::Features::empty()
+            },
+            required_limits: wgpu::Limits::default()
+                .or_worse_values_from(&adapter.limits())
+                .using_resolution(adapter.limits()),
+            ..Default::default()
+        }))
         .ok()?;
         Self::on(device, queue, layers, scale, side, half)
     }
@@ -377,13 +369,11 @@ impl Upscaler {
         let pipeline = |layout: &wgpu::BindGroupLayout, entry_point: &str| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry_point),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some(entry_point),
-                        bind_group_layouts: &[Some(layout)],
-                        immediate_size: 0,
-                    }),
-                ),
+                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some(entry_point),
+                    bind_group_layouts: &[Some(layout)],
+                    immediate_size: 0,
+                })),
                 module: &module,
                 entry_point: Some(entry_point),
                 compilation_options: Default::default(),
@@ -416,10 +406,7 @@ impl Upscaler {
         let floats = |label, values: &[f32]| {
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
-                contents: &values
-                    .iter()
-                    .flat_map(|v| v.to_le_bytes())
-                    .collect::<Vec<u8>>(),
+                contents: &values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(),
                 usage: wgpu::BufferUsages::STORAGE,
             })
         };
@@ -567,13 +554,13 @@ impl Upscaler {
                 packed[at * 4 + c] = planes[c * area + at];
             }
         }
-        self.queue
-            .write_buffer(&self.picture, 0, &stored(&packed, self.half));
+        self.queue.write_buffer(
+            &self.picture,
+            0,
+            &stored(&packed, self.half),
+        );
         let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("upscale"),
-            });
+            .device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("upscale") });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("upscale"),
@@ -607,9 +594,7 @@ impl Upscaler {
             .map_err(|_| "upscaler: the device never answered".to_owned())?
             .map_err(|error| format!("upscaler: the answer would not map: {error}"))?;
         let answer = {
-            let data = slice
-                .get_mapped_range()
-                .map_err(|e| format!("upscaler: {e}"))?;
+            let data = slice.get_mapped_range().map_err(|e| format!("upscaler: {e}"))?;
             data.chunks_exact(4)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                 .collect()
@@ -689,17 +674,11 @@ mod tests {
     #[test]
     #[ignore = "a benchmark, and it needs the fetched model"]
     fn upscale_speed() {
-        let Some(home) = std::env::var_os("HOME") else {
-            return;
-        };
+        let Some(home) = std::env::var_os("HOME") else { return };
         let support = std::path::Path::new(&home).join("Library/Application Support");
         let Some(bytes) = ["org.standalones.concat", "app.concat.editor"]
             .iter()
-            .map(|id| {
-                support
-                    .join(id)
-                    .join("cutout-models/realesr-general-x4v3.onnx")
-            })
+            .map(|id| support.join(id).join("cutout-models/realesr-general-x4v3.onnx"))
             .find_map(|file| std::fs::read(file).ok())
         else {
             eprintln!("no Enhance model on this machine");
@@ -735,10 +714,7 @@ mod tests {
             .zip(&want)
             .map(|(a, b)| (a.clamp(0.0, 1.0) - b.clamp(0.0, 1.0)).abs() * 255.0)
             .fold(0.0f32, f32::max);
-        eprintln!(
-            "half floats: {}, worst error {worst:.2} levels of 255",
-            gpu.half()
-        );
+        eprintln!("half floats: {}, worst error {worst:.2} levels of 255", gpu.half());
         for side in [288u32, 544] {
             let gpu = Upscaler::new(&layers, net.scale as u32, side).expect("a GPU");
             let planes = vec![0.5f32; 3 * (side * side) as usize];

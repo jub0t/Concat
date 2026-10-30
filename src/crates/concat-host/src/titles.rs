@@ -967,11 +967,7 @@ mod tests {
         assert_eq!(cold[0].clip.media_width, clip.media_width);
         assert_eq!(cold[0].clip.overscan, clip.overscan);
         assert_eq!(
-            cold[0]
-                .clip
-                .reveal_map
-                .as_ref()
-                .map(|r| (r.width, r.height)),
+            cold[0].clip.reveal_map.as_ref().map(|r| (r.width, r.height)),
             Some((canvas_w, canvas_h))
         );
         let live = titles.clips_live(editor.project(), 640, 360);
