@@ -193,7 +193,7 @@ pub fn catalogue() -> Vec<Tool> {
         method(
             "project_open",
             "Open a project",
-            "Opens a project folder so it can be read and edited. Opening one already open returns it as it stands, unsaved edits included. Refused when the Concat window has that project open. Returns the project summary.",
+            "Opens a project folder so it can be read and edited. Opening one already open returns it as it stands, unsaved edits included. The project open in the Concat window is refused, unless the window lets scripts edit it (Settings > Automation, and `project.live` among `version`'s capabilities): then every call naming it runs in the window, where the person watches each edit land and can undo it. Returns the project summary.",
             "project.open",
             Summary,
         )
@@ -201,7 +201,7 @@ pub fn catalogue() -> Vec<Tool> {
         method(
             "project_save",
             "Save a project",
-            "Writes an open project's document to its folder; edits are only in memory until this is called. `name` renames the project as it saves.",
+            "Writes an open project's document to its folder; edits are only in memory until this is called. `name` renames the project as it saves. The project open in the window saves itself as it is edited, and is renamed there, not here.",
             "project.save",
             Raw,
         )
@@ -209,7 +209,7 @@ pub fn catalogue() -> Vec<Tool> {
         method(
             "project_close",
             "Close a project",
-            "Closes an open project. With `save: true` it is saved first; otherwise unsaved edits are dropped.",
+            "Closes an open project. With `save: true` it is saved first; otherwise unsaved edits are dropped. The project open in the window is the window's to close: leave it open.",
             "project.close",
             Raw,
         )
