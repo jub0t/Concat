@@ -1101,6 +1101,9 @@ pub struct Studio {
     /// The run of one kind of continuous message being folded into one
     /// line of the activity trail; see `note_activity`.
     activity_burst: Option<crate::panes::Burst>,
+    /// How many edits scripts have made to the project on screen since it
+    /// opened; see [`Studio::note_script_edit`].
+    pub script_edits: u32,
     pub toast: ToastState,
 
     // ── the launch screen ──
@@ -1512,7 +1515,7 @@ fn package_art(
 /// Whether two project paths name one folder: the same string, or the same
 /// folder once both are resolved, so a path spelled another way is not
 /// mistaken for another project.
-fn same_folder(a: &str, b: &str) -> bool {
+pub(crate) fn same_folder(a: &str, b: &str) -> bool {
     a == b
         || matches!(
             (std::fs::canonicalize(a), std::fs::canonicalize(b)),
@@ -3110,6 +3113,7 @@ impl Studio {
             menu_media: None,
             menu_token: 0,
             activity_burst: None,
+            script_edits: 0,
             toast: ToastState::default(),
             on_start: true,
             start,

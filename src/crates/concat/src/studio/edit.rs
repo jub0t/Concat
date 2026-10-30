@@ -373,6 +373,22 @@ impl Studio {
     }
 
     pub fn apply(&mut self, command: Command) -> Option<String> {
+        match self.try_apply(command)? {
+            Ok(view) => view.created_id,
+            Err(error) => {
+                self.notify(&error, true);
+                None
+            }
+        }
+    }
+
+    /// [`Studio::apply`] with the edit layer's no handed back rather than
+    /// shown: for a script's edit to the project on screen, the script
+    /// being the one to tell (`crate::live`). `None` with no project open.
+    pub(crate) fn try_apply(
+        &mut self,
+        command: Command,
+    ) -> Option<Result<concat_host::session::EditorView, String>> {
         // An edit ends whatever burst the view was in.
         self.end_burst();
         let words = command_words(&command);
@@ -385,20 +401,29 @@ impl Studio {
         let session = self.session.as_mut()?;
         let chosen = matches!(command, Command::SetTimelineVideo { .. });
         let before = session.video().color_space;
-        match session.apply(command) {
-            Ok(view) => {
+        let applied = session.apply(command);
+        match &applied {
+            Ok(_) => {
                 let after = session.video().color_space;
                 self.after_change();
                 if !chosen {
                     self.tell_of_hdr(before, after);
                 }
-                view.created_id
             }
             Err(error) => {
                 log::warn!("edit: {words} was asked for and refused: {error}; nothing changed");
-                self.notify(&error, true);
-                None
             }
+        }
+        Some(applied)
+    }
+
+    /// Counts an edit a script made to the project on screen, and says so
+    /// the first time, so edits arriving from elsewhere are never a
+    /// surprise.
+    pub(crate) fn note_script_edit(&mut self) {
+        self.script_edits += 1;
+        if self.script_edits == 1 {
+            self.notify(&t("studio.scriptIsEditing"), false);
         }
     }
 
