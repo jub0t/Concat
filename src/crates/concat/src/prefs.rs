@@ -248,6 +248,9 @@ pub struct ServerPrefs {
     /// What a connection presents first. Empty means none, which the
     /// server only allows on loopback.
     pub token: String,
+    /// Let a caller edit the project on screen, through the window (#337).
+    /// Off, it edits projects of its own only.
+    pub live: bool,
 }
 
 impl Default for ServerPrefs {
@@ -256,6 +259,7 @@ impl Default for ServerPrefs {
             enabled: false,
             listen: DEFAULT_LISTEN.to_owned(),
             token: String::new(),
+            live: false,
         }
     }
 }
