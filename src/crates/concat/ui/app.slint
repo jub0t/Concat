@@ -389,6 +389,7 @@ export component App inherits Window {
     callback settings-server-port-edited(port: int);
     callback settings-server-token-edited(text: string);
     callback settings-server-token-generated();
+    callback settings-server-live-changed(on: bool);
     callback settings-check-updates();
     callback settings-version-chosen(index: int);
     callback settings-install-version();
@@ -1027,6 +1028,7 @@ export component App inherits Window {
         server-port-edited(port) => { root.settings-server-port-edited(port); }
         server-token-edited(text) => { root.settings-server-token-edited(text); }
         server-token-generated => { root.settings-server-token-generated(); }
+        server-live-changed(on) => { root.settings-server-live-changed(on); }
         check-updates => { root.settings-check-updates(); }
         version-chosen(index) => { root.settings-version-chosen(index); }
         install-version => { root.settings-install-version(); }

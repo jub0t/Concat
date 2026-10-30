@@ -102,6 +102,8 @@ export struct SettingsData {
     server-state: int,
     /// the address is this computer's alone (loopback): no warning
     server-local: bool,
+    /// Scripts may edit the project on screen.
+    server-live: bool,
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
@@ -672,6 +674,7 @@ export component SettingsDialog inherits Modal {
     callback server-token-edited(text: string);
     /// A fresh random token, in place of whatever is there.
     callback server-token-generated();
+    callback server-live-changed(on: bool);
     /// the Version page: look for the releases, pick one, put it in place
     callback check-updates();
     callback version-chosen(index: int);
@@ -1332,6 +1335,19 @@ export component SettingsDialog inherits Modal {
                         font-size: Theme.fs-sm;
                         wrap: word-wrap;
                     }
+                }
+
+                // Live mode (#337): a caller's edits to the project on
+                // screen run in the window, as the window's own. Only
+                // there to turn on while there is a server to edit through.
+                if root.data.server-enabled: DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.letScriptsEditOpenProject");
+                    hint: I18n.t("settings.letScriptsEditOpenProjectHint");
+                    switchable: true;
+                    on: root.data.server-live;
+                    open: false;
+                    switched(on) => { root.server-live-changed(on); }
                 }
 
                 DialogSection {

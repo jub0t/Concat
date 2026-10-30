@@ -924,6 +924,9 @@ pub struct Studio {
     /// The run of one kind of continuous message being folded into one
     /// line of the activity trail; see `note_activity`.
     activity_burst: Option<crate::panes::Burst>,
+    /// How many edits scripts have made to the project on screen since it
+    /// opened; see [`Studio::note_script_edit`].
+    pub script_edits: u32,
     pub toast: ToastState,
 
     // ── the launch screen ──
@@ -1278,7 +1281,7 @@ fn package_art(
 /// Whether two project paths name one folder: the same string, or the same
 /// folder once both are resolved, so a path spelled another way is not
 /// mistaken for another project.
-fn same_folder(a: &str, b: &str) -> bool {
+pub(crate) fn same_folder(a: &str, b: &str) -> bool {
     a == b
         || matches!(
             (std::fs::canonicalize(a), std::fs::canonicalize(b)),
@@ -2412,6 +2415,7 @@ impl Studio {
             menu_media: None,
             menu_token: 0,
             activity_burst: None,
+            script_edits: 0,
             toast: ToastState::default(),
             on_start: true,
             start,
@@ -2819,6 +2823,22 @@ impl Studio {
     }
 
     pub fn apply(&mut self, command: Command) -> Option<String> {
+        match self.try_apply(command)? {
+            Ok(view) => view.created_id,
+            Err(error) => {
+                self.notify(&error, true);
+                None
+            }
+        }
+    }
+
+    /// [`Studio::apply`] with the edit layer's no handed back rather than
+    /// shown: for a script's edit to the project on screen, the script
+    /// being the one to tell (`crate::live`). `None` with no project open.
+    pub(crate) fn try_apply(
+        &mut self,
+        command: Command,
+    ) -> Option<Result<concat_host::session::EditorView, String>> {
         // An edit ends whatever burst the view was in.
         self.end_burst();
         log::info!("edit: {}", command_name(&command));
@@ -2830,19 +2850,24 @@ impl Studio {
         let session = self.session.as_mut()?;
         let chosen = matches!(command, Command::SetTimelineVideo { .. });
         let before = session.video().color_space;
-        match session.apply(command) {
-            Ok(view) => {
-                let after = session.video().color_space;
-                self.after_change();
-                if !chosen {
-                    self.tell_of_hdr(before, after);
-                }
-                view.created_id
+        let applied = session.apply(command);
+        if applied.is_ok() {
+            let after = session.video().color_space;
+            self.after_change();
+            if !chosen {
+                self.tell_of_hdr(before, after);
             }
-            Err(error) => {
-                self.notify(&error, true);
-                None
-            }
+        }
+        Some(applied)
+    }
+
+    /// Counts an edit a script made to the project on screen, and says so
+    /// the first time, so edits arriving from elsewhere are never a
+    /// surprise.
+    pub(crate) fn note_script_edit(&mut self) {
+        self.script_edits += 1;
+        if self.script_edits == 1 {
+            self.notify(&t("studio.scriptIsEditing"), false);
         }
     }
 
@@ -8807,6 +8832,7 @@ impl Studio {
                 self.proxied.clear();
                 self.echo = None;
                 self.dirty = false;
+                self.script_edits = 0;
                 self.project_name = info.name.clone();
                 self.export.name = projects::folder_name(&info.name);
                 self.selection.clear();

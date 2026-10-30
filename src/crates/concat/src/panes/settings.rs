@@ -65,6 +65,7 @@ pub enum SettingsMsg {
     DownloadSourceChanged(i32),
     DownloadBaseEdited(String),
     ServerEnabledChanged(bool),
+    ServerLiveChanged(bool),
     /// The address half of where the server listens; the port is its own
     /// field, so a person types "127.0.0.1" and "7420" and never a colon.
     ServerHostEdited(String),
@@ -406,6 +407,13 @@ impl SettingsPane {
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
+            // Read by the server's thread at every call: no restart, and
+            // no caller dropped for it.
+            SettingsMsg::ServerLiveChanged(on) => {
+                studio.prefs.server.live = on;
+                studio.prefs.save(&studio.host.dirs);
+                studio.host.live.store(on, Ordering::Relaxed);
+            }
             SettingsMsg::ServerHostEdited(text) => {
                 let (_, port) = split_listen(&studio.prefs.server.listen);
                 studio.prefs.server.listen = join_listen(&text, port);
@@ -717,6 +725,8 @@ impl SettingsPane {
         let exporter = studio.host.exporter.clone();
         let open_projects = studio.host.open_projects.clone();
         let dirs = studio.host.dirs.clone();
+        let live = studio.host.live.clone();
+        live.store(studio.prefs.server.live, Ordering::Relaxed);
         let prefs = &studio.prefs.server;
         if !prefs.enabled {
             return;
@@ -744,11 +754,14 @@ impl SettingsPane {
                 };
                 // The window's export slot and its register of open
                 // projects, so one export at a time holds across the two
-                // and a caller never edits the project on screen.
+                // and a caller never opens the project on screen behind
+                // the window's back; and the way to that project, for
+                // while the page lets scripts edit it.
                 concat_server::Server::start(config, move |events| {
                     let mut api = concat_api::Api::new(events)?;
                     api.share_exporter(exporter);
                     api.share_open_projects(open_projects);
+                    api.share_window(Arc::new(crate::live::Live::new(live)));
                     Ok(api)
                 })
             });
@@ -771,10 +784,17 @@ impl SettingsPane {
                     .json_addr()
                     .map(|address| address.to_string())
                     .unwrap_or_default();
-                tf(
+                let listening = tf(
                     "settings.listeningOnConnected",
                     &[&address, &server.connections()],
-                )
+                );
+                match studio.script_edits {
+                    0 => listening,
+                    edits => format!(
+                        "{listening} · {}",
+                        tf("settings.scriptEditsToOpenProject", &[&edits])
+                    ),
+                }
             }
             None if !self.server_error.is_empty() => self.server_error.clone(),
             None => t("settings.off"),
@@ -973,6 +993,7 @@ impl SettingsPane {
                 None => 0,
             },
             server_local: is_loopback(&split_listen(&studio.prefs.server.listen).0),
+            server_live: studio.prefs.server.live,
             disk: {
                 let on_disk: Vec<&ModelState> = installed(&self.transcribers)
                     .into_iter()

@@ -351,7 +351,9 @@ pub struct VersionInfo {
     /// what the API itself provides in every build, `events`, and what
     /// only some builds do, `gpu` when frames composite on one; then what
     /// the transport around it adds, `json-rpc`, `unix-socket` and `grpc`
-    /// for each of the socket transports listening. A name absent from
+    /// for each of the socket transports listening; and `project.live`
+    /// from a window that can lend the project it has open, when its
+    /// Automation page lets scripts edit it. A name absent from
     /// the list is not served, whatever the build; a name added later is
     /// not a version bump, so a caller ignores names it does not know.
     pub capabilities: Vec<String>,
