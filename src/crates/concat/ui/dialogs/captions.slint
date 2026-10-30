@@ -41,6 +41,8 @@ export struct CaptionsSheetData {
     text: string,
     /// Row in the installed transcriber list.
     model: int,
+    language: int,
+    compatible: bool,
     /// 0 Bottom, 1 Centre, 2 Top
     placement: int,
     /// 0 Small, 1 Medium, 2 Large
@@ -72,6 +74,7 @@ export component CaptionsDialog inherits Modal {
     callback source-changed(index: int);
     callback text-edited(text: string);
     callback model-changed(index: int);
+    callback language-changed(index: int);
     callback placement-changed(index: int);
     callback size-changed(index: int);
     callback begin();
@@ -208,6 +211,22 @@ export component CaptionsDialog inherits Modal {
                 }
             }
 
+            DialogRow {
+                label: I18n.t("captions.language");
+                Select {
+                    options: [I18n.t("captions.languageAuto"), I18n.t("captions.languagePortuguese")];
+                    current: root.data.language;
+                    changed(index) => { root.language-changed(index); }
+                }
+            }
+
+            if !root.data.compatible: Text {
+                text: I18n.t("captions.portugueseRequiresMultilingual");
+                color: Theme.danger;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+
             if !root.data.ready: Text {
                 text: I18n.t("captions.downloadTranscriberModelFirst");
                 color: Theme.fg-muted;
@@ -342,7 +361,7 @@ export component CaptionsDialog inherits Modal {
                 large: true;
                 glyph: Glyph.text-mark;
                 label: root.from-voice ? I18n.t("captions.generateCaptions") : I18n.t("captions.addCaptions");
-                enabled: root.from-voice ? root.data.ready && root.data.source >= 0 : root.draft != "";
+                enabled: root.from-voice ? root.data.ready && root.data.compatible && root.data.source >= 0 : root.draft != "";
                 clicked => { root.begin(); }
             }
 

@@ -2677,7 +2677,11 @@ pub struct VideoSettings {
     /// exported in a format that keeps alpha; a format that does not
     /// gets black there. Left out of the document while it is opaque
     /// black, so those documents stay as they were.
-    #[serde(default = "opaque_black", skip_serializing_if = "is_black", with = "hex_rgba")]
+    #[serde(
+        default = "opaque_black",
+        skip_serializing_if = "is_black",
+        with = "hex_rgba"
+    )]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub canvas: [u8; 4],
 }

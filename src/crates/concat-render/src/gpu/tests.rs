@@ -156,7 +156,10 @@ fn a_see_through_canvas_keeps_the_alpha_of_what_covers_it() {
     });
     let pixel = frame.pixel(4, 2).expect("a pixel");
     assert!(pixel[3].abs_diff(128) <= 1, "{pixel:?}");
-    assert!(pixel[0].abs_diff(200) <= 2 && pixel[1].abs_diff(40) <= 2, "{pixel:?}");
+    assert!(
+        pixel[0].abs_diff(200) <= 2 && pixel[1].abs_diff(40) <= 2,
+        "{pixel:?}"
+    );
 
     // And an opaque canvas after it is opaque again.
     let frame = gpu.render(&FramePlan::empty(4, 4));
@@ -168,7 +171,12 @@ fn a_see_through_canvas_keeps_the_alpha_of_what_covers_it() {
 #[test]
 fn an_empty_frame_is_the_canvas_colour() {
     let Some(mut gpu) = gpu() else { return };
-    for canvas in [[0, 177, 64, 255], [255, 255, 255, 255], [0, 71, 187, 255], [31, 31, 31, 255]] {
+    for canvas in [
+        [0, 177, 64, 255],
+        [255, 255, 255, 255],
+        [0, 71, 187, 255],
+        [31, 31, 31, 255],
+    ] {
         let frame = gpu.render(&FramePlan {
             canvas,
             ..FramePlan::empty(4, 4)

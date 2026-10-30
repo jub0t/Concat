@@ -340,6 +340,32 @@ pub struct Segment {
     pub text: String,
 }
 
+#[doc = "The spoken language requested for transcription, independently of UI locale."]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TranscriptionLanguage {
+    #[doc = "Detect language with multilingual models; use English otherwise."]
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[doc = "Portuguese speech, requiring a multilingual model."]
+    #[serde(rename = "pt")]
+    Portuguese,
+}
+
+impl TranscriptionLanguage {
+    #[doc = "Resolve the Whisper language code against the model's actual capability."]
+    pub fn resolve(self, multilingual: bool) -> Result<&'static str, String> {
+        match (self, multilingual) {
+            (Self::Auto, true) => Ok("auto"),
+            (Self::Auto, false) => Ok("en"),
+            (Self::Portuguese, true) => Ok("pt"),
+            (Self::Portuguese, false) => Err(
+                "Portuguese requires a multilingual model. Select Tiny, Base or Small (Multilingual) in Settings > Transcriber.".to_owned(),
+            ),
+        }
+    }
+}
+
 /// What to transcribe.
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -356,6 +382,9 @@ pub struct TranscribeRequest {
     pub window: f64,
     /// Which model to use, e.g. "base.en".
     pub model_id: String,
+    #[doc = "An omitted or null language preserves automatic language selection."]
+    #[serde(default)]
+    pub language: Option<TranscriptionLanguage>,
 }
 
 struct LoadedModel {
@@ -503,6 +532,10 @@ impl Transcriber {
         let job = self.gate.begin("transcription")?;
         let cancel = job.cancel_handle();
 
+        let language = request.language.unwrap_or_default();
+        if let Some(model) = known(&request.model_id) {
+            language.resolve(!model.english_only)?;
+        }
         let model_path = model_file(dirs, &request.model_id)?;
         if !model_path.is_file() {
             return Err(format!(
@@ -555,6 +588,7 @@ impl Transcriber {
             });
         }
         let context = &loaded.as_ref().expect("model loaded above").context;
+        let language = language.resolve(context.is_multilingual())?;
         let mut state = context
             .create_state()
             .map_err(|error| format!("could not start whisper: {error}"))?;
@@ -573,11 +607,8 @@ impl Transcriber {
         // English-only model asked for "auto" still runs the detection,
         // over a vocabulary it was never trained on, and "hears" Thai at
         // one percent - so it is simply told English.
-        params.set_language(Some(if context.is_multilingual() {
-            "auto"
-        } else {
-            "en"
-        }));
+        params.set_language(Some(language));
+        params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -668,6 +699,67 @@ fn keep_segment(start: f64, end: f64, text: String) -> Option<Segment> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn language_contract_and_resolution() {
+        let old = serde_json::json!({"path": "missing.wav", "sourceStart": 0.0, "window": 1.0, "modelId": "base"});
+        let request: TranscribeRequest = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(request.language, None);
+        for (value, expected) in [
+            (serde_json::Value::Null, None),
+            (serde_json::json!("auto"), Some(TranscriptionLanguage::Auto)),
+            (
+                serde_json::json!("pt"),
+                Some(TranscriptionLanguage::Portuguese),
+            ),
+        ] {
+            let mut input = old.clone();
+            input["language"] = value;
+            let request: TranscribeRequest = serde_json::from_value(input).unwrap();
+            assert_eq!(request.language, expected);
+        }
+        for value in ["pt-BR", "pt_BR", "en", "unknown"] {
+            let mut input = old.clone();
+            input["language"] = serde_json::json!(value);
+            assert!(serde_json::from_value::<TranscribeRequest>(input).is_err());
+        }
+        assert_eq!(TranscriptionLanguage::Auto.resolve(true).unwrap(), "auto");
+        assert_eq!(TranscriptionLanguage::Auto.resolve(false).unwrap(), "en");
+        assert_eq!(
+            TranscriptionLanguage::Portuguese.resolve(true).unwrap(),
+            "pt"
+        );
+        assert!(TranscriptionLanguage::Portuguese.resolve(false).is_err());
+        assert_eq!(
+            serde_json::to_string(&TranscriptionLanguage::Portuguese).unwrap(),
+            "\"pt\""
+        );
+    }
+
+    #[test]
+    fn portuguese_rejects_english_models_before_reading_audio() {
+        let dirs = AppDirs::under(&std::env::temp_dir().join("concat-language-validation"));
+        for model in KNOWN_MODELS.iter().filter(|model| model.english_only) {
+            let request = TranscribeRequest {
+                path: "nonexistent-audio.wav".to_owned(),
+                audio_stream: None,
+                source_start: 0.0,
+                window: 1.0,
+                model_id: model.id.to_owned(),
+                language: Some(TranscriptionLanguage::Portuguese),
+            };
+            let error = Transcriber::new()
+                .transcribe(&dirs, &request, |_| panic!("must not decode"))
+                .unwrap_err();
+            assert!(error.contains("multilingual"));
+        }
+    }
+
+    #[test]
+    fn portuguese_unicode_is_preserved() {
+        let text = "Olá, edição e ação";
+        assert_eq!(keep_segment(0.0, 2.0, text.to_owned()).unwrap().text, text);
+    }
+
     /// Prints the captions a downloaded model makes of a file, for timing
     /// them by hand against the speech: `CONCAT_CAPTION_FILE=talk.wav
     /// CONCAT_CAPTION_MODEL=base.en cargo test -p concat-speech --
@@ -689,10 +781,26 @@ mod tests {
                     source_start: 0.0,
                     window,
                     model_id,
+                    language: Some(
+                        serde_json::from_value(serde_json::Value::String(
+                            std::env::var("CONCAT_CAPTION_LANGUAGE").unwrap_or("auto".to_owned()),
+                        ))
+                        .expect("CONCAT_CAPTION_LANGUAGE must be auto or pt"),
+                    ),
                 },
                 |_| {},
             )
             .expect("transcribes");
+        assert!(!segments.is_empty(), "no words heard");
+        for segment in &segments {
+            assert!(segment.start.is_finite() && segment.start >= 0.0);
+            assert!(segment.end.is_finite() && segment.end > segment.start);
+        }
+        assert!(
+            segments
+                .windows(2)
+                .all(|pair| pair[0].start <= pair[1].start)
+        );
         for segment in segments {
             println!(
                 "{:7.2} {:7.2}  {}",
@@ -782,6 +890,7 @@ mod real_audio {
             source_start: 0.0,
             window: 30.0,
             model_id: "tiny.en".to_owned(),
+            language: None,
         };
         let segments = transcriber
             .transcribe(&dirs, &request, |stage| eprintln!("{stage:?}"))
