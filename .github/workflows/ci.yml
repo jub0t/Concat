@@ -91,13 +91,13 @@ jobs:
           components: clippy, rustfmt
       # cargo-nextest runs the tests: each in a process of its own, with a
       # timeout per test and a JUnit report. See src/.config/nextest.toml.
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-nextest@0.9.148
       # Saved even when the job fails: a cache saved only by a green run
       # is never saved while the job is red, and every red run then
       # compiles from nothing.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           cache-on-failure: true
@@ -276,7 +276,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         if: runner.os == 'Windows'
         with:
           tool: cargo-nextest@0.9.148
@@ -364,7 +364,7 @@ jobs:
           else
             echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
           fi
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: check-${{ matrix.os }}

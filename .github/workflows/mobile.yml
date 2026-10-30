@@ -169,7 +169,7 @@ jobs:
       - name: sherpa-onnx for Android
         run: src/scripts/sherpa-mobile.sh ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: ${{ matrix.target }}
@@ -393,7 +393,7 @@ jobs:
       - name: sherpa-onnx for iOS
         run: src/scripts/sherpa-mobile.sh aarch64-apple-ios
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: aarch64-apple-ios
@@ -512,7 +512,7 @@ jobs:
           mkdir -p src/vendor/sherpa-onnx/ios/lib-sim
           ln -sf "$binary" src/vendor/sherpa-onnx/ios/lib-sim/libsherpa-onnx-c-api.dylib
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         timeout-minutes: 10
         with:
           workspaces: src
