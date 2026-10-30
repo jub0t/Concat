@@ -6,9 +6,9 @@
 //!
 //! Both take a [`Request`] and give back its result as JSON, so a tool
 //! cannot tell them apart and the meaning of every request stays the
-//! API's. A third backend - the window's own open project, once the
-//! window can be asked to edit it ("live mode", #337) - is one more
-//! implementation of [`Backend`], with nothing above it changing.
+//! API's. The window's own open project needs no backend of its own: the
+//! window's server runs a request naming it in the window, when the
+//! Automation page lets scripts edit it ("live mode", #337).
 //!
 //! - [`Window`]: a JSON-RPC connection to the server the Automation page
 //!   runs. Found through the listing the window writes
