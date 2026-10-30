@@ -23,7 +23,7 @@ use concat_project::Command;
 use concat_project::model::{ClipKind, TextStyle};
 use concat_project::srt;
 use concat_speech::JobStage;
-use concat_speech::transcribe::Segment;
+use concat_speech::transcribe::{Segment, TranscriptionLanguage};
 
 use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
@@ -57,6 +57,7 @@ pub enum CaptionsMsg {
     SourceChanged(i32),
     TextEdited(String),
     ModelChanged(i32),
+    LanguageChanged(i32),
     PlacementChanged(i32),
     SizeChanged(i32),
     /// Run the pass the sheet describes.
@@ -115,6 +116,7 @@ pub struct CaptionsPane {
     pub text: String,
     /// Row in the installed transcriber list.
     pub model: usize,
+    pub language: TranscriptionLanguage,
     /// 0 bottom, 1 centre, 2 top.
     pub placement: usize,
     /// 0 small, 1 medium, 2 large.
@@ -170,6 +172,16 @@ impl CaptionsPane {
             }
             CaptionsMsg::TextEdited(text) => self.text = text,
             CaptionsMsg::ModelChanged(index) => self.model = index.max(0) as usize,
+            CaptionsMsg::LanguageChanged(index) => {
+                if !self.running {
+                    self.language = if index == 1 {
+                        TranscriptionLanguage::Portuguese
+                    } else {
+                        TranscriptionLanguage::Auto
+                    };
+                    self.message.clear();
+                }
+            }
             CaptionsMsg::PlacementChanged(index) => {
                 self.placement = (index.max(0) as usize).min(2);
             }
@@ -489,12 +501,17 @@ impl CaptionsPane {
             self.message = t("captions.downloadTranscriberModelFirst");
             return;
         };
+        if self.language.resolve(!model.ends_with(".en")).is_err() {
+            self.message = t("captions.portugueseRequiresMultilingual");
+            return;
+        }
         let request = concat_speech::transcribe::TranscribeRequest {
             path: media.path.clone(),
             audio_stream: clip.audio_stream,
             source_start: clip.source_start,
             window: clip.duration * clip.speed,
             model_id: model.clone(),
+            language: Some(self.language),
         };
         let dirs = studio.host.dirs.clone();
         let transcriber = Arc::clone(&studio.host.transcriber);
@@ -562,6 +579,10 @@ impl CaptionsPane {
             source,
             text: self.text.as_str().into(),
             model: self.model as i32,
+            language: i32::from(self.language == TranscriptionLanguage::Portuguese),
+            compatible: installed(&studio.settings.transcribers)
+                .get(self.model)
+                .is_none_or(|model| self.language.resolve(!model.id.ends_with(".en")).is_ok()),
             placement: self.placement as i32,
             size: self.size as i32,
             running: self.running,

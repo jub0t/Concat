@@ -688,7 +688,7 @@ impl Api {
         let codec = match spec.codec.as_deref() {
             None if hdr => export::VideoCodec::Hevc,
             None => export::VideoCodec::H264,
-            Some(name) => export::VideoCodec::parse(name).ok_or_else(|| {
+           Some(name) => export::VideoCodec::parse(name).ok_or_else(|| {
                 ApiError::invalid(format!("unknown codec {name:?}: h264, hevc, av1, prores-4444 or vp9-alpha"))
             })?,
         };

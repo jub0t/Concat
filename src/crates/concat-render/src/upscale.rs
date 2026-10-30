@@ -396,7 +396,10 @@ impl Upscaler {
             ];
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("upscaler dims"),
-                contents: &words.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>(),
+                contents: &words
+                    .iter()
+                    .flat_map(|w| w.to_le_bytes())
+                    .collect::<Vec<u8>>(),
                 usage: wgpu::BufferUsages::UNIFORM,
             })
         };
@@ -557,8 +560,7 @@ impl Upscaler {
             &stored(&packed, self.half),
         );
         let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("upscale") });
+            .device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("upscale") });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("upscale"),
