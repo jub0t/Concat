@@ -163,6 +163,20 @@ impl Session {
         &self.retired
     }
 
+    /// A copy of this session as it stands, with no history: what renders
+    /// or reads the project off the thread that owns it - an API caller's
+    /// export of the project open in the window. Cheap, since timelines are
+    /// shared until edited.
+    pub fn snapshot(&self) -> Session {
+        Session {
+            path: self.path.clone(),
+            settings: self.settings.clone(),
+            editor: Editor::from_project(self.editor.project().clone()),
+            upgraded: Vec::new(),
+            retired: Default::default(),
+        }
+    }
+
     /// The project folder.
     pub fn path(&self) -> &str {
         &self.path
@@ -386,6 +400,33 @@ mod tests {
             session.project().active().tracks.len()
         );
 
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn a_snapshot_is_the_project_as_it_stands_and_leaves_the_session_alone() {
+        let scratch =
+            std::env::temp_dir().join(format!("concat-snapshot-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch dir");
+        let mut session = Session::open(&scratch.to_string_lossy(), settings()).expect("opens");
+        session
+            .apply(Command::AddTrack { bottom: false })
+            .expect("adds a track");
+
+        let mut snapshot = session.snapshot();
+        assert_eq!(snapshot.document(), session.document(), "the same document");
+        assert_eq!(snapshot.path(), session.path());
+        assert!(!snapshot.can_undo(), "with no history of its own");
+
+        snapshot
+            .apply(Command::AddTrack { bottom: false })
+            .expect("a snapshot edits like any session");
+        assert_ne!(
+            snapshot.project().active().tracks.len(),
+            session.project().active().tracks.len(),
+            "without reaching the session it was taken from"
+        );
         let _ = std::fs::remove_dir_all(&scratch);
     }
 
