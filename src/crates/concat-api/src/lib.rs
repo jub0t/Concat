@@ -519,6 +519,19 @@ impl Api {
         name: &str,
         video: VideoSettings,
     ) -> Result<EditorView, ApiError> {
+        // The gate every other way in already has: `SetTimelineVideo`
+        // ignores settings a frame cannot be (see `VideoSettings::is_sane`),
+        // so a project born with them would hold them for good - the
+        // session opens the manifest as written, and the edit that would
+        // fix it is the one the command layer refuses. Refused here, the
+        // way `checked_size` and `checked_rate` refuse a preview and an
+        // export that ask for the same nonsense.
+        if !video.is_sane() {
+            return Err(ApiError::invalid(format!(
+                "{}×{} at {}/{} is not a frame a video has",
+                video.width, video.height, video.rate_num, video.rate_den
+            )));
+        }
         self.writable(location)?;
         let info = projects::create(
             location,
@@ -1453,6 +1466,43 @@ mod tests {
         let again = err(api.dispatch(create()));
         assert_eq!(again.code, ErrorCode::Failed);
         assert!(again.message.contains("already exists"));
+    }
+
+    /// A create that names settings no frame could have is refused as an
+    /// invalid argument rather than written into a manifest: the session
+    /// would open them as written, and `SetTimelineVideo` no-ops on the
+    /// same values, so nothing later could fix them either.
+    #[test]
+    fn creating_with_settings_no_frame_has_is_invalid() {
+        let (mut api, scratch, _) = api();
+        let location = scratch.path().to_string_lossy().into_owned();
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: location.clone(),
+            name: "Odd".to_owned(),
+            video: Some(VideoSettings {
+                width: 0,
+                ..VideoSettings::default()
+            }),
+        }));
+        assert_eq!(refused.code, ErrorCode::Invalid);
+        assert!(!scratch.path().join("Odd").exists(), "nothing was made");
+        // A rate whose terms overflow the frame arithmetic, refused the
+        // same way - and a sane one still creates.
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: location.clone(),
+            name: "Odd".to_owned(),
+            video: Some(VideoSettings {
+                rate_num: i64::MAX,
+                rate_den: 7,
+                ..VideoSettings::default()
+            }),
+        }));
+        assert_eq!(refused.code, ErrorCode::Invalid);
+        ok(api.dispatch(Request::ProjectCreate {
+            location,
+            name: "Odd".to_owned(),
+            video: Some(VideoSettings::default()),
+        }));
     }
 
     #[test]

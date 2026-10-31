@@ -19,7 +19,10 @@ use crate::model::Timeline;
 pub const TOUCH: f64 = 1e-6;
 
 /// Whether `[a_start, a_end)` and `[b_start, b_end)` share more than an edge.
-fn covers(a_start: f64, a_end: f64, b_start: f64, b_end: f64) -> bool {
+/// Shared by the command modules, which ask it of a clip against the span an
+/// edit leaves: the ripple moves below must reach every clip that overlaps
+/// the post-edit span, not only the ones that start at or after its edge.
+pub(crate) fn covers(a_start: f64, a_end: f64, b_start: f64, b_end: f64) -> bool {
     a_start < b_end - TOUCH && b_start < a_end - TOUCH
 }
 

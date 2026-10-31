@@ -361,10 +361,38 @@ pub(super) fn apply(
                 }
             };
             if ripple && applied && by != 0.0 {
+                // The clip's span as the trim left it, read before the lane
+                // is moved: the ripple below has to clear it.
+                let (span_start, span_end) = {
+                    let clip = timeline.clip(&clip_id).expect("trimmed above");
+                    (clip.start, clip.start + clip.duration)
+                };
+                // Clips at or after the edge follow it, as they always have
+                // - and so does a clip that begins before the edge and runs
+                // into the clip's new span, the stack an older document can
+                // hold: `behind` alone passes it over and leaves it under
+                // the lengthened clip, so it lands past the new end, which
+                // for a clip already at or after the edge changes nothing.
+                // Only a lengthening does this; a shortening covers less
+                // than the span it did, and a clip in front of the edge
+                // stays put.
                 for other in timeline.clips_where(|other| {
-                    other.id != clip_id && other.track_id == track_id && other.start >= behind
+                    other.id != clip_id
+                        && other.track_id == track_id
+                        && (other.start >= behind
+                            || (by > 0.0
+                                && crate::placement::covers(
+                                    other.start,
+                                    other.start + other.duration,
+                                    span_start,
+                                    span_end,
+                                )))
                 }) {
-                    other.start = (other.start + by).max(0.0);
+                    other.start = if by > 0.0 {
+                        (other.start + by).max(span_end)
+                    } else {
+                        (other.start + by).max(0.0)
+                    };
                 }
                 // In the lane's old time the edit is at the tail's old end
                 // or the clip's start, whichever edge moved: what came off
@@ -961,8 +989,18 @@ fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &
         return start;
     }
     let main = timeline.background_lane().map(str::to_owned);
-    for clip in timeline.clips_where(|clip| clip.track_id == track_id && clip.start >= start) {
-        clip.start += duration;
+    // Every clip the slot covers moves out of it, and one that begins
+    // before the slot and runs into it - the stack an older document can
+    // hold, which the fold above only steps the drop past for the clip it
+    // landed on - lands past the new clip's end rather than under it. For
+    // a clip the old rule already moved, starting at or after the slot,
+    // the maximum changes nothing.
+    for clip in timeline.clips_where(|clip| {
+        clip.track_id == track_id
+            && (clip.start >= start
+                || crate::placement::covers(clip.start, clip.start + clip.duration, start, end))
+    }) {
+        clip.start = (clip.start + duration).max(end);
     }
     follow_main(
         timeline,

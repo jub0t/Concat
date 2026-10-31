@@ -381,6 +381,11 @@ pub(super) fn apply(
                 return Ok(Outcome::default());
             };
             let mut matched = *like;
+            // Whether the look is coming from a clip of another file, taken
+            // before the target's own media overwrites `matched`'s: Enhance
+            // and a detached-audio mute belong to the media they were made
+            // on, and are kept off a cross-media match below.
+            let cross_media = matched.media_id != clip.media_id;
             matched.id = clip.id.clone();
             matched.track_id = clip.track_id.clone();
             matched.media_id = clip.media_id.clone();
@@ -399,6 +404,18 @@ pub(super) fn apply(
             }
             if matched.shape.is_some() != clip.shape.is_some() {
                 matched.shape = clip.shape.clone();
+            }
+            // `enhanced` names the pair of bin items its clip shows, and
+            // SetClipEnhanced relies on `on` meaning the clip holds `copy`;
+            // `muted` says this clip's sound was detached out of it. Both
+            // arriving from a clip of another file would leave the link
+            // pointing at media the clip never had - switching Enhance off
+            // would swap in a stranger's original - and mute a clip whose
+            // audio was never detached, so a cross-media match keeps its
+            // own, as it keeps its place and its timing.
+            if cross_media {
+                matched.enhanced = clip.enhanced.clone();
+                matched.muted = clip.muted;
             }
             let applied = assign(clip, matched);
             Ok(Outcome {
@@ -498,12 +515,33 @@ fn make_room(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool)
     let pushed = moved > 0.0 && !timeline.is_free(&track_id, start, duration, &[clip_id]);
     if (ripple && moved != 0.0) || pushed {
         let main = timeline.background_lane().map(str::to_owned);
+        // Clips at or after the old end follow the clip's new one, as they
+        // always have. A clip that BEGINS before the old end and still
+        // covers the new span - the stack an older document can hold - was
+        // seen by `pushed` and then passed over by that rule alone, left
+        // sitting under the retimed clip, so it moves too and lands past
+        // the new end, which for a clip already at or after the old end
+        // changes nothing. Only a growth does this: a shrink covers less
+        // than before, and a clip in front of the edge is not the lane's
+        // to move.
+        let end = start + duration;
         for other in timeline.clips_where(|other| {
             other.id != clip_id
                 && other.track_id == track_id
-                && other.start >= old_end - crate::placement::TOUCH
+                && (other.start >= old_end - crate::placement::TOUCH
+                    || (moved > 0.0
+                        && crate::placement::covers(
+                            other.start,
+                            other.start + other.duration,
+                            start,
+                            end,
+                        )))
         }) {
-            other.start = (other.start + moved).max(0.0);
+            other.start = if moved > 0.0 {
+                (other.start + moved).max(end)
+            } else {
+                (other.start + moved).max(0.0)
+            };
         }
         // Linkage: sped up, the clip gave back the end of its old span;
         // slowed down, it put more in at its old end.
