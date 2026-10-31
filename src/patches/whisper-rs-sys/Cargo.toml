@@ -72,3 +72,13 @@ version = "1.3"
 
 [build-dependencies.semver]
 version = "1.0"
+
+# The generated bindings transmute between integer sizes that are plain
+# casts; clippy lints each one and the workspace's CI denies warnings.
+# The allowance lives here rather than on the include! in lib.rs because
+# a lint on macro-expanded code takes its level from the compiler's
+# command line - which is where a [lints] table lands it - and not from
+# any attribute the including file can carry. It is a rustc lint
+# (clippy merely surfaces it too), so it sits in the rust table.
+[lints.rust]
+unnecessary_transmutes = "allow"
