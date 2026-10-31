@@ -725,6 +725,14 @@ pub fn sample_token(
     if temperature <= 0.0 || logits.is_empty() {
         return next_token(logits, written, penalty);
     }
+    // Whether a token is among those written is asked of every one of
+    // the thousands of logits, and a scan of the written slice per logit
+    // made each step of a read cost vocab-times-tokens: a chunk writes
+    // up to a thousand tokens, each looking over all the ones before
+    // it, for every step. A set of the ids, built once a call - the same
+    // work a push into it would be - answers in constant time, and
+    // holds exactly the ids the scan was finding.
+    let written: std::collections::HashSet<i64> = written.iter().copied().collect();
     let mut scored: Vec<(usize, f32)> = logits
         .iter()
         .enumerate()
@@ -850,6 +858,11 @@ pub fn punc_norm(text: &str) -> String {
 /// multiplied by the penalty, one above divided by it, as Resemble's
 /// reference does.
 pub fn next_token(logits: &[f32], written: &[i64], penalty: f32) -> i64 {
+    // As `sample_token`: the penalty asks of every logit whether its
+    // token is written, once per step, and a set built once a call
+    // answers that in constant time where the scan of the slice answered
+    // it in everything written so far.
+    let written: std::collections::HashSet<i64> = written.iter().copied().collect();
     let mut best = 0usize;
     let mut best_score = f32::NEG_INFINITY;
     for (index, &score) in logits.iter().enumerate() {

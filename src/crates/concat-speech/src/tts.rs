@@ -751,6 +751,19 @@ impl Speech {
         if text.is_empty() {
             return Err("nothing to say: the text is empty".to_owned());
         }
+        // Control characters that are not whitespace have no voice, and
+        // one of them takes the app down: sherpa's bindings build a
+        // `CString` out of the text and unwrap it (sherpa-onnx tts.rs,
+        // `generate_with_config`), so a NUL that survived an SRT import or
+        // a clipboard paste panicked on the synthesis worker - and the
+        // shipping profile panics with abort, so that was the whole
+        // editor gone, not one read. Tabs and line breaks are control
+        // characters too, but they are ordinary narration (`sentences`
+        // below counts line breaks as sentence ends), so only the rest
+        // are refused, beside the empty-text guard they belong with.
+        if text.chars().any(|c| c.is_control() && !c.is_whitespace()) {
+            return Err("nothing to say: the text has control characters in it".to_owned());
+        }
         let family = family_of(&request.model_id);
         log::info!(
             "tts: {} reading {} characters with voice {} ({}), speed {:.2}, pauses {:?}, steps {:?}{}",
@@ -1292,6 +1305,40 @@ mod tests {
         assert_eq!(sentences("no marks at all"), 1);
         assert_eq!(sentences("。！"), 1);
         assert_eq!(sentences("你好。再见！"), 2);
+    }
+
+    /// Control characters are refused before anything is loaded: a NUL
+    /// surviving an SRT import or a paste once reached sherpa's
+    /// `CString::new(text).unwrap()` and aborted the app (the shipping
+    /// profile has no unwinding). Line breaks are control characters too
+    /// and stay welcome - a narration is lines - so the read of one goes
+    /// on to the model check as before.
+    #[test]
+    fn control_characters_are_refused_and_line_breaks_are_not() {
+        let speech = Speech::new();
+        let dir = std::env::temp_dir().join(format!("concat-speech-text-{}", std::process::id()));
+        let dirs = AppDirs::under(&dir);
+        let request = |text: &str| SpeakRequest {
+            model_id: "kokoro-int8-multi-lang-v1_0".to_owned(),
+            voice: 3,
+            reference: None,
+            text: text.to_owned(),
+            speed: 1.0,
+            pauses: None,
+            steps: None,
+            project: String::new(),
+        };
+        for text in ["a\0b", "an \u{1} escape", "a\u{7}bell"] {
+            let error = speech
+                .speak(&dirs, &request(text), |_| {})
+                .expect_err("control characters are not speech");
+            assert!(error.contains("control characters"), "{text:?}: {error}");
+        }
+        let error = speech
+            .speak(&dirs, &request("one line\nanother line"), |_| {})
+            .expect_err("no model is loaded in a test");
+        assert!(error.contains("not downloaded"), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A read the accelerator's runtime fails is read again once on the
