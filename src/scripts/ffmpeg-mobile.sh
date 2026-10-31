@@ -19,10 +19,18 @@
 # MediaCodec through the JNI on Android, VideoToolbox on iOS - and nothing
 # else linked in: a phone encodes with its silicon, and the GPL encoders
 # the desktop bundles have no place there.
+#
+# The source tarball is a row in scripts/ci/deps.lock, fetched through
+# scripts/ci/fetch.sh, which refuses a file whose digest is not the one
+# written there: FFmpeg's code is compiled into the app, and a release
+# replaced upstream stops the build rather than building into it.
 set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios or aarch64-apple-ios-sim}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
+# The digest-verified fetcher the desktop builds download through, at the
+# repository's root: this script lives under src/, scripts/ci above it.
+fetch="$workspace/../scripts/ci/fetch.sh"
 out=${2:-$workspace/vendor/ffmpeg/$target}
 version=${FFMPEG_VERSION:-8.1}
 # Oldest OS each build runs on. Android 8.0 is where AAudio, the audio
@@ -36,8 +44,10 @@ src=$work/ffmpeg-$version
 mkdir -p "$work"
 if [ ! -f "$src/configure" ]; then
   echo "Fetching FFmpeg $version"
-  curl -fsSL --retry 5 --retry-all-errors -o "$work/ffmpeg-$version.tar.xz" \
-    "https://ffmpeg.org/releases/ffmpeg-$version.tar.xz"
+  # The tarball's row in scripts/ci/deps.lock is named for the version, so
+  # a bumped FFMPEG_VERSION is a new row with its digest; the workflow's
+  # cache key names the version the same way.
+  "$fetch" "ffmpeg-src-$version" "$work/ffmpeg-$version.tar.xz"
   tar -xf "$work/ffmpeg-$version.tar.xz" -C "$work"
 fi
 
