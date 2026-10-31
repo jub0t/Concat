@@ -582,7 +582,17 @@ fn overscan_of(clip: &ExportClip) -> f64 {
 }
 
 pub(crate) fn quantise(seconds: f64, rate: FrameRate) -> Rational {
-    rate.time_of_frame((seconds * rate.fps().as_f64()).round().max(0.0) as i64)
+    // The cast saturates at i64::MAX, and a frame number that large
+    // overflows the reduction inside, which panics in a release build as
+    // readily as a debug one. `render_on` refuses times the document
+    // cannot hold; this clamp is the same ceiling for whichever caller
+    // slips past a check - the last frame of the last hour rather than a
+    // crash. See `ranges::MAX_TIME`, whose comment records the `1e300`
+    // that once reached here. Twice the ceiling, because a rebased
+    // timestamp is a clip time plus an effect offset, each of which a
+    // valid request already holds to the ceiling on its own.
+    let seconds = seconds.clamp(0.0, 2.0 * concat_project::model::ranges::MAX_TIME);
+    rate.time_of_frame((seconds * rate.fps().as_f64()).round() as i64)
 }
 
 /// Rebase a frame-grid timestamp without rounding a raw subtraction. Audio

@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use concat_core::frame::Signal;
+use concat_core::frame::{MAX_SIDE, Signal};
 use concat_core::time::{FrameRate, Rational};
 use ffmpeg_the_third as ffmpeg;
 
@@ -178,6 +178,19 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
         return Err(Error::Probe {
             path: path.to_path_buf(),
             detail: "video stream has no usable size".to_owned(),
+        });
+    }
+    // The ceiling the decoder holds the coded size to, refused at the probe
+    // too: a file that declares 32767 across is not a picture anyone can
+    // watch, and reading it would be gigabytes of allocations for the
+    // codec's frame buffers. MAX_SIDE is the 8K every document, request and
+    // preview is already held to (audit 2026-10-09, finding 8).
+    if width > MAX_SIDE || height > MAX_SIDE {
+        return Err(Error::Probe {
+            path: path.to_path_buf(),
+            detail: format!(
+                "video stream is {width}×{height}, past the {MAX_SIDE} a side a frame may be"
+            ),
         });
     }
     let (width, height) = ffi::displayed(

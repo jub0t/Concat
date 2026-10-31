@@ -1133,6 +1133,13 @@ pub fn render(request: &ExportRequest, reporter: Reporter<'_>) -> Result<String,
     render_on(request, None, reporter)
 }
 
+/// The most tracks a request may name. `resolve` lays one engine track
+/// under every lane from zero up to the highest index a clip names, so the
+/// number is an allocation before the first frame is drawn; the track
+/// stack the window draws is never remotely this deep, and a wire that
+/// says a billion is not a project a person is asking for.
+const MAX_EXPORT_TRACKS: usize = 256;
+
 /// Renders `request` and returns the path written, drawing on `compositor`
 /// where the caller has one to lend - the window's, a sibling of the
 /// monitor's on the device the window draws with - and on a device of its
@@ -1191,6 +1198,46 @@ pub fn render_on(
             request.height,
             concat_core::frame::MAX_SIDE
         ));
+    }
+    // A track index is one of the few numbers on a clip that reaches the
+    // engine with nothing standing over it: `resolve` lays one engine
+    // track under every lane from zero up to the highest index a clip
+    // names, so a request that says a billion spends the machine's memory
+    // on empty lanes before the first frame, and `usize::MAX` overflows
+    // the lane count itself. Every other number on the wire is checked
+    // above; this one is too now.
+    if request
+        .clips
+        .iter()
+        .any(|clip| clip.track >= MAX_EXPORT_TRACKS)
+    {
+        return Err(format!(
+            "a clip sits on track {}, and the most a timeline has is {}",
+            request
+                .clips
+                .iter()
+                .map(|clip| clip.track)
+                .max()
+                .unwrap_or(0),
+            MAX_EXPORT_TRACKS - 1
+        ));
+    }
+    // Clip times arrive as raw numbers with no clamp between the wire and
+    // the exact rational arithmetic the engine runs: the document holds
+    // what it loads inside `ranges::MAX_TIME` for exactly this reason -
+    // whose comment records the hand-edited `1e300` whose frame number
+    // overflowed the export's arithmetic - and a request deserves the same
+    // refusal, because a value that saturates the f64-to-i64 cast panics
+    // the reduction in a release build too.
+    if request.clips.iter().any(|clip| {
+        !clip.start.is_finite()
+            || clip.start.abs() > concat_project::model::ranges::MAX_TIME
+            || !clip.duration.is_finite()
+            || clip.duration.abs() > concat_project::model::ranges::MAX_TIME
+            || !clip.source_start.is_finite()
+            || clip.source_start.abs() > concat_project::model::ranges::MAX_TIME
+    }) {
+        return Err("a clip's start, duration or in-point is not a time a timeline holds".into());
     }
     let output = PathBuf::from(&request.output);
     // An alpha codec's file is only what it says in its own container: a
@@ -1305,10 +1352,21 @@ pub fn render_on(
         } else {
             reporter.cancelled()?;
             reporter.emit(0, total_frames, "mixing audio");
+            // The mix is minutes of work on a long timeline, and the token
+            // used to be read only on either side of it: a person who
+            // cancelled during "mixing audio" watched a dead button while
+            // the decode and the mix ran on to their own end. The flag is
+            // the reporter's own, read between the mix's frames now.
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
             let buses = audio_buses(&resolved);
-            audio::mix_to_file_with(&mix, &buses, timeline_end.as_f64(), &mixed)
-                .map_err(|error| error.to_string())?;
+            audio::mix_to_file_with(
+                &mix,
+                &buses,
+                timeline_end.as_f64(),
+                &mixed,
+                Some(reporter.cancel),
+            )
+            .map_err(|error| error.to_string())?;
 
             reporter.cancelled()?;
             reporter.emit(total_frames, total_frames, "muxing");
@@ -2955,6 +3013,78 @@ mod tests {
             duration,
             params: BTreeMap::new(),
         })
+    }
+
+    /// A request's track index and clip times are numbers off the wire with
+    /// nothing standing between them and the engine: a track in the
+    /// billions was an allocation that big in empty lanes before the first
+    /// frame, and a hand-edited `1e300` overflowed the rational arithmetic
+    /// and panicked in a release build as readily as a debug one (see
+    /// `ranges::MAX_TIME`). Both are refused as requests now, the way
+    /// every other number on the wire is.
+    #[test]
+    fn a_request_with_numbers_the_engine_cannot_hold_is_refused() {
+        let request = |clips: Vec<ExportClip>| ExportRequest {
+            output: "refused.mp4".into(),
+            width: 64,
+            height: 36,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 18,
+            preset: String::new(),
+            codec: VideoCodec::H264,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            canvas: [0, 0, 0, 255],
+            clips,
+        };
+        let run = |request: &ExportRequest| {
+            let cancelled = AtomicBool::new(false);
+            let mut quiet = |_, _, _| {};
+            render_on(
+                request,
+                None,
+                Reporter {
+                    progress: &mut quiet,
+                    cancel: &cancelled,
+                },
+            )
+        };
+        // A track far past what a timeline holds is refused before a lane
+        // is laid for it, not spent on as empty ones.
+        let far_track = run(&request(vec![clip("video", 1_000_000_000, 0.0, 1.0, 0.0)]));
+        assert!(
+            far_track
+                .as_deref()
+                .is_err_and(|error| error.contains("the most a timeline has is")),
+            "{far_track:?}"
+        );
+        // A time no document holds is refused rather than overflowed.
+        for (start, duration, source_start) in [
+            (f64::NAN, 1.0, 0.0),
+            (1e300, 1.0, 0.0),
+            (0.0, f64::INFINITY, 0.0),
+            (0.0, 1.0, -1e300),
+        ] {
+            let refused = run(&request(vec![clip(
+                "video",
+                0,
+                start,
+                duration,
+                source_start,
+            )]));
+            assert!(
+                refused
+                    .as_deref()
+                    .is_err_and(|error| error.contains("not a time a timeline holds")),
+                "{start} {duration} {source_start}: {refused:?}"
+            );
+        }
     }
 
     /// The monitor draws a wipe and a fade to black as the export does:

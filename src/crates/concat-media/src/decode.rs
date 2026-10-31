@@ -668,6 +668,10 @@ pub struct Decoder {
     current: Option<Source>,
     pending: Option<Source>,
     source_done: bool,
+    /// Whether the filtergraph's source has been told the stream is over.
+    /// Set once the file's last picture has been fed, so the frames a
+    /// temporal chain still holds come out after it; see `drain_graph`.
+    graph_flushed: bool,
     produced: u64,
     position: Option<Rational>,
     /// What the stream says its colour is.
@@ -705,6 +709,24 @@ impl Decoder {
             let parameters = stream.parameters();
             (parameters.width(), parameters.height())
         };
+        // A coded size past what a frame may be is not decoded, whatever
+        // size is asked for out of it: the codec allocates for the size the
+        // file declares, so a crafted 32767×32767 stream is multi-gigabyte
+        // frame buffers, and no picture a person can watch is past 8K.
+        // MAX_SIDE is the ceiling the document, the request and the preview
+        // are held to already; it is refused here as a probe error rather
+        // than read, the way a stream with no size is.
+        if coded.0 > concat_core::frame::MAX_SIDE || coded.1 > concat_core::frame::MAX_SIDE {
+            return Err(Error::Probe {
+                path: path.to_path_buf(),
+                detail: format!(
+                    "video stream is {}×{}, past the {} a side a frame may be",
+                    coded.0,
+                    coded.1,
+                    concat_core::frame::MAX_SIDE
+                ),
+            });
+        }
 
         // The device the policy asks for this stream, if the process has
         // one; see `hardware::hardware_wins` for which streams it wants. A
@@ -868,6 +890,7 @@ impl Decoder {
             current: None,
             pending: None,
             source_done: false,
+            graph_flushed: false,
             produced: 0,
             position: None,
             color,
@@ -1137,6 +1160,16 @@ impl Decoder {
         self.held = None;
         self.short = None;
         self.stashed = None;
+        // A graph whose source was flushed at the end of the file cannot
+        // take frames from before it: the buffer source answers EOF to
+        // anything added after it was told the stream is over. A seek that
+        // lands after the end has been reached - a scrub past the last
+        // frame and back - drops the graph so the next frame builds a
+        // fresh one rather than being refused at it.
+        if self.graph_flushed {
+            self.graph = None;
+            self.graph_flushed = false;
+        }
         // Keyframes only: the picture the container landed on is the one
         // wanted, and discarding up to the target would throw it away and
         // wait for the *next* keyframe, a whole group of pictures late.
@@ -1333,10 +1366,60 @@ impl Decoder {
                 .frame(&mut filtered)
                 .map_err(|error| ffi::fail("filter output", &self.path, error))?;
         }
+        self.frame_of(filtered)
+    }
 
-        // The sink's picture is RGBA already - sixteen bits a channel for a
-        // deep frame - and only its row padding differs from the packed
-        // buffer a Frame is.
+    /// The frames a temporal chain still held when the source ended: the
+    /// buffer source flushed once, the sink pulled until it runs dry - the
+    /// audio path's pattern (`samples.rs`), which the picture path lacked.
+    /// A chain that looks back over the frames it was handed - `tmix`, a
+    /// deinterlacer, a delay - keeps its tail inside the graph, and
+    /// stopping at the source's end cut it off: the last few frames of the
+    /// clip never came out. The fit scale and the format every graph ends
+    /// in pass a frame through the moment it arrives, so for a chainless
+    /// graph this drains nothing and answers `None` at once.
+    fn drain_graph(&mut self) -> Result<Option<Frame>> {
+        if !self.graph_flushed {
+            self.graph_flushed = true;
+            let Some((.., graph)) = self.graph.as_mut() else {
+                // Not one frame ever arrived, so no graph was ever built
+                // and nothing is held in one.
+                return Ok(None);
+            };
+            let mut context = graph.get("in").expect("the graph has an input");
+            let _ = context.source().flush();
+        }
+        let mut filtered = Video::empty();
+        let pulled = {
+            let Some((.., graph)) = self.graph.as_mut() else {
+                return Ok(None);
+            };
+            let mut context = graph.get("out").expect("the graph has an output");
+            context.sink().frame(&mut filtered)
+        };
+        match pulled {
+            Ok(()) => {
+                // The drained frame's own stamp, where it carries one, so
+                // the caller is told when it is shown as for any other.
+                self.position = filtered
+                    .timestamp()
+                    .and_then(|ticks| ffi::seconds(ticks, self.time_base))
+                    .map(|pts| pts - self.start);
+                Ok(Some(self.frame_of(filtered)?))
+            }
+            // The graph has handed back its last frame, or has nothing more
+            // for now with nothing left to be fed: either way the tail is
+            // drained and the stream is over.
+            Err(ffmpeg::Error::Eof) => Ok(None),
+            Err(error) if ffi::is_again(&error) => Ok(None),
+            Err(error) => Err(ffi::fail("filter output", &self.path, error)),
+        }
+    }
+
+    /// The sink's picture as the frame the caller takes: RGBA already -
+    /// sixteen bits a channel for a deep frame - and only its row padding
+    /// differs from the packed buffer a Frame is.
+    fn frame_of(&self, filtered: Video) -> Result<Frame> {
         let deep = deep_output(&self.options, Some(&self.color));
         let width = filtered.width();
         let height = filtered.height();
@@ -1411,7 +1494,9 @@ impl Decoder {
                 let frame = share(&last.frame);
                 return Ok(Some(self.convert(&frame)?));
             }
-            return Ok(None);
+            // The source is over; what its chain still holds comes out
+            // before the stream ends. A looping still never gets here.
+            return self.drain_graph();
         };
         self.position = source.pts;
         // The buffer source takes the picture it is handed, and a repeating
@@ -2063,6 +2148,37 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// The graph is flushed at the end of the file, the way the audio
+    /// path's always was: a temporal chain holds its last frame until it
+    /// knows no more is coming - `fps` doubling thirty frames holds the
+    /// sixtieth until the end - and a decoder that stopped at the source's
+    /// last packet cut it off. Thirty frames in, sixty out, not fifty-nine;
+    /// and a seek after the end still decodes, on a graph rebuilt rather
+    /// than one whose source answers EOF to the frames fed into it.
+    #[test]
+    fn a_chain_holding_frames_at_the_end_is_flushed_and_drained() {
+        let path = grey_steps("flushed");
+        let options = DecodeOptions::default()
+            .scaled_to(64, 64)
+            .in_software()
+            .filtered("fps=60");
+        let mut decoder = Decoder::open(&path, &options).expect("opens");
+        let frames = drain(&mut decoder);
+        assert_eq!(frames.len(), 60, "thirty frames doubled by fps");
+        let _ = std::fs::remove_file(&path);
+
+        // A seek after the end rebuilds the flushed graph rather than
+        // feeding frames into a source that has been told the stream is
+        // over.
+        let path = grey_steps("flushed-again");
+        let mut decoder = Decoder::open(&path, &options).expect("opens");
+        drain(&mut decoder);
+        decoder.seek(Rational::ZERO).expect("seeks back to the top");
+        let again = drain(&mut decoder);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(again.len(), 60, "the whole file again after seeking back");
+    }
+
     /// Frame threads hand frames back a few late; a seek must still land
     /// on exactly the frame it asked for, not one the threads had queued.
     #[test]
@@ -2116,6 +2232,38 @@ mod tests {
     #[test]
     fn a_missing_file_is_an_error_not_a_panic() {
         assert!(Decoder::open("does-not-exist.mp4", &DecodeOptions::default()).is_err());
+    }
+
+    /// A file that declares more than 8K a side is refused by the probe and
+    /// by the decoder rather than decoded into multi-gigabyte frame buffers,
+    /// and a smaller decode size asked for does not excuse it: the codec
+    /// allocates for the coded size the file declares. The y4m header
+    /// carries the size with no frames behind it, the cheapest hostile
+    /// container there is.
+    #[test]
+    fn a_stream_beyond_the_largest_frame_is_refused() {
+        let dir = std::env::temp_dir().join(format!("concat-decode-huge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let path = dir.join("hostile.y4m");
+        std::fs::write(&path, b"YUV4MPEG2 W32767 H32767 F30:1 Ip A1:1 C420jpeg\n")
+            .expect("writes the header");
+        let refused = |error: &Error| matches!(error, Error::Probe { detail, .. } if detail.contains("past the 8192"));
+        let probed = crate::probe(&path);
+        assert!(
+            probed.is_err_and(|error| refused(&error)),
+            "the probe refuses a stream past the largest frame: {probed:?}"
+        );
+        let decoded = Decoder::open(&path, &DecodeOptions::default());
+        assert!(
+            decoded.is_err_and(|error| refused(&error)),
+            "the decoder refuses a stream past the largest frame"
+        );
+        let decoded = Decoder::open(&path, &DecodeOptions::default().scaled_to(64, 64));
+        assert!(
+            decoded.is_err_and(|error| refused(&error)),
+            "a smaller decode size does not excuse it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An MPEG-TS seek lands on the picture asked for. The container has no
