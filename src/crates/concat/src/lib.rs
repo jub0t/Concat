@@ -1035,16 +1035,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }
     }));
     editor.on_tab_close_requested(on_window!(|state, index: i32| {
-        let Some(id) = state
-            .project()
-            .timelines
-            .get(index.max(0) as usize)
-            .map(|timeline| timeline.id.clone())
-        else {
-            return;
-        };
-        state.selection.clear();
-        state.apply(concat_project::Command::RemoveTimeline { timeline_id: id });
+        // The strip never deletes directly - its header says so, and only
+        // the last tab is guarded there - so the close asks when the
+        // timeline holds clips, the same question a track's delete asks;
+        // see `Studio::ask_remove_timeline`.
+        state.ask_remove_timeline(index);
     }));
 
     // ── the tray ──
@@ -1792,14 +1787,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 return;
             };
             // Save is the one chord that means the same in a field, under a
-            // sheet and on the timeline. Every other chord is the editor's,
-            // and a key that came out of a text field or past a sheet was
-            // never meant for it: Slint's TextInput turns away the Ctrl
-            // chords it has no use for, and a read-only one every key, so
-            // Ctrl+B in a title split the clip and Backspace in a path field
-            // deleted it; and Delete or Q with Export or Settings open cut
-            // the timeline nobody could see.
-            if action != "save" && (typing(&app) || shell.studio.borrow().sheet_open()) {
+            // sheet, under a menu and on the timeline. Every other chord is
+            // the editor's, and a key that came out of a text field, past a
+            // sheet or from under a menu was never meant for it: Slint's
+            // TextInput turns away the Ctrl chords it has no use for, and a
+            // read-only one every key, so Ctrl+B in a title split the clip and
+            // Backspace in a path field deleted it; and Delete or Q with
+            // Export, Settings or a context menu open cut the timeline
+            // nobody could see behind it.
+            if action != "save"
+                && (typing(&app) || menu_open(&app) || shell.studio.borrow().sheet_open())
+            {
                 return;
             }
             handled = true;
@@ -2662,6 +2660,30 @@ fn typing(app: &App) -> bool {
         .borrow()
         .upgrade()
         .is_some_and(|item| item.downcast::<TextInput>().is_some())
+}
+
+/// Whether a menu surface stands over the editor: a context menu, a
+/// dropdown, any popup but a tooltip. Read off the window's own list of
+/// them rather than kept as a flag, for the reason the menus open by token
+/// (see context-menu.slint): a surface dismisses itself - a click outside,
+/// Escape - without telling anyone, so a boolean set when one opened would
+/// stay up after it closed and eat every shortcut behind it.
+///
+/// The keys a menu means to take are usually gone before they get here:
+/// opening one takes the focus from whatever held it, the menu's own scope
+/// holds it while it is up, and a key's walk stops at a popup's edge, so a
+/// chord never even reaches the window's scope under a held menu. Tab is
+/// the one way past that - it walks the focus chain without stopping at a
+/// popup's edge, and can land it on a field under a menu still open - and
+/// this is the belt for exactly that hole: a chord that arrives with a
+/// surface up was never meant for the editor beneath it, the same way one
+/// from past a sheet was not (see `Studio::sheet_open`).
+fn menu_open(app: &App) -> bool {
+    use slint::private_unstable_api::re_exports::{WindowInner, WindowKind};
+    WindowInner::from_pub(app.window())
+        .active_popups()
+        .iter()
+        .any(|popup| !matches!(popup.window_kind, WindowKind::ToolTip))
 }
 
 /// Adds a pane of `kind` beside the largest seat: to its right when that

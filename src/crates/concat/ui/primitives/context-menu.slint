@@ -176,11 +176,22 @@ export component ContextMenu inherits Rectangle {
         close-policy: close-on-click-outside;
 
         // Made afresh each time the surface shows, so this is each opening.
+        //
+        // The keys are taken on every opening, not only the keyboard's. A
+        // menu opened by the pointer is still the thing on top, and before
+        // this the keys walked straight past it to the window's own scope:
+        // Q, W, B and Delete edited the timeline nobody could see behind
+        // the menu. Slint stops a key's walk at a popup's edge, so holding
+        // the focus here is the whole gate - a key the rows do not take
+        // dies in the popup rather than reaching anything under it - and
+        // closing the surface, whichever way it closes, hands the focus
+        // back to whatever had it (the window's scope, a field), so the
+        // shortcuts wake again the moment the menu is gone. Pointer-opened
+        // menus keep `hot` at -1, so nothing looks selected until a key
+        // moves onto a row; the pointer's own hover is untouched.
         FocusScope {
             init => {
-                if (root.keyboard) {
-                    self.focus();
-                }
+                self.focus();
             }
             key-pressed(event) => {
                 if (event.text == Key.DownArrow) {
@@ -189,7 +200,10 @@ export component ContextMenu inherits Rectangle {
                     root.hot = next(root.hot < 0 ? 0 : root.hot, -1);
                 } else if (event.text == Key.Return || event.text == " ") {
                     choose(root.hot);
-                } else if (event.text == Key.Escape) {
+                } else if (event.text == Key.Escape || event.text == Key.Back) {
+                    // Back is Escape's phone twin, as it is in the window's
+                    // own scope: with the menu holding the keys, Back would
+                    // otherwise do nothing at all on a phone.
                     surface.close();
                 } else if (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
                     root.leaving-by = event.text == Key.LeftArrow ? -1 : 1;
