@@ -14,6 +14,11 @@ at its top, with the date it was made.
 import glob, importlib.util, os, sys, re
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+# The version on the badge: the workspace's own, read from the one place
+# it is written. The first `version =` line in src/Cargo.toml is the
+# workspace package's - the dependencies' version fields sit inside
+# `name = { ... }` tables, never at a line's start.
+VERSION = re.search(r'^version = "(.*)"', open(os.path.join(ROOT, "src", "Cargo.toml")).read(), re.M).group(1)
 LANGS = {}
 for f in sorted(glob.glob(os.path.join(HERE, "lang_*.py"))):
     spec = importlib.util.spec_from_file_location(os.path.basename(f)[:-3], f)
@@ -52,7 +57,7 @@ HEAD = """<p align="center">
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.8-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.8" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-{version}-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version {version}" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="{license}"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -147,7 +152,7 @@ def render(code):
     L = LANGS[code]
     highlights = "\n".join(f"- {h}" for h in L["highlights"])
     note = f"> {L['note']}\n\n"
-    return HEAD.format(languages=language_line(code), license="../LICENSE", note=note, highlights=highlights, **{k: v for k, v in L.items() if k not in ("highlights", "note")})
+    return HEAD.format(languages=language_line(code), license="../LICENSE", note=note, highlights=highlights, version=VERSION, **{k: v for k, v in L.items() if k not in ("highlights", "note")})
 
 if __name__ == "__main__":
     os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
@@ -155,7 +160,12 @@ if __name__ == "__main__":
     for code in LANGS:
         out = os.path.join(ROOT, "docs", f"README.{code}.md")
         text = render(code)
-        assert "{" not in re.sub(r"`[^`]*`", "", text.replace("{{","").replace("}}","")) or True
+        # The frame's placeholders were all filled by format() above; a
+        # brace left in the rendered text, outside a code span or a doubled
+        # literal, is one a translation carried in - markup the renderer
+        # lost, not words.
+        stray = re.sub(r"`[^`]*`", "", text).replace("{{", "").replace("}}", "")
+        assert "{" not in stray and "}" not in stray, f"{code}: a stray brace outside a code span"
         open(out, "w").write(text)
         print("wrote", out, len(text))
     # the English README: the language line under the download button

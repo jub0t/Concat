@@ -795,6 +795,95 @@ mod tests {
         assert!(serde_json::from_value::<Command>(wire).is_err());
     }
 
+    /// Enhance and a detached-audio mute ride with the media they were made
+    /// on: a match from a clip of another file keeps the target's own, or
+    /// the link would name media the clip never had - and a clip whose
+    /// audio was never detached would go silent.
+    #[test]
+    fn a_match_from_another_file_keeps_the_targets_enhance_and_mute() {
+        let (mut editor, media_id, source_id) = fixture();
+        let other_id = editor
+            .apply(media("/b.mp4", 8.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let track_id = editor.project().active().tracks[0].id.clone();
+        let like_id = editor
+            .apply(Command::AddClip {
+                media_id: other_id.clone(),
+                track_id,
+                start: 30.0,
+                ripple: false,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let mut like = editor
+            .project()
+            .active()
+            .clip(&like_id)
+            .expect("there")
+            .clone();
+        like.enhanced = Some(crate::model::Enhanced {
+            original: other_id,
+            copy: "m99".to_owned(),
+            on: true,
+            offset: 0.0,
+        });
+        like.muted = Some(true);
+        like.opacity = 0.4;
+        editor
+            .apply(Command::MatchClip {
+                clip_id: source_id.clone(),
+                like: Box::new(like),
+            })
+            .expect("matches");
+        let target = editor.project().active().clip(&source_id).expect("there");
+        assert_eq!(target.media_id, media_id, "the target keeps its own file");
+        assert_eq!(
+            target.enhanced, None,
+            "an Enhance link to another file's pair is not worn"
+        );
+        assert_eq!(
+            target.muted, None,
+            "and a mute for audio that was never detached is not either"
+        );
+        assert_eq!(target.opacity, 0.4, "the look itself still arrives");
+
+        // The same file's match carries them: the link names a pair the
+        // clip can actually show.
+        let mut same = editor
+            .project()
+            .active()
+            .clip(&source_id)
+            .expect("there")
+            .clone();
+        same.enhanced = Some(crate::model::Enhanced {
+            original: media_id.clone(),
+            copy: "m98".to_owned(),
+            on: false,
+            offset: 0.0,
+        });
+        same.muted = Some(true);
+        editor
+            .apply(Command::MatchClip {
+                clip_id: source_id.clone(),
+                like: Box::new(same),
+            })
+            .expect("matches");
+        let target = editor.project().active().clip(&source_id).expect("there");
+        assert_eq!(
+            target.enhanced,
+            Some(crate::model::Enhanced {
+                original: media_id,
+                copy: "m98".to_owned(),
+                on: false,
+                offset: 0.0,
+            })
+        );
+        assert_eq!(target.muted, Some(true));
+    }
+
     /// Editor with one media item and one clip at [0, 10) on track one.
     fn fixture() -> (Editor, String, String) {
         let mut editor = Editor::new();
@@ -1029,6 +1118,28 @@ mod tests {
             })
             .expect("retimes");
         assert_eq!(start_of(&editor, &next[0]), 20.0);
+    }
+
+    /// A stacked clip that begins under a clip and runs into the span a
+    /// retime gives it is detected (`pushed`) and must be pushed clear:
+    /// the old rule, which only moved clips at or after the old end, left
+    /// it sitting under the lengthened clip.
+    #[test]
+    fn a_retime_pushes_a_clip_stacked_under_its_new_span_clear() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        // [5, 15) under [0, 10): the stack an older document can hold.
+        let stack = stacked(&mut editor, &media_id, &video, &[5.0]);
+        editor
+            .apply(Command::SetClipSpeed {
+                clip_id: first,
+                ripple: false,
+                speed: 0.5,
+            })
+            .expect("retimes");
+        // The clip doubles to [0, 20); the stack, beginning at five, lands
+        // past its end, not under it.
+        assert_eq!(start_of(&editor, &stack[0]), 20.0);
     }
 
     // ── ripple delete: https://github.com/jub0t/Concat/issues/106 ──
@@ -1536,6 +1647,68 @@ mod tests {
             start_of(&editor, &more[1]),
             3.0,
             "in front of the edge; not moved"
+        );
+    }
+
+    /// The other way round: a magnetic trim that lengthens a clip over a
+    /// stacked one pushes it clear of the new span. The move used to reach
+    /// only clips at or after the old end, so the growth covered the stack
+    /// where it sat.
+    #[test]
+    fn a_magnetic_trim_pushes_a_clip_stacked_under_its_growth_clear() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        // [5, 15) under [0, 10): the stack an older document can hold.
+        let stack = stacked(&mut editor, &media_id, &video, &[5.0]);
+        editor
+            .apply(trim(&first, TrimEdge::End, 4.0, true))
+            .expect("lengthens");
+        // The clip grows to [0, 14); the stack, beginning at five, lands
+        // past its end, not under it.
+        assert_eq!(start_of(&editor, &stack[0]), 14.0);
+    }
+
+    /// A magnetic drop onto a stacked lane lands clear: the fold steps the
+    /// drop past the clip it lands on, and a clip stacked under that one,
+    /// beginning before the landing point and running on through the slot,
+    /// moves out of the slot rather than staying under the new clip (#129
+    /// for the stacks an older document can hold).
+    #[test]
+    fn a_magnetic_drop_onto_a_stacked_lane_lands_clear() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        // [8, 18) stacked over [0, 10)'s tail. A drop at five steps past
+        // the clip it lands on to ten - and the stack, beginning at eight,
+        // runs on into [10, 20), the slot the new clip takes.
+        let stack = stacked(&mut editor, &media_id, &video, &[8.0]);
+        let added = editor
+            .apply(Command::AddClip {
+                media_id: media_id.clone(),
+                track_id: video,
+                start: 5.0,
+                ripple: true,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        assert_eq!(start_of(&editor, &first), 0.0, "in front of the drop");
+        let placed = editor.project().active().clip(&added).expect("there");
+        assert_eq!((placed.start, placed.start + placed.duration), (10.0, 20.0));
+        assert_eq!(start_of(&editor, &stack[0]), 20.0);
+        assert!(
+            editor
+                .project()
+                .active()
+                .clips
+                .iter()
+                .all(|clip| clip.id == added
+                    || !crate::placement::covers(
+                        clip.start,
+                        clip.start + clip.duration,
+                        10.0,
+                        20.0,
+                    )),
+            "nothing sits under the new clip"
         );
     }
 

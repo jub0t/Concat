@@ -236,32 +236,15 @@ fn model_file(dirs: &AppDirs, id: &str) -> Result<PathBuf, String> {
 /// app rather than as a second download.
 const VAD_MODEL: &[u8] = include_bytes!("../assets/ggml-silero-v6.2.0.bin");
 
-/// The spans of `samples` (16 kHz mono) that are speech, in seconds, by
-/// Silero VAD. Empty when the model cannot be had or will not run: the
-/// captions then keep whisper's own times, as they always did.
-fn speech_spans(dirs: &AppDirs, samples: &[f32], threads: usize) -> Vec<(f64, f64)> {
-    let spans = vad_model(dirs).and_then(|path| {
-        let path = path
-            .to_str()
-            .ok_or_else(|| format!("{} is not a path whisper can open", path.display()))?
-            .to_owned();
-        let mut context_params = WhisperVadContextParams::new();
-        context_params.set_n_threads(threads as i32);
-        context_params.set_use_gpu(false);
-        let mut context = WhisperVadContext::new(&path, context_params)
-            .map_err(|error| format!("could not load {path}: {error}"))?;
-        let segments = context
-            .segments_from_samples(WhisperVadParams::new(), samples)
-            .map_err(|error| format!("voice detection failed: {error}"))?;
-        // Centiseconds, like whisper's own timestamps.
-        Ok(segments
-            .map(|span| (f64::from(span.start) / 100.0, f64::from(span.end) / 100.0))
-            .collect())
-    });
-    spans.unwrap_or_else(|error: String| {
-        log::warn!("transcribe: captions keep whisper's times: {error}");
-        Vec::new()
-    })
+/// The voice detector, kept loaded the way the model is: under a
+/// megabyte of weights, but a load of its own - the file parsed and the
+/// compute graph planned - and every transcription wanted it again.
+struct LoadedVad {
+    /// The thread count the context was built for. The count comes from
+    /// the machine and does not move in practice; if it ever does, the
+    /// context is built again rather than run with yesterday's threads.
+    threads: usize,
+    context: WhisperVadContext,
 }
 
 /// A caption's span drawn in to the speech it covers. Whisper starts a
@@ -293,9 +276,18 @@ fn vad_model(dirs: &AppDirs) -> Result<PathBuf, String> {
         // not write into one file; whichever renames last wins, and both
         // wrote the same bytes.
         let part = path.with_extension(format!("part-{}", std::process::id()));
-        std::fs::write(&part, VAD_MODEL)
+        let written = std::fs::write(&part, VAD_MODEL)
             .and_then(|()| std::fs::rename(&part, &path))
-            .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+            .map_err(|error| format!("could not write {}: {error}", path.display()));
+        // A part the rename could not land - the destination held by
+        // something else on Windows, a folder where the file should be -
+        // is a megabyte nothing will ever pick up, and it sat beside the
+        // models for the life of the machine. It goes whether the write
+        // finished or failed, the way a model download's archive does
+        // (tts.rs): after a successful rename there is no part to remove,
+        // and removing one that is not there is nothing to report.
+        let _ = std::fs::remove_file(&part);
+        written?;
     }
     Ok(path)
 }
@@ -371,6 +363,12 @@ pub struct Transcriber {
     /// Held for the whole transcription, which is what lets
     /// [`Transcriber::delete_model`] refuse to delete a model mid-use.
     model: Mutex<Option<LoadedModel>>,
+    /// The Silero detector, held for the run the same way and kept between
+    /// runs. Its own mutex rather than the model's, which the run holds
+    /// for the whole of `transcribe` - the call that wants the detector
+    /// included - so locking that one again would deadlock; nothing else
+    /// ever locks this one in the other order.
+    vad: Mutex<Option<LoadedVad>>,
 }
 
 impl Default for Transcriber {
@@ -386,6 +384,7 @@ impl Transcriber {
             gate: Arc::new(SingleFlight::new()),
             downloads: Arc::new(SingleFlight::new()),
             model: Mutex::new(None),
+            vad: Mutex::new(None),
         }
     }
 
@@ -484,6 +483,56 @@ impl Transcriber {
     pub fn loaded_model(&self) -> Option<String> {
         let loaded = self.model.try_lock().ok()?;
         loaded.as_ref().map(|model| model.id.clone())
+    }
+
+    /// The spans of `samples` (16 kHz mono) that are speech, in seconds, by
+    /// Silero VAD. Empty when the model cannot be had or will not run: the
+    /// captions then keep whisper's own times, as they always did.
+    ///
+    /// The detector's context is kept between runs like the model is:
+    /// loading it is a parse of the weights and a planning of the graph,
+    /// paid once were every transcription paying it before. whisper-rs'
+    /// VAD context is `Send` but its work wants `&mut`, so a value shared
+    /// wide would still have to sit behind a mutex - it sits behind this
+    /// one, per transcriber. Nothing of a run is carried into the next:
+    /// the whole window's samples go in each time and the detector clears
+    /// its own state first, so keeping it says the same things it did. A
+    /// load that fails is not kept, and the next run tries again, as it
+    /// did when every run loaded.
+    fn speech_spans(&self, dirs: &AppDirs, samples: &[f32], threads: usize) -> Vec<(f64, f64)> {
+        let spans = vad_model(dirs).and_then(|path| {
+            let path = path
+                .to_str()
+                .ok_or_else(|| format!("{} is not a path whisper can open", path.display()))?
+                .to_owned();
+            let mut loaded = self
+                .vad
+                .lock()
+                .map_err(|_| "transcriber state poisoned".to_owned())?;
+            if loaded.as_ref().is_none_or(|vad| vad.threads != threads) {
+                let mut context_params = WhisperVadContextParams::new();
+                context_params.set_n_threads(threads as i32);
+                context_params.set_use_gpu(false);
+                let context = WhisperVadContext::new(&path, context_params)
+                    .map_err(|error| format!("could not load {path}: {error}"))?;
+                *loaded = Some(LoadedVad { threads, context });
+            }
+            let context = &mut loaded
+                .as_mut()
+                .expect("the detector is loaded above")
+                .context;
+            let segments = context
+                .segments_from_samples(WhisperVadParams::new(), samples)
+                .map_err(|error| format!("voice detection failed: {error}"))?;
+            // Centiseconds, like whisper's own timestamps.
+            Ok(segments
+                .map(|span| (f64::from(span.start) / 100.0, f64::from(span.end) / 100.0))
+                .collect())
+        });
+        spans.unwrap_or_else(|error: String| {
+            log::warn!("transcribe: captions keep whisper's times: {error}");
+            Vec::new()
+        })
     }
 
     /// Transcribes one clip's audio window into caption segments. Blocks
@@ -614,7 +663,7 @@ impl Transcriber {
 
         // Where the speech is, for timing the captions; see `VAD_MODEL`.
         // Without it the captions come out as whisper timed them.
-        let speech = speech_spans(dirs, &samples, threads);
+        let speech = self.speech_spans(dirs, &samples, threads);
         let run = state.full(params, &samples);
 
         // An abort ends whisper's run as an error of its own - "failed to

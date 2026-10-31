@@ -56,7 +56,9 @@ pub enum MediaMsg {
     /// The phone's Add: what was picked, in the order it was picked, onto
     /// the main lane - at the playhead, or after the last picture on it
     /// when `at_end` (the lanes' plus).
-    AddPicked { at_end: bool },
+    AddPicked {
+        at_end: bool,
+    },
     /// The phone's Media sheet opened: a pick starts from nothing.
     ClearPicks,
 }
@@ -258,9 +260,7 @@ impl MediaBin {
     pub fn picked_in_order(&self, project: &Project) -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();
         for id in &self.picked {
-            if self.selected.contains(id)
-                && !ids.contains(id)
-                && project.media_by_id(id).is_some()
+            if self.selected.contains(id) && !ids.contains(id) && project.media_by_id(id).is_some()
             {
                 ids.push(id.clone());
             }
@@ -350,7 +350,9 @@ impl MediaBin {
             .iter()
             .filter(|clip| !before.contains(&clip.id))
             .map(|clip| clip.start + clip.duration)
-            .fold(None, |end: Option<f64>, at| Some(end.map_or(at, |end| end.max(at))));
+            .fold(None, |end: Option<f64>, at| {
+                Some(end.map_or(at, |end| end.max(at)))
+            });
         self.selected.clear();
         self.picked.clear();
         // A frame short of the end, so the monitor shows the last of what
@@ -418,8 +420,13 @@ impl MediaBin {
     }
 
     /// A marquee closed over the grid, as the block of cells it caught. The
-    /// walk is over the filtered order, because that is what the grid was
-    /// laid out from.
+    /// walk is over the visible list - filtered and sorted - because that is
+    /// what the grid is laid out from: the cards are placed by index in
+    /// `MediaBin::rows`, which is `MediaBin::visible`. Walking the filter
+    /// alone, as this once did, agreed with the cards only while the sort
+    /// was "Added"; under sort by name or kind the same cell named a
+    /// different item than the card drawn on it, and the band caught -
+    /// and Delete acted on - the wrong files.
     fn band(
         &self,
         project: &Project,
@@ -428,21 +435,17 @@ impl MediaBin {
         (from_row, to_row): (i32, i32),
         additive: bool,
     ) -> HashSet<String> {
-        let mut cell = 0;
         let mut next = if additive {
             self.selected.clone()
         } else {
             HashSet::new()
         };
-        for item in &project.media {
-            if !Self::shows(self.filter, item) {
-                continue;
-            }
+        for (cell, item) in self.visible(project).into_iter().enumerate() {
+            let cell = cell as i32;
             let (row, col) = (cell / columns.max(1), cell % columns.max(1));
             if row >= from_row && row <= to_row && col >= from_col && col <= to_col {
                 next.insert(item.id.clone());
             }
-            cell += 1;
         }
         next
     }
@@ -696,5 +699,29 @@ mod tests {
         let caught = bin.band(&project, 1, (0, 0), (0, 0), true);
         assert_eq!(caught.len(), 2);
         assert!(caught.contains("i1") && caught.contains("x"));
+    }
+
+    /// A marquee under a sort must catch the cards the band encloses, not
+    /// whatever sits at those cells in the document's order - the grid is
+    /// laid out from the sorted list (audit: band() once walked the filter
+    /// alone, so with a sort chosen a sweep deleted the wrong files).
+    #[test]
+    fn a_band_under_a_sort_catches_the_sorted_cards() {
+        let mut bin = MediaBin::default();
+        let project = project();
+        // By name the first row is (alpha, apple) - a1 and v2 - while the
+        // document's order puts v1 and a1 there. The first row of the grid
+        // catches the first row of the sorted list, or nothing adds up.
+        bin.sort = 1;
+        let caught = bin.band(&project, 2, (0, 1), (0, 0), false);
+        assert_eq!(caught.len(), 2);
+        assert!(caught.contains("a1") && caught.contains("v2"));
+        // By kind the videos lead and the still is last, so the bottom row
+        // is the audio and the still - in the document's order it was the
+        // still and a video.
+        bin.sort = 2;
+        let caught = bin.band(&project, 2, (0, 1), (1, 1), false);
+        assert_eq!(caught.len(), 2);
+        assert!(caught.contains("a1") && caught.contains("i1"));
     }
 }

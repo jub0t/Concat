@@ -36,7 +36,7 @@ jobs:
   # slip or an unformatted line fails here in a minute, and no longer
   # skips clippy and the tests behind it.
   checks:
-    name: Format, locales and models
+    name: Format, locales, models and patches
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -62,6 +62,16 @@ jobs:
       # engine's tables are what a download is checked against. This keeps
       # the two saying the same thing. See models/manifest.toml.
       - run: python3 scripts/models.py --check
+        if: ${{ !cancelled() }}
+      # The workspace builds Slint's Skia renderer and whisper-rs-sys from
+      # src/patches/ rather than from crates.io (see [patch.crates-io] in
+      # src/Cargo.toml); a patch that no longer satisfies what depends on
+      # it - a Dependabot bump of the crate it patches - is dropped by
+      # cargo with a warning alone, and the build then links the crates.io
+      # version, change and all. This reads the lockfile cargo resolved:
+      # both crates must come from the local path, or the run is red before
+      # anything is built with either of them.
+      - run: python3 scripts/ci/check-patches.py
         if: ${{ !cancelled() }}
 
   engine:

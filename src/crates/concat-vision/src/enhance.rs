@@ -282,7 +282,22 @@ pub fn window_planes(frame: &Frame, tile: Tile) -> Vec<f32> {
 /// square, red then green then blue - pasted into `out`, which is the
 /// source picture's size times [`SCALE`]. The margin is dropped: only the
 /// tile's own pixels, enlarged, land. Values past `0..=1` are clamped.
-pub fn paste(out: &mut Frame, tile: Tile, answer: &[f32]) -> Result<(), String> {
+///
+/// `tile` says where the answer lands in `out`; `placed` says where the
+/// same tile sits in `source`, and with `source` carries the alpha over:
+/// the model restores colour only and has no alpha of its own, and a hard
+/// 255 here flattened a transparent WebM the moment it was enhanced.
+/// Each source pixel's own alpha is replicated to the `SCALE` by `SCALE`
+/// block of enlarged pixels it became - the same mapping the planes
+/// above place the model's colour by, read the way `window_planes` reads
+/// its window, edge repeated past the picture.
+pub fn paste(
+    out: &mut Frame,
+    source: &Frame,
+    placed: Tile,
+    tile: Tile,
+    answer: &[f32],
+) -> Result<(), String> {
     let side = (WINDOW * SCALE) as usize;
     if answer.len() != 3 * side * side {
         return Err(format!(
@@ -293,22 +308,29 @@ pub fn paste(out: &mut Frame, tile: Tile, answer: &[f32]) -> Result<(), String> 
     }
     let ow = out.width() as usize;
     let pixels = out.pixels_mut();
+    let (fw, fh) = (source.width() as i64, source.height() as i64);
+    let src = source.pixels();
     let (tw, th) = (
         (tile.width * SCALE) as usize,
         (tile.height * SCALE) as usize,
     );
     let (ox, oy) = ((tile.x * SCALE) as usize, (tile.y * SCALE) as usize);
     let margin = (PAD * SCALE) as usize;
+    let block = SCALE as usize;
     for y in 0..th {
         let ay = y + margin;
+        // The source row this row of enlarged pixels came from: one row
+        // per block of `SCALE`, clamped to the picture as the window was.
+        let sy = (placed.y as i64 + (y / block) as i64).clamp(0, fh - 1) as usize;
         for x in 0..tw {
             let ax = x + margin;
+            let sx = (placed.x as i64 + (x / block) as i64).clamp(0, fw - 1) as usize;
             let at = ((oy + y) * ow + ox + x) * BYTES_PER_PIXEL;
             for c in 0..3 {
                 let value = answer[(c * side + ay) * side + ax];
                 pixels[at + c] = (value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             }
-            pixels[at + 3] = 255;
+            pixels[at + 3] = src[(sy * fw as usize + sx) * BYTES_PER_PIXEL + 3];
         }
     }
     Ok(())
@@ -436,7 +458,7 @@ impl Enhancer {
             let started = std::time::Instant::now();
             let answer = model.run(planes)?;
             times.push(started.elapsed());
-            paste(&mut out, tile, &answer)?;
+            paste(&mut out, frame, placed, tile, &answer)?;
         }
         Ok((out, times))
     }
@@ -585,7 +607,10 @@ mod tests {
             width: 44,
             height: 256,
         };
-        paste(&mut out, tile, &answer).expect("fits");
+        // The whole picture is the source, so the tile is where it is
+        // placed; opaque, so the alpha it carries changes nothing here.
+        let source = picture(300, 300, |_, _| [0, 0, 0, 255]);
+        paste(&mut out, &source, tile, tile, &answer).expect("fits");
         assert_eq!(out.pixel(256 * 4, 0), Some([255, 255, 0, 255]));
         assert_eq!(
             out.pixel(300 * 4 - 1, 256 * 4 - 1),
@@ -595,7 +620,56 @@ mod tests {
         assert_eq!(out.pixel(256 * 4 - 1, 0), Some([0, 0, 0, 255]));
         assert_eq!(out.pixel(256 * 4, 256 * 4), Some([0, 0, 0, 255]));
         // A short answer is refused, not read past.
-        assert!(paste(&mut out, tile, &answer[1..]).is_err());
+        assert!(paste(&mut out, &source, tile, tile, &answer[1..]).is_err());
+    }
+
+    /// The model has no alpha of its own, and its answer used to be pasted
+    /// opaque: a transparent WebM lost its transparency the moment it was
+    /// enhanced. The source's alpha now rides along, each source pixel's
+    /// filling the block of enlarged pixels it became - also for a region
+    /// off the corner of the picture, whose tiles read the source where
+    /// they sit (`placed`) while landing at their own place in `out`.
+    #[test]
+    fn a_transparent_picture_keeps_its_alpha_when_enhanced() {
+        struct Blank;
+        impl WindowRunner for Blank {
+            fn run(&mut self, _planes: Vec<f32>) -> Result<Vec<f32>, String> {
+                Ok(vec![
+                    0.5f32;
+                    3 * (WINDOW * SCALE) as usize
+                        * (WINDOW * SCALE) as usize
+                ])
+            }
+        }
+        // The left half clear, the right half half-solid: the step says
+        // which source pixel each block of the answer came from.
+        let source = picture(4, 4, |x, _y| {
+            [x as u8 * 40, 3, 7, if x < 2 { 0 } else { 128 }]
+        });
+        let enhancer = Enhancer::with(Box::new(Blank));
+        let upscaled = enhancer.upscale(&source).expect("upscales");
+        assert_eq!((upscaled.width(), upscaled.height()), (16, 16));
+        for y in 0..16 {
+            for x in 0..16 {
+                let expected = [128, 128, 128, if x < 8 { 0 } else { 128 }];
+                assert_eq!(upscaled.pixel(x, y), Some(expected), "at ({x}, {y})");
+            }
+        }
+        // A region at the solid corner: its alpha comes from the source
+        // pixels the region covers, not from the tile's own place in it.
+        let region = Tile {
+            x: 2,
+            y: 1,
+            width: 2,
+            height: 2,
+        };
+        let (piece, _) = enhancer.upscale_region(&source, region).expect("upscales");
+        assert_eq!((piece.width(), piece.height()), (8, 8));
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(piece.pixel(x, y).map(|p| p[3]), Some(128), "at ({x}, {y})");
+            }
+        }
     }
 
     #[test]

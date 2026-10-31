@@ -969,20 +969,48 @@ pub enum CommandError {
     NotANumber,
 }
 
+/// The most an adopted id may advance the mint's counter: a million short
+/// of u64::MAX. A file's ids are whatever a hand - or a hand with intent -
+/// wrote into it, and `c18446744073709551615` parses as u64::MAX; adopted
+/// as written, the counter sits a step from the top, where the next mint
+/// panics a debug build and wraps a release one back onto small numbers
+/// the file already uses. A million fresh ids past anything a file could
+/// name is headroom no real edit session climbs through, and the
+/// non-numeric fallback in [`IdMint::next`] catches the one that does.
+const ADOPT_CEILING: u64 = u64::MAX - 1_000_000;
+
 /// Mints ids. Owned by the editor so restored projects advance it past every
 /// id a file already uses - the collision class `adoptProject` fixed in the
 /// UI is prevented here instead.
 #[derive(Clone, Default, Debug)]
 pub struct IdMint {
     counter: u64,
+    /// How many fallback ids a counter at the very top has handed out; see
+    /// [`IdMint::next`]. A restored project cannot push the counter there
+    /// ([`ADOPT_CEILING`]), so it needs no adopting of its own.
+    spilled: u64,
 }
 
 impl IdMint {
     /// The next fresh id: the prefix ("c", "t", "tl", "m") plus a counter
     /// shared across all prefixes, so no two ids ever share a number.
     pub fn next(&mut self, prefix: &str) -> String {
-        self.counter += 1;
-        format!("{prefix}{}", self.counter)
+        // Checked, not `+= 1`: the counter can be a step from u64::MAX -
+        // adopt clamps how far a file pushes it, not how far a session of
+        // mints climbs - and there the increment panics a debug build and
+        // wraps a release one onto `c0`, over whatever held it. Past the
+        // top the id takes a shape no numeric suffix parses to, so it can
+        // only ever name something new.
+        match self.counter.checked_add(1) {
+            Some(counter) => {
+                self.counter = counter;
+                format!("{prefix}{}", counter)
+            }
+            None => {
+                self.spilled = self.spilled.saturating_add(1);
+                format!("{prefix}-x{}", self.spilled)
+            }
+        }
     }
 
     /// Advances the counter past `id`'s numeric suffix, if it has one.
@@ -996,7 +1024,10 @@ impl IdMint {
             .rev()
             .collect();
         if let Ok(value) = digits.parse::<u64>() {
-            self.counter = self.counter.max(value);
+            // Clamped, for the reason ADOPT_CEILING gives: a hostile file
+            // must not be able to park the counter at the top of the range
+            // before a single edit is made.
+            self.counter = self.counter.max(value.min(ADOPT_CEILING));
         }
     }
 
@@ -1046,7 +1077,12 @@ fn next_numbered(name: &str, existing: impl Iterator<Item = String>) -> String {
         })
         .max()
         .unwrap_or(0);
-    format!("{name} {}", highest + 1)
+    // Saturating: a timeline hand-named "Timeline 18446744073709551615"
+    // puts `highest` at u64::MAX, and a plain `+ 1` panics a debug build
+    // and wraps a release one to "Timeline 0". At the top the worst case
+    // repeats the extreme name, which a person can rename - a name is not
+    // an id - rather than taking the add down with it.
+    format!("{name} {}", highest.saturating_add(1))
 }
 
 impl Command {
@@ -1330,5 +1366,58 @@ pub fn apply(
         | Command::RenameTimeline { .. }
         | Command::SelectTimeline { .. }
         | Command::MoveTimeline { .. }) => timelines::apply(project, mint, command),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ADOPT_CEILING, IdMint, next_numbered};
+
+    /// A file written with an id at the very top of the u64 range must not
+    /// pin the mint's counter there: `next` would then be the `+= 1` that
+    /// panics a debug build and wraps a release one onto an id the file
+    /// already uses. The clamp leaves the counter a million below the top,
+    /// and minting climbs past the adopted value, not onto it.
+    #[test]
+    fn adopting_an_id_at_the_top_of_the_range_still_leaves_room_to_mint() {
+        let mut mint = IdMint::default();
+        mint.adopt("c18446744073709551615");
+        assert_eq!(mint.counter, ADOPT_CEILING);
+        let first = mint.next("c");
+        let second = mint.next("c");
+        assert_eq!(first, "c18446744073708551616");
+        assert_ne!(first, "c18446744073709551615", "never onto the adopted id");
+        assert_ne!(first, second, "and never onto one of its own");
+        // A smaller id still adopts as itself; only the top is clamped.
+        mint.adopt("c50");
+        assert_eq!(mint.next("c"), "c18446744073708551618");
+    }
+
+    /// A counter at the very top - a million mints past the clamp - falls
+    /// back to ids no numeric suffix parses to, so the mint keeps handing
+    /// out fresh ones instead of wrapping round to `c0`.
+    #[test]
+    fn a_counter_at_the_top_mints_fallback_ids_that_never_repeat() {
+        let mut mint = IdMint::default();
+        mint.counter = u64::MAX;
+        assert_eq!(mint.next("c"), "c-x1");
+        assert_eq!(mint.next("c"), "c-x2");
+        assert_eq!(mint.next("tl"), "tl-x3", "one fallback count, all prefixes");
+    }
+
+    /// A timeline hand-named at the top of the u64 range must not make the
+    /// next numbered name wrap or panic; the count simply stays at the top.
+    #[test]
+    fn a_name_at_the_top_of_the_range_numbers_the_next_without_wrapping() {
+        let existing = vec!["Timeline 18446744073709551615".to_owned()];
+        assert_eq!(
+            next_numbered("Timeline", existing.into_iter()),
+            "Timeline 18446744073709551615"
+        );
+        assert_eq!(
+            next_numbered("Timeline", vec![].into_iter()),
+            "Timeline 1",
+            "nothing in use numbers from one, as ever"
+        );
     }
 }

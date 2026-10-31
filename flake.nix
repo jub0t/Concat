@@ -149,7 +149,22 @@
         default = concat;
         concat = pkgs.rustPlatform.buildRustPackage {
           pname = "concat";
-          version = "0.2.8";
+          # Read out of src/Cargo.toml rather than written here a second
+          # time: that line is what the crates inherit, what the workflows
+          # `sed` for, and what scripts/readme/gen.py reads; a copy here
+          # would drift with every bump. The line taken is the first that
+          # starts a version - the workspace package's; the dependencies'
+          # own version fields sit inside `name = { ... }` tables, never at
+          # a line's start.
+          version =
+            let
+              line = pkgs.lib.head (
+                pkgs.lib.filter (line: builtins.match "version = \".*" line != null) (
+                  pkgs.lib.splitString "\n" (builtins.readFile ./src/Cargo.toml)
+                )
+              );
+            in
+            pkgs.lib.head (builtins.match "version = \"([^\"]*)\"" line);
           src = self;
 
           cargoRoot = "src";

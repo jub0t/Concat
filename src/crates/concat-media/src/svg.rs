@@ -76,6 +76,11 @@ pub fn readable(path: &Path) -> Result<PathBuf> {
             return Err(fail(error.to_string()));
         }
     }
+    // The folder is capped as each drawing lands - the one moment it grows -
+    // so a read that finds its drawing already drawn costs the folder
+    // nothing. A concurrent writer that lost the rename still had its say:
+    // the winner's call trims for it.
+    evict_oldest(&drawn);
     Ok(drawn)
 }
 
@@ -90,6 +95,50 @@ fn drawing_of(path: &Path, metadata: &std::fs::Metadata) -> PathBuf {
     std::env::temp_dir()
         .join("concat-svg")
         .join(format!("{:016x}.png", hasher.finish()))
+}
+
+/// How many drawings the cache folder keeps. Every distinct (path, size,
+/// mtime) SVG that was ever read - each edit of each file - draws a PNG of
+/// up to tens of megabytes, and none was ever evicted: a long-running
+/// editor slowly filled the temporary folder with drawings of files no
+/// project names any more. A cap the size of a busy document's icon set,
+/// evicted oldest first.
+const KEEP: usize = 64;
+
+/// Evicts the oldest drawings by modification time until the folder is back
+/// to [`KEEP`] entries, `freshly` the drawing just written and never a
+/// candidate. Best effort: entries that cannot be read or statted are left
+/// alone, and another thread drawing at the same moment may edge the count
+/// past the cap until its own call trims it.
+fn evict_oldest(freshly: &Path) {
+    let Some(dir) = freshly.parent() else {
+        return;
+    };
+    let drawings = std::fs::read_dir(dir).ok();
+    let mut drawings: Vec<(std::time::SystemTime, PathBuf)> = drawings
+        .into_iter()
+        .flatten()
+        .flatten()
+        // The folder holds only drawings and this call's `.part` files; the
+        // part files are removed by their own writer.
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("png"))
+        })
+        .filter(|entry| entry.path() != freshly)
+        .filter_map(|entry| {
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, entry.path()))
+        })
+        .collect();
+    // Oldest first, so the ones longest unlooked-at go.
+    drawings.sort_by_key(|(modified, _)| *modified);
+    let excess = drawings.len().saturating_sub(KEEP - 1);
+    for (_, drawing) in drawings.into_iter().take(excess) {
+        let _ = std::fs::remove_file(drawing);
+    }
 }
 
 /// The SVG in `bytes`, drawn with its long side at [`LONG_SIDE`], as a PNG.
@@ -171,7 +220,11 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".part"))
             .filter(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                let stem = drawings[0].file_stem().unwrap().to_string_lossy().into_owned();
+                let stem = drawings[0]
+                    .file_stem()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
                 name.starts_with(&stem)
             })
             .count();
@@ -225,5 +278,55 @@ mod tests {
         let path = Path::new("clip.mp4");
         assert_eq!(readable(path).unwrap(), path);
         assert!(is_svg(Path::new("logo.SVG")));
+    }
+
+    /// The cache folder is capped: past [`KEEP`] drawings, the oldest are
+    /// evicted as each new one lands, and nothing but drawings is touched.
+    /// Without the cap every distinct (path, size, mtime) SVG ever read
+    /// stayed in the temporary folder for the life of the machine.
+    #[test]
+    fn the_cache_keeps_only_so_many_drawings_and_only_drawings() {
+        let dir = std::env::temp_dir().join(format!("concat-svg-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let drawing = |name: &str| dir.join(name);
+        // `KEEP` older drawings, the older the lower its number, then one
+        // more than the cap and a fresh one for it to make room for.
+        for index in 0..=KEEP {
+            let path = drawing(&format!("{index:04}.png"));
+            std::fs::write(&path, b"a drawing").expect("writes");
+            let back = std::time::SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_secs(u64::try_from(index).expect("small") + 1);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .expect("opens")
+                .set_times(std::fs::FileTimes::new().set_modified(back))
+                .expect("ages");
+        }
+        let leftover = drawing("half-written.part");
+        std::fs::write(&leftover, b"another thread's").expect("writes");
+        let fresh = drawing("fresh.png");
+        std::fs::write(&fresh, b"a drawing").expect("writes");
+
+        evict_oldest(&fresh);
+        assert!(!drawing("0000.png").exists(), "the oldest went");
+        assert!(!drawing("0001.png").exists(), "and the next oldest");
+        assert!(drawing("0002.png").exists(), "the rest stay");
+        assert!(drawing(&format!("{:04}.png", KEEP)).exists());
+        assert!(fresh.exists(), "the fresh drawing is never the one evicted");
+        assert!(leftover.exists(), "a part file belongs to its writer");
+        let kept = std::fs::read_dir(&dir)
+            .expect("reads")
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("png"))
+            })
+            .count();
+        assert_eq!(kept, KEEP, "the folder is back at its cap");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

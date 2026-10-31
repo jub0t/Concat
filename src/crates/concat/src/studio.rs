@@ -2186,6 +2186,10 @@ fn few(names: &[String]) -> String {
 pub enum Confirm {
     /// Deleting a whole track, and every clip on it.
     RemoveTrack { track_id: String },
+    /// Closing a timeline tab, and every clip on its timeline. The strip's
+    /// own header says it never deletes directly; this is the question its
+    /// close button asks when the timeline holds anything.
+    RemoveTimeline { timeline_id: String },
     /// Exporting over a file that is already at `path`.
     ReplaceExport { path: String },
     /// Quitting though the project could not be saved, for `error`. A
@@ -2556,11 +2560,38 @@ impl Studio {
         self.confirm = Some(Confirm::RemoveTrack { track_id });
     }
 
+    /// A tab's close on the timeline at `index`, as the strip asks for it:
+    /// deleting a timeline throws away every clip on it, so the strip never
+    /// deletes directly - only the last tab is guarded, and that because
+    /// there is nothing left to switch to. A timeline holding clips goes
+    /// through the confirmation sheet, exactly as deleting one track does;
+    /// one with nothing on it is nothing to lose and goes now, as closing an
+    /// empty tab always could.
+    pub fn ask_remove_timeline(&mut self, index: i32) {
+        let Some(timeline) = self.project().timelines.get(index.max(0) as usize) else {
+            return;
+        };
+        let (id, clips) = (timeline.id.clone(), timeline.clips.len());
+        if clips == 0 {
+            self.selection.clear();
+            self.apply(Command::RemoveTimeline { timeline_id: id });
+        } else {
+            self.confirm = Some(Confirm::RemoveTimeline { timeline_id: id });
+        }
+    }
+
     /// The confirmation sheet's answer: go ahead with what it asked about.
     pub fn confirm_accepted(&mut self) {
         match self.confirm.take() {
             Some(Confirm::RemoveTrack { track_id }) => {
                 self.apply(Command::RemoveTrack { track_id });
+            }
+            Some(Confirm::RemoveTimeline { timeline_id }) => {
+                // The selection may name clips of the timeline going, and
+                // the direct path through a tab with nothing on it clears
+                // it first; the answered question takes the same care.
+                self.selection.clear();
+                self.apply(Command::RemoveTimeline { timeline_id });
             }
             Some(Confirm::ReplaceExport { .. }) => {
                 self.handle(crate::panes::Msg::Export(
@@ -2597,6 +2628,27 @@ impl Studio {
                 crate::ui::ConfirmData {
                     open: true,
                     title: t("timeline.deleteTrackTitle").into(),
+                    message: message.into(),
+                    action: t("common.delete").into(),
+                }
+            }
+            // Mirrors RemoveTrack, with the count over the timeline being
+            // closed rather than the one lane of it.
+            Confirm::RemoveTimeline { timeline_id } => {
+                let clips = self
+                    .project()
+                    .timelines
+                    .iter()
+                    .find(|timeline| &timeline.id == timeline_id)
+                    .map_or(0, |timeline| timeline.clips.len());
+                let message = match clips {
+                    0 => t("timeline.deleteTimelineEmpty"),
+                    1 => t("timeline.deleteTimelineOneClip"),
+                    many => tf("timeline.deleteTimelineClips", &[&many]),
+                };
+                crate::ui::ConfirmData {
+                    open: true,
+                    title: t("timeline.deleteTimelineTitle").into(),
                     message: message.into(),
                     action: t("common.delete").into(),
                 }
@@ -2966,6 +3018,13 @@ impl Studio {
     /// Writes the document, on a worker. `announce` says so on success;
     /// a failure is always said.
     pub fn save(&mut self, announce: bool) {
+        // Words still being typed land in the save, not on the floor: an
+        // inspector's keystrokes sit on the 120ms echo timer (see
+        // `clip_commit`), so a save that went straight to `prepare_save` -
+        // Ctrl+S right after typing - wrote a file missing the last of them
+        // while toasting "Project saved". `save_and_release` flushes for the
+        // same reason; this is the same line in the same place.
+        self.flush_commit();
         let Some(session) = self.session.as_mut() else {
             return;
         };
@@ -4286,7 +4345,9 @@ impl Studio {
             return;
         }
         if !video && clip.kind == model::ClipKind::Image {
-            self.notify("A still has no sound to filter", true);
+            // A refusal is still words someone reads: the key, not the
+            // English, so every language gets the turn-down.
+            self.notify(&t("studio.stillHasNoSound"), true);
             return;
         }
         let entry = AppliedFilter::new(id);
@@ -8955,8 +9016,10 @@ impl Studio {
             return;
         };
         match concat_host::projects::clear_cache(&path) {
-            Ok(count) => self.notify(&format!("Cleared {count} cache files"), false),
-            Err(error) => self.notify(&format!("Cache clear failed: {error}"), true),
+            // Both are toasts, and a toast is words someone reads: they go
+            // through the locale like every other line the window says.
+            Ok(count) => self.notify(&tf("studio.clearedCacheFiles", &[&count]), false),
+            Err(error) => self.notify(&tf("studio.cacheClearFailed", &[&error]), true),
         }
         self.request_media_art();
         self.request_preview();
@@ -11569,11 +11632,17 @@ impl Studio {
 
         app.set_on_start(self.on_start);
         app.set_project_name(self.project_name.as_str().into());
+        // The truth beside the name, as words rather than a marker: Rust
+        // owns this line because it is the one that knows `dirty`, and it
+        // must go through `t` on every publish - a fixed string here would
+        // sit over the localized binding app.slint declares and stay in
+        // whatever language it happened to be written in. `common.saved` is
+        // the key the binding names; the unsaved one is its pair.
         app.set_project_status(
             if self.dirty {
-                "unsaved changes"
+                t("common.unsavedChanges")
             } else {
-                "saved"
+                t("common.saved")
             }
             .into(),
         );

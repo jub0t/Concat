@@ -22,11 +22,11 @@ pub mod compositor;
 pub mod gpu;
 pub mod metrics;
 pub mod plan;
-pub mod upscale;
 #[cfg(test)]
 mod reference;
 #[cfg(test)]
 mod transitions;
+pub mod upscale;
 
 pub use compositor::Compositor;
 pub use gpu::WgpuCompositor;

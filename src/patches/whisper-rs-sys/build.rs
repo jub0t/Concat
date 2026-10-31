@@ -151,6 +151,10 @@ fn main() {
         .map_err(|v| v.to_string())
         .unwrap();
 
+        // The metal and vulkan features reassign the builder below; a build
+        // with neither of them - every desktop default - would otherwise
+        // warn the mut unused, and the workspace's CI denies warnings.
+        #[allow(unused_mut)]
         let mut bindings = bindgen::Builder::default()
             .rust_edition(bindgen::RustEdition::Edition2021)
             .rust_target(package_msrv)

@@ -253,10 +253,20 @@ impl RevealMap {
         let last = rects.len().saturating_sub(1).max(1) as f32;
         for (index, &(x, y, w, h)) in rects.iter().enumerate() {
             let value = ((index as f32 / last) * 255.0).round() as u8;
-            let x0 = x.clamp(0, width as i32) as u32;
-            let y0 = y.clamp(0, height as i32) as u32;
-            let x1 = (x + w as i32).clamp(0, width as i32) as u32;
-            let y1 = (y + h as i32).clamp(0, height as i32) as u32;
+            // The bounds in i64: a rect from a layout gone wrong can carry a
+            // width past i32::MAX, and `w as i32` wraps it negative - the
+            // clamp then reads x1 < x0, and the u32 width `x1 - x0`
+            // underflows into a fill that runs off the buffer. Clamped in
+            // the wider type the edges stay ordered, and a rect whose
+            // edges meet or cross holds nothing and is skipped.
+            let x0 = i64::from(x).clamp(0, i64::from(width));
+            let y0 = i64::from(y).clamp(0, i64::from(height));
+            let x1 = (i64::from(x) + i64::from(w)).clamp(0, i64::from(width));
+            let y1 = (i64::from(y) + i64::from(h)).clamp(0, i64::from(height));
+            let (x0, y0, x1, y1) = (x0 as u32, y0 as u32, x1 as u32, y1 as u32);
+            if x1 <= x0 || y1 <= y0 {
+                continue;
+            }
             for row in y0..y1 {
                 let start = row as usize * width as usize + x0 as usize;
                 gray[start..start + (x1 - x0) as usize].fill(value);
@@ -368,5 +378,30 @@ mod tests {
     fn a_single_word_reveals_at_the_very_start() {
         let map = RevealMap::from_rects(4, 4, &[(0, 0, 2, 2)]);
         assert_eq!(map.gray[0], 0);
+    }
+
+    /// A rect wider than i32::MAX wrapped its width negative through
+    /// `w as i32`, and the u32 subtraction of the clamped edges underflowed
+    /// into a fill that ran off the end of the map. In i64 the edges stay
+    /// ordered: the rect covers to the canvas's edge and no further, and a
+    /// rect whose edges meet holds nothing and is skipped.
+    #[test]
+    fn an_extreme_rect_covers_to_the_edge_and_an_empty_one_is_skipped() {
+        let map = RevealMap::from_rects(8, 8, &[(0, 0, 1, 1), (6, 6, u32::MAX, u32::MAX)]);
+        assert_eq!(map.gray[0], 0, "the first word's order");
+        assert!(
+            map.gray.iter().enumerate().all(|(at, &g)| {
+                let covered = at % 8 >= 6 && at / 8 >= 6;
+                g == if covered { 255 } else { 0 }
+            }),
+            "the extreme rect covers to the canvas's edge and no further"
+        );
+        let empty = RevealMap::from_rects(8, 8, &[(0, 0, 1, 1), (2, 2, 0, 5), (4, 4, 2, 2)]);
+        assert!(!empty.gray.contains(&128), "the empty rect filled nothing");
+        assert_eq!(
+            empty.gray[4 * 8 + 4],
+            255,
+            "the words after it keep their order"
+        );
     }
 }

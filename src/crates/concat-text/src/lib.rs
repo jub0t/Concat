@@ -1123,7 +1123,14 @@ impl Setter<'_> {
     fn wrap(&self, para: &Paragraph<'_>, max_w: f32) -> Vec<Line> {
         let text = para.text;
         if text.trim().is_empty() {
-            return vec![self.set(para, 0..text.len(), true)];
+            // A paragraph of nothing but space is still a line - as tall
+            // as the look it would be typed in - but its spaces are not
+            // set, as no line's end spaces are: set whole, they measured
+            // as wide as their own advances and pushed the block and its
+            // plate out around nothing, off-centring an empty line. The
+            // trimmed end is where its set content ends, all of it here.
+            let end = text.trim_end().len();
+            return vec![self.set(para, 0..end, true)];
         }
         let trimmed = |from: usize, to: usize| from + text[from..to].trim_end().len();
         let mut line_start = text.len() - text.trim_start().len();
@@ -1803,11 +1810,19 @@ fn paint(
         let indent = indent_of(line);
         let baseline = baseline_of(row);
         for (look, path) in &line.paths {
-            let path = path
+            // A degenerate user font can outline a glyph at coordinates
+            // that stop being finite once they are placed, and a
+            // translation that cannot land is skipped rather than
+            // unwrapped: the shipping profile panics with abort, so an
+            // `expect` here took the whole editor down over one glyph,
+            // where the outlines around it already tolerate what they
+            // cannot finish (`finish`, below and in `set`).
+            if let Some(path) = path
                 .clone()
                 .transform(Transform::from_translate(left + indent, baseline))
-                .expect("a translated glyph path stays finite");
-            placed[*look].push_path(&path);
+            {
+                placed[*look].push_path(&path);
+            }
         }
         // Rules share the glyphs' fill, outline and shadow.
         for &(look, start_x, end_x) in &line.stretches {
@@ -3213,6 +3228,24 @@ mod tests {
         let out = render(&fonts, &style(""), 320, 180).expect("renders");
         assert_eq!((out.block_width, out.block_height), (0, 0));
         assert_eq!(opaque_pixels(&out.png), 0);
+    }
+
+    /// A paragraph of nothing but space is set as no content at all: the
+    /// spaces are not set - no line's end spaces are - so they give the
+    /// block no width to pad, plate or centre around, and nothing paints.
+    #[test]
+    fn a_whitespace_only_paragraph_is_an_empty_canvas() {
+        let fonts = Fonts::new();
+        let out = render(&fonts, &style("   "), 320, 180).expect("renders");
+        assert_eq!(out.block_width, 0, "the spaces are not set");
+        assert_eq!(opaque_pixels(&out.png), 0);
+        // A line of spaces between words is one empty line of the three,
+        // and the words still say where the block is.
+        let holed = render(&fonts, &style("One\n   \nTwo"), 640, 360).expect("renders");
+        let plain = render(&fonts, &style("One\n\nTwo"), 640, 360).expect("renders");
+        assert_eq!(holed.block_width, plain.block_width);
+        assert_eq!(holed.block_height, plain.block_height);
+        assert_eq!(holed.words, plain.words);
     }
 
     /// More lines, taller block; a plate grows it further.

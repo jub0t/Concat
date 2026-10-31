@@ -188,8 +188,14 @@ impl MaskStore {
         let file = mask_file(&self.dir, millis);
         // The smart strokes' regions, opened once for the key and the
         // painting both: what is there changes as the brush model works
-        // its way along the clip.
-        let region_stores: Vec<(u64, MaskStore)> = if cutout.mode == CutoutMode::Custom {
+        // its way along the clip. That is why the cache below is asked
+        // only after them - its key says what the regions answered, so
+        // asking it first would hand back a mask painted before a region
+        // arrived - but the stores themselves come from a cache keyed by
+        // the directory's modified time (`region_store` below), so a
+        // frame's asking costs a stat a stroke, not a listing and a sort
+        // of the thousands of PNGs a long clip's regions hold.
+        let region_stores: Vec<(u64, Arc<MaskStore>)> = if cutout.mode == CutoutMode::Custom {
             cutout
                 .strokes
                 .iter()
@@ -197,7 +203,7 @@ impl MaskStore {
                 .map(|stroke| {
                     (
                         strokes::stroke_key(stroke),
-                        MaskStore::open(&region_dir(&self.dir, stroke)),
+                        region_store(&region_dir(&self.dir, stroke)),
                     )
                 })
                 .collect()
@@ -306,7 +312,7 @@ impl MaskStore {
 fn settings_key(
     cutout: &Cutout,
     aspect: f32,
-    region_stores: &[(u64, MaskStore)],
+    region_stores: &[(u64, Arc<MaskStore>)],
     millis: u64,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -383,6 +389,47 @@ fn mask_cache() -> &'static Mutex<Recent<PathBuf, Arc<Mask>>> {
 fn resolved_cache() -> &'static Mutex<Recent<ResolvedKey, Arc<Mask>>> {
     static CACHE: OnceLock<Mutex<Recent<ResolvedKey, Arc<Mask>>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(Recent::new()))
+}
+
+/// The store of one smart stroke's regions, held in a process-wide cache:
+/// opening one is a read of every name in the directory and a sort of
+/// them - thousands of PNGs for a long clip - and a cutout is asked for
+/// its masks every rendered frame, once per smart stroke of it, even for
+/// the frames the resolved cache answers. The cache is keyed by the
+/// directory and the modified time it was read at, the way
+/// [`Motion::read`](crate::stabilize::Motion::read) holds a media file's
+/// movement: a region the brush model writes bumps that time, and the
+/// next ask lists and sorts again. A directory that is not there -
+/// nothing analysed yet, or cleared - is an empty store held at no time
+/// at all, so its appearing is a change of it. On a filesystem that
+/// stamps times coarsely, a region written within the same stamp as the
+/// last read is seen at the first write to move it - the same bargain
+/// the movement cache makes. One entry per smart stroke a session has
+/// rendered, a few thousand instants of `u64` each: past 64 the map is
+/// dropped whole, as the movement cache drops its own, and the next
+/// asks read the directories again.
+fn region_store(dir: &Path) -> Arc<MaskStore> {
+    /// Each region directory's store, by the modified time it was opened at.
+    type Held = HashMap<PathBuf, (Option<std::time::SystemTime>, Arc<MaskStore>)>;
+    static CACHE: OnceLock<Mutex<Held>> = OnceLock::new();
+    let stamp = std::fs::metadata(dir)
+        .ok()
+        .and_then(|meta| meta.modified().ok());
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(held) = cache.lock()
+        && let Some((read, store)) = held.get(dir)
+        && *read == stamp
+    {
+        return Arc::clone(store);
+    }
+    let store = Arc::new(MaskStore::open(dir));
+    if let Ok(mut held) = cache.lock() {
+        if held.len() > 64 {
+            held.clear();
+        }
+        held.insert(dir.to_path_buf(), (stamp, Arc::clone(&store)));
+    }
+    store
 }
 
 /// The mask in `file`, from memory when it has been read before.
@@ -495,6 +542,44 @@ mod tests {
         assert_eq!(
             store.resolved(0.0, &back_to_auto, 1.0).map(|m| m.at(8, 8)),
             Some(20)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A region the brush model writes between two asks is seen at the
+    /// next one, though the region's store is held in a cache between
+    /// asks: a directory that was not there and now is, is a change of
+    /// the stamp the store is held by, and the mask the strokes paint
+    /// follows it.
+    #[test]
+    fn a_region_written_between_asks_is_seen_at_the_next_one() {
+        let dir = scratch("regions");
+        let mut store = MaskStore::open(&dir);
+        store.put(0, &Mask::filled(16, 16, 20)).expect("writes");
+        let smart = Cutout {
+            mode: CutoutMode::Custom,
+            subject: Subject::Auto,
+            feather: 0.0,
+            strokes: vec![Stroke {
+                at: None,
+                tool: BrushTool::SmartBrush,
+                size: 0.5,
+                points: vec![[0.5, 0.5]],
+            }],
+        };
+        // No region read under the stroke yet: the model's own mask
+        // stands, a smart brush without a region leaves it alone.
+        assert_eq!(
+            store.resolved(0.0, &smart, 1.0).map(|m| m.at(8, 8)),
+            Some(20)
+        );
+        // The brush model writes the thing it read under the stroke.
+        let regions = region_dir(&dir, &smart.strokes[0]);
+        let mut written = MaskStore::open(&regions);
+        written.put(0, &Mask::filled(16, 16, 255)).expect("writes");
+        assert_eq!(
+            store.resolved(0.0, &smart, 1.0).map(|m| m.at(8, 8)),
+            Some(255)
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
