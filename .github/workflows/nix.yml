@@ -20,6 +20,11 @@ on:
       - flake.nix
       - flake.lock
       - src/Cargo.lock
+      # The same two as the push filter above: a Cargo.toml change can
+      # move the crates the flake builds and the dependencies nix fetches,
+      # and a pull request that changes them is proven the same way.
+      - src/Cargo.toml
+      - src/crates/*/Cargo.toml
       - .github/workflows/nix.yml
   workflow_dispatch:
 

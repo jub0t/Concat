@@ -58,3 +58,31 @@ desktop.ini
 # FFmpeg built for a phone by src/scripts/ffmpeg-mobile.sh: sources,
 # build trees and the installed prefixes, all machine-built.
 /src/vendor/
+
+# What the CI and bundle scripts leave in the repository's root when they
+# are run by hand: the smoke tests' output, the staged bundles and the
+# packagers' working trees, the prebuilt libraries unpacked to link
+# against, the .app the .dmg was made from. All machine-made, none of it
+# source.
+/smoke-android/
+/smoke-ios/
+/stage/
+/payload/
+/Concat.App/
+/Concat.AppDir/
+/Concat.iconset/
+/sde/
+/sherpa/
+/sherpa-libs/
+/sherpa-dlls/
+/nfpm/
+/arch/
+/onnxruntime-*/
+/*.dmg
+/*.AppImage
+# Build logs: the workflows tee them under src/, where the build runs;
+# run by hand from the root, they land here.
+/build.log
+/nextest-*.log
+/src/build.log
+/src/nextest-*.log

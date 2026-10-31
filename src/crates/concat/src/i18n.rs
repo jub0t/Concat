@@ -30,6 +30,19 @@
 //! string reads it on its next evaluation. A file from before keys, keyed
 //! by the English itself, still loads: each English line is read as the
 //! key `en.json` gives it.
+//!
+//! The right-to-left languages - Arabic, Persian, Hebrew, Urdu - are
+//! translated like any other, but the window's layout does not follow them:
+//! their words are shaped right-to-left by the text stack and their layout
+//! stays left-to-right. Slint 1.18 has no direction to set - no
+//! `set_layout_direction` on `Window`, no `LayoutDirection` type anywhere
+//! in the crate (the only direction it knows is a box's row or column) -
+//! so there is nothing to mirror with, and the timeline would keep its
+//! left-to-right convention anyway, the way every editor's ruler does.
+//! When a Slint that can set a direction arrives, the place to apply it is
+//! `Studio::publish_chrome`, beside the block that re-reads
+//! `i18n::current` when the language changes: the direction follows the
+//! code there, the same one that picks the catalogue.
 
 use std::collections::HashMap;
 use std::fmt::Display;

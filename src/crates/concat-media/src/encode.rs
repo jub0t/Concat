@@ -894,9 +894,13 @@ fn open_video(
     let bitrate = format!("{}k", options.bitrate_kbps);
     // The average's ceiling, half again the target, and a buffer of two
     // seconds' worth: room for a cut to a busy shot without the encoder
-    // starving the frames after it.
-    let peak = format!("{}k", options.bitrate_kbps * 3 / 2);
-    let window = format!("{}k", options.bitrate_kbps * 2);
+    // starving the frames after it. Figured in u64: `bitrate_kbps` is a
+    // wire value nobody ceilings, and in u32 the peak wraps past about
+    // 1.43 billion kbps - a nonsense rate, but one a request can carry,
+    // and a wrapped ceiling is quietly *below* the target it caps.
+    let kbps = u64::from(options.bitrate_kbps);
+    let peak = format!("{}k", kbps * 3 / 2);
+    let window = format!("{}k", kbps * 2);
     // One second of VBV, not two. With a looser buffer x264 can stay
     // well under b:v on calm content and never emit the padding that
     // makes a CBR a CBR; `bufsize == bitrate` is where it starts
@@ -1476,178 +1480,196 @@ impl Encoder {
             .flags()
             .contains(format::Flags::GLOBAL_HEADER);
 
-        // Every encoder the linked FFmpeg has for the codec, best first,
-        // and among them the first that opens. Being linked is not being
-        // able: a phone's FFmpeg carries MediaCodec's encoders for every
-        // codec, and the chip it runs on has a few of them.
-        let candidates: Vec<(&'static str, ffmpeg::Codec)> = options
-            .codec
-            .linked(options.hardware, options.ten_bit)
-            .filter_map(|name| encoder::find_by_name(name).map(|codec| (name, codec)))
-            .collect();
-        if candidates.is_empty() {
-            return Err(Error::Missing {
-                what: "encoder",
-                name: if options.ten_bit {
-                    format!("{} at ten bits", options.codec.label())
-                } else {
-                    options.codec.label().to_owned()
-                },
-            });
-        }
-        let mut failure = None;
-        let mut opened = None;
-        'encoders: for (name, codec) in candidates {
-            for attempt in allowed_attempts(name, options) {
-                match open_video(
-                    name,
-                    codec,
-                    path,
-                    (width, height),
-                    rate,
-                    options,
-                    tags,
-                    hdr,
-                    global_header,
-                    attempt,
-                ) {
-                    Ok((encoder, pixel_format)) => {
-                        // Opening proves the chip, for the export sheet's
-                        // label. A refusal is not remembered: it may be
-                        // this export's size or depth, not the machine.
-                        if attempt == Attempt::AsAsked && Family::of(name).hardware() {
-                            remember(name, true);
+        // The context above truncated the destination the moment it was
+        // made, and every refusal from here on - no encoder linked for the
+        // codec, one that will not open, a stream that will not add, a
+        // header that will not write - used to leave the empty file
+        // standing where the previous export's had been. The context moves
+        // into the closure below, so a failure drops it - closing the file -
+        // before the empty one is taken away: a removal with the file still
+        // open is refused outright on Windows, and only the removal puts
+        // the destination back the way it was found.
+        let make = move || -> Result<Self> {
+            // Every encoder the linked FFmpeg has for the codec, best first,
+            // and among them the first that opens. Being linked is not being
+            // able: a phone's FFmpeg carries MediaCodec's encoders for every
+            // codec, and the chip it runs on has a few of them.
+            let candidates: Vec<(&'static str, ffmpeg::Codec)> = options
+                .codec
+                .linked(options.hardware, options.ten_bit)
+                .filter_map(|name| encoder::find_by_name(name).map(|codec| (name, codec)))
+                .collect();
+            if candidates.is_empty() {
+                return Err(Error::Missing {
+                    what: "encoder",
+                    name: if options.ten_bit {
+                        format!("{} at ten bits", options.codec.label())
+                    } else {
+                        options.codec.label().to_owned()
+                    },
+                });
+            }
+            let mut failure = None;
+            let mut opened = None;
+            'encoders: for (name, codec) in candidates {
+                for attempt in allowed_attempts(name, options) {
+                    match open_video(
+                        name,
+                        codec,
+                        path,
+                        (width, height),
+                        rate,
+                        options,
+                        tags,
+                        hdr,
+                        global_header,
+                        attempt,
+                    ) {
+                        Ok((encoder, pixel_format)) => {
+                            // Opening proves the chip, for the export sheet's
+                            // label. A refusal is not remembered: it may be
+                            // this export's size or depth, not the machine.
+                            if attempt == Attempt::AsAsked && Family::of(name).hardware() {
+                                remember(name, true);
+                            }
+                            if attempt != Attempt::AsAsked {
+                                log::warn!("{name} opened only when asked {attempt:?}");
+                            }
+                            let hardware = !attempt.in_software(name);
+                            opened = Some((name, codec, encoder, pixel_format, hardware));
+                            break 'encoders;
                         }
-                        if attempt != Attempt::AsAsked {
-                            log::warn!("{name} opened only when asked {attempt:?}");
+                        Err(error) => {
+                            log::warn!("{name} would not open {attempt:?}: {error}");
+                            failure = Some(error);
                         }
-                        let hardware = !attempt.in_software(name);
-                        opened = Some((name, codec, encoder, pixel_format, hardware));
-                        break 'encoders;
-                    }
-                    Err(error) => {
-                        log::warn!("{name} would not open {attempt:?}: {error}");
-                        failure = Some(error);
                     }
                 }
             }
-        }
-        let Some((encoder_name, codec, encoder, pixel_format, hardware)) = opened else {
-            // Nothing was even tried when the CPU alone was asked for and
-            // every linked encoder is hardware.
-            return Err(failure.unwrap_or_else(|| Error::Missing {
-                what: "software encoder",
-                name: options.codec.label().to_owned(),
-            }));
-        };
+            let Some((encoder_name, codec, encoder, pixel_format, hardware)) = opened else {
+                // Nothing was even tried when the CPU alone was asked for and
+                // every linked encoder is hardware.
+                return Err(failure.unwrap_or_else(|| Error::Missing {
+                    what: "software encoder",
+                    name: options.codec.label().to_owned(),
+                }));
+            };
 
-        {
-            let mut stream = output
-                .add_stream(codec)
-                .map_err(|error| ffi::fail("add stream", path, error))?;
-            stream.copy_parameters_from_context(&encoder);
-            stream.set_time_base(time_base);
-            if pq {
-                // The same display in the container, for the players that
-                // read it there ('mdcv').
-                // SAFETY: the stream is live and its parameters were just
-                // copied; FFmpeg allocates the entry at the struct's size.
-                unsafe {
-                    let parameters = (*stream.as_mut_ptr()).codecpar;
-                    let entry = ffmpeg::sys::av_packet_side_data_new(
-                        &mut (*parameters).coded_side_data,
-                        &mut (*parameters).nb_coded_side_data,
-                        ffmpeg::sys::AVPacketSideDataType::MASTERING_DISPLAY_METADATA,
-                        std::mem::size_of::<MasteringDisplay>(),
-                        0,
-                    );
-                    if !entry.is_null() {
-                        std::ptr::write(
-                            (*entry).data.cast::<MasteringDisplay>(),
-                            MasteringDisplay::p3_1000(),
+            {
+                let mut stream = output
+                    .add_stream(codec)
+                    .map_err(|error| ffi::fail("add stream", path, error))?;
+                stream.copy_parameters_from_context(&encoder);
+                stream.set_time_base(time_base);
+                if pq {
+                    // The same display in the container, for the players that
+                    // read it there ('mdcv').
+                    // SAFETY: the stream is live and its parameters were just
+                    // copied; FFmpeg allocates the entry at the struct's size.
+                    unsafe {
+                        let parameters = (*stream.as_mut_ptr()).codecpar;
+                        let entry = ffmpeg::sys::av_packet_side_data_new(
+                            &mut (*parameters).coded_side_data,
+                            &mut (*parameters).nb_coded_side_data,
+                            ffmpeg::sys::AVPacketSideDataType::MASTERING_DISPLAY_METADATA,
+                            std::mem::size_of::<MasteringDisplay>(),
+                            0,
                         );
+                        if !entry.is_null() {
+                            std::ptr::write(
+                                (*entry).data.cast::<MasteringDisplay>(),
+                                MasteringDisplay::p3_1000(),
+                            );
+                        }
+                    }
+                }
+                if options.codec == VideoCodec::Hevc {
+                    // `hvc1`, not FFmpeg's default `hev1`: the tag Apple's
+                    // players and QuickTime need to open an HEVC file at all.
+                    // SAFETY: the stream is live and its parameters were just
+                    // copied; the tag is a plain field the muxer reads at the
+                    // header.
+                    unsafe {
+                        (*(*stream.as_mut_ptr()).codecpar).codec_tag = fourcc(*b"hvc1");
                     }
                 }
             }
-            if options.codec == VideoCodec::Hevc {
-                // `hvc1`, not FFmpeg's default `hev1`: the tag Apple's
-                // players and QuickTime need to open an HEVC file at all.
-                // SAFETY: the stream is live and its parameters were just
-                // copied; the tag is a plain field the muxer reads at the
-                // header.
-                unsafe {
-                    (*(*stream.as_mut_ptr()).codecpar).codec_tag = fourcc(*b"hvc1");
-                }
+            // The index up front, so a player starts before the file is in.
+            // Not for ProRes: moving it there writes the whole file again, gigabytes
+            // a minute, for an intermediate no one streams.
+            let header = if options.codec == VideoCodec::ProRes4444 {
+                ffmpeg::Dictionary::new()
+            } else {
+                ffmpeg::dict! { "movflags" => "+faststart" }
+            };
+            output
+                .write_header_with(header)
+                .map_err(|error| ffi::fail("write header", path, error))?;
+            let stream_time_base = output
+                .stream(0)
+                .map(|stream| stream.time_base())
+                .unwrap_or(time_base);
+
+            let deep = hdr.is_some();
+            let mut scaler = scaling::Context::get(
+                if deep { Pixel::RGBA64LE } else { Pixel::RGBA },
+                width,
+                height,
+                pixel_format,
+                width,
+                height,
+                scaling::Flags::BILINEAR,
+            )
+            .map_err(|error| ffi::fail("scaler", path, error))?;
+            // BT.709 coefficients from full-range RGB to YUV in the range the
+            // file is tagged with, rather than swscale's BT.601 default: the
+            // file says 709, so the numbers in it are 709, and it says which
+            // range, so the numbers span that range.
+            // SAFETY: `scaler` owns a live SwsContext; the coefficient tables
+            // are static and the call only sets fields on the context.
+            unsafe {
+                let coefficients = ffmpeg::sys::sws_getCoefficients(if deep {
+                    ffmpeg::sys::SWS_CS_BT2020
+                } else {
+                    ffmpeg::sys::SWS_CS_ITU709
+                });
+                ffmpeg::sys::sws_setColorspaceDetails(
+                    scaler.as_mut_ptr(),
+                    coefficients,
+                    1,
+                    coefficients,
+                    i32::from(options.color_range == ColorRange::Full),
+                    0,
+                    1 << 16,
+                    1 << 16,
+                );
+            }
+
+            Ok(Self {
+                path: path.to_path_buf(),
+                output,
+                encoder,
+                scaler,
+                encoder_time_base: time_base,
+                stream_time_base,
+                width,
+                height,
+                written: 0,
+                finished: false,
+                encoder_name,
+                hardware,
+                color_range: options.color_range.as_ffmpeg(),
+                deep,
+                light: pq.then(LightLevel::new),
+            })
+        };
+        match make() {
+            Ok(encoder) => Ok(encoder),
+            Err(error) => {
+                let _ = std::fs::remove_file(path);
+                Err(error)
             }
         }
-        // The index up front, so a player starts before the file is in.
-        // Not for ProRes: moving it there writes the whole file again, gigabytes
-        // a minute, for an intermediate no one streams.
-        let header = if options.codec == VideoCodec::ProRes4444 {
-            ffmpeg::Dictionary::new()
-        } else {
-            ffmpeg::dict! { "movflags" => "+faststart" }
-        };
-        output
-            .write_header_with(header)
-            .map_err(|error| ffi::fail("write header", path, error))?;
-        let stream_time_base = output
-            .stream(0)
-            .map(|stream| stream.time_base())
-            .unwrap_or(time_base);
-
-        let deep = hdr.is_some();
-        let mut scaler = scaling::Context::get(
-            if deep { Pixel::RGBA64LE } else { Pixel::RGBA },
-            width,
-            height,
-            pixel_format,
-            width,
-            height,
-            scaling::Flags::BILINEAR,
-        )
-        .map_err(|error| ffi::fail("scaler", path, error))?;
-        // BT.709 coefficients from full-range RGB to YUV in the range the
-        // file is tagged with, rather than swscale's BT.601 default: the
-        // file says 709, so the numbers in it are 709, and it says which
-        // range, so the numbers span that range.
-        // SAFETY: `scaler` owns a live SwsContext; the coefficient tables
-        // are static and the call only sets fields on the context.
-        unsafe {
-            let coefficients = ffmpeg::sys::sws_getCoefficients(if deep {
-                ffmpeg::sys::SWS_CS_BT2020
-            } else {
-                ffmpeg::sys::SWS_CS_ITU709
-            });
-            ffmpeg::sys::sws_setColorspaceDetails(
-                scaler.as_mut_ptr(),
-                coefficients,
-                1,
-                coefficients,
-                i32::from(options.color_range == ColorRange::Full),
-                0,
-                1 << 16,
-                1 << 16,
-            );
-        }
-
-        Ok(Self {
-            path: path.to_path_buf(),
-            output,
-            encoder,
-            scaler,
-            encoder_time_base: time_base,
-            stream_time_base,
-            width,
-            height,
-            written: 0,
-            finished: false,
-            encoder_name,
-            hardware,
-            color_range: options.color_range.as_ffmpeg(),
-            deep,
-            light: pq.then(LightLevel::new),
-        })
     }
 
     /// Which FFmpeg encoder is doing the work, e.g. "hevc_videotoolbox".
@@ -1908,7 +1930,14 @@ impl FrameSink for Encoder {
         if self.finished {
             return Ok(());
         }
-        self.finished = true;
+        // The flag goes on only once the trailer is written. Set it before
+        // the flush, as it once was, and a finish that failed part way - an
+        // encoder that stalled holding its last frames, a trailer the disk
+        // refused - had already said it was done, so a retried finish
+        // returned Ok and left the file without its trailer: a whole
+        // export's worth of packets no player could open. A failure now
+        // leaves the encoder unfinished, and the retry does the work the
+        // first attempt never got to.
         self.send(None)?;
         self.flush()?;
         if let Some(light) = &self.light {
@@ -1940,7 +1969,9 @@ impl FrameSink for Encoder {
         }
         self.output
             .write_trailer()
-            .map_err(|error| ffi::fail("write trailer", &self.path, error))
+            .map_err(|error| ffi::fail("write trailer", &self.path, error))?;
+        self.finished = true;
+        Ok(())
     }
 }
 
@@ -3008,6 +3039,56 @@ mod tests {
         encoder.finish().expect("finishes");
         assert!(std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 0));
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A refused encoder leaves nothing behind. The output context truncates
+    /// the destination as soon as it is made, and the refusal - here, an
+    /// encoder that will not take a zero width - used to leave the empty
+    /// file standing where the previous export's had been; it is taken away
+    /// instead, the way the export's own temp-and-rename takes its failures
+    /// away.
+    #[test]
+    fn a_refused_encoder_leaves_no_file_behind() {
+        let path = std::env::temp_dir().join("concat-encode-refused.mp4");
+        std::fs::write(&path, b"the last export").expect("a file to lose");
+        let result = Encoder::create(&path, 0, 64, FrameRate::THIRTY, &EncodeOptions::default());
+        assert!(result.is_err(), "no encoder opens at a zero width");
+        assert!(
+            !path.exists(),
+            "the truncated file was taken away with the failure"
+        );
+    }
+
+    /// Finishing a finished encoder is a no-op that still answers Ok - an
+    /// export that retries its finish must not write a second trailer - and
+    /// frames after it are refused. The finished flag goes on only once the
+    /// trailer is written, so a finish that fails part way is a finish that
+    /// can be tried again rather than one that answers Ok over an
+    /// unopenable file; the real-FFmpeg harness here cannot stall a flush
+    /// on demand, so what it can hold to is the half the flag guards.
+    #[test]
+    fn finishing_twice_is_once_and_frames_after_it_are_refused() {
+        use crate::decode::{DecodeOptions, Decoder, FrameSource};
+        let path = std::env::temp_dir().join("concat-encode-finish-test.mp4");
+        let mut encoder =
+            Encoder::create(&path, 64, 64, FrameRate::THIRTY, &EncodeOptions::default())
+                .expect("the linked FFmpeg encodes h264");
+        for _ in 0..3 {
+            encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        assert_eq!(encoder.written(), 3);
+        encoder.finish().expect("finishing again is still Ok");
+        assert!(encoder.write_frame(&Frame::black(64, 64)).is_err());
+        // And the file is whole: a second finish added no second trailer.
+        let mut decoder =
+            Decoder::open(&path, &DecodeOptions::default()).expect("opens what was written");
+        let mut frames = 0;
+        while decoder.next_frame().expect("decodes").is_some() {
+            frames += 1;
+        }
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(frames, 3, "exactly the frames that were written");
     }
 
     /// The alpha codecs say what they are and where they go, and settle

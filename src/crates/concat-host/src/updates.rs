@@ -338,14 +338,13 @@ fn pacman_has_concat() -> bool {
     })
 }
 
-/// Whether the RPM database lists `concat`. Asked of `rpm` itself, and only
-/// where there is a database to ask about.
+/// Whether the RPM database lists `concat`. Asked of `rpm` itself, and
+/// only where there is a database to ask about. Through [`run`], so a
+/// wedged database is given up on rather than hung on: the wrong answer
+/// it then leaves behind - "not from a package" - is a page that shows
+/// nothing to switch to, which beats a Version pane that never opens.
 fn rpm_has_concat() -> bool {
-    Path::new("/var/lib/rpm").exists()
-        && Command::new("rpm")
-            .args(["-q", "concat"])
-            .output()
-            .is_ok_and(|output| output.status.success())
+    Path::new("/var/lib/rpm").exists() && run(Command::new("rpm").args(["-q", "concat"])).is_ok()
 }
 
 /// One platform's package in a release: what to fetch and what it must
@@ -636,22 +635,79 @@ pub fn relaunch() -> Result<(), String> {
     }
 }
 
+/// How long a helper spawned by [`run`] may run before it is stopped.
+/// hdiutil attaching a large image, or ditto copying a whole bundle over
+/// a slow disk, is minutes rather than seconds - but minutes is all this
+/// waits, because a helper that has wedged (a mount waiting on a disk
+/// that never answers) would otherwise hold the update thread forever,
+/// and the rollback that puts the old app back would never run at all
+/// (audit 2026-09-23: this door waited without end).
+const HELPER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// How often [`run`] looks at whether its helper has finished. Coarse on
+/// purpose: it decides only how quickly a finished helper is noticed, and
+/// a tenth of a second either way is nothing.
+const HELPER_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Runs a command to its end and reads its failure off standard error.
+/// Bounded by [`HELPER_TIMEOUT`], by polling `try_wait` and killing on
+/// expiry: a plain wait, or `output()` on a thread with a timeout, has no
+/// deadline of its own - and the thread-with-timeout kind leaves the
+/// child running behind it, which is the same wedge with the evidence
+/// gone.
 fn run(command: &mut Command) -> Result<(), String> {
     let program = command.get_program().to_string_lossy().into_owned();
-    let output = command
-        .output()
+    let mut child = command
+        // As `output()` had it: nothing for a helper to read, its stdout
+        // not collected (nothing here ever read it), its stderr kept for
+        // the message below.
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|error| format!("could not run {program}: {error}"))?;
-    if output.status.success() {
-        return Ok(());
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            // Still going: give it its moment and look again.
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("could not run {program}: {error}"));
+            }
+        }
+        if started.elapsed() >= HELPER_TIMEOUT {
+            // Killed and reaped: an un-waited-for child holds whatever it
+            // took - the mount, most likely - and a failed switch must let
+            // go of everything before its rollback runs.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "{program} was still going after {} seconds and was stopped; a helper \
+                 that will not finish is not one to wait on",
+                HELPER_TIMEOUT.as_secs()
+            ));
+        }
+        std::thread::sleep(HELPER_POLL);
+    };
+    // Read only after the exit: every helper here says at most a few
+    // lines, and one that filled the pipe would block on writing - which,
+    // for anything this door runs, would be wedging, and would be stopped
+    // as one above.
+    let mut said = String::new();
+    if let Some(mut stderr) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut stderr, &mut said);
     }
-    let said = String::from_utf8_lossy(&output.stderr);
     let said = said.trim();
-    Err(if said.is_empty() {
-        format!("{program} failed ({})", output.status)
+    if status.success() {
+        Ok(())
+    } else if said.is_empty() {
+        Err(format!("{program} failed ({status})"))
     } else {
-        format!("{program} failed: {said}")
-    })
+        Err(format!("{program} failed: {said}"))
+    }
 }
 
 /// Starts a command and lets it go, with no pipes back to this process.

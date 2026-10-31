@@ -114,6 +114,14 @@ pub enum Error {
         /// Its name.
         name: String,
     },
+
+    /// The work was stopped on purpose: the person cancelled it. No file
+    /// and no call into FFmpeg failed, so it is told apart from every
+    /// failure above - a caller that asked for the stop reports a
+    /// cancellation rather than an error, and one that did not ask never
+    /// sees it.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 impl Error {

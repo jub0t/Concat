@@ -7,7 +7,11 @@
 #   scripts/sherpa-mobile.sh aarch64-apple-ios     [out-dir]
 #
 # The version is the one the lockfile resolved for sherpa-onnx-sys, so a
-# bump of the crate cannot desynchronise from the libraries.
+# bump of the crate cannot desynchronise from the libraries. The archives
+# are rows in scripts/ci/deps.lock and are fetched through
+# scripts/ci/fetch.sh, which refuses a file whose digest is not the one
+# written there: what ships inside the APK and the IPA is bytes somebody
+# has looked at once, as on the desktop.
 #
 # Android: vendor/sherpa-onnx/jniLibs/<abi>/*.so, the layout an APK's
 # native library directory takes, with the NDK's libc++_shared.so beside
@@ -22,7 +26,9 @@ set -euo pipefail
 target=${1:?target triple: aarch64-linux-android, x86_64-linux-android or aarch64-apple-ios}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
 version=$(grep -A1 'name = "sherpa-onnx-sys"' "$workspace/Cargo.lock" | sed -n 's/^version = "\(.*\)"/\1/p')
-release=https://github.com/k2-fsa/sherpa-onnx/releases/download
+# The digest-verified fetcher the desktop builds download through, at the
+# repository's root: this script lives under src/, scripts/ci above it.
+fetch="$workspace/../scripts/ci/fetch.sh"
 
 case "$target" in
   aarch64-linux-android|x86_64-linux-android)
@@ -39,8 +45,15 @@ case "$target" in
     host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
     echo "Fetching sherpa-onnx $version for Android"
     mkdir -p "$out"
-    curl -fsSL --retry 5 --retry-all-errors -o "$out/sherpa-onnx-android.tar.bz2" \
-      "$release/v$version/sherpa-onnx-v$version-android.tar.bz2"
+    # One archive for every ABI, its digest pinned in scripts/ci/deps.lock;
+    # the row must carry the lockfile's version, as ci.yml checks the
+    # desktop rows do.
+    name=sherpa-onnx-android
+    case "$("$fetch" --url "$name")" in
+      */v"$version"/*) ;;
+      *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
+    esac
+    "$fetch" "$name" "$out/sherpa-onnx-android.tar.bz2"
     tar -xjf "$out/sherpa-onnx-android.tar.bz2" -C "$out"
     rm "$out/sherpa-onnx-android.tar.bz2"
     # Only the ABI the app is built for ships; the rest is left behind.
@@ -57,8 +70,16 @@ case "$target" in
     out=${2:-$workspace/vendor/sherpa-onnx/ios}
     echo "Fetching sherpa-onnx $version for iOS"
     mkdir -p "$out"
-    curl -fsSL --retry 5 --retry-all-errors -o "$out/sherpa-onnx-ios.zip" \
-      "$release/xcframework/sherpa-onnx-v$version-ios-shared-onnxruntime-static.xcframework.zip"
+    # The xcframework zip, its digest pinned in scripts/ci/deps.lock as the
+    # Android archive's is. The iOS archives hang off k2-fsa's
+    # `xcframework` tag rather than a versioned one, so the version the row
+    # must carry is in the file's own name.
+    name=sherpa-onnx-ios-xcframework
+    case "$("$fetch" --url "$name")" in
+      *sherpa-onnx-v"$version"-*) ;;
+      *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
+    esac
+    "$fetch" "$name" "$out/sherpa-onnx-ios.zip"
     (cd "$out" && unzip -qo sherpa-onnx-ios.zip && rm sherpa-onnx-ios.zip)
     framework=$(find "$out" -maxdepth 2 -name '*.xcframework' | head -1)
     [ -n "$framework" ] || { echo "no xcframework in the archive" >&2; exit 1; }

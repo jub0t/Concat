@@ -710,7 +710,13 @@ pub fn window_art(
 
 /// A probe's error, in the words a toast can use.
 pub fn probe_error(error: &str) -> String {
-    format!("Could not import: {error}")
+    // The prefix is words the window says, and it says them wherever a
+    // file fails to open - the bin's import, the Audio page's card - so
+    // the one key does the one job: `mediaBin.couldNotImport` leaves the
+    // wording to the locale, the probe's own reason filling its `{0}`.
+    // Always called on the event-loop thread, like everything that reads
+    // the active catalogue.
+    crate::i18n::tf("mediaBin.couldNotImport", &[&error])
 }
 
 /// A media item's card picture, decoded on a worker ahead of the rest of

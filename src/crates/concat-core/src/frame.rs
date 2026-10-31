@@ -263,47 +263,90 @@ impl Frame {
     }
 
     /// Writes one pixel. Out-of-bounds writes are ignored.
+    ///
+    /// A deep frame keeps its depth: each channel's byte lands in the high
+    /// half of its `u16`, the byte [`Frame::pixel`] reads back, so what was
+    /// written is what is read. A four-byte write at the 8-bit offset, as a
+    /// blind RGBA8 store would do, lands inside a different pixel's
+    /// channels and scrambles two at once.
     pub fn set_pixel(&mut self, x: u32, y: u32, rgba: [u8; 4]) {
         self.id = mint();
         if let Some(offset) = self.offset_of(x, y) {
-            self.pixels[offset..offset + BYTES_PER_PIXEL].copy_from_slice(&rgba);
+            match self.depth {
+                Depth::Eight => {
+                    self.pixels[offset..offset + BYTES_PER_PIXEL].copy_from_slice(&rgba);
+                }
+                Depth::Sixteen => {
+                    let at = offset * 2;
+                    for (channel, value) in rgba.into_iter().enumerate() {
+                        self.pixels[at + channel * 2 + 1] = value;
+                    }
+                }
+            }
         }
     }
 
     /// Copies `source` into this frame with its top-left corner at (`x`, `y`),
     /// clipping whatever falls outside. No blending: the source's pixels
     /// replace what was there.
+    ///
+    /// Both frames must hold the same depth: a blit is a byte copy, and an
+    /// eight-bit frame's pixels are half a deep one's, so a copy between
+    /// the two would have to invent values - widening, narrowing - that
+    /// belong to a conversion pass, not to a blit. A mismatched pair is
+    /// ignored rather than copied wrong; no call site mixes the two, since
+    /// a deep frame goes straight to the GPU and never meets a compositor.
     pub fn blit(&mut self, source: &Frame, x: u32, y: u32) {
+        if self.depth != source.depth {
+            return;
+        }
         self.id = mint();
         let width = self.width;
         let height = self.height;
+        let bytes = self.bytes_per_pixel();
         let columns = source.width.min(width.saturating_sub(x)) as usize;
         let rows = source.height.min(height.saturating_sub(y)) as usize;
         if columns == 0 || rows == 0 {
             return;
         }
-        let source_row = source.width as usize * 4;
-        let target_row = width as usize * 4;
+        let source_row = source.width as usize * bytes;
+        let target_row = width as usize * bytes;
         for row in 0..rows {
             let from = row * source_row;
-            let to = (y as usize + row) * target_row + x as usize * 4;
-            self.pixels[to..to + columns * 4]
-                .copy_from_slice(&source.pixels[from..from + columns * 4]);
+            let to = (y as usize + row) * target_row + x as usize * bytes;
+            self.pixels[to..to + columns * bytes]
+                .copy_from_slice(&source.pixels[from..from + columns * bytes]);
         }
     }
 
-    /// Fills the whole frame with one colour.
+    /// Fills the whole frame with one colour, deep frames included: the
+    /// colour's channels go where [`Frame::set_pixel`] puts them, so a deep
+    /// frame filled reads back the colour from every pixel. Four-byte
+    /// chunks alone would cover only half a deep frame, split across every
+    /// pixel they touched.
     pub fn fill(&mut self, rgba: [u8; 4]) {
         self.id = mint();
-        for pixel in self.pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
-            pixel.copy_from_slice(&rgba);
+        match self.depth {
+            Depth::Eight => {
+                for pixel in self.pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
+                    pixel.copy_from_slice(&rgba);
+                }
+            }
+            Depth::Sixteen => {
+                for pixel in self.pixels.chunks_exact_mut(BYTES_PER_PIXEL * 2) {
+                    for (channel, value) in rgba.into_iter().enumerate() {
+                        pixel[channel * 2 + 1] = value;
+                    }
+                }
+            }
         }
     }
 
-    /// Iterates over rows, top to bottom.
+    /// Iterates over rows, top to bottom: `width * bytes_per_pixel` bytes
+    /// each, tightly packed.
     pub fn rows(&self) -> impl Iterator<Item = &[u8]> {
         self.pixels
-            .chunks_exact(self.width as usize * BYTES_PER_PIXEL)
+            .chunks_exact(self.width as usize * self.bytes_per_pixel())
     }
 }
 
@@ -363,5 +406,43 @@ mod tests {
         let frame = Frame::black(5, 4);
         assert_eq!(frame.rows().count(), 4);
         assert!(frame.rows().all(|row| row.len() == 20));
+    }
+
+    /// A deep frame's pixels are eight bytes, and the RGBA8 ways in -
+    /// `set_pixel`, `fill`, `rows` - honour that instead of writing
+    /// four-byte pixels into the middle of it.
+    #[test]
+    fn a_deep_frame_keeps_its_own_stride() {
+        let mut deep = Frame::from_rgba64(2, 1, vec![0u8; 16], Signal::Hlg).expect("deep");
+        deep.set_pixel(1, 0, [1, 2, 3, 4]);
+        assert_eq!(deep.pixel(1, 0), Some([1, 2, 3, 4]));
+        assert_eq!(
+            deep.pixel(0, 0),
+            Some([0, 0, 0, 0]),
+            "its neighbour is untouched"
+        );
+        // The bytes: each channel in the high half of its u16, the half
+        // `pixel` reads.
+        assert_eq!(&deep.pixels()[8..16], &[0, 1, 0, 2, 0, 3, 0, 4]);
+        deep.fill([9, 8, 7, 6]);
+        assert_eq!(deep.pixel(0, 0), Some([9, 8, 7, 6]));
+        assert_eq!(deep.pixel(1, 0), Some([9, 8, 7, 6]));
+        assert_eq!(deep.rows().count(), 1);
+        assert_eq!(deep.rows().next().map(<[u8]>::len), Some(16));
+    }
+
+    /// A blit between frames of one depth copies bytes at that depth's
+    /// stride, and one between the two depths is ignored rather than
+    /// copied wrong.
+    #[test]
+    fn a_deep_frame_blits_its_own_kind_and_ignores_a_shallow_one() {
+        let mut deep = Frame::from_rgba64(2, 1, vec![0u8; 16], Signal::Sdr).expect("deep");
+        let source =
+            Frame::from_rgba64(1, 1, vec![0, 5, 0, 6, 0, 7, 0, 8], Signal::Sdr).expect("deep");
+        deep.blit(&source, 1, 0);
+        assert_eq!(deep.pixel(1, 0), Some([5, 6, 7, 8]));
+        let before = deep.clone();
+        deep.blit(&Frame::black(1, 1), 0, 0);
+        assert_eq!(deep.pixels(), before.pixels(), "nothing was copied");
     }
 }

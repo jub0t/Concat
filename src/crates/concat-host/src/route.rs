@@ -282,13 +282,7 @@ fn system(url: &str, scheme: &str, host: &str) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn system(_url: &str, scheme: &str, host: &str) -> Option<String> {
-    let output = std::process::Command::new("/usr/sbin/scutil")
-        .arg("--proxy")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    let settings = Scutil::parse(&String::from_utf8_lossy(&output.stdout));
+    let settings = scutil_settings();
     if settings.on("ProxyAutoConfigEnable") {
         log::debug!(
             "network: this Mac is set to a proxy script ({}), which Concat does not run",
@@ -300,14 +294,50 @@ fn system(_url: &str, scheme: &str, host: &str) -> Option<String> {
     settings.pick(scheme, host)
 }
 
+/// `scutil --proxy`'s answer, held a while: it was a fork and exec per
+/// request, on every `net::get` this process made, where the Windows door
+/// asks WinHTTP in place with timeouts (audit 2026-09-23). A Mac's proxy
+/// settings change rarely and by a person's hand, so one answer stands for
+/// five minutes (`FRESH_FOR` below) and the next request after that asks
+/// again - a proxy switched in System Settings is picked up in minutes,
+/// not never.
+///
+/// An answer that did not come is not held: the next request asks again,
+/// rather than an empty reading being pinned on the machine for minutes.
+#[cfg(target_os = "macos")]
+fn scutil_settings() -> Scutil {
+    /// How long one `scutil --proxy` answer stands.
+    const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(300);
+    static HELD: std::sync::Mutex<Option<(std::time::Instant, Scutil)>> =
+        std::sync::Mutex::new(None);
+    let mut held = HELD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((at, settings)) = held.as_ref()
+        && at.elapsed() < FRESH_FOR
+    {
+        return settings.clone();
+    }
+    let Ok(output) = std::process::Command::new("/usr/sbin/scutil")
+        .arg("--proxy")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+    else {
+        return Scutil::default();
+    };
+    let settings = Scutil::parse(&String::from_utf8_lossy(&output.stdout));
+    *held = Some((std::time::Instant::now(), settings.clone()));
+    settings
+}
+
 #[cfg(not(any(windows, target_os = "macos")))]
 fn system(_url: &str, _scheme: &str, _host: &str) -> Option<String> {
     None
 }
 
 /// `scutil --proxy`'s dictionary: its plain keys, and the exceptions list.
+/// `Clone` because the answer is held and handed out (`scutil_settings`).
 #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 struct Scutil {
     values: Vec<(String, String)>,
     exceptions: Vec<String>,
