@@ -369,6 +369,48 @@ fn a_pass_samples_its_table_and_the_identity_without_one() {
     assert_eq!(&out.pixels()[..3], &[255, 0, 0]);
 }
 
+/// A semi-transparent picture made for its effects keeps its brightness:
+/// the made picture holds the straight colour the shader passes' contract
+/// is - `fs_upload` writes straight, a pass's `sample` reads straight -
+/// so the layer is premultiplied once, at the final draw. Drawn through
+/// the ordinary layer pipeline the made picture came out rgb·a·a, and a
+/// 50 % white sticker rendered at 25 % brightness: half-transparent white
+/// over black is a 191 level, not the 143 the double multiply leaves.
+#[test]
+fn a_semi_transparent_picture_made_for_its_effects_keeps_its_brightness() {
+    let Some(mut gpu) = gpu() else { return };
+    let mut sticker = layer(solid(8, 8, [255, 255, 255, 128]));
+    // A crop, so the effects force the prepared path: the picture is made
+    // at its fitted size for the passes to run over (`make_picture`).
+    sticker.crop = Crop::of([0.0, 0.0, 0.5, 0.5]);
+    sticker.effects = vec![scene_linear(
+        "test.identity",
+        "fn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }",
+        1.0,
+    )];
+    let plan = plan(8, 8, vec![sticker]);
+    // The CPU reference draws no effects, and an identity pass changes
+    // nothing, so its frame is the expected one.
+    let expected = CpuCompositor.render(&plan);
+    let actual = gpu.render(&plan);
+    for (index, (want, got)) in expected
+        .pixels()
+        .chunks_exact(4)
+        .zip(actual.pixels().chunks_exact(4))
+        .enumerate()
+    {
+        for channel in 0..4 {
+            let difference = (i32::from(want[channel]) - i32::from(got[channel])).abs();
+            assert!(
+                difference <= 2,
+                "pixel {index} channel {channel}: cpu {want:?} vs gpu {got:?}"
+            );
+        }
+    }
+    let pixel = actual.pixel(4, 4).expect("inside");
+    assert!((188..=194).contains(&pixel[0]), "{pixel:?}");
+}
+
 /// A treatment runs its passes over the stack beneath its track and
 /// nothing above it, blended back by its strength, without the frame
 /// leaving the GPU: an invert over a red ground under a blue quarter

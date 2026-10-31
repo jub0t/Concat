@@ -599,8 +599,18 @@ impl Upscaler {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sent.send(result);
         });
+        // Bounded, as the compositor bounds every one of its waits
+        // (`WgpuCompositor::wait`): a device that has hung - an 8 GB card
+        // that ran out of memory under the window, the decoder and the
+        // encoder - is declared dead after `DEVICE_WAIT` rather than
+        // leaving the Enhance worker blocked forever (#297). A timeout is
+        // the same error any other failure of the device to answer is,
+        // and the caller falls back from there.
         self.device
-            .poll(wgpu::PollType::wait_indefinitely())
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(crate::gpu::DEVICE_WAIT),
+            })
             .map_err(|error| format!("upscaler: the device did not finish: {error}"))?;
         mapped
             .recv()
