@@ -12,6 +12,7 @@
 //! definition of what speed, fades and gain mean for sound - the same reason
 //! `Clip::source_time_at` is the one definition for picture.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -399,7 +400,44 @@ fn mix_graph_from(
     buses: &[AudioBus],
     sources: &[Source],
 ) -> Result<String> {
-    let mut chains: Vec<String> = Vec::new();
+    // A run's members all drink from the one input the run opened, and a
+    // filtergraph's labelled pad can be drunk from once only: an input
+    // with more than one member is split that many ways first, each member
+    // taking its own branch of it. A member whose input it has to itself
+    // starts at the input, as every member always did.
+    let mut uses: HashMap<&str, usize> = HashMap::new();
+    for source in sources {
+        match source {
+            Source::Shared { label, .. } | Source::Own { label } => {
+                *uses.entry(label.as_str()).or_default() += 1;
+            }
+        }
+    }
+    let mut split_chains: Vec<String> = Vec::new();
+    let mut group_of: HashMap<&str, usize> = HashMap::new();
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    let mut branch: Vec<Option<String>> = Vec::with_capacity(sources.len());
+    for source in sources {
+        let label = match source {
+            Source::Shared { label, .. } | Source::Own { label } => label.as_str(),
+        };
+        let nth = *seen.get(label).unwrap_or(&0);
+        seen.insert(label, nth + 1);
+        if uses[label] < 2 {
+            branch.push(None);
+            continue;
+        }
+        let group = *group_of.entry(label).or_insert_with(|| {
+            let pads = (0..uses[label])
+                .map(|pad| format!("[w{}-{pad}]", split_chains.len()))
+                .collect::<String>();
+            split_chains.push(format!("[{label}]asplit=outputs={}{pads}", uses[label]));
+            split_chains.len() - 1
+        });
+        branch.push(Some(format!("w{group}-{nth}")));
+    }
+
+    let mut chains: Vec<String> = split_chains;
 
     for (index, clip) in clips.iter().enumerate() {
         validate_chain(&clip.filter_chain)?;
@@ -446,7 +484,13 @@ fn mix_graph_from(
                 } else {
                     format!("atrim=end={end:.6}")
                 };
-                format!("[{label}]{head}")
+                // The member's own branch of the split its shared input
+                // opens with, or the input itself when nothing splits it.
+                let pad = branch
+                    .get(index)
+                    .and_then(|branch| branch.as_deref())
+                    .unwrap_or(label);
+                format!("[{pad}]{head}")
             }
             Some(Source::Own { label }) => {
                 let lead = heard.lead;
@@ -457,7 +501,11 @@ fn mix_graph_from(
                 } else {
                     "anull".to_owned()
                 };
-                format!("[{label}]{head}")
+                let pad = branch
+                    .get(index)
+                    .and_then(|branch| branch.as_deref())
+                    .unwrap_or(label);
+                format!("[{pad}]{head}")
             }
             None => format!("[{index}:a]anull"),
         };
@@ -1584,11 +1632,15 @@ mod tests {
         ];
         let graph = mix_graph_from(&clips, &heard, 0.0, &[], &sources).expect("valid");
         assert!(
-            graph.contains("[0:a]atrim=end=2.000000,"),
+            graph.contains("[0:a]asplit=outputs=2[w0-0][w0-1];"),
+            "the one input is split as many ways as it has members: {graph}"
+        );
+        assert!(
+            graph.contains("[w0-0]atrim=end=2.000000,"),
             "the first piece is cut to its window's end: {graph}"
         );
         assert!(
-            graph.contains("[0:a]atrim=start=2.000000:end=4.000000,asetpts=PTS-STARTPTS,"),
+            graph.contains("[w0-1]atrim=start=2.000000:end=4.000000,asetpts=PTS-STARTPTS,"),
             "the second takes its own stretch of the same stream: {graph}"
         );
         assert!(
