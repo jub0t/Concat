@@ -38,7 +38,8 @@ provider you configured, directly.
 6. Tap **Apply this plan** to apply it, or **Discard plan** to drop it.
    Apply checks the plan against the timeline as it stands now, and
    says plainly if the plan ran without changing anything, instead of
-   claiming it landed.
+   claiming it landed. The sheet closes when Apply is tapped, so the
+   outcome is also told on the editor itself, as a toast.
 
 Photos and videos reach the timeline through the Media sheet, the way
 any import does. The model is told the bin's media (id and name) and
