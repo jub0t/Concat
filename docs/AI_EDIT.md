@@ -15,15 +15,23 @@ provider you configured, directly.
    - **Custom** — enter a base URL and an API key for any
      OpenAI-compatible endpoint.
 3. Tap **Fetch free models**. The app calls the provider's `/models`
-   endpoint and lists only free models: an id ending in `:free`, or a
-   model whose reported prompt and completion prices are both zero.
-   A provider that reports no free models gives an empty list — it
-   never falls back to paid models. Pick one.
+   endpoint and lists confirmed-free models first: an id ending in
+   `:free`, or a model whose reported prompt and completion prices are
+   both zero. Models the provider reports no pricing for follow, and the
+   sheet says their free status is unknown — check the provider's
+   billing before generating with one. A model whose pricing is
+   reported and not zero is never listed. Pick one, by tapping it.
+   The status line sits right under the fetch button, so a fetch that
+   finds nothing, or fails, says so where the tap happened.
 4. Type what should change, for example "cut the first clip in half,
    then add the title Summer at 2 seconds". Paste reference links if
    you want (comma-separated); they are style and structure references
    for the model, not downloads.
-5. Tap **Generate plan**. The plan appears in plain language.
+5. Tap **Generate plan**. The picked model is tried first; if it
+   fails, the next listed models are tried one by one, up to five in
+   all, and the sheet names the model that answered. A model that
+   answers with an empty plan has answered, so rotation stops there.
+   The plan appears in plain language.
 6. Tap **Apply this plan** to apply it, or **Discard plan** to drop it.
 
 Photos and videos reach the timeline through the Media sheet, the way
