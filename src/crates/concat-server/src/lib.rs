@@ -36,9 +36,12 @@
 //! line of at most [`json::MAX_LINE`] bytes, gives a caller
 //! [`json::AUTH_TIMEOUT`] to present its token, holds nothing for a caller
 //! that has not, seats at most [`json::MAX_CONNECTIONS`] callers at once
-//! and hangs up on one that stops reading its replies. There is no
-//! encryption: a bind off loopback belongs behind something that provides
-//! it, and [`is_exposed`] is how a front end says so.
+//! and hangs up on one that stops reading its replies. The gRPC door caps
+//! its Events streams the same way, at [`grpc::MAX_STREAMS`] open at once,
+//! and forgets one the moment its stream ends rather than when the next
+//! event finds it gone. There is no encryption: a bind off loopback
+//! belongs behind something that provides it, and [`is_exposed`] is how a
+//! front end says so.
 
 pub mod client;
 pub mod discovery;

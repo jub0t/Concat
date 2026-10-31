@@ -1048,17 +1048,27 @@ fn decode_worker(playback: &Arc<Playback>) {
                 // Newest first: pop from the back where set_clips pushes.
                 match jobs.pop_back() {
                     Some(job) => break job,
-                    None => jobs = playback.queue.available.wait(jobs).unwrap(),
+                    // A panic under the jobs lock would poison it, and an
+                    // `unwrap` here would take every decode worker down
+                    // with that one panic: audio never decodes again for
+                    // the rest of the session. The condvar hands the guard
+                    // back inside the error, still holding a perfectly
+                    // usable queue - the file's own `locked` doctrine,
+                    // for the one lock it cannot reach.
+                    None => {
+                        jobs = playback
+                            .queue
+                            .available
+                            .wait(jobs)
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    }
                 }
             }
         };
 
         // A span queued by an edit that has since been edited again is dead
         // weight; skip it before paying for FFmpeg.
-        let wanted = playback
-            .specs
-            .lock()
-            .unwrap()
+        let wanted = locked(&playback.specs)
             .iter()
             .any(|spec| decode_key(spec) == job.key);
         if !wanted {

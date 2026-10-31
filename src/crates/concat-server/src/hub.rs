@@ -13,8 +13,11 @@
 //! Events leave the other way. The API's sink is a fan-out over every
 //! [`Subscriber`] a transport registered, called on the job's thread; a
 //! subscriber that can no longer deliver says so by returning false and is
-//! forgotten.
+//! forgotten. A transport that knows its caller has gone - the stream it
+//! read from ended - does not wait for that: [`Hub::subscribe`] hands back
+//! a number, and [`Hub::unsubscribe_by_id`] takes the entry out at once.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -35,7 +38,13 @@ struct Task {
 #[derive(Clone)]
 pub struct Hub {
     tasks: Arc<Mutex<Option<Sender<Task>>>>,
-    subscribers: Arc<Mutex<Vec<Subscriber>>>,
+    /// Every registered subscriber with the number its `subscribe`
+    /// returned, so one can be taken out without holding on to the
+    /// closure itself: a gRPC stream guard knows only the number.
+    subscribers: Arc<Mutex<Vec<(u64, Subscriber)>>>,
+    /// Where subscriber numbers come from. Starts at one, so no number
+    /// `subscribe` hands back can be mistaken for a zeroed default.
+    next_subscriber: Arc<AtomicU64>,
 }
 
 impl Hub {
@@ -45,24 +54,28 @@ impl Hub {
         make: impl FnOnce(EventSink) -> Result<Api, String> + Send + 'static,
     ) -> Result<(Hub, JoinHandle<()>, Stopper), String> {
         let (tasks, queue) = mpsc::channel::<Task>();
-        let subscribers: Arc<Mutex<Vec<Subscriber>>> = Arc::new(Mutex::new(Vec::new()));
+        let subscribers: Arc<Mutex<Vec<(u64, Subscriber)>>> = Arc::new(Mutex::new(Vec::new()));
         let sink: EventSink = {
             let subscribers = Arc::clone(&subscribers);
             Arc::new(move |event: Event| {
                 // Called with the list unlocked: a caller slow to take an
                 // event holds up the job's thread and nobody's subscribe.
-                let listening: Vec<Subscriber> = match subscribers.lock() {
+                let listening: Vec<(u64, Subscriber)> = match subscribers.lock() {
                     Ok(list) => list.clone(),
                     Err(_) => return,
                 };
-                let gone: Vec<&Subscriber> = listening
+                // Gone by number, not by pointer: the entry a
+                // `unsubscribe_by_id` takes out in the meantime cannot
+                // make the removal here land on the wrong one.
+                let gone: Vec<u64> = listening
                     .iter()
-                    .filter(|subscriber| !subscriber(&event))
+                    .filter(|(_, subscriber)| !subscriber(&event))
+                    .map(|(id, _)| *id)
                     .collect();
                 if !gone.is_empty()
                     && let Ok(mut list) = subscribers.lock()
                 {
-                    list.retain(|kept| !gone.iter().any(|left| Arc::ptr_eq(kept, left)));
+                    list.retain(|(id, _)| !gone.contains(id));
                 }
             })
         };
@@ -114,6 +127,7 @@ impl Hub {
             Hub {
                 tasks: Arc::new(Mutex::new(Some(tasks))),
                 subscribers,
+                next_subscriber: Arc::new(AtomicU64::new(1)),
             },
             thread,
             stopper,
@@ -145,10 +159,26 @@ impl Hub {
         wait.recv().unwrap_or_else(|_| gone())
     }
 
-    /// Registers a way to hand events to one caller.
-    pub fn subscribe(&self, subscriber: Subscriber) {
+    /// Registers a way to hand events to one caller, and returns its
+    /// number, for [`Hub::unsubscribe_by_id`] when the caller goes. The
+    /// number is the only handle some transports can keep: one whose
+    /// stream outlives the call that subscribed it cannot hold on to the
+    /// closure itself.
+    pub fn subscribe(&self, subscriber: Subscriber) -> u64 {
+        let id = self.next_subscriber.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut subscribers) = self.subscribers.lock() {
-            subscribers.push(subscriber);
+            subscribers.push((id, subscriber));
+        }
+        id
+    }
+
+    /// Forgets a subscriber at once, for a caller that has hung up: the
+    /// fan-out would only notice at the next event, which may be never.
+    /// This one takes the number [`Hub::subscribe`] returned, where
+    /// [`Hub::unsubscribe`] takes the closure itself.
+    pub fn unsubscribe_by_id(&self, id: u64) {
+        if let Ok(mut subscribers) = self.subscribers.lock() {
+            subscribers.retain(|(kept, _)| *kept != id);
         }
     }
 
@@ -156,7 +186,7 @@ impl Hub {
     /// fan-out would only notice at the next event, which may be never.
     pub fn unsubscribe(&self, subscriber: &Subscriber) {
         if let Ok(mut subscribers) = self.subscribers.lock() {
-            subscribers.retain(|kept| !Arc::ptr_eq(kept, subscriber));
+            subscribers.retain(|(_, kept)| !Arc::ptr_eq(kept, subscriber));
         }
     }
 

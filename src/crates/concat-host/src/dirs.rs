@@ -194,10 +194,41 @@ fn link(target: &Path, at: &Path) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
     /// No console window flashing up behind the app's for it.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // mklink is a command inside cmd.exe, not a program - there is no
+    // mklink.exe to run - and a junction is the link that needs no
+    // privilege: `std::os::windows::fs::symlink_dir` needs the
+    // SeCreateSymbolicLink right most accounts lack. So cmd is run, and
+    // the whole command is given to it as one raw argument:
+    //
+    // Rust quotes an argument only when it holds a space, and never
+    // quotes cmd's own metacharacters, so the old `.args(["/C", "mklink",
+    // "/J"]).arg(at).arg(target)` handed cmd a command line it parsed
+    // itself: a profile path such as C:\Users\AT&T.eng\... had its `&`
+    // read as a command separator, and mklink was told to make a link at
+    // `C:\Users\AT` with `T.eng\...` run as a second command after it.
+    // `(`, `)`, `^`, `|`, `<`, `>` and `@` misparse the same way. Here
+    // the quotes around each path are written by this code, not by Rust's
+    // escaping, and inside double quotes cmd reads every one of those
+    // characters as itself.
+    //
+    // `/S` pins cmd's quote handling to the one rule: strip a leading
+    // quote and the last quote of what follows `/C`, and only if what
+    // follows *starts* with a quote. This command starts with `mklink`,
+    // so nothing is stripped, whatever the paths contain - without `/S`,
+    // cmd's other rule ("exactly two quotes, nothing special between
+    // them") would make its reading depend on how many quotes the paths
+    // happened to contribute.
+    //
+    // One character stays outside even quoted text: `%`, which cmd
+    // expands however it is quoted. A name with `%VAR%` in it, where VAR
+    // is an environment variable, would arrive expanded - and mklink
+    // would fail loudly, `adopt` logs it, and the app starts beside the
+    // un-moved folder rather than not at all. Windows account names with
+    // `%` are rare enough that this door is not held open for them.
+    let script = format!("mklink /J \"{}\" \"{}\"", at.display(), target.display());
     let status = std::process::Command::new("cmd")
-        .args(["/C", "mklink", "/J"])
-        .arg(at)
-        .arg(target)
+        .args(["/S", "/C"])
+        .raw_arg(script)
         .creation_flags(CREATE_NO_WINDOW)
         .status()?;
     if status.success() {

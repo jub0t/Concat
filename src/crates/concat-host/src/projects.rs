@@ -324,10 +324,12 @@ pub fn save_ordered(
     Ok(Saved::Written)
 }
 
-/// The temporary file a save writes: flushed and renamed into place on the
-/// way through, removed on every other way out, so a failure leaves no
-/// `.saving` file behind. The name is this call's own - process id and a
-/// counter - so no two saves share it.
+/// The temporary file a state file is written through: flushed and
+/// renamed into place on the way through, removed on every other way out,
+/// so a failure - or a crash, which is a failure that never comes back -
+/// leaves no half-written file behind and no `.saving` file at all. The
+/// name is this call's own - process id and a counter - so no two writes
+/// share it.
 struct Temporary {
     path: PathBuf,
     file: Option<std::fs::File>,
@@ -335,16 +337,17 @@ struct Temporary {
 }
 
 impl Temporary {
-    /// Creates a fresh temporary beside the manifest. `create_new` never
-    /// reuses or follows a name already there, so it cannot write through a
-    /// symlink someone planted and fails rather than sharing a temporary
-    /// with another save; a leftover from a crashed run makes it try another
-    /// name.
-    fn open(root: &Path) -> Result<Temporary, String> {
+    /// Creates a fresh temporary beside the file named `replacing`,
+    /// named after it so a leftover is plain whose it was. `create_new`
+    /// never reuses or follows a name already there, so it cannot write
+    /// through a symlink someone planted and fails rather than sharing a
+    /// temporary with another write; a leftover from a crashed run makes
+    /// it try another name.
+    fn open(root: &Path, replacing: &str) -> Result<Temporary, String> {
         let mut attempts = 0;
         loop {
             let nonce = NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed);
-            let path = root.join(format!("{MANIFEST}.saving.{}.{nonce}", std::process::id()));
+            let path = root.join(format!("{replacing}.saving.{}.{nonce}", std::process::id()));
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -378,12 +381,13 @@ impl Temporary {
             .map_err(|error| format!("could not flush {}: {error}", self.path.display()))
     }
 
-    /// Closes the file and renames it over the manifest. Every path out but
-    /// this one removes the temporary when the value drops.
+    /// Closes the file and renames it over the state file being replaced
+    /// (`manifest`). Every path out but this one removes the temporary
+    /// when the value drops.
     fn commit(&mut self, manifest: &Path) -> Result<(), String> {
         // Closed first, so the name is free for Windows to replace.
         self.file.take();
-        // A scanner, a sync client or a backup tool holding the manifest a
+        // A scanner, a sync client or a backup tool holding the file a
         // moment makes Windows refuse the replace (access denied, sharing
         // violation). That passes; a close that failed on it would not.
         let mut wait = std::time::Duration::from_millis(50);
@@ -434,7 +438,7 @@ static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
 /// loses the project, while a failed rename leaves the previous one intact.
 fn write_manifest(root: &Path, encoded: &[u8]) -> Result<(), String> {
     let manifest = manifest_path(root);
-    let mut temporary = Temporary::open(root)?;
+    let mut temporary = Temporary::open(root, MANIFEST)?;
     temporary.write(encoded)?;
     temporary.commit(&manifest)
 }
@@ -495,6 +499,13 @@ pub fn open(path: &str) -> Result<ProjectInfo, String> {
 
 /// Moves a project to the front of the recents list.
 pub fn remember(config: &Path, project: &ProjectInfo) -> Result<(), String> {
+    // Held across the read and the write, not the write alone: the API's
+    // thread remembers a project as the window's does, and two readers
+    // each writing the list they read would keep the second one's whole
+    // list and drop the other's entry.
+    let _held = RECENTS_WRITE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut entries = read_recents(config);
     entries.retain(|entry| !same_path(&entry.path, &project.path));
     entries.insert(0, project.clone());
@@ -556,10 +567,21 @@ pub fn recents(config: &Path) -> Vec<Recent> {
 
 /// Removes one project from the list. The folder itself is left alone.
 pub fn forget(config: &Path, path: &str) -> Result<(), String> {
+    // The same hold `remember` takes, for the same reason: a forget that
+    // races a remember must not write the list it read over the other's.
+    let _held = RECENTS_WRITE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut entries = read_recents(config);
     entries.retain(|entry| !same_path(&entry.path, path));
     write_recents(config, &entries)
 }
+
+/// The recents list's read-modify-write, held apart from any other. A
+/// poisoned one is recovered, as every lock here is: what it still holds
+/// is a list, and refusing it would end recents for the session over one
+/// stale entry.
+static RECENTS_WRITE: Mutex<()> = Mutex::new(());
 
 fn read_recents(config: &Path) -> Vec<ProjectInfo> {
     // A missing or corrupt list is not an error worth showing anyone; it just
@@ -576,8 +598,14 @@ fn write_recents(config: &Path, entries: &[ProjectInfo]) -> Result<(), String> {
 
     let encoded = serde_json::to_vec_pretty(entries)
         .map_err(|error| format!("could not encode the recents list: {error}"))?;
-    std::fs::write(config.join(RECENTS), encoded)
-        .map_err(|error| format!("could not write the recents list: {error}"))
+    // Through the same temporary a manifest is written by, not
+    // `fs::write`: a crash mid-write left recents.json torn or empty, and
+    // the whole history was silently gone on the next read (audit
+    // 2026-09-23 - every other state file in this crate already went
+    // write-temporary-then-rename).
+    let mut temporary = Temporary::open(config, RECENTS)?;
+    temporary.write(&encoded)?;
+    temporary.commit(&config.join(RECENTS))
 }
 
 /// Compares paths case-insensitively, because Windows does, and on Windows
@@ -684,6 +712,69 @@ mod tests {
         let read: Vec<ProjectInfo> = serde_json::from_str(&list).expect("reads");
         assert_eq!(read[0].canvas, [0, 177, 64, 255]);
         assert_eq!(read[1].canvas, [0, 0, 0, 0]);
+    }
+
+    /// A recents entry whose fields nothing here depends on.
+    fn a_project(path: &str) -> ProjectInfo {
+        ProjectInfo {
+            path: path.to_owned(),
+            name: "A project".to_owned(),
+            width: 1920,
+            height: 1080,
+            rate_num: 30,
+            rate_den: 1,
+            canvas: [0, 0, 0, 255],
+            opened_at: 0,
+        }
+    }
+
+    /// The list is written the way every other state file is - through a
+    /// temporary renamed into place - so a crash mid-write cannot leave
+    /// recents.json torn, and no `.saving` file is left behind on any way
+    /// out of the write (audit 2026-09-23: this was a bare `fs::write`).
+    #[test]
+    fn the_recents_list_is_written_through_a_temporary_that_leaves_no_trace() {
+        let root = scratch("recents-temporary");
+        let config = Path::new(&root);
+        remember(config, &a_project(&root)).expect("writes");
+        assert!(config.join(RECENTS).is_file());
+        let leftovers = std::fs::read_dir(config)
+            .expect("reads the scratch")
+            .filter_map(Result::ok)
+            .filter(|file| {
+                file.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{RECENTS}.saving"))
+            })
+            .count();
+        assert_eq!(leftovers, 0, "no temporary is left behind");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Two threads remembering at once keep both entries: the list's
+    /// read-modify-write is held apart, or each would write the list it
+    /// read and the other's entry would be dropped - which is exactly the
+    /// shape of the window remembering a project while the API's thread
+    /// remembers one for a caller.
+    #[test]
+    fn concurrent_remembers_keep_every_entry() {
+        let root = scratch("recents-concurrent");
+        let config = Path::new(&root);
+        std::thread::scope(|scope| {
+            for index in 0..8 {
+                let config = config.to_path_buf();
+                scope.spawn(move || {
+                    remember(&config, &a_project(&format!("/project-{index}")))
+                        .expect("a remember that cannot fail here");
+                });
+            }
+        });
+        let paths: Vec<String> = read_recents(config)
+            .into_iter()
+            .map(|project| project.path)
+            .collect();
+        assert_eq!(paths.len(), 8, "every entry kept: {paths:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
