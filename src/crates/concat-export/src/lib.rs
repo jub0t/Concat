@@ -3853,8 +3853,16 @@ mod tests {
             let frame = decoder.next_frame().expect("decodes").expect("a frame");
             let corner = frame.pixel(2, 2).expect("a pixel");
             let middle = frame.pixel(32, 32).expect("a pixel");
-            assert!(corner[3] <= 4, "{}: the corner is {corner:?}", codec.label());
-            assert!(middle[3] >= 250, "{}: the middle is {middle:?}", codec.label());
+            assert!(
+                corner[3] <= 4,
+                "{}: the corner is {corner:?}",
+                codec.label()
+            );
+            assert!(
+                middle[3] >= 250,
+                "{}: the middle is {middle:?}",
+                codec.label()
+            );
             assert!(
                 middle[0].abs_diff(200) <= 12 && middle[1].abs_diff(40) <= 12,
                 "{}: the middle is {middle:?}",
@@ -3884,7 +3892,10 @@ mod tests {
         let middle = frame.pixel(32, 32).expect("a pixel");
         assert!((130..=170).contains(&middle[0]), "the middle is {middle:?}");
         let corner = frame.pixel(2, 2).expect("a pixel");
-        assert!(corner[0] <= 8 && corner[3] == 255, "the corner is {corner:?}");
+        assert!(
+            corner[0] <= 8 && corner[3] == 255,
+            "the corner is {corner:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
