@@ -411,8 +411,12 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// What the tests of this crate share.
-#[cfg(test)]
+/// What the tests of this crate share. The only thing shared so far is
+/// the Enhance model's path, which the CoreML probe below reads - a
+/// probe that exists only on Apple platforms with the `infer` feature,
+/// so the module is gated to match: on every other platform the re-export
+/// would be unused, and the workspace's CI denies warnings.
+#[cfg(all(test, feature = "infer", target_vendor = "apple"))]
 pub(crate) mod tests_support {
     pub(crate) use super::tests::fetched_model;
 }
