@@ -331,16 +331,29 @@ impl Studio {
     /// Applies the pending plan as one atomic, undoable edit, then
     /// clears it. A plan that fails validation here — it passed when it
     /// was generated, but the timeline may have moved since — is shown
-    /// as an error, and nothing is applied.
+    /// as an error, and nothing is applied. A batch that runs without
+    /// changing the project says so too, instead of claiming the plan
+    /// landed: the sheet's word is the only record the user has, and
+    /// "Plan applied" for a plan that changed nothing is a lie the
+    /// next tap cannot undo.
     pub fn ai_apply(&mut self) {
         let Some(plan) = self.ai.plan.take() else {
             self.ai.status = "No plan to apply.".to_string();
             return;
         };
+        if let Err(error) = plan.check_references(&self.ai_context()) {
+            self.ai.status = error.to_string();
+            return;
+        }
         match plan.to_command() {
             Ok(command) => {
+                let before = self.project().clone();
                 self.apply(command);
-                self.ai.status = "Plan applied.".to_string();
+                self.ai.status = if self.project() == &before {
+                    "The plan ran but changed nothing — its clips may have moved, or the values were already in place.".to_string()
+                } else {
+                    "Plan applied.".to_string()
+                };
             }
             Err(error) => {
                 self.ai.status = error.to_string();
