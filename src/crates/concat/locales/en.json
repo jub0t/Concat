@@ -383,7 +383,6 @@
   "phone.aiEditHint": "Describe the edit and the AI will plan it. Nothing is applied until you tap Apply, and the whole plan undoes as one step.",
   "phone.aiFetchModels": "Fetch free models",
   "phone.aiFetchModelsAgain": "Fetch free models again",
-  "phone.aiFreeModels": "Free models only. Pick one, then generate a plan.",
   "phone.aiGeneratePlan": "Generate plan",
   "phone.aiModels": "Models, free ones first. Pick one, then generate a plan.",
   "phone.aiPrompt": "What should change?",
