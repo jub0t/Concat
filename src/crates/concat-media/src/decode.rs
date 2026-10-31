@@ -2252,7 +2252,7 @@ mod tests {
         assert!(
             // `is_err_and` takes the result by value; the message wants to
             // print it afterwards, so the refusal is asked of a borrow.
-            probed.as_ref().is_err_and(|error| refused(error)),
+            probed.as_ref().is_err_and(&refused),
             "the probe refuses a stream past the largest frame: {probed:?}"
         );
         let decoded = Decoder::open(&path, &DecodeOptions::default());
