@@ -145,6 +145,17 @@ pub struct ModelState {
     pub failure: Option<concat_host::models::Failure>,
 }
 
+fn transcriber_presentation(id: &str, label: &str, blurb: &str) -> (String, String) {
+    if id == "base" {
+        (
+            t("settings.baseMultilingual"),
+            t("settings.baseMultilingualDescription"),
+        )
+    } else {
+        (label.to_owned(), blurb.to_owned())
+    }
+}
+
 impl ModelState {
     /// The model as one row of the sheet's list.
     fn row(&self) -> ModelData {
@@ -807,10 +818,12 @@ impl SettingsPane {
                 .map(|model| {
                     let (fetched, unpacking) =
                         downloading.get(&model.id).copied().unwrap_or((None, false));
+                    let (name, note) =
+                        transcriber_presentation(&model.id, &model.label, &model.blurb);
                     ModelState {
                         id: model.id.clone(),
-                        name: model.label.clone(),
-                        note: model.blurb.clone(),
+                        name,
+                        note,
                         megabytes: model.size_bytes as f32 / 1_000_000.0,
                         accuracy: if model.id.starts_with("tiny") {
                             2
@@ -1094,6 +1107,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn transcriber_presentation_localizes_only_canonical_base() {
+        assert_eq!(
+            transcriber_presentation("base", "Base (Multilingual)", "Original"),
+            (
+                t("settings.baseMultilingual"),
+                t("settings.baseMultilingualDescription")
+            )
+        );
+        for id in ["base.en", "tiny", "tiny.en", "small", "small.en", "unknown"] {
+            assert_eq!(
+                transcriber_presentation(id, "Original label", "Original description"),
+                ("Original label".into(), "Original description".into())
+            );
+        }
+        for (text, expected) in [
+            (
+                include_str!("../../locales/en.json"),
+                "Base — Portuguese (Brazil) / Multilingual",
+            ),
+            (
+                include_str!("../../locales/pt-BR.json"),
+                "Base — Português (Brasil) / Multilíngue",
+            ),
+        ] {
+            let locale: serde_json::Value = serde_json::from_str(text).unwrap();
+            assert_eq!(locale["settings.baseMultilingual"], expected);
+            assert!(locale["captions.portugueseRequiresMultilingual"].as_str().unwrap().contains(expected));
+        }
+    }
+
+    #[test]
     fn a_token_is_thirty_two_hex_digits_and_never_the_same_twice() {
         let a = new_token();
         let b = new_token();
@@ -1117,6 +1161,9 @@ mod tests {
             failure: None,
         };
         let row = model.row();
+        assert_eq!(row.id.as_str(), "base");
+        assert_eq!(row.name.as_str(), "Base");
+        assert_eq!(row.note.as_str(), "");
         assert!(row.downloading);
         assert!(!row.active, "a model that is not installed is not active");
         assert!((row.progress - 0.25).abs() < 1e-6);
