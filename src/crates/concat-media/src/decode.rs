@@ -2250,7 +2250,9 @@ mod tests {
         let refused = |error: &Error| matches!(error, Error::Probe { detail, .. } if detail.contains("past the 8192"));
         let probed = crate::probe(&path);
         assert!(
-            probed.is_err_and(|error| refused(&error)),
+            // `is_err_and` takes the result by value; the message wants to
+            // print it afterwards, so the refusal is asked of a borrow.
+            probed.as_ref().is_err_and(|error| refused(error)),
             "the probe refuses a stream past the largest frame: {probed:?}"
         );
         let decoded = Decoder::open(&path, &DecodeOptions::default());
