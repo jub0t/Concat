@@ -73,6 +73,17 @@ pub struct AudioStream {
     pub language: String,
 }
 
+/// A named chapter embedded in the media container.
+#[derive(Clone, Debug)]
+pub struct Chapter {
+    /// Chapter start in seconds from the start of the file.
+    pub start: Rational,
+    /// Chapter end in seconds from the start of the file.
+    pub end: Rational,
+    /// Container chapter name, or an empty string when it has none.
+    pub name: String,
+}
+
 /// A summary of one media file.
 ///
 /// One video stream is all the editor addresses. Audio streams are listed in
@@ -94,6 +105,8 @@ pub struct MediaInfo {
     pub audio: Option<AudioStream>,
     /// Every audio stream, in file order. Empty for a file without sound.
     pub audio_streams: Vec<AudioStream>,
+    /// Chapters carried by the container, in file order.
+    pub chapters: Vec<Chapter>,
 }
 
 impl MediaInfo {
@@ -147,6 +160,30 @@ pub fn probe(path: impl AsRef<Path>) -> Result<MediaInfo> {
         })
         .collect();
     let audio = audio_streams.first().cloned();
+    let chapters = input
+        .chapters()
+        .filter_map(|chapter| {
+            let time_base = chapter.time_base();
+            (time_base.denominator() != 0).then(|| {
+                let time_base = Rational::new(
+                    i64::from(time_base.numerator()),
+                    i64::from(time_base.denominator()),
+                );
+                let name = chapter
+                    .metadata()
+                    .get("title")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_default()
+                    .to_owned();
+                Chapter {
+                    start: Rational::new(chapter.start(), 1) * time_base,
+                    end: Rational::new(chapter.end(), 1) * time_base,
+                    name,
+                }
+            })
+        })
+        .collect();
 
     Ok(MediaInfo {
         path: path.to_path_buf(),
@@ -154,6 +191,7 @@ pub fn probe(path: impl AsRef<Path>) -> Result<MediaInfo> {
         video,
         audio,
         audio_streams,
+        chapters,
     })
 }
 

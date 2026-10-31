@@ -127,6 +127,20 @@ pub struct AudioTrack {
     pub language: String,
 }
 
+/// A named chapter read from a media container, stored in source-file time.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaChapter {
+    /// Start in seconds from the beginning of the source file.
+    pub start: f64,
+    /// End in seconds from the beginning of the source file.
+    pub end: f64,
+    /// Chapter title, empty when the container did not give one.
+    #[serde(default)]
+    pub name: String,
+}
+
 /// The levels a media file's picture spans, when the person says so over
 /// whatever the file claims: video range, 16-235, or full range, 0-255.
 /// A screen recording written full and tagged nothing plays grey where it
@@ -188,6 +202,9 @@ pub struct MediaItem {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[serde(deserialize_with = "wire::list")]
     pub audio_tracks: Vec<AudioTrack>,
+    /// Named chapters embedded in the source container.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chapters: Vec<MediaChapter>,
     /// True when this item is a template slot: a stand-in whose metadata says
     /// what kind of media belongs here, waiting to be replaced by the user's
     /// own file (`Command::FillSlot`). In a creator's own project the path is
