@@ -318,6 +318,159 @@ impl AiPlan {
         Ok(Command::Batch { commands })
     }
 
+    /// Whether every clip and media id the steps name is one the
+    /// context listed, and every split and trim lands inside the clip
+    /// it names. A plan that names things that are not there, or cuts
+    /// where there is nothing to cut, applies as nothing — or fails the
+    /// whole batch — so it is refused here, with the step and the id
+    /// named, instead of reaching Apply. A split may name several
+    /// clips and only needs its instant inside one of them: the app
+    /// itself skips the clips an instant misses.
+    pub fn check_references(&self, context: &EditContext) -> Result<(), AiError> {
+        let reject =
+            |step: usize, what: String| AiError::InvalidPlan(format!("step {}: {what}", step + 1));
+        let clip_named = |id: &str| context.clips.iter().find(|clip| clip.id == id);
+        let media_named = |id: &str| context.media.iter().any(|item| item.id == id);
+        for (index, step) in self.steps.iter().enumerate() {
+            let object = step
+                .as_object()
+                .ok_or_else(|| reject(index, "is not an object".to_string()))?;
+            let op = object.get("op").and_then(Value::as_str).unwrap_or("");
+            let ids = |key: &str| {
+                object
+                    .get(key)
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            };
+            let id = |key: &str| {
+                object
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            };
+            match op {
+                "splitClips" => {
+                    let named = ids("clipIds");
+                    let mut spans: Vec<&ClipSummary> = Vec::new();
+                    for id in &named {
+                        let Some(clip) = clip_named(id) else {
+                            return Err(reject(
+                                index,
+                                format!("names clip \"{id}\", which is not on the timeline"),
+                            ));
+                        };
+                        spans.push(clip);
+                    }
+                    if let Some(time) = object.get("time").and_then(Value::as_f64) {
+                        let inside = spans.iter().any(|clip| {
+                            time > clip.start_seconds
+                                && time < clip.start_seconds + clip.duration_seconds
+                        });
+                        if !inside {
+                            return Err(reject(
+                                index,
+                                format!(
+                                    "splits at {time:.2}s, which is outside every clip it names"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                "trimClip" => {
+                    let id = id("clipId");
+                    let Some(clip) = clip_named(&id) else {
+                        return Err(reject(
+                            index,
+                            format!("names clip \"{id}\", which is not on the timeline"),
+                        ));
+                    };
+                    if let Some(delta) = object.get("delta").and_then(Value::as_f64) {
+                        let edge = object.get("edge").and_then(Value::as_str).unwrap_or("");
+                        let shrinks =
+                            (edge == "start" && delta > 0.0) || (edge == "end" && delta < 0.0);
+                        if shrinks && delta.abs() >= clip.duration_seconds {
+                            return Err(reject(
+                                index,
+                                format!(
+                                    "trims clip \"{id}\" by {delta:.2}s, more than its {:.2}s length",
+                                    clip.duration_seconds
+                                ),
+                            ));
+                        }
+                    }
+                }
+                "removeClips" => {
+                    for id in ids("clipIds") {
+                        if clip_named(&id).is_none() {
+                            return Err(reject(
+                                index,
+                                format!("names clip \"{id}\", which is not on the timeline"),
+                            ));
+                        }
+                    }
+                }
+                "moveClips" => {
+                    if let Some(moves) = object.get("moves").and_then(Value::as_array) {
+                        for movement in moves {
+                            if let Some(id) = movement.get("clipId").and_then(Value::as_str)
+                                && clip_named(id).is_none()
+                            {
+                                return Err(reject(
+                                    index,
+                                    format!("names clip \"{id}\", which is not on the timeline"),
+                                ));
+                            }
+                        }
+                    }
+                }
+                "setClipSpeed" => {
+                    let id = id("clipId");
+                    if clip_named(&id).is_none() {
+                        return Err(reject(
+                            index,
+                            format!("names clip \"{id}\", which is not on the timeline"),
+                        ));
+                    }
+                }
+                "addClipsInSequence" => {
+                    for id in ids("mediaIds") {
+                        if !media_named(&id) {
+                            return Err(reject(
+                                index,
+                                format!("names media \"{id}\", which is not in the bin"),
+                            ));
+                        }
+                    }
+                }
+                "addClipAtFirstFree" => {
+                    let id = id("mediaId");
+                    if !media_named(&id) {
+                        return Err(reject(
+                            index,
+                            format!("names media \"{id}\", which is not in the bin"),
+                        ));
+                    }
+                }
+                "addTextClip" | "addLayerClip" => {}
+                _ => {
+                    return Err(reject(
+                        index,
+                        format!("uses op \"{op}\", which a plan may not use"),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The plan in plain language, one line per step, for the preview
     /// the user reads before tapping Apply.
     pub fn summarize(&self) -> Vec<String> {
@@ -831,7 +984,12 @@ impl AiClient {
             .ok_or_else(|| {
                 AiError::BadReply("the chat reply had no message content".to_string())
             })?;
-        parse_plan(text)
+        let plan = parse_plan(text)?;
+        // A plan that names clips or media that are not there applies
+        // as nothing, so it is refused while the next model can still
+        // be tried, rather than shown as a plan that cannot land.
+        plan.check_references(context)?;
+        Ok(plan)
     }
 
     /// A GET with the provider's key, returning the body as text.
@@ -1101,5 +1259,92 @@ mod tests {
         assert!(message.contains("https://example.test/ref"));
         assert!(message.contains("clip.mp4"));
         assert!(message.contains("c1 | Intro"));
+    }
+
+    fn reference_context() -> EditContext {
+        EditContext {
+            prompt: "Cut the first clip.".to_string(),
+            references: Vec::new(),
+            attachments: Vec::new(),
+            media: vec![MediaSummary {
+                id: "m1".to_string(),
+                name: "clip.mp4".to_string(),
+            }],
+            clips: vec![
+                ClipSummary {
+                    id: "c1".to_string(),
+                    name: "Intro".to_string(),
+                    start_seconds: 0.0,
+                    duration_seconds: 10.0,
+                },
+                ClipSummary {
+                    id: "c2".to_string(),
+                    name: "Main".to_string(),
+                    start_seconds: 10.0,
+                    duration_seconds: 5.0,
+                },
+            ],
+            duration_seconds: 15.0,
+        }
+    }
+
+    fn check(json: &str) -> Result<(), AiError> {
+        parse_plan(json)
+            .expect("parses")
+            .check_references(&reference_context())
+    }
+
+    #[test]
+    fn references_accept_a_plan_naming_real_clips_and_media() {
+        let json = r#"{"summary": "Split and lay out.", "steps": [
+            {"op": "splitClips", "clipIds": ["c1"], "time": 5.0},
+            {"op": "trimClip", "clipId": "c2", "edge": "start", "delta": 1.0},
+            {"op": "addClipsInSequence", "mediaIds": ["m1"], "start": 0.0}
+        ]}"#;
+        check(json).expect("real ids pass");
+    }
+
+    #[test]
+    fn references_accept_an_empty_plan() {
+        let json = r#"{"summary": "Cannot be done.", "steps": []}"#;
+        check(json).expect("an empty plan names nothing");
+    }
+
+    #[test]
+    fn references_reject_a_plan_naming_an_unknown_clip() {
+        let json = r#"{"summary": "Remove it.", "steps": [
+            {"op": "removeClips", "clipIds": ["c9"]}
+        ]}"#;
+        let error = check(json).expect_err("an unknown clip is refused");
+        assert!(error.to_string().contains("c9"), "{error}");
+        assert!(error.to_string().contains("not on the timeline"), "{error}");
+    }
+
+    #[test]
+    fn references_reject_a_plan_naming_unknown_media() {
+        let json = r#"{"summary": "Add it.", "steps": [
+            {"op": "addClipAtFirstFree", "mediaId": "m9", "start": 0.0}
+        ]}"#;
+        let error = check(json).expect_err("unknown media is refused");
+        assert!(error.to_string().contains("m9"), "{error}");
+        assert!(error.to_string().contains("not in the bin"), "{error}");
+    }
+
+    #[test]
+    fn references_reject_a_split_outside_every_named_clip() {
+        let json = r#"{"summary": "Split it.", "steps": [
+            {"op": "splitClips", "clipIds": ["c1"], "time": 15.0}
+        ]}"#;
+        let error = check(json).expect_err("a split outside the clip is refused");
+        assert!(error.to_string().contains("outside"), "{error}");
+    }
+
+    #[test]
+    fn references_reject_a_trim_longer_than_the_clip() {
+        let json = r#"{"summary": "Trim it.", "steps": [
+            {"op": "trimClip", "clipId": "c2", "edge": "start", "delta": 6.0}
+        ]}"#;
+        let error = check(json).expect_err("a trim past the clip is refused");
+        assert!(error.to_string().contains("more than"), "{error}");
     }
 }
