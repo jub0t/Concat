@@ -1296,8 +1296,15 @@ export component PhoneEditor inherits Rectangle {
                     : I18n.t("phone.aiFetchModelsAgain");
                 clicked => { Editor.ai-fetch-models(); }
             }
+            // The status sits with the fetch, not under Generate: a
+            // fetch that finds nothing, or fails, must be seen where
+            // the tap happened, without scrolling the sheet to its
+            // foot for the one line that says what happened.
+            if Editor.ai-status != "": SheetNote {
+                text: Editor.ai-status;
+            }
             if Editor.ai-models.length > 0: Text {
-                text: I18n.t("phone.aiFreeModels");
+                text: I18n.t("phone.aiModels");
                 color: Theme.fg-dim;
                 font-size: Theme.fs;
                 wrap: word-wrap;
@@ -1357,9 +1364,6 @@ export component PhoneEditor inherits Rectangle {
                 enabled: !Editor.ai-busy && Editor.ai-prompt != "" && Editor.ai-model != "";
                 label: Editor.ai-busy ? I18n.t("phone.aiWorking") : I18n.t("phone.aiGeneratePlan");
                 clicked => { Editor.ai-generate(); }
-            }
-            if Editor.ai-status != "": SheetNote {
-                text: Editor.ai-status;
             }
             if Editor.ai-has-plan: VerticalLayout {
                 spacing: 8px;
