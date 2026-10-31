@@ -405,7 +405,7 @@ mod tests {
             Ok(Input::End)
         });
         assert!(matches!(result, Err(Stall::Stuck)));
-        assert!(matches!(held, None));
+        assert!(held.is_none());
     }
 
     /// A damaged packet is passed over and the stream read on, as a

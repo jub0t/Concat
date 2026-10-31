@@ -1398,8 +1398,10 @@ mod tests {
     /// out fresh ones instead of wrapping round to `c0`.
     #[test]
     fn a_counter_at_the_top_mints_fallback_ids_that_never_repeat() {
-        let mut mint = IdMint::default();
-        mint.counter = u64::MAX;
+        let mut mint = IdMint {
+            counter: u64::MAX,
+            ..IdMint::default()
+        };
         assert_eq!(mint.next("c"), "c-x1");
         assert_eq!(mint.next("c"), "c-x2");
         assert_eq!(mint.next("tl"), "tl-x3", "one fallback count, all prefixes");
