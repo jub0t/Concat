@@ -170,9 +170,11 @@ impl Studio {
         self.prefs.save(&self.host.dirs);
     }
 
-    /// Remembers the picked free model.
+    /// Remembers the picked model, and drops any plan waiting from
+    /// another model: a plan belongs to the model that wrote it.
     pub fn ai_set_model(&mut self, model: &str) {
         self.prefs.ai_model = Some(model.trim().to_string());
+        self.ai.plan = None;
         self.prefs.save(&self.host.dirs);
     }
 
@@ -187,9 +189,11 @@ impl Studio {
         self.ai.references = references.to_string();
     }
 
-    /// Fetches the configured provider's free models on a worker. The
-    /// sheet shows progress while it runs, and the count — or the error,
-    /// in full — when it lands. A picked model that is no longer listed
+    /// Fetches the configured provider's models on a worker: the
+    /// confirmed-free ones first, then any the provider reports no
+    /// pricing for, flagged as unknown rather than free. The sheet
+    /// shows progress while it runs, and the counts — or the error, in
+    /// full — when it lands. A picked model that is no longer listed
     /// is dropped, so Apply can never name a model the provider does
     /// not offer.
     pub fn ai_fetch_models(&mut self) {
@@ -215,18 +219,35 @@ impl Studio {
             return;
         }
         self.ai.busy = true;
-        self.ai.status = "Fetching free models…".to_string();
+        self.ai.status = "Fetching models…".to_string();
         crate::host::spawn(
-            move || AiClient::new(config).fetch_free_models(),
+            move || AiClient::new(config).fetch_models(),
             |studio, _, _, result| {
                 studio.ai.busy = false;
                 match result {
-                    Ok(models) => {
-                        if models.is_empty() {
+                    Ok(listing) => {
+                        let models = listing.all();
+                        if listing.total == 0 {
+                            studio.ai.status = "The provider listed no models.".to_string();
+                        } else if listing.free.is_empty() && listing.unpriced.is_empty() {
+                            studio.ai.status = format!(
+                                "The provider listed {} model(s), but none are free.",
+                                listing.total
+                            );
+                        } else if listing.free.is_empty() {
+                            studio.ai.status = format!(
+                                "{} model(s) found. This provider does not report prices, so free status is unknown — check the provider's billing before generating.",
+                                listing.unpriced.len()
+                            );
+                        } else if listing.unpriced.is_empty() {
                             studio.ai.status =
-                                "No free models found for this provider.".to_string();
+                                format!("{} free model(s) found — pick one.", listing.free.len());
                         } else {
-                            studio.ai.status = format!("{} free model(s) found.", models.len());
+                            studio.ai.status = format!(
+                                "{} free model(s) found, plus {} without pricing info (free status unknown) — pick one.",
+                                listing.free.len(),
+                                listing.unpriced.len()
+                            );
                         }
                         if let Some(picked) = &studio.prefs.ai_model {
                             if !models.contains(picked) {
@@ -245,7 +266,10 @@ impl Studio {
     }
 
     /// Generates a plan on a worker, for the project still open when it
-    /// lands. An empty plan is a legitimate answer — the instruction
+    /// lands. The picked model is tried first, then the rest of the
+    /// fetched list one by one when a model fails, so one dead model
+    /// does not strand the edit; the status names the model that
+    /// answered. An empty plan is a legitimate answer — the instruction
     /// cannot be done with the allowed ops — and the sheet shows its
     /// summary instead of offering Apply.
     pub fn ai_generate(&mut self) {
@@ -263,16 +287,19 @@ impl Studio {
                 return;
             }
         };
+        let picked = self.prefs.ai_model.clone().unwrap_or_default();
+        let candidates = concat_ai::order_candidates(&picked, &self.ai.models);
         let context = self.ai_context();
         self.ai.busy = true;
         self.ai.status = "Asking the model for a plan…".to_string();
         self.ai.plan = None;
         crate::host::spawn_in_project(
-            move || AiClient::new(config).generate_plan(&context),
+            move || AiClient::new(config).generate_plan_rotating(&context, &candidates),
             |studio, _, _, result| {
                 studio.ai.busy = false;
                 match result {
-                    Ok(plan) => {
+                    Ok(attempt) => {
+                        let plan = attempt.plan;
                         if plan.steps.is_empty() {
                             studio.ai.status = if plan.summary.is_empty() {
                                 "The model returned an empty plan.".to_string()
@@ -282,7 +309,14 @@ impl Studio {
                             studio.ai.plan = None;
                         } else {
                             studio.ai.plan = Some(plan);
-                            studio.ai.status = "Plan ready — review it, then Apply.".to_string();
+                            studio.ai.status = if attempt.tried > 1 {
+                                format!(
+                                    "Plan ready via {} (tried {} models) — review it, then Apply.",
+                                    attempt.model, attempt.tried
+                                )
+                            } else {
+                                "Plan ready — review it, then Apply.".to_string()
+                            };
                         }
                     }
                     Err(error) => {
