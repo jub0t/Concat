@@ -173,7 +173,13 @@ impl Drop for Subscribed {
 /// are this type's own business.
 struct Guarded {
     events: ReceiverStream<Result<proto::Event, Status>>,
+    // Held for their Drop alone: the seat frees when the stream ends and
+    // the fan-out entry goes with it. Nothing ever reads them, which is
+    // the point of a guard, so the fields say so to the lint that cannot
+    // see a drop coming.
+    #[allow(dead_code)]
     seat: Seat,
+    #[allow(dead_code)]
     subscribed: Subscribed,
 }
 
