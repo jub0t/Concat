@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+[package]
+name = "concat-ai"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The AI edit planner for Concat: an OpenAI-compatible chat client that only ever lists free models, and a plan it turns into one atomic, undoable edit."
+
+[dependencies]
+concat-project.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+# The HTTP the host already speaks (see concat-host's net.rs): the same
+# ureq 2 tree, so the window adds no second TLS stack for this feature.
+ureq = "2"
+
+[lints]
+workspace = true
