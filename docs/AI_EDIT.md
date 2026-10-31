@@ -31,8 +31,14 @@ provider you configured, directly.
    fails, the next listed models are tried one by one, up to five in
    all, and the sheet names the model that answered. A model that
    answers with an empty plan has answered, so rotation stops there.
-   The plan appears in plain language.
+   A plan that names a clip or a bin item that is not on the timeline,
+   or cuts where there is nothing to cut, is refused while the next
+   model can still be tried — it would apply as nothing. The plan
+   appears in plain language.
 6. Tap **Apply this plan** to apply it, or **Discard plan** to drop it.
+   Apply checks the plan against the timeline as it stands now, and
+   says plainly if the plan ran without changing anything, instead of
+   claiming it landed.
 
 Photos and videos reach the timeline through the Media sheet, the way
 any import does. The model is told the bin's media (id and name) and
