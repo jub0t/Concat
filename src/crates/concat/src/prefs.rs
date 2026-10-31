@@ -138,6 +138,21 @@ pub struct Preferences {
     /// by Settings › Shortcuts; resolved in [`crate::keymap`].
     #[serde(default)]
     pub keybinds: BTreeMap<String, String>,
+    /// The AI edit provider: `"openrouter"` or `"custom"`. Absent is no
+    /// provider configured, and the AI sheet says so instead of calling
+    /// anything.
+    pub ai_provider: Option<String>,
+    /// A custom AI provider's base URL. Ignored for OpenRouter, whose
+    /// base is fixed in `concat-ai`.
+    pub ai_base_url: Option<String>,
+    /// The AI provider's API key. Device-local only, in this file — which
+    /// `save` writes readable by this account alone — and sent only to
+    /// the provider configured above, never logged and never to any
+    /// other service.
+    pub ai_api_key: Option<String>,
+    /// The free model picked from the provider's `/models` list, as
+    /// `concat-ai` filtered it. Absent is "pick one first".
+    pub ai_model: Option<String>,
 }
 
 /// The voiceover panel's choices, kept from one take to the next and one
@@ -287,6 +302,24 @@ impl Preferences {
     pub fn set_magnetic(&mut self, on: bool) {
         self.magnetic = on;
         self.magnetic_chosen = true;
+    }
+
+    /// The AI provider configuration from the remembered settings, or
+    /// `None` when no provider has been picked. A configuration with an
+    /// empty key is still returned, so `concat-ai`'s validation — not a
+    /// missing field here — is what names the missing piece.
+    pub fn ai_provider_config(&self) -> Option<concat_ai::ProviderConfig> {
+        let kind = match self.ai_provider.as_deref().map(str::trim) {
+            Some("custom") => concat_ai::ProviderKind::Custom,
+            Some("openrouter") => concat_ai::ProviderKind::OpenRouter,
+            _ => return None,
+        };
+        Some(concat_ai::ProviderConfig {
+            kind,
+            base_url: self.ai_base_url.clone(),
+            api_key: self.ai_api_key.clone().unwrap_or_default(),
+            model: self.ai_model.clone(),
+        })
     }
 
     /// Whether this launch draws in software, by choice or after a crash.
