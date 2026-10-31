@@ -342,21 +342,38 @@ impl Studio {
             return;
         };
         if let Err(error) = plan.check_references(&self.ai_context()) {
-            self.ai.status = error.to_string();
+            let message = error.to_string();
+            self.notify(&message, true);
+            self.ai.status = message;
             return;
         }
         match plan.to_command() {
             Ok(command) => {
                 let before = self.project().clone();
+                let toast_before = self.toast.token;
                 self.apply(command);
-                self.ai.status = if self.project() == &before {
-                    "The plan ran but changed nothing — its clips may have moved, or the values were already in place.".to_string()
+                let (message, failed) = if self.project() == &before {
+                    (
+                        "The plan ran but changed nothing — its clips may have moved, or the values were already in place.",
+                        true,
+                    )
                 } else {
-                    "Plan applied.".to_string()
+                    ("Plan applied.", false)
                 };
+                self.ai.status = message.to_string();
+                // The sheet closes when Apply is tapped, so the status
+                // inside it would go unseen: the outcome is also told
+                // on the editor itself. When the batch already reported
+                // its own failure, that toast stands and is not
+                // overwritten with the generic word.
+                if self.toast.token == toast_before {
+                    self.notify(message, failed);
+                }
             }
             Err(error) => {
-                self.ai.status = error.to_string();
+                let message = error.to_string();
+                self.notify(&message, true);
+                self.ai.status = message;
             }
         }
     }
