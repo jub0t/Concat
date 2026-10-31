@@ -10,12 +10,15 @@
 //!
 //! The two providers are OpenRouter, whose base URL is fixed, and a custom
 //! provider, whose base URL and API key the user enters. Both list models
-//! through the provider's `/models` endpoint, and both lists are filtered
-//! to free models only: an id ending in `:free`, or a model whose reported
-//! prompt and completion prices are both zero. A provider that reports no
-//! free model is an empty list, not a fallback to paid models — that
-//! strictness is the point of the feature, and the reason a custom
-//! provider that reports no pricing at all only ever yields `:free` ids.
+//! through the provider's `/models` endpoint. The list puts confirmed-free
+//! models first — an id ending in `:free`, or a model whose reported
+//! prompt and completion prices are both zero — followed by models the
+//! provider reports no pricing for at all, whose free status is unknown
+//! and which the window flags as such rather than silently treating as
+//! free or as paid. A model with pricing that is not zero is never
+//! listed. Generation tries the picked model first and falls through
+//! the listed models one by one when a model fails, so one dead free
+//! model does not strand the edit.
 //!
 //! The model never edits directly. It returns one JSON object — a short
 //! summary and a list of steps — and each step is one
@@ -531,10 +534,10 @@ fn validate_step_numbers(
     Ok(())
 }
 
-/// Whether one model entry, as `/models` reported it, counts as free:
-/// a `:free` id, or a pricing block whose prompt and completion prices
-/// are both zero. A model with no pricing block counts only by its id,
-/// so a provider that reports no pricing cannot leak paid models in.
+/// Whether one model entry, as `/models` reported it, counts as
+/// confirmed free: a `:free` id, or a pricing block whose prompt and
+/// completion prices are both zero. A model with no pricing block
+/// counts only by its id.
 pub fn is_free_model(entry: &Value) -> bool {
     let id = match entry {
         Value::String(text) => text.as_str(),
@@ -572,24 +575,63 @@ fn is_zero_price(value: &Value) -> bool {
     }
 }
 
-/// Parses a `/models` reply into the free model ids it lists, in the
-/// provider's order, with duplicates removed. The reply's shape varies
-/// by provider — an array under `data`, or a bare array — and both are
-/// read.
-pub fn parse_models_response(body: &str) -> Result<Vec<String>, AiError> {
+/// Whether one model entry carries no pricing information at all: a
+/// string entry, or an object with no `pricing` key. Its free status is
+/// unknown — neither confirmed free nor shown to be paid — and the
+/// window says so when it lists one.
+pub fn is_unpriced_model(entry: &Value) -> bool {
+    match entry {
+        Value::String(_) => true,
+        Value::Object(object) => !object.contains_key("pricing"),
+        _ => false,
+    }
+}
+
+/// A `/models` reply, classified: the confirmed-free ids, the ids with
+/// no pricing information, and how many models the provider listed in
+/// total. The window lists the free ids first, then the unpriced ones,
+/// and never lists a model whose pricing is reported and not zero.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ModelsListing {
+    /// Confirmed-free model ids, in the provider's order.
+    pub free: Vec<String>,
+    /// Model ids with no pricing information, in the provider's order.
+    pub unpriced: Vec<String>,
+    /// How many models the provider listed in total, free or not.
+    pub total: usize,
+}
+
+impl ModelsListing {
+    /// Every listed id, free first, then unpriced, in the provider's
+    /// order within each group — the order the sheet shows and the
+    /// order generation falls through.
+    pub fn all(&self) -> Vec<String> {
+        let mut models = self.free.clone();
+        models.extend(self.unpriced.iter().cloned());
+        models
+    }
+}
+
+/// Parses a `/models` reply into its classified listing. The reply's
+/// shape varies by provider — an array under `data`, an array under
+/// `models`, or a bare array — and all three are read. Duplicate ids
+/// are removed, keeping the first occurrence.
+pub fn parse_models_listing(body: &str) -> Result<ModelsListing, AiError> {
     let raw: Value = serde_json::from_str(body).map_err(|error| {
         AiError::BadReply(format!("the models list was not valid JSON: {error}"))
     })?;
     let entries = raw
         .get("data")
         .and_then(Value::as_array)
+        .or_else(|| raw.get("models").and_then(Value::as_array))
         .or_else(|| raw.as_array())
         .ok_or_else(|| AiError::BadReply("the models list had no data array".to_string()))?;
-    let mut models = Vec::new();
+    let mut listing = ModelsListing {
+        total: 0,
+        ..Default::default()
+    };
+    let mut seen: Vec<String> = Vec::new();
     for entry in entries {
-        if !is_free_model(entry) {
-            continue;
-        }
         let id = match entry {
             Value::String(text) => text.clone(),
             Value::Object(object) => object
@@ -599,17 +641,68 @@ pub fn parse_models_response(body: &str) -> Result<Vec<String>, AiError> {
                 .to_string(),
             _ => String::new(),
         };
-        if !id.is_empty() && !models.contains(&id) {
-            models.push(id);
+        if id.is_empty() || seen.contains(&id) {
+            continue;
+        }
+        seen.push(id.clone());
+        listing.total += 1;
+        if is_free_model(entry) {
+            listing.free.push(id);
+        } else if is_unpriced_model(entry) {
+            listing.unpriced.push(id);
         }
     }
-    Ok(models)
+    Ok(listing)
+}
+
+/// Parses a `/models` reply into the free model ids it lists, in the
+/// provider's order, with duplicates removed. The reply's shape varies
+/// by provider — an array under `data`, or a bare array — and both are
+/// read.
+pub fn parse_models_response(body: &str) -> Result<Vec<String>, AiError> {
+    Ok(parse_models_listing(body)?.free)
+}
+
+/// The most models one generation tries, picked model first, before it
+/// reports failure: a long free list must not turn one tap into an
+/// unbounded run of slow calls.
+pub const MAX_GENERATION_ATTEMPTS: usize = 5;
+
+/// The order generation tries models in: the picked model first, then
+/// the rest of the listed models in the order the provider gave them,
+/// with duplicates removed. A model the user picked is always tried,
+/// even if the list has moved on since it was fetched.
+pub fn order_candidates(picked: &str, models: &[String]) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let picked = picked.trim();
+    if !picked.is_empty() {
+        candidates.push(picked.to_string());
+    }
+    for model in models {
+        let model = model.trim();
+        if !model.is_empty() && !candidates.iter().any(|candidate| candidate == model) {
+            candidates.push(model.to_string());
+        }
+    }
+    candidates
+}
+
+/// A plan and the model that produced it, with how many models were
+/// tried before one answered.
+#[derive(Clone, Debug)]
+pub struct PlanAttempt {
+    /// The plan, as the winning model returned it.
+    pub plan: AiPlan,
+    /// The model that produced the plan.
+    pub model: String,
+    /// How many models were tried, including the winner.
+    pub tried: usize,
 }
 
 /// The client that talks to a provider: one `ureq` agent, bounded
-/// timeouts, and no retries here — rotation across free models is the
-/// window's job, so a failure is reported, not hidden behind a retry
-/// that would burn a free tier's rate limit.
+/// timeouts, and no retries on a single call — falling through to the
+/// next model is rotation, not a retry of the same failing call, so a
+/// failure is reported per model and the next one is tried instead.
 pub struct AiClient {
     config: ProviderConfig,
     /// How long a models fetch may take.
@@ -630,11 +723,18 @@ impl AiClient {
         }
     }
 
+    /// Fetches the provider's models, classified into confirmed-free
+    /// and unpriced. The configuration's key is sent as a Bearer token,
+    /// as OpenAI-compatible endpoints expect.
+    pub fn fetch_models(&self) -> Result<ModelsListing, AiError> {
+        let body = self.get(&self.config.models_url(), self.models_timeout)?;
+        parse_models_listing(&body)
+    }
+
     /// Fetches the provider's free models. The configuration's key is
     /// sent as a Bearer token, as OpenAI-compatible endpoints expect.
     pub fn fetch_free_models(&self) -> Result<Vec<String>, AiError> {
-        let body = self.get(&self.config.models_url(), self.models_timeout)?;
-        parse_models_response(&body)
+        Ok(self.fetch_models()?.free)
     }
 
     /// Generates an edit plan for a timeline, from the provider's
@@ -643,6 +743,66 @@ impl AiClient {
     /// [`AiClient::fetch_free_models`] in the first place.
     pub fn generate_plan(&self, context: &EditContext) -> Result<AiPlan, AiError> {
         self.config.validate()?;
+        self.generate_plan_inner(context)
+    }
+
+    /// Generates an edit plan with one named model, returning the plan
+    /// or the single failure. Used by the rotation, which names each
+    /// candidate in turn.
+    pub fn generate_plan_for(&self, context: &EditContext, model: &str) -> Result<AiPlan, AiError> {
+        let mut config = self.config.clone();
+        config.model = Some(model.trim().to_string());
+        let client = Self {
+            config,
+            models_timeout: self.models_timeout,
+            chat_timeout: self.chat_timeout,
+        };
+        client.config.validate()?;
+        client.generate_plan_inner(context)
+    }
+
+    /// Generates an edit plan, trying the candidate models one by one,
+    /// picked model first, until one returns a plan. A model that
+    /// answers with an empty plan has answered — the instruction cannot
+    /// be done with the allowed ops — so rotation stops there instead of
+    /// spending the next model's call on the same answer. Request,
+    /// reply and validation failures move on to the next candidate, up
+    /// to [`MAX_GENERATION_ATTEMPTS`] models. When every candidate
+    /// fails, the error names how many were tried and the last failure.
+    pub fn generate_plan_rotating(
+        &self,
+        context: &EditContext,
+        candidates: &[String],
+    ) -> Result<PlanAttempt, AiError> {
+        let mut last_error: Option<AiError> = None;
+        let mut tried = 0;
+        for model in candidates.iter().take(MAX_GENERATION_ATTEMPTS) {
+            tried += 1;
+            match self.generate_plan_for(context, model) {
+                Ok(plan) => {
+                    return Ok(PlanAttempt {
+                        plan,
+                        model: model.clone(),
+                        tried,
+                    });
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        match last_error {
+            Some(error) => Err(AiError::Request(format!(
+                "all {tried} model(s) tried failed: {error}"
+            ))),
+            None => Err(AiError::NotConfigured(
+                "no model to try — fetch the models list and pick one first".to_string(),
+            )),
+        }
+    }
+
+    /// The one call behind every generation entry point: the configured
+    /// model, the system prompt, and the timeline as a user message,
+    /// parsed into a plan. Callers validate the configuration first.
+    fn generate_plan_inner(&self, context: &EditContext) -> Result<AiPlan, AiError> {
         let model = self.config.model.clone().unwrap_or_default();
         let body = serde_json::json!({
             "model": model,
@@ -765,6 +925,56 @@ mod tests {
         assert_eq!(
             parse_models_response(body).expect("parses"),
             vec!["x/model:free"]
+        );
+    }
+
+    #[test]
+    fn models_listing_splits_free_unpriced_and_paid() {
+        let body = r#"{"models": [
+            {"id": "a/model:free"},
+            {"id": "b/model", "pricing": {"prompt": "0", "completion": "0"}},
+            {"id": "c/model"},
+            "d/model",
+            {"id": "e/model", "pricing": {"prompt": "0.001", "completion": "0"}},
+            {"id": "f/model", "pricing": {"prompt": "0"}}
+        ]}"#;
+        let listing = parse_models_listing(body).expect("parses");
+        assert_eq!(listing.free, vec!["a/model:free", "b/model"]);
+        assert_eq!(listing.unpriced, vec!["c/model", "d/model"]);
+        assert_eq!(listing.total, 6);
+        assert_eq!(
+            listing.all(),
+            vec!["a/model:free", "b/model", "c/model", "d/model"]
+        );
+        // The free-only view stays strict: unpriced and paid ids are out.
+        assert_eq!(
+            parse_models_response(body).expect("parses"),
+            vec!["a/model:free", "b/model"]
+        );
+    }
+
+    #[test]
+    fn models_listing_deduplicates_and_skips_idless_entries() {
+        let body = r#"{"data": [
+            {"id": "a/model:free"},
+            {"id": "a/model:free"},
+            {"pricing": {"prompt": "0", "completion": "0"}},
+            {"id": ""}
+        ]}"#;
+        let listing = parse_models_listing(body).expect("parses");
+        assert_eq!(listing.free, vec!["a/model:free"]);
+        assert_eq!(listing.total, 1);
+    }
+
+    #[test]
+    fn candidates_try_the_picked_model_first_then_the_list_in_order() {
+        let models = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_eq!(order_candidates("b", &models), vec!["b", "a", "c"]);
+        assert_eq!(order_candidates("z", &models), vec!["z", "a", "b", "c"]);
+        assert_eq!(order_candidates("", &models), models);
+        assert_eq!(
+            order_candidates("a", &["a".to_string(), "a".to_string()]),
+            vec!["a"]
         );
     }
 
