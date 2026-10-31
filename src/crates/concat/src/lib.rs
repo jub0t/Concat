@@ -31,6 +31,7 @@ mod ui {
     slint::include_modules!();
 }
 
+mod ai;
 mod batch_volume;
 mod chips;
 mod dock;
@@ -2200,6 +2201,42 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             SpeechMsg::Open
         };
         state.handle(Msg::Speech(msg));
+    }));
+
+    // ── AI edit ──
+    // The phone's AI sheet: provider settings go to Preferences, the
+    // prompt and the pending plan stay in run-time state, and the two
+    // network calls run on workers (see `crate::ai`), so the window
+    // never waits on a free model.
+    editor.on_ai_provider_changed(on_window!(|state, provider: SharedString| {
+        state.ai_set_provider(provider.as_str());
+    }));
+    editor.on_ai_base_url_edited(on_window!(|state, url: SharedString| {
+        state.ai_set_base_url(url.as_str());
+    }));
+    editor.on_ai_api_key_edited(on_window!(|state, key: SharedString| {
+        state.ai_set_api_key(key.as_str());
+    }));
+    editor.on_ai_fetch_models(on_window!(|state| {
+        state.ai_fetch_models();
+    }));
+    editor.on_ai_model_changed(on_window!(|state, model: SharedString| {
+        state.ai_set_model(model.as_str());
+    }));
+    editor.on_ai_prompt_edited(on_window!(|state, prompt: SharedString| {
+        state.ai_set_prompt(prompt.as_str());
+    }));
+    editor.on_ai_references_edited(on_window!(|state, references: SharedString| {
+        state.ai_set_references(references.as_str());
+    }));
+    editor.on_ai_generate(on_window!(|state| {
+        state.ai_generate();
+    }));
+    editor.on_ai_apply(on_window!(|state| {
+        state.ai_apply();
+    }));
+    editor.on_ai_discard(on_window!(|state| {
+        state.ai_discard();
     }));
 
     app.on_captions_closed(on_window!(|state| {

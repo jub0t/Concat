@@ -408,6 +408,36 @@ export global Editor {
     /// of the clip's own menu - see `clip-context`.
     callback captions();
     callback speak();
+    // ── AI edit ────────────────────────────────────────────────────
+    //
+    // The phone's AI sheet, and the provider it calls. The prompt and
+    // references are text the user typed; the provider, base URL and key
+    // are the remembered settings (see prefs.rs — the key is device-local
+    // and is sent only to the configured provider); the models are the
+    // free models that provider listed, and the preview is the plan in
+    // plain language, shown before anything is applied. Rust owns all of
+    // these, so a sheet that opens twice reads the same values.
+    in-out property <string> ai-prompt;
+    in-out property <string> ai-references;
+    in-out property <string> ai-provider;
+    in-out property <string> ai-base-url;
+    in-out property <string> ai-api-key;
+    in-out property <[string]> ai-models;
+    in-out property <string> ai-model;
+    in-out property <string> ai-status;
+    in-out property <string> ai-preview;
+    in-out property <bool> ai-busy;
+    in-out property <bool> ai-has-plan;
+    callback ai-provider-changed(provider: string);
+    callback ai-base-url-edited(url: string);
+    callback ai-api-key-edited(key: string);
+    callback ai-fetch-models();
+    callback ai-model-changed(model: string);
+    callback ai-prompt-edited(prompt: string);
+    callback ai-references-edited(references: string);
+    callback ai-generate();
+    callback ai-apply();
+    callback ai-discard();
     /// The tray's record button: opens the voiceover panel, closes it, or
     /// stops the take it is running.
     callback record-voiceover();
