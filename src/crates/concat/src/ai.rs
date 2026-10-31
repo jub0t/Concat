@@ -200,16 +200,16 @@ impl Studio {
         if self.ai.busy {
             return;
         }
-        let config = match self.ai_config() {
-            Ok(config) => config,
-            Err(message) => {
-                self.ai.status = message;
-                return;
-            }
+        // A models fetch needs no model picked yet — the fetch is how
+        // a model gets picked — so the provider is taken straight from
+        // Preferences and only the key and base URL are checked. The
+        // full configuration validation, which also demands a picked
+        // model, would refuse every first fetch: no model can be
+        // picked before the list exists.
+        let Some(config) = self.prefs.ai_provider_config() else {
+            self.ai.status = "Pick a provider first: OpenRouter or Custom.".to_string();
+            return;
         };
-        // A models fetch needs no model picked yet, so the key and base
-        // URL are checked on their own rather than through the full
-        // configuration validation.
         if config.api_key.trim().is_empty()
             || (config.kind == concat_ai::ProviderKind::Custom && config.base_url().is_empty())
         {
