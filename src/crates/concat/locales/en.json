@@ -385,6 +385,7 @@
   "phone.aiFetchModelsAgain": "Fetch free models again",
   "phone.aiFreeModels": "Free models only. Pick one, then generate a plan.",
   "phone.aiGeneratePlan": "Generate plan",
+  "phone.aiModels": "Models, free ones first. Pick one, then generate a plan.",
   "phone.aiPrompt": "What should change?",
   "phone.aiPromptPlaceholder": "For example: cut the first clip in half, then add the title Summer at 2 seconds.",
   "phone.aiReferencesPlaceholder": "Reference links, separated by commas (style references only)",
