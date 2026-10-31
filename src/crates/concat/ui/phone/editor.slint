@@ -11,6 +11,7 @@ import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
 import { Param, ParamFormat, SwitchRow } from "../inspector/controls.slint";
 import { PreviewPane } from "../workspace/preview-pane.slint";
 import { ContextMenu } from "../primitives/context-menu.slint";
+import { Field } from "../primitives/modal.slint";
 import {
     CategoryPillBar, GroupPillBar, MediaCard, MediaItemData, PresetGrid, ShelfGrid, ShelfSearch,
 } from "../workspace/media-pane.slint";
@@ -434,6 +435,7 @@ export component PhoneEditor inherits Rectangle {
             : name == "adjustments" ? I18n.t("mediaPane.adjustments")
             : name == "transitions" ? I18n.t("mediaPane.transitions")
             : name == "project" ? I18n.t("phone.project")
+            : name == "ai" ? I18n.t("phone.aiEdit")
             : name == "canvas" || name == "clip-canvas" ? I18n.t("phone.canvas")
             : name == "clip-video" ? I18n.t("phone.edit")
             : name == "clip-speed" ? I18n.t("common.speed")
@@ -986,6 +988,15 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("phone.speak");
                 clicked => { Editor.speak(); }
             }
+            // The AI edit sheet: a prompt box, reference links, and the
+            // free models of the configured provider. Beside Captions
+            // and Speak, as the other tools that make something for you.
+            ToolItem {
+                glyph: Glyph.sparkle;
+                label: I18n.t("phone.aiEdit");
+                current: root.sheet == "ai";
+                clicked => { root.show("ai", false); }
+            }
             // The voiceover panel, which stands at the foot of the screen
             // over this bar; the same press puts it away, or stops a take.
             ToolItem {
@@ -1227,6 +1238,148 @@ export component PhoneEditor inherits Rectangle {
             // Room under the last row for the Add bar over it.
             if Editor.media-selected-count > 0: Rectangle {
                 height: root.add-bar-h - 12px;
+            }
+        }
+
+        // ── AI edit ──
+        //
+        // A prompt box, reference links, and the free models of the
+        // configured provider. The plan is shown in plain language
+        // first; nothing is applied until Apply is tapped, and the
+        // whole plan then lands as one undo step. Photos and videos
+        // reach the timeline through the Media sheet, the way any
+        // import does — the model is told their names, not handed
+        // the files — and a reference link is a style reference, not
+        // a download.
+        if root.sheet == "ai": VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+
+            SheetNote {
+                text: I18n.t("phone.aiEditHint");
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                SheetButton {
+                    glyph: Glyph.sparkle;
+                    primary: Editor.ai-provider == "openrouter";
+                    label: "OpenRouter";
+                    clicked => { Editor.ai-provider-changed("openrouter"); }
+                }
+                SheetButton {
+                    glyph: Glyph.sparkle;
+                    primary: Editor.ai-provider == "custom";
+                    label: I18n.t("phone.aiCustom");
+                    clicked => { Editor.ai-provider-changed("custom"); }
+                }
+            }
+
+            if Editor.ai-provider == "custom": Field {
+                value: Editor.ai-base-url;
+                placeholder: "https://example.com/v1";
+                technical: true;
+                edited(text) => { Editor.ai-base-url-edited(text); }
+            }
+            Field {
+                value: Editor.ai-api-key;
+                placeholder: I18n.t("phone.aiApiKey");
+                secret: true;
+                technical: true;
+                edited(text) => { Editor.ai-api-key-edited(text); }
+            }
+            SheetButton {
+                glyph: Glyph.sparkle;
+                primary: true;
+                enabled: !Editor.ai-busy && Editor.ai-api-key != "";
+                label: Editor.ai-models.length == 0 ? I18n.t("phone.aiFetchModels")
+                    : I18n.t("phone.aiFetchModelsAgain");
+                clicked => { Editor.ai-fetch-models(); }
+            }
+            if Editor.ai-models.length > 0: Text {
+                text: I18n.t("phone.aiFreeModels");
+                color: Theme.fg-dim;
+                font-size: Theme.fs;
+                wrap: word-wrap;
+            }
+            for model in Editor.ai-models: SheetButton {
+                glyph: Glyph.sparkle;
+                primary: Editor.ai-model == model;
+                label: model;
+                clicked => { Editor.ai-model-changed(model); }
+            }
+
+            SheetNote {
+                text: I18n.t("phone.aiPrompt");
+            }
+            Rectangle {
+                height: 104px;
+                border-radius: Theme.r;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: Theme.line;
+                clip: true;
+
+                ai-prompt-input := TextInput {
+                    x: 10px;
+                    y: 8px;
+                    width: parent.width - 20px;
+                    height: parent.height - 16px;
+                    text: Editor.ai-prompt;
+                    color: Theme.fg;
+                    font-size: Theme.fs-lg;
+                    single-line: false;
+                    wrap: word-wrap;
+                    selection-background-color: Theme.accent;
+                    selection-foreground-color: Theme.on-accent;
+                    edited => { Editor.ai-prompt-edited(self.text); }
+                }
+                if Editor.ai-prompt == "" && !ai-prompt-input.has-focus: Text {
+                    x: 10px;
+                    y: 8px;
+                    text: I18n.t("phone.aiPromptPlaceholder");
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-lg;
+                    wrap: word-wrap;
+                }
+            }
+
+            Field {
+                value: Editor.ai-references;
+                placeholder: I18n.t("phone.aiReferencesPlaceholder");
+                technical: true;
+                edited(text) => { Editor.ai-references-edited(text); }
+            }
+
+            SheetButton {
+                glyph: Glyph.sparkle;
+                primary: true;
+                enabled: !Editor.ai-busy && Editor.ai-prompt != "" && Editor.ai-model != "";
+                label: Editor.ai-busy ? I18n.t("phone.aiWorking") : I18n.t("phone.aiGeneratePlan");
+                clicked => { Editor.ai-generate(); }
+            }
+            if Editor.ai-status != "": SheetNote {
+                text: Editor.ai-status;
+            }
+            if Editor.ai-has-plan: VerticalLayout {
+                spacing: 8px;
+                SheetNote {
+                    text: Editor.ai-preview;
+                }
+                SheetButton {
+                    glyph: Glyph.sparkle;
+                    primary: true;
+                    label: I18n.t("phone.aiApplyPlan");
+                    clicked => {
+                        Editor.ai-apply();
+                        root.hide();
+                    }
+                }
+                SheetButton {
+                    glyph: Glyph.close;
+                    label: I18n.t("phone.aiDiscardPlan");
+                    clicked => { Editor.ai-discard(); }
+                }
             }
         }
 
