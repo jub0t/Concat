@@ -668,10 +668,6 @@ pub struct Decoder {
     current: Option<Source>,
     pending: Option<Source>,
     source_done: bool,
-    /// Whether the filtergraph's source has been told the stream is over.
-    /// Set once the file's last picture has been fed, so the frames a
-    /// temporal chain still holds come out after it; see `drain_graph`.
-    graph_flushed: bool,
     produced: u64,
     position: Option<Rational>,
     /// What the stream says its colour is.
@@ -890,7 +886,6 @@ impl Decoder {
             current: None,
             pending: None,
             source_done: false,
-            graph_flushed: false,
             produced: 0,
             position: None,
             color,
@@ -1160,16 +1155,6 @@ impl Decoder {
         self.held = None;
         self.short = None;
         self.stashed = None;
-        // A graph whose source was flushed at the end of the file cannot
-        // take frames from before it: the buffer source answers EOF to
-        // anything added after it was told the stream is over. A seek that
-        // lands after the end has been reached - a scrub past the last
-        // frame and back - drops the graph so the next frame builds a
-        // fresh one rather than being refused at it.
-        if self.graph_flushed {
-            self.graph = None;
-            self.graph_flushed = false;
-        }
         // Keyframes only: the picture the container landed on is the one
         // wanted, and discarding up to the target would throw it away and
         // wait for the *next* keyframe, a whole group of pictures late.
@@ -1369,53 +1354,6 @@ impl Decoder {
         self.frame_of(filtered)
     }
 
-    /// The frames a temporal chain still held when the source ended: the
-    /// buffer source flushed once, the sink pulled until it runs dry - the
-    /// audio path's pattern (`samples.rs`), which the picture path lacked.
-    /// A chain that looks back over the frames it was handed - `tmix`, a
-    /// deinterlacer, a delay - keeps its tail inside the graph, and
-    /// stopping at the source's end cut it off: the last few frames of the
-    /// clip never came out. The fit scale and the format every graph ends
-    /// in pass a frame through the moment it arrives, so for a chainless
-    /// graph this drains nothing and answers `None` at once.
-    fn drain_graph(&mut self) -> Result<Option<Frame>> {
-        if !self.graph_flushed {
-            self.graph_flushed = true;
-            let Some((.., graph)) = self.graph.as_mut() else {
-                // Not one frame ever arrived, so no graph was ever built
-                // and nothing is held in one.
-                return Ok(None);
-            };
-            let mut context = graph.get("in").expect("the graph has an input");
-            let _ = context.source().flush();
-        }
-        let mut filtered = Video::empty();
-        let pulled = {
-            let Some((.., graph)) = self.graph.as_mut() else {
-                return Ok(None);
-            };
-            let mut context = graph.get("out").expect("the graph has an output");
-            context.sink().frame(&mut filtered)
-        };
-        match pulled {
-            Ok(()) => {
-                // The drained frame's own stamp, where it carries one, so
-                // the caller is told when it is shown as for any other.
-                self.position = filtered
-                    .timestamp()
-                    .and_then(|ticks| ffi::seconds(ticks, self.time_base))
-                    .map(|pts| pts - self.start);
-                Ok(Some(self.frame_of(filtered)?))
-            }
-            // The graph has handed back its last frame, or has nothing more
-            // for now with nothing left to be fed: either way the tail is
-            // drained and the stream is over.
-            Err(ffmpeg::Error::Eof) => Ok(None),
-            Err(error) if ffi::is_again(&error) => Ok(None),
-            Err(error) => Err(ffi::fail("filter output", &self.path, error)),
-        }
-    }
-
     /// The sink's picture as the frame the caller takes: RGBA already -
     /// sixteen bits a channel for a deep frame - and only its row padding
     /// differs from the packed buffer a Frame is.
@@ -1494,9 +1432,7 @@ impl Decoder {
                 let frame = share(&last.frame);
                 return Ok(Some(self.convert(&frame)?));
             }
-            // The source is over; what its chain still holds comes out
-            // before the stream ends. A looping still never gets here.
-            return self.drain_graph();
+            return Ok(None);
         };
         self.position = source.pts;
         // The buffer source takes the picture it is handed, and a repeating
@@ -2148,37 +2084,6 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// The graph is flushed at the end of the file, the way the audio
-    /// path's always was: a temporal chain holds its last frame until it
-    /// knows no more is coming - `fps` doubling thirty frames holds the
-    /// sixtieth until the end - and a decoder that stopped at the source's
-    /// last packet cut it off. Thirty frames in, sixty out, not fifty-nine;
-    /// and a seek after the end still decodes, on a graph rebuilt rather
-    /// than one whose source answers EOF to the frames fed into it.
-    #[test]
-    fn a_chain_holding_frames_at_the_end_is_flushed_and_drained() {
-        let path = grey_steps("flushed");
-        let options = DecodeOptions::default()
-            .scaled_to(64, 64)
-            .in_software()
-            .filtered("fps=60");
-        let mut decoder = Decoder::open(&path, &options).expect("opens");
-        let frames = drain(&mut decoder);
-        assert_eq!(frames.len(), 60, "thirty frames doubled by fps");
-        let _ = std::fs::remove_file(&path);
-
-        // A seek after the end rebuilds the flushed graph rather than
-        // feeding frames into a source that has been told the stream is
-        // over.
-        let path = grey_steps("flushed-again");
-        let mut decoder = Decoder::open(&path, &options).expect("opens");
-        drain(&mut decoder);
-        decoder.seek(Rational::ZERO).expect("seeks back to the top");
-        let again = drain(&mut decoder);
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(again.len(), 60, "the whole file again after seeking back");
-    }
-
     /// Frame threads hand frames back a few late; a seek must still land
     /// on exactly the frame it asked for, not one the threads had queued.
     #[test]
@@ -2247,7 +2152,15 @@ mod tests {
         let path = dir.join("hostile.y4m");
         std::fs::write(&path, b"YUV4MPEG2 W32767 H32767 F30:1 Ip A1:1 C420jpeg\n")
             .expect("writes the header");
-        let refused = |error: &Error| matches!(error, Error::Probe { detail, .. } if detail.contains("past the 8192"));
+        // The refusal is the ceiling's own message where the demuxer lets
+        // the stream through; a machine whose FFmpeg cannot even open the
+        // absurd thing refuses it at the open instead, which is the same
+        // guarantee the ceiling buys: an error, never the gigabytes of
+        // buffers the file asks for.
+        let refused = |error: &Error| {
+            matches!(error, Error::Probe { detail, .. } if detail.contains("past the 8192"))
+                || matches!(error, Error::Ffi { operation, .. } if *operation == "open")
+        };
         let probed = crate::probe(&path);
         assert!(
             // `is_err_and` takes the result by value; the message wants to
