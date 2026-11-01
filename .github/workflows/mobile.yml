@@ -115,6 +115,13 @@ jobs:
           - target: x86_64-linux-android
             abi: x86_64
             ship: false
+    env:
+      # The FFmpeg version and the API level the build would otherwise
+      # take from ffmpeg-mobile.sh's defaults, named here so the cache key
+      # below is made of what the build runs under rather than of defaults
+      # only the script knows.
+      FFMPEG_VERSION: "8.1"
+      ANDROID_API: "26"
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -136,9 +143,13 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: ${{ matrix.target }}
+      # cargo-apk builds and signs the APK, pinned the way ci.yml pins
+      # cargo-nextest: an unpinned install would build with whatever
+      # release was newest on the day, and a build whose own tool changes
+      # beneath it is not one whose APK can be compared with the one before.
       - uses: taiki-e/cache-cargo-install-action@9ee83daaa7b96a6fab930949ecf1122bba04a389 # v3.0.8
         with:
-          tool: cargo-apk
+          tool: cargo-apk@0.10.0
 
       # The runner image carries the SDK and an NDK; the script finds the
       # newest NDK under the SDK on its own, and the build scripts of
@@ -147,15 +158,32 @@ jobs:
       - name: System libraries
         run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
 
+      # The NDK the build will use, found the way the scripts find it - the
+      # newest under the SDK - because the FFmpeg cache key below names it:
+      # libraries built against one NDK's headers and linker are not
+      # libraries to link under the next one, and a runner image bump would
+      # otherwise hand the new NDK the previous image's cache as if it were
+      # its own.
+      - name: The NDK the build will use
+        id: ndk
+        run: |
+          set -euo pipefail
+          ndk=$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)
+          test -n "$ndk"
+          echo "version=$ndk" >> "$GITHUB_OUTPUT"
+
       # Restored and saved as two steps rather than one, so the FFmpeg
       # build is kept the moment it finishes, whatever happens to the Rust
-      # build after it.
+      # build after it. The key names everything else the build varies by:
+      # the FFmpeg version and API level from the job's environment, and
+      # the NDK step above - a key of the script's text alone would go on
+      # serving libraries built for another FFmpeg or another NDK.
       - name: FFmpeg for Android (cached)
         id: ffmpeg
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: src/vendor/ffmpeg/${{ matrix.target }}
-          key: ffmpeg-${{ matrix.target }}-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+          key: ffmpeg-${{ matrix.target }}-${{ env.FFMPEG_VERSION }}-api${{ env.ANDROID_API }}-ndk${{ steps.ndk.outputs.version }}-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for Android
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: src/scripts/ffmpeg-mobile.sh ${{ matrix.target }}
@@ -351,6 +379,12 @@ jobs:
     name: iOS arm64
     runs-on: macos-15
     timeout-minutes: 90
+    env:
+      # The FFmpeg version the build would otherwise take from
+      # ffmpeg-mobile.sh's default, named here so the cache key below is
+      # made of what the build runs under rather than of a default only
+      # the script knows.
+      FFMPEG_VERSION: "8.1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -371,15 +405,31 @@ jobs:
 
       - run: brew install cmake
 
+      # The Xcode the build will use, for the FFmpeg cache key below: its
+      # SDK and clang are what FFmpeg was configured against, and a runner
+      # image bump would otherwise hand the new Xcode the previous image's
+      # libraries as if they were its own. `xcodebuild -version`'s first
+      # line is "Xcode <version>"; the word goes, so the key reads one.
+      - name: The Xcode the build will use
+        id: xcode
+        run: |
+          set -euo pipefail
+          xcode=$(xcodebuild -version | head -1 | sed 's/^Xcode //')
+          test -n "$xcode"
+          echo "version=$xcode" >> "$GITHUB_OUTPUT"
+
       # Restored and saved as two steps rather than one, so the FFmpeg
       # build is kept the moment it finishes, whatever happens to the Rust
-      # build after it.
+      # build after it. The key names everything else the build varies by:
+      # the FFmpeg version from the job's environment, and the Xcode step
+      # above - a key of the script's text alone would go on serving
+      # libraries built for another FFmpeg or another Xcode.
       - name: FFmpeg for iOS (cached)
         id: ffmpeg
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: src/vendor/ffmpeg/aarch64-apple-ios
-          key: ffmpeg-aarch64-apple-ios-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+          key: ffmpeg-aarch64-apple-ios-${{ env.FFMPEG_VERSION }}-xcode${{ steps.xcode.outputs.version }}-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for iOS
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: src/scripts/ffmpeg-mobile.sh aarch64-apple-ios
@@ -462,6 +512,12 @@ jobs:
     name: iOS simulator smoke
     runs-on: macos-15
     timeout-minutes: 90
+    env:
+      # The FFmpeg version the build would otherwise take from
+      # ffmpeg-mobile.sh's default, named here so the cache key below is
+      # made of what the build runs under rather than of a default only
+      # the script knows.
+      FFMPEG_VERSION: "8.1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -479,13 +535,30 @@ jobs:
       - run: brew install cmake
         timeout-minutes: 10
 
+      # The Xcode the build will use, for the FFmpeg cache key below, as
+      # the iOS job above discovers it.
+      - name: The Xcode the build will use
+        id: xcode
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          xcode=$(xcodebuild -version | head -1 | sed 's/^Xcode //')
+          test -n "$xcode"
+          echo "version=$xcode" >> "$GITHUB_OUTPUT"
+
+      # Restored and saved as two steps rather than one, so the FFmpeg
+      # build is kept the moment it finishes, whatever happens to the Rust
+      # build after it. The key names everything else the build varies by:
+      # the FFmpeg version from the job's environment, and the Xcode step
+      # above - a key of the script's text alone would go on serving
+      # libraries built for another FFmpeg or another Xcode.
       - name: FFmpeg for the iOS Simulator (cached)
         id: ffmpeg
         timeout-minutes: 10
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: src/vendor/ffmpeg/aarch64-apple-ios-sim
-          key: ffmpeg-aarch64-apple-ios-sim-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+          key: ffmpeg-aarch64-apple-ios-sim-${{ env.FFMPEG_VERSION }}-xcode${{ steps.xcode.outputs.version }}-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for the iOS Simulator
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         timeout-minutes: 45

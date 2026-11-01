@@ -238,7 +238,7 @@ def fill(path: pathlib.Path, block: str, sha: str, what: str) -> bool:
     return True
 
 
-def record(model: dict, sha: str) -> None:
+def record(model: dict, sha: str) -> bool:
     """Writes a digest into the table and into the engine's table beside it.
 
     Both, because the table is what the mirror is filled from and the
@@ -246,9 +246,14 @@ def record(model: dict, sha: str) -> None:
     only one of them is a download that can never pass. Each match is fenced
     to one model's own block, so the empty digest that gets filled is never
     the next one down.
+
+    Returns whether every digest landed. A regex that matches nothing is a
+    table that has drifted from the shape filled here, and a mirror run
+    that swallowed it would end green with nothing recorded - reading, in
+    the workflow's summary, as every model already carrying its digest.
     """
     model_id = model["id"]
-    fill(
+    manifest_ok = fill(
         MANIFEST,
         r'(\[\[model\]\]\nid = "'
         + re.escape(model_id)
@@ -258,7 +263,7 @@ def record(model: dict, sha: str) -> None:
     )
     path = TABLES[model["family"]]
     item, key = ("ModelSpec", "file") if model["family"] == "cutout" else ("KnownModel", "id")
-    fill(
+    engine_ok = fill(
         path,
         r"("
         + item
@@ -270,6 +275,10 @@ def record(model: dict, sha: str) -> None:
         sha,
         str(path.relative_to(ROOT)),
     )
+    if not (manifest_ok and engine_ok):
+        print(f"    the digest of {model_id!r} was not recorded everywhere it belongs", file=sys.stderr)
+        return False
+    return True
 
 
 def stream(url: str, into: pathlib.Path) -> tuple[int, str]:
@@ -312,8 +321,13 @@ def mirror(out: pathlib.Path, only: list[str]) -> int:
         partial.replace(target)
         print(f"    {received} bytes, sha256 {sha}")
         if not expected:
-            record(model, sha)
-            print(f"    recorded in {MANIFEST.relative_to(ROOT)}")
+            if record(model, sha):
+                print(f"    recorded in {MANIFEST.relative_to(ROOT)}")
+            else:
+                # The model and the file are named on stderr, by record()
+                # and fill(); the rest of the mirror is still filled, so a
+                # drifted table costs the run its exit code, not its work.
+                failed = 1
         if received != model["bytes"]:
             # Not fatal - the table's size is for a progress bar before the
             # server says - but a large drift means the row is stale.

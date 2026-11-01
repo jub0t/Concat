@@ -265,6 +265,19 @@ fn fs_darken(in: VsOut) -> @location(0) vec4<f32> {
     let s = shade(in);
     return vec4<f32>(min(s.rgb, ground_at(in.position)) * s.a, s.a);
 }
+
+// A picture made for its effects (`make_picture`): the straight colour and
+// alpha, the contract every shader pass works to - `fs_upload` writes
+// straight, a pass's `sample` reads straight - and the final layer draw
+// premultiplies once. `fs_main`'s premultiplied output is right for a
+// layer over the composite and wrong here: the pass would read the
+// coverage folded into the colour, and the final draw fold it in again,
+// so a half-transparent picture came out of its effects at rgb·a·a - a
+// 50 % white sticker rendered at 25 % brightness.
+@fragment
+fn fs_picture(in: VsOut) -> @location(0) vec4<f32> {
+    return shade(in);
+}
 "#;
 
 /// The format everything is drawn in: half floats a channel, so a stack
@@ -412,6 +425,18 @@ fn fs_resolve_tone_mapped_straight(@builtin(position) at: vec4<f32>) -> @locatio
     let light = to_sdr(colour.rgb * 203.0) / 203.0;
     let clipped = clamp(light, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
+}
+
+// A composite's premultiplied colour taken back to the straight colour the
+// shader passes' contract is: what a treatment runs over. A composite is
+// drawn premultiplied - `fs_main` blends source-over - and a pass's
+// `sample` reads straight, so a treatment fed the stack as it stood read
+// the coverage folded into the colour and darkened every pixel the canvas
+// let show through; over an opaque canvas the two are the same colour and
+// this is never drawn (see `prepare`).
+@fragment
+fn fs_straighten(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return unpremultiplied(textureLoad(picture, vec2<i32>(at.xy), 0));
 }
 "#;
 
@@ -595,6 +620,12 @@ struct Draw {
     /// size, that the ground is copied into just before the draw, for its
     /// fragment stage to sample. See `fs_lighten` in [`SHADER`].
     ground: Option<usize>,
+    /// A picture made for its effects rather than a layer over the
+    /// composite: drawn `fs_picture`, straight colour and no blending,
+    /// rather than `fs_main`'s premultiplied source-over - the pooled
+    /// texture the passes sample holds straight colour by contract. See
+    /// `make_picture`.
+    straight: bool,
 }
 
 /// A cached layer texture and its bind group, reusable for any layer of the
@@ -712,11 +743,22 @@ pub struct WgpuCompositor {
     ground_pipelines: [wgpu::RenderPipeline; 2],
     /// An uploaded frame into the working format.
     upload_pipeline: wgpu::RenderPipeline,
+    /// A picture made for its effects (`make_picture`): one quad over a
+    /// blank pooled target, unblended, writing the straight colour the
+    /// passes' contract is - `fs_picture`. The ordinary pipelines'
+    /// `fs_main` writes premultiplied, which a pass would read as straight
+    /// and the final layer draw premultiply again: semi-transparent media
+    /// through the prepared path came out rgb·a·a.
+    picture_pipeline: wgpu::RenderPipeline,
     /// A finished frame out of the working format into eight bits: as it
     /// is for an SDR timeline, and rolled off for an HDR one on an SDR
     /// screen.
     resolve_pipeline: wgpu::RenderPipeline,
     tone_mapped_pipeline: wgpu::RenderPipeline,
+    /// A composite back to straight colour, for a treatment's passes over
+    /// a stack the canvas lets show through: `fs_straighten`. See
+    /// `prepare`.
+    straighten_pipeline: wgpu::RenderPipeline,
     /// The same two for a see-through canvas: the frame handed back with
     /// straight alpha rather than opaque.
     straight_pipelines: [wgpu::RenderPipeline; 2],
@@ -1261,6 +1303,40 @@ impl WgpuCompositor {
             })
         });
 
+        // A picture made for its effects (see `make_picture`): the one quad
+        // covers the whole of its blank target, so no blending - and the
+        // fragment writes the straight colour (`fs_picture`). Through the
+        // ordinary pipeline the made picture held `fs_main`'s premultiplied
+        // rgb·a, the passes read that as the straight colour their contract
+        // promises them, and the final layer draw multiplied by a again:
+        // every semi-transparent picture run through the prepared path -
+        // an effect, a crop, a flip, a fit-resize - came out at rgb·a·a.
+        let picture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("concat picture"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(vertex_layout.clone())],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_picture"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: work,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         // The two copies in and out of the working format; see COPY_SHADER.
         let copy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat copy"),
@@ -1302,6 +1378,7 @@ impl WgpuCompositor {
         let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve");
         let tone_mapped_pipeline =
             copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve_tone_mapped");
+        let straighten_pipeline = copy_into(work, "fs_straighten");
         let straight_pipelines = ["fs_resolve_straight", "fs_resolve_tone_mapped_straight"]
             .map(|entry| copy_into(wgpu::TextureFormat::Rgba8Unorm, entry));
         let hdr_pipelines = ["fs_resolve_hlg", "fs_resolve_pq"]
@@ -1405,8 +1482,10 @@ impl WgpuCompositor {
             pipelines,
             ground_pipelines,
             upload_pipeline,
+            picture_pipeline,
             resolve_pipeline,
             tone_mapped_pipeline,
+            straighten_pipeline,
             straight_pipelines,
             see_through: false,
             output: concat_core::frame::Signal::Sdr,
@@ -1566,7 +1645,21 @@ impl WgpuCompositor {
             // whatever stack sits beneath it - so `clip_time` falls back
             // to the timeline's own clock, exactly what a package read
             // before this existed.
-            let treated = self.run_passes(width, height, below, &treatment.effects, seconds, 0.0);
+            //
+            // The passes read the stack in the straight colour their
+            // contract promises them, and a composite is drawn
+            // premultiplied, so a canvas that lets something show through
+            // - the one case the two differ, an alpha under one - is
+            // unpremultiplied first (`fs_straighten`). Over an opaque
+            // canvas a composite is opaque and premultiplied is straight,
+            // so the extra pass is not drawn: the common frame pays
+            // nothing.
+            let stack = if self.see_through {
+                self.straightened(width, height, below)
+            } else {
+                below
+            };
+            let treated = self.run_passes(width, height, stack, &treatment.effects, seconds, 0.0);
             ground = Some(if strength >= 1.0 {
                 treated
             } else {
@@ -1662,6 +1755,7 @@ impl WgpuCompositor {
             blend: layer.blend,
             mask,
             ground,
+            straight: false,
         });
         vertices.extend_from_slice(&Self::quad(
             &geometry,
@@ -1688,9 +1782,9 @@ impl WgpuCompositor {
     }
 
     /// The source through its crop, flips and fit, drawn into a pooled
-    /// texture of the fitted size over nothing: the picture as it will be
-    /// seen, for the effects to run over. `source` is the pooled index of
-    /// the upload.
+    /// texture of the fitted size over nothing, in the straight colour the
+    /// passes' contract is: the picture as it will be seen, for the effects
+    /// to run over. `source` is the pooled index of the upload.
     fn make_picture(
         &mut self,
         source: usize,
@@ -1707,6 +1801,7 @@ impl WgpuCompositor {
             blend: Blend::Normal,
             ground: None,
             mask,
+            straight: true,
         }];
         let corner = |x: f32, y: f32, u: f32, v: f32| {
             let (su, sv) = geometry.uv_of(u, v, flip_h, flip_v);
@@ -1752,6 +1847,7 @@ impl WgpuCompositor {
             blend: Blend::Normal,
             ground: None,
             mask,
+            straight: false,
         });
         let corner = |x: f32, y: f32, u: f32, v: f32| Vertex {
             position: [x, y],
@@ -1814,6 +1910,34 @@ impl WgpuCompositor {
         target
     }
 
+    /// The pooled texture `source` - a composite, drawn premultiplied -
+    /// copied into a pooled texture of its own as straight colour, and
+    /// that texture's index: what a treatment's passes run over on a
+    /// canvas that lets something show through (`fs_straighten`). The
+    /// passes' `sample` promises them straight colour; fed the composite
+    /// as it stood, they read the coverage folded into the colour, and a
+    /// stack beneath a treatment came out of it dark wherever the canvas
+    /// let something show through.
+    fn straightened(&mut self, width: u32, height: u32, source: usize) -> usize {
+        let target = self.claim(width, height);
+        let view = self.pool[&(width, height)][target]
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("concat straighten"),
+            });
+        Self::copy(
+            &mut encoder,
+            &self.straighten_pipeline,
+            &self.pool[&(width, height)][source].bind_group,
+            &view,
+        );
+        self.queue.submit([encoder.finish()]);
+        target
+    }
+
     /// Draws `plan` into a texture that stays on the GPU, and hands it
     /// back: `Rgba8Unorm`, bindable and renderable, exactly the plan's
     /// size. The texture is one of a small ring, so the caller may keep
@@ -1830,7 +1954,15 @@ impl WgpuCompositor {
         let texture = self.presentable(plan.width, plan.height);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.encode(&canvas_view, &canvas_texture, &draws, clear_of(plan.canvas));
-        self.resolve(&mut encoder, (plan.width, plan.height), canvas, &view);
+        // Into the presentable ring, which is eight-bit SDR whatever is
+        // being delivered to an encoder; see `resolve`.
+        self.resolve(
+            &mut encoder,
+            (plan.width, plan.height),
+            canvas,
+            false,
+            &view,
+        );
         self.queue.submit([encoder.finish()]);
         self.retire();
         Some(texture)
@@ -1880,7 +2012,9 @@ impl WgpuCompositor {
         let texture = self.presentable(side, side);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.encode(&canvas_view, &canvas_texture, &draws, wgpu::Color::BLACK);
-        self.resolve(&mut encoder, (side, side), canvas, &view);
+        // The trial's target is the presentable ring: eight-bit SDR, as a
+        // card cache's screen is; see `resolve`.
+        self.resolve(&mut encoder, (side, side), canvas, false, &view);
         self.queue.submit([encoder.finish()]);
         let waited = self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
@@ -2146,18 +2280,24 @@ impl WgpuCompositor {
         });
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         for &(index, draw) in draws {
-            match draw.ground {
-                Some(ground) => {
-                    let which = usize::from(draw.blend == Blend::Darken);
-                    pass.set_pipeline(&self.ground_pipelines[which]);
-                    pass.set_bind_group(2, &self.pool[&size][ground].bind_group, &[]);
-                }
-                None => {
-                    let which = Blend::ALL
-                        .iter()
-                        .position(|mode| *mode == draw.blend)
-                        .unwrap_or(0);
-                    pass.set_pipeline(&self.pipelines[which]);
+            if draw.straight {
+                // A picture made for its effects: straight colour, no
+                // blending (see `fs_picture`). Never alongside a ground.
+                pass.set_pipeline(&self.picture_pipeline);
+            } else {
+                match draw.ground {
+                    Some(ground) => {
+                        let which = usize::from(draw.blend == Blend::Darken);
+                        pass.set_pipeline(&self.ground_pipelines[which]);
+                        pass.set_bind_group(2, &self.pool[&size][ground].bind_group, &[]);
+                    }
+                    None => {
+                        let which = Blend::ALL
+                            .iter()
+                            .position(|mode| *mode == draw.blend)
+                            .unwrap_or(0);
+                        pass.set_pipeline(&self.pipelines[which]);
+                    }
                 }
             }
             pass.set_bind_group(0, &self.pool[&draw.size][draw.texture].bind_group, &[]);
@@ -2446,14 +2586,26 @@ impl WgpuCompositor {
     /// into `into`, eight bits a channel: the one conversion out of the
     /// working format, where the timeline's output transform is - as it is
     /// for SDR, rolled off for an HDR timeline on an SDR screen.
+    ///
+    /// `deep` says `into` is the sixteen-bit readback target an HDR file
+    /// is resolved into (`target`), rather than the presentable ring,
+    /// which is `Rgba8Unorm` by contract - the window shows it. The HDR
+    /// pipelines write `Rgba16Uint`, so a compositor delivering HDR that
+    /// resolved into the ring drew a pipeline whose target format the
+    /// view's is not: a validation error that kills the frame, on a
+    /// device without the uncaptured-error handler a panic. Held to the
+    /// SDR pipelines instead, the ring always gets what a screen takes -
+    /// an HDR timeline rolled off by BT.2390 - whatever is being
+    /// delivered to the encoder.
     fn resolve(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         size: (u32, u32),
         canvas: usize,
+        deep: bool,
         into: &wgpu::TextureView,
     ) {
-        let pipeline = if self.delivering_hdr() {
+        let pipeline = if deep && self.delivering_hdr() {
             &self.hdr_pipelines[usize::from(self.output == concat_core::frame::Signal::Pq)]
         } else {
             let sdr = self.output == concat_core::frame::Signal::Sdr;
@@ -2552,7 +2704,8 @@ impl WgpuCompositor {
     }
 
     /// Records a texel-for-texel copy of the picture bound by `from` into
-    /// `into`, through `pipeline`: the upload's or the resolve's.
+    /// `into`, through `pipeline`: the upload's, the resolve's, or the
+    /// straightening copy a treatment's passes read (see `straightened`).
     fn copy(
         encoder: &mut wgpu::CommandEncoder,
         pipeline: &wgpu::RenderPipeline,
@@ -3022,7 +3175,9 @@ impl WgpuCompositor {
             pass,
             &canvas_view,
         )?;
-        self.resolve(&mut encoder, (width, height), canvas, &out_view);
+        // Into the presentable ring, eight-bit SDR whatever is being
+        // delivered to an encoder; see `resolve`.
+        self.resolve(&mut encoder, (width, height), canvas, false, &out_view);
         self.queue.submit([encoder.finish()]);
         self.retire();
         Some(out)
@@ -3686,7 +3841,15 @@ impl Compositor for WgpuCompositor {
             pass,
             &canvas_view,
         )?;
-        self.resolve(&mut encoder, (width, height), canvas, &view);
+        // The readback target, which is the deep one exactly when HDR is
+        // being delivered (`target` made it so); see `resolve`.
+        self.resolve(
+            &mut encoder,
+            (width, height),
+            canvas,
+            self.delivering_hdr(),
+            &view,
+        );
         {
             let target = self.current_target();
             encoder.copy_texture_to_buffer(
@@ -3737,7 +3900,15 @@ impl WgpuCompositor {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.encode(&canvas_view, &canvas_texture, draws, clear);
-        self.resolve(&mut encoder, (width, height), canvas, &view);
+        // The readback target, which is the deep one exactly when HDR is
+        // being delivered (`target` made it so); see `resolve`.
+        self.resolve(
+            &mut encoder,
+            (width, height),
+            canvas,
+            self.delivering_hdr(),
+            &view,
+        );
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &target.texture,

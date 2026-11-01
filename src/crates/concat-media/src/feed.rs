@@ -112,8 +112,20 @@ pub(crate) fn next_frame<C: Codec, E>(
                 refused = 0;
                 damaged = 0;
             }
-            // Told twice the stream is over: it heard the first time.
-            Err(ffmpeg::Error::Eof) if matches!(input, Input::End) => {}
+            // Told twice the stream is over: it heard the first time. A
+            // codec still working through its tail says this every round
+            // while `receive` says "try again", so it is waited on like a
+            // refused packet - counted, and for as many rounds only. Not
+            // counting it let a codec that answers `Eof` to every end and
+            // `EAGAIN` to every receive spin here for ever: a wedged
+            // decoder that never surfaced as `Stall::Stuck`, the one way
+            // a stuck reader is meant to be told apart from a slow one.
+            Err(ffmpeg::Error::Eof) if matches!(input, Input::End) => {
+                refused += 1;
+                if refused >= STUCK_AFTER {
+                    return Err(Stall::Stuck);
+                }
+            }
             Err(ffmpeg::Error::InvalidData) if damaged + 1 < DAMAGED_AFTER => damaged += 1,
             Err(error) if ffi::is_again(&error) => {
                 *held = Some(input);
@@ -369,6 +381,31 @@ mod tests {
         // The one packet it kept refusing was read once and is still held.
         assert_eq!(reads, 1);
         assert!(matches!(held, Some(Input::Packet(7))));
+    }
+
+    /// A codec that answers "the stream is already over" to every end it is
+    /// handed, and "try again" to every read of its frames, is the same
+    /// wedged decoder as one that refuses packets - counted, and stuck after
+    /// the same number of rounds, rather than spinning for ever.
+    #[test]
+    fn a_codec_that_answers_eof_to_every_end_is_stuck_not_spinning() {
+        struct Ended;
+        impl Codec for Ended {
+            type Packet = u32;
+            type Frame = u32;
+            fn send(&mut self, _: &Input<u32>) -> Result<(), ffmpeg::Error> {
+                Err(ffmpeg::Error::Eof)
+            }
+            fn receive(&mut self) -> Result<u32, ffmpeg::Error> {
+                Err(again())
+            }
+        }
+        let mut held = None;
+        let result = next_frame(&mut Ended, &mut held, || -> Result<Input<u32>, ()> {
+            Ok(Input::End)
+        });
+        assert!(matches!(result, Err(Stall::Stuck)));
+        assert!(held.is_none());
     }
 
     /// A damaged packet is passed over and the stream read on, as a

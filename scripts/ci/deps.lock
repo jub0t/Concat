@@ -17,6 +17,12 @@ ffmpeg-linuxarm64   https://github.com/BtbN/FFmpeg-Builds/releases/download/auto
 ffmpeg-win64        https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-win64-gpl-shared-8.1.zip          dfe81c3aa0a546ee81980b1b824486dd0fe0a1d452f00cb55135379a74be7bcf
 ffmpeg-winarm64     https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-winarm64-gpl-shared-8.1.zip       31f35037625a8084085248fb47de2958678601ee9ab54e087234693616359c4b
 
+# FFmpeg's own source, which src/scripts/ffmpeg-mobile.sh compiles for
+# the phones (LGPL, nothing else linked in). The version is FFMPEG_VERSION
+# there and in .github/workflows/mobile.yml, and the row is named for it:
+# bumping it is adding the next row with its digest.
+ffmpeg-src-8.1      https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz      b072aed6871998cce9b36e7774033105ca29e33632be5b6347f3206898e0756a
+
 # ONNX Runtime, Microsoft's own builds. 1.28.0 is the version ort
 # 2.0.0-rc.13 is built against (ORT_VERSION in ci.yml and build-app.yml);
 # 1.23.2 is the last Microsoft made for Intel Macs (ORT_INTEL_MAC_VERSION).
@@ -35,6 +41,14 @@ sherpa-onnx-osx-arm64-static-lib            https://github.com/k2-fsa/sherpa-onn
 sherpa-onnx-osx-x64-static-lib              https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-osx-x64-static-lib.tar.bz2              8d8db6199af0119b16f6e2b01c5548b90c4392a462388dd59491e8c471283cca
 sherpa-onnx-win-x64-shared-MT-Release-lib   https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-win-x64-shared-MT-Release-lib.tar.bz2   7a362a9f339a2937e7f8806e904f3e8a031a7774982eea08bca8336b2c257529
 sherpa-onnx-win-arm64-shared-MT-Release-lib https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-win-arm64-shared-MT-Release-lib.tar.bz2 2afa23a479fe15729e1ea9a9ed242454b1d9fccf749103742071684baa91a232
+
+# sherpa-onnx's prebuilt libraries for the phones, what
+# src/scripts/sherpa-mobile.sh fetches: one Android archive, with every
+# ABI in it - the script keeps the one it is built for - and the iOS
+# xcframework zip, under k2-fsa's `xcframework` tag. The version is the
+# lockfile's, as the desktop rows' above; bump them together.
+sherpa-onnx-android           https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-android.tar.bz2                                     7208b26f5109777d1c3c22a45f04665419d6f3ea81f6811a2dfd5ff2d7622e6e
+sherpa-onnx-ios-xcframework   https://github.com/k2-fsa/sherpa-onnx/releases/download/xcframework/sherpa-onnx-v1.13.7-ios-shared-onnxruntime-static.xcframework.zip   72db1b34ff75c6b4f3f40a73d46c4241e1c2b23599638975c66ad6dec10bb298
 
 # The Linux packagers: nfpm (NFPM_VERSION in build-app.yml) for the .deb
 # and .rpm, and appimagetool with the AppImage runtime it embeds, both a

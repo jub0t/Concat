@@ -9,6 +9,16 @@
 //! the line transport's contract in a protobuf envelope; `proto/concat.proto`
 //! says so at length.
 //!
+//! An Events stream is held, not given away: at most [`MAX_STREAMS`] are
+//! open at once - one more is answered with `resource_exhausted`, the way
+//! the JSON door answers a caller past its seats - and each is taken out
+//! of the hub's fan-out the moment it ends, not when the next event finds
+//! it gone. A caller that opens streams and abandons them has to run out
+//! of streams before the server runs out of anything else (audit
+//! 2026-09-23: an abandoned stream stayed subscribed until a later event
+//! noticed, which on an idle server is never, and there was no cap at
+//! all).
+//!
 //! tonic needs tokio, and the rest of the workspace does not, so the
 //! runtime lives here: one, on its own thread, doing nothing but I/O. A
 //! call is handed to the [`Hub`] from a blocking task, the same way a
@@ -18,15 +28,17 @@
 //! metadata; one without it, or with another, is `UNAUTHENTICATED`.
 
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::task::{Context, Poll};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use concat_api::rpc::{Call, Message};
 use concat_api::{ApiError, Event, Response};
 use serde_json::{Value, json};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{Stream, wrappers::ReceiverStream};
 use tonic::{Request, Status};
 
 use crate::throttle::{Peer, Throttle};
@@ -40,9 +52,20 @@ pub mod proto {
 
 use proto::concat_server::{Concat, ConcatServer};
 
-/// The service: the hub, and nothing else.
+/// How many Events streams may be open at once; one more is answered
+/// with `resource_exhausted`. The same number as the JSON door's
+/// [`crate::json::MAX_CONNECTIONS`] seats, and for the same reason: a
+/// caller has to run out of streams before the server runs out of
+/// anything else. A stream here is a channel and an entry in the fan-out,
+/// where a JSON seat is a thread and a socket, so the numbers may differ;
+/// they have not needed to. Public the way the JSON door's own caps are:
+/// the crate's docs say what this one is.
+pub const MAX_STREAMS: usize = 64;
+
+/// The service: the hub, and a count of the Events streams open.
 struct Service {
     hub: Hub,
+    seats: Arc<AtomicUsize>,
 }
 
 #[tonic::async_trait]
@@ -62,20 +85,112 @@ impl Concat for Service {
         Ok(tonic::Response::new(encode(response)))
     }
 
-    type EventsStream = ReceiverStream<Result<proto::Event, Status>>;
+    type EventsStream = Guarded;
 
     async fn events(
         &self,
         _request: Request<proto::EventsRequest>,
     ) -> Result<tonic::Response<Self::EventsStream>, Status> {
+        // A seat first, before anything is held for this caller: one past
+        // the cap is refused the way the JSON door refuses a caller past
+        // its seats (audit 2026-09-23: there was no cap here at all).
+        let Some(seat) = Seat::take(&self.seats) else {
+            return Err(Status::resource_exhausted(format!(
+                "{MAX_STREAMS} event streams are open already"
+            )));
+        };
         let (sender, receiver) = tokio::sync::mpsc::channel(64);
         // Called on the job's thread, which must not wait on a caller: one
         // that has not taken the last sixty-four events is treated as gone,
         // like one that hung up.
-        self.hub.subscribe(Arc::new(move |event: &Event| {
+        let id = self.hub.subscribe(Arc::new(move |event: &Event| {
             sender.try_send(Ok(encode_event(event))).is_ok()
         }));
-        Ok(tonic::Response::new(ReceiverStream::new(receiver)))
+        // The guards ride in the stream tonic is handed: it drops the
+        // response body when the caller's stream ends - the caller went
+        // away, reset the HTTP/2 stream, or the server stopped - and the
+        // fan-out entry and the seat come back with it, not at the next
+        // event, which on an idle server is never (audit 2026-09-23:
+        // abandoned streams accumulated until one did).
+        Ok(tonic::Response::new(Guarded {
+            events: ReceiverStream::new(receiver),
+            seat,
+            subscribed: Subscribed {
+                hub: self.hub.clone(),
+                id,
+            },
+        }))
+    }
+}
+
+/// One of a counted number of open Events streams, given back when
+/// dropped. json.rs's `Place`, written again here rather than shared
+/// there: this door counts streams, that one seats connections, and each
+/// keeps its own count.
+struct Seat(Arc<AtomicUsize>);
+
+impl Seat {
+    /// Takes a place if one is free; `None` when [`MAX_STREAMS`] streams
+    /// are open already.
+    fn take(count: &Arc<AtomicUsize>) -> Option<Seat> {
+        let mut taken = count.load(Ordering::SeqCst);
+        loop {
+            if taken >= MAX_STREAMS {
+                return None;
+            }
+            match count.compare_exchange(taken, taken + 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return Some(Seat(Arc::clone(count))),
+                Err(now) => taken = now,
+            }
+        }
+    }
+}
+
+impl Drop for Seat {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// An Events stream's entry in the hub's fan-out, taken out when the
+/// stream drops: json.rs's `Registered` pattern, for a subscriber rather
+/// than a connection. The stream guard owns one, so a caller that has
+/// gone is forgotten at once instead of at the next event.
+struct Subscribed {
+    hub: Hub,
+    id: u64,
+}
+
+impl Drop for Subscribed {
+    fn drop(&mut self) {
+        self.hub.unsubscribe_by_id(self.id);
+    }
+}
+
+/// What `Events` hands back: the channel's receiving end wearing the
+/// guards - the seat, the fan-out entry - that come back when the stream
+/// ends. Every poll is handed straight to the receiver; only the guards
+/// are this type's own business.
+struct Guarded {
+    events: ReceiverStream<Result<proto::Event, Status>>,
+    // Held for their Drop alone: the seat frees when the stream ends and
+    // the fan-out entry goes with it. Nothing ever reads them, which is
+    // the point of a guard, so the fields say so to the lint that cannot
+    // see a drop coming.
+    #[allow(dead_code)]
+    seat: Seat,
+    #[allow(dead_code)]
+    subscribed: Subscribed,
+}
+
+impl Stream for Guarded {
+    type Item = Result<proto::Event, Status>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // No projection needed: the receiver and the guards are `Unpin`,
+        // so the guard type is too.
+        let this = self.get_mut();
+        Pin::new(&mut this.events).poll_next(cx)
     }
 }
 
@@ -160,8 +275,15 @@ pub(crate) fn serve(
                     return;
                 };
                 let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
-                let service =
-                    ConcatServer::with_interceptor(Service { hub }, bearer(token, throttle));
+                let service = ConcatServer::with_interceptor(
+                    Service {
+                        hub,
+                        // This door's count of open Events streams, at zero
+                        // until a caller opens one; see [`MAX_STREAMS`].
+                        seats: Arc::new(AtomicUsize::new(0)),
+                    },
+                    bearer(token, throttle),
+                );
                 let stopped = async move {
                     while !stop.load(Ordering::SeqCst) {
                         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -314,6 +436,65 @@ mod tests {
                 .await
                 .is_ok()
         );
+        drop(client);
+        tokio::task::spawn_blocking(move || server.stop())
+            .await
+            .expect("stops");
+    }
+
+    /// An Events stream takes one of [`MAX_STREAMS`] seats and gives it
+    /// back when it ends, and takes itself out of the fan-out with it: a
+    /// caller that opens streams and walks away has to run out of them,
+    /// and leaves nothing subscribed behind (audit 2026-09-23 - before,
+    /// an abandoned stream stayed in the fan-out until the next event,
+    /// which never comes on an idle server).
+    #[tokio::test]
+    async fn events_streams_are_capped_and_not_left_subscribed() {
+        let (server, _scratch) = server(None);
+        let address = server.grpc_addr().expect("listening");
+        let token = server.token().to_owned();
+        let mut client = ConcatClient::connect(format!("http://{address}"))
+            .await
+            .expect("connects");
+        let mut streams = Vec::new();
+        for _ in 0..MAX_STREAMS {
+            let stream = client
+                .events(with_bearer(proto::EventsRequest {}, &token))
+                .await
+                .expect("a stream");
+            streams.push(stream.into_inner());
+        }
+        // One past the cap: refused, not taken.
+        match client
+            .events(with_bearer(proto::EventsRequest {}, &token))
+            .await
+        {
+            Ok(_) => panic!("the streams were capped, but one more was taken"),
+            Err(status) => assert_eq!(status.code(), tonic::Code::ResourceExhausted),
+        }
+        // Gone: the guards run as tonic drops the streams' bodies, and the
+        // hub is left with nobody subscribed.
+        drop(streams);
+        drop(client);
+        let unsubscribed = tokio::time::timeout(Duration::from_secs(5), async {
+            while server.hub().subscribers() > 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(
+            unsubscribed.is_ok(),
+            "{} subscribers were left behind",
+            server.hub().subscribers()
+        );
+        // A seat given back is taken again.
+        let mut client = ConcatClient::connect(format!("http://{address}"))
+            .await
+            .expect("connects");
+        client
+            .events(with_bearer(proto::EventsRequest {}, &token))
+            .await
+            .expect("a seat was given back");
         drop(client);
         tokio::task::spawn_blocking(move || server.stop())
             .await

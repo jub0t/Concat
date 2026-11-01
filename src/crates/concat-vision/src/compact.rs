@@ -88,15 +88,23 @@ impl CompactNet {
                         node.inputs
                             .get(index)
                             .and_then(|name| tensors.get(name))
-                            .ok_or_else(|| format!("enhance: layer {} has no weights", layers.len()))
+                            .ok_or_else(|| {
+                                format!("enhance: layer {} has no weights", layers.len())
+                            })
                     };
                     let (dims, weight) = tensor(1)?;
                     let (_, bias) = tensor(2)?;
                     let [out_channels, in_channels, 3, 3] = dims[..] else {
-                        return Err(format!("enhance: layer {} is shaped {dims:?}", layers.len()));
+                        return Err(format!(
+                            "enhance: layer {} is shaped {dims:?}",
+                            layers.len()
+                        ));
                     };
                     if bias.len() != out_channels {
-                        return Err(format!("enhance: layer {}'s bias is the wrong length", layers.len()));
+                        return Err(format!(
+                            "enhance: layer {}'s bias is the wrong length",
+                            layers.len()
+                        ));
                     }
                     // The PReLU after it, when the next node is one.
                     let prelu = match nodes.get(at + 1) {
@@ -129,7 +137,9 @@ impl CompactNet {
                 }
                 "Resize" => {
                     if node.string("mode").is_some_and(|mode| mode != "nearest") {
-                        return Err("enhance: the input is not enlarged by nearest neighbour".into());
+                        return Err(
+                            "enhance: the input is not enlarged by nearest neighbour".into()
+                        );
                     }
                 }
                 "PRelu" | "Constant" | "Add" => {}
@@ -140,11 +150,15 @@ impl CompactNet {
         // The chain must join up: three channels in, 64s through, and the
         // last layer's channels exactly the shuffle's.
         let chained = layers.first().is_some_and(|first| first.in_channels == 3)
-            && layers.windows(2).all(|pair| pair[0].out_channels == pair[1].in_channels)
-            && layers.last().is_some_and(|last| {
-                last.out_channels == 3 * scale * scale && last.prelu.is_none()
-            })
-            && layers[..layers.len() - 1].iter().all(|layer| layer.prelu.is_some());
+            && layers
+                .windows(2)
+                .all(|pair| pair[0].out_channels == pair[1].in_channels)
+            && layers
+                .last()
+                .is_some_and(|last| last.out_channels == 3 * scale * scale && last.prelu.is_none())
+            && layers[..layers.len() - 1]
+                .iter()
+                .all(|layer| layer.prelu.is_some());
         if !chained {
             return Err("enhance: the model's layers do not chain as a compact network".into());
         }
@@ -175,7 +189,8 @@ impl CompactNet {
                                     if sx < 0 || sx >= side as isize {
                                         continue;
                                     }
-                                    let w = layer.weight[((o * layer.in_channels + i) * 3 + ky) * 3 + kx];
+                                    let w = layer.weight
+                                        [((o * layer.in_channels + i) * 3 + ky) * 3 + kx];
                                     acc += w * x[i * area + sy as usize * side + sx as usize];
                                 }
                             }
@@ -199,7 +214,8 @@ impl CompactNet {
                 for ox in 0..big {
                     let (y, dy, xx, dx) = (oy / s, oy % s, ox / s, ox % s);
                     let shuffled = x[(c * s * s + dy * s + dx) * area + y * side + xx];
-                    out[c * big * big + oy * big + ox] = shuffled + planes[c * area + y * side + xx];
+                    out[c * big * big + oy * big + ox] =
+                        shuffled + planes[c * area + y * side + xx];
                 }
             }
         }
@@ -311,7 +327,10 @@ fn tensor_of(bytes: &[u8]) -> Result<(String, Vec<usize>, Vec<f32>), String> {
     }
     let count: usize = dims.iter().product();
     if !data.is_empty() && data.len() != count.max(1) {
-        return Err(format!("enhance: {name} holds {} numbers, not {count}", data.len()));
+        return Err(format!(
+            "enhance: {name} holds {} numbers, not {count}",
+            data.len()
+        ));
     }
     Ok((name, dims, data))
 }
@@ -376,7 +395,9 @@ fn fields(bytes: &[u8]) -> Result<Vec<(u64, Value<'_>)>, String> {
 fn varint(bytes: &[u8], mut at: usize) -> Result<(u64, usize), String> {
     let mut value = 0u64;
     for shift in (0..64).step_by(7) {
-        let byte = *bytes.get(at).ok_or("enhance: the model file is cut short")?;
+        let byte = *bytes
+            .get(at)
+            .ok_or("enhance: the model file is cut short")?;
         at += 1;
         value |= u64::from(byte & 0x7f) << shift;
         if byte < 0x80 {
@@ -390,8 +411,12 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// What the tests of this crate share.
-#[cfg(test)]
+/// What the tests of this crate share. The only thing shared so far is
+/// the Enhance model's path, which the CoreML probe below reads - a
+/// probe that exists only on Apple platforms with the `infer` feature,
+/// so the module is gated to match: on every other platform the re-export
+/// would be unused, and the workspace's CI denies warnings.
+#[cfg(all(test, feature = "infer", target_vendor = "apple"))]
 pub(crate) mod tests_support {
     pub(crate) use super::tests::fetched_model;
 }
@@ -438,7 +463,10 @@ mod tests {
                 .into_iter()
                 .collect()
         } else if cfg!(windows) {
-            std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).into_iter().collect()
+            std::env::var_os("LOCALAPPDATA")
+                .map(std::path::PathBuf::from)
+                .into_iter()
+                .collect()
         } else {
             std::env::var_os("HOME")
                 .map(|home| std::path::PathBuf::from(home).join(".local/share"))
@@ -448,8 +476,11 @@ mod tests {
         bases
             .iter()
             .flat_map(|base| {
-                ["org.standalones.concat", "app.concat.editor"]
-                    .map(|id| base.join(id).join("cutout-models").join("realesr-general-x4v3.onnx"))
+                ["org.standalones.concat", "app.concat.editor"].map(|id| {
+                    base.join(id)
+                        .join("cutout-models")
+                        .join("realesr-general-x4v3.onnx")
+                })
             })
             .find(|file| file.is_file())
     }

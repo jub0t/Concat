@@ -206,7 +206,7 @@ which permit shipping them alongside an application that uses them.
 ## The cutout models
 
 Remove background runs four models, none of which ship inside the app
-except the first:
+except the first, and Enhance a fifth from the same table:
 
 - Google's MediaPipe Selfie Segmentation (Apache-2.0), in the ONNX
   conversion published by the ONNX Community
@@ -225,9 +225,14 @@ except the first:
 - SlimSAM (https://github.com/czg1225/SlimSAM, Apache-2.0), in the ONNX
   export published at https://huggingface.co/Xenova/slimsam-77-uniform
   (Apache-2.0), downloaded on first use. The brushes' model.
+- Real-ESRGAN, the realesr-general-x4v3 model, by Xintao Wang and others
+  (https://github.com/xinntao/Real-ESRGAN, BSD-3-Clause), in the ONNX
+  conversion published by CoderViking
+  (https://huggingface.co/CoderViking/realesr-general-x4v3-onnx,
+  BSD-3-Clause), downloaded on first use. Enhance's restoration model.
 
 Downloaded models live in the app's data directory under `cutout-models`
-and are never bundled; the three that are downloaded come from Concat's own
+and are never bundled; the four that are downloaded come from Concat's own
 mirror of the sources named above, described below. They are all run by
 ONNX Runtime
 (https://github.com/microsoft/onnxruntime, MIT) through the `ort` crate

@@ -22,4 +22,7 @@ at = "max"
 input = [0.8, 0.5, 0.3, 1]
 to = [0.05, 0.15, 0.4, 1]
 progress = 0.37
-expect = [0.29736, 0.26538, 0.36694, 1]
+# The led edge: the band is off the picture at both ends, so the widest
+# softness blends by where the edge has reached at 0.37 rather than
+# straddling the centre; see effect.wgsl.
+expect = [0.50879, 0.36426, 0.33887, 1]

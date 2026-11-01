@@ -705,6 +705,24 @@ impl Decoder {
             let parameters = stream.parameters();
             (parameters.width(), parameters.height())
         };
+        // A coded size past what a frame may be is not decoded, whatever
+        // size is asked for out of it: the codec allocates for the size the
+        // file declares, so a crafted 32767×32767 stream is multi-gigabyte
+        // frame buffers, and no picture a person can watch is past 8K.
+        // MAX_SIDE is the ceiling the document, the request and the preview
+        // are held to already; it is refused here as a probe error rather
+        // than read, the way a stream with no size is.
+        if coded.0 > concat_core::frame::MAX_SIDE || coded.1 > concat_core::frame::MAX_SIDE {
+            return Err(Error::Probe {
+                path: path.to_path_buf(),
+                detail: format!(
+                    "video stream is {}×{}, past the {} a side a frame may be",
+                    coded.0,
+                    coded.1,
+                    concat_core::frame::MAX_SIDE
+                ),
+            });
+        }
 
         // The device the policy asks for this stream, if the process has
         // one; see `hardware::hardware_wins` for which streams it wants. A
@@ -1333,10 +1351,13 @@ impl Decoder {
                 .frame(&mut filtered)
                 .map_err(|error| ffi::fail("filter output", &self.path, error))?;
         }
+        self.frame_of(filtered)
+    }
 
-        // The sink's picture is RGBA already - sixteen bits a channel for a
-        // deep frame - and only its row padding differs from the packed
-        // buffer a Frame is.
+    /// The sink's picture as the frame the caller takes: RGBA already -
+    /// sixteen bits a channel for a deep frame - and only its row padding
+    /// differs from the packed buffer a Frame is.
+    fn frame_of(&self, filtered: Video) -> Result<Frame> {
         let deep = deep_output(&self.options, Some(&self.color));
         let width = filtered.width();
         let height = filtered.height();
@@ -2116,6 +2137,48 @@ mod tests {
     #[test]
     fn a_missing_file_is_an_error_not_a_panic() {
         assert!(Decoder::open("does-not-exist.mp4", &DecodeOptions::default()).is_err());
+    }
+
+    /// A file that declares more than 8K a side is refused by the probe and
+    /// by the decoder rather than decoded into multi-gigabyte frame buffers,
+    /// and a smaller decode size asked for does not excuse it: the codec
+    /// allocates for the coded size the file declares. The y4m header
+    /// carries the size with no frames behind it, the cheapest hostile
+    /// container there is.
+    #[test]
+    fn a_stream_beyond_the_largest_frame_is_refused() {
+        let dir = std::env::temp_dir().join(format!("concat-decode-huge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let path = dir.join("hostile.y4m");
+        std::fs::write(&path, b"YUV4MPEG2 W32767 H32767 F30:1 Ip A1:1 C420jpeg\n")
+            .expect("writes the header");
+        // The refusal is the ceiling's own message where the demuxer lets
+        // the stream through; a machine whose FFmpeg cannot even open the
+        // absurd thing refuses it at the open instead, which is the same
+        // guarantee the ceiling buys: an error, never the gigabytes of
+        // buffers the file asks for.
+        let refused = |error: &Error| {
+            matches!(error, Error::Probe { detail, .. } if detail.contains("past the 8192"))
+                || matches!(error, Error::Ffi { operation, .. } if *operation == "open")
+        };
+        let probed = crate::probe(&path);
+        assert!(
+            // `is_err_and` takes the result by value; the message wants to
+            // print it afterwards, so the refusal is asked of a borrow.
+            probed.as_ref().is_err_and(&refused),
+            "the probe refuses a stream past the largest frame: {probed:?}"
+        );
+        let decoded = Decoder::open(&path, &DecodeOptions::default());
+        assert!(
+            decoded.is_err_and(|error| refused(&error)),
+            "the decoder refuses a stream past the largest frame"
+        );
+        let decoded = Decoder::open(&path, &DecodeOptions::default().scaled_to(64, 64));
+        assert!(
+            decoded.is_err_and(|error| refused(&error)),
+            "a smaller decode size does not excuse it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An MPEG-TS seek lands on the picture asked for. The container has no
