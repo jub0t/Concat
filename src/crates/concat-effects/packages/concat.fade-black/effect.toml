@@ -6,6 +6,7 @@ name = "Fade to Black"
 kind = "transition"
 category = "Basic"
 order = 1
+aliases = ["fade-black"]
 description = "The outgoing shot fades down to black, then the incoming one fades up out of it."
 
 [transition]

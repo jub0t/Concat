@@ -6,6 +6,7 @@ name = "Zoom"
 kind = "transition"
 category = "Zoom"
 order = 3
+aliases = ["zoom"]
 description = "A whip zoom out of the outgoing shot and into the incoming one."
 
 [[param]]

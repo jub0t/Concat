@@ -6,6 +6,7 @@ name = "Linear Wipe"
 kind = "transition"
 category = "Wipe"
 order = 10
+aliases = ["wipe-left", "wipe-right"]
 description = "A straight edge wipes the incoming shot across the outgoing one."
 
 [[param]]

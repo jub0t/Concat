@@ -6,6 +6,7 @@ name = "Push"
 kind = "transition"
 category = "Slide"
 order = 5
+aliases = ["push"]
 description = "The incoming shot pushes the outgoing one off the frame."
 
 [[param]]

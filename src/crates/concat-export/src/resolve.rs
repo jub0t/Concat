@@ -180,18 +180,24 @@ pub(crate) struct BuiltTimeline {
     pub(crate) stabilized: HashMap<ClipId, StabilizeJob>,
 }
 
-/// A packaged transition over a cut. The incoming clip has been overlapped
-/// onto the outgoing one and moved to `to_track`; over `[start, end)` the
-/// compositor combines the stack below `to_track` (the outgoing picture) with
-/// the incoming layer through the package's two-input shader. A machine with
-/// no GPU shows the dissolve the incoming clip already carries instead.
+/// A transition, as the compositor draws it: over `[start, end)`, the
+/// stack beneath `track` drawn twice - as it is before the cut, `from`'s
+/// clips in it and `to`'s left out, and as it is after, the other way
+/// round - and the two combined through the package's two-input shader.
+/// With no cut under it both sets are empty and the two pictures are the
+/// same. A machine with no GPU dissolves between them instead.
 #[derive(Clone, Debug)]
 pub(crate) struct TransitionSpan {
     pub(crate) start: Rational,
     pub(crate) end: Rational,
-    pub(crate) to_track: usize,
+    pub(crate) track: usize,
     pub(crate) id: String,
     pub(crate) params: BTreeMap<String, f64>,
+    /// The outgoing side's clips: the clip before the cut and its stand-in
+    /// after it. Filled in as the timeline is built.
+    pub(crate) from: std::collections::HashSet<ClipId>,
+    /// The incoming side's: the clip after the cut and its stand-in before.
+    pub(crate) to: std::collections::HashSet<ClipId>,
 }
 
 impl TransitionSpan {
@@ -262,7 +268,7 @@ pub(crate) fn build_timeline(
     request: &ExportRequest,
     rate: FrameRate,
     visible: &[&ExportClip],
-    transitions: Vec<TransitionSpan>,
+    mut transitions: Vec<TransitionSpan>,
 ) -> BuiltTimeline {
     let mut timeline = Timeline::new(request.width, request.height, rate);
     timeline.canvas = request.canvas;
@@ -341,7 +347,17 @@ pub(crate) fn build_timeline(
         engine_clip.video_fade_in = quantise(clip.video_fade_in, rate);
 
         if let Some(id) = timeline.add_clip(tracks[clip.track], engine_clip) {
-            tracks_of.insert(id, clip.track);
+            // A stand-in is stacked where the clip it extends is.
+            tracks_of.insert(id, clip.stack_at.unwrap_or(clip.track));
+            for &(span, incoming) in &clip.roles {
+                if let Some(span) = transitions.get_mut(span) {
+                    if incoming {
+                        span.to.insert(id);
+                    } else {
+                        span.from.insert(id);
+                    }
+                }
+            }
             if clip.kind == ClipKind::Image {
                 stills.insert(id);
             }
