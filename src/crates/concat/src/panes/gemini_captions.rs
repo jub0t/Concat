@@ -39,13 +39,19 @@ pub const LANGUAGES: [(&str, Option<&str>); 8] = [
 ];
 
 /// How a caption appears, by the sheet's row: the whole line, building up
-/// word by word, one word at a time, or typed letter by letter.
-pub const REVEALS: [Reveal; 4] = [
+/// word by word, one word at a time, typed letter by letter, or the whole
+/// line at once with its colour passing from word to word.
+pub const REVEALS: [Reveal; 5] = [
     Reveal::Whole,
     Reveal::Build,
     Reveal::WordByWord,
     Reveal::Typewriter { per_second: 14.0 },
+    Reveal::Whole,
 ];
+
+/// The row of [`REVEALS`] that lights the words one by one over the whole
+/// line (the sheet's highlight layer) instead of cutting the caption up.
+pub const HIGHLIGHT_REVEAL: usize = 4;
 
 /// What the Gemini half of the sheet remembers while the window is open.
 #[derive(Default)]

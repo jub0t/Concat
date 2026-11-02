@@ -47,6 +47,46 @@ const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
 const MOTIONS: usize = 5;
 /// The colours the highlight layer can light a word in; the sheet's list
 /// is "none" and then these.
+/// The faces the sheet offers, Persian and then Latin: the family as the
+/// text engine knows it, the weight it is set in, and the name shown. All
+/// are bundled with the app. A style never changes the face; this row does.
+const FONTS: [(&str, f64, &str); 34] = [
+    ("Noto Sans Arabic UI", 700.0, "Noto Sans Arabic UI"),
+    ("Vazirmatn", 700.0, "وزیرمتن"),
+    ("Vazirmatn", 900.0, "وزیرمتن سیاه"),
+    ("Lalezar", 400.0, "لاله‌زار"),
+    ("Shabnam", 700.0, "شبنم"),
+    ("Sahel", 900.0, "ساحل"),
+    ("Samim", 700.0, "صمیم"),
+    ("Parastoo", 700.0, "پرستو"),
+    ("Gandom", 400.0, "گندم"),
+    ("Tanha", 400.0, "تنها"),
+    ("Rakkas", 400.0, "رکاس"),
+    ("Aref Ruqaa", 700.0, "عارف رقعه"),
+    ("Lemonada", 700.0, "لمونادا"),
+    ("Katibeh", 400.0, "کتیبه"),
+    ("Mirza", 700.0, "میرزا"),
+    ("Changa ExtraBold", 800.0, "چنگا"),
+    ("Hanken Grotesk", 600.0, "Hanken Grotesk"),
+    ("Inter", 700.0, "Inter"),
+    ("Montserrat", 900.0, "Montserrat Black"),
+    ("Space Grotesk", 700.0, "Space Grotesk"),
+    ("Anton", 400.0, "Anton"),
+    ("Bangers", 400.0, "Bangers"),
+    ("Bebas Neue", 400.0, "Bebas Neue"),
+    ("Archivo Black", 400.0, "Archivo Black"),
+    ("DM Serif Display", 400.0, "DM Serif Display"),
+    ("Abril Fatface", 400.0, "Abril Fatface"),
+    ("Lobster", 400.0, "Lobster"),
+    ("Pacifico", 400.0, "Pacifico"),
+    ("Permanent Marker", 400.0, "Permanent Marker"),
+    ("Caveat Brush", 400.0, "Caveat Brush"),
+    ("Staatliches", 400.0, "Staatliches"),
+    ("Black Ops One", 400.0, "Black Ops One"),
+    ("Hammersmith One", 400.0, "Hammersmith One"),
+    ("Londrina Solid", 900.0, "Londrina Solid"),
+];
+
 const HIGHLIGHTS: [&str; 5] = ["#ffe600", "#3dff6e", "#5ef2ff", "#ff4fd8", "#ff9f1c"];
 
 /// A rough speaking rate, for a script's timing and the speech sheet's
@@ -92,6 +132,10 @@ pub enum CaptionsMsg {
     ApplyStyle,
     /// The highlight row of the sheet.
     HighlightChanged(i32),
+    /// The font row of the sheet.
+    FontChanged(i32),
+    /// Set the captions lane in that font.
+    ApplyFont,
     /// Light the captions' words one at a time, in the sheet's colour.
     ApplyHighlight,
     PlacementChanged(i32),
@@ -170,6 +214,8 @@ pub struct CaptionsPane {
     pub style: usize,
     /// Row of the highlight list: none, then `HIGHLIGHTS`.
     pub highlight: usize,
+    /// Row of the font list: automatic, then `FONTS`.
+    pub font: usize,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -302,6 +348,10 @@ impl CaptionsPane {
                 self.highlight = (index.max(0) as usize).min(HIGHLIGHTS.len());
             }
             CaptionsMsg::ApplyHighlight => self.apply_highlight(studio),
+            CaptionsMsg::FontChanged(index) => {
+                self.font = (index.max(0) as usize).min(FONTS.len());
+            }
+            CaptionsMsg::ApplyFont => self.apply_font(studio),
             CaptionsMsg::PlacementChanged(index) => {
                 self.placement = (index.max(0) as usize).min(2);
             }
@@ -360,6 +410,12 @@ impl CaptionsPane {
                         } else {
                             studio.apply(Command::Batch { commands });
                             studio.notify(&tf("captions.addedCaptions", &[&count]), false);
+                            if self.engine == 1
+                                && self.gemini.reveal == gemini_captions::HIGHLIGHT_REVEAL
+                            {
+                                let colour = HIGHLIGHTS[self.highlight.saturating_sub(1)];
+                                self.light_words(studio, Some(colour));
+                            }
                         }
                     }
                     // Asked for: the sheet is already on its way down.
@@ -651,17 +707,38 @@ impl CaptionsPane {
     }
 
     /// The look new captions are made in: the style the sheet names, or
-    /// the look the person kept, or nothing (the bundled face).
+    /// the look the person kept, or nothing (the bundled face). A style
+    /// brings colours, outline, shadow and plate and never a face: the
+    /// face is the sheet's font row, or else the kept look's, or else the
+    /// Persian default.
     fn base_style(&self, studio: &mut Studio) -> Option<TextStyle> {
         let ids = style_ids(studio);
-        if let Some(id) = self.style.checked_sub(1).and_then(|row| ids.get(row))
-            && let Some(preset) = studio.text_presets.iter().find(|held| &held.id == id)
+        let kept = studio.prefs.title_style.clone();
+        let mut style = match self
+            .style
+            .checked_sub(1)
+            .and_then(|row| ids.get(row))
+            .and_then(|id| studio.text_presets.iter().find(|held| &held.id == id))
         {
-            let style = preset.style.clone();
-            studio.ensure_font_for(&style.font_family);
-            return Some(style);
+            Some(preset) => {
+                let mut style = preset.style.clone();
+                let (family, weight) = match &kept {
+                    Some(kept) => (kept.font_family.clone(), kept.font_weight),
+                    None => (FONTS[0].0.to_owned(), FONTS[0].1),
+                };
+                style.font_family = family;
+                style.font_weight = weight;
+                style
+            }
+            None if self.font > 0 => kept.unwrap_or_default(),
+            None => return kept,
+        };
+        if let Some((family, weight, _)) = self.font.checked_sub(1).and_then(|row| FONTS.get(row)) {
+            style.font_family = (*family).to_owned();
+            style.font_weight = *weight;
         }
-        studio.prefs.title_style.clone()
+        studio.ensure_font_for(&style.font_family);
+        Some(style)
     }
 
     /// The highlight layer: over each caption, the same words again in the
@@ -670,6 +747,16 @@ impl CaptionsPane {
     /// a lane of its own - so the preview and the export draw it alike.
     /// Any earlier layer is taken off first; "none" only does that.
     fn apply_highlight(&mut self, studio: &mut Studio) {
+        let colour = self
+            .highlight
+            .checked_sub(1)
+            .and_then(|index| HIGHLIGHTS.get(index))
+            .copied();
+        self.light_words(studio, colour);
+    }
+
+    /// [`Self::apply_highlight`] in a given colour; `None` takes the layer off.
+    fn light_words(&mut self, studio: &mut Studio, colour: Option<&'static str>) {
         let Some(lane) = export_lane(studio) else {
             self.message = t("captions.noCaptionsToExport");
             return;
@@ -687,12 +774,7 @@ impl CaptionsPane {
                 ripple: false,
             });
         }
-        let Some(colour) = self
-            .highlight
-            .checked_sub(1)
-            .and_then(|index| HIGHLIGHTS.get(index))
-            .copied()
-        else {
+        let Some(colour) = colour else {
             studio.notify(&t("captions.highlightRemoved"), false);
             return;
         };
@@ -777,6 +859,49 @@ impl CaptionsPane {
         }
     }
 
+    /// Sets every caption on the lane in the sheet's font, and changes
+    /// nothing else about them.
+    fn apply_font(&mut self, studio: &mut Studio) {
+        let Some(lane) = export_lane(studio) else {
+            self.message = t("captions.noCaptionsToExport");
+            return;
+        };
+        let Some((family, weight, _)) = self.font.checked_sub(1).and_then(|row| FONTS.get(row))
+        else {
+            return;
+        };
+        studio.ensure_font_for(family);
+        let mut commands: Vec<Command> = Vec::new();
+        for clip in studio.timeline().clips.iter() {
+            if clip.kind != ClipKind::Text
+                || clip.track_id != lane.track_id
+                || clip.name == caption_fx::HIGHLIGHT_NAME
+            {
+                continue;
+            }
+            let Some(own) = clip.text.as_ref() else {
+                continue;
+            };
+            commands.push(Command::UpdateClip {
+                clip_id: clip.id.clone(),
+                patch: concat_project::commands::ClipPatch {
+                    text: Some(Some(TextStyle {
+                        font_family: (*family).to_owned(),
+                        font_weight: *weight,
+                        ..own.clone()
+                    })),
+                    ..concat_project::commands::ClipPatch::default()
+                },
+            });
+        }
+        if commands.is_empty() {
+            return;
+        }
+        let count = commands.len();
+        studio.apply(Command::Batch { commands });
+        studio.notify(&tf("captions.fontApplied", &[&count]), false);
+    }
+
     /// Dresses every caption on the lane in the sheet's style, keeping
     /// each one's words and size.
     fn apply_style(&mut self, studio: &mut Studio) {
@@ -795,13 +920,17 @@ impl CaptionsPane {
             let Some(own) = clip.text.as_ref() else {
                 continue;
             };
-            let style = TextStyle {
+            let mut style = TextStyle {
                 content: own.content.clone(),
                 font_size: own.font_size,
                 max_width: own.max_width,
                 max_height: own.max_height,
                 ..base.clone()
             };
+            if self.font == 0 {
+                style.font_family = own.font_family.clone();
+                style.font_weight = own.font_weight;
+            }
             commands.push(Command::UpdateClip {
                 clip_id: clip.id.clone(),
                 patch: concat_project::commands::ClipPatch {
@@ -1182,11 +1311,19 @@ impl CaptionsPane {
                 slint::SharedString::from(t("captions.revealBuild")),
                 slint::SharedString::from(t("captions.revealWordByWord")),
                 slint::SharedString::from(t("captions.revealTypewriter")),
+                slint::SharedString::from(t("captions.revealHighlight")),
             ]))
             .into(),
             motion: self.motion as i32,
             style: self.style as i32,
             highlight: self.highlight as i32,
+            font: self.font as i32,
+            fonts: std::rc::Rc::new(slint::VecModel::from({
+                let mut names = vec![slint::SharedString::from(t("captions.fontAuto"))];
+                names.extend(FONTS.iter().map(|face| slint::SharedString::from(face.2)));
+                names
+            }))
+            .into(),
             highlights: std::rc::Rc::new(slint::VecModel::from(vec![
                 slint::SharedString::from(t("captions.highlightNone")),
                 slint::SharedString::from(t("captions.highlightYellow")),

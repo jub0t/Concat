@@ -72,6 +72,9 @@ export struct CaptionsSheetData {
     /// The colours the spoken word can be lit in, and the row.
     highlights: [string],
     highlight: int,
+    /// The faces captions can be set in: automatic, then the bundled ones.
+    fonts: [string],
+    font: int,
     /// Gemini: what sending the clip's sound will cost, in words; shown
     /// before anything leaves the machine.
     gemini-notice: string,
@@ -116,6 +119,8 @@ export component CaptionsDialog inherits Modal {
     callback apply-style();
     callback highlight-changed(index: int);
     callback apply-highlight();
+    callback font-changed(index: int);
+    callback apply-font();
     callback begin();
     callback cancel();
     callback import-srt();
@@ -405,6 +410,23 @@ export component CaptionsDialog inherits Modal {
                         label: I18n.t("captions.applyMotion");
                         ghost: true;
                         clicked => { root.apply-motion(); }
+                    }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.font");
+                HorizontalLayout {
+                    spacing: 6px;
+                    Select {
+                        options: root.data.fonts;
+                        current: root.data.font;
+                        changed(index) => { root.font-changed(index); }
+                    }
+                    Button {
+                        label: I18n.t("captions.applyFont");
+                        ghost: true;
+                        clicked => { root.apply-font(); }
                     }
                 }
             }

@@ -330,6 +330,8 @@ export component App inherits Window {
     callback captions-apply-style();
     callback captions-highlight-changed(index: int);
     callback captions-apply-highlight();
+    callback captions-font-changed(index: int);
+    callback captions-apply-font();
     callback captions-begin();
     callback captions-cancel();
     callback captions-import-srt();
@@ -723,6 +725,8 @@ export component App inherits Window {
             apply-style => { root.captions-apply-style(); }
             highlight-changed(index) => { root.captions-highlight-changed(index); }
             apply-highlight => { root.captions-apply-highlight(); }
+            font-changed(index) => { root.captions-font-changed(index); }
+            apply-font => { root.captions-apply-font(); }
             begin => { root.captions-begin(); }
             cancel => { root.captions-cancel(); }
             import-srt => { root.captions-import-srt(); }

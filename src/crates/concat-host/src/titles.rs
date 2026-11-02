@@ -26,7 +26,7 @@ use concat_core::shader::RevealMap;
 
 use concat_export::{ClipKind, ExportClip};
 use concat_project::model::{
-    ClipKind as ModelClipKind, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
+    ClipKind as ModelClipKind, KeyProperty, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
 };
 use concat_text::{Align, Figure, Fonts, TitleStyle, WordRect};
 
@@ -273,10 +273,14 @@ impl Titles {
                     flip_v: clip.flip_v,
                     blend: clip.blend.clone(),
                     effects: clip.video_effects.clone(),
-                    scale: clip.scale,
-                    offset_x: clip.offset_x,
-                    offset_y: clip.offset_y,
-                    rotation: clip.rotation,
+                    // A keyed property's keys travel absolutely, so its base
+                    // is the neutral value, as for every other clip; see
+                    // `flatten::export_base`. A caption given a motion was
+                    // moved by its constant and its keys together.
+                    scale: concat_export::flatten::export_base(clip, KeyProperty::Scale),
+                    offset_x: concat_export::flatten::export_base(clip, KeyProperty::OffsetX),
+                    offset_y: concat_export::flatten::export_base(clip, KeyProperty::OffsetY),
+                    rotation: concat_export::flatten::export_base(clip, KeyProperty::Rotation),
                     // A title is never pulled along an axis: its box is
                     // sized by the style, and its glyphs keep their shape.
                     // 0.2.2's side grips wrote a stretch onto title clips
@@ -296,8 +300,15 @@ impl Titles {
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
                     opacity: match painting {
-                        Painting::Title(text) => (clip.opacity * text.opacity).clamp(0.0, 1.0),
-                        Painting::Shape(_) => clip.opacity.clamp(0.0, 1.0),
+                        Painting::Title(text) => {
+                            (concat_export::flatten::export_base(clip, KeyProperty::Opacity)
+                                * text.opacity)
+                                .clamp(0.0, 1.0)
+                        }
+                        Painting::Shape(_) => {
+                            concat_export::flatten::export_base(clip, KeyProperty::Opacity)
+                                .clamp(0.0, 1.0)
+                        }
                     },
                     media_width: Some(width),
                     media_height: Some(height),

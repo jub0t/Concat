@@ -250,3 +250,4 @@ jobs:
 # rebuild: caption styles
 # rebuild: fonts and highlight
 # rebuild: lint fix
+# rebuild: fonts row, highlight appearance, key base

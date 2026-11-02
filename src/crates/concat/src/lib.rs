@@ -2071,6 +2071,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_captions_apply_highlight(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::ApplyHighlight));
     }));
+    app.on_captions_font_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::FontChanged(index)));
+    }));
+    app.on_captions_apply_font(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ApplyFont));
+    }));
     app.on_captions_begin(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Begin));
     }));
