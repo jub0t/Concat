@@ -46,6 +46,10 @@ pub struct Preferences {
     pub ui_scale: Option<u32>,
     /// The chosen transcriber model id, e.g. "base.en".
     pub transcriber_model: Option<String>,
+    /// The language the captions sheet last asked the transcriber for, by
+    /// whisper's code ("id", "de", ...). `None` is whisper's to hear, and
+    /// so is a code whisper no longer knows.
+    pub caption_language: Option<String>,
     /// The chosen speech model id.
     pub tts_model: Option<String>,
     /// The chosen Kokoro speaker id.

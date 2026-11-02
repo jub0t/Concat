@@ -448,6 +448,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             .set_views(ModelRc::from(models.library_views.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         app.set_caption_models(ModelRc::from(models.caption_models.clone()));
+        app.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
         app.set_speech_models(ModelRc::from(models.speech_models.clone()));
         app.set_speech_model_details(ModelRc::from(models.speech_model_details.clone()));
         app.set_speech_voices(ModelRc::from(models.speakers.clone()));
@@ -2216,6 +2217,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_captions_model_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Captions(CaptionsMsg::ModelChanged(index)));
+    }));
+    app.on_captions_language_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::LanguageChanged(index)));
     }));
     app.on_captions_placement_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Captions(CaptionsMsg::PlacementChanged(index)));

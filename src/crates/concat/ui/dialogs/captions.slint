@@ -22,7 +22,9 @@ import { Switch } from "../inspector/controls.slint";
 // big they are, and one button. While it runs
 // the sheet is the progress report: a transcription knows how far through
 // the sound it is, so it gets a real bar and not a sweep. The language is
-// the transcriber's to work out.
+// the transcriber's to hear unless one is picked: whisper hears Indonesian
+// as Malay often enough that a person who knows should be able to say so.
+// The pick is remembered, and an English-only model has English alone.
 //
 // On a desk it is a card floating over the editor (see Modal.floating): the
 // timeline stays live under it, so the clip it transcribes follows the
@@ -41,6 +43,10 @@ export struct CaptionsSheetData {
     text: string,
     /// Row in the installed transcriber list.
     model: int,
+    /// Row in the language list: 0 is "Auto-detect".
+    language: int,
+    /// The model hears only English: the list is that, and not a choice.
+    language-fixed: bool,
     /// 0 Bottom, 1 Centre, 2 Top
     placement: int,
     /// 0 Small, 1 Medium, 2 Large
@@ -67,11 +73,15 @@ export component CaptionsDialog inherits Modal {
     in property <CaptionsSheetData> data;
     /// The installed transcriber models, by name.
     in property <[string]> models;
+    /// "Auto-detect", then every language the transcriber knows, each by
+    /// its own name.
+    in property <[string]> languages;
 
     callback voice-toggled(on: bool);
     callback source-changed(index: int);
     callback text-edited(text: string);
     callback model-changed(index: int);
+    callback language-changed(index: int);
     callback placement-changed(index: int);
     callback size-changed(index: int);
     callback begin();
@@ -205,6 +215,16 @@ export component CaptionsDialog inherits Modal {
                     placeholder: I18n.t("common.noneInstalled");
                     enabled: root.models.length > 0;
                     changed(index) => { root.model-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.language");
+                Select {
+                    options: root.languages;
+                    current: root.data.language;
+                    enabled: !root.data.language-fixed && root.languages.length > 1;
+                    changed(index) => { root.language-changed(index); }
                 }
             }
 

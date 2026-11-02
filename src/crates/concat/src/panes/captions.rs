@@ -57,6 +57,9 @@ pub enum CaptionsMsg {
     SourceChanged(i32),
     TextEdited(String),
     ModelChanged(i32),
+    /// Row in the language list: 0 is "Auto-detect", then
+    /// [`concat_speech::transcribe::LANGUAGES`] in its order.
+    LanguageChanged(i32),
     PlacementChanged(i32),
     SizeChanged(i32),
     /// Run the pass the sheet describes.
@@ -115,6 +118,11 @@ pub struct CaptionsPane {
     pub text: String,
     /// Row in the installed transcriber list.
     pub model: usize,
+    /// The language the voice speaks, by whisper's code; `None` is
+    /// whisper's to hear. Remembered across runs as
+    /// `Preferences::caption_language`, so a person who captions in
+    /// Indonesian says so once. An English-only model ignores it.
+    pub language: Option<String>,
     /// 0 bottom, 1 centre, 2 top.
     pub placement: usize,
     /// 0 small, 1 medium, 2 large.
@@ -170,6 +178,11 @@ impl CaptionsPane {
             }
             CaptionsMsg::TextEdited(text) => self.text = text,
             CaptionsMsg::ModelChanged(index) => self.model = index.max(0) as usize,
+            CaptionsMsg::LanguageChanged(index) => {
+                self.language = language_at(index);
+                studio.prefs.caption_language = self.language.clone();
+                studio.prefs.save(&studio.host.dirs);
+            }
             CaptionsMsg::PlacementChanged(index) => {
                 self.placement = (index.max(0) as usize).min(2);
             }
@@ -412,6 +425,12 @@ impl CaptionsPane {
             clip,
             chosen_with: studio.sole_selection(),
             model,
+            // A code the list no longer has is heard instead.
+            language: studio
+                .prefs
+                .caption_language
+                .clone()
+                .filter(|code| language_row(Some(code)) > 0),
             placement: 0,
             size: 1,
             timings: std::mem::take(&mut self.timings),
@@ -495,6 +514,9 @@ impl CaptionsPane {
             source_start: clip.source_start,
             window: clip.duration * clip.speed,
             model_id: model.clone(),
+            language: (!concat_speech::transcribe::english_only(&model))
+                .then(|| self.language.clone())
+                .flatten(),
         };
         let dirs = studio.host.dirs.clone();
         let transcriber = Arc::clone(&studio.host.transcriber);
@@ -540,6 +562,33 @@ impl CaptionsPane {
         );
     }
 
+    /// Whether the model the sheet has chosen hears only English.
+    fn english_only(&self, studio: &Studio) -> bool {
+        installed(&studio.settings.transcribers)
+            .get(self.model)
+            .is_some_and(|model| concat_speech::transcribe::english_only(&model.id))
+    }
+
+    /// The sheet's language list: "Auto-detect", then every language
+    /// whisper knows by its own name. An English-only model hears English
+    /// and nothing else, so its list is English alone, and is not a choice.
+    /// Empty while the sheet is closed, which is most of the time.
+    pub fn language_rows(&self, studio: &Studio) -> Vec<slint::SharedString> {
+        if !self.open {
+            return Vec::new();
+        }
+        if self.english_only(studio) {
+            return vec![ENGLISH.into()];
+        }
+        std::iter::once(t("captions.autoDetect").into())
+            .chain(
+                concat_speech::transcribe::LANGUAGES
+                    .iter()
+                    .map(|(_, name)| (*name).into()),
+            )
+            .collect()
+    }
+
     /// The sheet as Slint shows it.
     pub fn data(&self, studio: &Studio) -> CaptionsSheetData {
         let sources = if self.open {
@@ -555,6 +604,7 @@ impl CaptionsPane {
             .into_iter()
             .map(|source| source.label.into())
             .collect();
+        let english_only = self.english_only(studio);
         CaptionsSheetData {
             open: self.open,
             from_voice: self.from_voice,
@@ -562,6 +612,12 @@ impl CaptionsPane {
             source,
             text: self.text.as_str().into(),
             model: self.model as i32,
+            language: if english_only {
+                0
+            } else {
+                language_row(self.language.as_deref()) as i32
+            },
+            language_fixed: english_only,
             placement: self.placement as i32,
             size: self.size as i32,
             running: self.running,
@@ -579,6 +635,30 @@ impl CaptionsPane {
             message: self.message.as_str().into(),
         }
     }
+}
+
+/// English, as the language list names it.
+const ENGLISH: &str = "English";
+
+/// The language list's row for `code`: 0, "Auto-detect", for none and
+/// for a code the list does not have.
+fn language_row(code: Option<&str>) -> usize {
+    code.and_then(|code| {
+        concat_speech::transcribe::LANGUAGES
+            .iter()
+            .position(|(known, _)| *known == code)
+    })
+    .map_or(0, |index| index + 1)
+}
+
+/// The language at row `index` of the list; `None` for "Auto-detect" and
+/// for a row past its end.
+fn language_at(index: i32) -> Option<String> {
+    usize::try_from(index)
+        .ok()
+        .and_then(|row| row.checked_sub(1))
+        .and_then(|row| concat_speech::transcribe::LANGUAGES.get(row))
+        .map(|(code, _)| (*code).to_owned())
 }
 
 /// Imported cues keep the file's timing, including captions shorter than
@@ -925,6 +1005,24 @@ mod tests {
         );
         // The chosen clip deleted: nothing to run, rather than a clip unseen.
         assert_eq!(follow(None, None, Some("gone")), None);
+    }
+
+    /// Row 0 is "Auto-detect", and a language's row reads back as the
+    /// same language; a code the list lacks, or a row past it, is heard.
+    #[test]
+    fn a_language_row_reads_back_as_its_code() {
+        assert_eq!(super::language_row(None), 0);
+        assert_eq!(super::language_row(Some("klingon")), 0);
+        assert_eq!(super::language_at(0), None);
+        assert_eq!(super::language_at(-1), None);
+        assert_eq!(super::language_at(100_000), None);
+        let row = super::language_row(Some("id"));
+        assert!(row > 0);
+        assert_eq!(super::language_at(row as i32).as_deref(), Some("id"));
+        assert_eq!(
+            concat_speech::transcribe::LANGUAGES[row - 1].1,
+            "Bahasa Indonesia"
+        );
     }
 
     #[test]
