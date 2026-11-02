@@ -8595,6 +8595,32 @@ impl Studio {
         self.clip_commit();
     }
 
+    /// A fade knob on clip `id` dragged: its fade in, or with `out` its fade
+    /// out, to `seconds`, up to half the clip as the inspector's knob holds
+    /// it. Committed as the volume line's drag is, one undo step a drag.
+    pub fn clip_fade(&mut self, id: &str, out: bool, seconds: f32) {
+        let Some(clip) = self.clip(id) else {
+            return;
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        if self.commit_pending && self.commit_targets != [id] {
+            self.flush_commit();
+        }
+        self.commit_targets = vec![id.to_owned()];
+        self.begin_echo();
+        if let Some(clip) = self.echo_clip_mut(id) {
+            let seconds = f64::from(seconds).clamp(0.0, clip.duration / 2.0);
+            if out {
+                clip.fade_out = seconds;
+            } else {
+                clip.fade_in = seconds;
+            }
+        }
+        self.clip_commit();
+    }
+
     /// The split tool pressed clip `id` at `seconds`: one cut, on the
     /// frame nearest the press, unless it is within a frame of either end
     /// or the lane is locked.
