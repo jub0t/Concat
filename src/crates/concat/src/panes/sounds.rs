@@ -90,6 +90,10 @@ pub enum SoundsMsg {
     Fetching(String, f32),
     /// A Concat sound's download is done.
     Fetched(String, Result<PathBuf, String>),
+    /// A YouTube URL pasted in: yt-dlp fetches it as MP3 into the library.
+    DownloadFromUrl(String),
+    /// The yt-dlp download is done: the sound, ready to add to the library.
+    Downloaded(Result<Sound, String>),
 }
 
 /// The page's state.
@@ -204,6 +208,36 @@ impl SoundsPane {
                     Err(error) => {
                         studio.notify(&tf("sounds.downloadFailed", &[&name, &error]), true);
                     }
+                }
+            }
+            SoundsMsg::DownloadFromUrl(url) => {
+                let Some(dirs) = self.dirs.clone() else {
+                    return;
+                };
+                let trimmed = url.trim();
+                if trimmed.is_empty() {
+                    return;
+                }
+                let library_dir = self.library.dir.clone();
+                self.importing = true;
+                crate::host::spawn(
+                    move || {
+                        let path = concat_host::ytdl::download_audio(trimmed, &dirs.data.join("ytdl"));
+                        path.and_then(|path| sounds::prepare(&library_dir, &path))
+                    },
+                    |studio, _, _, result| {
+                        studio.handle(Msg::Sounds(SoundsMsg::Downloaded(result)));
+                    },
+                );
+            }
+            SoundsMsg::Downloaded(result) => {
+                self.importing = false;
+                match result {
+                    Ok(sound) => match self.library.add(sound) {
+                        Ok(()) => studio.notify(&t("sounds.addedOne"), false),
+                        Err(error) => studio.notify(&error, true),
+                    },
+                    Err(error) => studio.notify(&error, true),
                 }
             }
             SoundsMsg::Import(paths) => {

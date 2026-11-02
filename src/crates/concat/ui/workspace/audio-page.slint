@@ -71,6 +71,8 @@ export global Sounds {
     in property <[SoundCardData]> mine;
     /// Sounds are being copied in.
     in property <bool> importing;
+    /// `yt-dlp` is on the PATH: the URL download button can be used.
+    in property <bool> ytdl-available;
     /// The Concat shelf: Concat's own sounds, narrowed to the category
     /// picked, and where the shelf stands - 0 not asked for, 1 loading,
     /// 2 listed, 3 coming soon (no list published yet), 4 unreachable.
@@ -84,6 +86,8 @@ export global Sounds {
 
     /// The Import button: the system's picker, for sound files.
     callback import();
+    /// A YouTube URL pasted in: yt-dlp fetches it as MP3 into the library.
+    callback download-from-url(url: string);
     /// A row clicked: play it, or pause it when it is the one playing.
     callback preview(id: string);
     /// A row's plus: onto the timeline at the playhead, on the first lane
@@ -119,6 +123,61 @@ component RowButton inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
+    }
+}
+
+// A URL field and a download button: paste a YouTube URL, yt-dlp fetches it
+// as MP3 into the library. Lite - it shells out to `yt-dlp`, which the
+// user installs; the button says so when it is missing.
+export component DownloadButton inherits Rectangle {
+    in property <string> label;
+    in-out property <string> url;
+    callback clicked();
+
+    width: parent.width;
+    height: Theme.h * 3;
+    border-radius: Theme.r;
+    background: touch.has-hover ? Theme.field-hover : Theme.field;
+
+    HorizontalLayout {
+        spacing: 8px;
+        padding: 8px;
+
+        TextInput {
+            horizontal-stretch: 1;
+            text: root.url;
+            color: Theme.fg;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+            single-line: true;
+            placeholder-text: "Paste a YouTube URL";
+            changed => { root.url = self.text; }
+            accepted => { root.clicked(); }
+        }
+
+        Rectangle {
+            width: 90px;
+            height: parent.height;
+            border-radius: Theme.r;
+            background: Sounds.ytdl-available ? Theme.accent : Theme.field-muted;
+            touch := TouchArea {
+                mouse-cursor: if Sounds.ytdl-available { pointer } else { not-allowed };
+                clicked => { if Sounds.ytdl-available: root.clicked(); }
+            }
+            Text {
+                x: 0; y: 0; width: parent.width; height: parent.height;
+                text: if Sounds.ytdl-available { root.label } else { "yt-dlp not installed" };
+                color: if Sounds.ytdl-available { Theme.on-accent } else { Theme.fg-dim };
+                font-size: Theme.fs-sm;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
     }
 }
 

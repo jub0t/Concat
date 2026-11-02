@@ -1732,6 +1732,8 @@ export component MediaPane inherits Rectangle {
     /// how many of the whole bin are selected, not how many of `items` are
     in property <int> selected-count;
     in property <bool> importing;
+    /// A YouTube URL pasted in: yt-dlp fetches it as MP3 into the library.
+    in property <string> download-url;
 
     /// What the bin is narrowed to. Rust's: a row of the sidebar reports
     /// its pick and the answer comes back here, so the editor can narrow
@@ -2558,6 +2560,13 @@ export component MediaPane inherits Rectangle {
                         label: I18n.t("sounds.importSounds");
                         busy: Sounds.importing;
                         clicked => { Sounds.import(); }
+                    }
+                    DownloadButton {
+                        label: I18n.t("sounds.importSounds");
+                        url: root.download-url;
+                        clicked => {
+                            if (root.download-url != ""): Sounds.download-from-url(root.download-url);
+                        }
                     }
                     if Sounds.mine.length > 0: Text {
                         text: I18n.t("sounds.mineHint");

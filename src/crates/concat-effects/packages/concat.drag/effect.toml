@@ -1,0 +1,32 @@
+format = 2
+
+[effect]
+id = "concat.drag"
+name = "Drag"
+kind = "transition"
+category = "Slide"
+order = 6
+description = "The incoming shot drags the outgoing one off the frame, both moving together along the same axis."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+min = 0
+max = 3
+default = 0
+values = [0, 1, 2, 3]
+labels = ["Left", "Right", "Up", "Down"]
+
+[[param]]
+key = "ease"
+label = "Ease"
+type = "float"
+min = 0.0
+max = 1.0
+default = 0.5
+step = 0.05
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"
