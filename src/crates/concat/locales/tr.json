@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Günlük gösterilemedi: {0}",
   "settings.customUrl": "Özel URL",
   "settings.dark": "Koyu",
-  "settings.default": "Varsayılan",
   "settings.deletingClipPullsWhat": "Açıkken bir klibi silmek aynı parçada onu izleyenleri boşluğa çeker ve bir kenarı kırpmak parçanın geri kalanını da onunla taşır. Kapalıyken silme bir boşluk bırakır ve kırpma yalnızca kenarı taşır. Shift-Delete her iki durumda da boşluğu kapatır.",
   "settings.download": "İndir",
   "settings.downloadBlocked": "Bu bilgisayardaki bir şey Concat'in internete erişimini engelledi: bir güvenlik duvarı, virüsten koruma ya da VPN. Orada Concat'e izin verin veya dosyayı tarayıcınızda indirin.",

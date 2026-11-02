@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Tidak dapat menampilkan log: {0}",
   "settings.customUrl": "URL kustom",
   "settings.dark": "Gelap",
-  "settings.default": "Bawaan",
   "settings.deletingClipPullsWhat": "Jika aktif, menghapus klip akan menarik isi berikutnya di trek yang sama ke celahnya, dan memotong tepi akan menggeser sisa trek bersamanya. Jika nonaktif, penghapusan meninggalkan celah dan pemotongan hanya menggeser tepinya. Shift-Delete menutup celah dalam kedua kondisi.",
   "settings.download": "Unduh",
   "settings.downloadBlocked": "Sesuatu di komputer ini memblokir Concat dari internet: firewall, antivirus, atau VPN. Izinkan Concat di sana, atau unduh berkasnya di browser.",

@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Không thể hiển thị nhật ký: {0}",
   "settings.customUrl": "URL tùy chỉnh",
   "settings.dark": "Tối",
-  "settings.default": "Mặc định",
   "settings.deletingClipPullsWhat": "Khi bật, xóa clip sẽ kéo phần phía sau trên cùng đường dẫn vào chỗ trống; cắt mép cũng dịch chuyển phần còn lại của đường dẫn. Khi tắt, thao tác xóa để lại khoảng trống và cắt chỉ di chuyển mép clip. Shift-Delete sẽ đóng khoảng trống trong cả hai trường hợp.",
   "settings.download": "Tải xuống",
   "settings.downloadBlocked": "Có thứ gì đó trên máy tính này đã chặn Concat truy cập internet: tường lửa, phần mềm diệt virus hoặc VPN. Hãy cho phép Concat ở đó, hoặc tải tệp bằng trình duyệt.",

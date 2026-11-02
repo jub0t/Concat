@@ -33,8 +33,11 @@ pub struct Preferences {
     /// `None`, or a name no longer on the list, is the first one, which is
     /// Lime.
     pub accent: Option<String>,
-    /// The playhead's colour as "#rrggbb", when one was picked by hand in
-    /// Settings > Appearance. `None` is the palette's own, which is lime.
+    /// The playhead's colour the accent's way: the lower-cased name of one
+    /// of the accents - "sky", ... - worn as each palette has it, or
+    /// "#rrggbb" for a colour picked by hand in Settings > Appearance.
+    /// `None`, or a name no longer on the list, is the palette's own, which
+    /// is Lime.
     pub playhead: Option<String>,
     /// The interface scale, as a percent from [`UI_SCALES`]: the window and
     /// everything in it are drawn this much larger than the display's own

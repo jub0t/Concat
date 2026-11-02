@@ -655,8 +655,9 @@ export component SettingsDialog inherits Modal {
     callback accent-custom-changed(colour: color);
     /// The playhead's colour, picked by hand in place of the palette's own.
     callback playhead-changed(colour: color);
-    /// The palette's own playhead colour, back in place of a picked one.
-    callback playhead-reset();
+    /// One of the accents for the playhead, as an index into
+    /// `Theme.accent-names`: 0, Lime, is the palette's own.
+    callback playhead-chosen(index: int);
     /// The interface scale, as an index into the scales the row lists: 0
     /// follows the display's own.
     callback scale-changed(index: int);
@@ -891,6 +892,8 @@ export component SettingsDialog inherits Modal {
             finger: root.phone;
 
             if root.data.tab == 0: VerticalLayout {
+                padding-top: 10px;
+
                 DialogSection {
                     ruled: false;
                     first: true;
@@ -1022,9 +1025,41 @@ export component SettingsDialog inherits Modal {
             // the first. The change still goes out as a callback, so Rust
             // stays the one place a remembered preference will be written.
             if root.data.tab == 1: VerticalLayout {
-                DialogSection {
+                padding-top: 10px;
+
+                // The interface scale: how much larger than the display's own
+                // scale the window is drawn. Most of Concat was built on a
+                // small laptop and reads small on a large screen, which is
+                // what this row is for. First on the page: it changes the
+                // size of everything else on it.
+                //
+                // The desk's alone. It rides on the window backend's
+                // SLINT_SCALE_FACTOR, which winit reads and the phone's
+                // backend does not: on Android the scale comes from the
+                // display density and a config change would take the choice
+                // back, so offering the row there would be a control that
+                // does not hold. Phones set their size the system's way
+                // anyway. The backend takes it as a multiplier rather than as
+                // a property, so Rust hands the window a scale-factor event
+                // to apply it (lib.rs, `on_settings_scale_changed`).
+                // https://github.com/jub0t/Concat/issues/320
+                if !root.phone: DialogSection {
                     ruled: false;
                     first: true;
+                    title: I18n.t("settings.scale");
+                    hint: I18n.t("settings.scaleHint");
+                    choices: [
+                        I18n.t("settings.scaleSystem"),
+                        "100%", "110%", "125%", "150%", "175%", "200%",
+                    ];
+                    choice: Theme.ui-scale;
+                    open: false;
+                    chose(index) => { root.scale-changed(index); }
+                }
+
+                DialogSection {
+                    ruled: false;
+                    first: root.phone;
                     title: I18n.t("settings.theme");
 
                     SegmentedControl {
@@ -1115,12 +1150,13 @@ export component SettingsDialog inherits Modal {
 
                 // The playhead: the one line over the lanes that has to be
                 // found at a glance, whatever the clips under it are wearing.
-                // The palette's own is lime. The second dot opens the same
-                // picker the accent does, and the picked colour replaces the
-                // palette's under both palettes until the first dot puts it
-                // back. Read off the Theme global for the same reason the
-                // accent is, and the hex is always shown: what the line is
-                // wearing is the whole point of the row.
+                // The same seven dots the accent has: the six on the list,
+                // each worn as the palette that is on has it - the first,
+                // Lime, is the palette's own playhead - and the seventh any
+                // colour at all, through the same picker, one colour under
+                // both palettes. Read off the Theme global for the same
+                // reason the accent is, and the hex is always shown: what the
+                // line is wearing is the whole point of the row.
                 DialogSection {
                     ruled: false;
                     title: I18n.t("settings.playhead");
@@ -1130,11 +1166,11 @@ export component SettingsDialog inherits Modal {
                         spacing: 6px;
                         alignment: start;
 
-                        AccentSwatch {
-                            colour: Theme.playhead-default;
-                            label: I18n.t("settings.default");
-                            chosen: !Theme.playhead-is-custom;
-                            clicked => { root.playhead-reset(); }
+                        for name[index] in Theme.accent-names: AccentSwatch {
+                            colour: index == 0 ? Theme.playhead-default : Theme.accent-of(index);
+                            label: root.accent-labels[index];
+                            chosen: Theme.playhead-choice == index;
+                            clicked => { root.playhead-chosen(index); }
                         }
 
                         Rectangle {
@@ -1171,7 +1207,8 @@ export component SettingsDialog inherits Modal {
                         }
 
                         Text {
-                            text: Theme.playhead-is-custom ? I18n.t("common.custom") : I18n.t("settings.default");
+                            text: Theme.playhead-is-custom ? I18n.t("common.custom")
+                                : root.accent-labels[Math.max(0, Theme.playhead-choice)];
                             color: Theme.fg-muted;
                             font-size: Theme.fs;
                             vertical-alignment: center;
@@ -1187,38 +1224,11 @@ export component SettingsDialog inherits Modal {
                     }
                 }
 
-                // The interface scale: how much larger than the display's own
-                // scale the window is drawn. Most of Concat was built on a
-                // small laptop and reads small on a large screen, which is
-                // what this row is for.
-                //
-                // The desk's alone. It rides on the window backend's
-                // SLINT_SCALE_FACTOR, which winit reads and the phone's
-                // backend does not: on Android the scale comes from the
-                // display density and a config change would take the choice
-                // back, so offering the row there would be a control that
-                // does not hold. Phones set their size the system's way
-                // anyway. The backend takes it as a multiplier rather than as
-                // a property, so Rust hands the window a scale-factor event
-                // to apply it (lib.rs, `on_settings_scale_changed`).
-                // https://github.com/jub0t/Concat/issues/320
-                if !root.phone: DialogSection {
-                    ruled: false;
-                    title: I18n.t("settings.scale");
-                    hint: I18n.t("settings.scaleHint");
-
-                    Select {
-                        options: [
-                            I18n.t("settings.scaleSystem"),
-                            "100%", "110%", "125%", "150%", "175%", "200%",
-                        ];
-                        current: Theme.ui-scale;
-                        changed(index) => { root.scale-changed(index); }
-                    }
-                }
             }
 
             if root.data.tab == 2: VerticalLayout {
+                padding-top: 10px;
+
                 DialogSection {
                     ruled: false;
                     first: true;
@@ -1264,6 +1274,8 @@ export component SettingsDialog inherits Modal {
             }
 
             if root.data.tab == 3: VerticalLayout {
+                padding-top: 10px;
+
                 DialogSection {
                     ruled: false;
                     first: true;
@@ -1588,6 +1600,8 @@ export component SettingsDialog inherits Modal {
             }
 
             if root.data.tab == 5: VerticalLayout {
+                padding-top: 10px;
+
                 // The name and the build, and nothing under them: the engine
                 // and the FFmpeg it links are rows of the table below, where
                 // a report reads them from.

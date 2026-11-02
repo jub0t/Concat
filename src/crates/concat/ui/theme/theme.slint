@@ -76,10 +76,13 @@ export global Theme {
     /// reason the custom accent is: whoever picked it picked what they see.
     /// Grey until picked, so the dot that offers it reads as a blank.
     in-out property <color> playhead-custom: #808080;
-    /// The playhead wears `playhead-custom` rather than the palette's own.
-    /// Settings > Appearance sets both (lib.rs, `on_settings_playhead_changed`)
-    /// and clears this one to put the palette's back.
-    in-out property <bool> playhead-is-custom: false;
+    /// Which colour the playhead wears: an index into `accent-names`, each
+    /// worn as the palette that is on has it - the first, Lime, is the
+    /// palette's own playhead - or one past them for `playhead-custom`.
+    /// Settings > Appearance sets it (lib.rs, `on_settings_playhead_chosen`).
+    in-out property <int> playhead-choice: 0;
+    /// The playhead wears `playhead-custom` rather than one of the list.
+    out property <bool> playhead-is-custom: playhead-choice >= accent-names.length;
     /// Which interface scale the window is drawn at: an index into the
     /// scales Settings > Appearance lists, 0 being the display's own. Read
     /// off the Theme global the way the theme and the accent are - it is a
@@ -247,7 +250,9 @@ export global Theme {
     /// The palette's own playhead, for the dot in Settings that offers it
     /// back while a picked colour is on.
     out property <color> playhead-default: dark ? Dark.playhead : Light.playhead;
-    out property <color> playhead: playhead-is-custom ? playhead-custom : playhead-default;
+    out property <color> playhead: playhead-is-custom ? playhead-custom
+        : playhead-choice <= 0 ? playhead-default
+        : accent-of(playhead-choice);
     out property <color> wave: dark ? Dark.wave : Light.wave;
     out property <color> wave-video: dark ? Dark.wave-video : Light.wave-video;
     out property <color> wave-hot: dark ? Dark.wave-hot : Light.wave-hot;

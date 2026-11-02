@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "로그를 표시할 수 없습니다: {0}",
   "settings.customUrl": "사용자 지정 URL",
   "settings.dark": "다크",
-  "settings.default": "기본",
   "settings.deletingClipPullsWhat": "켜면 클립을 삭제할 때 같은 트랙의 뒤따르는 클립이 빈틈으로 당겨지고, 가장자리를 다듬으면 트랙의 나머지가 함께 움직입니다. 끄면 삭제는 빈틈을 남기고 다듬기는 가장자리만 움직입니다. Shift-Delete는 어느 쪽이든 빈틈을 닫습니다.",
   "settings.download": "다운로드",
   "settings.downloadBlocked": "이 컴퓨터의 무언가(방화벽, 백신, VPN)가 Concat의 인터넷 연결을 막았습니다. 그곳에서 Concat을 허용하거나 브라우저에서 파일을 다운로드하세요.",

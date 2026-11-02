@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "לא ניתן להציג את היומן: {0}",
   "settings.customUrl": "כתובת URL מותאמת",
   "settings.dark": "כהה",
-  "settings.default": "ברירת מחדל",
   "settings.deletingClipPullsWhat": "כשמופעל, מחיקת קליפ מושכת את מה שאחריו באותו ערוץ אל הרווח, וקיצוץ קצה מזיז איתו את שאר הערוץ. כשכבוי, מחיקה משאירה רווח וקיצוץ מזיז רק את הקצה. Shift-Delete סוגר את הרווח בכל מקרה.",
   "settings.download": "הורדה",
   "settings.downloadBlocked": "משהו במחשב הזה חסם את Concat מהאינטרנט: חומת אש, אנטי-וירוס או VPN. אפשרו שם את Concat, או הורידו את הקובץ בדפדפן.",

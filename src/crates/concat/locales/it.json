@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Impossibile mostrare il registro: {0}",
   "settings.customUrl": "URL personalizzato",
   "settings.dark": "Scuro",
-  "settings.default": "Predefinito",
   "settings.deletingClipPullsWhat": "Attivo, eliminare una clip tira ciò che la segue sulla stessa traccia dentro lo spazio, e accorciare un bordo sposta con sé il resto della traccia. Disattivato, un'eliminazione lascia uno spazio e un accorciamento sposta solo il bordo. Maiusc-Elimina chiude lo spazio in ogni caso.",
   "settings.download": "Scarica",
   "settings.downloadBlocked": "Qualcosa su questo computer ha impedito a Concat di accedere a internet: un firewall, un antivirus o una VPN. Consenti Concat lì, oppure scarica il file nel browser.",

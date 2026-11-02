@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Jurnalı göstərmək alınmadı: {0}",
   "settings.customUrl": "Fərdi URL",
   "settings.dark": "Tünd",
-  "settings.default": "Standart",
   "settings.deletingClipPullsWhat": "Açıq olanda klipi silsəniz, eyni trekdə ondan sonra gələnlər boşluğa sürüşür, kənarı qısaltsanız isə trekin qalanı da onunla birgə tərpənir. Söndürüləndə silmə boşluq qoyur, qısaltma isə yalnız kənarı tərpədir. Shift-Delete hər iki halda boşluğu bağlayır.",
   "settings.download": "Yüklə",
   "settings.downloadBlocked": "Bu kompüterdə nəsə Concat-ın internetə çıxışını əngəllədi: firewall, antivirus və ya VPN. Orada Concat-a icazə verin və ya faylı brauzerdə endirin.",

@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Impossible d'afficher le journal : {0}",
   "settings.customUrl": "URL personnalisée",
   "settings.dark": "Sombre",
-  "settings.default": "Par défaut",
   "settings.deletingClipPullsWhat": "Activé, supprimer un clip tire ce qui le suit sur la même piste dans l'espace laissé, et rogner un bord déplace le reste de la piste avec lui. Désactivé, une suppression laisse un espace et un rognage ne déplace que le bord. Maj-Suppr referme l'espace dans les deux cas.",
   "settings.download": "Télécharger",
   "settings.downloadBlocked": "Quelque chose sur cet ordinateur a empêché Concat d'accéder à Internet : un pare-feu, un antivirus ou un VPN. Autorisez Concat, ou téléchargez le fichier dans votre navigateur.",

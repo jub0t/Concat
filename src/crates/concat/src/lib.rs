@@ -367,17 +367,33 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             }
         }
     }
-    // A picked playhead colour is remembered as its hex; none remembered,
-    // or one that will not parse, is the palette's own.
-    if let Some(colour) = studio
-        .prefs
-        .playhead
-        .as_deref()
-        .and_then(format::parse_colour)
+    // The playhead is remembered the accent's way: an accent's name, worn
+    // as each palette has it, or a picked colour's hex. None remembered,
+    // or a name no longer on the list, is Lime, the palette's own.
     {
         let theme = app.global::<Theme>();
-        theme.set_playhead_custom(colour);
-        theme.set_playhead_is_custom(true);
+        let names = theme.get_accent_names();
+        let count = slint::Model::row_count(&names);
+        let remembered = studio.prefs.playhead.as_deref().map(str::trim);
+        match remembered
+            .filter(|text| text.starts_with('#'))
+            .and_then(format::parse_colour)
+        {
+            Some(colour) => {
+                theme.set_playhead_custom(colour);
+                theme.set_playhead_choice(count as i32);
+            }
+            None => {
+                let index = remembered
+                    .and_then(|wanted| {
+                        slint::Model::iter(&names).position(|name| {
+                            prefs::Preferences::accent_id(&name) == wanted.to_lowercase()
+                        })
+                    })
+                    .unwrap_or(0);
+                theme.set_playhead_choice(index as i32);
+            }
+        }
     }
     // The interface scale: the row on Settings > Appearance reads the index
     // off the Theme global, and the window was already made at the scale the
@@ -1971,28 +1987,38 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             });
         }
     });
-    // The playhead's colour is the same shape of thing as the custom accent:
-    // a colour on the Theme global, remembered as its hex, behind a flag
-    // that says it is on. A reset clears the flag and forgets the hex, so
-    // the palette's own comes back and the file no longer names one.
-    app.on_settings_playhead_changed({
-        move |colour| {
+    // The playhead's colour is the same shape of thing as the accent: one
+    // int on the Theme global, remembered as the accent's name it points
+    // at, or as the hex of a colour picked by hand. Lime is the palette's
+    // own, and the file then names none.
+    app.on_settings_playhead_chosen({
+        move |index| {
             Shell::with(|shell, app| {
                 let theme = app.global::<Theme>();
-                theme.set_playhead_custom(colour);
-                theme.set_playhead_is_custom(true);
+                let names = theme.get_accent_names();
+                let Some(name) = usize::try_from(index)
+                    .ok()
+                    .and_then(|row| slint::Model::row_data(&names, row))
+                else {
+                    return;
+                };
+                theme.set_playhead_choice(index);
                 let mut studio = shell.studio.borrow_mut();
-                studio.prefs.playhead = Some(format::hex_of(colour));
+                studio.prefs.playhead =
+                    (index > 0).then(|| prefs::Preferences::accent_id(&name));
                 studio.prefs.save(&studio.host.dirs);
             });
         }
     });
-    app.on_settings_playhead_reset({
-        move || {
+    app.on_settings_playhead_changed({
+        move |colour| {
             Shell::with(|shell, app| {
-                app.global::<Theme>().set_playhead_is_custom(false);
+                let theme = app.global::<Theme>();
+                let count = slint::Model::row_count(&theme.get_accent_names());
+                theme.set_playhead_custom(colour);
+                theme.set_playhead_choice(count as i32);
                 let mut studio = shell.studio.borrow_mut();
-                studio.prefs.playhead = None;
+                studio.prefs.playhead = Some(format::hex_of(colour));
                 studio.prefs.save(&studio.host.dirs);
             });
         }

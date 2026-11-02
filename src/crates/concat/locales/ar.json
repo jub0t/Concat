@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "تعذّر عرض السجل: {0}",
   "settings.customUrl": "عنوان URL مخصّص",
   "settings.dark": "داكن",
-  "settings.default": "افتراضي",
   "settings.deletingClipPullsWhat": "عند التفعيل، يسحب حذف مقطع ما يليه على المسار نفسه إلى الفجوة، ويحرّك قصّ حافة بقية المسار معه. عند الإيقاف، يترك الحذف فجوة ولا يحرّك القصّ إلا الحافة. يُغلق Shift-Delete الفجوة في الحالتين.",
   "settings.download": "تنزيل",
   "settings.downloadBlocked": "منع شيء ما على هذا الحاسوب Concat من الوصول إلى الإنترنت: جدار حماية أو برنامج مكافحة فيروسات أو VPN. اسمح لـ Concat هناك، أو نزّل الملف في متصفحك.",

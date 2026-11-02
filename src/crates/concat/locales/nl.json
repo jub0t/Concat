@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Kan het logboek niet tonen: {0}",
   "settings.customUrl": "Aangepaste URL",
   "settings.dark": "Donker",
-  "settings.default": "Standaard",
   "settings.deletingClipPullsWhat": "Aan: een clip verwijderen trekt wat erna komt op hetzelfde spoor de opening in, en een rand inkorten verschuift de rest van het spoor mee. Uit: verwijderen laat een opening achter en inkorten verplaatst alleen de rand. Shift-Delete sluit de opening hoe dan ook.",
   "settings.download": "Downloaden",
   "settings.downloadBlocked": "Iets op deze computer hield Concat van internet: een firewall, antivirus of VPN. Sta Concat daar toe, of download het bestand in je browser.",

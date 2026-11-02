@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Das Protokoll konnte nicht angezeigt werden: {0}",
   "settings.customUrl": "Eigene URL",
   "settings.dark": "Dunkel",
-  "settings.default": "Standard",
   "settings.deletingClipPullsWhat": "Ein, Löschen eines Clips zieht alles, was auf derselben Spur folgt, in die Lücke, und Kürzen einer Kante nimmt den Rest der Spur mit. Aus, Löschen lässt eine Lücke und Kürzen bewegt nur die Kante. Umschalt-Löschen schließt die Lücke in beiden Fällen.",
   "settings.download": "Herunterladen",
   "settings.downloadBlocked": "Etwas auf diesem Computer hat Concat den Internetzugang gesperrt: eine Firewall, ein Virenschutz oder ein VPN. Erlaube Concat dort oder lade die Datei im Browser herunter.",

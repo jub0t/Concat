@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "No se pudo mostrar el registro: {0}",
   "settings.customUrl": "URL personalizada",
   "settings.dark": "Oscuro",
-  "settings.default": "Predeterminado",
   "settings.deletingClipPullsWhat": "Activado, eliminar un clip arrastra lo que le sigue en la misma pista hacia el hueco, y recortar un borde mueve el resto de la pista con él. Desactivado, eliminar deja un hueco y recortar mueve solo el borde. Mayús-Supr cierra el hueco en ambos casos.",
   "settings.download": "Descargar",
   "settings.downloadBlocked": "Algo en este equipo impidió que Concat accediera a internet: un cortafuegos, un antivirus o una VPN. Permite Concat ahí o descarga el archivo en tu navegador.",

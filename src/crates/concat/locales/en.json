@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Could not show the log: {0}",
   "settings.customUrl": "Custom URL",
   "settings.dark": "Dark",
-  "settings.default": "Default",
   "settings.deletingClipPullsWhat": "On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.",
   "settings.download": "Download",
   "settings.downloadBlocked": "Something on this computer blocked Concat from the internet: a firewall, antivirus or VPN. Allow Concat there, or download the file in your browser.",

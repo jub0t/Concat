@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Nie udało się pokazać dziennika: {0}",
   "settings.customUrl": "Własny adres URL",
   "settings.dark": "Ciemny",
-  "settings.default": "Domyślny",
   "settings.deletingClipPullsWhat": "Włączone: usunięcie klipu przyciąga do luki to, co następuje po nim na tej samej ścieżce, a przycięcie krawędzi przesuwa razem z nią resztę ścieżki. Wyłączone: usunięcie zostawia lukę, a przycięcie przesuwa tylko krawędź. Shift-Delete zamyka lukę w obu przypadkach.",
   "settings.download": "Pobierz",
   "settings.downloadBlocked": "Coś na tym komputerze zablokowało Concat dostęp do internetu: zapora, antywirus lub VPN. Zezwól tam na Concat albo pobierz plik w przeglądarce.",

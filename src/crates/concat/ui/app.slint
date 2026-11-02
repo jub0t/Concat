@@ -378,7 +378,7 @@ export component App inherits Window {
     callback settings-accent-changed(index: int);
     callback settings-accent-custom-changed(colour: color);
     callback settings-playhead-changed(colour: color);
-    callback settings-playhead-reset();
+    callback settings-playhead-chosen(index: int);
     callback settings-scale-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
     callback settings-proxies-changed(on: bool);
@@ -1020,7 +1020,7 @@ export component App inherits Window {
         accent-changed(index) => { root.settings-accent-changed(index); }
         accent-custom-changed(colour) => { root.settings-accent-custom-changed(colour); }
         playhead-changed(colour) => { root.settings-playhead-changed(colour); }
-        playhead-reset => { root.settings-playhead-reset(); }
+        playhead-chosen(index) => { root.settings-playhead-chosen(index); }
         scale-changed(index) => { root.settings-scale-changed(index); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         proxies-changed(on) => { root.settings-proxies-changed(on); }

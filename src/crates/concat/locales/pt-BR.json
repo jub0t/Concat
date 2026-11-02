@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "Não foi possível mostrar o log: {0}",
   "settings.customUrl": "URL personalizada",
   "settings.dark": "Escuro",
-  "settings.default": "Padrão",
   "settings.deletingClipPullsWhat": "Ligado, excluir um clipe puxa o que vem depois dele na mesma faixa para a lacuna, e aparar uma borda move o resto da faixa junto. Desligado, uma exclusão deixa uma lacuna e um aparo move só a borda. Shift-Delete fecha a lacuna de qualquer jeito.",
   "settings.download": "Baixar",
   "settings.downloadBlocked": "Algo neste computador impediu o Concat de acessar a internet: um firewall, antivírus ou VPN. Permita o Concat ali ou baixe o arquivo no navegador.",

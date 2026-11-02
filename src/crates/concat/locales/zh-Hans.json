@@ -446,7 +446,6 @@
   "settings.couldNotShowLog": "无法显示日志：{0}",
   "settings.customUrl": "自定义 URL",
   "settings.dark": "深色",
-  "settings.default": "默认",
   "settings.deletingClipPullsWhat": "开启时，删除片段会把同一轨道上其后的内容拉进空隙，修剪边缘时轨道上的其余内容也随之移动。关闭时，删除会留下空隙，修剪只移动边缘。无论开关与否，Shift-Delete 都会合拢空隙。",
   "settings.download": "下载",
   "settings.downloadBlocked": "这台电脑上的某个程序（防火墙、杀毒软件或 VPN）阻止了 Concat 访问网络。请在其中允许 Concat，或在浏览器中下载该文件。",
