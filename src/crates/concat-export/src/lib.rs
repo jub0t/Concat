@@ -1824,28 +1824,19 @@ fn render_picture(
         } else {
             "rendering"
         };
-        let mut encoder = if hdr {
-            Encoder::create_hdr(
-                destination,
-                request.width,
-                request.height,
-                rate,
-                &options,
-                signal,
-            )
-        } else {
-            Encoder::create(destination, request.width, request.height, rate, &options)
-        }
-        .map_err(|error| failed_encoding(&error, &options))?;
-        log::info!(
-            "export: encoding with {} ({})",
-            encoder.encoder_name(),
-            if encoder.on_hardware() {
-                "hardware"
-            } else {
-                "software"
-            }
+        let (path, size, settings) = (
+            destination.to_path_buf(),
+            (request.width, request.height),
+            options.clone(),
         );
+        let mut writer = Writer::start(move || {
+            if hdr {
+                Encoder::create_hdr(&path, size.0, size.1, rate, &settings, signal)
+            } else {
+                Encoder::create(&path, size.0, size.1, rate, &settings)
+            }
+        })
+        .map_err(|error| failed_encoding(&error, &options))?;
 
         // When progress was last said; see `progress_due`.
         let mut said = std::time::Instant::now();
@@ -1857,9 +1848,15 @@ fn render_picture(
         // without any seeking - including retimed clips.
         let mut decoders: HashMap<ClipId, Decoder> = HashMap::new();
 
+        // Where the pass's time went, said at its end: reading the footage,
+        // drawing the frame, and handing it to the encoder.
+        let begun = std::time::Instant::now();
+        let mut spent = Spent::default();
+
         for index in 0..total_frames {
             reporter.cancelled()?;
 
+            let reading = std::time::Instant::now();
             let time = rate.time_of_frame(index);
             let plan = plan_frame(&timeline, time);
 
@@ -1991,6 +1988,8 @@ fn render_picture(
                 treatments: Vec::new(),
                 output: output_of(request.color_space),
             };
+            let drawing = std::time::Instant::now();
+            spent.reading += drawing - reading;
             // The plan is kept for a second drawing: a frame drawn on a device
             // that died under it is black, and is drawn again on the device
             // that takes over. Both drawings borrow it - the layers' pictures
@@ -2024,11 +2023,18 @@ fn render_picture(
                     &transitions,
                 );
             }
-            if let Err(error) = encoder.write_frame(&composed) {
+            let queueing = std::time::Instant::now();
+            spent.drawing += queueing - drawing;
+            let taken = writer.write(composed);
+            spent.waiting += queueing.elapsed();
+            if !taken {
                 // The stopped encoder is closed before the file is opened
                 // again, so the chip has its session back.
-                drop(encoder);
-                again_in_software(&error, &mut options, index, total_frames)?;
+                let (written, error) = match writer.finish() {
+                    Err(stopped) => stopped,
+                    Ok(_) => unreachable!("an encoder that refused a frame finished"),
+                };
+                again_in_software(&error, &mut options, written, total_frames)?;
                 reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
                 continue 'pass;
             }
@@ -2044,14 +2050,178 @@ fn render_picture(
             }
         }
 
-        match encoder.finish() {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                drop(encoder);
-                again_in_software(&error, &mut options, total_frames, total_frames)?;
+        let finishing = std::time::Instant::now();
+        let finished = writer.finish();
+        spent.waiting += finishing.elapsed();
+        match finished {
+            Ok(encoding) => {
+                spent.encoding = encoding;
+                spent.log(total_frames, begun.elapsed());
+                return Ok(());
+            }
+            Err((written, error)) => {
+                again_in_software(&error, &mut options, written, total_frames)?;
                 reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
             }
         }
+    }
+}
+
+/// Frames a drawn picture may wait for the encoder: enough that a frame
+/// slow to draw or to encode does not hold up the other side, few enough
+/// that the queue is a few hundred megabytes at most - a 4K frame in
+/// sixteen bits a channel is 66 MB.
+const ENCODER_QUEUE: usize = 2;
+
+/// What the encoder's thread is handed.
+enum Job {
+    Frame(Frame),
+    /// Every frame has been handed over: the file is finished.
+    Finish,
+}
+
+/// The encoder on a thread of its own, taking frames through a short
+/// queue: the next frame is read and drawn while this one is converted
+/// and encoded, where they used to wait on each other. The two halves
+/// took a similar share of an export (at 4K on an M5, 3.2 s drawing and
+/// 2.7 s encoding for ten seconds of footage), so overlapping them is
+/// most of a second pass's time back.
+///
+/// Dropped without [`Writer::finish`] - a cancel, a frame that could not
+/// be read - the encoder is closed without finishing its file, and only
+/// once its thread has let go of it, so a hardware encoder's session is
+/// free again before anything opens another.
+struct Writer {
+    jobs: Option<std::sync::mpsc::SyncSender<Job>>,
+    thread: Option<EncoderThread>,
+}
+
+/// The encoder's thread: the time it spent encoding, or how many frames it
+/// had written when it stopped and why.
+type EncoderThread =
+    std::thread::JoinHandle<Result<std::time::Duration, (i64, concat_media::Error)>>;
+
+impl Writer {
+    /// Opens the encoder `open` makes on a thread of its own - FFmpeg's
+    /// contexts are not to be moved between threads, and a phone's
+    /// encoder is best talked to from the thread that opened it - and
+    /// says which it is.
+    fn start(
+        open: impl FnOnce() -> Result<Encoder, concat_media::Error> + Send + 'static,
+    ) -> Result<Writer, concat_media::Error> {
+        let (jobs, taken) = std::sync::mpsc::sync_channel::<Job>(ENCODER_QUEUE);
+        let (opened, open_result) = std::sync::mpsc::channel();
+        let thread = std::thread::Builder::new()
+            .name("concat-export-encoder".into())
+            .spawn(move || {
+                let mut encoder = match open() {
+                    Ok(encoder) => {
+                        log::info!(
+                            "export: encoding with {} ({})",
+                            encoder.encoder_name(),
+                            if encoder.on_hardware() {
+                                "hardware"
+                            } else {
+                                "software"
+                            }
+                        );
+                        let _ = opened.send(None);
+                        encoder
+                    }
+                    Err(error) => {
+                        let _ = opened.send(Some(error));
+                        return Ok(std::time::Duration::ZERO);
+                    }
+                };
+                let mut busy = std::time::Duration::ZERO;
+                let mut written = 0;
+                for job in taken {
+                    let begun = std::time::Instant::now();
+                    match job {
+                        Job::Frame(frame) => {
+                            encoder
+                                .write_frame(&frame)
+                                .map_err(|error| (written, error))?;
+                            written += 1;
+                        }
+                        Job::Finish => {
+                            encoder.finish().map_err(|error| (written, error))?;
+                            return Ok(busy + begun.elapsed());
+                        }
+                    }
+                    busy += begun.elapsed();
+                }
+                // Let go without a finish: the file is abandoned.
+                Ok(busy)
+            })
+            .expect("a thread for the encoder");
+        let writer = Writer {
+            jobs: Some(jobs),
+            thread: Some(thread),
+        };
+        match open_result.recv() {
+            Ok(None) => Ok(writer),
+            Ok(Some(error)) => Err(error),
+            Err(_) => panic!("the encoder's thread ended before it said whether it opened"),
+        }
+    }
+
+    /// Hands `frame` to the encoder, waiting while the queue is full.
+    /// False when the encoder has stopped; [`Writer::finish`] says why.
+    fn write(&mut self, frame: Frame) -> bool {
+        self.jobs
+            .as_ref()
+            .is_some_and(|jobs| jobs.send(Job::Frame(frame)).is_ok())
+    }
+
+    /// Finishes the file once every frame handed over is encoded: the time
+    /// the encoder spent, or how many frames it wrote before it stopped and
+    /// why.
+    fn finish(mut self) -> Result<std::time::Duration, (i64, concat_media::Error)> {
+        if let Some(jobs) = self.jobs.take() {
+            // A send that fails found the encoder stopped already; its
+            // thread says why.
+            let _ = jobs.send(Job::Finish);
+        }
+        let thread = self.thread.take().expect("finished once");
+        thread
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        self.jobs = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Where a picture pass's time went, frame by frame; see `render_picture`.
+#[derive(Default)]
+struct Spent {
+    reading: std::time::Duration,
+    drawing: std::time::Duration,
+    /// On the encoder's own thread, alongside the reading and drawing.
+    encoding: std::time::Duration,
+    /// The reading and drawing held up by an encoder behind them.
+    waiting: std::time::Duration,
+}
+
+impl Spent {
+    fn log(&self, frames: i64, total: std::time::Duration) {
+        let rate = frames as f64 / total.as_secs_f64().max(1e-9);
+        log::info!(
+            "export: {frames} frames in {:.2} s ({rate:.1} fps): reading {:.2} s, drawing {:.2} \
+             s, encoding {:.2} s alongside, {:.2} s of it waited for",
+            total.as_secs_f64(),
+            self.reading.as_secs_f64(),
+            self.drawing.as_secs_f64(),
+            self.encoding.as_secs_f64(),
+            self.waiting.as_secs_f64(),
+        );
     }
 }
 
@@ -3853,8 +4023,16 @@ mod tests {
             let frame = decoder.next_frame().expect("decodes").expect("a frame");
             let corner = frame.pixel(2, 2).expect("a pixel");
             let middle = frame.pixel(32, 32).expect("a pixel");
-            assert!(corner[3] <= 4, "{}: the corner is {corner:?}", codec.label());
-            assert!(middle[3] >= 250, "{}: the middle is {middle:?}", codec.label());
+            assert!(
+                corner[3] <= 4,
+                "{}: the corner is {corner:?}",
+                codec.label()
+            );
+            assert!(
+                middle[3] >= 250,
+                "{}: the middle is {middle:?}",
+                codec.label()
+            );
             assert!(
                 middle[0].abs_diff(200) <= 12 && middle[1].abs_diff(40) <= 12,
                 "{}: the middle is {middle:?}",
@@ -3884,7 +4062,10 @@ mod tests {
         let middle = frame.pixel(32, 32).expect("a pixel");
         assert!((130..=170).contains(&middle[0]), "the middle is {middle:?}");
         let corner = frame.pixel(2, 2).expect("a pixel");
-        assert!(corner[0] <= 8 && corner[3] == 255, "the corner is {corner:?}");
+        assert!(
+            corner[0] <= 8 && corner[3] == 255,
+            "the corner is {corner:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4614,5 +4795,157 @@ mod tests {
         let (end, frames) = timeline_extent(&down, FrameRate::THIRTY, 0.0);
         assert_eq!(end, Rational::new(299, 30));
         assert_eq!(frames, 299, "no black frame past the end");
+    }
+
+    /// How fast a plain export runs, and where its time goes: ten seconds
+    /// of 1080p30 footage that moves, under a sound, written as the export
+    /// sheet writes H.264. Ignored: it takes as long as an export does.
+    /// `cargo test -p concat-export --release -- --ignored --nocapture
+    /// export_speed`. `CONCAT_SPEED_FOOTAGE` names a file to export in
+    /// place of the made-up footage, `CONCAT_SPEED_SIZE` the frame
+    /// ("3840x2160"), and `CONCAT_SPEED_CODEC` the codec by its name.
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn export_speed() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        struct Said;
+        impl log::Log for Said {
+            fn enabled(&self, metadata: &log::Metadata) -> bool {
+                metadata.level() <= log::Level::Info
+            }
+            fn log(&self, record: &log::Record) {
+                if record.target().starts_with("concat") {
+                    eprintln!("{}", record.args());
+                }
+            }
+            fn flush(&self) {}
+        }
+        let _ = log::set_logger(&Said);
+        log::set_max_level(log::LevelFilter::Info);
+
+        let (width, height, frames) = (1920_u32, 1080_u32, 300_u32);
+        let dir = std::env::temp_dir().join("concat-export-speed");
+        let _ = std::fs::create_dir_all(&dir);
+        let footage_path = dir.join("footage.mp4");
+        if !footage_path.is_file() {
+            let mut encoder = Encoder::create(
+                &footage_path,
+                width,
+                height,
+                FrameRate::THIRTY,
+                &EncodeOptions::default(),
+            )
+            .expect("an encoder");
+            let mut frame = Frame::black(width, height);
+            for index in 0..frames {
+                // A gradient sliding across, and squares crossing it: motion
+                // an encoder has to work for, but not noise.
+                for (y, row) in frame
+                    .pixels_mut()
+                    .chunks_exact_mut(width as usize * 4)
+                    .enumerate()
+                {
+                    for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                        let (x, y, t) = (x as u32, y as u32, index * 7);
+                        let square = ((x + t) / 120 + (y + t / 2) / 120) % 2 == 0;
+                        pixel.copy_from_slice(&[
+                            ((x + t) % 256) as u8,
+                            ((y + t / 3) % 256) as u8,
+                            if square { 220 } else { 40 },
+                            255,
+                        ]);
+                    }
+                }
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+        }
+        let sound_path = dir.join("sound.wav");
+        if !sound_path.is_file() {
+            let rate = 48_000_u32;
+            let samples: Vec<i16> = (0..rate * 10 * 2)
+                .map(|n| {
+                    let t = f64::from(n / 2) / f64::from(rate);
+                    ((t * 440.0 * std::f64::consts::TAU).sin() * 8000.0) as i16
+                })
+                .collect();
+            let bytes = samples.len() as u32 * 2;
+            let mut wav = Vec::new();
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&(36 + bytes).to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            for field in [16_u32, 1 | (2 << 16), rate, rate * 4, 4 | (16 << 16)] {
+                wav.extend_from_slice(&field.to_le_bytes());
+            }
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&bytes.to_le_bytes());
+            for sample in samples {
+                wav.extend_from_slice(&sample.to_le_bytes());
+            }
+            std::fs::write(&sound_path, wav).expect("writes the sound");
+        }
+
+        let footage_path =
+            std::env::var_os("CONCAT_SPEED_FOOTAGE").map_or(footage_path, std::path::PathBuf::from);
+        let footage = concat_media::probe(&footage_path).expect("footage to read");
+        let stream = footage.require_video().expect("a picture");
+        let (width, height) = std::env::var("CONCAT_SPEED_SIZE")
+            .ok()
+            .and_then(|size| {
+                let (width, height) = size.split_once('x')?;
+                Some((width.parse().ok()?, height.parse().ok()?))
+            })
+            .unwrap_or((width, height));
+        let codec = std::env::var("CONCAT_SPEED_CODEC")
+            .ok()
+            .and_then(|name| VideoCodec::parse(&name))
+            .unwrap_or(VideoCodec::H264);
+        let mut picture = clip("video", 0, 0.0, 10.0, 0.0);
+        picture.path = footage_path.to_string_lossy().into_owned();
+        picture.media_width = Some(stream.width);
+        picture.media_height = Some(stream.height);
+        picture.media_duration = Some(10.0);
+        picture.has_audio = Some(false);
+        let mut sound = clip("audio", 1, 0.0, 10.0, 0.0);
+        sound.path = sound_path.to_string_lossy().into_owned();
+        sound.media_duration = Some(10.0);
+        sound.has_audio = Some(true);
+        let request = ExportRequest {
+            canvas: [0, 0, 0, 255],
+            output: dir.join("out.mp4").to_string_lossy().into_owned(),
+            width,
+            height,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 23,
+            preset: "veryfast".into(),
+            codec,
+            ten_bit: false,
+            rate_mode: RateMode::Average,
+            bitrate_kbps: 16_000 * (width * height / (1920 * 1080)).max(1),
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            clips: vec![picture, sound],
+        };
+        let cancel = AtomicBool::new(false);
+        let mut progress = |_: i64, _: i64, _: &'static str| {};
+        let begun = std::time::Instant::now();
+        let written = render(
+            &request,
+            Reporter {
+                progress: &mut progress,
+                cancel: &cancel,
+            },
+        )
+        .expect("exports");
+        eprintln!(
+            "the whole export: {:.2} s, {} bytes",
+            begun.elapsed().as_secs_f64(),
+            std::fs::metadata(&written).map_or(0, |meta| meta.len())
+        );
     }
 }

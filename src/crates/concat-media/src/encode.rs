@@ -148,15 +148,19 @@ impl VideoCodec {
     ///
     /// On a desktop the software encoders lead, and the machine's own
     /// comes after them for an FFmpeg built without them. With `hardware`,
-    /// the GPU's leads for HEVC and AV1: VideoToolbox on macOS, and on
-    /// Windows and Linux NVIDIA's NVENC, Intel's Quick Sync and AMD's AMF,
-    /// in that order - many times faster than x265 and, at these rates, as
-    /// good to look at. Whichever of those the machine has no chip for
-    /// does not open, and the export takes the next. H.264 stays with x264
-    /// wherever it is linked: the hardware H.264 encoders spend noticeably
-    /// more bits for the same picture, and H.264 is the choice made for
-    /// compatibility, not speed. Media Foundation, Windows' own, is last:
-    /// it runs on whatever the machine has, and says little about how.
+    /// the GPU's lead: VideoToolbox on macOS, and on Windows and Linux
+    /// NVIDIA's NVENC, Intel's Quick Sync and AMD's AMF, in that order.
+    /// Whichever of those the machine has no chip for does not open, and
+    /// the export takes the next. H.264 included: x264 was kept ahead of
+    /// the chips for H.264 because they spend more bits on the same
+    /// picture, but an export is steered by a bitrate the sheet picked
+    /// generously, where that difference does not show, and x264 was the
+    /// largest share of every export's time - at 4K, 16 ms a frame on an
+    /// M5's ten cores, and several times that on a four-core laptop, where
+    /// the chip takes a frame in a few. Without `hardware` - a proxy, an
+    /// intermediate - the CPU's encoder leads, as it always did. Media
+    /// Foundation, Windows' own, is last: it runs on whatever the machine
+    /// has, and says little about how.
     pub fn encoders(self, hardware: bool) -> &'static [&'static str] {
         match self {
             VideoCodec::ProRes4444 => return &["prores_ks"],
@@ -181,10 +185,15 @@ impl VideoCodec {
             };
         }
         match self {
+            VideoCodec::H264 if hardware && macos => &["h264_videotoolbox", "libx264"],
             VideoCodec::H264 if macos => &["libx264", "h264_videotoolbox"],
+            VideoCodec::H264 if hardware && windows => {
+                &["h264_nvenc", "h264_qsv", "h264_amf", "libx264", "h264_mf"]
+            }
             VideoCodec::H264 if windows => {
                 &["libx264", "h264_nvenc", "h264_qsv", "h264_amf", "h264_mf"]
             }
+            VideoCodec::H264 if hardware => &["h264_nvenc", "h264_qsv", "h264_amf", "libx264"],
             VideoCodec::H264 => &["libx264", "h264_nvenc", "h264_qsv", "h264_amf"],
             VideoCodec::Hevc if hardware && macos => &["hevc_videotoolbox", "libx265"],
             VideoCodec::Hevc if macos => &["libx265", "hevc_videotoolbox"],
