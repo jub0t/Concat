@@ -47,6 +47,51 @@ fn read() -> Option<u64> {
     None
 }
 
+/// Hands memory the app has freed back to the system. Every platform's
+/// allocator keeps freed blocks to reuse rather than returning them, and
+/// after a burst - a project opened, a scrub, decoders closed - that was a
+/// hundred megabytes and more the app no longer used but still counted
+/// against it in Activity Monitor and Task Manager. For when the app has
+/// gone quiet; the next allocation after it costs a little more.
+pub fn release_freed() {
+    #[cfg(target_vendor = "apple")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // SAFETY: a null zone asks every zone, and a goal of zero asks for
+        // all it can give; libmalloc takes its own locks.
+        unsafe {
+            malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+        }
+    }
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: glibc's trim takes its arena locks itself.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+    #[cfg(target_os = "android")]
+    {
+        // Bionic's M_PURGE, Android 9 and later: its allocator returns the
+        // pages it can. An older release refuses the option, harmlessly.
+        const M_PURGE: libc::c_int = -101;
+        // SAFETY: mallopt takes an option and a value, and refuses one it
+        // does not know.
+        unsafe {
+            libc::mallopt(M_PURGE, 0);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Memory::{GetProcessHeap, HeapCompact};
+        // SAFETY: the process heap lives as long as the process; compacting
+        // it coalesces free blocks and decommits the large ones.
+        unsafe {
+            HeapCompact(GetProcessHeap(), 0);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// Every machine the tests run on has some memory, and says how much.

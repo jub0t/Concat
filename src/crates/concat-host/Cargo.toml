@@ -62,6 +62,8 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = [
   "Win32_Media",
   "Win32_System_SystemInformation",
+  # memory.rs: the process heap compacted when the app goes quiet.
+  "Win32_System_Memory",
   # crash.rs: the unhandled-exception filter and what it reads and writes.
   "Win32_Foundation",
   "Win32_Storage_FileSystem",

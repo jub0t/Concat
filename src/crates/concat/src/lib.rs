@@ -194,6 +194,10 @@ pub(crate) fn close_window(
 }
 
 /// [`run_with_project`], or [`smoke`] when `smoke` is set.
+/// The frames the caches keep between them once the app has gone quiet:
+/// a few seconds of scrubbing around where the monitor is, at its size.
+const IDLE_FRAMES: usize = 96 * 1024 * 1024;
+
 fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
     // What Import and a finished export reach on an iPhone. Android's own
     // crate installs its; iOS runs this crate's binary, so it is here.
@@ -2635,17 +2639,38 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // looked at every five: each holds buffers of its own, and the playhead
     // leaves files behind. One reopens on its next frame. Held here, for
     // the life of the loop.
+    //
+    // And once nothing has asked for a frame since the last look, the app
+    // has gone quiet: the frame caches go down to a working set around
+    // where the monitor is, the GPU's copies of them to a quarter, and the
+    // memory all of that freed goes back to the system. Open on a 4K
+    // project, idle, it held 590 MB, a hundred of it freed and kept by the
+    // allocator; the caches fill again as soon as frames are asked for.
     let reader_sweep = slint::Timer::default();
+    let quiet = std::cell::Cell::new((u64::MAX, false));
     reader_sweep.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_secs(5),
-        || {
-            let closed = concat_host::scheduler()
-                .pool()
-                .close_idle(std::time::Duration::from_secs(10));
+        move || {
+            let pool = concat_host::scheduler().pool();
+            let closed = pool.close_idle(std::time::Duration::from_secs(10));
             if closed > 0 {
                 log::debug!("memory: closed {closed} idle decoder(s)");
             }
+            let asked = pool.asked();
+            let (seen, trimmed) = quiet.get();
+            if asked != seen {
+                quiet.set((asked, false));
+                return;
+            }
+            if trimmed {
+                return;
+            }
+            quiet.set((asked, true));
+            pool.trim(IDLE_FRAMES);
+            Shell::with(|shell, _| shell.studio.borrow().host.monitor.shrink());
+            concat_host::memory::release_freed();
+            log::debug!("memory: quiet, caches trimmed and freed memory returned");
         },
     );
 

@@ -58,6 +58,9 @@ use crate::probe;
 /// sixty decodes - comparable to a seek, and exact.
 const ROLL_FORWARD_FRAMES: i64 = 60;
 
+/// The threads a pool reader's codec decodes on; see `Reader::open`.
+const READER_THREADS: u16 = 8;
+
 /// Warm readers one file at one level may hold: enough for the two sides of
 /// a transition within a file and a scrub elsewhere in it, few enough that
 /// a 4K file does not hold a decoder per playback worker.
@@ -273,7 +276,13 @@ impl<K: Hash + Eq + Clone> FrameCache<K> {
             self.held -= previous.pixels().len();
         }
         self.held += bytes;
-        while self.held > self.budget {
+        self.shrink_to(self.budget);
+    }
+
+    /// Lets the least recently used frames go until at most `keep` bytes
+    /// are held.
+    fn shrink_to(&mut self, keep: usize) {
+        while self.held > keep {
             let Some(oldest) = self
                 .frames
                 .iter()
@@ -409,11 +418,17 @@ impl Reader {
         // Unpaced, so every source frame comes out with its own timestamp
         // and the index is read from that; a seek lands on the keyframe at
         // or before the target and the pull rolls forward from there.
+        // Four threads, not one a core: each of a frame-threaded decoder's
+        // threads holds its own pictures in flight, and on twelve cores a
+        // 4K reader held 330 MB of them - memory the allocator then kept
+        // after the reader closed. A reader here walks a few frames to the
+        // one the monitor wants, and four do that nearly as fast.
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
             .scaled_to(width, height)
             .in_range(range)
-            .deep(deep);
+            .deep(deep)
+            .threaded(READER_THREADS);
         if keyframes {
             options = options.nearest_keyframes();
         }
@@ -642,6 +657,9 @@ impl CacheStats {
 
 #[derive(Default)]
 struct Counters {
+    /// Frames asked for, cached or not: what tells a sweep the pool has
+    /// been idle since it last looked; see [`ReaderPool::asked`].
+    asked: AtomicU64,
     decoded: AtomicU64,
     source_hits: AtomicU64,
     treated_hits: AtomicU64,
@@ -743,6 +761,25 @@ impl ReaderPool {
     /// not asked for in a while are closed by [`ReaderPool::close_idle`].
     pub fn sized_for(total_memory: Option<u64>) -> Self {
         Self::new(Self::frame_budget(total_memory), 8)
+    }
+
+    /// How many frames have been asked of the pool so far: unchanged
+    /// between two looks, nothing was asked for in between.
+    pub fn asked(&self) -> u64 {
+        self.counters.asked.load(Ordering::Relaxed)
+    }
+
+    /// Lets the frame caches go down to `keep` bytes between them, the
+    /// least recently used first: what a pool nobody is asking frames of
+    /// holds on to. The frames near where the monitor last was are the
+    /// last to go, so a scrub that starts again there is still free.
+    pub fn trim(&self, keep: usize) {
+        if let Ok(mut cache) = self.sources.lock() {
+            cache.shrink_to(keep / 4 * 3);
+        }
+        if let Ok(mut cache) = self.treated.lock() {
+            cache.shrink_to(keep / 4);
+        }
     }
 
     /// Closes the warm readers nobody has asked for in `idle`, and that no
@@ -883,6 +920,7 @@ impl ReaderPool {
     /// reads, its facts, and the key of the frame at the level that covers
     /// the request.
     fn locate(&self, request: &FrameRequest) -> Result<(Arc<MediaFacts>, SourceKey)> {
+        Self::count(&self.counters.asked);
         let mut path = self.path_for(request);
         let facts = match self.facts_for(&path, request.still) {
             Ok(facts) => facts,
@@ -1213,6 +1251,7 @@ impl ReaderPool {
         range: Option<ColorRange>,
         deep: bool,
     ) -> Result<Arc<Frame>> {
+        Self::count(&self.counters.asked);
         let chain = chain.filter(|chain| !chain.trim().is_empty());
         let pre = pre.filter(|pre| !pre.trim().is_empty());
         let facts = self.facts_for(path, still)?;
