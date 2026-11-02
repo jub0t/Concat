@@ -66,12 +66,12 @@ export struct CaptionsSheetData {
     /// The motions the captions lane can be given, by name, and the row.
     motions: [string],
     motion: int,
-    /// The video effects the captions lane can be given, by name, and the row.
-    looks: [string],
-    look: int,
     /// The styles captions can be made in: the kept look, then the presets.
     styles: [string],
     style: int,
+    /// The colours the spoken word can be lit in, and the row.
+    highlights: [string],
+    highlight: int,
     /// Gemini: what sending the clip's sound will cost, in words; shown
     /// before anything leaves the machine.
     gemini-notice: string,
@@ -112,10 +112,10 @@ export component CaptionsDialog inherits Modal {
     callback gemini-reveal-changed(index: int);
     callback motion-changed(index: int);
     callback apply-motion();
-    callback look-changed(index: int);
-    callback apply-look();
     callback style-changed(index: int);
     callback apply-style();
+    callback highlight-changed(index: int);
+    callback apply-highlight();
     callback begin();
     callback cancel();
     callback import-srt();
@@ -410,6 +410,23 @@ export component CaptionsDialog inherits Modal {
             }
 
             DialogRow {
+                label: I18n.t("captions.highlight");
+                HorizontalLayout {
+                    spacing: 6px;
+                    Select {
+                        options: root.data.highlights;
+                        current: root.data.highlight;
+                        changed(index) => { root.highlight-changed(index); }
+                    }
+                    Button {
+                        label: I18n.t("captions.applyHighlight");
+                        ghost: true;
+                        clicked => { root.apply-highlight(); }
+                    }
+                }
+            }
+
+            DialogRow {
                 label: I18n.t("captions.style");
                 HorizontalLayout {
                     spacing: 6px;
@@ -422,23 +439,6 @@ export component CaptionsDialog inherits Modal {
                         label: I18n.t("captions.applyStyle");
                         ghost: true;
                         clicked => { root.apply-style(); }
-                    }
-                }
-            }
-
-            DialogRow {
-                label: I18n.t("captions.look");
-                HorizontalLayout {
-                    spacing: 6px;
-                    Select {
-                        options: root.data.looks;
-                        current: root.data.look;
-                        changed(index) => { root.look-changed(index); }
-                    }
-                    Button {
-                        label: I18n.t("captions.applyLook");
-                        ghost: true;
-                        clicked => { root.apply-look(); }
                     }
                 }
             }

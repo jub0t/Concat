@@ -45,8 +45,9 @@ const CAPTION_OFFSETS: [f64; 3] = [0.35, 0.0, -0.35];
 const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
 /// How many motions the sheet lists: none, fade, pop, slide, scale.
 const MOTIONS: usize = 5;
-/// How many looks the sheet lists: none, then `caption_fx::LOOK_IDS`.
-const LOOKS: usize = 1 + caption_fx::LOOK_IDS.len();
+/// The colours the highlight layer can light a word in; the sheet's list
+/// is "none" and then these.
+const HIGHLIGHTS: [&str; 5] = ["#ffe600", "#3dff6e", "#5ef2ff", "#ff4fd8", "#ff9f1c"];
 
 /// A rough speaking rate, for a script's timing and the speech sheet's
 /// estimate.
@@ -85,14 +86,14 @@ pub enum CaptionsMsg {
     MotionChanged(i32),
     /// Give the captions lane that motion.
     ApplyMotion,
-    /// The look row of the sheet.
-    LookChanged(i32),
-    /// Give the captions lane that video effect.
-    ApplyLook,
     /// The style row of the sheet.
     StyleChanged(i32),
     /// Dress the captions lane in that style.
     ApplyStyle,
+    /// The highlight row of the sheet.
+    HighlightChanged(i32),
+    /// Light the captions' words one at a time, in the sheet's colour.
+    ApplyHighlight,
     PlacementChanged(i32),
     SizeChanged(i32),
     /// Run the pass the sheet describes.
@@ -165,10 +166,10 @@ pub struct CaptionsPane {
     pub size: usize,
     /// Row of the motion list: none, fade, pop, slide, scale.
     pub motion: usize,
-    /// Row of the look list: none, then the video effects of `LOOK_IDS`.
-    pub look: usize,
     /// Row of the style list: the kept look, then the Text page's presets.
     pub style: usize,
+    /// Row of the highlight list: none, then `HIGHLIGHTS`.
+    pub highlight: usize,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -293,14 +294,14 @@ impl CaptionsPane {
                 self.motion = (index.max(0) as usize).min(MOTIONS - 1);
             }
             CaptionsMsg::ApplyMotion => self.apply_motion(studio),
-            CaptionsMsg::LookChanged(index) => {
-                self.look = (index.max(0) as usize).min(LOOKS - 1);
-            }
-            CaptionsMsg::ApplyLook => self.apply_look(studio),
             CaptionsMsg::StyleChanged(index) => {
                 self.style = (index.max(0) as usize).min(style_ids(studio).len());
             }
             CaptionsMsg::ApplyStyle => self.apply_style(studio),
+            CaptionsMsg::HighlightChanged(index) => {
+                self.highlight = (index.max(0) as usize).min(HIGHLIGHTS.len());
+            }
+            CaptionsMsg::ApplyHighlight => self.apply_highlight(studio),
             CaptionsMsg::PlacementChanged(index) => {
                 self.placement = (index.max(0) as usize).min(2);
             }
@@ -663,6 +664,119 @@ impl CaptionsPane {
         studio.prefs.title_style.clone()
     }
 
+    /// The highlight layer: over each caption, the same words again in the
+    /// sheet's colour, one word at a time, each clip masked to its word.
+    /// Made of what the editor already has - a title, a rectangle mask,
+    /// a lane of its own - so the preview and the export draw it alike.
+    /// Any earlier layer is taken off first; "none" only does that.
+    fn apply_highlight(&mut self, studio: &mut Studio) {
+        let Some(lane) = export_lane(studio) else {
+            self.message = t("captions.noCaptionsToExport");
+            return;
+        };
+        let old: Vec<String> = studio
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| clip.kind == ClipKind::Text && clip.name == caption_fx::HIGHLIGHT_NAME)
+            .map(|clip| clip.id.clone())
+            .collect();
+        if !old.is_empty() {
+            studio.apply(Command::RemoveClips {
+                clip_ids: old,
+                ripple: false,
+            });
+        }
+        let Some(colour) = self
+            .highlight
+            .checked_sub(1)
+            .and_then(|index| HIGHLIGHTS.get(index))
+            .copied()
+        else {
+            studio.notify(&t("captions.highlightRemoved"), false);
+            return;
+        };
+        let (width, height) = studio.output_size();
+        let captions: Vec<concat_project::model::Clip> = studio
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| {
+                clip.kind == ClipKind::Text
+                    && clip.track_id == lane.track_id
+                    && clip.name != caption_fx::HIGHLIGHT_NAME
+            })
+            .map(|clip| (**clip).clone())
+            .collect();
+        let mut layer: Option<String> = None;
+        let (mut words_lit, mut skipped) = (0usize, 0usize);
+        for clip in captions {
+            let Some(text) = clip.text.clone() else {
+                continue;
+            };
+            let count = text.content.split_whitespace().count();
+            let rtl = text
+                .content
+                .chars()
+                .any(|c| ('\u{0590}'..='\u{08FF}').contains(&c));
+            let boxes = studio
+                .host
+                .titles
+                .word_boxes(studio.project(), &text, width, height);
+            let ordered = caption_fx::spoken_order(&boxes, rtl);
+            if count == 0 || ordered.len() != count {
+                skipped += 1;
+                continue;
+            }
+            let overlay = TextStyle {
+                color: colour.to_owned(),
+                background: String::new(),
+                shadow: false,
+                ..text.clone()
+            };
+            let slots = caption_fx::word_slots(clip.start, clip.duration, &text.content);
+            for (index, (start, duration)) in slots.into_iter().enumerate() {
+                let created = studio.apply(Command::AddTextClip {
+                    track_id: layer.clone(),
+                    above: true,
+                    start,
+                    style: Some(overlay.clone()),
+                    duration: Some(duration),
+                    offset_y: Some(clip.offset_y),
+                });
+                let Some(id) = created else {
+                    continue;
+                };
+                if layer.is_none() {
+                    layer = studio.clip(&id).map(|made| made.track_id.clone());
+                }
+                studio.apply(Command::UpdateClip {
+                    clip_id: id,
+                    patch: concat_project::commands::ClipPatch {
+                        name: Some(caption_fx::HIGHLIGHT_NAME.to_owned()),
+                        mask: Some(Some(caption_fx::word_mask(
+                            &ordered,
+                            index,
+                            (width, height),
+                        ))),
+                        ..concat_project::commands::ClipPatch::default()
+                    },
+                });
+                words_lit += 1;
+            }
+        }
+        if words_lit == 0 {
+            self.message = t("captions.highlightNothing");
+        } else if skipped > 0 {
+            studio.notify(
+                &tf("captions.highlightSkipped", &[&words_lit, &skipped]),
+                false,
+            );
+        } else {
+            studio.notify(&tf("captions.highlightApplied", &[&words_lit]), false);
+        }
+    }
+
     /// Dresses every caption on the lane in the sheet's style, keeping
     /// each one's words and size.
     fn apply_style(&mut self, studio: &mut Studio) {
@@ -702,32 +816,6 @@ impl CaptionsPane {
         let count = commands.len();
         studio.apply(Command::Batch { commands });
         studio.notify(&tf("captions.styleApplied", &[&count]), false);
-    }
-
-    /// Gives every caption on the lane the sheet's video effect, in place
-    /// of any other of the sheet's own; effects added by hand stay.
-    fn apply_look(&mut self, studio: &mut Studio) {
-        let Some(lane) = export_lane(studio) else {
-            self.message = t("captions.noCaptionsToExport");
-            return;
-        };
-        let look = self
-            .look
-            .checked_sub(1)
-            .and_then(|index| caption_fx::LOOK_IDS.get(index))
-            .copied();
-        let mut commands: Vec<Command> = Vec::new();
-        for clip in studio.timeline().clips.iter() {
-            if clip.kind == ClipKind::Text && clip.track_id == lane.track_id {
-                commands.push(caption_fx::look_command(clip, look));
-            }
-        }
-        if commands.is_empty() {
-            return;
-        }
-        let count = commands.len();
-        studio.apply(Command::Batch { commands });
-        studio.notify(&tf("captions.lookApplied", &[&count]), false);
     }
 
     /// The sheet opened afresh. `clip` is the clip it was opened on, if
@@ -1097,8 +1185,17 @@ impl CaptionsPane {
             ]))
             .into(),
             motion: self.motion as i32,
-            look: self.look as i32,
             style: self.style as i32,
+            highlight: self.highlight as i32,
+            highlights: std::rc::Rc::new(slint::VecModel::from(vec![
+                slint::SharedString::from(t("captions.highlightNone")),
+                slint::SharedString::from(t("captions.highlightYellow")),
+                slint::SharedString::from(t("captions.highlightGreen")),
+                slint::SharedString::from(t("captions.highlightCyan")),
+                slint::SharedString::from(t("captions.highlightPink")),
+                slint::SharedString::from(t("captions.highlightOrange")),
+            ]))
+            .into(),
             styles: std::rc::Rc::new(slint::VecModel::from({
                 let mut names = vec![slint::SharedString::from(t("captions.styleKept"))];
                 names.extend(
@@ -1108,16 +1205,6 @@ impl CaptionsPane {
                 );
                 names
             }))
-            .into(),
-            looks: std::rc::Rc::new(slint::VecModel::from(vec![
-                slint::SharedString::from(t("captions.lookNone")),
-                slint::SharedString::from(t("captions.lookGlow")),
-                slint::SharedString::from(t("captions.lookNeon")),
-                slint::SharedString::from(t("captions.lookVhs")),
-                slint::SharedString::from(t("captions.lookChromatic")),
-                slint::SharedString::from(t("captions.lookBloomPulse")),
-                slint::SharedString::from(t("captions.lookHalation")),
-            ]))
             .into(),
             motions: std::rc::Rc::new(slint::VecModel::from(vec![
                 slint::SharedString::from(t("captions.motionNone")),

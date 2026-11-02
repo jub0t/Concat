@@ -266,7 +266,7 @@ const BUNDLED: [&[u8]; 5] = [
 /// (regular) weight: fontdb sets no variation axes. Kosugi Maru carries
 /// Japanese, Secular One and Rubik Scribble Hebrew. The window registers the
 /// same bytes for its preset cards (concat's fonts.rs).
-pub const BASE_FONTS: [&[u8]; 41] = [
+pub const BASE_FONTS: [&[u8]; 57] = [
     include_bytes!("../fonts/Inter-Regular.ttf"),
     include_bytes!("../fonts/Inter-SemiBold.ttf"),
     include_bytes!("../fonts/Inter-Bold.ttf"),
@@ -298,6 +298,22 @@ pub const BASE_FONTS: [&[u8]; 41] = [
     include_bytes!("../fonts/SecularOne-Regular.ttf"),
     include_bytes!("../fonts/LondrinaSolid-Regular.ttf"),
     include_bytes!("../fonts/LondrinaSolid-Black.ttf"),
+    include_bytes!("../fonts/Vazirmatn-Regular.ttf"),
+    include_bytes!("../fonts/Vazirmatn-Bold.ttf"),
+    include_bytes!("../fonts/Vazirmatn-Black.ttf"),
+    include_bytes!("../fonts/Shabnam-Bold.ttf"),
+    include_bytes!("../fonts/Sahel-Black.ttf"),
+    include_bytes!("../fonts/Samim-Bold.ttf"),
+    include_bytes!("../fonts/Parastoo-Bold.ttf"),
+    include_bytes!("../fonts/Gandom-Regular.ttf"),
+    include_bytes!("../fonts/Tanha-Regular.ttf"),
+    include_bytes!("../fonts/Lalezar-Regular.ttf"),
+    include_bytes!("../fonts/Rakkas-Regular.ttf"),
+    include_bytes!("../fonts/ArefRuqaa-Bold.ttf"),
+    include_bytes!("../fonts/Lemonada-Bold.ttf"),
+    include_bytes!("../fonts/Katibeh-Regular.ttf"),
+    include_bytes!("../fonts/Mirza-Bold.ttf"),
+    include_bytes!("../fonts/Changa-ExtraBold.ttf"),
     include_bytes!("../fonts/BungeeHairline-Regular.ttf"),
     include_bytes!("../fonts/RubikScribble-Regular.ttf"),
     include_bytes!("../fonts/ShadowsIntoLightTwo-Regular.ttf"),
@@ -2318,6 +2334,44 @@ mod tests {
         let b = render_frame(&fonts, &style("زیرنویس فارسی"), 1280, 720).expect("renders");
         assert_eq!(a.rgba, b.rgba);
         assert!(a.rgba.chunks(4).filter(|p| p[3] > 0).count() > 200);
+    }
+
+    /// Every Persian face the app bundles draws a Persian caption in its own
+    /// shapes: each family is there, and no two of them paint the same pixels.
+    #[test]
+    fn the_bundled_persian_faces_each_draw_their_own_letters() {
+        let fonts = Fonts::with_system(false);
+        let families = fonts.families();
+        let faces = [
+            ("Vazirmatn", 700.0),
+            ("Lalezar", 400.0),
+            ("Shabnam", 700.0),
+            ("Sahel", 900.0),
+            ("Samim", 700.0),
+            ("Parastoo", 700.0),
+            ("Gandom", 400.0),
+            ("Tanha", 400.0),
+            ("Rakkas", 400.0),
+            ("Aref Ruqaa", 700.0),
+            ("Lemonada", 700.0),
+            ("Katibeh", 400.0),
+            ("Mirza", 700.0),
+            ("Changa ExtraBold", 800.0),
+        ];
+        let mut seen: Vec<Vec<u8>> = Vec::new();
+        for (family, weight) in faces {
+            assert!(families.iter().any(|f| f == family), "{family} is bundled");
+            let mut look = style("سلام، به زیرنویس خوش آمدید");
+            look.font_family = family.to_owned();
+            look.font_weight = weight;
+            let frame = render_frame(&fonts, &look, 1280, 720).expect("renders");
+            assert!(
+                frame.rgba.chunks(4).filter(|p| p[3] > 0).count() > 500,
+                "{family} paints"
+            );
+            assert!(!seen.contains(&frame.rgba), "{family} looks like another");
+            seen.push(frame.rgba);
+        }
     }
 
     /// A missing family falls back to a system face and still paints words.

@@ -1,0 +1,15 @@
+id = "concat.fa-font-gandom"
+name = "گندم"
+language = "Persian"
+order = 18
+offsetY = 0.2
+
+[style]
+content = "سلام، به زیرنویس خوش آمدید"
+fontFamily = "Gandom"
+fontWeight = 400
+fontSize = 0.075
+color = "#fff1dc"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86

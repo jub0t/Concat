@@ -326,10 +326,10 @@ export component App inherits Window {
     callback captions-gemini-reveal-changed(index: int);
     callback captions-motion-changed(index: int);
     callback captions-apply-motion();
-    callback captions-look-changed(index: int);
-    callback captions-apply-look();
     callback captions-style-changed(index: int);
     callback captions-apply-style();
+    callback captions-highlight-changed(index: int);
+    callback captions-apply-highlight();
     callback captions-begin();
     callback captions-cancel();
     callback captions-import-srt();
@@ -719,10 +719,10 @@ export component App inherits Window {
             gemini-reveal-changed(index) => { root.captions-gemini-reveal-changed(index); }
             motion-changed(index) => { root.captions-motion-changed(index); }
             apply-motion => { root.captions-apply-motion(); }
-            look-changed(index) => { root.captions-look-changed(index); }
-            apply-look => { root.captions-apply-look(); }
             style-changed(index) => { root.captions-style-changed(index); }
             apply-style => { root.captions-apply-style(); }
+            highlight-changed(index) => { root.captions-highlight-changed(index); }
+            apply-highlight => { root.captions-apply-highlight(); }
             begin => { root.captions-begin(); }
             cancel => { root.captions-cancel(); }
             import-srt => { root.captions-import-srt(); }

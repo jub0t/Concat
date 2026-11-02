@@ -389,7 +389,11 @@ mod tests {
                 "{} has no Persian sample",
                 preset.id
             );
-            assert_eq!(preset.style.font_family, "Noto Sans Arabic UI");
+            assert!(
+                !preset.style.font_family.is_empty(),
+                "{} names no font",
+                preset.id
+            );
             assert!(preset.id.starts_with("concat.fa-"));
         }
     }

@@ -2059,17 +2059,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_captions_apply_motion(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::ApplyMotion));
     }));
-    app.on_captions_look_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Captions(CaptionsMsg::LookChanged(index)));
-    }));
-    app.on_captions_apply_look(on_window!(|state| {
-        state.handle(Msg::Captions(CaptionsMsg::ApplyLook));
-    }));
     app.on_captions_style_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Captions(CaptionsMsg::StyleChanged(index)));
     }));
     app.on_captions_apply_style(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::ApplyStyle));
+    }));
+    app.on_captions_highlight_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::HighlightChanged(index)));
+    }));
+    app.on_captions_apply_highlight(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ApplyHighlight));
     }));
     app.on_captions_begin(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Begin));

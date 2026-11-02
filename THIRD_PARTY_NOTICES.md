@@ -98,6 +98,9 @@ file's licence is beside it in `src/crates/concat-text/fonts/`, as
 - **Atomic Age**: The Atomic Age Project Authors. OFL. See `fonts/LICENSE-AtomicAge.txt`.
 - **Hammersmith One**: The Hammersmith One Project Authors. OFL. See `fonts/LICENSE-HammersmithOne.txt`.
 - **Secular One**: The Secular One Project Authors. OFL. See `fonts/LICENSE-SecularOne.txt`.
+- **Vazirmatn**: Copyright 2015 Saber Rastikerdar and the Vazirmatn Project Authors (https://github.com/rastikerdar/vazirmatn). OFL. Regular, Bold and Black. See `fonts/LICENSE-Vazirmatn.txt`.
+- **Shabnam, Sahel, Samim, Parastoo, Gandom, Tanha**: Copyright 2015-2016 Saber Rastikerdar (https://github.com/rastikerdar). OFL (Sahel, Parastoo) or OFL with glyphs from Roboto, Open Sans or Noto Serif under the Apache License 2.0 (Shabnam, Samim, Gandom, Tanha). See `fonts/LICENSE-Shabnam.txt`, `LICENSE-Sahel.txt`, `LICENSE-Samim.txt`, `LICENSE-Parastoo.txt`, `LICENSE-Gandom.txt`, `LICENSE-Tanha.txt`.
+- **Lalezar, Rakkas, Aref Ruqaa, Lemonada, Katibeh, Mirza, Changa**: their Project Authors (Google Fonts), OFL, Arabic-script subsets. See `fonts/LICENSE-Lalezar.txt`, `LICENSE-Rakkas.txt`, `LICENSE-ArefRuqaa.txt`, `LICENSE-Lemonada.txt`, `LICENSE-Katibeh.txt`, `LICENSE-Mirza.txt`, `LICENSE-Changa.txt`.
 - **Londrina Solid**: The Londrina Solid Project Authors. OFL. See `fonts/LICENSE-LondrinaSolid.txt`.
 - **Bungee Hairline**: The Bungee Project Authors. OFL. See `fonts/LICENSE-BungeeHairline.txt`.
 - **Rubik Scribble**: The Rubik Scribble Project Authors. OFL. See `fonts/LICENSE-RubikScribble.txt`.

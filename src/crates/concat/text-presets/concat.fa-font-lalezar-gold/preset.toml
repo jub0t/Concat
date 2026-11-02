@@ -1,0 +1,17 @@
+id = "concat.fa-font-lalezar-gold"
+name = "لاله‌زار طلایی"
+language = "Persian"
+order = 13
+offsetY = 0.2
+
+[style]
+content = "سلام، به زیرنویس خوش آمدید"
+fontFamily = "Lalezar"
+fontWeight = 400
+fontSize = 0.1
+color = "#ffd45e"
+strokeWidth = 0.012
+strokeColor = "#3a2600"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86

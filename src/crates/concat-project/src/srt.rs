@@ -188,7 +188,11 @@ pub fn busiest_title_lane(timeline: &Timeline) -> Option<String> {
         let count = timeline
             .clips
             .iter()
-            .filter(|clip| clip.kind == ClipKind::Text && clip.track_id == track.id)
+            .filter(|clip| {
+                clip.kind == ClipKind::Text
+                    && clip.track_id == track.id
+                    && clip.name != crate::caption_fx::HIGHLIGHT_NAME
+            })
             .count();
         if count > 0 && best.is_none_or(|(_, most)| count > most) {
             best = Some((&track.id, count));

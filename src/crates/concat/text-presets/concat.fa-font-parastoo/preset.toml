@@ -1,0 +1,15 @@
+id = "concat.fa-font-parastoo"
+name = "پرستو"
+language = "Persian"
+order = 17
+offsetY = 0.2
+
+[style]
+content = "سلام، به زیرنویس خوش آمدید"
+fontFamily = "Parastoo"
+fontWeight = 700
+fontSize = 0.075
+color = "#fff4d6"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86

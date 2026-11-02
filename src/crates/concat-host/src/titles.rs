@@ -431,6 +431,30 @@ impl Titles {
         Ok((png, art))
     }
 
+    /// Where each word of `style` lands on a `width` × `height` canvas, as
+    /// `(x, y, width, height)` in pixels, in the layout's order: line by
+    /// line, left to right within a line. Empty when the title does not
+    /// paint. For a tool that wants to mark one word of a title.
+    pub fn word_boxes(
+        &self,
+        project: &Project,
+        style: &TextStyle,
+        width: u32,
+        height: u32,
+    ) -> Vec<(i32, i32, u32, u32)> {
+        let title = title_style(style);
+        let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+        let fonts = self.fonts_for(project, &mut fonts);
+        match concat_text::render_frame(fonts, &title, width, height) {
+            Ok(frame) => frame
+                .words
+                .iter()
+                .map(|word| (word.x, word.y, word.width, word.height))
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
     /// The faces, loaded once, with the project's own files added - each
     /// loaded once for the process.
     fn fonts_for<'a>(&self, project: &Project, held: &'a mut Option<Fonts>) -> &'a Fonts {

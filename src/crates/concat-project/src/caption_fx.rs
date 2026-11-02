@@ -20,9 +20,9 @@
 //! rest stays put - is not here, and not approximated: it needs per-word
 //! styling in the text engine.
 
-use crate::commands::{ClipPatch, Command};
+use crate::commands::Command;
 use crate::model::ranges::MIN_CLIP_DURATION;
-use crate::model::{AppliedFilter, Clip, KeyEase, KeyProperty};
+use crate::model::{Clip, ClipMask, KeyEase, KeyProperty, MaskShape};
 
 /// Which way a slide comes from.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -206,38 +206,105 @@ pub struct Piece {
     pub content: String,
 }
 
-/// The video effects a caption can be given from the Captions sheet, by
-/// the id of the effect package. The first entry of the sheet's list is
-/// "none"; these follow it, in the same order.
-pub const LOOK_IDS: [&str; 6] = [
-    "concat.glow",
-    "concat.neon",
-    "concat.vhs",
-    "concat.chromatic-aberration",
-    "concat.bloom-pulse",
-    "concat.halation",
-];
+/// The name every clip of the highlight layer carries, so the tools that
+/// work on the captions (export, motion, style) leave them alone, and
+/// "none" can find them to take them off.
+pub const HIGHLIGHT_NAME: &str = "caption-highlight";
 
-/// Gives `clip` the video effect `look` (an id from [`LOOK_IDS`]) in place
-/// of any other of those it carries, or takes them all off when `look` is
-/// `None`. Effects the person added by hand are left where they are.
-pub fn look_command(clip: &Clip, look: Option<&str>) -> Command {
-    let mut effects: Vec<AppliedFilter> = clip
-        .video_effects
+/// A word's box on the title's canvas: `(x, y, width, height)` in pixels.
+pub type WordBox = (i32, i32, u32, u32);
+
+/// The layout lists words line by line and left to right within a line.
+/// Spoken order is the same for left-to-right writing and runs right to
+/// left within each line for Persian, Arabic and Hebrew.
+pub fn spoken_order(boxes: &[WordBox], rtl: bool) -> Vec<WordBox> {
+    let mut out: Vec<WordBox> = Vec::with_capacity(boxes.len());
+    let mut line: Vec<WordBox> = Vec::new();
+    let flush = |line: &mut Vec<WordBox>, out: &mut Vec<WordBox>| {
+        if rtl {
+            line.reverse();
+        }
+        out.append(line);
+    };
+    for word in boxes {
+        if let Some(first) = line.first() {
+            if (word.1 - first.1).unsigned_abs() * 2 >= first.3.max(1) {
+                flush(&mut line, &mut out);
+            }
+        }
+        line.push(*word);
+    }
+    flush(&mut line, &mut out);
+    out
+}
+
+/// The mask that keeps one word of a title and nothing else: a rectangle
+/// over the word, widened to halfway to its neighbours on the line so no
+/// letter is clipped and no other word shows. `boxes` are in any order;
+/// `word` indexes them.
+pub fn word_mask(boxes: &[WordBox], word: usize, canvas: (u32, u32)) -> ClipMask {
+    let (x, y, w, h) = boxes[word];
+    let (x0, x1, h) = (f64::from(x), f64::from(x) + f64::from(w), f64::from(h));
+    let mates = |other: &&WordBox| (other.1 - y).unsigned_abs() * 2 < boxes[word].3.max(1);
+    let left = boxes
         .iter()
-        .filter(|effect| !LOOK_IDS.contains(&effect.id.as_str()))
-        .cloned()
+        .filter(mates)
+        .map(|b| f64::from(b.0) + f64::from(b.2))
+        .filter(|right| *right <= x0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let right = boxes
+        .iter()
+        .filter(mates)
+        .map(|b| f64::from(b.0))
+        .filter(|left| *left >= x1)
+        .fold(f64::INFINITY, f64::min);
+    let from = if left.is_finite() {
+        (x0 + left) / 2.0
+    } else {
+        x0 - 0.3 * h
+    };
+    let to = if right.is_finite() {
+        (x1 + right) / 2.0
+    } else {
+        x1 + 0.3 * h
+    };
+    let (top, bottom) = (f64::from(y) - 0.15 * h, f64::from(y) + h * 1.15);
+    let (cw, ch) = (f64::from(canvas.0.max(1)), f64::from(canvas.1.max(1)));
+    let short = cw.min(ch);
+    let mut mask = ClipMask::of(MaskShape::Rectangle);
+    mask.x = (from + to) / 2.0 / cw - 0.5;
+    mask.y = (top + bottom) / 2.0 / ch - 0.5;
+    mask.width = (to - from) / short;
+    mask.height = (bottom - top) / short;
+    mask.rotation = 0.0;
+    mask.roundness = 0.0;
+    mask.feather = 0.0;
+    mask.invert = false;
+    mask
+}
+
+/// When each word of `text` is lit, as `(start, duration)` on the
+/// timeline: the caption's span shared out by each word's length, the way
+/// a voice spends time on a long word. One per word, back to back.
+pub fn word_slots(start: f64, duration: f64, text: &str) -> Vec<(f64, f64)> {
+    let weights: Vec<f64> = text
+        .split_whitespace()
+        .map(|word| word.chars().count() as f64 + 1.0)
         .collect();
-    if let Some(id) = look {
-        effects.push(AppliedFilter::new(id));
+    let total: f64 = weights.iter().sum();
+    if total <= 0.0 {
+        return Vec::new();
     }
-    Command::UpdateClip {
-        clip_id: clip.id.clone(),
-        patch: ClipPatch {
-            video_effects: Some(effects),
-            ..ClipPatch::default()
-        },
-    }
+    let mut at = start;
+    weights
+        .iter()
+        .map(|weight| {
+            let span = duration * weight / total;
+            let slot = (at, span);
+            at += span;
+            slot
+        })
+        .collect()
 }
 
 /// The most pieces one caption is cut into, so a long caption cannot bury
@@ -596,38 +663,53 @@ mod tests {
     }
 
     #[test]
-    fn a_look_replaces_its_own_and_keeps_the_persons_effects() {
-        let (mut editor, id) = editor_with_clip(2.0);
-        let set = |editor: &mut Editor, look: Option<&str>| {
-            let clip = editor.project().active().clip(&id).expect("clip").clone();
-            editor.apply(look_command(&clip, look)).expect("applies");
-        };
-        let ids = |editor: &Editor| -> Vec<String> {
-            editor
-                .project()
-                .active()
-                .clip(&id)
-                .expect("clip")
-                .video_effects
-                .iter()
-                .map(|effect| effect.id.clone())
-                .collect()
-        };
-        editor
-            .apply(Command::UpdateClip {
-                clip_id: id.clone(),
-                patch: ClipPatch {
-                    video_effects: Some(vec![AppliedFilter::new("concat.vignette")]),
-                    ..ClipPatch::default()
-                },
-            })
-            .expect("hand-made effect");
-        set(&mut editor, Some("concat.glow"));
-        assert_eq!(ids(&editor), ["concat.vignette", "concat.glow"]);
-        set(&mut editor, Some("concat.neon"));
-        assert_eq!(ids(&editor), ["concat.vignette", "concat.neon"]);
-        set(&mut editor, None);
-        assert_eq!(ids(&editor), ["concat.vignette"]);
+    fn spoken_order_reverses_each_line_for_right_to_left_writing() {
+        // Two lines of three words each, as the layout lists them.
+        let boxes: Vec<WordBox> = vec![
+            (10, 10, 30, 20),
+            (50, 10, 30, 20),
+            (90, 10, 30, 20),
+            (10, 50, 30, 20),
+            (50, 50, 30, 20),
+            (90, 50, 30, 20),
+        ];
+        let ltr = spoken_order(&boxes, false);
+        assert_eq!(ltr, boxes);
+        let rtl = spoken_order(&boxes, true);
+        assert_eq!(rtl[0], (90, 10, 30, 20));
+        assert_eq!(rtl[2], (10, 10, 30, 20));
+        assert_eq!(rtl[3], (90, 50, 30, 20));
+    }
+
+    #[test]
+    fn a_word_mask_covers_its_word_and_stops_halfway_to_the_next() {
+        let boxes: Vec<WordBox> = vec![(100, 100, 100, 40), (240, 100, 100, 40)];
+        let mask = word_mask(&boxes, 0, (1000, 500));
+        // Left edge 100 - 12, right edge halfway to 240: 220.
+        let left = (mask.x + 0.5) * 1000.0 - mask.width * 500.0 / 2.0;
+        let right = (mask.x + 0.5) * 1000.0 + mask.width * 500.0 / 2.0;
+        assert!((left - 88.0).abs() < 0.01, "left {left}");
+        assert!((right - 220.0).abs() < 0.01, "right {right}");
+        assert_eq!(mask.shape, MaskShape::Rectangle);
+        assert_eq!(mask.feather, 0.0);
+        // The second word starts where the first one stops.
+        let next = word_mask(&boxes, 1, (1000, 500));
+        let next_left = (next.x + 0.5) * 1000.0 - next.width * 500.0 / 2.0;
+        assert!((next_left - 220.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn word_slots_share_the_caption_and_leave_no_gap() {
+        let slots = word_slots(2.0, 3.0, "سلام به همه دوستان");
+        assert_eq!(slots.len(), 4);
+        assert!((slots[0].0 - 2.0).abs() < 1e-9);
+        let end = slots.last().map(|slot| slot.0 + slot.1).unwrap();
+        assert!((end - 5.0).abs() < 1e-9);
+        for pair in slots.windows(2) {
+            assert!((pair[0].0 + pair[0].1 - pair[1].0).abs() < 1e-9);
+        }
+        assert!(slots[3].1 > slots[1].1, "a longer word is lit longer");
+        assert!(word_slots(0.0, 1.0, "   ").is_empty());
     }
 
     #[test]
