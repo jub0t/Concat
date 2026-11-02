@@ -28,7 +28,7 @@ libc = "0.2"
 log = "0.4"
 # SVG, drawn into a PNG FFmpeg can read; see svg.rs. The version Slint
 # already brings in, so nothing new is built.
-resvg = "0.48"
+resvg = "0.49"
 thiserror.workspace = true
 
 [lints]
