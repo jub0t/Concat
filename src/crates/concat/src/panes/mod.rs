@@ -77,7 +77,7 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
     use timeline::TimelineMsg;
 
     match msg {
-        Msg::Monitor(MonitorMsg::Frame(..) | MonitorMsg::Request)
+        Msg::Monitor(MonitorMsg::Frame(..) | MonitorMsg::Request | MonitorMsg::Refine)
         | Msg::Timeline(
             TimelineMsg::Hovered(_)
             | TimelineMsg::HoverEnded

@@ -31,8 +31,12 @@ use crate::studio::Studio;
 pub enum MonitorMsg {
     /// The frame at the playhead is wanted.
     Request,
-    /// The worker is done: a frame, or why not.
-    Frame(Result<Picture, String>, FrameSpec),
+    /// The worker is done: a frame, or why not, and whether it was the
+    /// exact frame asked for once a scrub rested.
+    Frame(Result<Picture, String>, FrameSpec, Lane),
+    /// A scrub has rested on a picture that was only the nearest one at
+    /// hand: the exact frame is wanted now.
+    Refine,
     /// The quality picker: 0 full, 1 half, 2 quarter.
     QualityChanged(i32),
     /// A project opened: the monitor starts clean and may complain again.
@@ -45,12 +49,13 @@ impl std::fmt::Debug for MonitorMsg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Request => write!(f, "Request"),
-            Self::Frame(result, spec) => write!(
+            Self::Refine => write!(f, "Refine"),
+            Self::Frame(result, spec, lane) => write!(
                 f,
-                "Frame({}, {spec:?})",
+                "Frame({}, {spec:?}, {lane:?})",
                 match result {
                     Ok(Picture::Sources(_)) => "sources".to_owned(),
-                    Ok(Picture::Pixels(_, w, h)) => format!("{w}x{h} pixels"),
+                    Ok(Picture::Pixels(_, w, h, _)) => format!("{w}x{h} pixels"),
                     Err(error) => format!("error {error:?}"),
                 }
             ),
@@ -67,9 +72,42 @@ pub enum Picture {
     /// which happens back on this thread, never on the worker that decoded
     /// it. See `Monitor::texture_of`.
     Sources(concat_export::PreviewSources),
-    /// Raw RGBA, to be uploaded.
-    Pixels(Vec<u8>, u32, u32),
+    /// Raw RGBA, to be uploaded, and whether every picture in it is the
+    /// exact one.
+    Pixels(Vec<u8>, u32, u32, bool),
 }
+
+impl Picture {
+    /// Whether every picture in the frame is the one at its instant, not
+    /// the nearest at hand a scrub was shown; see `FrameSpec::nearest`.
+    fn exact(&self) -> bool {
+        match self {
+            Picture::Sources(sources) => sources.exact(),
+            Picture::Pixels(_, _, _, exact) => *exact,
+        }
+    }
+}
+
+/// Which of the monitor's two requests a frame answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lane {
+    /// The frame at the playhead: one at a time, the newest wins.
+    Main,
+    /// The exact frame where a scrub rested, after the nearest one was
+    /// shown. Out beside the main lane, so a scrub that starts again does
+    /// not wait for a walk that may take most of a second.
+    Refine,
+}
+
+/// How soon after its last move the playhead counts as still moving, so
+/// the next frame asked for is a scrub's: a pointer reports every 16 ms
+/// while it drags, a held arrow key every 30 to 50.
+const SCRUB_GAP: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// How long a scrub rests on a nearest picture before the exact frame is
+/// asked for: past a pause between a hand's movements, short enough that
+/// the true frame is there by the time anyone looks.
+const SCRUB_REST: std::time::Duration = std::time::Duration::from_millis(120);
 
 /// The monitor's state.
 #[derive(Default)]
@@ -91,6 +129,15 @@ pub struct MonitorPane {
     asked: Option<std::time::Instant>,
     /// How the frames of the current playback arrived.
     cadence: Cadence,
+    /// The instant last asked for, and when the playhead last moved: a
+    /// move within [`SCRUB_GAP`] of the one before is a scrub.
+    moved: Option<(f32, std::time::Instant)>,
+    /// The picture on the monitor is only the nearest one at hand.
+    inexact: bool,
+    /// An exact frame is out on the [`Lane::Refine`] lane.
+    refining: bool,
+    /// Asks for the exact frame once a scrub has rested; see [`SCRUB_REST`].
+    rest: slint::Timer,
 }
 
 /// How smoothly a playback's frames reached the monitor: one line in the
@@ -143,8 +190,25 @@ impl MonitorPane {
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: MonitorMsg, studio: &mut Studio) {
         match msg {
-            MonitorMsg::Request => self.request(studio),
-            MonitorMsg::Frame(result, spec) => {
+            MonitorMsg::Request => self.request(studio, Lane::Main),
+            MonitorMsg::Refine => {
+                if self.inexact && !self.busy && !self.refining {
+                    self.request(studio, Lane::Refine);
+                }
+            }
+            MonitorMsg::Frame(result, spec, Lane::Refine) => {
+                self.refining = false;
+                // Shown only where the playhead still is: a scrub that went
+                // on meanwhile has a nearer picture up already, of where it
+                // is now.
+                if (spec.time - f64::from(studio.preview_time())).abs() < 1e-6 {
+                    self.show(result, spec, studio);
+                }
+                if self.wanted && !self.busy {
+                    self.request(studio, Lane::Main);
+                }
+            }
+            MonitorMsg::Frame(result, spec, Lane::Main) => {
                 self.busy = false;
                 let fps = studio.project().active().video.rate();
                 let wait = self.asked.take().map(|at| at.elapsed()).unwrap_or_default();
@@ -154,49 +218,70 @@ impl MonitorPane {
                 } else if !spec.moving {
                     self.cadence.report(fps);
                 }
-                let picture = match result {
-                    // Drawn here and not on the worker: this is the event
-                    // loop, the one thread the window's renderer submits
-                    // from, and a second thread submitting beside it hangs
-                    // the GPU - see `Monitor::texture_of`.
-                    Ok(Picture::Sources(sources)) => studio
-                        .host
-                        .monitor
-                        .texture_of(&sources, spec)
-                        .and_then(|texture| {
-                            slint::Image::try_from(texture)
-                                .map_err(|error| format!("preview texture: {error}"))
-                        }),
-                    Ok(Picture::Pixels(bytes, width, height)) => {
-                        let buffer =
-                            slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                                &bytes, width, height,
-                            );
-                        Ok(slint::Image::from_rgba8(buffer))
-                    }
-                    Err(error) => Err(error),
-                };
-                match picture {
-                    Ok(image) => self.image = image,
-                    Err(error) => {
-                        log::warn!("preview: {error}");
-                        if !self.failed {
-                            self.failed = true;
-                            studio.notify(&tf("monitor.previewFailed", &[&error]), true);
-                        }
-                    }
-                }
+                self.show(result, spec, studio);
                 if self.wanted {
-                    self.request(studio);
+                    self.request(studio, Lane::Main);
+                } else if self.inexact {
+                    // The scrub may have rested on a picture that is only
+                    // near: the exact one follows unless it moves again.
+                    self.rest
+                        .start(slint::TimerMode::SingleShot, SCRUB_REST, || {
+                            crate::host::Shell::with(|shell, app| {
+                                shell
+                                    .studio
+                                    .borrow_mut()
+                                    .handle(Msg::Monitor(MonitorMsg::Refine));
+                                shell.studio.borrow().publish_frame(&app);
+                            });
+                        });
                 }
             }
             MonitorMsg::QualityChanged(index) => {
                 let id = studio.project().active_timeline_id.clone();
                 self.quality.insert(id, (index.max(0) as usize).min(2));
-                self.request(studio);
+                self.request(studio, Lane::Main);
             }
             MonitorMsg::Opened => self.failed = false,
             MonitorMsg::Closed => self.image = slint::Image::default(),
+        }
+    }
+
+    /// Puts a worker's frame on the monitor, or says once why it could not.
+    fn show(&mut self, result: Result<Picture, String>, spec: FrameSpec, studio: &mut Studio) {
+        let exact = result.as_ref().map_or(true, Picture::exact);
+        let picture = match result {
+            // Drawn here and not on the worker: this is the event loop,
+            // the one thread the window's renderer submits from, and a
+            // second thread submitting beside it hangs the GPU - see
+            // `Monitor::texture_of`.
+            Ok(Picture::Sources(sources)) => studio
+                .host
+                .monitor
+                .texture_of(&sources, spec)
+                .and_then(|texture| {
+                    slint::Image::try_from(texture)
+                        .map_err(|error| format!("preview texture: {error}"))
+                }),
+            Ok(Picture::Pixels(bytes, width, height, _)) => {
+                let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                    &bytes, width, height,
+                );
+                Ok(slint::Image::from_rgba8(buffer))
+            }
+            Err(error) => Err(error),
+        };
+        match picture {
+            Ok(image) => {
+                self.image = image;
+                self.inexact = !exact;
+            }
+            Err(error) => {
+                log::warn!("preview: {error}");
+                if !self.failed {
+                    self.failed = true;
+                    studio.notify(&tf("monitor.previewFailed", &[&error]), true);
+                }
+            }
         }
     }
 
@@ -221,15 +306,41 @@ impl MonitorPane {
         (side(width), side(height))
     }
 
+    /// Whether the playhead moved within [`SCRUB_GAP`] of its last move and
+    /// is somewhere new: a scrub, not a step.
+    fn scrubbing(&self, studio: &Studio) -> bool {
+        self.moved
+            .is_some_and(|(at, when)| at != studio.preview_time() && when.elapsed() < SCRUB_GAP)
+    }
+
     /// Asks the engine for the frame at the playhead - or under the pointer,
     /// while the preview axis has it - one at a time.
-    fn request(&mut self, studio: &mut Studio) {
+    ///
+    /// While the playhead keeps moving - a drag, a throw, a held key, the
+    /// pointer along the preview axis - a frame is a scrub's: the nearest
+    /// picture at hand where the exact one would keep the hand waiting,
+    /// and the exact one on [`Lane::Refine`] once it rests. A single move
+    /// is asked for exactly, so one step back never flashes another frame.
+    fn request(&mut self, studio: &mut Studio, lane: Lane) {
         if studio.on_start || studio.session.is_none() {
             return;
         }
-        if self.busy {
+        let refine = lane == Lane::Refine;
+        // A refine out does not hold up a scrub - the frame it walks to may
+        // be most of a second away - but an exact request waits for it, as
+        // it waits for any other.
+        if self.busy || (self.refining && !refine && !self.scrubbing(studio)) {
             self.wanted = true;
             return;
+        }
+        let time = studio.preview_time();
+        let moving = studio.playing || studio.source.as_ref().is_some_and(|source| source.playing);
+        let nearest = !refine && !moving && self.scrubbing(studio);
+        if self.moved.is_none_or(|(at, _)| at != time) {
+            self.moved = Some((time, std::time::Instant::now()));
+        }
+        if !refine {
+            self.rest.stop();
         }
         let (width, height) =
             Self::frame_size(self.quality_of(studio.project()), studio.output_size());
@@ -238,10 +349,10 @@ impl MonitorPane {
         };
         let quality = self.quality_of(studio.project());
         let spec = FrameSpec {
-            time: f64::from(studio.preview_time()),
+            time: f64::from(time),
             width,
             height,
-            moving: studio.playing || studio.source.as_ref().is_some_and(|source| source.playing),
+            moving,
             // Playback reads the proxies at Half and Quarter; Full plays
             // the files themselves, or Full would be the proxy blurred up.
             // With proxies off in Settings it plays the files at every
@@ -251,14 +362,19 @@ impl MonitorPane {
                 && quality > 0,
             color_space: studio.project().active().video.color_space,
             canvas: studio.project().active().video.canvas,
+            nearest,
         };
         if !studio.playing {
             self.cadence.report(studio.project().active().video.rate());
         }
         let monitor = studio.host.monitor.clone();
-        self.busy = true;
-        self.wanted = false;
-        self.asked = Some(std::time::Instant::now());
+        if refine {
+            self.refining = true;
+        } else {
+            self.busy = true;
+            self.wanted = false;
+            self.asked = Some(std::time::Instant::now());
+        }
         spawn_frame(
             move || {
                 // On the window's device the frame stays a texture; without
@@ -269,8 +385,8 @@ impl MonitorPane {
                         .map(Picture::Sources)
                 } else {
                     monitor
-                        .frame(Arc::clone(&clips), &settings, spec)
-                        .map(|bytes| Picture::Pixels(bytes, width, height))
+                        .frame_pixels(Arc::clone(&clips), &settings, spec)
+                        .map(|(bytes, exact)| Picture::Pixels(bytes, width, height, exact))
                 };
                 // Decode-ahead for whatever comes next, on a worker of its
                 // own, so the frame goes to the window without waiting for
@@ -278,8 +394,11 @@ impl MonitorPane {
                 // full window ahead: the scheduler adds only the frames it
                 // has not queued yet, so asking for all of them each frame
                 // costs nothing and keeps a slow decode from catching up
-                // with the playhead.
-                {
+                // with the playhead. Not for a scrub: the frames after one
+                // it is passing through are walks from a keyframe, each one
+                // the cost the scrub went to the nearest picture to avoid,
+                // and in the way of the next.
+                if !spec.nearest {
                     let monitor = monitor.clone();
                     let settings = settings.clone();
                     let ahead = if spec.moving {
@@ -292,7 +411,7 @@ impl MonitorPane {
                 frame
             },
             move |studio, _, _, result| {
-                studio.handle(Msg::Monitor(MonitorMsg::Frame(result, spec)));
+                studio.handle(Msg::Monitor(MonitorMsg::Frame(result, spec, lane)));
             },
         );
     }

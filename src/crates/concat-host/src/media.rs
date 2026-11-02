@@ -996,6 +996,7 @@ mod tests {
                 cadence: concat_core::time::FrameRate::from_int(25),
                 color_range: None,
                 signal: Signal::Sdr,
+                keyframes: std::sync::Arc::from([]),
             }),
             audio: None,
             audio_streams: Vec::new(),

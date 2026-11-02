@@ -43,6 +43,16 @@ pub struct VideoStream {
     /// What the stream's tags say its picture is: HLG or PQ by its
     /// transfer, a wide SDR by its primaries, SDR where they say nothing.
     pub signal: Signal,
+    /// Where the stream's keyframes are, in order, in seconds from the
+    /// file's own start (see `ffi::origin`), as the container's index has
+    /// them: the pictures a seek can show without decoding any other.
+    /// Empty where the container keeps no index - MPEG-TS and MPEG-PS -
+    /// and for a stream every frame of which is one. The times are the
+    /// index's: the decode timestamp where the container keeps no other,
+    /// up to a frame or two before the picture's own on a stream with
+    /// B-frames. A scrub reads them to find the nearest picture it can
+    /// show at once; see `ReaderPool::frame_nearest`.
+    pub keyframes: std::sync::Arc<[Rational]>,
 }
 
 /// What an audio stream looks like.
@@ -107,8 +117,9 @@ pub fn probe(path: impl AsRef<Path>) -> Result<MediaInfo> {
     let duration =
         (duration > 0).then(|| Rational::new(duration, i64::from(ffmpeg::sys::AV_TIME_BASE)));
 
+    let origin = ffi::origin(&input);
     let video = match input.streams().best(ffmpeg::media::Type::Video) {
-        Some(stream) => Some(video_stream(&stream, path)?),
+        Some(stream) => Some(video_stream(&stream, path, origin)?),
         None => None,
     };
     let audio_streams: Vec<AudioStream> = input
@@ -171,7 +182,11 @@ pub(crate) fn audio_stream_index(
     input.streams().find(is_audio).map(|stream| stream.index())
 }
 
-fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Result<VideoStream> {
+fn video_stream(
+    stream: &ffmpeg::format::stream::Stream<'_>,
+    path: &Path,
+    origin: Rational,
+) -> Result<VideoStream> {
     let parameters = stream.parameters();
     let (width, height) = (parameters.width(), parameters.height());
     if width == 0 || height == 0 {
@@ -219,7 +234,36 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
         cadence: FrameRate::new(cadence),
         color_range: ColorRange::from_ffmpeg(ffmpeg::color::Range::from(range)),
         signal,
+        keyframes: keyframes(stream, origin),
     })
+}
+
+/// The stream's keyframes from its container's index, in order; see
+/// [`VideoStream::keyframes`]. An index whose every entry is a keyframe -
+/// an intra-only codec, or a container that lists only the keyframes it
+/// can seek to and marks them all - says nothing a scrub can use beyond
+/// the frame times themselves, and is kept as it is.
+fn keyframes(
+    stream: &ffmpeg::format::stream::Stream<'_>,
+    origin: Rational,
+) -> std::sync::Arc<[Rational]> {
+    let time_base = stream.time_base();
+    // SAFETY: the stream belongs to an input open for this call; the index
+    // is libavformat's own array, read by position below the count it
+    // reports, and nothing adds to it while the input is not read.
+    unsafe {
+        let raw = stream.as_ptr().cast_mut();
+        let count = ffmpeg::sys::avformat_index_get_entries_count(raw);
+        (0..count)
+            .filter_map(|at| {
+                let entry = ffmpeg::sys::avformat_index_get_entry(raw, at).as_ref()?;
+                (entry.flags() & ffmpeg::sys::AVINDEX_KEYFRAME != 0)
+                    .then(|| ffi::seconds(entry.timestamp, time_base))
+                    .flatten()
+                    .map(|at| at - origin)
+            })
+            .collect()
+    }
 }
 
 fn rational(value: ffmpeg::Rational) -> Option<Rational> {

@@ -53,6 +53,10 @@ pub struct FrameSpec {
     /// What shows where no picture covers the frame; see
     /// `VideoSettings::canvas`.
     pub canvas: [u8; 4],
+    /// A scrub: a picture that would take long to reach may be shown by
+    /// the nearest one at hand, and the frame says so; see
+    /// `concat_export::preview_sources_of`.
+    pub nearest: bool,
 }
 
 /// The reader pool behind the monitor, shareable across threads.
@@ -189,7 +193,7 @@ impl Monitor {
         spec: FrameSpec,
     ) -> Result<concat_export::PreviewSources, String> {
         let plan = self.plan_for(clips, settings, spec);
-        concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.proxy)
+        concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.proxy, spec.nearest)
     }
 
     /// Draws [`Monitor::frame_sources`] into a texture on the device this
@@ -299,9 +303,27 @@ impl Monitor {
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
+        self.frame_pixels(clips, settings, spec).map(|(pixels, _)| pixels)
+    }
+
+    /// [`Monitor::frame`], and whether every picture in it is the exact
+    /// one; see [`FrameSpec::nearest`].
+    pub fn frame_pixels(
+        &self,
+        clips: Arc<Vec<ExportClip>>,
+        settings: &DocumentSettings,
+        spec: FrameSpec,
+    ) -> Result<(Vec<u8>, bool), String> {
         let plan = self.plan_for(clips, settings, spec);
-        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.proxy)?;
-        sources.pixels()
+        let sources = concat_export::preview_sources_of(
+            &self.pool,
+            &plan,
+            spec.time,
+            spec.proxy,
+            spec.nearest,
+        )?;
+        let exact = sources.exact();
+        sources.pixels().map(|pixels| (pixels, exact))
     }
 
     /// Decode-ahead for the playback stream: hands the scheduler the next

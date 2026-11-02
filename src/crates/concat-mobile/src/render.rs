@@ -390,6 +390,7 @@ fn spec(doc: &Doc, at: f64, size: (u32, u32), moving: bool) -> concat_host::prev
         proxy: false,
         color_space: doc.color,
         canvas: doc.settings.canvas,
+        nearest: false,
     }
 }
 

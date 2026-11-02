@@ -2550,9 +2550,17 @@ pub struct PreviewSources {
     plan: FramePlan,
     treatments: Vec<Treatment>,
     transitions: Vec<TransitionSpan>,
+    exact: bool,
 }
 
 impl PreviewSources {
+    /// Whether every picture in the frame is the one at its instant, and
+    /// not the nearest one at hand a scrub was shown instead; see
+    /// [`preview_sources_of`].
+    pub fn exact(&self) -> bool {
+        self.exact
+    }
+
     /// The frame's description, with every treatment that is shaders
     /// alone already in it; a compositor draws this and nothing else. A
     /// treatment that needs FFmpeg is not in it: see
@@ -2629,7 +2637,7 @@ pub fn preview_sources(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<PreviewSources, String> {
-    preview_sources_of(pool, &preview_timeline(request), request.time, false)
+    preview_sources_of(pool, &preview_timeline(request), request.time, false, false)
 }
 
 /// The pool's request for one planned layer: the source frame at the
@@ -2656,12 +2664,17 @@ fn frame_request(
 }
 
 /// [`preview_sources`] for one instant of a plan already built. With
-/// `proxy`, a file with a stand-in is read from it.
+/// `proxy`, a file with a stand-in is read from it. With `nearest` - a
+/// scrub - a picture that would take long to reach is shown by the nearest
+/// one at hand instead (see `ReaderPool::frame_nearest`), and the sources
+/// say whether that happened; the caller asks again without it once the
+/// scrub rests.
 pub fn preview_sources_of(
     pool: &concat_media::ReaderPool,
     plan: &PreviewPlan,
     seconds: f64,
     proxy: bool,
+    nearest: bool,
 ) -> Result<PreviewSources, String> {
     let rate = plan.rate;
     let BuiltTimeline {
@@ -2687,20 +2700,30 @@ pub fn preview_sources_of(
 
     let mut layers: Vec<PlannedLayer> = Vec::with_capacity(plan_at.layers.len());
     let mut failures: Vec<String> = Vec::new();
+    let mut exact = true;
     for layer in &plan_at.layers {
         let (decode_width, decode_height) = decode_sizes
             .get(&layer.clip)
             .copied()
             .unwrap_or((plan.width, plan.height));
-        // A source that fails to decode contributes nothing rather than
-        // blanking the monitor - same grace the exporter extends.
-        match pool.frame(&frame_request(
+        let request = frame_request(
             plan,
             layer,
             (decode_width, decode_height),
             stills.contains(&layer.clip),
             proxy,
-        )) {
+        );
+        let found = if nearest {
+            pool.frame_nearest(&request).map(|found| {
+                exact &= found.exact;
+                found.frame
+            })
+        } else {
+            pool.frame(&request)
+        };
+        // A source that fails to decode contributes nothing rather than
+        // blanking the monitor - same grace the exporter extends.
+        match found {
             Ok(frame) => {
                 let highlighted = highlight == Some(layer.clip);
                 let frame = match cutouts.get(&layer.clip).and_then(|job| {
@@ -2771,6 +2794,7 @@ pub fn preview_sources_of(
         plan: frame_plan,
         treatments: treatments.clone(),
         transitions: transitions.clone(),
+        exact,
     })
 }
 
