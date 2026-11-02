@@ -1111,3 +1111,4 @@ jobs:
           if-no-files-found: error
 # rebuild: video effect row
 # rebuild: persian twins
+# rebuild: caption styles

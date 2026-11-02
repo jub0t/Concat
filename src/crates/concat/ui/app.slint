@@ -328,6 +328,8 @@ export component App inherits Window {
     callback captions-apply-motion();
     callback captions-look-changed(index: int);
     callback captions-apply-look();
+    callback captions-style-changed(index: int);
+    callback captions-apply-style();
     callback captions-begin();
     callback captions-cancel();
     callback captions-import-srt();
@@ -719,6 +721,8 @@ export component App inherits Window {
             apply-motion => { root.captions-apply-motion(); }
             look-changed(index) => { root.captions-look-changed(index); }
             apply-look => { root.captions-apply-look(); }
+            style-changed(index) => { root.captions-style-changed(index); }
+            apply-style => { root.captions-apply-style(); }
             begin => { root.captions-begin(); }
             cancel => { root.captions-cancel(); }
             import-srt => { root.captions-import-srt(); }

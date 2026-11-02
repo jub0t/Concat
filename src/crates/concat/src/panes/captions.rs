@@ -89,6 +89,10 @@ pub enum CaptionsMsg {
     LookChanged(i32),
     /// Give the captions lane that video effect.
     ApplyLook,
+    /// The style row of the sheet.
+    StyleChanged(i32),
+    /// Dress the captions lane in that style.
+    ApplyStyle,
     PlacementChanged(i32),
     SizeChanged(i32),
     /// Run the pass the sheet describes.
@@ -163,6 +167,8 @@ pub struct CaptionsPane {
     pub motion: usize,
     /// Row of the look list: none, then the video effects of `LOOK_IDS`.
     pub look: usize,
+    /// Row of the style list: the kept look, then the Text page's presets.
+    pub style: usize,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -291,6 +297,10 @@ impl CaptionsPane {
                 self.look = (index.max(0) as usize).min(LOOKS - 1);
             }
             CaptionsMsg::ApplyLook => self.apply_look(studio),
+            CaptionsMsg::StyleChanged(index) => {
+                self.style = (index.max(0) as usize).min(style_ids(studio).len());
+            }
+            CaptionsMsg::ApplyStyle => self.apply_style(studio),
             CaptionsMsg::PlacementChanged(index) => {
                 self.placement = (index.max(0) as usize).min(2);
             }
@@ -326,7 +336,7 @@ impl CaptionsPane {
                             return;
                         };
                         let look = subject.look;
-                        let base = studio.prefs.title_style.clone();
+                        let base = self.base_style(studio);
                         let commands: Vec<Command> = segments
                             .into_iter()
                             .filter_map(|segment| {
@@ -400,7 +410,7 @@ impl CaptionsPane {
             }
         };
         let look = self.look();
-        let base = studio.prefs.title_style.clone();
+        let base = self.base_style(studio);
         let commands = srt_commands(cues, look, base.as_ref());
         if commands.is_empty() {
             self.message = t("captions.noSubtitlesInFile");
@@ -639,6 +649,61 @@ impl CaptionsPane {
         studio.notify(&tf("captions.motionApplied", &[&count]), false);
     }
 
+    /// The look new captions are made in: the style the sheet names, or
+    /// the look the person kept, or nothing (the bundled face).
+    fn base_style(&self, studio: &mut Studio) -> Option<TextStyle> {
+        let ids = style_ids(studio);
+        if let Some(id) = self.style.checked_sub(1).and_then(|row| ids.get(row)) {
+            if let Some(preset) = studio.text_presets.iter().find(|held| &held.id == id) {
+                let style = preset.style.clone();
+                studio.ensure_font_for(&style.font_family);
+                return Some(style);
+            }
+        }
+        studio.prefs.title_style.clone()
+    }
+
+    /// Dresses every caption on the lane in the sheet's style, keeping
+    /// each one's words and size.
+    fn apply_style(&mut self, studio: &mut Studio) {
+        let Some(lane) = export_lane(studio) else {
+            self.message = t("captions.noCaptionsToExport");
+            return;
+        };
+        let Some(base) = self.base_style(studio) else {
+            return;
+        };
+        let mut commands: Vec<Command> = Vec::new();
+        for clip in studio.timeline().clips.iter() {
+            if clip.kind != ClipKind::Text || clip.track_id != lane.track_id {
+                continue;
+            }
+            let Some(own) = clip.text.as_ref() else {
+                continue;
+            };
+            let style = TextStyle {
+                content: own.content.clone(),
+                font_size: own.font_size,
+                max_width: own.max_width,
+                max_height: own.max_height,
+                ..base.clone()
+            };
+            commands.push(Command::UpdateClip {
+                clip_id: clip.id.clone(),
+                patch: concat_project::commands::ClipPatch {
+                    text: Some(Some(style)),
+                    ..concat_project::commands::ClipPatch::default()
+                },
+            });
+        }
+        if commands.is_empty() {
+            return;
+        }
+        let count = commands.len();
+        studio.apply(Command::Batch { commands });
+        studio.notify(&tf("captions.styleApplied", &[&count]), false);
+    }
+
     /// Gives every caption on the lane the sheet's video effect, in place
     /// of any other of the sheet's own; effects added by hand stay.
     fn apply_look(&mut self, studio: &mut Studio) {
@@ -734,7 +799,7 @@ impl CaptionsPane {
         }
         let look = self.look();
         let mut at = f64::from(studio.playhead);
-        let base = studio.prefs.title_style.clone();
+        let base = self.base_style(studio);
         let commands: Vec<Command> = lines
             .into_iter()
             .map(|(text, seconds)| {
@@ -1033,6 +1098,17 @@ impl CaptionsPane {
             .into(),
             motion: self.motion as i32,
             look: self.look as i32,
+            style: self.style as i32,
+            styles: std::rc::Rc::new(slint::VecModel::from({
+                let mut names = vec![slint::SharedString::from(t("captions.styleKept"))];
+                names.extend(
+                    style_names(studio)
+                        .into_iter()
+                        .map(slint::SharedString::from),
+                );
+                names
+            }))
+            .into(),
             looks: std::rc::Rc::new(slint::VecModel::from(vec![
                 slint::SharedString::from(t("captions.lookNone")),
                 slint::SharedString::from(t("captions.lookGlow")),
@@ -1219,6 +1295,7 @@ fn caption_clip(
     base: Option<&TextStyle>,
 ) -> Command {
     let (offset_y, font_size) = look;
+    let arabic = text.chars().any(|c| ('\u{0600}'..='\u{06FF}').contains(&c));
     // The kept look where there is one - family, weight, colours, stroke,
     // shadow, background - at the caption's own size and place; the
     // bundled face otherwise.
@@ -1232,7 +1309,11 @@ fn caption_clip(
         },
         None => TextStyle {
             content: text,
-            font_family: "Hanken Grotesk".to_owned(),
+            font_family: if arabic {
+                "Noto Sans Arabic UI".to_owned()
+            } else {
+                "Hanken Grotesk".to_owned()
+            },
             font_size,
             font_weight: 600.0,
             ..TextStyle::default()
@@ -1246,6 +1327,34 @@ fn caption_clip(
         duration: Some(duration),
         offset_y: Some(offset_y),
     }
+}
+
+/// The ids of the presets the sheet offers as styles, Persian ones first:
+/// that is the writing the subtitle tool is for.
+fn style_ids(studio: &Studio) -> Vec<String> {
+    let mut persian: Vec<String> = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    for preset in &studio.text_presets {
+        if preset.id == "default" {
+            continue;
+        }
+        if preset.language == "Persian" {
+            persian.push(preset.id.clone());
+        } else {
+            rest.push(preset.id.clone());
+        }
+    }
+    persian.extend(rest);
+    persian
+}
+
+/// Their names, in the same order.
+fn style_names(studio: &Studio) -> Vec<String> {
+    style_ids(studio)
+        .iter()
+        .filter_map(|id| studio.text_presets.iter().find(|held| &held.id == id))
+        .map(|preset| preset.name.clone())
+        .collect()
 }
 
 /// Longest a caption line gets before it is wrapped: about what two lines

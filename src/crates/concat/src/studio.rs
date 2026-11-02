@@ -5408,6 +5408,12 @@ impl Studio {
     /// project, once, so the painter - which reads a project's fonts and
     /// the system's, and nothing else - finds it. Nothing for a family the
     /// project already carries, or one that is not the app's to register.
+    /// `ensure_font` for a caller outside this file: the font a style
+    /// names goes onto the project before a title is set in it.
+    pub fn ensure_font_for(&mut self, family: &str) {
+        self.ensure_font(family);
+    }
+
     fn ensure_font(&mut self, family: &str) {
         let family = family.trim().trim_matches('"');
         let carried = self.session.as_ref().is_some_and(|session| {
