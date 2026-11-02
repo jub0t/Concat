@@ -555,6 +555,32 @@ impl Package {
             .replaces
             .iter()
             .find(|replaced| replaced.names(&link.id))?;
+        Some(self.carried_over(replaced, link))
+    }
+
+    /// `link`, a link to this very package written for an earlier version
+    /// of it, read as a link to this one: a `[[replaces]]` naming the
+    /// package's own id stands for its earlier self, and a link is told for
+    /// one by a knob it holds that the earlier version had (that table's
+    /// `defaults`) and this one has not. Its knobs are carried over as for a
+    /// retired package. `None` for a link written for this version, or one
+    /// that holds none of the retired knobs - which, written by either, is
+    /// read as it is.
+    pub fn revising(&self, link: &AppliedFilter) -> Option<AppliedFilter> {
+        if !self.answers_to(&link.id) {
+            return None;
+        }
+        let earlier = self.manifest.replaces.iter().find(|replaced| {
+            replaced.names(self.id())
+                && replaced.defaults.keys().any(|knob| {
+                    self.manifest.owner(knob).is_none() && link.params.contains_key(knob)
+                })
+        })?;
+        Some(self.carried_over(earlier, link))
+    }
+
+    /// The link `replaced`'s knobs make of `link`; see `replacing`.
+    fn carried_over(&self, replaced: &crate::manifest::Replaces, link: &AppliedFilter) -> AppliedFilter {
         let old: BTreeMap<String, Value> = replaced
             .defaults
             .iter()
@@ -613,12 +639,12 @@ impl Package {
                 }
             }
         }
-        Some(AppliedFilter {
+        AppliedFilter {
             id: self.id().to_owned(),
             params,
             enabled: link.enabled,
             keys,
-        })
+        }
     }
 
     /// Every declared parameter at `at`: a wheel's master there too, its
@@ -1126,9 +1152,17 @@ impl Catalogue {
     /// one, if any does (see `Package::replacing`). Returns whether it was.
     pub fn upgrade(&self, link: &mut AppliedFilter) -> bool {
         // A link to a package that is here is never rewritten, whatever
-        // claims to replace it.
-        if self.get(&link.id).is_some() {
-            return false;
+        // claims to replace it - but by the package itself, when the link
+        // was written for an earlier version of it (see
+        // `Package::revising`).
+        if let Some(package) = self.get(&link.id) {
+            return match package.revising(link) {
+                Some(revised) => {
+                    *link = revised;
+                    true
+                }
+                None => false,
+            };
         }
         match self.packages().find_map(|package| package.replacing(link)) {
             Some(replaced) => {
@@ -1281,14 +1315,14 @@ mod tests {
         assert!(catalogue.upgrade(&mut green));
         assert_eq!(green.id, "concat.chroma-key");
         assert!(!green.enabled, "a bypassed link stays bypassed");
-        assert_eq!(green.params["color"], f64::from(0x00ff_00ffu32));
-        assert_eq!(green.params["similarity"], 60.0, "80, held to the new most");
-        assert_eq!(green.params["softness"], 20.0, "the old default, doubled");
+        assert!(
+            !green.params.contains_key("color"),
+            "the screen found in the picture, not pure green"
+        );
         assert_eq!(green.params["spill"], 0.0);
         let mut blue = link("blue-screen", &[]);
         assert!(catalogue.upgrade(&mut blue), "the alias spelling");
-        assert_eq!(blue.params["color"], f64::from(0x0000_ffffu32));
-        assert_eq!(blue.params["similarity"], 50.0);
+        assert_eq!(blue.id, "concat.chroma-key");
         let mut boxed = link("concat.box-blur", &[("radius", 6.0)]);
         assert!(catalogue.upgrade(&mut boxed));
         assert_eq!(boxed.id, "concat.gaussian-blur");
@@ -1296,6 +1330,66 @@ mod tests {
         let mut kept = link("concat.sepia", &[("amount", 50.0)]);
         assert!(!catalogue.upgrade(&mut kept));
         assert_eq!(kept.id, "concat.sepia");
+    }
+
+    /// A link written for the chroma key before it measured colour
+    /// difference - told by the similarity and softness it holds - is read
+    /// as one for the key now: its colour and spill carried over, its
+    /// similarity the strength, its softness the clip levels. A link
+    /// written for the key now is left as it is, and so is one that holds
+    /// none of the old knobs.
+    #[test]
+    fn a_link_for_an_earlier_version_is_carried_over() {
+        let catalogue = Catalogue::builtin();
+        let mut old = AppliedFilter::new("concat.chroma-key");
+        old.params.insert("color".into(), f64::from(0x20c0_40ffu32));
+        old.params.insert("similarity".into(), 40.0);
+        old.params.insert("softness".into(), 20.0);
+        old.params.insert("spill".into(), 30.0);
+        assert!(catalogue.upgrade(&mut old));
+        assert_eq!(old.id, "concat.chroma-key");
+        assert_eq!(old.params["color"], f64::from(0x20c0_40ffu32));
+        assert_eq!(old.params["strength"], 110.0);
+        assert_eq!(old.params["clip_white"], 75.0);
+        assert_eq!(old.params["spill"], 30.0);
+        assert!(!old.params.contains_key("similarity"));
+        assert!(!old.params.contains_key("softness"));
+        let mut untouched = AppliedFilter::new("concat.chroma-key");
+        untouched.params.insert("similarity".into(), 30.0);
+        assert!(catalogue.upgrade(&mut untouched));
+        assert_eq!(untouched.params["color"], 0.0, "the screen found by itself");
+        assert_eq!(untouched.params["strength"], 100.0);
+        assert_eq!(untouched.params["clip_white"], 85.0);
+        assert_eq!(untouched.params["spill"], 50.0, "the old default");
+
+        let mut new = AppliedFilter::new("concat.chroma-key");
+        new.params.insert("strength".into(), 120.0);
+        new.params.insert("spill".into(), 70.0);
+        let before = new.clone();
+        assert!(!catalogue.upgrade(&mut new));
+        assert_eq!(new, before);
+        let mut plain = AppliedFilter::new("concat.chroma-key");
+        assert!(!catalogue.upgrade(&mut plain));
+    }
+
+    /// A package's table for its earlier self must name a knob only that
+    /// self had, or no link could be told for one.
+    #[test]
+    fn an_earlier_version_is_told_by_a_retired_knob() {
+        let manifest = |defaults: &str| {
+            format!(
+                "format = 2\n[effect]\nid = \"a.lift\"\nname = \"Lift\"\nkind = \"effect\"\n\
+                 [[param]]\nkey = \"stops\"\nlabel = \"Stops\"\nmin = -2\nmax = 2\n\
+                 [wgsl]\nentry = \"effect.wgsl\"\n\
+                 [[replaces]]\nid = \"a.lift\"\ndefaults = {{ {defaults} }}\nknobs = {{ stops = \"stops\" }}\n"
+            )
+        };
+        let error = crate::manifest::Manifest::parse(&manifest("stops = 0"))
+            .expect_err("nothing to tell it by")
+            .to_string();
+        assert!(error.contains("earlier version"), "{error}");
+        crate::manifest::Manifest::parse(&manifest("stops = 0, level = 0"))
+            .expect("told by its level");
     }
 
     /// A package built from sources standing in for `replaces`: a lift

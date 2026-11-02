@@ -1,0 +1,62 @@
+# What a picture on black is made of: its brightest channel is how much of
+# it there is, and the rest is its colour at full brightness. The black
+# level, 4 % of the display's range by default, is taken off first. Pinned
+# from a model of the shader in doubles.
+
+[[probe]]
+name = "default, black goes"
+input = [0, 0, 0, 1]
+expect = [0, 0, 0, 0]
+
+[[probe]]
+name = "default, a black lifted by noise below the black level goes"
+input = [0.0003, 0.0003, 0.0003, 1]
+expect = [0, 0, 0, 0]
+
+[[probe]]
+name = "default, white stays whole"
+input = [1, 1, 1, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "default, a flame at full brightness stays whole"
+input = [1, 0.4, 0.05, 1]
+expect = [1, 0.4, 0.05, 1]
+
+[[probe]]
+name = "default, a dim ember is the flame's colour, see-through"
+input = [0.2, 0.08, 0.01, 1]
+expect = [1, 0.4, 0.05, 0.181421]
+
+[[probe]]
+name = "default, a grey is white, see-through"
+input = [0.18, 0.18, 0.18, 1]
+expect = [1, 1, 1, 0.161791]
+
+[[probe]]
+name = "default, half transparent white keeps its alpha"
+input = [1, 1, 1, 0.5]
+expect = [1, 1, 1, 0.5]
+
+[[probe]]
+name = "default, a highlight past white is left as it is"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "twice the strength, a grey is twice as solid and half as bright"
+params = { strength = 200 }
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.5, 0.5, 0.5, 0.323582]
+
+[[probe]]
+name = "minimum, no black level and half the strength"
+at = "min"
+input = [0.18, 0.18, 0.18, 1]
+expect = [1, 1, 1, 0.09]
+
+[[probe]]
+name = "maximum, a grey under the black level goes"
+at = "max"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0, 0, 0, 0]

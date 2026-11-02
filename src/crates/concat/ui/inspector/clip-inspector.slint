@@ -178,6 +178,27 @@ export struct ColourKnobData {
     key: string,
     label: string,
     value: color,
+    /// The colour is the package's to find - the knob at its default of no
+    /// colour at all - and whether it can be.
+    automatic: bool,
+    can-automatic: bool,
+    /// The colour can be taken off the clip's own picture, and the monitor
+    /// is waiting for the press that takes it.
+    pickable: bool,
+    picking: bool,
+}
+
+/// One knob of one link that is a choice among a few - a key's view of
+/// its matte - drawn as segments, as a transition's choices are.
+export struct ChainChoiceData {
+    /// Which link, as an index into the applied list.
+    entry: int,
+    key: string,
+    label: string,
+    options: [string],
+    /// The value each option stores, in the same order.
+    values: [float],
+    current: int,
 }
 
 /// The favourites chip: a star that filters the shelf down to what is on it.
@@ -211,6 +232,34 @@ component StarChip inherits Rectangle {
     }
 }
 
+/// One choice of a link, labelled, as segments. The segments are set again
+/// whenever the document's value changes: a press assigns `current` inside
+/// the control and ends a plain binding (#250).
+component ChainChoice inherits VerticalLayout {
+    in property <ChainChoiceData> data;
+
+    callback picked(value: float);
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    spacing: 4px;
+
+    Text {
+        text: root.data.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs-sm;
+    }
+    SegmentedControl {
+        options: root.data.options;
+        property <int> shown: root.data.current;
+        current: self.shown;
+        changed shown => { self.current = self.shown; }
+        changed(index) => { root.picked(root.data.values[index]); }
+    }
+}
+
 /// A chain and its library: the links applied to the selected clip, each
 /// with a control per parameter its package declares, and under it the
 /// shelves of packages that can be added. One component serves effects,
@@ -230,6 +279,8 @@ export component PresetStack inherits VerticalLayout {
     in property <[CurveGroupData]> curve-groups;
     /// The links' colour knobs, a row each.
     in property <[ColourKnobData]> colours;
+    /// The links' choices, a row of segments each.
+    in property <[ChainChoiceData]> choices;
 
     /// Which of the three libraries this is: 0 filters, 1 effects, 2 audio.
     /// The index its view state and its callbacks are keyed by.
@@ -253,6 +304,10 @@ export component PresetStack inherits VerticalLayout {
     callback set-param(index: int, key: string, value: float);
     /// A colour knob picked, likewise.
     callback set-colour(index: int, key: string, value: color);
+    /// A colour knob's eyedropper pressed, and its way back to the colour
+    /// found by itself; each is a whole edit, with no commit to follow.
+    callback pick-colour(index: int, key: string);
+    callback auto-colour(index: int, key: string);
     /// A curve's point moved, or put down when `point` is -1, or taken off.
     callback curve-point(index: int, key: string, point: int, x: float, y: float);
     callback curve-remove(index: int, key: string, point: int);
@@ -474,8 +529,29 @@ export component PresetStack inherits VerticalLayout {
                                 label: c.label;
                                 value: c.value;
                                 alpha: false;
+                                automatic: c.automatic;
+                                can-automatic: c.can-automatic;
+                                pickable: c.pickable;
+                                picking: c.picking;
                                 changed(colour) => {
                                     root.set-colour(index, c.key, colour);
+                                    root.commit();
+                                }
+                                pick => { root.pick-colour(index, c.key); }
+                                automate => { root.auto-colour(index, c.key); }
+                            }
+                        }
+
+                        // The link's choices, as segments.
+                        for ch in root.choices: Rectangle {
+                            visible: link.open && ch.entry == index;
+                            height: link.open && ch.entry == index ? segments.preferred-height : 0;
+                            opacity: item.on ? 1.0 : 0.5;
+
+                            segments := ChainChoice {
+                                data: ch;
+                                picked(value) => {
+                                    root.set-param(index, ch.key, value);
                                     root.commit();
                                 }
                             }
@@ -1173,6 +1249,8 @@ export component VideoPanel inherits VerticalLayout {
     in property <[AppliedParamData]> params;
     /// The chain's colour knobs: the key's screen colour among them.
     in property <[ColourKnobData]> colours;
+    /// The chain's choices: the key's view among them.
+    in property <[ChainChoiceData]> choices;
     /// Fit and Fill under Transform, and the clip's Background section:
     /// the desk's. A phone has them on a Canvas sheet of their own.
     in property <bool> canvas: true;
@@ -1191,6 +1269,10 @@ export component VideoPanel inherits VerticalLayout {
     callback chain-remove(index: int);
     callback chain-set-param(index: int, key: string, value: float);
     callback chain-set-colour(index: int, key: string, value: color);
+    /// A colour knob's eyedropper, and its way back to the colour found by
+    /// itself; see PresetStack.
+    callback chain-pick-colour(index: int, key: string);
+    callback chain-auto-colour(index: int, key: string);
     /// The cutout: its mode (0 off, 1 automatic, 2 custom), and the brush.
     callback cutout-mode(mode: int);
     callback cutout-tool(index: int);
@@ -1443,15 +1525,10 @@ export component VideoPanel inherits VerticalLayout {
         }
 
         if canvas.open: SectionBody {
+            // Several pictures selected together take what is picked
+            // here, every one of them: no Apply to all needed.
             BackgroundRows {
                 own: true;
-            }
-            // As in CapCut: this clip's background for every picture on
-            // the main lane, which is how the timeline's is set.
-            Button {
-                label: I18n.t("clipInspector.applyToAll");
-                block: true;
-                clicked => { Backdrop.apply-to-all(); }
             }
         }
     }
@@ -1743,8 +1820,9 @@ export component VideoPanel inherits VerticalLayout {
                 toggled(on) => { root.remove-by(on ? 3 : 0); }
             }
 
-            // The screen's colour: broadcast green to begin with, any
-            // colour at all from the picker.
+            // The screen's colour: found in the picture to begin with,
+            // picked off it with the eyedropper, or any colour at all from
+            // the picker.
             for c in root.colours: Rectangle {
                 visible: root.keyer-index >= 0 && c.entry == root.keyer-index;
                 height: root.keyer-index >= 0 && c.entry == root.keyer-index
@@ -1754,10 +1832,16 @@ export component VideoPanel inherits VerticalLayout {
                     label: I18n.t("common.color");
                     value: c.value;
                     alpha: false;
+                    automatic: c.automatic;
+                    can-automatic: c.can-automatic;
+                    pickable: c.pickable;
+                    picking: c.picking;
                     changed(colour) => {
                         root.chain-set-colour(root.keyer-index, c.key, colour);
                         root.commit();
                     }
+                    pick => { root.chain-pick-colour(root.keyer-index, c.key); }
+                    automate => { root.chain-auto-colour(root.keyer-index, c.key); }
                 }
             }
 
@@ -1781,6 +1865,21 @@ export component VideoPanel inherits VerticalLayout {
                     unit: p.unit;
                     changed(v) => {
                         root.chain-set-param(root.keyer-index, p.key, v);
+                        root.commit();
+                    }
+                }
+            }
+
+            // The keyer's choices: what the monitor shows of it.
+            for ch in root.choices: Rectangle {
+                visible: root.keyer-index >= 0 && ch.entry == root.keyer-index;
+                height: root.keyer-index >= 0 && ch.entry == root.keyer-index
+                    ? segments.preferred-height : 0;
+
+                segments := ChainChoice {
+                    data: ch;
+                    picked(value) => {
+                        root.chain-set-param(root.keyer-index, ch.key, value);
                         root.commit();
                     }
                 }

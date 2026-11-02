@@ -1,0 +1,40 @@
+format = 2
+
+[effect]
+id = "concat.remove-black"
+name = "Remove Black"
+kind = "effect"
+category = "Cutout"
+order = 60
+intensity = "strength"
+description = "Takes out a black background - fire, sparks, smoke, light leaks or a logo shot on black - keeping its glow as see-through light, with no dark fringe, over whatever is beneath and in an export with transparency."
+
+# The level of the picture taken for black, so a lifted black, grain and a
+# compressed stream's noise go with it.
+[[param]]
+key = "threshold"
+label = "Black level"
+min = 0
+max = 50
+default = 4
+step = 1
+unit = "%"
+
+# How solid what stays is: at 100 % a glow covers what is beneath by as
+# much as it is bright, the way light adds to light; more makes the dim
+# parts more solid.
+[[param]]
+key = "strength"
+label = "Strength"
+min = 50
+max = 400
+default = 100
+step = 5
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+
+# The still before a black backdrop, for the key to take out.
+[card]
+screen = "#000000"

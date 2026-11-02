@@ -567,6 +567,67 @@ pub const BRUSHES: [model::BrushTool; 4] = [
     model::BrushTool::Eraser,
 ];
 
+/// A colour knob waiting for its colour off the picture: the clip it is on,
+/// the link in that clip's picture chain, and the knob's key.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColourPick {
+    pub clip: String,
+    pub entry: usize,
+    pub key: String,
+}
+
+/// Whether a clip of this kind has a picture of its own to take a colour
+/// off: a video or a still, decoded from its file. A title or a shape is
+/// drawn, and has no file to read the pixel from.
+fn picks_colour(kind: model::ClipKind) -> bool {
+    matches!(kind, model::ClipKind::Video | model::ClipKind::Image)
+}
+
+/// The colour about `(u, v)` of `frame`, in fractions of it: the mean of
+/// the pixels within two of the one there - five by five - taken in light
+/// and written back in the display encoding the frame and a colour knob
+/// both hold, so a pick on grain or a codec's blocks lands on the colour
+/// around it, not on one speck. None off the picture.
+fn colour_about(frame: &concat_core::frame::Frame, u: f64, v: f64) -> Option<[u8; 3]> {
+    if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+        return None;
+    }
+    let (width, height) = (frame.width() as i64, frame.height() as i64);
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let x = ((u * width as f64) as i64).clamp(0, width - 1);
+    let y = ((v * height as f64) as i64).clamp(0, height - 1);
+    let pixels = frame.pixels();
+    let mut sum = [0.0f64; 3];
+    let mut count = 0.0;
+    for row in (y - 2).max(0)..=(y + 2).min(height - 1) {
+        for column in (x - 2).max(0)..=(x + 2).min(width - 1) {
+            let at = ((row * width + column) * 4) as usize;
+            let Some(pixel) = pixels.get(at..at + 3) else {
+                continue;
+            };
+            for (total, byte) in sum.iter_mut().zip(pixel) {
+                *total += (f64::from(*byte) / 255.0).powf(2.4);
+            }
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        return None;
+    }
+    Some(sum.map(|total| ((total / count).powf(1.0 / 2.4) * 255.0).round().clamp(0.0, 255.0) as u8))
+}
+
+/// Whether a colour has a channel standing clear of the other two - the
+/// test a key holds a screen colour to - rather than being a grey.
+fn has_hue([r, g, b]: [u8; 3]) -> bool {
+    let mut channels = [r, g, b].map(|byte| (f64::from(byte) / 255.0).powf(2.4));
+    channels.sort_by(f64::total_cmp);
+    let [_, middle, most] = channels;
+    most > 0.002 && most - middle >= 0.1 * most
+}
+
 /// Where a picture was when a stage move began.
 pub struct StageOrigin {
     pub clip: String,
@@ -674,6 +735,8 @@ pub struct Models {
     pub visual_curves: Rc<VecModel<CurveGroupData>>,
     /// The picture's chain's colour knobs, a row each.
     pub visual_colours: Rc<VecModel<ColourKnobData>>,
+    /// The picture's chain's choices, a row of segments each.
+    pub visual_choices: Rc<VecModel<ChainChoiceData>>,
     /// A link's wheels and curves, and a curve's points, by the link - -1
     /// the colour panel - and the curve's key: kept like the rest, so a
     /// wheel or a point being dragged is not dropped when it is published
@@ -768,6 +831,7 @@ impl Models {
             adjust_curves: Rc::new(VecModel::default()),
             visual_wheels: Rc::new(VecModel::default()),
             visual_colours: Rc::new(VecModel::default()),
+            visual_choices: Rc::new(VecModel::default()),
             visual_curves: Rc::new(VecModel::default()),
             link_wheels: RefCell::new(HashMap::new()),
             link_curves: RefCell::new(HashMap::new()),
@@ -1088,6 +1152,9 @@ pub struct Studio {
     /// Whether a press on the stage paints the selected custom cutout
     /// rather than moving the picture.
     pub painting: bool,
+    /// The colour knob whose eyedropper is armed: the next press on the
+    /// stage picks its colour off the clip's own picture, not the frame's.
+    pub picking: Option<ColourPick>,
     /// The mask analyses running, by media id, and how far each has got.
     cutout_jobs: HashMap<String, (bool, f32)>,
     /// The stabilization analyses running, by media id, and how far each
@@ -1476,6 +1543,39 @@ fn graded(kind: model::ClipKind) -> bool {
     kind.is_visual() || kind == model::ClipKind::Layer
 }
 
+/// What a clip is to the inspector: the clips of a batch share one only
+/// when they share this. See [`Studio::edit_targets`].
+fn inspector_family(kind: model::ClipKind) -> u8 {
+    match kind {
+        model::ClipKind::Text => 0,
+        model::ClipKind::Video | model::ClipKind::Image => 1,
+        model::ClipKind::Shape => 2,
+        model::ClipKind::Layer => 3,
+        model::ClipKind::Audio | model::ClipKind::SoundLayer => 4,
+    }
+}
+
+/// Where link `index` of `chain` is in another clip's `peer` chain: the same
+/// package at the same turn of it, so the second blur of the clip shown is
+/// the second blur of each other clip of a batch. None when that clip has
+/// no such link, and the edit passes it by.
+fn peer_link(
+    chain: &[AppliedFilter],
+    index: usize,
+    peer: &[AppliedFilter],
+) -> Option<usize> {
+    let id = &chain.get(index)?.id;
+    let turn = chain[..index]
+        .iter()
+        .filter(|entry| &entry.id == id)
+        .count();
+    peer.iter()
+        .enumerate()
+        .filter(|(_, entry)| &entry.id == id)
+        .nth(turn)
+        .map(|(at, _)| at)
+}
+
 /// The ease a key put on at `at` inherits: that of whichever key it joins
 /// behind, so laying a run of keys down does not alternate between shapes.
 /// The first key on a parameter has nothing to inherit and gets the
@@ -1855,8 +1955,16 @@ fn unpacked(value: f64) -> slint::Color {
 }
 
 /// A chain's colour knobs, a row each, holding the document's colour or
-/// the default.
-fn chain_colours(chain: &[AppliedFilter]) -> Vec<ColourKnobData> {
+/// the default. A knob whose default is no colour at all - an alpha of
+/// zero - is one its package finds by itself, a key's screen, and says so
+/// while it holds that. `pickable` offers the eyedropper, for a clip with a
+/// picture of its own to take the colour off; `picking` is the knob, by
+/// link and key, whose eyedropper is armed.
+fn chain_colours(
+    chain: &[AppliedFilter],
+    pickable: bool,
+    picking: Option<(usize, &str)>,
+) -> Vec<ColourKnobData> {
     let catalogue = Catalogue::builtin();
     chain
         .iter()
@@ -1873,20 +1981,83 @@ fn chain_colours(chain: &[AppliedFilter]) -> Vec<ColourKnobData> {
                 .params
                 .iter()
                 .filter(|param| param.kind == ParamType::Color)
-                .map(move |param| ColourKnobData {
-                    entry: index as i32,
-                    key: param.key.as_str().into(),
-                    label: param.label.as_str().into(),
-                    value: unpacked(
-                        entry
-                            .params
-                            .get(&param.key)
-                            .copied()
-                            .unwrap_or(param.default),
-                    ),
+                .map(move |param| {
+                    let value = entry
+                        .params
+                        .get(&param.key)
+                        .copied()
+                        .unwrap_or(param.default);
+                    let can_automatic = unpacked(param.default).alpha() == 0;
+                    ColourKnobData {
+                        entry: index as i32,
+                        key: param.key.as_str().into(),
+                        label: param.label.as_str().into(),
+                        value: unpacked(value),
+                        automatic: can_automatic && unpacked(value).alpha() == 0,
+                        can_automatic,
+                        pickable,
+                        picking: picking == Some((index, param.key.as_str())),
+                    }
                 })
         })
         .collect()
+}
+
+/// A chain's choices - its enum knobs - a row of segments each, at the
+/// document's value or the default.
+fn chain_choices(chain: &[AppliedFilter]) -> Vec<ChainChoiceData> {
+    let catalogue = Catalogue::builtin();
+    let mut choices = Vec::new();
+    for (index, entry) in chain.iter().enumerate() {
+        let Some(package) = catalogue
+            .packages()
+            .find(|package| package.answers_to(&entry.id))
+        else {
+            continue;
+        };
+        for param in &package.manifest.params {
+            if param.kind != ParamType::Enum || param.values.is_empty() {
+                continue;
+            }
+            let value = entry
+                .params
+                .get(&param.key)
+                .copied()
+                .unwrap_or(param.default);
+            let options: Vec<SharedString> = param
+                .values
+                .iter()
+                .enumerate()
+                .map(|(at, number)| {
+                    param
+                        .labels
+                        .get(at)
+                        .cloned()
+                        .unwrap_or_else(|| format!("{number}"))
+                        .into()
+                })
+                .collect();
+            choices.push(ChainChoiceData {
+                entry: index as i32,
+                key: param.key.as_str().into(),
+                label: param.label.as_str().into(),
+                options: ModelRc::new(VecModel::from(options)),
+                values: ModelRc::new(VecModel::from(
+                    param
+                        .values
+                        .iter()
+                        .map(|number| *number as f32)
+                        .collect::<Vec<_>>(),
+                )),
+                current: param
+                    .values
+                    .iter()
+                    .position(|number| (number - value).abs() < 1e-9)
+                    .unwrap_or(0) as i32,
+            });
+        }
+    }
+    choices
 }
 
 /// A chain as the inspector's stack draws it: one row per link, and one per
@@ -1942,13 +2113,12 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
                 next: false,
             });
         }
-        // A colour is a swatch of its own (see `chain_colours`), and a wheel
-        // or a curve is drawn apart (see `chain_grading`).
-        for param in package
-            .manifest
-            .params
-            .iter()
-            .filter(|param| !param.kind.is_compound() && param.kind != ParamType::Color)
+        // A colour is a swatch of its own (see `chain_colours`), a choice
+        // a row of segments (see `chain_choices`), and a wheel or a curve is
+        // drawn apart (see `chain_grading`).
+        for param in package.manifest.params.iter().filter(|param| {
+            !param.kind.is_compound() && param.kind != ParamType::Color && param.kind != ParamType::Enum
+        })
         {
             let step = if param.step > 0.0 {
                 param.step
@@ -2468,6 +2638,7 @@ impl Studio {
             brush: 0,
             brush_size: 0.06,
             painting: true,
+            picking: None,
             cutout_jobs: HashMap::new(),
             stabilize_jobs: HashMap::new(),
             stabilize_retry: HashSet::new(),
@@ -4185,8 +4356,12 @@ impl Studio {
     /// The selected clip's id, when exactly one is selected.
     /// The clips the inspector's knobs write to: the one selected clip, or
     /// every selected clip when two or more are selected and all of them
-    /// are titles - a batch of captions styled together. Anything else
-    /// selected together is nothing the inspector edits.
+    /// are the same kind of thing - titles, pictures, shapes, adjustment
+    /// layers or sounds. A batch is edited together: the inspector shows
+    /// the first, and each knob turned, effect added or background picked
+    /// lands on every one of them as one undo step (#470), which is what a
+    /// separate Apply to all button stood in for. Clips on locked lanes are
+    /// left out; kinds selected together have no inspector in common.
     /// https://github.com/jub0t/Concat/issues/224
     pub fn edit_targets(&self) -> Vec<String> {
         if let Some(id) = self.sole_selection() {
@@ -4195,15 +4370,19 @@ impl Studio {
         if self.selection.len() < 2 {
             return Vec::new();
         }
-        let titles = self.selection.iter().all(|id| {
-            self.clip(id)
-                .is_some_and(|clip| clip.kind == model::ClipKind::Text)
-        });
-        if titles {
-            self.selection.clone()
-        } else {
-            Vec::new()
+        let family = |id: &String| self.clip(id).map(|clip| inspector_family(clip.kind));
+        let first = family(&self.selection[0]);
+        if first.is_none() || !self.selection.iter().all(|id| family(id) == first) {
+            return Vec::new();
         }
+        self.selection
+            .iter()
+            .filter(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| !self.locked(&clip.track_id))
+            })
+            .cloned()
+            .collect()
     }
 
     fn volume_targets(&self) -> Vec<String> {
@@ -4265,7 +4444,7 @@ impl Studio {
     /// a picture, a title, a shape or a layer - the way an effect goes on;
     /// with nothing selected, laid at the playhead as a layer of its own.
     pub fn apply_lut(&mut self, id: &str, label: &str) {
-        if self.sole_selection().is_some() {
+        if !self.edit_targets().is_empty() {
             self.apply_catalogue(id, true);
         } else {
             self.place_filter_layer(id, label);
@@ -4274,41 +4453,55 @@ impl Studio {
 
     /// A catalogue filter or effect, applied to the selected clip's chain.
     pub fn apply_catalogue(&mut self, id: &str, video: bool) {
-        let Some(clip_id) = self.sole_selection() else {
+        let ids = self.edit_targets();
+        let Some(first) = ids.first().and_then(|id| self.clip(id)) else {
             self.notify(&t("studio.selectClipTimelineFirst"), true);
             return;
         };
-        let Some(clip) = self.clip(&clip_id).cloned() else {
-            return;
-        };
+        // A batch is one kind of thing, so the first speaks for all of it.
         if video
-            && !(graded(clip.kind)
-                || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
+            && !(graded(first.kind)
+                || matches!(first.kind, model::ClipKind::Text | model::ClipKind::Shape))
         {
             self.notify(&t("studio.selectVideoImageText"), true);
             return;
         }
-        if !video && clip.kind == model::ClipKind::Image {
+        if !video && first.kind == model::ClipKind::Image {
             self.notify("A still has no sound to filter", true);
             return;
         }
-        let entry = AppliedFilter::new(id);
-        let patch = if video {
-            let mut effects = clip.video_effects.clone();
-            effects.push(entry);
-            ClipPatch {
-                video_effects: Some(effects),
-                ..ClipPatch::default()
-            }
-        } else {
-            let mut filters = clip.filters.clone();
-            filters.push(entry);
-            ClipPatch {
-                filters: Some(filters),
-                ..ClipPatch::default()
-            }
+        let mut commands: Vec<Command> = ids
+            .iter()
+            .filter_map(|clip_id| {
+                let clip = self.clip(clip_id)?;
+                let entry = AppliedFilter::new(id);
+                let patch = if video {
+                    let mut effects = clip.video_effects.clone();
+                    effects.push(entry);
+                    ClipPatch {
+                        video_effects: Some(effects),
+                        ..ClipPatch::default()
+                    }
+                } else {
+                    let mut filters = clip.filters.clone();
+                    filters.push(entry);
+                    ClipPatch {
+                        filters: Some(filters),
+                        ..ClipPatch::default()
+                    }
+                };
+                Some(Command::UpdateClip {
+                    clip_id: clip_id.clone(),
+                    patch,
+                })
+            })
+            .collect();
+        let command = match commands.len() {
+            0 => return,
+            1 => commands.remove(0),
+            _ => Command::Batch { commands },
         };
-        self.apply(Command::UpdateClip { clip_id, patch });
+        self.apply(command);
         // Show it: the applied chain is where the knobs are, and a card
         // that did something with no visible result reads as a card that
         // did nothing.
@@ -4538,36 +4731,11 @@ impl Studio {
     /// Drops one entry from the selected clip's chains, by the row id the
     /// inspector shows: video effects count from 1, audio filters from 1000.
     pub fn remove_effect(&mut self, row: i32) {
-        let Some(clip_id) = self.sole_selection() else {
-            return;
-        };
-        let Some(clip) = self.clip(&clip_id).cloned() else {
-            return;
-        };
-        let patch = if row >= 1000 {
-            let index = (row - 1000) as usize;
-            let mut filters = clip.filters.clone();
-            if index >= filters.len() {
-                return;
-            }
-            filters.remove(index);
-            ClipPatch {
-                filters: Some(filters),
-                ..ClipPatch::default()
-            }
+        if row >= 1000 {
+            self.chain_remove(true, row - 1000);
         } else {
-            let index = (row - 1).max(0) as usize;
-            let mut effects = clip.video_effects.clone();
-            if index >= effects.len() {
-                return;
-            }
-            effects.remove(index);
-            ClipPatch {
-                video_effects: Some(effects),
-                ..ClipPatch::default()
-            }
-        };
-        self.apply(Command::UpdateClip { clip_id, patch });
+            self.chain_remove(false, (row - 1).max(0));
+        }
     }
 
     // ── the chains ──
@@ -4577,35 +4745,73 @@ impl Studio {
     // each one command; a knob is a stream and goes through the echo, the
     // way every other inspector control does.
 
-    /// One edit to the selected clip's chain, as a command. `edit` returns
-    /// false to say it changed nothing.
-    fn chain_edit(&mut self, audio: bool, edit: impl FnOnce(&mut Vec<AppliedFilter>) -> bool) {
-        let Some(clip_id) = self.sole_selection() else {
+    /// One edit to the selected clips' chains, as one command. `links` are
+    /// rows of the chain the inspector shows - the first clip's - and each
+    /// other clip of a batch is handed its own rows for the same links (see
+    /// [`peer_link`]), or passed by when it lacks one. `edit` returns false
+    /// to say it changed nothing.
+    fn chain_edit(
+        &mut self,
+        audio: bool,
+        links: &[i32],
+        edit: impl Fn(&mut Vec<AppliedFilter>, &[usize]) -> bool,
+    ) {
+        let ids = self.edit_targets();
+        let chain_of = |clip: &Clip| {
+            if audio {
+                clip.filters.clone()
+            } else {
+                clip.video_effects.clone()
+            }
+        };
+        let Some(shown) = ids.first().and_then(|id| self.clip(id)).map(chain_of) else {
             return;
         };
-        let Some(clip) = self.clip(&clip_id).cloned() else {
+        let Some(rows) = links
+            .iter()
+            .map(|&row| usize::try_from(row).ok().filter(|&row| row < shown.len()))
+            .collect::<Option<Vec<usize>>>()
+        else {
             return;
         };
-        let mut chain = if audio {
-            clip.filters
-        } else {
-            clip.video_effects
-        };
-        if !edit(&mut chain) {
-            return;
+        let mut commands = Vec::new();
+        for clip_id in &ids {
+            let Some(clip) = self.clip(clip_id) else {
+                continue;
+            };
+            let mut chain = chain_of(clip);
+            let Some(own) = rows
+                .iter()
+                .map(|&row| peer_link(&shown, row, &chain))
+                .collect::<Option<Vec<usize>>>()
+            else {
+                continue;
+            };
+            if !edit(&mut chain, &own) {
+                continue;
+            }
+            let patch = if audio {
+                ClipPatch {
+                    filters: Some(chain),
+                    ..ClipPatch::default()
+                }
+            } else {
+                ClipPatch {
+                    video_effects: Some(chain),
+                    ..ClipPatch::default()
+                }
+            };
+            commands.push(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch,
+            });
         }
-        let patch = if audio {
-            ClipPatch {
-                filters: Some(chain),
-                ..ClipPatch::default()
-            }
-        } else {
-            ClipPatch {
-                video_effects: Some(chain),
-                ..ClipPatch::default()
-            }
+        let command = match commands.len() {
+            0 => return,
+            1 => commands.remove(0),
+            _ => Command::Batch { commands },
         };
-        self.apply(Command::UpdateClip { clip_id, patch });
+        self.apply(command);
     }
 
     pub fn chain_add(&mut self, audio: bool, id: &str) {
@@ -4616,60 +4822,84 @@ impl Studio {
     }
 
     pub fn chain_toggle(&mut self, audio: bool, index: i32) {
-        self.chain_edit(audio, |chain| {
-            let Some(entry) = usize::try_from(index).ok().and_then(|i| chain.get_mut(i)) else {
-                return false;
-            };
-            entry.enabled = !entry.enabled;
-            true
+        // The link shown sets the state for all of a batch, so a batch
+        // whose links disagree comes out agreeing rather than flipped.
+        let on = self
+            .edit_targets()
+            .first()
+            .and_then(|id| self.clip(id))
+            .and_then(|clip| {
+                let chain = if audio {
+                    &clip.filters
+                } else {
+                    &clip.video_effects
+                };
+                usize::try_from(index).ok().and_then(|at| chain.get(at))
+            })
+            .is_some_and(|entry| !entry.enabled);
+        self.chain_edit(audio, &[index], move |chain, at| {
+            let entry = &mut chain[at[0]];
+            let changed = entry.enabled != on;
+            entry.enabled = on;
+            changed
         });
     }
 
     pub fn chain_move(&mut self, audio: bool, index: i32, delta: i32) {
-        self.chain_edit(audio, |chain| {
-            let Ok(from) = usize::try_from(index) else {
-                return false;
-            };
-            let Ok(to) = usize::try_from(index + delta) else {
-                return false;
-            };
-            if from >= chain.len() || to >= chain.len() || from == to {
-                return false;
-            }
-            chain.swap(from, to);
+        if delta == 0 {
+            return;
+        }
+        self.chain_edit(audio, &[index, index + delta], |chain, at| {
+            chain.swap(at[0], at[1]);
             true
         });
     }
 
     pub fn chain_remove(&mut self, audio: bool, index: i32) {
-        self.chain_edit(audio, |chain| {
-            let Ok(at) = usize::try_from(index) else {
-                return false;
-            };
-            if at >= chain.len() {
-                return false;
-            }
-            chain.remove(at);
+        self.chain_edit(audio, &[index], |chain, at| {
+            chain.remove(at[0]);
             true
         });
     }
 
     /// One knob of one link, on the echo. `clip_commit` makes it real.
     pub fn chain_set_param(&mut self, audio: bool, index: i32, key: &str, value: f32) {
-        let Some(id) = self.sole_selection() else {
+        self.edit_links(audio, index, |link, _| {
+            link.params.insert(key.to_owned(), f64::from(value));
+        });
+    }
+
+    /// Link `index` of the shown clip's chain, and the same link of every
+    /// other clip of a batch (see [`peer_link`]), on the echo; `edit` is told
+    /// which one is the shown clip's. `clip_commit` makes it real.
+    fn edit_links(&mut self, audio: bool, index: i32, edit: impl Fn(&mut AppliedFilter, bool)) {
+        let ids = self.edit_targets();
+        let Some(row) = usize::try_from(index).ok() else {
             return;
         };
+        let Some(shown) = ids.first().and_then(|id| self.clip(id)).map(|clip| {
+            if audio {
+                clip.filters.clone()
+            } else {
+                clip.video_effects.clone()
+            }
+        }) else {
+            return;
+        };
+        self.commit_targets = ids.clone();
         self.begin_echo();
-        let Some(clip) = self.echo_clip_mut(&id) else {
-            return;
-        };
-        let chain = if audio {
-            &mut clip.filters
-        } else {
-            &mut clip.video_effects
-        };
-        if let Some(entry) = usize::try_from(index).ok().and_then(|i| chain.get_mut(i)) {
-            entry.params.insert(key.to_owned(), f64::from(value));
+        for (turn, id) in ids.iter().enumerate() {
+            let Some(clip) = self.echo_clip_mut(id) else {
+                continue;
+            };
+            let chain = if audio {
+                &mut clip.filters
+            } else {
+                &mut clip.video_effects
+            };
+            if let Some(at) = peer_link(&shown, row, chain) {
+                edit(&mut chain[at], turn == 0);
+            }
         }
     }
 
@@ -4679,14 +4909,17 @@ impl Studio {
     /// of their own here, `<key>.x`, `<key>.y` and `<key>.m`.
     pub fn adjust_set(&mut self, key: &str, value: f32) {
         let point = self.key_point().map(|(_, at)| at);
-        self.edit_adjust_link(|link| match point {
+        self.edit_adjust_link(|link, shown| match point {
             // A knob that rides is edited where the playhead is: the value
             // becomes the key there, put on if there was none. Setting the
             // constant under a ride would change nothing on screen.
-            Some(at) if link.is_keyed(key) => {
+            Some(at) if shown && link.is_keyed(key) => {
                 let ease = ease_before(link.keys_on(key), at);
                 link.set_key(key, at, f64::from(value), ease);
             }
+            // Another clip of a batch keeps its own ride: the playhead's
+            // place is the shown clip's, and means nothing in that one.
+            _ if !shown && link.is_keyed(key) => {}
             _ => {
                 link.params.insert(key.to_owned(), f64::from(value));
             }
@@ -4782,42 +5015,47 @@ impl Studio {
     /// One point of one of the colour panel's curves, on the echo: moved,
     /// or put down when `point` is negative.
     pub fn adjust_curve_point(&mut self, key: &str, point: i32, x: f32, y: f32) {
-        self.edit_adjust_link(|link| {
+        self.edit_adjust_link(|link, _| {
             grading::set_curve_point(&mut link.params, key, point, x.into(), y.into());
         });
     }
 
     /// One point of one of the colour panel's curves taken off, on the echo.
     pub fn adjust_curve_remove(&mut self, key: &str, point: i32) {
-        self.edit_adjust_link(|link| grading::remove_curve_point(&mut link.params, key, point));
+        self.edit_adjust_link(|link, _| grading::remove_curve_point(&mut link.params, key, point));
     }
 
-    /// The selected clip's colour link on the echo, put at the head of the
-    /// picture's chain if it is not there yet, handed to `edit`. Nothing
-    /// for a clip that is not a picture.
-    fn edit_adjust_link(&mut self, edit: impl FnOnce(&mut AppliedFilter)) {
-        let Some(id) = self.sole_selection() else {
-            return;
-        };
-        self.begin_echo();
-        let Some(clip) = self.echo_clip_mut(&id) else {
-            return;
-        };
-        if !graded(clip.kind) {
+    /// The selected clips' colour links on the echo, each put at the head of
+    /// its picture's chain if it is not there yet, handed to `edit` with
+    /// whether it is the shown clip's. Nothing for a clip that is not a
+    /// picture.
+    fn edit_adjust_link(&mut self, edit: impl Fn(&mut AppliedFilter, bool)) {
+        let ids = self.edit_targets();
+        if ids.is_empty() {
             return;
         }
-        let entry = match clip
-            .video_effects
-            .iter()
-            .position(|entry| entry.id == ADJUST_ID)
-        {
-            Some(entry) => entry,
-            None => {
-                clip.video_effects.insert(0, AppliedFilter::new(ADJUST_ID));
-                0
+        self.commit_targets = ids.clone();
+        self.begin_echo();
+        for (turn, id) in ids.iter().enumerate() {
+            let Some(clip) = self.echo_clip_mut(id) else {
+                continue;
+            };
+            if !graded(clip.kind) {
+                continue;
             }
-        };
-        edit(&mut clip.video_effects[entry]);
+            let entry = match clip
+                .video_effects
+                .iter()
+                .position(|entry| entry.id == ADJUST_ID)
+            {
+                Some(entry) => entry,
+                None => {
+                    clip.video_effects.insert(0, AppliedFilter::new(ADJUST_ID));
+                    0
+                }
+            };
+            edit(&mut clip.video_effects[entry], turn == 0);
+        }
     }
 
     /// One point of a curve of the picture chain's link `index`, on the
@@ -4844,21 +5082,159 @@ impl Studio {
         });
     }
 
-    /// The picture chain's link `index` of the selected clip, on the echo.
-    fn edit_chain_link(&mut self, index: i32, edit: impl FnOnce(&mut AppliedFilter)) {
-        let Some(id) = self.sole_selection() else {
+    /// A colour knob's eyedropper, pressed: armed for the selected clip's
+    /// link `index` and knob `key`, so the next press on the stage takes
+    /// the colour there off the clip's own picture (see `pick_colour_at`),
+    /// or put down again when it already was. Only a clip with a file's
+    /// picture of its own offers one.
+    pub fn chain_pick_colour(&mut self, index: i32, key: &str) {
+        let Ok(entry) = usize::try_from(index) else {
             return;
         };
-        self.begin_echo();
-        let Some(clip) = self.echo_clip_mut(&id) else {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)).cloned() else {
             return;
         };
+        let pick = ColourPick {
+            clip: clip.id.clone(),
+            entry,
+            key: key.to_owned(),
+        };
+        if self.picking.as_ref() == Some(&pick) {
+            self.picking = None;
+            return;
+        }
+        if !picks_colour(clip.kind) {
+            self.notify(&t("studio.pickColourNoPicture"), true);
+            return;
+        }
+        self.flush_commit();
+        self.picking = Some(pick);
+        self.notify(&t("studio.pickColourHint"), false);
+    }
+
+    /// The eyedropper put down without a pick: Escape, or the project
+    /// going. Whether one was armed.
+    pub fn cancel_colour_pick(&mut self) -> bool {
+        self.picking.take().is_some()
+    }
+
+    /// A colour knob of the selected clip's link `index` back to its
+    /// default - the colour its package finds by itself - as one edit.
+    pub fn chain_auto_colour(&mut self, index: i32, key: &str) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)).cloned() else {
+            return;
+        };
+        let Some(link) = usize::try_from(index)
+            .ok()
+            .and_then(|index| clip.video_effects.get(index))
+        else {
+            return;
+        };
+        if !link.params.contains_key(key) {
+            return;
+        }
+        let mut effects = clip.video_effects.clone();
         if let Some(link) = usize::try_from(index)
             .ok()
-            .and_then(|index| clip.video_effects.get_mut(index))
+            .and_then(|index| effects.get_mut(index))
         {
-            edit(link);
+            link.params.remove(key);
         }
+        self.flush_commit();
+        self.apply(Command::UpdateClip {
+            clip_id: clip.id,
+            patch: ClipPatch {
+                video_effects: Some(effects),
+                ..ClipPatch::default()
+            },
+        });
+    }
+
+    /// A press on the stage while an eyedropper is armed: the colour of the
+    /// clip's own picture under it - before its effects, through its crop,
+    /// flips, turn and stabilization, the way a brush stroke finds its
+    /// pixel - read off its file at the playhead on a worker, and laid on
+    /// the knob as one edit. A press off the picture says so and keeps the
+    /// eyedropper armed; a pick disarms it.
+    fn pick_colour_at(&mut self, pick: ColourPick, x: f64, y: f64) {
+        let Some(clip) = self
+            .stage_clips()
+            .into_iter()
+            .find(|shown| shown.id == pick.clip)
+            .cloned()
+        else {
+            self.picking = None;
+            self.notify(&t("studio.pickColourGone"), true);
+            return;
+        };
+        let [u, v] = self.stage_to_source(&clip, x, y);
+        if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+            self.notify(&t("studio.pickColourOffPicture"), false);
+            return;
+        }
+        let Some(media) = self.project().media_by_id(&clip.media_id) else {
+            self.picking = None;
+            return;
+        };
+        let path = media.path.clone();
+        let seconds = self.source_at_playhead(&clip);
+        self.picking = None;
+        spawn_in_project(
+            move || {
+                concat_host::media::still_at(&path, seconds, 960)
+                    .and_then(|frame| colour_about(&frame, u, v).ok_or_else(String::new))
+            },
+            move |studio, _, _, picked| match picked {
+                Ok(colour) => studio.lay_picked_colour(&pick, colour),
+                Err(error) if error.is_empty() => {}
+                Err(error) => studio.notify(&error, true),
+            },
+        );
+    }
+
+    /// A colour taken off the picture laid on the knob it was picked for,
+    /// wherever the selection has gone since, as one edit. A key told a
+    /// grey - nothing to key - says so, and where a black backdrop goes.
+    fn lay_picked_colour(&mut self, pick: &ColourPick, [r, g, b]: [u8; 3]) {
+        let Some(clip) = self.clip(&pick.clip).cloned() else {
+            return;
+        };
+        let mut effects = clip.video_effects.clone();
+        let Some(link) = effects.get_mut(pick.entry) else {
+            return;
+        };
+        let package = Catalogue::builtin()
+            .packages()
+            .find(|package| package.answers_to(&link.id));
+        let Some(package) = package.filter(|package| {
+            package
+                .manifest
+                .param(&pick.key)
+                .is_some_and(|param| param.kind == ParamType::Color)
+        }) else {
+            return;
+        };
+        let keys = package.category().eq_ignore_ascii_case("Cutout");
+        link.params.insert(
+            pick.key.clone(),
+            packed(slint::Color::from_argb_u8(255, r, g, b)),
+        );
+        self.flush_commit();
+        self.apply(Command::UpdateClip {
+            clip_id: clip.id,
+            patch: ClipPatch {
+                video_effects: Some(effects),
+                ..ClipPatch::default()
+            },
+        });
+        if keys && !has_hue([r, g, b]) {
+            self.notify(&t("studio.pickColourGrey"), false);
+        }
+    }
+
+    /// The picture chain's link `index` of the selected clip, on the echo.
+    fn edit_chain_link(&mut self, index: i32, edit: impl Fn(&mut AppliedFilter)) {
+        self.edit_links(false, index, |link, _| edit(link));
     }
 
     /// The colour link of the selected clip - the one the Adjust panel's
@@ -6274,6 +6650,12 @@ impl Studio {
     /// of everything selected that is under the playhead. Empty stage
     /// clears the selection, as an empty lane does.
     pub fn stage_pressed(&mut self, x: f32, y: f32, additive: bool) {
+        // An armed eyedropper takes the press before a brush or a move.
+        if let Some(pick) = self.picking.clone() {
+            self.gesture = Gesture::None;
+            self.pick_colour_at(pick, f64::from(x), f64::from(y));
+            return;
+        }
         if let Some(clip) = self.paint_target() {
             let point = self.stage_to_source(&clip, f64::from(x), f64::from(y));
             self.gesture = Gesture::Paint {
@@ -9026,6 +9408,7 @@ impl Studio {
         self.stabilize_jobs.clear();
         self.stabilize_retry.clear();
         self.region_job = None;
+        self.picking = None;
         self.autosave.stop();
         // The launch screen's card for this project is read again: the
         // edit just made may have moved its first frame and its length.
@@ -9696,6 +10079,7 @@ impl Studio {
         editor.set_brush_tool(self.brush as i32);
         editor.set_brush_size(self.brush_size as f32);
         editor.set_painting(self.painting);
+        editor.set_picking_colour(self.picking.is_some());
 
         editor.set_drop(match &self.drop {
             Some(plan) => DropData {
@@ -9859,7 +10243,21 @@ impl Studio {
         sync(
             &models.visual_colours,
             match self.sole_selection().and_then(|id| self.clip(&id)) {
-                Some(clip) => chain_colours(&clip.video_effects),
+                Some(clip) => chain_colours(
+                    &clip.video_effects,
+                    picks_colour(clip.kind),
+                    self.picking
+                        .as_ref()
+                        .filter(|pick| pick.clip == clip.id)
+                        .map(|pick| (pick.entry, pick.key.as_str())),
+                ),
+                None => Vec::new(),
+            },
+        );
+        sync(
+            &models.visual_choices,
+            match self.sole_selection().and_then(|id| self.clip(&id)) {
+                Some(clip) => chain_choices(&clip.video_effects),
                 None => Vec::new(),
             },
         );
@@ -12952,7 +13350,8 @@ fn edit_point(spans: &[(f64, f64)], playhead: f32, rate: f32, forward: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::{
-        Command, Footprint, Studio, adjust_key_names, chain_colours, chain_rows, custom_frame,
+        Command, Footprint, Studio, adjust_key_names, chain_choices, chain_colours, chain_rows,
+        colour_about, custom_frame, has_hue,
         custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
         wheel_partners, write_keyable,
     };
@@ -13236,27 +13635,57 @@ mod tests {
         assert_eq!(curves[1].1.len(), 3, "the ends and the point put down");
     }
 
-    /// A colour knob is a swatch in the stack, not a slider: broadcast
-    /// green at the chroma key's default, and a colour picked is packed into
-    /// the knob's number as the shader unpacks it, and read back the same.
+    /// A colour knob is a swatch in the stack, not a slider: at the chroma
+    /// key's default it is the screen found by itself, and a colour picked
+    /// is packed into the knob's number as the shader unpacks it, and read
+    /// back the same, no longer found. The eyedropper is offered where the
+    /// caller says, lit for the one knob armed.
     #[test]
     fn a_colour_knob_is_a_swatch() {
         use concat_project::model::AppliedFilter;
         let mut link = AppliedFilter::new("concat.chroma-key");
         let (_, knobs) = chain_rows(std::slice::from_ref(&link));
         assert!(knobs.iter().all(|knob| knob.key != "color"), "no slider");
-        assert!(knobs.iter().any(|knob| knob.key == "similarity"));
-        let colours = chain_colours(std::slice::from_ref(&link));
+        assert!(knobs.iter().all(|knob| knob.key != "view"), "a choice, not a slider");
+        assert!(knobs.iter().any(|knob| knob.key == "strength"));
+        let colours = chain_colours(std::slice::from_ref(&link), true, None);
         assert_eq!(colours.len(), 1);
         assert_eq!(colours[0].key, "color");
-        assert_eq!(
-            colours[0].value,
-            slint::Color::from_argb_u8(255, 0x00, 0xb1, 0x40)
-        );
+        assert!(colours[0].automatic && colours[0].can_automatic);
+        assert!(colours[0].pickable && !colours[0].picking);
         let blue = slint::Color::from_argb_u8(255, 0x00, 0x47, 0xbb);
         link.params.insert("color".to_owned(), packed(blue));
         assert_eq!(link.params["color"], f64::from(0x0047_bbffu32));
-        assert_eq!(chain_colours(&[link])[0].value, blue);
+        let picked = chain_colours(std::slice::from_ref(&link), false, Some((0, "color")));
+        assert_eq!(picked[0].value, blue);
+        assert!(!picked[0].automatic && picked[0].can_automatic);
+        assert!(!picked[0].pickable && picked[0].picking);
+        let choices = chain_choices(&[link]);
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].key, "view");
+        assert_eq!(choices[0].current, 0);
+    }
+
+    /// A pick is the mean of the five by five pixels about the point, in
+    /// light, and nothing off the picture; a grey has no hue to key.
+    #[test]
+    fn a_picked_colour_is_the_mean_about_the_point() {
+        let mut frame = concat_core::frame::Frame::black(10, 10);
+        for (at, pixel) in frame.pixels_mut().chunks_exact_mut(4).enumerate() {
+            let shade = if at % 2 == 0 { 0 } else { 255 };
+            pixel.copy_from_slice(&[0, shade, 64, 255]);
+        }
+        let [r, g, b] = colour_about(&frame, 0.5, 0.5).expect("on the picture");
+        assert_eq!(r, 0);
+        // The odd columns are lit: three of the five about the middle, so
+        // three fifths of the light, which the display encoding writes at
+        // 0.6 ^ (1 / 2.4) of its range.
+        assert_eq!(g, 206);
+        assert_eq!(b, 64);
+        assert!(colour_about(&frame, 1.2, 0.5).is_none());
+        assert!(has_hue([0, 177, 64]));
+        assert!(!has_hue([128, 128, 128]));
+        assert!(!has_hue([0, 0, 0]));
     }
 
     /// A typed frame is even on both sides and inside the limits.

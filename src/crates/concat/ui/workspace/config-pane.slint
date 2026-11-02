@@ -12,7 +12,8 @@ import { EffectData } from "../demo/effects-panel.slint";
 import {
     AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, BackgroundRows, ProcessorRows,
     TransitionChoiceData,
-    CatalogueEntryData, ColourKnobData, EnhancePanel, FilterPanel, PresetStack, SpeedPanel,
+    CatalogueEntryData, ChainChoiceData, ColourKnobData, EnhancePanel, FilterPanel, PresetStack,
+    SpeedPanel,
     TransitionPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import {
@@ -172,6 +173,10 @@ export component ConfigPane inherits Rectangle {
     /// The picture chain's colour knobs, and one of them picked.
     in property <[ColourKnobData]> visual-colours;
     callback chain-set-colour(index: int, key: string, value: color);
+    callback chain-pick-colour(index: int, key: string);
+    callback chain-auto-colour(index: int, key: string);
+    /// The picture chain's choices.
+    in property <[ChainChoiceData]> visual-choices;
     /// A curve's point moved, or put down when `point` is -1, or taken off:
     /// `entry` -1 is the colour panel's, else a link of the picture's chain.
     callback curve-point(entry: int, key: string, point: int, x: float, y: float);
@@ -716,6 +721,7 @@ export component ConfigPane inherits Rectangle {
                         applied: root.applied-visual;
                         params: root.visual-params;
                         colours: root.visual-colours;
+                        choices: root.visual-choices;
                         brush-tool: root.brush-tool;
                         brush-size: root.brush-size;
                         painting: root.painting;
@@ -729,6 +735,8 @@ export component ConfigPane inherits Rectangle {
                         chain-set-colour(index, key, value) => {
                             root.chain-set-colour(index, key, value);
                         }
+                        chain-pick-colour(index, key) => { root.chain-pick-colour(index, key); }
+                        chain-auto-colour(index, key) => { root.chain-auto-colour(index, key); }
                         cutout-mode(mode) => { root.cutout-mode(mode); }
                         cutout-tool(index) => { root.cutout-tool(index); }
                         cutout-size(size) => { root.cutout-size(size); }
@@ -863,6 +871,7 @@ export component ConfigPane inherits Rectangle {
                     wheel-groups: root.visual-wheels;
                     curve-groups: root.visual-curves;
                     colours: root.visual-colours;
+                    choices: root.visual-choices;
 
                     add(id) => { root.chain-add(false, id); }
                     toggle(index) => { root.chain-toggle(false, index); }
@@ -874,6 +883,8 @@ export component ConfigPane inherits Rectangle {
                     set-colour(index, key, value) => {
                         root.chain-set-colour(index, key, value);
                     }
+                    pick-colour(index, key) => { root.chain-pick-colour(index, key); }
+                    auto-colour(index, key) => { root.chain-auto-colour(index, key); }
                     curve-point(index, key, point, x, y) => {
                         root.curve-point(index, key, point, x, y);
                     }

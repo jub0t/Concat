@@ -73,6 +73,11 @@ pub struct Manifest {
 /// knobs in `knobs` worked out from the old link's: an expression over the
 /// old knobs by name, a knob the old link left out taking its value from
 /// `defaults`. A knob not in `knobs` takes this package's own default.
+///
+/// A table whose `id` is the package's own stands for an earlier version
+/// of it whose knobs meant something else: a link to the package that holds
+/// a knob of `defaults` the package no longer declares was written for
+/// that version, and is carried over the same way when the project opens.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Replaces {
@@ -493,6 +498,21 @@ impl Manifest {
 
     fn validate(&self) -> Result<(), Error> {
         for replaced in &self.replaces {
+            // A table naming the package itself stands for its earlier
+            // version, and a link is told for one only by a knob that
+            // version had and this one has not.
+            if replaced.names(&self.effect.id)
+                && !replaced
+                    .defaults
+                    .keys()
+                    .any(|knob| self.owner(knob).is_none())
+            {
+                return Err(self.invalid(format!(
+                    "[[replaces]] {}: an earlier version of this package is told apart by \
+                     a knob it had and this one has not, and its defaults name none",
+                    replaced.id
+                )));
+            }
             for (knob, source) in &replaced.knobs {
                 if self.owner(knob).is_none() {
                     return Err(self.invalid(format!(

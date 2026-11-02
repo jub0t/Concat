@@ -112,7 +112,9 @@ impl Session {
             let old = link.id.clone();
             let changed = catalogue.upgrade(link);
             let pair = (old, link.id.clone());
-            if changed && !upgraded.contains(&pair) {
+            // A link carried over to its own package's newer version opens
+            // as it looked, near enough, and says nothing.
+            if changed && pair.0 != pair.1 && !upgraded.contains(&pair) {
                 upgraded.push(pair);
             }
             changed

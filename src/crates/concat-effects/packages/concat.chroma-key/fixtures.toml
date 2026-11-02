@@ -1,72 +1,147 @@
-# Broadcast green, #00b140, is (0, 0.416, 0.036) in light. At its defaults the
-# key takes it out, in shadow as well as lit, and keeps skin and grey; what
-# it keeps has the green leaned out of it by half, so a grey with green
-# spilled on it comes out greyer, and the colour of what it takes out has
-# the same done to it, for the soft edge between. A colour knob's least is
-# black and its most white, each a key colour of no hue, which takes out
-# the greys. Pinned from a model of the shader in doubles.
+# Broadcast green, #00b140, is (0, 0.416, 0.036) in light. A probe is a
+# picture of one colour, so the key's look at the screen about a pixel sees
+# that colour all round it: the screen the key finds, or the screen in
+# shadow. The edge probes set the shadows to none, which stands for the
+# screen about an edge being the key colour itself. Where nothing stays,
+# the colour left is the pixel's own with its spill cleaned off: a grey as
+# bright as the screen was. Pinned from a model of the shader in doubles.
 
 [[probe]]
-name = "default, a broadcast green screen"
+name = "default, an even green screen, found by itself, is taken out"
 input = [0, 0.416332, 0.0362356, 1]
-expect = [0.0384438, 0.29853, 0.0997654, 0]
+expect = [0.271845, 0.308081, 0.308081, 0]
 
 [[probe]]
-name = "default, the screen in shadow"
-input = [0, 0.18, 0.012, 1]
-expect = [0.0170975, 0.128594, 0.0367308, 0]
+name = "default, an even blue screen, found by itself, is taken out"
+input = [0, 0.0464862, 0.475033, 1]
+expect = [0.030941, 0.077427, 0.077427, 0]
 
 [[probe]]
-name = "default, the screen in deep shadow"
-input = [0, 0.0788574, 0.00686646, 1]
-expect = [0.00728244, 0.0565548, 0.0189067, 0]
-
-[[probe]]
-name = "default, skin"
-input = [0.6, 0.35, 0.25, 1]
-expect = [0.600086, 0.350102, 0.249991, 1]
-
-[[probe]]
-name = "default, a grey"
-input = [0.18, 0.18, 0.18, 1]
-expect = [0.180054, 0.180054, 0.180054, 1]
-
-[[probe]]
-name = "default, a grey with green spilled on it"
-input = [0.2, 0.28, 0.2, 1]
-expect = [0.231019, 0.267552, 0.215542, 1]
-
-[[probe]]
-name = "default, the screen half transparent"
-input = [0, 0.41626, 0.0362244, 0.5]
-expect = [0.0384438, 0.29853, 0.0997654, 0]
-
-[[probe]]
-name = "minimum, a black key takes out a grey"
-at = "min"
-input = [0.18, 0.18, 0.18, 1]
-expect = [0.180054, 0.180054, 0.180054, 0]
-
-[[probe]]
-name = "minimum, and keeps the green"
-at = "min"
+name = "keyed to the green, the screen is taken out"
+params = { color = 11616511 }
 input = [0, 0.416332, 0.0362356, 1]
-expect = [0, 0.416252, 0.0362368, 1]
+expect = [0.271845, 0.308081, 0.308081, 0]
 
 [[probe]]
-name = "maximum, a white key takes out skin"
-at = "max"
+name = "keyed to the green, the screen 30 % darker in shadow still goes"
+params = { color = 11616511 }
+input = [0, 0.291432, 0.0253649, 1]
+expect = [0.190291, 0.215656, 0.215656, 0]
+
+[[probe]]
+name = "keyed to the green, a hot spot brighter than it goes"
+params = { color = 11616511 }
+input = [0, 0.582865, 0.0507298, 1]
+expect = [0.380583, 0.431313, 0.431313, 0]
+
+[[probe]]
+name = "keyed to the green, skin keeps its whole alpha and its colour"
+params = { color = 11616511 }
 input = [0.6, 0.35, 0.25, 1]
-expect = [0.600086, 0.350102, 0.249991, 0]
+expect = [0.6, 0.35, 0.25, 1]
+
+[[probe]]
+name = "keyed to the green, a grey keeps its whole alpha"
+params = { color = 11616511 }
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "keyed to the green, a yellow keeps its whole alpha"
+params = { color = 11616511 }
+input = [0.8, 0.7, 0.05, 1]
+expect = [0.8, 0.7, 0.05, 1]
+
+[[probe]]
+name = "with nothing like a screen in the picture, skin is left as it is"
+input = [0.6, 0.35, 0.25, 1]
+expect = [0.6, 0.35, 0.25, 1]
+
+[[probe]]
+name = "a grey strand half over the screen is unmixed to its grey"
+params = { color = 11616511, shadows = 0 }
+input = [0.4, 0.608166, 0.418118, 1]
+expect = [0.766991, 0.769256, 0.769256, 0.533333]
+
+[[probe]]
+name = "skin half over the screen keeps no green"
+params = { color = 11616511, shadows = 0 }
+input = [0.3, 0.383166, 0.143118, 1]
+expect = [0.365714, 0.365714, 0.189327, 0.908263]
+
+[[probe]]
+name = "green spilled on a grey is cleaned off, its brightness kept"
+params = { color = 11616511 }
+input = [0.2, 0.25, 0.2, 1]
+expect = [0.23576, 0.23576, 0.23576, 1]
+
+[[probe]]
+name = "with no spill taken, the spill stays"
+params = { color = 11616511, spill = 0 }
+input = [0.2, 0.25, 0.2, 1]
+expect = [0.2, 0.25, 0.2, 1]
+
+[[probe]]
+name = "with no brightness kept, the spill's light goes with it"
+params = { color = 11616511, restore = 0 }
+input = [0.2, 0.25, 0.2, 1]
+expect = [0.2, 0.2, 0.2, 1]
+
+[[probe]]
+name = "a black key has no colour to key: a grey stays"
+params = { color = 255 }
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "a white key has no colour to key: skin stays"
+params = { color = 4294967295 }
+input = [0.6, 0.35, 0.25, 1]
+expect = [0.6, 0.35, 0.25, 1]
+
+[[probe]]
+name = "the screen half transparent goes, and so does its alpha"
+input = [0, 0.416332, 0.0362356, 0.5]
+expect = [0.271845, 0.308081, 0.308081, 0]
+
+[[probe]]
+name = "skin half transparent keeps its alpha"
+params = { color = 11616511 }
+input = [0.6, 0.35, 0.25, 0.5]
+expect = [0.6, 0.35, 0.25, 0.5]
 
 [[probe]]
 name = "a blue screen, keyed to its blue"
 params = { color = 4701183 }
 input = [0, 0.0464862, 0.475033, 1]
-expect = [0.00694118, 0.0413712, 0.182929, 0]
+expect = [0.030941, 0.077427, 0.077427, 0]
 
 [[probe]]
-name = "no spill taken, a grey with green on it"
-params = { spill = 0 }
-input = [0.2, 0.28, 0.2, 1]
-expect = [0.199946, 0.280029, 0.199955, 1]
+name = "the matte view shows the edge's alpha as grey"
+params = { color = 11616511, shadows = 0, view = 1 }
+input = [0.4, 0.608166, 0.418118, 1]
+expect = [0.221205, 0.221205, 0.221205, 1]
+
+[[probe]]
+name = "the status view shows the screen black"
+params = { view = 2 }
+input = [0, 0.416332, 0.0362356, 1]
+expect = [0, 0, 0, 1]
+
+[[probe]]
+name = "the status view shows a part of both grey"
+params = { color = 11616511, shadows = 0, view = 2 }
+input = [0.4, 0.608166, 0.418118, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "every knob at its least: no key colour picked and none found, a grey stays"
+at = "min"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "every knob at its most: a white key, the status view, a grey stays white"
+at = "max"
+input = [0.18, 0.18, 0.18, 1]
+expect = [1, 1, 1, 1]

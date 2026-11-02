@@ -604,6 +604,7 @@ export component PhoneEditor inherits Rectangle {
             stroke-width: Editor.stroke-width;
             stroke-erase: Editor.stroke-erase;
             painting: Editor.painting && Editor.selected-clip.cutout == 2;
+            picking: Editor.picking-colour;
 
             play-toggled => { Editor.play-toggled(); }
             seek(seconds) => { Editor.seek(seconds); }
@@ -1358,6 +1359,7 @@ export component PhoneEditor inherits Rectangle {
                 wheel-groups: Editor.visual-wheels;
                 curve-groups: Editor.visual-curves;
                 colours: Editor.visual-colours;
+                choices: Editor.visual-choices;
 
                 add(id) => { Editor.chain-add(false, id); }
                 toggle(index) => { Editor.chain-toggle(false, index); }
@@ -1369,6 +1371,8 @@ export component PhoneEditor inherits Rectangle {
                 set-colour(index, key, value) => {
                     Editor.chain-set-colour(index, key, value);
                 }
+                pick-colour(index, key) => { Editor.chain-pick-colour(index, key); }
+                auto-colour(index, key) => { Editor.chain-auto-colour(index, key); }
                 curve-point(index, key, point, x, y) => {
                     Editor.curve-point(index, key, point, x, y);
                 }
@@ -1505,6 +1509,7 @@ export component PhoneEditor inherits Rectangle {
             applied: Editor.applied-visual;
             params: Editor.visual-params;
             colours: Editor.visual-colours;
+            choices: Editor.visual-choices;
             brush-tool: Editor.brush-tool;
             brush-size: Editor.brush-size;
             painting: Editor.painting;
@@ -1518,6 +1523,8 @@ export component PhoneEditor inherits Rectangle {
             chain-set-colour(index, key, value) => {
                 Editor.chain-set-colour(index, key, value);
             }
+            chain-pick-colour(index, key) => { Editor.chain-pick-colour(index, key); }
+            chain-auto-colour(index, key) => { Editor.chain-auto-colour(index, key); }
             cutout-mode(mode) => { Editor.cutout-mode(mode); }
             cutout-tool(index) => { Editor.cutout-tool(index); }
             cutout-size(size) => { Editor.cutout-size(size); }

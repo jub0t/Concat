@@ -39,11 +39,24 @@ impl Studio {
     /// The selected clip, when it is one a background is drawn behind: a
     /// video or a still on the timeline's lowest picture lane.
     fn backdrop_clip(&self) -> Option<&Clip> {
-        let id = self.sole_selection()?;
+        let id = self.backdrop_clips().into_iter().next()?;
+        self.timeline().clip(&id)
+    }
+
+    /// The pictures on the main lane the inspector edits - one, or a batch
+    /// selected together - whose background the Canvas panel sets. The
+    /// panel shows the first.
+    fn backdrop_clips(&self) -> Vec<String> {
         let timeline = self.timeline();
-        let clip = timeline.clip(&id)?;
-        (clip.kind.is_visual() && timeline.background_lane() == Some(clip.track_id.as_str()))
-            .then_some(clip)
+        let lane = timeline.background_lane();
+        self.edit_targets()
+            .into_iter()
+            .filter(|id| {
+                timeline.clip(id).is_some_and(|clip| {
+                    clip.kind.is_visual() && lane == Some(clip.track_id.as_str())
+                })
+            })
+            .collect()
     }
 
     /// A background as the panels show it; None is a clip following the
@@ -123,15 +136,21 @@ impl Studio {
     /// picked through, which folds into the step its last edit made.
     fn backdrop_write(&mut self, clip: bool, background: Option<Background>, knob: Option<&str>) {
         let command = if clip {
-            let Some(target) = self.backdrop_clip() else {
-                return;
-            };
-            Command::UpdateClip {
-                clip_id: target.id.clone(),
-                patch: ClipPatch {
-                    background: Some(background),
-                    ..ClipPatch::default()
-                },
+            let mut commands: Vec<Command> = self
+                .backdrop_clips()
+                .into_iter()
+                .map(|clip_id| Command::UpdateClip {
+                    clip_id,
+                    patch: ClipPatch {
+                        background: Some(background.clone()),
+                        ..ClipPatch::default()
+                    },
+                })
+                .collect();
+            match commands.len() {
+                0 => return,
+                1 => commands.remove(0),
+                _ => Command::Batch { commands },
             }
         } else {
             Command::SetTimelineBackground {
@@ -192,41 +211,6 @@ impl Studio {
         if background != now {
             self.backdrop_write(clip, background, None);
         }
-    }
-
-    /// Apply to all, as CapCut has it: the selected clip's background
-    /// becomes the timeline's, and every picture on the main lane follows
-    /// it, any of their own let go. One undo step.
-    pub fn backdrop_apply_to_all(&mut self) {
-        let Some(clip) = self.backdrop_clip() else {
-            return;
-        };
-        let background = clip
-            .background
-            .clone()
-            .unwrap_or_else(|| self.timeline().background.clone());
-        let timeline = self.timeline();
-        let lane = timeline.background_lane().map(str::to_owned);
-        let mut commands = vec![Command::SetTimelineBackground {
-            timeline_id: timeline.id.clone(),
-            background,
-        }];
-        commands.extend(
-            timeline
-                .clips
-                .iter()
-                .filter(|other| {
-                    other.background.is_some() && Some(other.track_id.as_str()) == lane.as_deref()
-                })
-                .map(|other| Command::UpdateClip {
-                    clip_id: other.id.clone(),
-                    patch: ClipPatch {
-                        background: Some(None),
-                        ..ClipPatch::default()
-                    },
-                }),
-        );
-        self.apply(Command::Batch { commands });
     }
 
     /// A blur's softness, as its knob turns.

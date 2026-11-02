@@ -188,6 +188,7 @@ export component Seat inherits Rectangle {
             stroke-width: Editor.stroke-width;
             stroke-erase: Editor.stroke-erase;
             painting: Editor.painting && Editor.selected-clip.cutout == 2;
+            picking: Editor.picking-colour && !SourcePreview.open;
 
             play-toggled => { Editor.play-toggled(); }
             seek(seconds) => {
@@ -254,7 +255,10 @@ export component Seat inherits Rectangle {
             visual-wheels: Editor.visual-wheels;
             visual-curves: Editor.visual-curves;
             visual-colours: Editor.visual-colours;
+            visual-choices: Editor.visual-choices;
             chain-set-colour(index, key, value) => { Editor.chain-set-colour(index, key, value); }
+            chain-pick-colour(index, key) => { Editor.chain-pick-colour(index, key); }
+            chain-auto-colour(index, key) => { Editor.chain-auto-colour(index, key); }
             curve-point(entry, key, point, x, y) => { Editor.curve-point(entry, key, point, x, y); }
             curve-remove(entry, key, point) => { Editor.curve-remove(entry, key, point); }
             jump-token: Editor.inspector-jump-token;
