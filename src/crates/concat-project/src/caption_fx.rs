@@ -227,10 +227,10 @@ pub fn spoken_order(boxes: &[WordBox], rtl: bool) -> Vec<WordBox> {
         out.append(line);
     };
     for word in boxes {
-        if let Some(first) = line.first() {
-            if (word.1 - first.1).unsigned_abs() * 2 >= first.3.max(1) {
-                flush(&mut line, &mut out);
-            }
+        if let Some(first) = line.first()
+            && (word.1 - first.1).unsigned_abs() * 2 >= first.3.max(1)
+        {
+            flush(&mut line, &mut out);
         }
         line.push(*word);
     }

@@ -654,12 +654,12 @@ impl CaptionsPane {
     /// the look the person kept, or nothing (the bundled face).
     fn base_style(&self, studio: &mut Studio) -> Option<TextStyle> {
         let ids = style_ids(studio);
-        if let Some(id) = self.style.checked_sub(1).and_then(|row| ids.get(row)) {
-            if let Some(preset) = studio.text_presets.iter().find(|held| &held.id == id) {
-                let style = preset.style.clone();
-                studio.ensure_font_for(&style.font_family);
-                return Some(style);
-            }
+        if let Some(id) = self.style.checked_sub(1).and_then(|row| ids.get(row))
+            && let Some(preset) = studio.text_presets.iter().find(|held| &held.id == id)
+        {
+            let style = preset.style.clone();
+            studio.ensure_font_for(&style.font_family);
+            return Some(style);
         }
         studio.prefs.title_style.clone()
     }
