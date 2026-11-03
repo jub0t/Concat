@@ -38,7 +38,15 @@ use crate::model::{Clip, ColorSpace, MediaItem, Project, Timeline, VideoSettings
 /// on load: a document from a later version is refused whole rather than
 /// read in part and then saved over. Every bump adds a step to
 /// [`MIGRATIONS`].
-pub const DOCUMENT_VERSION: u64 = 1;
+///
+/// 2: a project's background colour and transparent frame, styled ranges
+/// in a title, sound fades, linkage and transition clips. Every one of
+/// them defaults, so a version 1 document reads unchanged. But 0.2.8 and
+/// older, which read version 1, open a version 2 document and drop what
+/// they do not know, and their next autosave deletes it. They refuse a
+/// version 2 document whole ("saved by a newer Concat"), which keeps it
+/// intact.
+pub const DOCUMENT_VERSION: u64 = 2;
 
 /// The version a document says it is. Documents from before the field
 /// existed are version 1: that is the version their shape was given.
@@ -68,7 +76,17 @@ const MIGRATIONS: &[Migration] = &[
         name: "every timeline carries its frame",
         apply: give_timelines_their_frame,
     },
+    Migration {
+        name: "version 2: fields older builds would drop",
+        apply: fields_older_builds_would_drop,
+    },
 ];
+
+/// Version 2 changes no shape: everything it added defaults when absent,
+/// so a version 1 document already is a version 2 one. The bump is there
+/// so that builds which cannot keep those fields refuse the document
+/// rather than lose them (see [`DOCUMENT_VERSION`]).
+fn fields_older_builds_would_drop(_document: &mut Map<String, Value>) {}
 
 /// A document from before multiple timelines holds one, as the top-level
 /// `tracks`, `clips` and `video`. Lifted into `timelines` as the one

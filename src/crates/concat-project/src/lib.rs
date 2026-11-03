@@ -2602,6 +2602,26 @@ mod tests {
     }
 
     #[test]
+    fn a_version_one_document_opens_and_saves_at_the_current_version() {
+        let (editor, _, _) = fixture();
+        let current = editor.to_document(&settings());
+        assert_eq!(crate::document_version(&current), crate::DOCUMENT_VERSION);
+        assert!(
+            crate::DOCUMENT_VERSION >= 2,
+            "0.2.8 reads version 1, and must refuse what it would lose"
+        );
+        let mut old = current.clone();
+        old["version"] = serde_json::json!(1);
+        let loaded = Editor::from_document(&old).expect("a version 1 document opens");
+        assert_eq!(loaded.project(), editor.project());
+        assert_eq!(
+            crate::document_version(&loaded.to_document(&settings())),
+            crate::DOCUMENT_VERSION,
+            "and is saved at the current version"
+        );
+    }
+
+    #[test]
     fn a_loaded_document_holds_the_same_ranges_every_command_does() {
         let (editor, _, _) = fixture();
         let mut document = editor.to_document(&settings());
