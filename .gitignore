@@ -58,3 +58,10 @@ desktop.ini
 # FFmpeg built for a phone by src/scripts/ffmpeg-mobile.sh: sources,
 # build trees and the installed prefixes, all machine-built.
 /src/vendor/
+
+.DS_Store
+**/.DS_Store
+xcuserdata/
+DerivedData/
+.build/
+*.xcuserstate
