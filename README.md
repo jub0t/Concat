@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 **🇬🇧 English** · [🇩🇪 Deutsch](docs/README.de.md) · [🇪🇸 Español](docs/README.es.md) · [🇫🇷 Français](docs/README.fr.md) · [🇮🇹 Italiano](docs/README.it.md) · [🇳🇱 Nederlands](docs/README.nl.md) · [🇵🇱 Polski](docs/README.pl.md) · [🇧🇷 Português (Brasil)](docs/README.pt-BR.md) · [🇷🇺 Русский](docs/README.ru.md) · [🇺🇦 Українська](docs/README.uk.md) · [🇹🇷 Türkçe](docs/README.tr.md) · [🇦🇿 Azərbaycanca](docs/README.az.md) · [🇭🇷 Hrvatski](docs/README.hr.md) · [🇮🇩 Bahasa Indonesia](docs/README.id.md) · [🇻🇳 Tiếng Việt](docs/README.vi.md) · [🇹🇭 ไทย](docs/README.th.md) · [🇯🇵 日本語](docs/README.ja.md) · [🇰🇷 한국어](docs/README.ko.md) · [🇨🇳 简体中文](docs/README.zh-Hans.md) · [🇹🇼 繁體中文](docs/README.zh-TW.md) · [🇸🇦 العربية](docs/README.ar.md) · [🇮🇱 עברית](docs/README.he.md) · [🇮🇷 فارسی](docs/README.fa.md) · [🇮🇳 हिन्दी](docs/README.hi.md) · [🇵🇰 اردو](docs/README.ur.md) · [🇧🇩 বাংলা](docs/README.bn.md)
@@ -76,7 +76,7 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 
 Two ways in:
 
-1. **[The website](https://concatenate.pages.dev/#download)** hands you the right build for your machine. Start here.
+1. **[The website](https://concat.standalones.org/#download)** hands you the right build for your machine. Start here.
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** has every build for every platform, with installers, packages and checksums. For when you want to pick.
 
 Concat is in **beta**: it works, and it still has edges. [Say so](https://github.com/jub0t/Concat/issues) when you find one.
@@ -91,7 +91,7 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 
 ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
-**System requirements** and the optional model sizes are on [the website](https://concatenate.pages.dev/guides/system-requirements).
+**System requirements** and the optional model sizes are on [the website](https://concat.standalones.org/guides/system-requirements).
 
 **[Code signing policy](CODE_SIGNING.md)**: why the Windows builds are not signed yet, and what Concat sends over the network (nothing you did not ask for).
 
@@ -125,7 +125,7 @@ If you change text the interface shows, run `python3 scripts/locales.py` from th
 > [!IMPORTANT]
 > The best way to contribute is to grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page and use it: find where it breaks, and say where it could be better.
 >
-> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [The developer docs](https://concatenate.pages.dev/docs) cover the Concat API and its transports: JSON-RPC and gRPC; [docs/MCP.md](docs/MCP.md) connects an AI agent over MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
+> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [The developer docs](https://concat.standalones.org/docs) cover the Concat API and its transports: JSON-RPC and gRPC; [docs/MCP.md](docs/MCP.md) connects an AI agent over MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
 > 
 > Contributors can claim a `@Contributor` role in the Discord server: just ask.
 
@@ -140,6 +140,10 @@ If you change text the interface shows, run `python3 scripts/locales.py` from th
 <a href="https://github.com/jub0t/Concat/graphs/contributors">
   <img alt="Contributors" src="https://contrib.rocks/image?repo=jub0t/concat">
 </a>
+
+## Licence
+
+Concat is free software under [AGPL-3.0-or-later](LICENSE). A commercial licence is available for closed-source use; see [LICENSING.md](LICENSING.md).
 
 ## DMCA
 

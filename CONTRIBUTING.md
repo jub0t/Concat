@@ -75,13 +75,14 @@ around you; the engine avoids cleverness on purpose.
 
 ## Licensing your contribution
 
-Concat is **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)).
+Concat is published under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)) and
+also licensed on commercial terms by its owner ([`LICENSING.md`](LICENSING.md)).
 
-Contributions are accepted under the agreement in [`CLA.md`](CLA.md). **You
-assign the copyright in your contribution to Concat's owner**, and get a
-licence back to use your own work for anything, plus a promise that it always
-stays open source. Copyright in one place is what makes the AGPL enforceable
-against companies that take the code without honouring it.
+Contributions are accepted only under the agreement in [`CLA.md`](CLA.md).
+**You assign your contribution, and every right in it, to Concat's owner**,
+who may then license it on any terms. You keep what the AGPL gives everyone.
+If you are not willing to assign your work, please don't open a pull request;
+an issue describing the problem is just as welcome.
 
 Sign off your commits to indicate agreement:
 
@@ -89,7 +90,7 @@ Sign off your commits to indicate agreement:
 git commit -s -m "your message"
 ```
 
-Typo and documentation fixes do not need a sign-off.
+Submitting a contribution accepts the agreement, with or without a sign-off.
 
 ### File headers
 
@@ -105,9 +106,11 @@ Use this header as it is, and don't add a copyright line of your own.
 ### Third-party code
 
 If your patch brings in code you did not write, say so in the PR: what it is,
-where it came from, and its licence. Anything incompatible with
-AGPL-3.0-or-later cannot be merged, and licence problems are much cheaper to
-catch before a merge than after a release.
+where it came from, and its licence. It has to be under a permissive licence
+(MIT, BSD, Apache-2.0, zlib, ISC or similar), because Concat's commercial
+builds must be able to carry it too; GPL, AGPL, LGPL and other copyleft code
+cannot be merged. Licence problems are much cheaper to catch before a merge
+than after a release.
 
 ## Trademarks
 

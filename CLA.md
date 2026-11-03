@@ -1,15 +1,16 @@
 # Concat Contributor Agreement
 
-**Version 2.0**, for contributions submitted on or after 21 October 2026.
+**Version 3.0**, for contributions submitted on or after 2 November 2026.
 
-Thank you for contributing to Concat. This agreement sets out the terms under
-which your contribution is accepted. Concat's copyright is held in one place,
-by its owner, which is what makes it possible to enforce the AGPL against
-anyone who violates it and to keep the project's licensing coherent.
+Thank you for contributing to Concat. Concat is owned by one person, who
+publishes it under AGPL-3.0-or-later and also licenses it on commercial terms
+(see [`LICENSING.md`](LICENSING.md)). Both depend on every line of Concat
+having the same owner, so this agreement transfers your contribution to that
+owner outright.
 
-**You assign the copyright in your contribution to Concat's owner.** In return
-you get a licence back to use your own work for any purpose, forever, and a
-promise that it will always stay available as open source.
+**You assign the whole of your contribution, and every right in it, to
+Concat's owner.** You keep the same rights in it that anyone else has under
+the AGPL, and nothing more.
 
 By submitting a contribution to this project (as a pull request, patch, or any
 other form), you agree to the following.
@@ -17,109 +18,123 @@ other form), you agree to the following.
 ## 1. Definitions
 
 **"You"** means the individual or legal entity submitting the contribution.
-**"Contribution"** means any original work of authorship you intentionally
-submit for inclusion in Concat. **"Owner"** means Jareer Abdullah (GitHub:
-[@jub0t](https://github.com/jub0t)), and anyone to whom he later transfers
-Concat's copyright. **"Concat"** means the software in the repository at
-<https://github.com/jub0t/Concat> and anything derived from it.
+**"Contribution"** means any work of authorship you intentionally submit for
+inclusion in Concat, including code, documentation, translations, artwork and
+data. **"Owner"** means Jareer Abdullah (GitHub:
+[@jub0t](https://github.com/jub0t)), and anyone to whom he transfers Concat's
+copyright, in whole or in part. **"Concat"** means the software in the
+repository at <https://github.com/jub0t/Concat> and anything derived from it.
 
-## 2. Assignment of copyright
+## 2. Assignment
 
-You assign to the Owner all right, title and interest worldwide in the
-copyright in your Contribution, including the right to sue for past, present
-and future infringement. The assignment takes effect when you submit the
-Contribution, whether or not it is merged.
+You assign to the Owner, exclusively and irrevocably, all right, title and
+interest worldwide in your Contribution: its copyright, database and other
+related rights, any renewals and extensions of them, and the right to sue for
+and keep the proceeds of past, present and future infringement. Where the law
+lets you assign rights in a work that does not exist yet, this includes rights
+in any later version of the Contribution you submit. The assignment takes
+effect when you submit the Contribution, whether or not it is merged.
 
-## 3. Licence back to you
-
-The Owner grants you a perpetual, worldwide, non-exclusive, royalty-free,
-irrevocable licence to use, reproduce, modify, publicly display, publicly
-perform, sublicense and distribute your Contribution, and works derived from
-it, for any purpose.
-
-## 4. If the assignment cannot take effect
+## 3. If the assignment cannot take effect
 
 Where the law does not allow the assignment in section 2, or it does not take
-effect for any other reason, you instead grant the Owner a perpetual,
-worldwide, non-exclusive, transferable, royalty-free, irrevocable licence,
-with the right to sublicense through multiple tiers, to do anything with your
-Contribution that the copyright owner could do. You also agree not to assert
-any copyright in the Contribution against the Owner or anyone who receives
-Concat from the Owner.
+effect for any other reason, you instead grant the Owner an exclusive,
+perpetual, irrevocable, worldwide, royalty-free and transferable licence, with
+the right to sublicense through any number of tiers, to exercise every right
+in the Contribution that its copyright owner could, for every kind of use,
+including kinds not known today. To the same extent, you agree not to exercise
+or assert any of those rights yourself against the Owner, against anyone the
+Owner licenses, or against anyone who receives Concat from the Owner.
+
+## 4. What you keep
+
+Nothing in this agreement takes away what the AGPL gives everyone: you may use
+your Contribution, as part of Concat or on its own, under AGPL-3.0-or-later
+like anyone else. Any other use needs the Owner's permission.
 
 ## 5. Moral rights
 
-To the extent the law allows, you waive, and agree not to assert, any moral
-rights you have in your Contribution, such as the right to be named as its
-author or to object to changes. Concat credits its contributors through its
-version history.
+To the extent the law allows, you waive, and agree never to assert, any moral
+rights in your Contribution, including the right to be named as its author and
+the right to object to changes to it. The Owner is not obliged to credit you;
+Concat's version history records who submitted what.
 
-## 6. Patent licence
+## 6. Patents
 
-You grant the Owner, and everyone who receives Concat, a perpetual, worldwide,
-non-exclusive, royalty-free, irrevocable (except as stated below) patent
-licence to make, have made, use, offer to sell, sell, import and otherwise
-transfer your Contribution, covering only those patent claims you own or
-control that are necessarily infringed by your Contribution alone or by its
+You grant the Owner, and everyone who receives Concat from the Owner, a
+perpetual, worldwide, non-exclusive, royalty-free, irrevocable (except as
+stated below) patent licence to make, have made, use, offer to sell, sell,
+import and otherwise transfer your Contribution, covering every patent claim
+you own or control that is infringed by your Contribution alone or by its
 combination with Concat.
 
 If you institute patent litigation alleging that Concat, or a Contribution
-incorporated in it, constitutes direct or contributory patent infringement,
-the patent licences granted to you under this agreement terminate.
+incorporated in it, infringes a patent, the patent licences granted to you
+under this agreement terminate.
 
-## 7. How Concat is licensed
+## 7. The Owner's rights
 
-The Owner may license Concat, and your Contribution as part of it, on any
-terms, including commercial ones.
-
-**Your Contribution will always stay open source.** Whenever the Owner makes
-your Contribution available under terms other than AGPL-3.0-or-later, the
-Owner will also make it available under AGPL-3.0-or-later or another licence
-approved by the Open Source Initiative.
+The Owner may use, change, license, relicense, sell, transfer or stop
+distributing Concat and your Contribution, in whole or in part, on any terms,
+open source or proprietary, at the Owner's sole discretion. The Owner owes you
+no payment, royalty, notice or account for any of it.
 
 ## 8. Your representations
 
 You represent that:
 
-1. each Contribution is your original creation, or you have the right to submit
-   it under these terms;
-2. you are legally entitled to make this assignment, and if your employer has
-   rights in the work, you have permission to contribute it on these terms or
-   your employer has waived those rights;
-3. your Contribution does not knowingly include third-party code except where
-   you have identified it, together with its licence, in the submission. Such
-   third-party code is not assigned by this agreement and stays under its own
-   licence;
-4. you are not knowingly infringing anyone's copyright, patent, trademark or
-   trade secret.
+1. each Contribution is entirely your own original work;
+2. you are legally entitled to make this assignment, and if your employer or
+   anyone else has rights in the work, they have agreed in writing to it being
+   assigned on these terms;
+3. your Contribution contains no third-party code, text, data or artwork,
+   except where you have identified it, together with its licence, in the
+   submission. Such third-party material is not assigned by this agreement and
+   stays under its own licence;
+4. your Contribution does not infringe anyone's copyright, patent, trademark
+   or trade secret, so far as you know;
+5. your Contribution was not written by copying, translating or paraphrasing
+   code you are not entitled to assign, including code from another project's
+   pull requests.
 
-You agree to sign any further document the Owner reasonably asks for to
-confirm the assignment.
+## 9. Further assurance
 
-## 9. No obligation, no warranty
+You agree to sign any document, and do anything else, that the Owner
+reasonably asks for to confirm or register the assignment, now or later. If
+you do not do so within 30 days of being asked, you appoint the Owner as your
+attorney to do it in your name, for that purpose only.
+
+## 10. No obligation, no warranty
 
 The Owner is not obliged to use or merge your Contribution. Contributions are
 provided **as is**, without warranty of any kind, express or implied, except
 for the representations you make in section 8.
 
-## 10. Not a trademark licence
+## 11. Not a trademark licence
 
 This agreement grants no rights in the Concat name or logo. See
 [`TRADEMARK.md`](TRADEMARK.md).
 
-## 11. Earlier versions
+## 12. Whole agreement
 
-Contributions submitted before 21 October 2026 were made under version 1.x of
-this agreement, which granted a licence and left the copyright with the
-contributor. They stay under the version they were made under unless their
-contributor agrees to this version for them too.
+This agreement is the whole agreement between you and the Owner about your
+Contributions and replaces anything said about them elsewhere, including in
+issues, pull requests and discussions. If any part of it is unenforceable, the
+rest still applies, and the unenforceable part applies as far as the law
+allows. Only the Owner can waive or change it, in writing.
+
+## 13. Earlier versions
+
+Contributions submitted before 2 November 2026 were made under earlier
+versions of this agreement and stay under them, unless their contributor
+agrees to this version for them too. You may do that by writing so in an
+issue, a pull request or an email to the Owner.
 
 ---
 
 ## How to sign
 
-Add a `Signed-off-by` line to your commits, certifying this agreement and the
-[Developer Certificate of Origin](https://developercertificate.org/):
+Add a `Signed-off-by` line to your commits:
 
 ```
 git commit -s -m "your message"
@@ -133,7 +148,5 @@ Signed-off-by: Your Name <your.email@example.com>
 
 Use your real name and a working email address. The sign-off is your
 signature on this agreement, including the assignment, for the contributions
-in that pull request.
-
-*Small changes (typos, comment fixes, documentation wording) are accepted
-without a sign-off.*
+in that pull request. Submitting a contribution without one still accepts this
+agreement.
