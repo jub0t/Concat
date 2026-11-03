@@ -856,9 +856,8 @@ fn run_mix(
         // on the seek, so the in-point is measured from the same instant
         // the picture's is. See `ffi::origin`.
         let start = ffi::origin(&input).as_f64();
-        let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
-            .and_then(|context| context.decoder().audio())
-            .map_err(|error| ffi::fail("open decoder", path, error))?;
+        let decoder =
+            ffi::audio_decoder(&stream).map_err(|error| ffi::fail("open decoder", path, error))?;
         // Near the in-point: the packet of the sound at or before it, on the
         // sound's own timestamps. The graph cuts the rest, by the lead
         // measured off the first frame below.
