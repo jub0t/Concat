@@ -38,7 +38,7 @@ pub struct Host {
     pub exporter: Exporter,
     /// whisper.cpp, and its model downloads.
     pub transcriber: Arc<Transcriber>,
-    /// Kokoro, and its model downloads.
+    /// Text to speech, and its model downloads.
     pub speech: Arc<Speech>,
     /// Titles painted to pictures, and the cache of them.
     pub titles: concat_host::Titles,

@@ -459,8 +459,6 @@ export component App inherits Window {
     callback speech-voice-changed(index: int);
     callback speech-model-changed(index: int);
     callback speech-speed-changed(value: float);
-    callback speech-quality-changed(index: int);
-    callback speech-pauses-changed(value: float);
     callback speech-reference-start-changed(seconds: float);
     callback speech-use-sample-changed(on: bool);
     callback speech-sample-changed(index: int);
@@ -899,8 +897,6 @@ export component App inherits Window {
             voice-changed(index) => { root.speech-voice-changed(index); }
             model-changed(index) => { root.speech-model-changed(index); }
             speed-changed(value) => { root.speech-speed-changed(value); }
-            quality-changed(index) => { root.speech-quality-changed(index); }
-            pauses-changed(value) => { root.speech-pauses-changed(value); }
             reference-start-changed(seconds) => { root.speech-reference-start-changed(seconds); }
             use-sample-changed(on) => { root.speech-use-sample-changed(on); }
             sample-changed(index) => { root.speech-sample-changed(index); }

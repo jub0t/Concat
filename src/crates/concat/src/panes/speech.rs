@@ -10,15 +10,12 @@
 //! written file, which lands in the bin and on the timeline.
 //!
 //! The model comes first and decides the rest: which voices are offered,
-//! and which dials. Kokoro reads with built-in speakers at a speed and
-//! with a pause of your choosing; Pocket reads in a recording, at a speed,
-//! with a pause, and at a quality that is its flow steps; Chatterbox reads
-//! at its own pace and knows the expression tags. Either of the two that
-//! read in a recording can read in a sample voice instead of a named one:
-//! a recording from the bin, chosen by its waveform, from a point in it of
-//! the sheet's choosing. The sheet shows each model its own controls rather
-//! than the few every model shares, which is why the pane carries every
-//! dial and the family says which are read.
+//! and which dials. Chatterbox, on the desktop, reads in a recording at its
+//! own pace and knows the expression tags; it can read in a sample voice
+//! instead of its stock one: a recording from the bin, chosen by its
+//! waveform, from a point in it of the sheet's choosing. The phone's own
+//! voice, on Android, reads at a speed of your choosing. The sheet shows
+//! each model its own controls rather than the few every model shares.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,7 +27,7 @@ use concat_project::commands::ClipPatch;
 use concat_project::model::{AppliedFilter, ClipKind, MediaItem, MediaOrigin};
 use concat_speech::JobStage;
 use concat_speech::tts::{
-    CHATTERBOX_CLONE, Family, POCKET_CLONE, Reference, VoiceInfo, family_of, is_clone, voice_family,
+    CHATTERBOX_CLONE, Family, Reference, VoiceInfo, family_of, is_clone, voice_family,
 };
 use slint::SharedString;
 
@@ -44,20 +41,13 @@ use crate::panes::settings::installed;
 use crate::studio::Studio;
 use crate::ui::{NewVoiceData, SpeechSheetData};
 
-/// The default Kokoro speaker: `af_heart`.
-const DEFAULT_VOICE: i32 = 3;
-/// The default Pocket voice: Bria, the bundle's first recording.
-const DEFAULT_POCKET_VOICE: i32 = 1000;
-/// The default Chatterbox voice: the same recording, read by Chatterbox.
+/// The default Chatterbox voice: Bria, the recording Concat carries.
 const DEFAULT_CHATTERBOX_VOICE: i32 = 2000;
+/// The phone's voice: whichever its engine is set to.
+const DEFAULT_SYSTEM_VOICE: i32 = 3000;
 /// The speeds a voice can be asked for, as the rate multiplier the sheet's
 /// slider runs over; 1 is the voice's own.
 const SPEEDS: (f32, f32) = (0.5, 2.0);
-/// Pocket's flow steps behind the sheet's three qualities: quick, the
-/// engine's own, and fine.
-const STEPS: [i32; 3] = [3, 5, 8];
-/// The breath between sentences the sheet opens on: sherpa's own.
-const DEFAULT_PAUSES: f32 = 0.2;
 
 /// A style a voice can be read in: a few of the audio effects Concat ships,
 /// laid on the speech clip once it lands, where they stay as ordinary
@@ -113,8 +103,7 @@ pub enum VoiceChoice {
 /// it has been timed: about what each took on a recent CPU.
 fn reading_pace(family: Family) -> f32 {
     match family {
-        Family::Kokoro => 0.35,
-        Family::Pocket => 0.3,
+        Family::System => 0.1,
         Family::Chatterbox => 1.6,
     }
 }
@@ -162,10 +151,6 @@ pub enum SpeechMsg {
     ModelChanged(i32),
     /// The rate, `0.5..=2`.
     SpeedChanged(f32),
-    /// Pocket's quality: a row of [`STEPS`].
-    QualityChanged(i32),
-    /// The breath between sentences, `0..=1`.
-    PausesChanged(f32),
     /// Seconds into the sample the voice is taken from.
     ReferenceStartChanged(f32),
     /// Read in a sample from the bin rather than a named voice.
@@ -222,14 +207,10 @@ pub struct SpeechPane {
     /// The family of the chosen model, which is which voices are offered
     /// and which of the dials below are read.
     pub family: Family,
-    /// The rate, `0.5..=2`; Kokoro and Pocket.
+    /// The rate, `0.5..=2`; the phone's voice.
     pub speed: f32,
-    /// Row of [`STEPS`]; Pocket.
-    pub quality: usize,
-    /// The breath between sentences, `0..=1`; Kokoro and Pocket.
-    pub pauses: f32,
-    /// Reading in a sample from the bin rather than a named voice; Pocket
-    /// and Chatterbox, the two that read in a recording.
+    /// Reading in a sample from the bin rather than a named voice;
+    /// Chatterbox, which reads in a recording.
     pub use_sample: bool,
     /// Row of [`SpeechPane::samples`]: which recording.
     pub sample: usize,
@@ -290,7 +271,7 @@ impl SpeechPane {
                 let family = installed
                     .get(model)
                     .map(|model| family_of(&model.id))
-                    .unwrap_or(Family::Kokoro);
+                    .unwrap_or_default();
                 *self = SpeechPane {
                     open: true,
                     clip: title.as_ref().map(|clip| clip.id.clone()),
@@ -301,8 +282,6 @@ impl SpeechPane {
                     model,
                     family,
                     speed: 1.0,
-                    quality: 1,
-                    pauses: DEFAULT_PAUSES,
                     use_sample: false,
                     sample: 0,
                     reference_start: 0.0,
@@ -451,7 +430,7 @@ impl SpeechPane {
                 self.family = installed(&studio.settings.voices)
                     .get(self.model)
                     .map(|model| family_of(&model.id))
-                    .unwrap_or(Family::Kokoro);
+                    .unwrap_or_default();
                 self.voice = self.voice_row(chosen);
                 if self.sample_voice().is_none() {
                     self.saved_voice = None;
@@ -462,16 +441,6 @@ impl SpeechPane {
                     speed.clamp(SPEEDS.0, SPEEDS.1)
                 } else {
                     1.0
-                }
-            }
-            SpeechMsg::QualityChanged(index) => {
-                self.quality = (index.max(0) as usize).min(STEPS.len() - 1)
-            }
-            SpeechMsg::PausesChanged(pauses) => {
-                self.pauses = if pauses.is_finite() {
-                    pauses.clamp(0.0, 1.0)
-                } else {
-                    DEFAULT_PAUSES
                 }
             }
             SpeechMsg::ReferenceStartChanged(seconds) => {
@@ -573,9 +542,7 @@ impl SpeechPane {
         };
         // A sample voice is a recording of the sheet's choosing, handed over
         // as the request's reference under the family's own id for one.
-        // Otherwise the voice is one the model names - and Chatterbox may
-        // name none, since its stock voices are Pocket's recordings and
-        // are only there while Pocket is.
+        // Otherwise the voice is one the model names.
         let saved = self
             .saved_voice
             .filter(|_| !self.use_sample)
@@ -611,14 +578,7 @@ impl SpeechPane {
             )
         } else {
             let Some(voice) = self.offered().get(self.voice).map(|speaker| speaker.id) else {
-                self.message = if self.family == Family::Chatterbox {
-                    t(
-                        "Chatterbox has no voice of its own: turn on Use sample voice, or \
-                         download Pocket TTS for its two recordings",
-                    )
-                } else {
-                    t("speech.noVoiceRead")
-                };
+                self.message = t("speech.noVoiceRead");
                 return;
             };
             (voice, None)
@@ -643,9 +603,9 @@ impl SpeechPane {
             .map(|clip| clip.start)
             .unwrap_or(f64::from(studio.playhead));
         // The read as the bar lays it out: the model loaded unless it
-        // still is, the recording the voice comes from read in (Kokoro
-        // has none), and the reading at the pace the last read with this
-        // model measured, or the model's usual pace.
+        // still is, the recording the voice comes from read in (the
+        // phone's voice has none), and the reading at the pace the last
+        // read with this model measured, or the model's usual pace.
         let chars = text.chars().count() as f32;
         let learned = self.timings.get(&model);
         let loaded = studio.host.speech.loaded_model().as_deref() == Some(model.as_str());
@@ -658,7 +618,7 @@ impl SpeechPane {
             .per_unit
             .unwrap_or(reading_pace(self.family) / CHARS_PER_SECOND / self.rate());
         let mut plan = vec![(Stage::Loading, load)];
-        if self.family != Family::Kokoro {
+        if self.family == Family::Chatterbox {
             plan.push((Stage::Reading, 0.3));
         }
         plan.push((Stage::Working, chars * per_char));
@@ -670,9 +630,6 @@ impl SpeechPane {
             reference,
             text,
             speed: self.rate(),
-            pauses: self.reads_at_a_pace().then_some(self.pauses),
-            steps: (self.family == Family::Pocket)
-                .then(|| STEPS[self.quality.min(STEPS.len() - 1)]),
             project,
         };
         let dirs = studio.host.dirs.clone();
@@ -722,9 +679,9 @@ impl SpeechPane {
         )
     }
 
-    /// Whether the chosen model reads at a speed and with a pause of the
-    /// sheet's choosing. Chatterbox does neither: it reads at its own
-    /// pace, and the sheet does not offer what the engine would ignore.
+    /// Whether the chosen model reads at a speed of the sheet's choosing.
+    /// Chatterbox does not: it reads at its own pace, and the sheet does
+    /// not offer what the engine would ignore.
     pub fn reads_at_a_pace(&self) -> bool {
         self.family != Family::Chatterbox
     }
@@ -744,8 +701,7 @@ impl SpeechPane {
     /// speakers.
     fn sample_voice(&self) -> Option<i32> {
         match self.family {
-            Family::Kokoro => None,
-            Family::Pocket => Some(POCKET_CLONE),
+            Family::System => None,
             Family::Chatterbox => Some(CHATTERBOX_CLONE),
         }
     }
@@ -803,8 +759,7 @@ impl SpeechPane {
     fn voice_row(&self, wanted: Option<i32>) -> usize {
         let offered = self.offered();
         let default = match self.family {
-            Family::Kokoro => DEFAULT_VOICE,
-            Family::Pocket => DEFAULT_POCKET_VOICE,
+            Family::System => DEFAULT_SYSTEM_VOICE,
             Family::Chatterbox => DEFAULT_CHATTERBOX_VOICE,
         };
         wanted
@@ -906,8 +861,7 @@ impl SpeechPane {
         installed(&studio.settings.voices)
             .iter()
             .map(|model| match family_of(&model.id) {
-                Family::Kokoro => t("speech.builtInSpeakersFast"),
-                Family::Pocket => t("speech.anyVoiceRecording"),
+                Family::System => t("speech.builtInSpeakersFast"),
                 Family::Chatterbox => t("speech.studioVoiceSlow"),
             })
             .map(SharedString::from)
@@ -978,13 +932,10 @@ impl SpeechPane {
             saving: self.saving,
             model: self.model as i32,
             family: match self.family {
-                Family::Kokoro => 0,
-                Family::Pocket => 1,
+                Family::System => 0,
                 Family::Chatterbox => 2,
             },
             speed: self.speed,
-            quality: self.quality as i32,
-            pauses: self.pauses,
             samples_offered: self.sample_voice().is_some(),
             use_sample: self.use_sample,
             sample: self.sample as i32,
@@ -1063,7 +1014,7 @@ impl SpeechPane {
             pane.family = models
                 .get(row)
                 .map(|model| family_of(&model.id))
-                .unwrap_or(Family::Kokoro);
+                .unwrap_or_default();
         };
         match choice {
             VoiceChoice::Builtin(id) => {
@@ -1088,7 +1039,7 @@ impl SpeechPane {
                 if self.sample_voice().is_none() {
                     match models
                         .iter()
-                        .position(|model| family_of(&model.id) != Family::Kokoro)
+                        .position(|model| family_of(&model.id) == Family::Chatterbox)
                     {
                         Some(row) => pick_model(self, row),
                         None => {
@@ -1264,21 +1215,13 @@ pub fn voice_names(name: &str) -> (String, String) {
 }
 
 /// "af_heart" as a person would say it: the name, and the accent and
-/// gender its prefix encodes. A Pocket voice says where it comes from.
+/// gender its prefix encodes; "chatterbox_bria" is Bria.
 fn voice_label(name: &str) -> (String, String) {
-    if name == "pocket_clone" || name == "chatterbox_clone" {
+    if name == "chatterbox_clone" {
         return (
             t("speech.theSelectedClipsVoice"),
             t("speech.readsVoiceHeardClip"),
         );
-    }
-    if let Some(rest) = name.strip_prefix("pocket_") {
-        let mut chars = rest.chars();
-        let title = match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => String::new(),
-        };
-        return (title, t("speech.recordingComesPocketTts"));
     }
     let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
     let mut chars = rest.chars();

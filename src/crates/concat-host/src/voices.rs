@@ -5,7 +5,7 @@
 //! the rows of the text-to-speech voice picker past the built-in ones.
 //!
 //! A clone is a recording read as a voice by a model that reads in one
-//! (Pocket TTS, Chatterbox). Kept, it is the few seconds of the recording
+//! (Chatterbox). Kept, it is the few seconds of the recording
 //! the model listens to, cut out and written as a WAV of its own - not the
 //! file it came from, which may be a long video in one project - beside a
 //! `voice.json` with its name and, when given them, a picture and a line
@@ -27,8 +27,8 @@ use serde::{Deserialize, Serialize};
 use crate::AppDirs;
 
 /// How much of the recording is kept: a little over what any model
-/// listens to (Pocket ten seconds, Chatterbox at least five), so a voice
-/// is the same voice whichever reads it.
+/// listens to (Chatterbox ten seconds at most, five at least), so the
+/// voice is all there.
 pub const SAMPLE_SECONDS: f64 = 12.0;
 
 /// The rate the sample is kept at: what the models read voices at.

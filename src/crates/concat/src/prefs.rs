@@ -55,7 +55,7 @@ pub struct Preferences {
     pub caption_language: Option<String>,
     /// The chosen speech model id.
     pub tts_model: Option<String>,
-    /// The chosen Kokoro speaker id.
+    /// The chosen voice id.
     pub tts_voice: Option<i32>,
     /// The interface's locale code ("de", "pt-BR", ...); absent is English.
     pub locale: Option<String>,

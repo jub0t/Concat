@@ -887,7 +887,7 @@ impl SettingsPane {
         let id = id.to_owned();
         let dirs = studio.host.dirs.clone();
         let whisper = Arc::clone(&studio.host.transcriber);
-        let kokoro = Arc::clone(&studio.host.speech);
+        let speech = Arc::clone(&studio.host.speech);
         spawn(
             move || {
                 let report = |progress: concat_speech::DownloadProgress| {
@@ -902,7 +902,7 @@ impl SettingsPane {
                 let result = if transcriber {
                     whisper.download_model(&dirs, &id, report)
                 } else {
-                    kokoro.download_model(&dirs, &id, report)
+                    speech.download_model(&dirs, &id, report)
                 };
                 (id, result)
             },

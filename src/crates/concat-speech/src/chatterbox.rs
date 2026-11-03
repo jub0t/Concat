@@ -3,8 +3,8 @@
 
 //! Chatterbox Turbo: Resemble AI's open voice, run through ONNX Runtime.
 //!
-//! sherpa-onnx has no such model, so this one is driven here directly,
-//! the way Resemble's own reference script drives its ONNX export. Four
+//! Driven here directly, the way Resemble's own reference script drives
+//! its ONNX export. Four
 //! networks: a speech encoder that turns a few seconds of someone talking
 //! into what the voice sounds like, a text embedding, a language model
 //! that writes speech tokens one at a time with a key-value cache behind
@@ -934,29 +934,6 @@ fn expected_tokens(chunk: &str) -> usize {
     ((chunk.chars().count() as f32 / 15.0) * TOKENS_PER_SECOND) as usize + 10
 }
 
-/// `samples` as a 16-bit mono WAV file.
-pub fn wav_bytes(samples: &[f32], rate: u32) -> Vec<u8> {
-    let data_len = (samples.len() * 2) as u32;
-    let mut out = Vec::with_capacity(44 + samples.len() * 2);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data_len).to_le_bytes());
-    out.extend_from_slice(b"WAVE");
-    out.extend_from_slice(b"fmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&rate.to_le_bytes());
-    out.extend_from_slice(&(rate * 2).to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
-    for &sample in samples {
-        let value = (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16;
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-    out
-}
 
 /// Where the bundle lives under the models folder.
 pub fn bundle_dir(models: &Path) -> PathBuf {
@@ -1178,7 +1155,7 @@ mod tests {
 
     #[test]
     fn a_wav_is_forty_four_bytes_of_header_and_the_samples() {
-        let wav = wav_bytes(&[0.0, 1.0, -1.0, 2.0], 24_000);
+        let wav = crate::tts::wav_bytes(&[0.0, 1.0, -1.0, 2.0], 24_000);
         assert_eq!(wav.len(), 44 + 8);
         assert_eq!(&wav[0..4], b"RIFF");
         assert_eq!(&wav[8..12], b"WAVE");
@@ -1193,6 +1170,6 @@ mod tests {
             32767,
             "clamped"
         );
-        assert_eq!(wav_bytes(&[], 8_000).len(), 44);
+        assert_eq!(crate::tts::wav_bytes(&[], 8_000).len(), 44);
     }
 }
