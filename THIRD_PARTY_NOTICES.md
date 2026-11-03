@@ -162,17 +162,16 @@ MIT permits and which anyone passing the sound off as a person's should know
 is not there. On a phone, text to speech is the phone's own system voice, which
 Concat neither ships nor downloads.
 
-Chatterbox reads in the voice of a short recording. Its stock voice, Bria,
-ships inside the app as `src/crates/concat-speech/voices/bria.flac`: the first
-ten seconds of `audio/bria.mp3` from Kyutai's delayed-streams-modeling
-repository (https://github.com/kyutai-labs/delayed-streams-modeling), at
-24 kHz mono. That repository's `LICENSE` file is Apache-2.0, and its README
-licenses its code (MIT and Apache-2.0) and its speech-to-text weights
-(CC-BY-4.0); it states no separate licence for its sample recordings, nor who
-the speaker is. Concat attributes the recording to Kyutai on those terms.
+Chatterbox reads in the voice of a short recording. Its four stock voices
+ship inside the app in `src/crates/concat-speech/voices/`: ten seconds each
+from LibriVox readings by Elizabeth Klett, Mark F. Smith, Ruth Golding and
+Bob Neufeld (https://librivox.org). LibriVox readers dedicate their
+recordings to the public domain, and archive.org files each of these under
+a public-domain licence; `voices/README.md` names each source file. Concat
+credits the readers though nothing requires it.
 Reading in the voice of any other recording is a use the person doing it is
-answerable for: Concat offers it for the narrator's own voice, and Kyutai asks
-that no one's voice be cloned without their consent.
+answerable for: Concat offers it for the narrator's own voice, and no one's
+voice should be cloned without their consent.
 
 Releases up to 0.2.8 also used the sherpa-onnx runtime (Apache-2.0), which
 carried espeak-ng (GPL-3.0-or-later), with the Kokoro (Apache-2.0) and Pocket

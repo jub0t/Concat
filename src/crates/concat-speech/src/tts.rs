@@ -110,10 +110,20 @@ const KNOWN_MODELS: &[KnownModel] = &[
 ];
 
 /// Chatterbox's voices. The model has no speakers of its own: its stock
-/// voice is a recording Concat carries (`voices/`), and the other is a
+/// voices are recordings Concat carries (`voices/`, all LibriVox readings
+/// their readers dedicated to the public domain), and the last is a
 /// recording of the caller's choosing.
+///
+/// A name's prefix is what the voice list says under it, as
+/// `speech::voice_label` reads it: the accent (`a` American, `b` British)
+/// and the gender (`f`, `m`). `x` is no accent, for a reader whose accent
+/// no source states. 2000 was Bria until November 2026, and stays the
+/// default.
 pub const CHATTERBOX_VOICES: &[(i32, &str, Option<&str>)] = &[
-    (2000, "chatterbox_bria", Some("bria.flac")),
+    (2000, "af_elizabeth", Some("elizabeth-klett.flac")),
+    (2001, "am_mark", Some("mark-f-smith.flac")),
+    (2002, "bf_ruth", Some("ruth-golding.flac")),
+    (2003, "xm_bob", Some("bob-neufeld.flac")),
     (CHATTERBOX_CLONE, "chatterbox_clone", None),
 ];
 
@@ -125,7 +135,24 @@ pub const SYSTEM_VOICES: &[(i32, &str)] = &[(3000, "system_default")];
 
 /// The stock recordings Concat carries, by file name.
 #[cfg(feature = "chatterbox")]
-const RECORDINGS: &[(&str, &[u8])] = &[("bria.flac", include_bytes!("../voices/bria.flac"))];
+const RECORDINGS: &[(&str, &[u8])] = &[
+    (
+        "elizabeth-klett.flac",
+        include_bytes!("../voices/elizabeth-klett.flac"),
+    ),
+    (
+        "mark-f-smith.flac",
+        include_bytes!("../voices/mark-f-smith.flac"),
+    ),
+    (
+        "ruth-golding.flac",
+        include_bytes!("../voices/ruth-golding.flac"),
+    ),
+    (
+        "bob-neufeld.flac",
+        include_bytes!("../voices/bob-neufeld.flac"),
+    ),
+];
 
 /// Whether a voice is a recording of the caller's choosing.
 pub fn is_clone(voice: i32) -> bool {
@@ -1123,7 +1150,7 @@ mod tests {
         assert!(error.contains("pick a sample"), "{error}");
         // A recording that is not there names itself.
         let error = reference_samples(&dir, &request(2000, None)).expect_err("no file");
-        assert!(error.contains("bria.flac"), "{error}");
+        assert!(error.contains("elizabeth-klett.flac"), "{error}");
         let error = reference_samples(
             &dir,
             &request(
@@ -1142,31 +1169,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The stock voice Concat carries is written out beside the models and
+    /// Every stock voice Concat carries is written out beside the models and
     /// reads as ten seconds of someone talking.
     #[cfg(feature = "chatterbox")]
     #[test]
-    fn the_stock_voice_is_carried_and_reads() {
+    fn the_stock_voices_are_carried_and_read() {
         let dirs = AppDirs {
-            config: std::env::temp_dir().join(format!("concat-tts-bria-{}", std::process::id())),
-            data: std::env::temp_dir().join(format!("concat-tts-bria-{}", std::process::id())),
+            config: std::env::temp_dir().join(format!("concat-tts-stock-{}", std::process::id())),
+            data: std::env::temp_dir().join(format!("concat-tts-stock-{}", std::process::id())),
         };
         let dir = recordings_dir(&dirs).expect("written");
-        let request = SpeakRequest {
-            model_id: "chatterbox-turbo-q8".to_owned(),
-            voice: 2000,
-            reference: None,
-            text: "hello".to_owned(),
-            speed: 1.0,
-            project: String::new(),
-        };
-        let samples = reference_samples(&dir, &request).expect("reads");
-        let seconds = samples.len() as f64 / f64::from(REFERENCE_RATE);
-        assert!((seconds - REFERENCE_SECONDS).abs() < 0.1, "{seconds}");
-        assert!(
-            samples.iter().any(|sample| sample.abs() > 0.1),
-            "someone is talking"
-        );
+        let stock: Vec<(i32, &str)> = CHATTERBOX_VOICES
+            .iter()
+            .filter_map(|(id, _, file)| file.map(|file| (*id, file)))
+            .collect();
+        assert!(stock.len() >= 4, "{stock:?}");
+        for (voice, file) in stock {
+            assert!(
+                RECORDINGS.iter().any(|(name, _)| *name == file),
+                "{file} is carried"
+            );
+            let request = SpeakRequest {
+                model_id: "chatterbox-turbo-q8".to_owned(),
+                voice,
+                reference: None,
+                text: "hello".to_owned(),
+                speed: 1.0,
+                project: String::new(),
+            };
+            let samples = reference_samples(&dir, &request).expect("reads");
+            let seconds = samples.len() as f64 / f64::from(REFERENCE_RATE);
+            assert!(
+                (seconds - REFERENCE_SECONDS).abs() < 0.1,
+                "{file}: {seconds}"
+            );
+            assert!(
+                samples.iter().any(|sample| sample.abs() > 0.1),
+                "someone is talking in {file}"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dirs.data);
     }
 

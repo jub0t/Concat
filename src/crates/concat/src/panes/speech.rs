@@ -41,7 +41,8 @@ use crate::panes::settings::installed;
 use crate::studio::Studio;
 use crate::ui::{NewVoiceData, SpeechSheetData};
 
-/// The default Chatterbox voice: Bria, the recording Concat carries.
+/// The default Chatterbox voice: Elizabeth, the first recording Concat
+/// carries.
 const DEFAULT_CHATTERBOX_VOICE: i32 = 2000;
 /// The phone's voice: whichever its engine is set to.
 const DEFAULT_SYSTEM_VOICE: i32 = 3000;
@@ -1215,7 +1216,7 @@ pub fn voice_names(name: &str) -> (String, String) {
 }
 
 /// "af_heart" as a person would say it: the name, and the accent and
-/// gender its prefix encodes; "chatterbox_bria" is Bria.
+/// gender its prefix encodes; "bf_ruth" is Ruth, British, female.
 fn voice_label(name: &str) -> (String, String) {
     if name == "chatterbox_clone" {
         return (
@@ -1325,9 +1326,14 @@ mod tests {
         assert!(detail.contains("American"));
         assert!(detail.contains("female"));
         assert_eq!(voice_label("nova").0, "Nova");
-        assert_eq!(voice_label("pocket_bria").0, "Bria");
-        assert!(voice_label("pocket_bria").1.contains("Pocket"));
-        assert!(voice_label("pocket_clone").0.contains("clip"));
+        // The stock Chatterbox voices: a British woman, and a man whose
+        // accent goes unsaid.
+        let (title, detail) = voice_label("bf_ruth");
+        assert_eq!(title, "Ruth");
+        assert!(detail.contains("British") && detail.contains("female"));
+        let (title, detail) = voice_label("xm_bob");
+        assert_eq!(title, "Bob");
+        assert!(!detail.contains("·") && detail.contains("male"), "{detail}");
         assert!(voice_label("chatterbox_clone").0.contains("clip"));
     }
 }
