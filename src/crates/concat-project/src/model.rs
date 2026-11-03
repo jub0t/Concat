@@ -11,6 +11,7 @@
 //!
 //! Serde names are camelCase: that is the document's spelling.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -332,16 +333,25 @@ impl AppliedFilter {
 
     /// This parameter's keys as the engine plays them.
     pub fn track_on(&self, key: &str) -> concat_core::animate::Track {
-        concat_core::animate::Track::new(
-            self.keys_on(key)
-                .iter()
-                .map(|held| concat_core::animate::Key {
-                    at: held.at,
-                    value: held.value,
-                    ease: held.ease.into(),
-                })
-                .collect(),
-        )
+        concat_core::animate::Track::new(self.ride_on(key).collect())
+    }
+
+    /// The same keys, one at a time, without the track: the engine's walk
+    /// [`concat_core::animate::value_at_over`] reads a ride straight off
+    /// the document's own run. Every way into `keys` orders and sifts the
+    /// run - `set_key`, the rewindow, the document reader, whose sorting
+    /// is what a hand-edited file cannot get past - so a reader that only
+    /// wants a value never has to collect and sort a copy first. That is
+    /// the per-frame path; `track_on` stays for the callers that keep the
+    /// track, which resample and rewindow it.
+    fn ride_on(&self, key: &str) -> impl Iterator<Item = concat_core::animate::Key> + '_ {
+        self.keys_on(key)
+            .iter()
+            .map(|held| concat_core::animate::Key {
+                at: held.at,
+                value: held.value,
+                ease: held.ease.into(),
+            })
     }
 
     /// What a parameter is worth at `at`: its ride where it is keyed, and
@@ -352,21 +362,32 @@ impl AppliedFilter {
         if !self.is_keyed(key) {
             return constant;
         }
-        self.track_on(key).value_at(at, constant)
+        concat_core::animate::value_at_over(self.ride_on(key), at, constant)
     }
 
     /// Every set parameter at `at`: `params` with each keyed one replaced
     /// by its ride's value there. What a renderer resolves a frame from.
-    pub fn params_at(&self, at: f64) -> BTreeMap<String, f64> {
+    ///
+    /// Borrowed while nothing rides, which is most filters on most frames:
+    /// the map is only materialised when a key has to be read, and a
+    /// renderer asks for this on every frame of every layer that carries
+    /// a filter.
+    pub fn params_at(&self, at: f64) -> Cow<'_, BTreeMap<String, f64>> {
+        if self.keys.is_empty() {
+            return Cow::Borrowed(&self.params);
+        }
         let mut set = self.params.clone();
         for (key, held) in &self.keys {
             if held.is_empty() {
                 continue;
             }
             let rest = self.params.get(key).copied().unwrap_or(0.0);
-            set.insert(key.clone(), self.track_on(key).value_at(at, rest));
+            set.insert(
+                key.clone(),
+                concat_core::animate::value_at_over(self.ride_on(key), at, rest),
+            );
         }
-        set
+        Cow::Owned(set)
     }
 
     /// The nearest key strictly before `at`, and the nearest strictly after;
@@ -3064,5 +3085,72 @@ impl Timeline {
             .iter()
             .map(|clip| clip.start + clip.duration)
             .fold(0.0, f64::max)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A ride read straight off the document's run agrees with the track
+    /// built from it, whatever the keys and wherever the instant: the
+    /// per-frame read is the value the engine's own walk gives, and a
+    /// renderer cannot tell them apart. Two hundred rides from a small
+    /// deterministic generator, each probed across its whole span.
+    #[test]
+    fn a_ride_read_off_the_run_agrees_with_the_track() {
+        let mut state = 0x2545_F491_4F6C_DD1Du64;
+        let mut draw = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for ride in 0..200 {
+            let mut filter = AppliedFilter::new("concat.adjust");
+            let constant = draw() as f64 % 9.0;
+            filter.params.insert("knob".to_owned(), constant);
+            for k in 0..=(draw() % 7) {
+                let ease = KeyEase([
+                    draw() as f64 % 100.0 / 100.0,
+                    draw() as f64 % 200.0 / 100.0 - 1.0,
+                    draw() as f64 % 100.0 / 100.0,
+                    draw() as f64 % 200.0 / 100.0 - 1.0,
+                ]);
+                filter.set_key(
+                    "knob",
+                    (k as f64 + draw() as f64 % 97.0 / 97.0) / 8.0,
+                    draw() as f64 % 5.0 - 2.5,
+                    ease,
+                );
+            }
+            let track = filter.track_on("knob");
+            for probe in 0..40 {
+                let at = probe as f64 / 39.0;
+                assert_eq!(
+                    filter.value_at("knob", at, 99.0),
+                    track.value_at(at, constant),
+                    "ride {ride} at {at}"
+                );
+                assert_eq!(
+                    filter.params_at(at).get("knob").copied(),
+                    Some(track.value_at(at, constant)),
+                    "ride {ride} at {at}"
+                );
+            }
+        }
+    }
+
+    /// A still chain's parameters are borrowed, not rebuilt: nothing rides,
+    /// so the document's own map is the answer. The first key is where the
+    /// map has to be materialised, because the ride has to be read.
+    #[test]
+    fn a_still_chain_lends_its_parameters() {
+        let mut filter = AppliedFilter::new("concat.adjust");
+        filter.params.insert("exposure".to_owned(), 0.5);
+        assert!(matches!(filter.params_at(0.25), Cow::Borrowed(_)));
+        filter.set_key("exposure", 0.0, 0.0, KeyEase::LINEAR);
+        assert!(matches!(filter.params_at(0.25), Cow::Owned(_)));
+        assert_eq!(filter.params_at(0.25).get("exposure").copied(), Some(0.0));
     }
 }
