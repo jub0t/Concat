@@ -436,11 +436,15 @@ fn alpha_pixel_format(encoder_name: &str) -> Option<Pixel> {
     }
 }
 
-/// VideoToolbox's quality, 1 to 100 with 100 the best, for an x264 CRF:
-/// 16 lands at 65 and 26 at 43, which is where the files come out about
-/// the size x264 makes them.
+/// VideoToolbox's quality, 1 to 100 with 100 the best, for an x264 or
+/// x265 CRF: the quality whose picture scores the same VMAF as theirs at
+/// that CRF. Measured on an M5 over three clips - calm 4K, a 1080p street,
+/// and a grainy 4K scene brought down to 1080p - from CRF 12 to 28, each
+/// point lands within a VMAF point of x264's medium and x265's: 18 at 76,
+/// 23 at 66, 28 at 57. The grainy clip costs VideoToolbox up to twice
+/// x264's bitrate for that picture; the calm ones about the same.
 fn videotoolbox_quality(crf: u8) -> u8 {
-    (100.0 - f32::from(crf) * 2.2).round().clamp(1.0, 100.0) as u8
+    (110.0 - f32::from(crf) * 1.9).round().clamp(1.0, 100.0) as u8
 }
 
 /// Which kind of encoder an FFmpeg encoder is: what it takes its pictures
@@ -892,6 +896,29 @@ fn open_video(
         // is one per second rounded from a GOP of twelve frames.
         video.set_gop((fps.round().max(1.0) * 2.0) as u32);
     }
+    // VideoToolbox reads a quality from the context alone, as `-q:v` puts
+    // it there on the command line: a flag, and the quality as a lambda.
+    // Only Apple silicon's takes one; an Intel Mac's and an iPhone's
+    // refuse it, and are told the bitrate the CRF would come to instead.
+    if family == Family::VideoToolbox && !average {
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            // SAFETY: `video` owns a live AVCodecContext, and `flags` is a
+            // plain field.
+            unsafe {
+                (*video.as_mut_ptr()).flags |= ffmpeg::sys::AV_CODEC_FLAG_QSCALE as i32;
+            }
+            video.set_global_quality(
+                i32::from(videotoolbox_quality(options.crf)) * ffmpeg::sys::FF_QP2LAMBDA,
+            );
+        } else {
+            let kbps = if cbr {
+                options.bitrate_kbps
+            } else {
+                implied_kbps(options.codec, options.crf, width, height, rate)
+            };
+            video.set_bit_rate(kbps as usize * 1000);
+        }
+    }
     // An average, on the context as well as in each encoder's own words:
     // the AV1 encoders read the target and the ceiling from there.
     if average {
@@ -1020,8 +1047,8 @@ fn open_video(
             },
             "allow_sw" => "1",
         },
+        // Its quality, or the bitrate in its place, is on the context.
         "hevc_videotoolbox" | "h264_videotoolbox" => ffmpeg::dict! {
-            "q:v" => &videotoolbox_quality(options.crf).to_string(),
             "profile" => match (encoder_name, options.ten_bit) {
                 ("h264_videotoolbox", _) => "high",
                 (_, true) => "main10",
@@ -2329,8 +2356,9 @@ mod tests {
         assert_eq!(svt_preset("medium"), 6);
         assert_eq!(svt_preset("veryfast"), 10);
         assert_eq!(svt_preset("nonsense"), 6);
-        assert_eq!(videotoolbox_quality(16), 65);
-        assert_eq!(videotoolbox_quality(26), 43);
+        assert_eq!(videotoolbox_quality(16), 80);
+        assert_eq!(videotoolbox_quality(18), 76);
+        assert_eq!(videotoolbox_quality(26), 61);
         assert_eq!(fourcc(*b"hvc1"), 0x3163_7668);
     }
 
