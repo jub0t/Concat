@@ -21,15 +21,12 @@
 //!   shared with a window: a project open in the window can be opened here
 //!   too, which is why the window's server is preferred when it is there.
 
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
-
 use concat_api::{Api, ApiError, AppDirs, Request, Response, Stopper};
 use concat_server::client::Client;
 use concat_server::discovery;
 use serde_json::Value;
+#[cfg(all(target_os = "android", feature = "local-socket"))]
+use socket2::Socket;
 
 /// How long a connection to the window's server may take to open.
 const PATIENCE: Duration = Duration::from_secs(3);
@@ -53,18 +50,23 @@ pub enum Mode {
     /// The window's server when it can be reached, this process otherwise.
     #[default]
     Auto,
-    /// The window's server, or an error saying how to turn it on.
+    /// The window's server (TCP), or an error saying how to turn it on.
     Window,
+    /// The window's server via Android LocalSocket.
+    #[cfg(target_os = "android")]
+    WindowLocal,
     /// This process, whatever else is running.
     Headless,
 }
 
 impl Mode {
-    /// The mode a word names: "auto", "window" or "headless".
+    /// The mode a word names: "auto", "window", "window-local" or "headless".
     pub fn parse(word: &str) -> Option<Mode> {
         match word.trim().to_ascii_lowercase().as_str() {
             "" | "auto" => Some(Mode::Auto),
             "window" => Some(Mode::Window),
+            #[cfg(target_os = "android")]
+            "window-local" => Some(Mode::WindowLocal),
             "headless" => Some(Mode::Headless),
             _ => None,
         }
@@ -78,6 +80,8 @@ pub fn open(mode: Mode) -> Result<Box<dyn Backend>, String> {
     match mode {
         Mode::Headless => Ok(Box::new(Headless::start()?)),
         Mode::Window => Ok(Box::new(Window::find()?)),
+        #[cfg(target_os = "android")]
+        Mode::WindowLocal => Ok(Box::new(WindowLocal::find()?)),
         Mode::Auto => match Window::find() {
             Ok(window) => Ok(Box::new(window)),
             Err(why) => {
@@ -163,6 +167,230 @@ impl Backend for Window {
 
     fn describe(&self) -> Value {
         serde_json::json!({ "mode": "window", "address": self.client.address().to_string() })
+    }
+}
+/// The window's server via Android LocalSocket (abstract namespace or filesystem).
+#[cfg(target_os = "android")]
+pub struct WindowLocal {
+    client: ClientLocal,
+}
+
+#[cfg(target_os = "android")]
+impl WindowLocal {
+    /// Connects to the window's server via LocalSocket.
+    pub fn find() -> Result<WindowLocal, String> {
+        let (name, token) = locate_local()?;
+        let client = ClientLocal::connect(&name, &token, PATIENCE)?;
+        Ok(WindowLocal { client })
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Backend for WindowLocal {
+    fn call(&mut self, request: Request) -> Result<Value, ApiError> {
+        match self.client.call(&request) {
+            Err(error)
+                if error
+                    .message
+                    .starts_with("the connection to the Concat server") =>
+            {
+                let again = WindowLocal::find().map_err(|why| {
+                    ApiError::failed(format!(
+                        "{} - and reconnecting failed: {why}",
+                        error.message
+                    ))
+                })?;
+                *self = again;
+                self.client.call(&request)
+            }
+            outcome => outcome,
+        }
+    }
+
+    fn describe(&self) -> Value {
+        serde_json::json!({ "mode": "window-local", "socket": self.client.socket_name() })
+    }
+}
+
+/// A JSON-RPC client over Android LocalSocket.
+#[cfg(target_os = "android")]
+struct ClientLocal {
+    reader: std::io::BufReader<socket2::Socket>,
+    writer: socket2::Socket,
+    next_id: u64,
+    socket_name: String,
+}
+
+#[cfg(target_os = "android")]
+impl ClientLocal {
+    /// Connects to the LocalSocket `name` and presents `token`.
+    pub fn connect(name: &str, token: &str, patience: Duration) -> Result<ClientLocal, String> {
+        use socket2::{Domain, Protocol, Socket, Type};
+        use std::os::fd::AsRawFd;
+        use std::time::Instant;
+        
+        let deadline = Instant::now() + patience;
+        
+        let socket = Socket::new(Domain::UNIX, Type::STREAM, Some(Protocol::from(0)))
+            .map_err(|e| format!("failed to create socket: {e}"))?;
+        
+        // Set connect timeout
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        socket.set_write_timeout(Some(timeout))
+            .map_err(|e| format!("failed to set write timeout: {e}"))?;
+        
+        // Connect to abstract namespace or filesystem socket
+        if name.starts_with('@') {
+            let mut addr = libc::sockaddr_un::default();
+            addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+            let name_bytes = name[1..].as_bytes();
+            let len = name_bytes.len().min(107);
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    name_bytes.as_ptr(),
+                    addr.sun_path[1..].as_mut_ptr() as *mut u8,
+                    len,
+                );
+            }
+            let addr_len = std::mem::size_of::<libc::sa_family_t>() + 1 + len;
+            socket.connect(&socket2::SockAddr::from(addr))
+                .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
+        } else {
+            let path = std::path::Path::new(name);
+            let addr = socket2::SockAddr::from(std::os::unix::net::UnixStream::connect(path)
+                .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?
+                .local_addr()
+                .map_err(|e| format!("failed to get local addr: {e}"))?);
+            socket.connect(&addr)
+                .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
+        }
+        
+        // Handshake: send auth token
+        let auth_msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "auth",
+            "params": { "token": token }
+        });
+        let auth_line = auth_msg.to_string() + "\n";
+        socket.write_all(auth_line.as_bytes())
+            .map_err(|e| format!("failed to send auth: {e}"))?;
+        socket.flush()
+            .map_err(|e| format!("failed to flush auth: {e}"))?;
+        
+        // Read response
+        let mut reader = std::io::BufReader::new(socket.try_clone()
+            .map_err(|e| format!("failed to clone socket: {e}"))?);
+        let mut response = String::new();
+        reader.read_line(&mut response)
+            .map_err(|e| format!("failed to read auth response: {e}"))?;
+        
+        let response: serde_json::Value = serde_json::from_str(&response)
+            .map_err(|e| format!("invalid auth response: {e}"))?;
+        
+        if response.get("error").is_some() {
+            let msg = response["error"]["message"].as_str().unwrap_or("auth failed");
+            return Err(format!("auth failed: {msg}"));
+        }
+        
+        Ok(ClientLocal {
+            reader: std::io::BufReader::new(socket.try_clone()
+                .map_err(|e| format!("failed to clone socket: {e}"))?),
+            writer: socket,
+            next_id: 2,
+            socket_name: name.to_string(),
+        })
+    }
+
+    pub fn socket_name(&self) -> &str {
+        &self.socket_name
+    }
+
+    /// Runs one request and returns its result.
+    pub fn call(&mut self, request: &Request) -> Result<Value, ApiError> {
+        use concat_api::{ErrorCode, Request as ApiRequest};
+        use serde_json::{Value, json};
+        
+        let id = self.next_id;
+        self.next_id += 1;
+        
+        let params = match serde_json::to_value(&request.params) {
+            Ok(v) => v,
+            Err(e) => return Err(ApiError::new(ErrorCode::InvalidParams, e.to_string())),
+        };
+        
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": request.method,
+            "params": params,
+        });
+        
+        let line = msg.to_string() + "\n";
+        self.writer.write_all(line.as_bytes())
+            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("write failed: {e}")))?;
+        self.writer.flush()
+            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("flush failed: {e}")))?;
+        
+        let mut response = String::new();
+        self.reader.read_line(&mut response)
+            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("read failed: {e}")))?;
+        
+        let response: Value = serde_json::from_str(&response)
+            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("invalid response: {e}")))?;
+        
+        if let Some(error) = response.get("error") {
+            let code = error["code"].as_i64().unwrap_or(-32603);
+            let message = error["message"].as_str().unwrap_or("unknown error");
+            return Err(ApiError::new(
+                ErrorCode::from_code(code),
+                message.to_string(),
+            ));
+        }
+        
+        response.get("result")
+            .cloned()
+            .ok_or_else(|| ApiError::new(ErrorCode::InternalError, "no result in response".to_string()))
+    }
+}
+
+/// Locate the window's server via LocalSocket: environment or discovery file.
+#[cfg(target_os = "android")]
+fn locate_local() -> Result<(String, String), String> {
+    let name = std::env::var("CONCAT_API_LOCAL_SOCKET")
+        .ok()
+        .filter(|text| !text.is_empty());
+    let token = std::env::var("CONCAT_API_TOKEN")
+        .ok()
+        .filter(|text| !text.is_empty());
+    
+    if let (Some(name), Some(token)) = (&name, &token) {
+        return Ok((name.clone(), token.clone()));
+    }
+    
+    if name.is_some() != token.is_some() {
+        return Err("CONCAT_API_LOCAL_SOCKET and CONCAT_API_TOKEN go together".to_owned());
+    }
+    
+    // Fall back to discovery file
+    let dirs = AppDirs::locate()?;
+    let path = discovery::path_in(&dirs.config);
+    match discovery::read(&path)? {
+        Some(listing) => {
+            // If the listing has a local_socket field, use it
+            // For now, construct from the address if it's a local address
+            if listing.address.ip().is_loopback() {
+                // Use a default abstract namespace socket name
+                let socket_name = format!("@concat-{}", listing.address.port());
+                Ok((socket_name, listing.token))
+            } else {
+                Err("window server is not on a local socket".to_owned())
+            }
+        }
+        None => Err(
+            "the Concat window is not serving the API via LocalSocket: enable it in Settings > Automation"
+                .to_owned(),
+        ),
     }
 }
 

@@ -11,11 +11,26 @@ description = "Concat on Android: the activity that hosts the editor window."
 [lib]
 crate-type = ["cdylib"]
 
+# Additional binary targets for headless MCP and API server
+[[bin]]
+name = "concat-mcp-android"
+path = "src/mcp_main.rs"
+
+[[bin]]
+name = "concat-api-server-android"
+path = "src/api_server_main.rs"
+
 [dependencies]
 # The window, whole. Slint's android-activity backend is chosen by the
 # window's own manifest for this target; this crate only names the
 # activity's entry point.
 concat.workspace = true
+# API server for local/remote agents (JSON-RPC over TCP/LocalSocket)
+concat-server = { workspace = true, features = ["local-socket"] }
+# API types and dispatcher
+concat-api.workspace = true
+# MCP server for AI agents (headless binary)
+concat-mcp = { workspace = true, features = ["local-socket"] }
 slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-android-activity-06",
@@ -30,6 +45,9 @@ libc = "0.2"
 # from the dex that build.rs makes. The version Slint's backend uses, so
 # there is one JNI in the binary.
 jni = "0.22"
+# For LocalSocket support on Android
+# For LocalSocket support on Android
+socket2 = { version = "0.5" }
 
 [build-dependencies]
 # javac and d8 through the SDK, the way Slint's backend compiles its own
@@ -47,6 +65,11 @@ runtime_libs = "../../vendor/sherpa-onnx/jniLibs"
 # The launcher icon, at every density Android asks for (48, 72, 96, 144,
 # 192px); rendered from assets/new_concat_logo_512_rounded_light_theme.svg.
 resources = "res"
+# Additional native binaries to package in the APK
+binaries = [
+    { name = "concat-mcp-android", path = "concat-mcp-android" },
+    { name = "concat-api-server-android", path = "concat-api-server-android" },
+]
 
 [package.metadata.android.sdk]
 # Android 8.0: AAudio, the audio path the engine plays through.
@@ -61,6 +84,10 @@ name = "android.permission.INTERNET"
 # the manifest only makes it askable; ConcatFiles.askMicrophone asks.
 [[package.metadata.android.uses_permission]]
 name = "android.permission.RECORD_AUDIO"
+
+# For LocalSocket server (abstract namespace)
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
 
 [package.metadata.android.application]
 label = "Concat"

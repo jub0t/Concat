@@ -6,14 +6,22 @@ rust-version.workspace = true
 license.workspace = true
 description = "Concat for AI agents: an MCP server over stdio whose tools are the Concat API's methods, with schemas generated from its request types."
 
+[features]
+default = []
+# Android LocalSocket support for connecting to window's server
+local-socket = ["concat-server/local-socket", "dep:socket2", "dep:libc"]
+
 [dependencies]
 # The one source of editing semantics. `schema` gives each request and each
 # edit command its JSON Schema, which is what a tool's arguments are.
 concat-api = { workspace = true, features = ["schema"] }
 # The window's server, reached as a client, and the file that says where
 # it is.
-concat-server.workspace = true
+concat-server = { workspace = true, features = [] }
 serde_json.workspace = true
+# For Android LocalSocket support
+socket2 = { version = "0.5", optional = true }
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
