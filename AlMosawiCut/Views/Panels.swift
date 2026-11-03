@@ -29,6 +29,7 @@ struct PanelContent: View {
         case .captions: CaptionsPanel(model: model)
         case .tts: SpeechPanel(model: model)
         case .music: MusicPanel(model: model, open: open)
+        case .record: RecordPanel(model: model)
         case .audioItem: AudioItemPanel(model: model)
         case .canvas: CanvasPanel(model: model)
         }

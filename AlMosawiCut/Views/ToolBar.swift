@@ -124,7 +124,8 @@ struct ToolBar: View {
                 Tool("Canvas", "aspectratio") { open(.canvas) }
                 Tool("Add media", "plus.rectangle.on.rectangle") { addMedia(.mainTrack) }
             case .audio:
-                Tool("Music", "music.note.list") { open(.music) }
+                Tool("Add audio", "music.note.list") { open(.music) }
+                Tool("Record", "mic.fill") { open(.record) }
                 Tool("Text to speech", "text.bubble.fill") { open(.tts) }
                 Tool("Extract audio", "waveform.and.arrow.down") { model.extractAudio() }
             case .text:

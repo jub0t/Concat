@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1F0C0DE0000000000000003 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000004 /* VoiceRecorder.swift */; };
+		A1F0C0DE0000000000000001 /* FontLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000002 /* FontLibrary.swift */; };
 		03F925BAFA3A831937FC0086 /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38992426363CDC6D7986EA1 /* EditorModel.swift */; };
 		0D4F2CC1C15FBB5908E0FA6E /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA45DAA103217773787B9C4 /* EditorView.swift */; };
 		1C1107F22B866F8ADC427F88 /* ProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA4DA75B0AEBB1144642DE6 /* ProjectStore.swift */; };
@@ -34,6 +36,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A1F0C0DE0000000000000004 /* VoiceRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecorder.swift; sourceTree = "<group>"; };
+		A1F0C0DE0000000000000002 /* FontLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontLibrary.swift; sourceTree = "<group>"; };
 		0F20126A9679D117BA39ADD0 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		1B843F05495FA20F98CFE88A /* Compositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Compositor.swift; sourceTree = "<group>"; };
 		247F5EE31038EF9FAEF84C09 /* AudioPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPanels.swift; sourceTree = "<group>"; };
@@ -135,6 +139,8 @@
 				A9E2327AF387D9F2F4C554E1 /* FrameRenderer.swift */,
 				34B7310DEE2D98D2FFA39576 /* Imaging.swift */,
 				B9F99F80A53DB5F4C6036AE2 /* MediaImporter.swift */,
+				A1F0C0DE0000000000000002 /* FontLibrary.swift */,
+				A1F0C0DE0000000000000004 /* VoiceRecorder.swift */,
 				F98E1A71ED01ED7B181338F9 /* Thumbnails.swift */,
 				E5E10F49AF14EF156B2D1DD9 /* Transitions.swift */,
 			);
@@ -231,6 +237,8 @@
 				DC9C220DD3BDED6257DCC347 /* Project.swift in Sources */,
 				1C1107F22B866F8ADC427F88 /* ProjectStore.swift in Sources */,
 				9386DDADD4577481607F064B /* TextPanels.swift in Sources */,
+				A1F0C0DE0000000000000001 /* FontLibrary.swift in Sources */,
+				A1F0C0DE0000000000000003 /* VoiceRecorder.swift in Sources */,
 				5012189C21276AA1A69C35C8 /* Thumbnails.swift in Sources */,
 				BACEB21B7862BFD1877C1585 /* TimelineView.swift in Sources */,
 				D9C8941E1E9B56319D3132FE /* ToolBar.swift in Sources */,
@@ -249,6 +257,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = AlMosawiCut;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AlMosawiCut records voiceovers from the microphone.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AlMosawiCut saves your exported videos to Photos.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AlMosawiCut imports the videos and photos you pick.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AlMosawiCut transcribes your video's audio to make captions.";
@@ -340,6 +349,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = AlMosawiCut;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AlMosawiCut records voiceovers from the microphone.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AlMosawiCut saves your exported videos to Photos.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AlMosawiCut imports the videos and photos you pick.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AlMosawiCut transcribes your video's audio to make captions.";

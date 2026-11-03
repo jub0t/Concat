@@ -1,9 +1,13 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TextPanel: View {
     @Bindable var model: EditorModel
     @State private var tab: TextTab
     @FocusState private var focused: Bool
+    @State private var library = FontLibrary.shared
+    @State private var importingFont = false
+    @State private var fontError: String?
 
     init(model: EditorModel, initialTab: TextTab) {
         self.model = model
@@ -80,21 +84,87 @@ struct TextPanel: View {
     }
 
     private func fontTab(_ item: TextOverlay) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
-            ForEach(TextFont.allCases) { f in
-                let on = item.font == f
-                Button { model.textBinding(\.font, fallback: .system).wrappedValue = f } label: {
-                    VStack(spacing: 2) {
-                        Text("Aa أب").font(Font(TextRasterizer.font(f, size: 19, bold: item.bold)))
-                        Text(f.label).font(.system(size: 9.5)).foregroundStyle(Theme.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 56)
-                    .background(on ? Theme.accent.opacity(0.18) : Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(on ? Theme.accent : .clear, lineWidth: 2))
+        let fontsGrid = [GridItem(.adaptive(minimum: 96), spacing: 8)]
+        let custom = model.textBinding(\.customFont, fallback: nil)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionLabel("My fonts")
+                Button { importingFont = true } label: {
+                    Label("Add font", systemImage: "plus")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 10).frame(height: 28)
+                        .background(Theme.accent, in: Capsule())
+                        .foregroundStyle(.black)
                 }
                 .buttonStyle(.plain)
             }
+            if library.fonts.isEmpty {
+                Text("Add .ttf, .otf or .ttc files from Files. They stay in the app for every project.")
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+            } else {
+                LazyVGrid(columns: fontsGrid, spacing: 8) {
+                    ForEach(library.fonts) { entry in
+                        fontTile(sample: Font(TextRasterizer.customFont(entry.postScriptName, size: 19, bold: false) ?? .systemFont(ofSize: 19)),
+                                 name: entry.displayName, on: item.customFont == entry.postScriptName) {
+                            custom.wrappedValue = entry.postScriptName
+                        }
+                        .contextMenu {
+                            Button("Remove from app", systemImage: "trash", role: .destructive) {
+                                if item.customFont == entry.postScriptName { custom.wrappedValue = nil }
+                                library.remove(entry)
+                            }
+                        }
+                    }
+                }
+            }
+            if let fontError { Text(fontError).font(.caption).foregroundStyle(.red) }
+            if let name = item.customFont, !library.fonts.contains(where: { $0.postScriptName == name }) {
+                Text("“\(name)” isn't installed on this device, so the built-in font below is used.")
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+            }
+            SectionLabel("Built in")
+            LazyVGrid(columns: fontsGrid, spacing: 8) {
+                ForEach(TextFont.allCases) { f in
+                    fontTile(sample: Font(TextRasterizer.font(f, size: 19, bold: item.bold)), name: f.label,
+                             on: item.customFont == nil && item.font == f) {
+                        let id = item.id
+                        model.edit { p in
+                            if let j = p.texts.firstIndex(where: { $0.id == id }) { p.texts[j].font = f; p.texts[j].customFont = nil }
+                        }
+                    }
+                }
+            }
         }
+        .fileImporter(isPresented: $importingFont, allowedContentTypes: Self.fontTypes, allowsMultipleSelection: true) { result in
+            fontError = nil
+            guard case .success(let urls) = result else { return }
+            var first: String?
+            var failures: [String] = []
+            for url in urls {
+                do {
+                    let faces = try library.importFont(at: url)
+                    if first == nil { first = faces.first?.postScriptName }
+                } catch { failures.append(error.localizedDescription) }
+            }
+            if let first { custom.wrappedValue = first }
+            if !failures.isEmpty { fontError = failures.joined(separator: "\n") }
+        }
+    }
+
+    private static let fontTypes: [UTType] = [.font] + ["ttf", "otf", "ttc"].compactMap { UTType(filenameExtension: $0) }
+
+    private func fontTile(sample: Font, name: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Text("Aa أب").font(sample).lineLimit(1)
+                Text(name).font(.system(size: 9.5)).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            }
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(on ? Theme.accent.opacity(0.18) : Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(on ? Theme.accent : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
     }
 
     private var animateTab: some View {

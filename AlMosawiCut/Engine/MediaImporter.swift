@@ -22,10 +22,11 @@ struct PickedMovie: Transferable {
 
 enum MediaImporter {
     enum ImportError: LocalizedError {
-        case noVideo, writerFailed
+        case noVideo, noAudio, writerFailed
         var errorDescription: String? {
             switch self {
             case .noVideo: "That file has no video track."
+            case .noAudio: "That file has no sound."
             case .writerFailed: "Couldn't turn the photo into a clip."
             }
         }
@@ -57,15 +58,41 @@ enum MediaImporter {
         return Clip(file: name, isPhoto: true, hasAudio: false, sourceDuration: photoSourceLength, trimEnd: 3)
     }
 
-    static func importAudio(at url: URL, into project: UUID) async throws -> AudioItem {
+    /// Copies a sound (or a movie's sound) from Files. Music loops under the edit
+    /// and sits lower in the mix; a sound plays once at full volume.
+    static func importAudio(at url: URL, into project: UUID, asMusic: Bool = true) async throws -> AudioItem {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let name = UUID().uuidString + "." + (url.pathExtension.isEmpty ? "m4a" : url.pathExtension)
         let dest = ProjectStore.mediaFolder(for: project).appendingPathComponent(name)
         try FileManager.default.copyItem(at: url, to: dest)
-        let duration = try await AVURLAsset(url: dest).load(.duration).seconds
-        return AudioItem(file: name, name: url.deletingPathExtension().lastPathComponent, kind: .music,
-                         sourceDuration: duration, trimEnd: duration, volume: 0.6, fadeOut: 1, loop: true)
+        let duration = try await audioDuration(of: dest)
+        let title = url.deletingPathExtension().lastPathComponent
+        return asMusic
+            ? AudioItem(file: name, name: title, kind: .music, sourceDuration: duration, trimEnd: duration,
+                        volume: 0.6, fadeOut: 1, loop: true)
+            : AudioItem(file: name, name: title, kind: .sound, sourceDuration: duration, trimEnd: duration)
+    }
+
+    /// Uses the sound of a video picked from Photos as its own audio item.
+    static func importAudio(fromMovie url: URL, into project: UUID) async throws -> AudioItem {
+        let name = UUID().uuidString + "." + (url.pathExtension.isEmpty ? "mov" : url.pathExtension)
+        let dest = ProjectStore.mediaFolder(for: project).appendingPathComponent(name)
+        try FileManager.default.moveItem(at: url, to: dest)
+        let duration = try await audioDuration(of: dest)
+        return AudioItem(file: name, name: "Sound from video", kind: .extracted, sourceDuration: duration, trimEnd: duration)
+    }
+
+    /// Length of a file's sound; throws (and deletes the file) if it has none.
+    private static func audioDuration(of url: URL) async throws -> Double {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+            try? FileManager.default.removeItem(at: url)
+            throw ImportError.noAudio
+        }
+        let range = try await track.load(.timeRange)
+        if range.duration.seconds > 0 { return range.end.seconds }
+        return try await asset.load(.duration).seconds
     }
 
     private static func writeStill(_ image: UIImage, to url: URL, seconds: Double) async throws {

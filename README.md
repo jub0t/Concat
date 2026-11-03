@@ -20,11 +20,13 @@ fresh implementation of the same ideas for iPhone and iPad.
 - 25 transitions with duration, apply to all cuts
 - Remove background: people or any subject (Vision, on device), green/blue screen, luma key, remove black;
   canvas background colours or blur
-- Text: 5 styles, 17 fonts including Arabic (Naskh, Geeza, Damascus, Nastaliq), 7 in/out animations,
+- Text: 5 styles, 17 built-in fonts including Arabic (Naskh, Geeza, Damascus, Nastaliq), plus your own
+  .ttf/.otf/.ttc fonts imported from Files (kept in the app for every project), 7 in/out animations,
   10 templates, 8 shapes
 - Auto-captions: Apple speech recognition (Arabic, English and more), on device when the
   language model is installed; restyle every caption at once
-- Audio: music from Files (loop, trim, fades), text to speech with device voices and Personal Voice,
+- Audio: your own music or sounds from Files (songs or videos), the sound of a video in Photos,
+  voiceover recording with the mic while the video plays, loop, trim, fades, text to speech with device voices and Personal Voice,
   extract audio from a clip, voice cleanup (enhance, noise reduction, normalise), 22 voice effects
 - Canvas 9:16, 16:9, 1:1, 4:5, 4:3, 3:4, 21:9
 - Export 720p/1080p/2K/4K at 24/30/60 fps, H.264 or HEVC, save to Photos or share. No watermark.

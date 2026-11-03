@@ -267,6 +267,20 @@ final class TextRasterizer: @unchecked Sendable {
         return made
     }
 
+    /// The title's font: an imported one if it is still installed, else the built-in choice.
+    static func font(for text: TextOverlay, size: CGFloat) -> UIFont {
+        if let name = text.customFont, let custom = customFont(name, size: size, bold: text.bold) { return custom }
+        return font(text.font, size: size, bold: text.bold)
+    }
+
+    static func customFont(_ postScriptName: String, size: CGFloat, bold: Bool) -> UIFont? {
+        guard let base = UIFont(name: postScriptName, size: size) else { return nil }
+        // Bold only applies when the family has a bold face installed too.
+        guard bold, let heavier = base.fontDescriptor.withSymbolicTraits(.traitBold) else { return base }
+        let candidate = UIFont(descriptor: heavier, size: size)
+        return candidate.familyName == base.familyName ? candidate : base
+    }
+
     static func font(_ font: TextFont, size: CGFloat, bold: Bool) -> UIFont {
         let weight: UIFont.Weight = bold ? .heavy : .medium
         let system = UIFont.systemFont(ofSize: size, weight: weight)
@@ -303,7 +317,7 @@ final class TextRasterizer: @unchecked Sendable {
         }
         guard !string.isEmpty else { return nil }
         let fontSize = max(8, text.size * canvas.width)
-        let font = Self.font(text.font, size: fontSize, bold: text.bold)
+        let font = Self.font(for: text, size: fontSize)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.baseWritingDirection = .natural

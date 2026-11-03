@@ -4,6 +4,12 @@ import SwiftUI
 struct AlMosawiCutApp: App {
     @State private var store = ProjectStore()
 
+    init() {
+        // Imported fonts must be registered before any title is drawn.
+        _ = FontLibrary.shared
+        AppAudio.configureForPlayback()
+    }
+
     var body: some Scene {
         WindowGroup {
             HomeView()

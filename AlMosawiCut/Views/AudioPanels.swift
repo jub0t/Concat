@@ -1,4 +1,5 @@
 import AVFoundation
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -55,35 +56,38 @@ struct VoiceFXPanel: View {
     }
 }
 
+/// Brings your own sound into the project: music or sounds from Files,
+/// the sound of a video in Photos, or a recording.
 struct MusicPanel: View {
     @Bindable var model: EditorModel
     var open: (Panel) -> Void
-    @State private var importing = false
+    @State private var importingFile = false
+    @State private var asMusic = true
+    @State private var pickingVideo = false
+    @State private var videoItem: PhotosPickerItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add a song or sound from Files. It goes on its own track at the playhead; music loops to fill the video and fades out at the end.")
-                .font(.caption).foregroundStyle(Theme.secondaryText)
-            Button { importing = true } label: {
-                Label("Choose audio file", systemImage: "folder.fill")
-                    .font(.subheadline.weight(.bold))
-                    .frame(maxWidth: .infinity, minHeight: 42)
-                    .background(Theme.accent, in: Capsule())
-                    .foregroundStyle(.black)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                source("Music", "Loops under the video", "music.note.list") { asMusic = true; importingFile = true }
+                source("Sound", "Plays once, full volume", "speaker.wave.2.fill") { asMusic = false; importingFile = true }
+                source("From a video", "Its sound, from Photos", "film") { pickingVideo = true }
+                source("Record", "Voiceover with the mic", "mic.fill") { open(.record) }
             }
-            .buttonStyle(.plain)
-            let music = model.project.audios.filter { $0.kind == .music }
-            if !music.isEmpty {
+            Text("Audio goes on its own track at the playhead. Files can be songs (MP3, M4A, WAV, AIFF) or videos, whose sound is used.")
+                .font(.caption).foregroundStyle(Theme.secondaryText)
+            if !model.project.audios.isEmpty {
                 SectionLabel("In this project")
-                ForEach(music) { a in
+                ForEach(model.project.audios) { a in
                     Button {
                         model.selection = .audio(a.id)
                         open(.audioItem)
                     } label: {
                         HStack {
-                            Image(systemName: "music.note")
+                            Image(systemName: a.kind.symbol)
                             Text(a.name).lineLimit(1)
                             Spacer()
+                            Text(a.start.timecode).font(.caption.monospacedDigit()).foregroundStyle(Theme.secondaryText)
                             Image(systemName: "chevron.right").font(.caption)
                         }
                         .font(.subheadline)
@@ -94,15 +98,128 @@ struct MusicPanel: View {
                 }
             }
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .mpeg4Audio, .mp3, .wav, .aiff]) { result in
-            guard case .success(let url) = result else { return }
+        .fileImporter(isPresented: $importingFile, allowedContentTypes: [.audio, .movie], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            let music = asMusic
             Task {
+                model.busyMessage = "Adding audio…"
+                defer { model.busyMessage = nil }
+                var failures: [String] = []
+                for url in urls {
+                    do {
+                        let item = try await MediaImporter.importAudio(at: url, into: model.project.id, asMusic: music)
+                        model.addAudio(item, atPlayhead: true)
+                    } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                }
+                if !failures.isEmpty { model.errorMessage = failures.joined(separator: "\n") }
+            }
+        }
+        .photosPicker(isPresented: $pickingVideo, selection: $videoItem, matching: .videos, preferredItemEncoding: .current)
+        .onChange(of: videoItem) { _, item in
+            guard let item else { return }
+            Task {
+                model.busyMessage = "Adding audio…"
+                defer { model.busyMessage = nil; videoItem = nil }
                 do {
-                    let item = try await MediaImporter.importAudio(at: url, into: model.project.id)
-                    model.addAudio(item, atPlayhead: true)
+                    guard let movie = try await item.loadTransferable(type: PickedMovie.self) else { throw CocoaError(.fileReadUnknown) }
+                    let audio = try await MediaImporter.importAudio(fromMovie: movie.url, into: model.project.id)
+                    model.addAudio(audio, atPlayhead: true)
                 } catch { model.errorMessage = error.localizedDescription }
             }
         }
+    }
+
+    private func source(_ title: String, _ detail: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 18, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .background(Theme.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.subheadline.weight(.bold))
+                    Text(detail).font(.system(size: 10)).foregroundStyle(Theme.secondaryText).lineLimit(1).minimumScaleFactor(0.8)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(PressStyle())
+    }
+}
+
+/// Records a voiceover at the playhead, optionally while the video plays (muted).
+struct RecordPanel: View {
+    @Bindable var model: EditorModel
+    @State private var recorder = VoiceRecorder()
+    @State private var startedAt: Double = 0
+    @AppStorage("recordPlayAlong") private var playAlong = true
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(recorder.isRecording ? recorder.elapsed.timecode : "Starts at \(model.currentTime.timecode)")
+                .font(.system(size: 28, weight: .bold).monospacedDigit())
+                .foregroundStyle(recorder.isRecording ? Color(red: 1, green: 0.35, blue: 0.35) : .white)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.surfaceHigh)
+                    Capsule().fill(Theme.accent).frame(width: geo.size.width * recorder.level)
+                }
+            }
+            .frame(height: 6)
+            .animation(.linear(duration: 0.05), value: recorder.level)
+            Button {
+                Task {
+                    if recorder.isRecording { await finish() } else { await begin() }
+                }
+            } label: {
+                ZStack {
+                    Circle().stroke(Color.white, lineWidth: 4).frame(width: 70, height: 70)
+                    if recorder.isRecording {
+                        RoundedRectangle(cornerRadius: 6).fill(Color.red).frame(width: 28, height: 28)
+                    } else {
+                        Circle().fill(Color.red).frame(width: 56, height: 56)
+                    }
+                }
+            }
+            .buttonStyle(PressStyle())
+            .disabled(model.project.clips.isEmpty)
+            .accessibilityLabel(recorder.isRecording ? "Stop recording" : "Start recording")
+            Toggle("Play the video while recording (muted)", isOn: $playAlong)
+                .font(.subheadline)
+                .disabled(recorder.isRecording)
+            Text(model.project.clips.isEmpty ? "Add a clip first." : "Use headphones to keep the video's sound out of the recording.")
+                .font(.caption).foregroundStyle(Theme.secondaryText)
+        }
+        .onDisappear { if recorder.isRecording { Task { await finish() } } }
+    }
+
+    private func begin() async {
+        do {
+            startedAt = model.currentTime
+            try await recorder.start(in: ProjectStore.mediaFolder(for: model.project.id))
+            if playAlong, model.currentTime < model.duration - 0.1 {
+                model.player.isMuted = true
+                if !model.isPlaying { model.togglePlay() }
+            }
+        } catch {
+            model.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func finish() async {
+        if model.isPlaying { model.togglePlay() }
+        model.player.isMuted = false
+        guard let file = recorder.stop() else { return }
+        let url = ProjectStore.mediaFolder(for: model.project.id).appendingPathComponent(file)
+        let length = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
+        guard length > 0.2 else { try? FileManager.default.removeItem(at: url); return }
+        let n = model.project.audios.filter { $0.kind == .voiceover }.count + 1
+        let item = AudioItem(file: file, name: "Voiceover \(n)", kind: .voiceover, start: startedAt,
+                             sourceDuration: length, trimEnd: length)
+        model.addAudio(item, atPlayhead: false)
     }
 }
 

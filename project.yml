@@ -27,5 +27,6 @@ targets:
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "AlMosawiCut imports the videos and photos you pick."
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "AlMosawiCut saves your exported videos to Photos."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "AlMosawiCut records voiceovers from the microphone."
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "AlMosawiCut transcribes your video's audio to make captions."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

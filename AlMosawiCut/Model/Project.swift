@@ -339,6 +339,8 @@ struct TextOverlay: Codable, Identifiable, Hashable {
     var bold = true
     var style: TextStyle = .outline
     var font: TextFont = .system
+    /// PostScript name of a font imported from Files; when set it wins over `font`.
+    var customFont: String?
     var textCase: TextCase = .none
     var animationIn: TextAnimation = .none
     var animationOut: TextAnimation = .none

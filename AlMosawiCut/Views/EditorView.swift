@@ -20,7 +20,7 @@ enum Panel: Hashable {
     case speed, volume, animate, crop, filters, effects, adjust, cutout, voiceFX, fade, trim
     case transition(Int), blend, mask
     case text(TextTab), textTemplates, shapes, captions
-    case tts, music, audioItem
+    case tts, music, record, audioItem
     case canvas
 }
 
@@ -104,7 +104,7 @@ struct EditorView: View {
     /// Panels that create the selection they then edit stay open when it changes.
     private static func keepsPanel(_ p: Panel) -> Bool {
         switch p {
-        case .text, .captions, .tts, .music, .textTemplates, .shapes, .canvas: true
+        case .text, .captions, .tts, .music, .record, .textTemplates, .shapes, .canvas: true
         default: false
         }
     }
@@ -258,7 +258,8 @@ struct EditorView: View {
         case .shapes: "Shapes"
         case .captions: "Auto captions"
         case .tts: "Text to speech"
-        case .music: "Music"
+        case .music: "Add audio"
+        case .record: "Record voiceover"
         case .audioItem: "Audio"
         case .canvas: "Canvas"
         }

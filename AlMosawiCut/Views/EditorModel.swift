@@ -592,6 +592,7 @@ final class EditorModel {
             for i in p.texts.indices where p.texts[i].isCaption {
                 p.texts[i].color = source.color; p.texts[i].accent = source.accent
                 p.texts[i].size = source.size; p.texts[i].bold = source.bold; p.texts[i].font = source.font
+                p.texts[i].customFont = source.customFont
                 p.texts[i].style = source.style; p.texts[i].x = source.x; p.texts[i].y = source.y
                 p.texts[i].textCase = source.textCase; p.texts[i].animationIn = source.animationIn
             }
