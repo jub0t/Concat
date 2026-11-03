@@ -15,7 +15,7 @@ serde_json.workspace = true
 # Model downloads. Blocking on purpose: downloads run on their own thread,
 # and an async HTTP stack would be a second runtime's worth of dependencies
 # for one GET.
-ureq = "2"
+ureq = "3"
 
 # Kokoro models arrive as tar.bz2 archives, hence tar + bzip2 (pure-Rust
 # decoder) for unpacking them.
@@ -48,7 +48,7 @@ whisper-rs = { version = "0.16", features = ["raw-api"] }
 # Text to speech: the official k2-fsa bindings. Linked statically on the
 # desktop Unixes, so the binary carries no extra dylibs.
 [target.'cfg(not(any(windows, target_os = "android", target_os = "ios")))'.dependencies]
-sherpa-onnx = "1.13"
+sherpa-onnx = "2.0"
 
 # Elsewhere it is the shared library.
 #
