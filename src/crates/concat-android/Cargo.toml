@@ -37,13 +37,14 @@ jni = "0.22"
 android-build = "0.1"
 
 # `cargo apk build -p concat-android` packages the shared object, the
-# sherpa-onnx runtime libraries and the manifest below into an APK. The
-# runtime libraries come from scripts/sherpa-mobile.sh.
+# runtime libraries it links (libc++_shared, and ONNX Runtime on the
+# emulator) and the manifest below into an APK. The runtime libraries come
+# from scripts/android-libs.sh.
 [package.metadata.android]
 package = "org.standalones.concat"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
-runtime_libs = "../../vendor/sherpa-onnx/jniLibs"
+runtime_libs = "../../vendor/android/jniLibs"
 # The launcher icon, at every density Android asks for (48, 72, 96, 144,
 # 192px); rendered from assets/new_concat_logo_512_rounded_light_theme.svg.
 resources = "res"

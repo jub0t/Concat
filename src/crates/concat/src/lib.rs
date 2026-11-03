@@ -1179,7 +1179,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_volume(on_lanes!(|state, id: SharedString, gain: f32| {
         state.clip_volume(&id, gain);
     }));
-    editor.on_clip_fade(on_lanes!(|state, id: SharedString, out: bool, seconds: f32| {
+    editor.on_clip_fade(on_lanes!(|state,
+                                   id: SharedString,
+                                   out: bool,
+                                   seconds: f32| {
         state.clip_fade(&id, out, seconds);
     }));
     editor.on_save_frame(on_window!(|state| {
@@ -2011,8 +2014,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 };
                 theme.set_playhead_choice(index);
                 let mut studio = shell.studio.borrow_mut();
-                studio.prefs.playhead =
-                    (index > 0).then(|| prefs::Preferences::accent_id(&name));
+                studio.prefs.playhead = (index > 0).then(|| prefs::Preferences::accent_id(&name));
                 studio.prefs.save(&studio.host.dirs);
             });
         }

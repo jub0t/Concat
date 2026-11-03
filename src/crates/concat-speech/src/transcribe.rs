@@ -1113,7 +1113,9 @@ fn detect_language(
         if sum.is_empty() {
             sum = odds;
         } else {
-            sum.iter_mut().zip(odds).for_each(|(sum, odds)| *sum += odds);
+            sum.iter_mut()
+                .zip(odds)
+                .for_each(|(sum, odds)| *sum += odds);
         }
         probes += 1;
     }
@@ -1133,8 +1135,12 @@ fn detect_language(
         name(ranked[2].0),
         ranked[2].1,
     );
-    whisper_rs::get_lang_str(ranked[0].0)
-        .ok_or_else(|| format!("whisper heard language {}, which it cannot name", ranked[0].0))
+    whisper_rs::get_lang_str(ranked[0].0).ok_or_else(|| {
+        format!(
+            "whisper heard language {}, which it cannot name",
+            ranked[0].0
+        )
+    })
 }
 
 /// A line whisper made up of silence: one from a window it took for
