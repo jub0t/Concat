@@ -32,20 +32,21 @@ MIT; Silero VAD itself is MIT, https://github.com/snakers4/silero-vad,
 Copyright (c) 2020-present Silero Team). It finds where the speech is, so
 captions are timed from it.
 
-## Slint (used under GPL-3.0-only)
+## Slint (GPL-3.0-only, or Royalty-free for commercial builds)
 
 The `concat` crate (`src/crates/concat`) builds against
 [Slint](https://github.com/slint-ui/slint), which its authors offer under
 **any one** of three licences, at the user's choice: a Royalty-free licence, a
 paid commercial licence, or **GNU GPL-3.0-only**.
 
-**Concat uses Slint under the GPL-3.0-only option.** That choice is deliberate
-and it is recorded here because nothing in the source tree would otherwise say
-which of the three applies. The Royalty-free and commercial options are not
-used: both are aimed at shipping proprietary applications, and neither can
-grant downstream recipients the freedoms Concat's own licence promises them.
+**Concat as published here, under AGPL-3.0-or-later, uses Slint under the
+GPL-3.0-only option.** Builds of Concat distributed under a commercial licence
+from its owner use Slint under the Slint Royalty-free Desktop, Mobile, and Web
+Applications License 2.0, which the owner accepted on 3 November 2026, with
+Slint's attribution badge on the page Concat is downloaded from.
 
-Section 13 of the GPL-3.0 exists for exactly this combination:
+For the GPL-3.0-only option, section 13 of the GPL-3.0 exists for exactly this
+combination:
 
 > Notwithstanding any other provision of this License, you have permission to
 > link or combine any covered work with a work licensed under version 3 of the
@@ -54,10 +55,9 @@ Section 13 of the GPL-3.0 exists for exactly this combination:
 
 So the combined binary is conveyable. Slint's portion remains GPL-3.0-only,
 Concat's portion remains AGPL-3.0-or-later, and the AGPL's section 13 network
-requirement applies to the combination as a whole. Anyone forking Concat who
-would rather not be bound by the GPL must take Slint under one of its other
-two licences and remove or replace Concat's AGPL-licensed code accordingly;
-the two cannot be mixed.
+requirement applies to the combination as a whole. Anyone forking Concat takes
+Slint under the GPL-3.0 with it; the Royalty-free licence is the owner's, and
+does not pass to a fork.
 
 Slint pulls in its Skia renderer (see `src/crates/concat/Cargo.toml`) along
 with winit and their transitive crates, which are
