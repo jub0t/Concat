@@ -32,23 +32,24 @@
 [Setup]
 ; One id for the life of the product, so an install over an older one is
 ; an upgrade and not a second copy.
-AppId={{7B1E5C3A-3B9E-4F0B-9C6D-2F1D0C0A0C47}
-AppName=Concat
+; A new id for 128 pixeles video, so it never upgrades or removes Concat.
+AppId={{3F6A2D81-128B-4C7E-9A50-128F1E0B7D29}
+AppName=128 pixeles video
 AppVersion={#Version}
-AppVerName=Concat {#Version}
-AppPublisher=Concat contributors
-AppPublisherURL=https://github.com/jub0t/Concat
-AppSupportURL=https://github.com/jub0t/Concat/issues
-AppUpdatesURL=https://github.com/jub0t/Concat/releases
-DefaultDirName={autopf}\Concat
-DefaultGroupName=Concat
+AppVerName=128 pixeles video {#Version}
+AppPublisher=128 Pixeles
+AppPublisherURL=https://github.com/camilofilho/128pixelesvideo
+AppSupportURL=https://github.com/camilofilho/128pixelesvideo/issues
+AppUpdatesURL=https://github.com/camilofilho/128pixelesvideo/releases
+DefaultDirName={autopf}\128 pixeles video
+DefaultGroupName=128 pixeles video
 DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE
 OutputDir={#Out}
-OutputBaseFilename=Concat-{#Version}-windows-{#Suffix}-setup
+OutputBaseFilename=128 pixeles video-{#Version}-setup
 SetupIconFile=..\icons\concat.ico
-UninstallDisplayIcon={app}\concat.ico
-UninstallDisplayName=Concat
+UninstallDisplayIcon={app}\128 pixeles video.ico
+UninstallDisplayName=128 pixeles video
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -105,14 +106,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#Stage}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\icons\concat.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\icons\concat.ico"; DestDir: "{app}"; DestName: "128 pixeles video.ico"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Concat"; Filename: "{app}\concat.exe"; IconFilename: "{app}\concat.ico"
+Name: "{autoprograms}\128 pixeles video"; Filename: "{app}\128 pixeles video.exe"; IconFilename: "{app}\128 pixeles video.ico"
 ; The way in when a graphics driver draws the window as coloured squares:
 ; it turns off Settings > General > Draw on the GPU, which that window hides.
-Name: "{autoprograms}\Concat (safe graphics)"; Filename: "{app}\concat.exe"; Parameters: "--software"; IconFilename: "{app}\concat.ico"
-Name: "{autodesktop}\Concat"; Filename: "{app}\concat.exe"; IconFilename: "{app}\concat.ico"; Tasks: desktopicon
+Name: "{autoprograms}\128 pixeles video (modo seguro)"; Filename: "{app}\128 pixeles video.exe"; Parameters: "--software"; IconFilename: "{app}\128 pixeles video.ico"
+Name: "{autodesktop}\128 pixeles video"; Filename: "{app}\128 pixeles video.exe"; IconFilename: "{app}\128 pixeles video.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\concat.exe"; Description: "{cm:LaunchProgram,Concat}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\128 pixeles video.exe"; Description: "{cm:LaunchProgram,128 pixeles video}"; Flags: nowait postinstall skipifsilent

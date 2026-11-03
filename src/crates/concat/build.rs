@@ -115,11 +115,11 @@ fn main() {
         // build, where the default would be the crate's lower-case name.
         winresource::WindowsResource::new()
             .set_icon(icon)
-            .set("ProductName", "Concat")
-            .set("FileDescription", "Concat")
+            .set("ProductName", "128 pixeles video")
+            .set("FileDescription", "128 pixeles video")
             .set(
                 "LegalCopyright",
-                "Copyright 2026 Jareer Abdullah and Concat contributors, AGPL-3.0-or-later",
+                "128 Pixeles. Based on Concat, Copyright 2026 Jareer Abdullah and Concat contributors, AGPL-3.0-or-later",
             )
             .compile()
             .expect("could not embed the Windows icon");
