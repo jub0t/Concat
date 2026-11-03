@@ -260,6 +260,7 @@ struct CaptionsPanel: View {
     @AppStorage("captionWords") private var words = 3
     @State private var working = false
     @State private var status = ""
+    @State private var summary: String?
     @State private var error: String?
 
     var body: some View {
@@ -267,8 +268,10 @@ struct CaptionsPanel: View {
             Text("Listens to the video you're editing (clips, voiceovers and extracted audio, not music) and adds captions timed to your timeline. Edit the video first, or generate again after big changes. Runs on device when the language is installed, otherwise through Apple's speech service.")
                 .font(.caption).foregroundStyle(Theme.secondaryText)
             Chips(options: Captioner.languages.map { ($0.id, $0.name) }, selection: $language)
-            Stepper("Up to \(words) word\(words == 1 ? "" : "s") per caption", value: $words, in: 1...8)
-                .font(.subheadline)
+            SectionLabel("Words on screen at once")
+            Chips(options: [(1, "1 word"), (3, "3 words"), (5, "5 words"), (8, "8 words"), (20, "Full sentence")], selection: $words)
+            Text("Captions cover the whole video; this only sets how much of it shows at a time.")
+                .font(.caption).foregroundStyle(Theme.secondaryText)
             HStack {
                 Button {
                     Task { await generate() }
@@ -296,18 +299,27 @@ struct CaptionsPanel: View {
                     Text(status).font(.caption).foregroundStyle(Theme.secondaryText)
                 }
             }
+            if let summary, !working {
+                Label(summary, systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+            }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
+        .onAppear { if ![1, 3, 5, 8, 20].contains(words) { words = 3 } }
     }
 
     private func generate() async {
         working = true
+        summary = nil
         error = nil
         defer { working = false; status = "" }
         if model.isPlaying { model.togglePlay() }
         do {
             let captions = try await Captioner.captions(for: model.project, locale: language, wordsPerCaption: words) { status = $0 }
             model.replaceCaptions(captions)
+            if let first = captions.first, let last = captions.last {
+                summary = "Added \(captions.count) caption\(captions.count == 1 ? "" : "s"), from \(first.start.timecode) to \(last.end.timecode) of \(model.duration.timecode)"
+            }
         } catch {
             self.error = error.localizedDescription
         }
