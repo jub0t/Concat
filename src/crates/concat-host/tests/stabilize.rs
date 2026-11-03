@@ -299,6 +299,8 @@ fn a_shaky_shot_is_measured_and_held_still() {
                     moving: false,
                     proxy: false,
                     color_space: ColorSpace::default(),
+                    // The exact frame: this compares it with the export's.
+                    nearest: false,
                 },
             )
             .expect("the monitor draws");
