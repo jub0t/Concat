@@ -322,6 +322,7 @@ struct CaptionsPanel: View {
             }
         } catch {
             self.error = error.localizedDescription
+            model.errorMessage = "Couldn't make captions: \(error.localizedDescription)"
         }
     }
 }
