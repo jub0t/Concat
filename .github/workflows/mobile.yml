@@ -166,6 +166,18 @@ jobs:
         with:
           path: src/vendor/ffmpeg/${{ matrix.target }}
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src
+          key: ${{ matrix.target }}
+
+      # Set up build environment before fetching sherpa-onnx so NDK paths are known
+      - name: Set up mobile build env
+        working-directory: src
+        run: |
+          eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" >> "$GITHUB_ENV"
 
       - name: Android libraries
         run: src/scripts/android-libs.sh ${{ matrix.target }}
