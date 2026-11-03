@@ -5,12 +5,13 @@ import SwiftUI
 /// Creates the editor model once per presentation.
 struct EditorHost: View {
     let project: Project
+    var startTool: HomeTool?
     @Environment(ProjectStore.self) private var store
     @State private var model: EditorModel?
 
     var body: some View {
         Group {
-            if let model { EditorView(model: model) } else { Theme.background.ignoresSafeArea() }
+            if let model { EditorView(model: model, startTool: startTool) } else { Theme.background.ignoresSafeArea() }
         }
         .task { if model == nil { model = EditorModel(project: project, store: store) } }
     }
@@ -32,8 +33,12 @@ enum PickerTarget { case mainTrack, overlay }
 
 struct EditorView: View {
     @Bindable var model: EditorModel
+    var startTool: HomeTool?
     @Environment(\.dismiss) private var dismiss
     @State private var panel: Panel?
+    /// What was selected when the panel opened; the panel only closes when that changes.
+    @State private var panelOwner: Selection?
+    @State private var startedTool = false
     @State private var menu: ToolMenu = .root
     @State private var showExport = false
     @State private var picker: PickerTarget?
@@ -65,8 +70,13 @@ struct EditorView: View {
         }
         .background(Theme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .task {
+            guard let startTool, !startedTool else { return }
+            startedTool = true
+            start(startTool)
+        }
         .onChange(of: model.selection) { old, new in
-            if old != new, !(panel.map(Self.keepsPanel) ?? false) { panel = nil }
+            if old != new, new != panelOwner, !(panel.map(Self.keepsPanel) ?? false) { panel = nil }
             if new != nil { menu = .root }
         }
         .photosPicker(isPresented: Binding(get: { picker != nil }, set: { if !$0 && pickerItems.isEmpty { picker = nil } }),
@@ -110,7 +120,30 @@ struct EditorView: View {
     }
 
     private func open(_ p: Panel) {
+        panelOwner = model.selection
         withAnimation(.snappy(duration: 0.22)) { panel = p }
+    }
+
+    /// Opens the tool picked on the home screen.
+    private func start(_ tool: HomeTool) {
+        switch tool {
+        case .captions: open(.captions)
+        case .tts: open(.tts)
+        case .music: open(.music)
+        case .record: open(.record)
+        case .fonts:
+            model.addText()
+            open(.text(.font))
+        case .transitions: open(.transition(1))
+        case .removeBG, .effects, .keyframes, .voiceFX:
+            guard model.selectClipAtPlayhead() else { return }
+            switch tool {
+            case .removeBG: open(.cutout)
+            case .effects: open(.effects)
+            case .keyframes: open(.animate)
+            default: open(.voiceFX)
+            }
+        }
     }
 
     // MARK: Top and transport

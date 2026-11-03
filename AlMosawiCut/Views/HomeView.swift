@@ -3,7 +3,11 @@ import SwiftUI
 
 struct HomeView: View {
     @Environment(ProjectStore.self) private var store
-    @State private var openProject: Project?
+    @State private var openRequest: OpenRequest?
+    /// A home-screen tool waiting for the user to pick which project to use it in.
+    @State private var toolChoice: HomeTool?
+    /// The tool to open once a new project has been made from Photos.
+    @State private var newProjectTool: HomeTool?
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var showPicker = false
     @State private var importing = false
@@ -29,7 +33,7 @@ struct HomeView: View {
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(store.projects) { project in
                                 ProjectCard(project: project)
-                                    .onTapGesture { openProject = project }
+                                    .onTapGesture { openRequest = OpenRequest(project: project) }
                                     .contextMenu {
                                         Button("Rename", systemImage: "pencil") { newName = project.name; renaming = project }
                                         Button("Duplicate", systemImage: "plus.square.on.square") { store.duplicate(project) }
@@ -53,11 +57,21 @@ struct HomeView: View {
             #if DEBUG
             .task {
                 // `-open` jumps straight into the newest project when launching from Xcode.
-                if ProcessInfo.processInfo.arguments.contains("-open") { openProject = store.projects.first }
+                if ProcessInfo.processInfo.arguments.contains("-open") { openRequest = store.projects.first.map { OpenRequest(project: $0) } }
             }
             #endif
-            .fullScreenCover(item: $openProject, onDismiss: { store.reload() }) { project in
-                EditorHost(project: project)
+            .fullScreenCover(item: $openRequest, onDismiss: { store.reload() }) { request in
+                EditorHost(project: request.project, startTool: request.tool)
+            }
+            .confirmationDialog(toolChoice?.title ?? "", isPresented: Binding(get: { toolChoice != nil }, set: { if !$0 { toolChoice = nil } }),
+                                titleVisibility: .visible) {
+                if let tool = toolChoice {
+                    if let latest = store.projects.first {
+                        Button("Use in “\(latest.name)”") { afterDialog { openRequest = OpenRequest(project: latest, tool: tool) } }
+                    }
+                    Button("New project from Photos") { newProjectTool = tool; afterDialog { showPicker = true } }
+                    Button("Cancel", role: .cancel) {}
+                }
             }
             .alert("Rename project", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $newName)
@@ -96,7 +110,7 @@ struct HomeView: View {
     }
 
     private var newProjectCard: some View {
-        Button { showPicker = true } label: {
+        Button { newProjectTool = nil; showPicker = true } label: {
             HStack(spacing: 16) {
                 Image(systemName: "plus")
                     .font(.system(size: 26, weight: .bold))
@@ -122,27 +136,43 @@ struct HomeView: View {
     private var features: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                feature("captions.bubble.fill", "Auto captions")
-                feature("person.crop.rectangle", "Remove BG")
-                feature("text.bubble.fill", "Text to speech")
-                feature("sparkles", "Effects")
-                feature("square.split.diagonal.2x2", "Transitions")
-                feature("diamond.fill", "Keyframes")
-                feature("waveform", "Voice FX")
+                ForEach(HomeTool.allCases) { tool in
+                    Button { pick(tool) } label: {
+                        Label(tool.title, systemImage: tool.icon)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 12).frame(height: 32)
+                            .background(Theme.surface, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(PressStyle())
+                    .foregroundStyle(.white)
+                }
             }
         }
     }
 
-    private func feature(_ icon: String, _ title: String) -> some View {
-        Label(title, systemImage: icon)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 12).frame(height: 32)
-            .background(Theme.surface, in: Capsule())
+    /// Presenting straight from a dialog's button can be dropped while it animates away.
+    private func afterDialog(_ action: @escaping @MainActor () -> Void) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            action()
+        }
+    }
+
+    /// With no projects yet, a tool starts a new one; otherwise ask which to use.
+    private func pick(_ tool: HomeTool) {
+        if store.projects.isEmpty {
+            newProjectTool = tool
+            showPicker = true
+        } else {
+            toolChoice = tool
+        }
     }
 
     private func createProject(from items: [PhotosPickerItem]) async {
         importing = true
-        defer { importing = false; pickerItems = [] }
+        let tool = newProjectTool
+        defer { importing = false; pickerItems = []; newProjectTool = nil }
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
         var project = store.create(named: "Project " + formatter.string(from: Date()))
@@ -150,7 +180,50 @@ struct HomeView: View {
         project.clips = clips
         store.save(project)
         if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
-        if !clips.isEmpty { openProject = project }
+        if !clips.isEmpty { openRequest = OpenRequest(project: project, tool: tool) }
+    }
+}
+
+/// A project to open, and optionally a tool to open it at.
+struct OpenRequest: Identifiable {
+    let id = UUID()
+    var project: Project
+    var tool: HomeTool?
+}
+
+/// Shortcuts on the home screen into the editor's main tools.
+enum HomeTool: String, CaseIterable, Identifiable {
+    case captions, removeBG, tts, record, music, fonts, effects, transitions, keyframes, voiceFX
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .captions: "Auto captions"
+        case .removeBG: "Remove BG"
+        case .tts: "Text to speech"
+        case .record: "Voiceover"
+        case .music: "Add audio"
+        case .fonts: "My fonts"
+        case .effects: "Effects"
+        case .transitions: "Transitions"
+        case .keyframes: "Keyframes"
+        case .voiceFX: "Voice FX"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .captions: "captions.bubble.fill"
+        case .removeBG: "person.crop.rectangle"
+        case .tts: "text.bubble.fill"
+        case .record: "mic.fill"
+        case .music: "music.note.list"
+        case .fonts: "textformat"
+        case .effects: "sparkles"
+        case .transitions: "square.split.diagonal.2x2"
+        case .keyframes: "diamond.fill"
+        case .voiceFX: "waveform"
+        }
     }
 }
 
