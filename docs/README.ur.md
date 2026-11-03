@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · **🇵🇰 اردو** · [🇧🇩 বাংলা](README.bn.md)
@@ -74,7 +74,7 @@ Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر اور macOS، 
 
 دو راستے:
 
-1. **[ویب سائٹ](https://concatenate.pages.dev/#download)** آپ کی مشین کے لیے درست بلڈ دیتی ہے۔ یہیں سے شروع کریں۔
+1. **[ویب سائٹ](https://concat.standalones.org/#download)** آپ کی مشین کے لیے درست بلڈ دیتی ہے۔ یہیں سے شروع کریں۔
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** پر ہر پلیٹ فارم کی ہر بلڈ ہے، انسٹالرز، پیکجز اور چیک سمز کے ساتھ۔ جب آپ خود چننا چاہیں۔
 
 Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی اس میں کچھ کھردرا پن ہے۔ کوئی ملے تو [بتائیں](https://github.com/jub0t/Concat/issues)۔
@@ -89,7 +89,7 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 
 ✅ معاون · 🚧 کام جاری · 🧪 آزمائش باقی
 
-**سسٹم کی ضروریات** اور اختیاری ماڈلز کے سائز [ویب سائٹ](https://concatenate.pages.dev/guides/system-requirements) پر ہیں۔
+**سسٹم کی ضروریات** اور اختیاری ماڈلز کے سائز [ویب سائٹ](https://concat.standalones.org/guides/system-requirements) پر ہیں۔
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 > [!IMPORTANT]
 > حصہ ڈالنے کا بہترین طریقہ یہ ہے کہ [Releases](https://github.com/jub0t/Concat/releases) صفحے سے ایک بلڈ لیں اور اسے استعمال کریں: معلوم کریں کہاں ٹوٹتا ہے، اور بتائیں کہاں بہتر ہو سکتا ہے۔
 >
-> کوڈ لکھنے کو تیار ہیں؟ [CONTRIBUTING.md](../CONTRIBUTING.md) میں سیٹ اپ، ٹری کی ترتیب، چلائی جانے والی جانچیں اور شراکتوں کے لائسنس کی تفصیل ہے۔ کسی اسکرپٹ، سروس یا ایجنٹ سے Concat چلا رہے ہیں؟ [ڈویلپر دستاویزات](https://concatenate.pages.dev/docs) میں Concat API اور اس کے ٹرانسپورٹس ہیں: JSON-RPC اور gRPC۔ پراجیکٹ کا اعلان [اس Discussion](https://github.com/jub0t/Concat/discussions/3) میں ہوا تھا۔
+> کوڈ لکھنے کو تیار ہیں؟ [CONTRIBUTING.md](../CONTRIBUTING.md) میں سیٹ اپ، ٹری کی ترتیب، چلائی جانے والی جانچیں اور شراکتوں کے لائسنس کی تفصیل ہے۔ کسی اسکرپٹ، سروس یا ایجنٹ سے Concat چلا رہے ہیں؟ [ڈویلپر دستاویزات](https://concat.standalones.org/docs) میں Concat API اور اس کے ٹرانسپورٹس ہیں: JSON-RPC اور gRPC۔ پراجیکٹ کا اعلان [اس Discussion](https://github.com/jub0t/Concat/discussions/3) میں ہوا تھا۔
 > 
 > شراکت دار Discord سرور پر `@Contributor` رول لے سکتے ہیں: بس مانگ لیں۔
 
