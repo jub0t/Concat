@@ -9,6 +9,7 @@ rust-version = "1.93"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
+concat-ai = { path = "crates/concat-ai" }
 concat-core = { path = "crates/concat-core" }
 concat-media = { path = "crates/concat-media" }
 concat-project = { path = "crates/concat-project" }

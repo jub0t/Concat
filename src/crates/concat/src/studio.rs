@@ -907,6 +907,9 @@ const ENHANCE_MARGIN: f64 = 1.0;
 pub struct Studio {
     pub host: Host,
     pub prefs: Preferences,
+    /// The AI edit sheet's run-time state: its prompt, its fetched free
+    /// models, and the plan waiting for Apply. See `crate::ai`.
+    pub ai: crate::ai::AiState,
     /// What each effect library is showing, indexed the way `SHELF_KINDS`
     /// is: 0 filters, 1 effects, 2 audio.
     pub library: [LibraryView; 4],
@@ -2547,6 +2550,7 @@ impl Studio {
         let text_presets = presets::all(&host.dirs);
         let mut studio = Self {
             prefs,
+            ai: crate::ai::AiState::default(),
             library: Default::default(),
             session: None,
             echo: None,
@@ -9883,6 +9887,7 @@ impl Studio {
             }
         };
         let editor = app.global::<Editor>();
+        self.publish_ai(app);
         editor.set_keys_undo(hint("undo").into());
         editor.set_keys_redo(hint("redo").into());
         editor.set_keys_split(hint("split").into());

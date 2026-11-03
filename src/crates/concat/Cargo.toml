@@ -141,6 +141,7 @@ pollster.workspace = true
 
 # The engine, through the host layer. `gpu` turns on the wgpu compositor for
 # the monitor and the export; the CPU compositor stays as the fallback.
+concat-ai.workspace = true
 concat-core.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
