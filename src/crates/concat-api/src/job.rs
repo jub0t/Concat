@@ -96,6 +96,10 @@ impl Book {
                 status.output = output.clone();
                 status.width = Some(*width);
                 status.height = Some(*height);
+                // Progress is said at most so often, so the last frame
+                // count heard can trail the end; a done job rendered them
+                // all (#595).
+                status.frame = status.total;
                 status.fraction = 1.0;
             }
             Event::ExportFailed { error, .. } => {
@@ -191,6 +195,32 @@ mod tests {
         assert_eq!((done.width, done.height), (Some(16), Some(9)));
         assert_eq!(book.cancel_all(), 0, "a finished job has no flag to raise");
         assert!(book.status("j2").is_none());
+    }
+
+    #[test]
+    fn a_finished_job_reports_every_frame_rendered() {
+        // Progress is throttled, so the last one said can trail the end:
+        // a done job still counts every frame (#595).
+        let book = Book::default();
+        begun(&book, "j1");
+        book.record(&Event::ExportProgress {
+            job: "j1".to_owned(),
+            path: "/p".to_owned(),
+            frame: 135,
+            total: 150,
+            stage: "rendering".to_owned(),
+        });
+        book.record(&Event::ExportDone {
+            job: "j1".to_owned(),
+            path: "/p".to_owned(),
+            output: "/o.mp4".to_owned(),
+            width: 16,
+            height: 9,
+        });
+        let done = book.status("j1").expect("still known");
+        assert_eq!(done.state, JobState::Done);
+        assert_eq!((done.frame, done.total), (150, 150));
+        assert!((done.fraction - 1.0).abs() < 1e-9);
     }
 
     #[test]
