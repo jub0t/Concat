@@ -1487,10 +1487,11 @@ const NO_RENDERER: &str = "this device's GPU could not be used to draw with";
 const NO_RENDERER: &str = "no GPU or software renderer is available to draw with";
 
 /// How many times an export's device may die under it before the export
-/// gives up: the first death is answered with a fresh device on the GPU,
-/// which a reset adapter opens again; the next with the software adapter,
-/// which draws the same picture however slowly; a third says the machine
-/// cannot draw this export at all.
+/// gives up: the first death is answered on the GPU again - on the device
+/// the export was lent, where it was lent one, and otherwise a fresh
+/// device, which a reset adapter opens again; the next with the software
+/// adapter, which draws the same picture however slowly; a third says the
+/// machine cannot draw this export at all.
 const DEVICE_LOSSES: u32 = 3;
 
 /// A compositor to go on with after the export's device died, `losses`
@@ -1504,7 +1505,22 @@ const DEVICE_LOSSES: u32 = 3;
 /// already encoded are kept and the next is drawn on the new device. A
 /// device that stops answering for [`concat_render::gpu::DEVICE_WAIT`], or
 /// reports an error under a frame, counts as lost too (#297).
-fn recovered(losses: u32, hdr: bool) -> Result<WgpuCompositor, String> {
+///
+/// `lent` is the dead compositor when the export was lent the window's
+/// device. The first death then goes on in a sibling of it: the same
+/// device, with pools and caches of its own, so whatever the dead one held
+/// is let go. "Lost" is mostly that - a frame out of memory or refused -
+/// and the device itself lives on. A device opened afresh instead is the
+/// second road through the driver that [`render_on`] exists to avoid: on a
+/// laptop with two GPUs it is the discrete one while the window draws on
+/// the other, and the driver ended the app there (#202; audit 2026-10-20,
+/// H7). Where the device itself has died, the sibling's first frame fails
+/// too, and the second death goes to the software adapter as before.
+fn recovered(
+    losses: u32,
+    hdr: bool,
+    lent: Option<&WgpuCompositor>,
+) -> Result<WgpuCompositor, String> {
     if losses >= DEVICE_LOSSES {
         return Err(format!(
             "the GPU device was lost {losses} times part way through the export - reset, \
@@ -1513,10 +1529,10 @@ fn recovered(losses: u32, hdr: bool) -> Result<WgpuCompositor, String> {
             concat_render::gpu::DEVICE_WAIT.as_secs()
         ));
     }
-    let fresh = if losses == 1 {
-        WgpuCompositor::new()
-    } else {
-        WgpuCompositor::software()
+    let fresh = match (losses, lent) {
+        (1, Some(lent)) => Some(lent.sibling()),
+        (1, None) => WgpuCompositor::new(),
+        _ => WgpuCompositor::software(),
     };
     let mut compositor = fresh.ok_or_else(|| {
         format!("the GPU device was lost part way through the export, and {NO_RENDERER}")
@@ -1583,6 +1599,9 @@ fn render_picture(
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
     let effect_offset = quantise(request.effect_time_offset, rate);
+    // Whether the window lent its device: a death under the export is then
+    // answered on that device again before anything else (see `recovered`).
+    let lent = compositor.is_some();
     let mut compositor = match compositor {
         Some(lent) => lent,
         None => best_compositor()?,
@@ -1850,7 +1869,8 @@ fn render_picture(
                     adapter.name,
                     time.as_f64(),
                 );
-                compositor = recovered(losses, hdr)?;
+                let fresh = recovered(losses, hdr, lent.then_some(&compositor))?;
+                compositor = fresh;
                 composed = composite_treated(
                     &mut EffectClock {
                         inner: &mut compositor,
@@ -4001,14 +4021,36 @@ mod tests {
     /// the export with a message that says how many there were.
     #[test]
     fn an_export_gives_up_after_enough_device_losses() {
-        let Err(error) = recovered(DEVICE_LOSSES, false) else {
+        let Err(error) = recovered(DEVICE_LOSSES, false, None) else {
             panic!("a third loss gives up");
         };
         assert!(error.contains("lost 3 times"), "{error}");
         assert!(error.contains("not answering"), "{error}");
         if WgpuCompositor::new().is_some() {
-            let fresh = recovered(1, true).expect("a machine that draws opens another device");
+            let fresh =
+                recovered(1, true, None).expect("a machine that draws opens another device");
             assert!(!fresh.lost());
+        }
+    }
+
+    /// An export lent the window's device goes on on that device after the
+    /// first loss - a sibling of the dead compositor, on the same adapter -
+    /// rather than opening another, which on a laptop with two GPUs is the
+    /// other chip (audit 2026-10-20, H7). Losses past it go to the software
+    /// adapter, lent or not.
+    #[test]
+    fn a_lent_device_is_drawn_on_again_after_the_first_loss() {
+        let Some(window) = WgpuCompositor::new() else {
+            eprintln!("no adapter here; skipped");
+            return;
+        };
+        let again = recovered(1, false, Some(&window)).expect("a sibling opens on a live device");
+        assert!(!again.lost());
+        let (was, now) = (window.adapter_info(), again.adapter_info());
+        assert_eq!((was.name, was.backend), (now.name, now.backend));
+        if WgpuCompositor::software().is_some() {
+            let slow = recovered(2, false, Some(&window)).expect("the software adapter opens");
+            assert!(slow.on_software_adapter());
         }
     }
 
