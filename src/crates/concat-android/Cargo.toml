@@ -41,7 +41,7 @@ android-build = "0.1"
 # emulator) and the manifest below into an APK. The runtime libraries come
 # from scripts/android-libs.sh.
 [package.metadata.android]
-package = "org.standalones.concat"
+package = "app.concat.editor"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
 runtime_libs = "../../vendor/android/jniLibs"

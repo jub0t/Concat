@@ -693,7 +693,7 @@ mod tests {
             return;
         };
         let support = std::path::Path::new(&home).join("Library/Application Support");
-        let Some(bytes) = ["org.standalones.concat", "app.concat.editor"]
+        let Some(bytes) = ["app.concat.editor", "org.standalones.concat"]
             .iter()
             .map(|id| {
                 support

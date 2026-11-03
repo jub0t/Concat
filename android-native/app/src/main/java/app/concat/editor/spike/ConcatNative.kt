@@ -1,4 +1,4 @@
-package org.standalones.concat.spike
+package app.concat.editor.spike
 
 import android.content.Context
 import android.view.Surface

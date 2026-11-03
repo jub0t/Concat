@@ -21,12 +21,16 @@
 
 use std::path::{Path, PathBuf};
 
-/// The app identifier, which is also the folder name everywhere.
-pub const IDENTIFIER: &str = "org.standalones.concat";
+/// The app identifier, which is also the folder name everywhere. Every
+/// release so far has used it; a phone treats a new one as another app,
+/// so it changes only with a domain of the project's own behind it.
+pub const IDENTIFIER: &str = "app.concat.editor";
 
-/// The identifier every build before 2026-10-26 used, whose folders
-/// [`adopt`] moves to [`IDENTIFIER`]'s on first start.
-const FORMER_IDENTIFIER: &str = "app.concat.editor";
+/// The identifier builds of `main` used between 2026-10-26 and
+/// 2026-11-04, never released. Those builds moved the folder to it and
+/// left a link at the old name, which [`IDENTIFIER`] now finds again;
+/// [`adopt`] moves the folder back where there is no link.
+const FORMER_IDENTIFIER: &str = "org.standalones.concat";
 
 /// The app's own directories on this machine.
 #[derive(Clone, Debug)]

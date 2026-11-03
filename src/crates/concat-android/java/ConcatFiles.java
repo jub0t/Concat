@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
-package org.standalones.concat;
+package app.concat.editor;
 
 import android.Manifest;
 import android.app.Activity;

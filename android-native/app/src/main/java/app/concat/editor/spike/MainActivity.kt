@@ -1,4 +1,4 @@
-package org.standalones.concat.spike
+package app.concat.editor.spike
 
 import android.net.Uri
 import android.os.Bundle
