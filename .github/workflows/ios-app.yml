@@ -90,7 +90,10 @@ jobs:
           sleep 12
           xcrun simctl io "$DEVICE" screenshot editor.png
 
-          if ! xcrun simctl spawn "$DEVICE" launchctl list | grep -q "$BUNDLE_ID"; then
+          # Save the list first: grep -q stops reading early, and under pipefail the
+          # writer's broken pipe would read as "not running".
+          xcrun simctl spawn "$DEVICE" launchctl list > processes.txt
+          if ! grep -q "$BUNDLE_ID" processes.txt; then
             echo "::error::AlMosawiCut is not running after opening the editor (crashed?)"
             xcrun simctl spawn "$DEVICE" log show --last 2m --predicate 'process == "AlMosawiCut"' | tail -80 || true
             exit 1
