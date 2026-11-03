@@ -560,6 +560,36 @@ fn opus_encoder() -> Result<(&'static str, Sample)> {
     })
 }
 
+/// The AAC encoder to mix into and the samples it takes: the platform's
+/// own where FFmpeg wraps one - Apple's AudioToolbox, Windows' Media
+/// Foundation - whose makers license AAC, so Concat carries no encoder of
+/// its own for it there; FFmpeg's elsewhere, until a phone's and a Linux
+/// system's take its place. Both platform encoders take 16-bit samples.
+fn aac_encoder() -> Result<(&'static str, Sample)> {
+    let platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
+        Some("aac_at")
+    } else if cfg!(target_os = "windows") {
+        Some("aac_mf")
+    } else {
+        None
+    };
+    if let Some(name) = platform
+        && encoder::find_by_name(name).is_some()
+    {
+        return Ok((
+            name,
+            Sample::I16(ffmpeg::util::format::sample::Type::Packed),
+        ));
+    }
+    if encoder::find_by_name("aac").is_some() {
+        return Ok(("aac", MIX_FORMAT));
+    }
+    Err(Error::Missing {
+        what: "encoder",
+        name: "aac".to_owned(),
+    })
+}
+
 /// Mixes `clips` into one audio file at `destination`: 16-bit PCM for a
 /// `.wav` destination (case-insensitive), Opus for a `.webm`, `.opus`,
 /// `.ogg` or `.mka` one, AAC otherwise, at 48 kHz stereo.
@@ -590,7 +620,7 @@ pub fn mix_to_file_with(
     } else if opus {
         opus_encoder()?
     } else {
-        ("aac", MIX_FORMAT)
+        aac_encoder()?
     };
     // A bad chain is refused before any file is opened.
     for chain in clips
@@ -657,6 +687,12 @@ pub fn mix_to_file_with(
         .unwrap_or(ffmpeg::Rational::new(1, MIX_RATE as i32));
 
     let encoder_time_base = ffmpeg::Rational::new(1, MIX_RATE as i32);
+    // The samples the mix feeds, to the last one. A packet reaching past
+    // them is cut to end there, and one wholly past them, padding alone, is
+    // dropped, so the muxer trims the encoder's padding: FFmpeg's AAC
+    // encoder cuts its last packet itself, Apple's does not, and 6 s came
+    // out as 6.036 - a frame more of every video it went in.
+    let samples = (duration.max(0.0) * f64::from(MIX_RATE)).round() as i64;
     let drain = |encoder: &mut encoder::audio::Encoder,
                  output: &mut ffmpeg::format::context::Output|
      -> Result<()> {
@@ -664,6 +700,14 @@ pub fn mix_to_file_with(
             let mut packet = ffmpeg::Packet::empty();
             match encoder.receive_packet(&mut packet) {
                 Ok(()) => {
+                    if let Some(pts) = packet.pts() {
+                        if pts >= samples {
+                            continue;
+                        }
+                        if pts + packet.duration() > samples {
+                            packet.set_duration(samples - pts);
+                        }
+                    }
                     packet.set_stream(0);
                     packet.rescale_ts(encoder_time_base, stream_time_base);
                     packet
