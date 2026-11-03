@@ -160,8 +160,8 @@ impl VideoCodec {
     ///
     /// The alpha codecs have one encoder each, on the CPU everywhere:
     /// FFmpeg's own ProRes encoder, which every build carries, a phone's
-    /// too, and libvpx for VP9, which the desktops' GPL builds and Homebrew
-    /// link and a phone's LGPL build does not. No hardware encoder here
+    /// too, and libvpx for VP9, which the desktops' builds link and a
+    /// phone's does not. No hardware encoder here
     /// takes an alpha layer.
     ///
     /// H.264 and HEVC are the platform's alone: Concat carries no encoder
