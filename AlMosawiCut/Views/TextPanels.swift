@@ -118,11 +118,22 @@ struct TextPanel: View {
                 }
             }
             if let fontError { Text(fontError).font(.caption).foregroundStyle(.red) }
-            if let name = item.customFont, !library.fonts.contains(where: { $0.postScriptName == name }) {
+            if let name = item.customFont, !library.isInstalled(name) {
                 Text("“\(name)” isn't installed on this device, so the built-in font below is used.")
                     .font(.caption).foregroundStyle(Theme.secondaryText)
             }
-            SectionLabel("Built in")
+            if !library.bundled.isEmpty {
+                SectionLabel("Title fonts")
+                LazyVGrid(columns: fontsGrid, spacing: 8) {
+                    ForEach(library.bundled) { entry in
+                        fontTile(sample: Font(TextRasterizer.customFont(entry.postScriptName, size: 19, bold: false) ?? .systemFont(ofSize: 19)),
+                                 name: entry.displayName, on: item.customFont == entry.postScriptName) {
+                            custom.wrappedValue = entry.postScriptName
+                        }
+                    }
+                }
+            }
+            SectionLabel("iOS fonts")
             LazyVGrid(columns: fontsGrid, spacing: 8) {
                 ForEach(TextFont.allCases) { f in
                     fontTile(sample: Font(TextRasterizer.font(f, size: 19, bold: item.bold)), name: f.label,
@@ -213,16 +224,60 @@ struct TextTemplatesPanel: View {
         ("Elegant", TextOverlay(text: "Elegant", color: .white, accent: .black, size: 0.09, bold: false, style: .shadow, font: .script, animationIn: .fade, animationOut: .fade)),
     ]
 
+    /// Concat's title presets, drawn in the same open-licence fonts (bundled in Fonts/).
+    static let concatPresets: [(String, TextOverlay)] = [
+        ("Poster", TextOverlay(text: "POSTER", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.144, bold: false, style: .shadow, customFont: "BebasNeue-Regular", tracking: 0.03)),
+        ("Bold caption", TextOverlay(text: "Bold caption", color: RGBA(r: 1, g: 1, b: 1), accent: RGBA(r: 0, g: 0, b: 0), size: 0.056, bold: false, style: .outline, customFont: "Montserrat-Black", y: 0.8)),
+        ("Comic", TextOverlay(text: "POW!", color: RGBA(r: 1, g: 0.882, b: 0.29), accent: RGBA(r: 0.067, g: 0.067, b: 0.067), size: 0.112, bold: false, style: .outline, customFont: "Bangers-Regular", tracking: 0.02)),
+        ("Editorial", TextOverlay(text: "Editorial", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.08, bold: false, style: .plain, customFont: "DMSerifDisplay-Italic")),
+        ("Retro", TextOverlay(text: "Retro", color: RGBA(r: 1, g: 0.435, b: 0.71), accent: RGBA(r: 0.227, g: 0.043, b: 0.165), size: 0.08, bold: false, style: .outline, customFont: "Pacifico-Regular")),
+        ("Tech", TextOverlay(text: "Tech", color: RGBA(r: 0.608, g: 0.906, b: 1), accent: .black, size: 0.064, bold: false, style: .plain, customFont: "SpaceGrotesk-Medium", tracking: 0.02)),
+        ("Block", TextOverlay(text: "Block", color: RGBA(r: 0.067, g: 0.067, b: 0.067), accent: RGBA(r: 1, g: 0.882, b: 0.29), size: 0.056, bold: false, style: .box, customFont: "ArchivoBlack-Regular")),
+        ("Marker", TextOverlay(text: "Marker", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.072, bold: false, style: .shadow, customFont: "PermanentMarker-Regular")),
+        ("Impact", TextOverlay(text: "IMPACT", color: RGBA(r: 1, g: 1, b: 1), accent: RGBA(r: 0, g: 0, b: 0), size: 0.12, bold: false, style: .outline, customFont: "Anton-Regular")),
+        ("Fashion", TextOverlay(text: "Fashion", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.088, bold: false, style: .plain, customFont: "AbrilFatface-Regular")),
+        ("Pixel", TextOverlay(text: "Pixel", color: RGBA(r: 0.49, g: 1, b: 0.416), accent: .black, size: 0.072, bold: false, style: .shadow, customFont: "PixelifySans-Regular")),
+        ("Lower third", TextOverlay(text: "Name — Title", color: RGBA(r: 0.063, g: 0.086, b: 0.039), accent: RGBA(r: 0.776, g: 0.957, b: 0.196), size: 0.04, bold: false, style: .box, customFont: "HankenGrotesk-SemiBold", y: 0.82)),
+        ("Western", TextOverlay(text: "WESTERN", color: RGBA(r: 0.949, g: 0.769, b: 0.427), accent: RGBA(r: 0.231, g: 0.122, b: 0.039), size: 0.072, bold: false, style: .outline, customFont: "Frijole")),
+        ("Diner", TextOverlay(text: "Diner", color: RGBA(r: 1, g: 0.302, b: 0.302), accent: RGBA(r: 1, g: 1, b: 1), size: 0.088, bold: false, style: .outline, customFont: "Lobster-Regular")),
+        ("Stencil", TextOverlay(text: "STENCIL", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.096, bold: false, style: .shadow, customFont: "Staatliches-Regular", tracking: 0.04)),
+        ("Cartoon", TextOverlay(text: "Cartoon", color: RGBA(r: 1, g: 0.541, b: 0.239), accent: RGBA(r: 1, g: 1, b: 1), size: 0.096, bold: false, style: .outline, customFont: "LondrinaSolid-Black")),
+        ("Handwritten", TextOverlay(text: "Handwritten", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.08, bold: false, style: .plain, customFont: "CaveatBrush-Regular")),
+        ("Code", TextOverlay(text: "code()", color: RGBA(r: 0.902, g: 0.929, b: 0.953), accent: RGBA(r: 0.051, g: 0.067, b: 0.09, a: 0.902), size: 0.04, bold: false, style: .box, customFont: "GoogleSansCode-Regular")),
+        ("Mission", TextOverlay(text: "MISSION", color: RGBA(r: 0.784, g: 0.839, b: 0.627), accent: .black, size: 0.08, bold: false, style: .shadow, customFont: "BlackOpsOne-Regular")),
+        ("Clean", TextOverlay(text: "Clean", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.064, bold: false, style: .plain, customFont: "Inter-SemiBold")),
+        ("Candy", TextOverlay(text: "Candy", color: RGBA(r: 1, g: 0.604, b: 0.835), accent: RGBA(r: 0.353, g: 0.078, b: 0.251), size: 0.08, bold: false, style: .outline, customFont: "EmilysCandy-Regular")),
+        ("Atomic", TextOverlay(text: "Atomic", color: RGBA(r: 0.498, g: 1, b: 0.831), accent: .black, size: 0.072, bold: false, style: .shadow, customFont: "AtomicAge-Regular")),
+        ("Blackletter", TextOverlay(text: "Headline", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.088, bold: false, style: .shadow, customFont: "GermaniaOne-Regular")),
+        ("Zoo", TextOverlay(text: "ZOO", color: RGBA(r: 1, g: 0.824, b: 0.247), accent: RGBA(r: 0.102, g: 0.102, b: 0.102), size: 0.096, bold: false, style: .outline, customFont: "ZenTokyoZoo-Regular")),
+        ("Hairline", TextOverlay(text: "HAIRLINE", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.072, bold: false, style: .plain, customFont: "BungeeHairline-Regular")),
+        ("Scribble", TextOverlay(text: "Scribble", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.088, bold: false, style: .shadow, customFont: "RubikScribble-Regular")),
+        ("Mystery", TextOverlay(text: "Mystery", color: RGBA(r: 0.788, g: 0.714, b: 1), accent: .black, size: 0.08, bold: false, style: .shadow, customFont: "MysteryQuest")),
+        ("Friendly", TextOverlay(text: "Friendly", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.064, bold: false, style: .shadow, customFont: "HammersmithOne-Regular")),
+        ("Notes", TextOverlay(text: "Notes", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.072, bold: false, style: .plain, customFont: "ShadowsIntoLightTwo-Regular")),
+        ("Japanese", TextOverlay(text: "こんにちは", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.072, bold: false, style: .shadow, customFont: "KosugiMaru-Regular")),
+        ("Hebrew", TextOverlay(text: "שלום", color: RGBA(r: 1, g: 1, b: 1), accent: .black, size: 0.08, bold: false, style: .shadow, customFont: "SecularOne-Regular")),
+    ]
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionLabel("Titles")
+            grid(Self.concatPresets)
+            SectionLabel("Styles")
+            grid(Self.templates)
+        }
+    }
+
+    private func grid(_ items: [(String, TextOverlay)]) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
-            ForEach(Self.templates, id: \.0) { name, t in
+            ForEach(items, id: \.0) { name, t in
                 Button {
                     model.addText(t)
                     open(.text(.edit))
                 } label: {
                     VStack(spacing: 4) {
                         Text(t.text)
-                            .font(Font(TextRasterizer.font(t.font, size: 20, bold: t.bold)))
+                            .font(Font(TextRasterizer.font(for: t, size: 20)))
                             .foregroundStyle(Color(uiColor: t.color.uiColor))
                             .shadow(color: Color(uiColor: t.accent.uiColor), radius: t.style == .glow ? 6 : 1)
                             .padding(.horizontal, 8).padding(.vertical, 4)
@@ -262,11 +317,43 @@ struct CaptionsPanel: View {
     @State private var status = ""
     @State private var summary: String?
     @State private var error: String?
+    @State private var importingSRT = false
+    @AppStorage("captionEngine") private var engineRaw = Captioner.Engine.whisper.rawValue
+    @AppStorage("whisperSize") private var sizeRaw = WhisperEngine.Size.small.rawValue
+    @State private var whisper = WhisperEngine.shared
+    private var engine: Captioner.Engine { Captioner.Engine(rawValue: engineRaw) ?? .whisper }
+    private var size: WhisperEngine.Size { WhisperEngine.Size(rawValue: sizeRaw) ?? .small }
+    @State private var srtFile: URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Listens to the video you're editing (clips, voiceovers and extracted audio, not music) and adds captions timed to your timeline. Edit the video first, or generate again after big changes. Runs on device when the language is installed, otherwise through Apple's speech service.")
+            Text("Makes captions from the sound of the video you're editing (clips, voiceovers and extracted audio, not music), timed to your timeline. Generate again after big changes.")
                 .font(.caption).foregroundStyle(Theme.secondaryText)
+            Picker("Engine", selection: $engineRaw) {
+                ForEach(Captioner.Engine.allCases) { Text($0.label).tag($0.rawValue) }
+            }
+            .pickerStyle(.segmented)
+            if engine == .whisper {
+                Text("Whisper runs on this iPhone. No microphone, permissions or Dictation; offline after a one-time model download.")
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+                SectionLabel("Speech model")
+                Chips(options: WhisperEngine.Size.allCases.map { ($0.rawValue, $0.label + (whisper.isDownloaded($0) ? " ✓" : "")) }, selection: $sizeRaw)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(size.detail + (whisper.isDownloaded(size) ? " Downloaded." : " Downloads on first use."))
+                        .font(.caption).foregroundStyle(Theme.secondaryText)
+                    Spacer()
+                    if whisper.isDownloaded(size), !working {
+                        Button("Remove", role: .destructive) { whisper.delete(size) }
+                            .font(.caption.weight(.semibold)).buttonStyle(.plain).foregroundStyle(.red)
+                    }
+                }
+                if let p = whisper.downloadProgress {
+                    ProgressView(value: p) { Text("Downloading \(Int(p * 100))%").font(.caption) }
+                }
+            } else {
+                Text("Uses Apple's speech recognition: iOS asks for permission once, and Dictation must be on in Settings › General › Keyboard.")
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+            }
             Chips(options: Captioner.languages.map { ($0.id, $0.name) }, selection: $language)
             SectionLabel("Words on screen at once")
             Chips(options: [(1, "1 word"), (3, "3 words"), (5, "5 words"), (8, "8 words"), (20, "Full sentence")], selection: $words)
@@ -293,6 +380,26 @@ struct CaptionsPanel: View {
                         .buttonStyle(.plain)
                 }
             }
+            HStack(spacing: 8) {
+                Button { importingSRT = true } label: {
+                    Label("Import .srt", systemImage: "square.and.arrow.down").font(.caption.weight(.bold))
+                }
+                if let srtFile {
+                    ShareLink(item: srtFile) {
+                        Label("Share .srt", systemImage: "square.and.arrow.up").font(.caption.weight(.bold))
+                    }
+                } else if model.project.texts.contains(where: \.isCaption) {
+                    Button { srtFile = writeSRT() } label: {
+                        Label("Export .srt", systemImage: "doc.text").font(.caption.weight(.bold))
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .onChange(of: model.project.texts) { _, _ in srtFile = nil }
+            .fileImporter(isPresented: $importingSRT, allowedContentTypes: Self.srtTypes) { result in
+                guard case .success(let url) = result else { return }
+                importSRT(url)
+            }
             if working, !status.isEmpty {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -308,6 +415,44 @@ struct CaptionsPanel: View {
         .onAppear { if ![1, 3, 5, 8, 20].contains(words) { words = 3 } }
     }
 
+    private static let srtTypes: [UTType] = [UTType(filenameExtension: "srt"), .plainText, .text].compactMap { $0 }
+
+    private func writeSRT() -> URL? {
+        let captions = model.project.texts.filter(\.isCaption)
+        let name = model.project.name.replacingOccurrences(of: "/", with: "-")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).srt")
+        do {
+            try SRT.export(captions).write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            model.errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Captions from a subtitle file, styled like auto captions (or like the existing ones).
+    private func importSRT(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+            model.errorMessage = "Couldn't read that subtitle file."
+            return
+        }
+        let cues = SRT.parse(text)
+        guard !cues.isEmpty else { model.errorMessage = "No subtitles were found in that file."; return }
+        let look = model.project.texts.first(where: \.isCaption)
+            ?? Captioner.group([Captioner.Word(text: "x", start: 0, duration: 1)], max: 1)[0]
+        let captions = cues.map { cue -> TextOverlay in
+            var c = look
+            c.id = UUID(); c.text = cue.text; c.start = cue.start; c.duration = cue.end - cue.start; c.isCaption = true
+            return c
+        }
+        model.replaceCaptions(captions)
+        summary = "Imported \(captions.count) caption\(captions.count == 1 ? "" : "s") from \(url.lastPathComponent)"
+        if let first = captions.first { model.seek(to: first.start + 0.05) }
+    }
+
     private func generate() async {
         working = true
         summary = nil
@@ -315,7 +460,8 @@ struct CaptionsPanel: View {
         defer { working = false; status = "" }
         if model.isPlaying { model.togglePlay() }
         do {
-            let captions = try await Captioner.captions(for: model.project, locale: language, wordsPerCaption: words) { status = $0 }
+            let captions = try await Captioner.captions(for: model.project, locale: language, wordsPerCaption: words,
+                                                        engine: engine, model: size) { status = $0 }
             model.replaceCaptions(captions)
             if let first = captions.first, let last = captions.last {
                 // Show the first caption on the preview straight away.

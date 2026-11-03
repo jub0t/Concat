@@ -8,11 +8,21 @@ settings:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: GJ4AP2CYA7
     CODE_SIGN_STYLE: Automatic
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    minorVersion: 1.1.1
 targets:
   AlMosawiCut:
     type: application
     platform: iOS
-    sources: [AlMosawiCut]
+    sources:
+      - path: AlMosawiCut
+        excludes: [Fonts]
+      - path: AlMosawiCut/Fonts
+        type: folder
+    dependencies:
+      - package: WhisperKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.almosawi.AlMosawiCut

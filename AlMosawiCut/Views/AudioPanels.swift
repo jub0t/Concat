@@ -19,6 +19,8 @@ struct VoiceFXPanel: View {
                     toggle("Reduce noise", "waveform.badge.minus", Binding(get: { cleanup.wrappedValue.denoise }, set: { cleanup.wrappedValue.denoise = $0 }))
                     toggle("Normalize", "chart.bar.fill", Binding(get: { cleanup.wrappedValue.normalize }, set: { cleanup.wrappedValue.normalize = $0 }))
                 }
+                LabeledSlider(title: "Pitch", value: Binding(get: { cleanup.wrappedValue.pitch }, set: { cleanup.wrappedValue.pitch = ($0 * 2).rounded() / 2 }),
+                              range: -12...12, format: { $0 == 0 ? "0" : String(format: "%+.1f st", $0) }, reset: 0)
                 SectionLabel("Effects")
                 Chips(options: [("Voice", "Voice"), ("Space", "Space"), ("Tone", "Tone")], selection: $category)
                 LazyVGrid(columns: gridColumns, spacing: 8) {

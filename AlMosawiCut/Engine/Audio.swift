@@ -57,6 +57,7 @@ enum AudioProcessor {
                                                  componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0)
             add(AVAudioUnitEffect(audioComponentDescription: desc))
         }
+        if cleanup.pitch != 0 { add(pitch(Float(cleanup.pitch * 100))) }
         for node in nodes(for: effect) { add(node) }
         engine.attach(engine.mainMixerNode)
         for (a, b) in zip(chain, chain.dropFirst()) { engine.connect(a, to: b, format: format) }

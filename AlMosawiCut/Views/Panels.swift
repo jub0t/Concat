@@ -290,6 +290,10 @@ private struct AnimatePanel: View {
                         Button("Clear") { model.clearKeyframes() }.font(.caption.weight(.bold)).buttonStyle(.plain).foregroundStyle(Theme.accent)
                     }
                 }
+                if let easing = model.keyframeEasingBinding {
+                    SectionLabel("Curve to the next keyframe")
+                    Chips(options: KeyframeEasing.allCases.map { ($0, $0.label) }, selection: easing)
+                }
                 LabeledSlider(title: "Scale", value: model.transformBinding(\.scale), range: 0.1...4, format: { "\(Int($0 * 100))%" }, reset: 1)
                 LabeledSlider(title: "Position X", value: model.transformBinding(\.x), range: -1...1, format: { String(format: "%.2f", $0) }, reset: 0)
                 LabeledSlider(title: "Position Y", value: model.transformBinding(\.y), range: -1...1, format: { String(format: "%.2f", $0) }, reset: 0)
@@ -557,15 +561,40 @@ private struct AdjustPanel: View {
                 row("Shadows", \.shadows, -1...1, 0)
                 row("Sharpen", \.sharpness, 0...1, 0)
                 row("Vignette", \.vignette, 0...1, 0)
+                SectionLabel("Color wheels")
+                wheel("Shadows", \.wheels.shadows)
+                wheel("Midtones", \.wheels.midtones)
+                wheel("Highlights", \.wheels.highlights)
                 Button("Reset all") {
                     model.editMedia { c in
                         c.brightness = 0; c.contrast = 1; c.saturation = 1; c.exposure = 0; c.temperature = 0
                         c.tint = 0; c.highlights = 1; c.shadows = 0; c.sharpness = 0; c.vignette = 0
+                        c.wheels = ColorWheels()
                     }
                 }
                 .font(.caption.weight(.bold)).buttonStyle(.plain).foregroundStyle(Theme.accent)
             }
         } else { NeedsSelection(text: "Select a clip first.") }
+    }
+
+    /// A tint colour and how strongly it applies to one tonal range.
+    private func wheel(_ title: String, _ key: WritableKeyPath<Clip, RGBA>) -> some View {
+        let value = model.mediaBinding(key, fallback: ColorWheels.neutral)
+        let color = Binding<Color>(
+            get: { Color(uiColor: UIColor(red: value.wrappedValue.r, green: value.wrappedValue.g, blue: value.wrappedValue.b, alpha: 1)) },
+            set: { c in
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                UIColor(c).getRed(&r, green: &g, blue: &b, alpha: &a)
+                var v = value.wrappedValue
+                v.r = Double(r); v.g = Double(g); v.b = Double(b)
+                if v.a == 0 { v.a = 0.5 }
+                value.wrappedValue = v
+            })
+        let strength = Binding<Double>(get: { value.wrappedValue.a }, set: { var v = value.wrappedValue; v.a = $0; value.wrappedValue = v })
+        return HStack(alignment: .bottom, spacing: 12) {
+            ColorPicker("", selection: color, supportsOpacity: false).labelsHidden()
+            LabeledSlider(title: title, value: strength, range: 0...1, format: { "\(Int($0 * 100))%" }, reset: 0)
+        }
     }
 
     private func row(_ title: String, _ key: WritableKeyPath<Clip, Double>, _ range: ClosedRange<Double>, _ neutral: Double) -> some View {
@@ -699,6 +728,7 @@ private struct MaskPanel: View {
 private struct CanvasPanel: View {
     @Bindable var model: EditorModel
     @State private var name = ""
+    @AppStorage("rippleEdits") private var ripple = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -731,6 +761,9 @@ private struct CanvasPanel: View {
                 Button("Fit all clips") { model.edit { p in for i in p.clips.indices { p.clips[i].fill = false } } }
             }
             .font(.caption.weight(.bold)).buttonStyle(.bordered)
+            Toggle("Ripple delete: titles, overlays and sounds after a deleted clip move back with it",
+                   isOn: $ripple)
+                .font(.caption)
             SectionLabel("Project name")
             TextField("Project name", text: $name)
                 .onSubmit { if !name.isEmpty { model.rename(name) } }

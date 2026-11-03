@@ -19,8 +19,18 @@ enum Captioner {
         }
     }
 
+    /// How the words are heard.
+    enum Engine: String, CaseIterable, Identifiable {
+        /// Whisper on the iPhone: no permissions, offline once the model is downloaded.
+        case whisper
+        /// Apple's speech recognizer: asks for Speech Recognition permission and needs Dictation.
+        case apple
+        var id: String { rawValue }
+        var label: String { self == .whisper ? "Whisper on iPhone" : "Apple speech" }
+    }
+
     static let languages: [(id: String, name: String)] = [
-        ("ar-SA", "العربية"), ("en-US", "English"), ("fr-FR", "Français"), ("es-ES", "Español"),
+        ("auto", "Auto"), ("ar-SA", "العربية"), ("en-US", "English"), ("fr-FR", "Français"), ("es-ES", "Español"),
         ("de-DE", "Deutsch"), ("tr-TR", "Türkçe"), ("ur-PK", "اردو"), ("hi-IN", "हिन्दी"),
     ]
 
@@ -28,7 +38,20 @@ enum Captioner {
     private static let chunkLength = 50.0
 
     static func captions(for project: Project, locale: String, wordsPerCaption: Int,
+                         engine: Engine = .whisper, model: WhisperEngine.Size = .small,
                          progress: @escaping @MainActor (String) -> Void = { _ in }) async throws -> [TextOverlay] {
+        if engine == .whisper {
+            // Straight from the edit's sound file: no microphone, permission or speech service.
+            await progress("Getting the sound from your edit…")
+            let audio = try await exportVoice(of: project)
+            defer { try? FileManager.default.removeItem(at: audio) }
+            let length = try await AVURLAsset(url: audio).load(.duration).seconds
+            let code = locale == "auto" ? nil : String(locale.prefix { $0 != "-" })
+            let words = try await WhisperEngine.shared.transcribe(audio, language: code, size: model, progress: progress)
+            guard !words.isEmpty else { throw CaptionError.noSpeech }
+            return group(timed(words, over: length), max: wordsPerCaption)
+        }
+        let locale = locale == "auto" ? (Locale.current.language.languageCode.map { $0.identifier } ?? "en-US") : locale
         await progress("Checking speech recognition…")
         let status = await withCheckedContinuation { c in SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) } }
         guard status == .authorized else { throw CaptionError.notAllowed }
@@ -271,5 +294,47 @@ enum Captioner {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
         try await session.export(to: url, as: .m4a)
         return url
+    }
+}
+
+/// SubRip (.srt) subtitles in and out, so captions travel to and from other editors and players.
+enum SRT {
+    static func export(_ captions: [TextOverlay]) -> String {
+        captions.sorted { $0.start < $1.start }.enumerated().map { i, c in
+            "\(i + 1)\n\(stamp(c.start)) --> \(stamp(c.end))\n\(c.text)\n"
+        }
+        .joined(separator: "\n")
+    }
+
+    static func stamp(_ t: Double) -> String {
+        let ms = Int((max(0, t) * 1000).rounded())
+        return String(format: "%02d:%02d:%02d,%03d", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
+    }
+
+    /// Reads cues; tolerates a BOM, CRLF line ends, "." for ",", and missing numbers.
+    static func parse(_ text: String) -> [(start: Double, end: Double, text: String)] {
+        let clean = text.replacingOccurrences(of: "\u{FEFF}", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var cues: [(Double, Double, String)] = []
+        for block in clean.components(separatedBy: "\n\n") {
+            let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+            guard let timeIndex = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let parts = lines[timeIndex].components(separatedBy: "-->")
+            guard parts.count == 2, let a = seconds(parts[0]), let b = seconds(parts[1]), b > a else { continue }
+            let body = lines[(timeIndex + 1)...].joined(separator: "\n")
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            if !body.isEmpty { cues.append((a, b, body)) }
+        }
+        return cues
+    }
+
+    private static func seconds(_ s: String) -> Double? {
+        let f = s.trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init) ?? ""
+        let hms = f.replacingOccurrences(of: ",", with: ".").split(separator: ":").compactMap { Double($0) }
+        switch hms.count {
+        case 3: return hms[0] * 3600 + hms[1] * 60 + hms[2]
+        case 2: return hms[0] * 60 + hms[1]
+        default: return nil
+        }
     }
 }

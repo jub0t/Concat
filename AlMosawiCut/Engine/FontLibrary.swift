@@ -27,6 +27,8 @@ final class FontLibrary {
     }
 
     private(set) var fonts: [Entry] = []
+    /// Title fonts shipped inside the app (the Concat title presets use them).
+    private(set) var bundled: [Entry] = []
 
     nonisolated static let folder: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -35,7 +37,25 @@ final class FontLibrary {
         return url
     }()
 
-    private init() { load() }
+    private init() {
+        loadBundled()
+        load()
+    }
+
+    /// Registers the fonts in the app's Fonts folder (SIL Open Font License; their licences sit beside them).
+    private func loadBundled() {
+        let urls = ["ttf", "otf"].flatMap { ext in
+            (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: "Fonts") ?? [])
+                + (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [])
+        }
+        var found: [Entry] = []
+        var seen = Set<String>()
+        for url in urls {
+            Self.register(url)
+            for e in Self.entries(in: url) where seen.insert(e.postScriptName).inserted { found.append(e) }
+        }
+        bundled = found.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
 
     /// Registers every saved font file and lists its faces. Safe to call again.
     func load() {
@@ -76,7 +96,11 @@ final class FontLibrary {
     }
 
     func displayName(for postScriptName: String) -> String {
-        fonts.first { $0.postScriptName == postScriptName }?.displayName ?? postScriptName
+        (fonts + bundled).first { $0.postScriptName == postScriptName }?.displayName ?? postScriptName
+    }
+
+    func isInstalled(_ postScriptName: String) -> Bool {
+        (fonts + bundled).contains { $0.postScriptName == postScriptName }
     }
 
     nonisolated private static func register(_ url: URL) {

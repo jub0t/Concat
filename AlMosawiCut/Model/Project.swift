@@ -61,11 +61,46 @@ struct Transform: Codable, Hashable {
     }
 }
 
+/// How a value travels from one keyframe to the next.
+enum KeyframeEasing: String, Codable, CaseIterable, Identifiable {
+    case smooth, linear, easeIn, easeOut, hold
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .smooth: "Smooth"
+        case .linear: "Linear"
+        case .easeIn: "Ease in"
+        case .easeOut: "Ease out"
+        case .hold: "Hold"
+        }
+    }
+    func apply(_ t: Double) -> Double {
+        switch self {
+        case .smooth: t * t * (3 - 2 * t)
+        case .linear: t
+        case .easeIn: t * t * t
+        case .easeOut: 1 - pow(1 - t, 3)
+        case .hold: 0
+        }
+    }
+}
+
 /// A transform pinned to a moment of the clip. Time is seconds from the clip's start on the timeline.
 struct Keyframe: Codable, Hashable, Identifiable {
     var id = UUID()
     var time: Double
     var value: Transform
+    /// The curve from this keyframe to the next.
+    var easing: KeyframeEasing = .smooth
+}
+
+/// Lift/gamma/gain-style tints: a colour and strength (`a`) for each tonal range.
+struct ColorWheels: Codable, Hashable {
+    static let neutral = RGBA(r: 0.5, g: 0.5, b: 0.5, a: 0)
+    var shadows = ColorWheels.neutral
+    var midtones = ColorWheels.neutral
+    var highlights = ColorWheels.neutral
+    var isNeutral: Bool { shadows.a == 0 && midtones.a == 0 && highlights.a == 0 }
 }
 
 /// Normalised crop, origin top-left of the upright source.
@@ -195,6 +230,7 @@ struct Clip: Codable, Identifiable, Hashable {
     var shadows: Double = 0
     var sharpness: Double = 0
     var vignette: Double = 0
+    var wheels = ColorWheels()
     var fill = false
     var flipped = false
     var flippedV = false
@@ -246,13 +282,12 @@ struct Clip: Codable, Identifiable, Hashable {
         guard let i = keys.firstIndex(where: { $0.time > local }) else { return last.value }
         let a = keys[i - 1], b = keys[i]
         let t = (local - a.time) / max(0.0001, b.time - a.time)
-        let eased = t * t * (3 - 2 * t)
-        return Transform.mix(a.value, b.value, eased)
+        return Transform.mix(a.value, b.value, a.easing.apply(t))
     }
 
     var hasAdjustments: Bool {
         brightness != 0 || contrast != 1 || saturation != 1 || exposure != 0 || temperature != 0 || tint != 0
-            || highlights != 1 || shadows != 0 || sharpness != 0 || vignette != 0
+            || highlights != 1 || shadows != 0 || sharpness != 0 || vignette != 0 || !wheels.isNeutral
     }
 }
 
@@ -341,6 +376,8 @@ struct TextOverlay: Codable, Identifiable, Hashable {
     var font: TextFont = .system
     /// PostScript name of a font imported from Files; when set it wins over `font`.
     var customFont: String?
+    /// Extra letter spacing, as a fraction of the font size.
+    var tracking: Double = 0
     var textCase: TextCase = .none
     var animationIn: TextAnimation = .none
     var animationOut: TextAnimation = .none

@@ -41,7 +41,41 @@ enum Imaging {
             let f = CIFilter.sharpenLuminance(); f.inputImage = x; f.sharpness = Float(clip.sharpness * 2); x = f.outputImage ?? x
         }
         if clip.vignette != 0 { x = vignette(x, amount: clip.vignette * 2, extent: extent) }
+        if !clip.wheels.isNeutral { x = colorWheels(x, clip.wheels) }
         return x.cropped(to: extent)
+    }
+
+    /// Pushes shadows, midtones and highlights toward their wheel's colour, weighted by brightness.
+    private static func colorWheels(_ image: CIImage, _ w: ColorWheels) -> CIImage {
+        let size = 24
+        let key = "wheels-\(w.hashValue)"
+        let data: Data = cubeCache.withLock { cache in
+            if let hit = cache[key] { return hit }
+            func push(_ c: RGBA) -> (Double, Double, Double) { ((c.r - 0.5) * c.a * 0.5, (c.g - 0.5) * c.a * 0.5, (c.b - 0.5) * c.a * 0.5) }
+            let s = push(w.shadows), m = push(w.midtones), h = push(w.highlights)
+            var cube = [Float](repeating: 0, count: size * size * size * 4)
+            var i = 0
+            for b in 0..<size {
+                for g in 0..<size {
+                    for r in 0..<size {
+                        let rf = Double(r) / Double(size - 1), gf = Double(g) / Double(size - 1), bf = Double(b) / Double(size - 1)
+                        let l = 0.299 * rf + 0.587 * gf + 0.114 * bf
+                        let ws = (1 - l) * (1 - l), wh = l * l, wm = max(0, 1 - ws - wh)
+                        cube[i] = Float(min(1, max(0, rf + s.0 * ws + m.0 * wm + h.0 * wh)))
+                        cube[i + 1] = Float(min(1, max(0, gf + s.1 * ws + m.1 * wm + h.1 * wh)))
+                        cube[i + 2] = Float(min(1, max(0, bf + s.2 * ws + m.2 * wm + h.2 * wh)))
+                        cube[i + 3] = 1
+                        i += 4
+                    }
+                }
+            }
+            let d = cube.withUnsafeBufferPointer { Data(buffer: $0) }
+            cache[key] = d
+            return d
+        }
+        let f = CIFilter.colorCube()
+        f.inputImage = image; f.cubeDimension = Float(size); f.cubeData = data
+        return f.outputImage ?? image
     }
 
     // MARK: Looks

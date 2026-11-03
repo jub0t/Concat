@@ -23,14 +23,38 @@ fresh implementation of the same ideas for iPhone and iPad.
 - Text: 5 styles, 17 built-in fonts including Arabic (Naskh, Geeza, Damascus, Nastaliq), plus your own
   .ttf/.otf/.ttc fonts imported from Files (kept in the app for every project), 7 in/out animations,
   10 templates, 8 shapes
-- Auto-captions: Apple speech recognition (Arabic, English and more), on device when the
-  language model is installed; restyle every caption at once
+- Restyle every caption at once
 - Audio: your own music or sounds from Files (songs or videos), the sound of a video in Photos,
   voiceover recording with the mic while the video plays, loop, trim, fades, text to speech with device voices and Personal Voice,
   extract audio from a clip, voice cleanup (enhance, noise reduction, normalise), 22 voice effects
 - Canvas 9:16, 16:9, 1:1, 4:5, 4:3, 3:4, 21:9
 - Export 720p/1080p/2K/4K at 24/30/60 fps, H.264 or HEVC, save to Photos or share. No watermark.
 - Undo/redo for every edit
+- Concat's 31 title presets in their original open-licence fonts (bundled in `AlMosawiCut/Fonts`,
+  SIL Open Font License, licences alongside), letter spacing
+- Auto-captions with Whisper on the iPhone (WhisperKit, MIT): straight from the edit's sound, no
+  permissions, offline after a one-time model download (Tiny, Base or Small); Apple speech as an option
+- Captions in and out as `.srt` subtitle files
+- Keyframe curves (smooth, linear, ease in, ease out, hold), colour wheels, voice pitch in semitones,
+  ripple delete
+
+## Concat features and where they stand
+
+| Concat | AlMosawiCut (iOS) |
+| --- | --- |
+| Auto-captions with local Whisper | Yes: Whisper on the iPhone via WhisperKit, or Apple speech |
+| Text to speech, voice cloning | Device voices and your Personal Voice; no cloning model |
+| Background removal: people, objects | Yes (Vision). Painting the mask by hand: not yet |
+| Keyframes, curve editor | Transform and volume keyframes with per-keyframe curves; effect parameters are not keyframed |
+| ~100 effects, filters, transitions | Same catalogue: 56 looks, 32 effects, 25 transitions, 22 voice effects, colour wheels |
+| Split, trim, ripple, merge, freeze, speed | Yes, merge excepted |
+| Multi-track overlays, blend modes, crop, flips | Yes |
+| Several timelines in one project | Not yet: one timeline per project |
+| Titles: fonts, stroke, shadow, plate, presets | Yes, Concat's presets and fonts, plus your own fonts |
+| Voice cleanup and voice effects | Yes, plus pitch |
+| Stabilise, AI upscale | Not yet |
+| Export H.264, HEVC, AV1, 4K60, 10-bit | H.264 and HEVC up to 4K60 (8-bit); iPhones have no AV1 encoder |
+| MCP server, JSON-RPC | Not applicable on iPhone |
 
 ## Build
 

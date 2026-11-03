@@ -193,8 +193,12 @@ struct VoiceCleanup: Codable, Hashable, CustomStringConvertible {
     var enhance = false
     var denoise = false
     var normalize = false
-    var isOff: Bool { !enhance && !denoise && !normalize }
-    var description: String { "\(enhance ? "e" : "")\(denoise ? "d" : "")\(normalize ? "n" : "")" }
+    /// Pitch shift in semitones, keeping the timing.
+    var pitch = 0.0
+    var isOff: Bool { !enhance && !denoise && !normalize && pitch == 0 }
+    var description: String {
+        "\(enhance ? "e" : "")\(denoise ? "d" : "")\(normalize ? "n" : "")\(pitch != 0 ? "p\(Int((pitch * 10).rounded()))" : "")"
+    }
 }
 
 // MARK: Filters

@@ -43,20 +43,24 @@ jobs:
       - name: Build for the Simulator
         run: |
           set -o pipefail
-          xcodebuild -project AlMosawiCut.xcodeproj -target AlMosawiCut \
-            -sdk iphonesimulator -configuration Debug \
-            SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO \
-            build | tee build-sim.log | grep -E "error:|warning:|BUILD" || true
-          test -d build/Debug-iphonesimulator/AlMosawiCut.app
+          # A scheme build, so the WhisperKit package is resolved and built with the app.
+          xcodebuild -project AlMosawiCut.xcodeproj -scheme AlMosawiCut \
+            -destination "generic/platform=iOS Simulator" -configuration Debug \
+            -derivedDataPath build/dd -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee build-sim.log | grep -E "error:|BUILD" || true
+          mkdir -p build/Debug-iphonesimulator
+          cp -R build/dd/Build/Products/Debug-iphonesimulator/AlMosawiCut.app build/Debug-iphonesimulator/
 
       - name: Build for iPhone (unsigned)
         run: |
           set -o pipefail
-          xcodebuild -project AlMosawiCut.xcodeproj -target AlMosawiCut \
-            -sdk iphoneos -configuration Release \
-            SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+          xcodebuild -project AlMosawiCut.xcodeproj -scheme AlMosawiCut \
+            -destination "generic/platform=iOS" -configuration Release \
+            -derivedDataPath build/dd -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build | tee build-device.log | grep -E "error:|BUILD" || true
-          test -d build/Release-iphoneos/AlMosawiCut.app
+          test -d build/dd/Build/Products/Release-iphoneos/AlMosawiCut.app
 
       - name: Launch in the Simulator
         run: |

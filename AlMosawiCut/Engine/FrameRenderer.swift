@@ -323,6 +323,7 @@ final class TextRasterizer: @unchecked Sendable {
         paragraph.baseWritingDirection = .natural
 
         var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text.color.uiColor, .paragraphStyle: paragraph]
+        if text.tracking != 0 { attrs[.kern] = text.tracking * fontSize }
         let maxWidth = canvas.width * 0.9
         let bounds = (string as NSString).boundingRect(
             with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),

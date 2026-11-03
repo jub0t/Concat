@@ -366,6 +366,15 @@ final class EditorModel {
         return clip.keyframes.contains { abs($0.time - local) < 0.06 }
     }
 
+    /// The curve leaving the keyframe at the playhead, if there is one.
+    var keyframeEasingBinding: Binding<KeyframeEasing>? {
+        guard let clip = selectedMedia, let local = selectedLocalTime,
+              let k = clip.keyframes.first(where: { abs($0.time - local) < 0.06 }) else { return nil }
+        let id = k.id
+        return Binding(get: { self.selectedMedia?.keyframes.first { $0.id == id }?.easing ?? .smooth },
+                       set: { v in self.editMedia { c in if let i = c.keyframes.firstIndex(where: { $0.id == id }) { c.keyframes[i].easing = v } } })
+    }
+
     func toggleKeyframe() {
         guard let local = selectedLocalTime, let clip = selectedMedia, local >= -0.01, local <= clip.duration + 0.01 else { return }
         editMedia { clip in
@@ -464,7 +473,20 @@ final class EditorModel {
 
     func deleteSelection() {
         switch selection {
-        case .clip(let id): edit { $0.clips.removeAll { $0.id == id } }
+        case .clip(let id):
+            // Ripple: what sits after the clip moves back with the cut, unless switched off.
+            let ripple = UserDefaults.standard.object(forKey: "rippleEdits") as? Bool ?? true
+            edit { p in
+                guard let i = p.clips.firstIndex(where: { $0.id == id }) else { return }
+                let end = p.start(ofClipAt: i) + p.clips[i].duration
+                let before = p.duration
+                p.clips.remove(at: i)
+                let delta = before - p.duration
+                guard ripple, delta > 0.001 else { return }
+                for j in p.overlays.indices where p.overlays[j].start >= end - 0.01 { p.overlays[j].start -= delta }
+                for j in p.texts.indices where p.texts[j].start >= end - 0.01 { p.texts[j].start -= delta }
+                for j in p.audios.indices where p.audios[j].start >= end - 0.01 && !p.audios[j].loop { p.audios[j].start -= delta }
+            }
         case .overlay(let id): edit { $0.overlays.removeAll { $0.id == id } }
         case .text(let id): edit { $0.texts.removeAll { $0.id == id } }
         case .audio(let id): edit { $0.audios.removeAll { $0.id == id } }
@@ -592,7 +614,7 @@ final class EditorModel {
             for i in p.texts.indices where p.texts[i].isCaption {
                 p.texts[i].color = source.color; p.texts[i].accent = source.accent
                 p.texts[i].size = source.size; p.texts[i].bold = source.bold; p.texts[i].font = source.font
-                p.texts[i].customFont = source.customFont
+                p.texts[i].customFont = source.customFont; p.texts[i].tracking = source.tracking
                 p.texts[i].style = source.style; p.texts[i].x = source.x; p.texts[i].y = source.y
                 p.texts[i].textCase = source.textCase; p.texts[i].animationIn = source.animationIn
             }

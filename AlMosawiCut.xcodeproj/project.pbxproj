@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1F0C0DE0000000000000005 /* WhisperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000006 /* WhisperEngine.swift */; };
+		A1F0C0DE0000000000000012 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1F0C0DE0000000000000011 /* WhisperKit */; };
+		A1F0C0DE0000000000000021 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000020 /* Fonts */; };
 		A1F0C0DE0000000000000003 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000004 /* VoiceRecorder.swift */; };
 		A1F0C0DE0000000000000001 /* FontLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000002 /* FontLibrary.swift */; };
 		03F925BAFA3A831937FC0086 /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38992426363CDC6D7986EA1 /* EditorModel.swift */; };
@@ -36,6 +39,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A1F0C0DE0000000000000006 /* WhisperEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperEngine.swift; sourceTree = "<group>"; };
+		A1F0C0DE0000000000000020 /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
 		A1F0C0DE0000000000000004 /* VoiceRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecorder.swift; sourceTree = "<group>"; };
 		A1F0C0DE0000000000000002 /* FontLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontLibrary.swift; sourceTree = "<group>"; };
 		0F20126A9679D117BA39ADD0 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
@@ -65,11 +70,23 @@
 		F98E1A71ED01ED7B181338F9 /* Thumbnails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Thumbnails.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		A1F0C0DE0000000000000013 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1F0C0DE0000000000000012 /* WhisperKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXGroup section */
 		1451B3A7E76A4CA8B033F9ED /* AlMosawiCut */ = {
 			isa = PBXGroup;
 			children = (
 				4489459CBC40CE378B6AF33A /* Assets.xcassets */,
+				A1F0C0DE0000000000000020 /* Fonts */,
 				3964D9EAFBEF1F83508317C5 /* App */,
 				F60B17AF38773C629004D966 /* Engine */,
 				E298381A15D6213003D0BEB0 /* Model */,
@@ -142,6 +159,7 @@
 				A1F0C0DE0000000000000002 /* FontLibrary.swift */,
 				A1F0C0DE0000000000000004 /* VoiceRecorder.swift */,
 				F98E1A71ED01ED7B181338F9 /* Thumbnails.swift */,
+				A1F0C0DE0000000000000006 /* WhisperEngine.swift */,
 				E5E10F49AF14EF156B2D1DD9 /* Transitions.swift */,
 			);
 			path = Engine;
@@ -155,6 +173,7 @@
 			buildConfigurationList = F7D2F41747E0C130FD585D62 /* Build configuration list for PBXNativeTarget "AlMosawiCut" */;
 			buildPhases = (
 				F11B5EE22FECB377C9407459 /* Sources */,
+				A1F0C0DE0000000000000013 /* Frameworks */,
 				BBF3649B82039E55953593F9 /* Resources */,
 			);
 			buildRules = (
@@ -163,6 +182,7 @@
 			);
 			name = AlMosawiCut;
 			packageProductDependencies = (
+				A1F0C0DE0000000000000011 /* WhisperKit */,
 			);
 			productName = AlMosawiCut;
 			productReference = C3B83C9339AB1F59335892BA /* AlMosawiCut.app */;
@@ -192,6 +212,9 @@
 			);
 			mainGroup = DEE084E55DFE97C21D8F5C08;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1F0C0DE0000000000000010 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6EB5D474C2568E9AE78911F3 /* Products */;
 			projectDirPath = "";
@@ -208,6 +231,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9FFF9AA2434921D37FA6318A /* Assets.xcassets in Resources */,
+				A1F0C0DE0000000000000021 /* Fonts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -240,6 +264,7 @@
 				A1F0C0DE0000000000000001 /* FontLibrary.swift in Sources */,
 				A1F0C0DE0000000000000003 /* VoiceRecorder.swift in Sources */,
 				5012189C21276AA1A69C35C8 /* Thumbnails.swift in Sources */,
+				A1F0C0DE0000000000000005 /* WhisperEngine.swift in Sources */,
 				BACEB21B7862BFD1877C1585 /* TimelineView.swift in Sources */,
 				D9C8941E1E9B56319D3132FE /* ToolBar.swift in Sources */,
 				3D99C37E3E51883ADD1FE103 /* Transitions.swift in Sources */,
@@ -448,6 +473,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A1F0C0DE0000000000000010 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 1.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1F0C0DE0000000000000011 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1F0C0DE0000000000000010 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 98B978EC2490DA0D00D1B76C /* Project object */;
 }
