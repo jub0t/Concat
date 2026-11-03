@@ -273,6 +273,9 @@ impl Titles {
                     flip_v: clip.flip_v,
                     blend: clip.blend.clone(),
                     effects: clip.video_effects.clone(),
+                    // The clip's mask reaches the painted title like any picture's:
+                    // the highlight layer keeps one word of a caption with it.
+                    mask: clip.mask,
                     // A keyed property's keys travel absolutely, so its base
                     // is the neutral value, as for every other clip; see
                     // `flatten::export_base`. A caption given a motion was
