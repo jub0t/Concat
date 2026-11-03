@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · **🇹🇷 Türkçe** · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
@@ -74,7 +74,7 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 
 İki yol var:
 
-1. **[Web sitesi](https://concatenate.pages.dev/#download)** makineniz için doğru derlemeyi verir. Buradan başlayın.
+1. **[Web sitesi](https://concat.standalones.org/#download)** makineniz için doğru derlemeyi verir. Buradan başlayın.
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** her platform için her derlemeyi kurucular, paketler ve sağlama toplamlarıyla sunar. Kendiniz seçmek istediğinizde.
 
 Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tane bulduğunuzda [söyleyin](https://github.com/jub0t/Concat/issues).
@@ -89,7 +89,7 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 
 ✅ Destekleniyor · 🚧 Çalışılıyor · 🧪 Test edilecek
 
-**Sistem gereksinimleri** ve isteğe bağlı model boyutları [web sitesinde](https://concatenate.pages.dev/guides/system-requirements).
+**Sistem gereksinimleri** ve isteğe bağlı model boyutları [web sitesinde](https://concat.standalones.org/guides/system-requirements).
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 > [!IMPORTANT]
 > Katkıda bulunmanın en iyi yolu [Releases](https://github.com/jub0t/Concat/releases) sayfasından bir derleme alıp kullanmaktır: nerede bozulduğunu bulun ve nerede daha iyi olabileceğini söyleyin.
 >
-> Kod yazmaya hazır mısınız? [CONTRIBUTING.md](../CONTRIBUTING.md) kurulumu, ağacın düzenini, çalıştırılacak denetimleri ve katkıların nasıl lisanslandığını anlatır. Concat’i bir betikten, servisten ya da ajandan mı sürüyorsunuz? [Geliştirici belgeleri](https://concatenate.pages.dev/docs) Concat API’sini ve taşıyıcılarını anlatır: JSON-RPC ve gRPC. Proje [bu tartışmada](https://github.com/jub0t/Concat/discussions/3) duyuruldu.
+> Kod yazmaya hazır mısınız? [CONTRIBUTING.md](../CONTRIBUTING.md) kurulumu, ağacın düzenini, çalıştırılacak denetimleri ve katkıların nasıl lisanslandığını anlatır. Concat’i bir betikten, servisten ya da ajandan mı sürüyorsunuz? [Geliştirici belgeleri](https://concat.standalones.org/docs) Concat API’sini ve taşıyıcılarını anlatır: JSON-RPC ve gRPC. Proje [bu tartışmada](https://github.com/jub0t/Concat/discussions/3) duyuruldu.
 > 
 > Katkıda bulunanlar Discord sunucusunda bir `@Contributor` rolü alabilir: istemeniz yeter.
 

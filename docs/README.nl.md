@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · **🇳🇱 Nederlands** · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
@@ -74,7 +74,7 @@ Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installer
 
 Twee manieren:
 
-1. **[De website](https://concatenate.pages.dev/#download)** geeft je de juiste build voor je computer. Begin hier.
+1. **[De website](https://concat.standalones.org/#download)** geeft je de juiste build voor je computer. Begin hier.
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** heeft elke build voor elk platform, met installers, pakketten en checksums. Voor als je zelf wilt kiezen.
 
 Concat is in **bèta**: het werkt, maar er zitten nog ruwe randjes aan. [Laat het weten](https://github.com/jub0t/Concat/issues) als je er een tegenkomt.
@@ -89,7 +89,7 @@ Concat is in **bèta**: het werkt, maar er zitten nog ruwe randjes aan. [Laat he
 
 ✅ Ondersteund · 🚧 In ontwikkeling · 🧪 Nog te testen
 
-**Systeemvereisten** en de groottes van de optionele modellen staan op [de website](https://concatenate.pages.dev/guides/system-requirements).
+**Systeemvereisten** en de groottes van de optionele modellen staan op [de website](https://concat.standalones.org/guides/system-requirements).
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Concat is in **bèta**: het werkt, maar er zitten nog ruwe randjes aan. [Laat he
 > [!IMPORTANT]
 > De beste manier om bij te dragen is een build van de [Releases](https://github.com/jub0t/Concat/releases)-pagina te halen en die te gebruiken: zoek uit waar hij stukgaat, en zeg wat er beter kan.
 >
-> Klaar om code te schrijven? [CONTRIBUTING.md](../CONTRIBUTING.md) beschrijft de installatie, de indeling van de broncode, de controles die je moet draaien en onder welke licentie bijdragen vallen. Stuur je Concat aan vanuit een script, een service of een agent? [De ontwikkelaarsdocumentatie](https://concatenate.pages.dev/docs) beschrijft de Concat-API en de transports ervan: JSON-RPC en gRPC. In [deze Discussion](https://github.com/jub0t/Concat/discussions/3) werd het project aangekondigd.
+> Klaar om code te schrijven? [CONTRIBUTING.md](../CONTRIBUTING.md) beschrijft de installatie, de indeling van de broncode, de controles die je moet draaien en onder welke licentie bijdragen vallen. Stuur je Concat aan vanuit een script, een service of een agent? [De ontwikkelaarsdocumentatie](https://concat.standalones.org/docs) beschrijft de Concat-API en de transports ervan: JSON-RPC en gRPC. In [deze Discussion](https://github.com/jub0t/Concat/discussions/3) werd het project aangekondigd.
 > 
 > Bijdragers kunnen een `@Contributor`-rol krijgen op de Discord-server: vraag er gewoon om.
 

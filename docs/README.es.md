@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · **🇪🇸 Español** · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
@@ -74,7 +74,7 @@ Todo corre en local sobre un motor nativo en Rust con un compositor por GPU. Ins
 
 Dos formas de entrar:
 
-1. **[El sitio web](https://concatenate.pages.dev/#download)** te da la compilación adecuada para tu máquina. Empieza aquí.
+1. **[El sitio web](https://concat.standalones.org/#download)** te da la compilación adecuada para tu máquina. Empieza aquí.
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** tiene todas las compilaciones para todas las plataformas, con instaladores, paquetes y sumas de verificación. Para cuando quieras elegir.
 
 Concat está en **beta**: funciona, y aún tiene aristas. [Cuéntalo](https://github.com/jub0t/Concat/issues) cuando encuentres una.
@@ -89,7 +89,7 @@ Concat está en **beta**: funciona, y aún tiene aristas. [Cuéntalo](https://gi
 
 ✅ Compatible · 🚧 En desarrollo · 🧪 Por probar
 
-Los **requisitos del sistema** y los tamaños de los modelos opcionales están en [el sitio web](https://concatenate.pages.dev/guides/system-requirements).
+Los **requisitos del sistema** y los tamaños de los modelos opcionales están en [el sitio web](https://concat.standalones.org/guides/system-requirements).
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Los **requisitos del sistema** y los tamaños de los modelos opcionales están e
 > [!IMPORTANT]
 > La mejor forma de contribuir es descargar una compilación de la página de [Releases](https://github.com/jub0t/Concat/releases) y usarla: encuentra dónde falla y di dónde podría ser mejor.
 >
-> ¿Listo para escribir código? [CONTRIBUTING.md](../CONTRIBUTING.md) cubre la configuración, la disposición del árbol, las comprobaciones que ejecutar y cómo se licencian las contribuciones. ¿Controlas Concat desde un script, un servicio o un agente? [La documentación para desarrolladores](https://concatenate.pages.dev/docs) cubre la API de Concat y sus transportes: JSON-RPC y gRPC. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) es donde se anunció el proyecto.
+> ¿Listo para escribir código? [CONTRIBUTING.md](../CONTRIBUTING.md) cubre la configuración, la disposición del árbol, las comprobaciones que ejecutar y cómo se licencian las contribuciones. ¿Controlas Concat desde un script, un servicio o un agente? [La documentación para desarrolladores](https://concat.standalones.org/docs) cubre la API de Concat y sus transportes: JSON-RPC y gRPC. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) es donde se anunció el proyecto.
 > 
 > Los colaboradores pueden reclamar un rol `@Contributor` en el servidor de Discord: solo hay que pedirlo.
 

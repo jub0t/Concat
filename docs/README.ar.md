@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · **🇸🇦 العربية** · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
@@ -74,7 +74,7 @@ Concat محرر فيديو مجاني ومفتوح المصدر وبديل لـ 
 
 مدخلان:
 
-1. **[الموقع](https://concatenate.pages.dev/#download)** يعطيك الإصدار المناسب لجهازك. ابدأ من هنا.
+1. **[الموقع](https://concat.standalones.org/#download)** يعطيك الإصدار المناسب لجهازك. ابدأ من هنا.
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** يضم كل إصدار لكل منصة، مع المثبّتات والحزم ومجاميع التحقق. حين تريد الاختيار بنفسك.
 
 Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف. [أخبرنا](https://github.com/jub0t/Concat/issues) حين تجد واحدة.
@@ -89,7 +89,7 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 
 ✅ مدعوم · 🚧 قيد العمل · 🧪 بانتظار الاختبار
 
-**متطلبات النظام** وأحجام النماذج الاختيارية على [الموقع](https://concatenate.pages.dev/guides/system-requirements).
+**متطلبات النظام** وأحجام النماذج الاختيارية على [الموقع](https://concat.standalones.org/guides/system-requirements).
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 > [!IMPORTANT]
 > أفضل طريقة للمساهمة أن تأخذ إصدارًا من صفحة [Releases](https://github.com/jub0t/Concat/releases) وتستخدمه: اعثر على ما يتعطّل، وقل أين يمكن أن يكون أفضل.
 >
-> مستعد لكتابة الشيفرة؟ يغطي [CONTRIBUTING.md](../CONTRIBUTING.md) الإعداد وبنية الشجرة والفحوصات التي تُشغَّل وكيفية ترخيص المساهمات. تقود Concat من سكربت أو خدمة أو وكيل؟ تغطي [وثائق المطوّرين](https://concatenate.pages.dev/docs) واجهة Concat ووسائل نقلها: JSON-RPC وgRPC. [هذه المناقشة](https://github.com/jub0t/Concat/discussions/3) هي حيث أُعلن عن المشروع.
+> مستعد لكتابة الشيفرة؟ يغطي [CONTRIBUTING.md](../CONTRIBUTING.md) الإعداد وبنية الشجرة والفحوصات التي تُشغَّل وكيفية ترخيص المساهمات. تقود Concat من سكربت أو خدمة أو وكيل؟ تغطي [وثائق المطوّرين](https://concat.standalones.org/docs) واجهة Concat ووسائل نقلها: JSON-RPC وgRPC. [هذه المناقشة](https://github.com/jub0t/Concat/discussions/3) هي حيث أُعلن عن المشروع.
 > 
 > يمكن للمساهمين الحصول على دور `@Contributor` في خادم Discord: فقط اطلبه.
 
