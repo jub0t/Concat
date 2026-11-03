@@ -24,7 +24,7 @@ on:
 
 concurrency:
   group: ios-app-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
