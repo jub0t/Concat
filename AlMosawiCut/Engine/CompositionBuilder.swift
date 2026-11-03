@@ -109,6 +109,11 @@ enum CompositionBuilder {
             }
         }
 
+        // An overlay can run past the last clip; the video ends where the main track does.
+        if projectEnd > 0, composition.duration > time(projectEnd) {
+            composition.removeTimeRange(CMTimeRange(start: time(projectEnd), end: composition.duration))
+        }
+
         // Empty tracks (B with a single clip, silent audio) make the player fail to load.
         for track in composition.tracks where track.segments.isEmpty {
             composition.removeTrack(track)
