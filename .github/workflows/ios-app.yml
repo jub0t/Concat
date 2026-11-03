@@ -1,0 +1,117 @@
+name: AlMosawiCut iOS
+
+# Builds the SwiftUI app (AlMosawiCut/, AlMosawiCut.xcodeproj) on a Mac:
+#   1. for the iOS Simulator, unsigned
+#   2. for an iPhone (arm64), unsigned, so device-only code paths compile too
+#   3. installs the Simulator build, opens a generated test project in the
+#      editor, screenshots it and fails if the app is no longer running.
+# The screenshot and the Simulator .app are uploaded as artifacts.
+
+on:
+  push:
+    paths:
+      - "AlMosawiCut/**"
+      - "AlMosawiCut.xcodeproj/**"
+      - "project.yml"
+      - ".github/workflows/ios-app.yml"
+  pull_request:
+    paths:
+      - "AlMosawiCut/**"
+      - "AlMosawiCut.xcodeproj/**"
+      - "project.yml"
+      - ".github/workflows/ios-app.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-app-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      BUNDLE_ID: com.almosawi.AlMosawiCut
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Build for the Simulator
+        run: |
+          set -o pipefail
+          # A scheme build, so the WhisperKit package is resolved and built with the app.
+          xcodebuild -project AlMosawiCut.xcodeproj -scheme AlMosawiCut \
+            -destination "generic/platform=iOS Simulator" -configuration Debug \
+            -derivedDataPath build/dd -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee build-sim.log | grep -E "error:|BUILD" || true
+          mkdir -p build/Debug-iphonesimulator
+          cp -R build/dd/Build/Products/Debug-iphonesimulator/AlMosawiCut.app build/Debug-iphonesimulator/
+
+      - name: Build for iPhone (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project AlMosawiCut.xcodeproj -scheme AlMosawiCut \
+            -destination "generic/platform=iOS" -configuration Release \
+            -derivedDataPath build/dd -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build | tee build-device.log | grep -E "error:|BUILD" || true
+          test -d build/dd/Build/Products/Release-iphoneos/AlMosawiCut.app
+
+      - name: Launch in the Simulator
+        run: |
+          set -euo pipefail
+          DEVICE=$(xcrun simctl list devices available -j \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,l in d.items() if "iOS" in r for x in l if x["name"].startswith("iPhone")))')
+          echo "Simulator: $DEVICE"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" build/Debug-iphonesimulator/AlMosawiCut.app
+
+          # Home screen first.
+          xcrun simctl launch "$DEVICE" "$BUNDLE_ID"
+          sleep 8
+          xcrun simctl io "$DEVICE" screenshot home.png
+          xcrun simctl terminate "$DEVICE" "$BUNDLE_ID"
+
+          # Seed a project with a generated 4 s clip, then open it in the editor (-open, DEBUG only).
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          DATA=$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)
+          PID=$(uuidgen)
+          MEDIA="$DATA/Documents/Projects/$PID/media"
+          mkdir -p "$MEDIA"
+          ffmpeg -loglevel error -f lavfi -i testsrc2=size=1080x1920:rate=30:duration=4 \
+            -f lavfi -i sine=frequency=440:duration=4 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$MEDIA/clip.mp4"
+          cat > "$DATA/Documents/Projects/$PID/project.json" <<EOF
+          {"id":"$PID","name":"CI smoke test","clips":[{"file":"clip.mp4","sourceDuration":4,"trimEnd":4,"filter":"tealOrange"}],
+           "texts":[{"text":"AlMosawiCut","start":0,"duration":4,"y":0.3}]}
+          EOF
+          xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -open
+          sleep 12
+          xcrun simctl io "$DEVICE" screenshot editor.png
+
+          # Save the list first: grep -q stops reading early, and under pipefail the
+          # writer's broken pipe would read as "not running".
+          xcrun simctl spawn "$DEVICE" launchctl list > processes.txt
+          if ! grep -q "$BUNDLE_ID" processes.txt; then
+            echo "::error::AlMosawiCut is not running after opening the editor (crashed?)"
+            xcrun simctl spawn "$DEVICE" log show --last 2m --predicate 'process == "AlMosawiCut"' | tail -80 || true
+            exit 1
+          fi
+
+      - name: Upload screenshots and app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlMosawiCut-simulator
+          path: |
+            home.png
+            editor.png
+            build-sim.log
+            build-device.log
+            build/Debug-iphonesimulator/AlMosawiCut.app
+          if-no-files-found: ignore

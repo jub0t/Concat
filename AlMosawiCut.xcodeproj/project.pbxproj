@@ -1,0 +1,497 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1F0C0DE0000000000000005 /* WhisperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000006 /* WhisperEngine.swift */; };
+		A1F0C0DE0000000000000012 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1F0C0DE0000000000000011 /* WhisperKit */; };
+		A1F0C0DE0000000000000021 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000020 /* Fonts */; };
+		A1F0C0DE0000000000000003 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000004 /* VoiceRecorder.swift */; };
+		A1F0C0DE0000000000000001 /* FontLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000002 /* FontLibrary.swift */; };
+		03F925BAFA3A831937FC0086 /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38992426363CDC6D7986EA1 /* EditorModel.swift */; };
+		0D4F2CC1C15FBB5908E0FA6E /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA45DAA103217773787B9C4 /* EditorView.swift */; };
+		1C1107F22B866F8ADC427F88 /* ProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA4DA75B0AEBB1144642DE6 /* ProjectStore.swift */; };
+		1C367A94BD3F914861C9E67B /* AlMosawiCutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6816FF20CD65FB572583CEAE /* AlMosawiCutApp.swift */; };
+		2124DDFD1D5BA0DEE6643DCA /* Exporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7326A859354DDF80A44B6239 /* Exporter.swift */; };
+		2A096BA36186409E0F40FBE2 /* Imaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B7310DEE2D98D2FFA39576 /* Imaging.swift */; };
+		3D99C37E3E51883ADD1FE103 /* Transitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E10F49AF14EF156B2D1DD9 /* Transitions.swift */; };
+		46BBB9FB167DC43734CDDF4F /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFC72CA28EBAE348C542973C /* HomeView.swift */; };
+		5012189C21276AA1A69C35C8 /* Thumbnails.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98E1A71ED01ED7B181338F9 /* Thumbnails.swift */; };
+		5210BA18C594C0878D9302A5 /* Captioner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69292108E20210AFE273273F /* Captioner.swift */; };
+		536E83457CDB16DE15875712 /* FrameRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E2327AF387D9F2F4C554E1 /* FrameRenderer.swift */; };
+		81E0ACF31BB962570F56489B /* MediaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F99F80A53DB5F4C6036AE2 /* MediaImporter.swift */; };
+		9386DDADD4577481607F064B /* TextPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41EBC91B57324E9DD3189782 /* TextPanels.swift */; };
+		99068B488F6BF7FF5F708876 /* AudioPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 247F5EE31038EF9FAEF84C09 /* AudioPanels.swift */; };
+		9FFF9AA2434921D37FA6318A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4489459CBC40CE378B6AF33A /* Assets.xcassets */; };
+		AA17814D2CB40EBB647879B4 /* Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D97B2CB249CE3DC0C19794 /* Audio.swift */; };
+		B1D0F4A0595ED27D5C119873 /* ExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C063913BE4DD9AF86C0F2E97 /* ExportSheet.swift */; };
+		B3F0EA9A7578296DA3B6B84A /* Compositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B843F05495FA20F98CFE88A /* Compositor.swift */; };
+		BACEB21B7862BFD1877C1585 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F20126A9679D117BA39ADD0 /* TimelineView.swift */; };
+		C7F39F406DFCCFFED61A4B16 /* CompositionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E9B87E346716DF4A4454494 /* CompositionBuilder.swift */; };
+		D9C8941E1E9B56319D3132FE /* ToolBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB81E072DE1F6F690CADDBE1 /* ToolBar.swift */; };
+		DC9C220DD3BDED6257DCC347 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1EC85144C5AD1EA99040E08 /* Project.swift */; };
+		E5C895048B9903E0475E91AD /* Catalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7465E4D762A36382910351F4 /* Catalog.swift */; };
+		E7729C03C741D77710D80146 /* Panels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08577E8A214F8FE83463837 /* Panels.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A1F0C0DE0000000000000006 /* WhisperEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperEngine.swift; sourceTree = "<group>"; };
+		A1F0C0DE0000000000000020 /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
+		A1F0C0DE0000000000000004 /* VoiceRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecorder.swift; sourceTree = "<group>"; };
+		A1F0C0DE0000000000000002 /* FontLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontLibrary.swift; sourceTree = "<group>"; };
+		0F20126A9679D117BA39ADD0 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		1B843F05495FA20F98CFE88A /* Compositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Compositor.swift; sourceTree = "<group>"; };
+		247F5EE31038EF9FAEF84C09 /* AudioPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPanels.swift; sourceTree = "<group>"; };
+		34B7310DEE2D98D2FFA39576 /* Imaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Imaging.swift; sourceTree = "<group>"; };
+		41EBC91B57324E9DD3189782 /* TextPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextPanels.swift; sourceTree = "<group>"; };
+		4489459CBC40CE378B6AF33A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		5E9B87E346716DF4A4454494 /* CompositionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionBuilder.swift; sourceTree = "<group>"; };
+		6816FF20CD65FB572583CEAE /* AlMosawiCutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlMosawiCutApp.swift; sourceTree = "<group>"; };
+		69292108E20210AFE273273F /* Captioner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Captioner.swift; sourceTree = "<group>"; };
+		7326A859354DDF80A44B6239 /* Exporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Exporter.swift; sourceTree = "<group>"; };
+		7465E4D762A36382910351F4 /* Catalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Catalog.swift; sourceTree = "<group>"; };
+		7DA45DAA103217773787B9C4 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		A9E2327AF387D9F2F4C554E1 /* FrameRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameRenderer.swift; sourceTree = "<group>"; };
+		B9F99F80A53DB5F4C6036AE2 /* MediaImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImporter.swift; sourceTree = "<group>"; };
+		BFA4DA75B0AEBB1144642DE6 /* ProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStore.swift; sourceTree = "<group>"; };
+		C063913BE4DD9AF86C0F2E97 /* ExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSheet.swift; sourceTree = "<group>"; };
+		C3B83C9339AB1F59335892BA /* AlMosawiCut.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AlMosawiCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D38992426363CDC6D7986EA1 /* EditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModel.swift; sourceTree = "<group>"; };
+		D9D97B2CB249CE3DC0C19794 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
+		DB81E072DE1F6F690CADDBE1 /* ToolBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolBar.swift; sourceTree = "<group>"; };
+		E08577E8A214F8FE83463837 /* Panels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels.swift; sourceTree = "<group>"; };
+		E1EC85144C5AD1EA99040E08 /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
+		E5E10F49AF14EF156B2D1DD9 /* Transitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transitions.swift; sourceTree = "<group>"; };
+		EFC72CA28EBAE348C542973C /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		F98E1A71ED01ED7B181338F9 /* Thumbnails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Thumbnails.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A1F0C0DE0000000000000013 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1F0C0DE0000000000000012 /* WhisperKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1451B3A7E76A4CA8B033F9ED /* AlMosawiCut */ = {
+			isa = PBXGroup;
+			children = (
+				4489459CBC40CE378B6AF33A /* Assets.xcassets */,
+				A1F0C0DE0000000000000020 /* Fonts */,
+				3964D9EAFBEF1F83508317C5 /* App */,
+				F60B17AF38773C629004D966 /* Engine */,
+				E298381A15D6213003D0BEB0 /* Model */,
+				4BE695E672A4F1019DF2B847 /* Views */,
+			);
+			path = AlMosawiCut;
+			sourceTree = "<group>";
+		};
+		3964D9EAFBEF1F83508317C5 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				6816FF20CD65FB572583CEAE /* AlMosawiCutApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4BE695E672A4F1019DF2B847 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				247F5EE31038EF9FAEF84C09 /* AudioPanels.swift */,
+				D38992426363CDC6D7986EA1 /* EditorModel.swift */,
+				7DA45DAA103217773787B9C4 /* EditorView.swift */,
+				C063913BE4DD9AF86C0F2E97 /* ExportSheet.swift */,
+				EFC72CA28EBAE348C542973C /* HomeView.swift */,
+				E08577E8A214F8FE83463837 /* Panels.swift */,
+				41EBC91B57324E9DD3189782 /* TextPanels.swift */,
+				0F20126A9679D117BA39ADD0 /* TimelineView.swift */,
+				DB81E072DE1F6F690CADDBE1 /* ToolBar.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		6EB5D474C2568E9AE78911F3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C3B83C9339AB1F59335892BA /* AlMosawiCut.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		DEE084E55DFE97C21D8F5C08 = {
+			isa = PBXGroup;
+			children = (
+				1451B3A7E76A4CA8B033F9ED /* AlMosawiCut */,
+				6EB5D474C2568E9AE78911F3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E298381A15D6213003D0BEB0 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				7465E4D762A36382910351F4 /* Catalog.swift */,
+				E1EC85144C5AD1EA99040E08 /* Project.swift */,
+				BFA4DA75B0AEBB1144642DE6 /* ProjectStore.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		F60B17AF38773C629004D966 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				D9D97B2CB249CE3DC0C19794 /* Audio.swift */,
+				69292108E20210AFE273273F /* Captioner.swift */,
+				5E9B87E346716DF4A4454494 /* CompositionBuilder.swift */,
+				1B843F05495FA20F98CFE88A /* Compositor.swift */,
+				7326A859354DDF80A44B6239 /* Exporter.swift */,
+				A9E2327AF387D9F2F4C554E1 /* FrameRenderer.swift */,
+				34B7310DEE2D98D2FFA39576 /* Imaging.swift */,
+				B9F99F80A53DB5F4C6036AE2 /* MediaImporter.swift */,
+				A1F0C0DE0000000000000002 /* FontLibrary.swift */,
+				A1F0C0DE0000000000000004 /* VoiceRecorder.swift */,
+				F98E1A71ED01ED7B181338F9 /* Thumbnails.swift */,
+				A1F0C0DE0000000000000006 /* WhisperEngine.swift */,
+				E5E10F49AF14EF156B2D1DD9 /* Transitions.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4ABF0067E1FC9D0041C94F33 /* AlMosawiCut */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F7D2F41747E0C130FD585D62 /* Build configuration list for PBXNativeTarget "AlMosawiCut" */;
+			buildPhases = (
+				F11B5EE22FECB377C9407459 /* Sources */,
+				A1F0C0DE0000000000000013 /* Frameworks */,
+				BBF3649B82039E55953593F9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AlMosawiCut;
+			packageProductDependencies = (
+				A1F0C0DE0000000000000011 /* WhisperKit */,
+			);
+			productName = AlMosawiCut;
+			productReference = C3B83C9339AB1F59335892BA /* AlMosawiCut.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98B978EC2490DA0D00D1B76C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					4ABF0067E1FC9D0041C94F33 = {
+						DevelopmentTeam = GJ4AP2CYA7;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = B1615BDCE721507B749E3B49 /* Build configuration list for PBXProject "AlMosawiCut" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = DEE084E55DFE97C21D8F5C08;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1F0C0DE0000000000000010 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6EB5D474C2568E9AE78911F3 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4ABF0067E1FC9D0041C94F33 /* AlMosawiCut */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BBF3649B82039E55953593F9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9FFF9AA2434921D37FA6318A /* Assets.xcassets in Resources */,
+				A1F0C0DE0000000000000021 /* Fonts in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F11B5EE22FECB377C9407459 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1C367A94BD3F914861C9E67B /* AlMosawiCutApp.swift in Sources */,
+				AA17814D2CB40EBB647879B4 /* Audio.swift in Sources */,
+				99068B488F6BF7FF5F708876 /* AudioPanels.swift in Sources */,
+				5210BA18C594C0878D9302A5 /* Captioner.swift in Sources */,
+				E5C895048B9903E0475E91AD /* Catalog.swift in Sources */,
+				C7F39F406DFCCFFED61A4B16 /* CompositionBuilder.swift in Sources */,
+				B3F0EA9A7578296DA3B6B84A /* Compositor.swift in Sources */,
+				03F925BAFA3A831937FC0086 /* EditorModel.swift in Sources */,
+				0D4F2CC1C15FBB5908E0FA6E /* EditorView.swift in Sources */,
+				B1D0F4A0595ED27D5C119873 /* ExportSheet.swift in Sources */,
+				2124DDFD1D5BA0DEE6643DCA /* Exporter.swift in Sources */,
+				536E83457CDB16DE15875712 /* FrameRenderer.swift in Sources */,
+				46BBB9FB167DC43734CDDF4F /* HomeView.swift in Sources */,
+				2A096BA36186409E0F40FBE2 /* Imaging.swift in Sources */,
+				81E0ACF31BB962570F56489B /* MediaImporter.swift in Sources */,
+				E7729C03C741D77710D80146 /* Panels.swift in Sources */,
+				DC9C220DD3BDED6257DCC347 /* Project.swift in Sources */,
+				1C1107F22B866F8ADC427F88 /* ProjectStore.swift in Sources */,
+				9386DDADD4577481607F064B /* TextPanels.swift in Sources */,
+				A1F0C0DE0000000000000001 /* FontLibrary.swift in Sources */,
+				A1F0C0DE0000000000000003 /* VoiceRecorder.swift in Sources */,
+				5012189C21276AA1A69C35C8 /* Thumbnails.swift in Sources */,
+				A1F0C0DE0000000000000005 /* WhisperEngine.swift in Sources */,
+				BACEB21B7862BFD1877C1585 /* TimelineView.swift in Sources */,
+				D9C8941E1E9B56319D3132FE /* ToolBar.swift in Sources */,
+				3D99C37E3E51883ADD1FE103 /* Transitions.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5453656DF47F598555D87968 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = AlMosawiCut;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AlMosawiCut records voiceovers from the microphone.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AlMosawiCut saves your exported videos to Photos.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AlMosawiCut imports the videos and photos you pick.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AlMosawiCut transcribes your video's audio to make captions.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.almosawi.AlMosawiCut;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6DD1CF3E438456B75E7883AB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = GJ4AP2CYA7;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		96BCA59612C85B8286221AC7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = AlMosawiCut;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AlMosawiCut records voiceovers from the microphone.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AlMosawiCut saves your exported videos to Photos.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AlMosawiCut imports the videos and photos you pick.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AlMosawiCut transcribes your video's audio to make captions.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.almosawi.AlMosawiCut;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D9F97C0ED10348253529B4CE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = GJ4AP2CYA7;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B1615BDCE721507B749E3B49 /* Build configuration list for PBXProject "AlMosawiCut" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6DD1CF3E438456B75E7883AB /* Debug */,
+				D9F97C0ED10348253529B4CE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F7D2F41747E0C130FD585D62 /* Build configuration list for PBXNativeTarget "AlMosawiCut" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				96BCA59612C85B8286221AC7 /* Debug */,
+				5453656DF47F598555D87968 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A1F0C0DE0000000000000010 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 1.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1F0C0DE0000000000000011 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1F0C0DE0000000000000010 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 98B978EC2490DA0D00D1B76C /* Project object */;
+}

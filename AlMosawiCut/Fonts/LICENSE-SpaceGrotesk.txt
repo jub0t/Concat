@@ -1,0 +1,22 @@
+This font is licensed under SIL Open Font License (OFL), Version 1.1.
+
+Copyright © 2026 Florian Karsten
+https://github.com/floriankarsten/space-grotesk
+
+-----------------------------------------------------------SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+PREAMBLEThe goals of the Open Font License (OFL) are to stimulate worldwidedevelopment of collaborative font projects, to support the font creationefforts of academic and linguistic communities, and to provide a free andopen framework in which fonts may be shared and improved in partnershipwith others.
+The OFL allows the licensed fonts to be used, studied, modified andredistributed freely as long as they are not sold by themselves. Thefonts, including any derivative works, can be bundled, embedded,redistributed and/or sold with any software provided that any reservednames are not used by derivative works. The fonts and derivatives,however, cannot be released under any other type of license. Therequirement for fonts to remain under this license does not applyto any document created using the fonts or their derivatives.
+DEFINITIONS"Font Software" refers to the set of files released by the CopyrightHolder(s) under this license and clearly marked as such. This mayinclude source files, build scripts and documentation.
+"Reserved Font Name" refers to any names specified as such after thecopyright statement(s).
+"Original Version" refers to the collection of Font Software components asdistributed by the Copyright Holder(s).
+"Modified Version" refers to any derivative made by adding to, deleting,or substituting -- in part or in whole -- any of the components of theOriginal Version, by changing formats or by porting the Font Software to anew environment.
+"Author" refers to any designer, engineer, programmer, technicalwriter or other person who contributed to the Font Software.
+PERMISSION &amp; CONDITIONSPermission is hereby granted, free of charge, to any person obtaininga copy of the Font Software, to use, study, copy, merge, embed, modify,redistribute, and sell modified and unmodified copies of the FontSoftware, subject to the following conditions:
+1) Neither the Font Software nor any of its individual components,in Original or Modified Versions, may be sold by itself.
+2) Original or Modified Versions of the Font Software may be bundled,redistributed and/or sold with any software, provided that each copycontains the above copyright notice and this license. These can beincluded either as stand-alone text files, human-readable headers orin the appropriate machine-readable metadata fields within text orbinary files as long as those fields can be easily viewed by the user.
+3) No Modified Version of the Font Software may use the Reserved FontName(s) unless explicit written permission is granted by the correspondingCopyright Holder. This restriction only applies to the primary font name aspresented to the users.
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the FontSoftware shall not be used to promote, endorse or advertise anyModified Version, except to acknowledge the contribution(s) of theCopyright Holder(s) and the Author(s) or with their explicit writtenpermission.
+5) The Font Software, modified or unmodified, in part or in whole,must be distributed entirely under this license, and must not bedistributed under any other license. The requirement for fonts toremain under this license does not apply to any document createdusing the Font Software.
+TERMINATIONThis license becomes null and void if any of the above conditions arenot met.
+DISCLAIMERTHE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OFMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENTOF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THECOPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIALDAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROMOTHER DEALINGS IN THE FONT SOFTWARE.

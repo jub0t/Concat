@@ -1,0 +1,42 @@
+name: AlMosawiCut
+options:
+  bundleIdPrefix: com.almosawi
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: GJ4AP2CYA7
+    CODE_SIGN_STYLE: Automatic
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    minorVersion: 1.1.1
+targets:
+  AlMosawiCut:
+    type: application
+    platform: iOS
+    sources:
+      - path: AlMosawiCut
+        excludes: [Fonts]
+      - path: AlMosawiCut/Fonts
+        type: folder
+    dependencies:
+      - package: WhisperKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.almosawi.AlMosawiCut
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: AlMosawiCut
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "AlMosawiCut imports the videos and photos you pick."
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "AlMosawiCut saves your exported videos to Photos."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "AlMosawiCut records voiceovers from the microphone."
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "AlMosawiCut transcribes your video's audio to make captions."
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
