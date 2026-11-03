@@ -255,6 +255,7 @@ jobs:
       - name: Build log to the summary (failure only)
         if: failure()
         run: |
+          python3 scripts/ci/annotate.py src/build.log || true
           if [ -f src/build.log ]; then
             {
               echo "### Build failed: Android ${{ matrix.abi }}"
@@ -406,6 +407,7 @@ jobs:
       - name: Build log to the summary (failure only)
         if: failure()
         run: |
+          python3 scripts/ci/annotate.py src/build.log || true
           if [ -f src/build.log ]; then
             {
               echo "### Build failed: iOS arm64"
@@ -520,6 +522,7 @@ jobs:
         if: failure()
         timeout-minutes: 1
         run: |
+          python3 scripts/ci/annotate.py src/build.log || true
           if [ -f src/build.log ]; then
             {
               echo "### Build failed: iOS Simulator"
