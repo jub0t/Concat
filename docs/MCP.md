@@ -46,7 +46,7 @@ Choose explicitly with `--mcp window` (fail rather than run on its own) or `--mc
 
 Either way the agent writes files - projects, exports, frames - only under your home folder. Set `CONCAT_MCP_ROOTS` (a path list, `:`-separated, `;` on Windows) to allow other folders in headless mode.
 
-The agent edits projects of its own; it does not edit the project open in the window while you watch. That ("live mode") is planned in [#337](https://github.com/jub0t/Concat/issues/337).
+The agent edits projects of its own. To have it edit the project open in the window while you watch, turn on **Let scripts edit the project that's open** under the server's switch in Settings > Automation, and run the agent with `--mcp window` (or `auto`, with the server on). Its edits then land on the timeline as it makes them, in your undo history, and the window saves them as it saves your own; `project_close` leaves that project to you. This is "live mode" ([#337](https://github.com/jub0t/Concat/issues/337)), in beta: an edit that arrives while you are dragging or turning a knob ends that gesture.
 
 ## What the agent can do
 

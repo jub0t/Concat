@@ -82,6 +82,20 @@ impl Editor {
         })
     }
 
+    /// An editor over a copy of a project, with no history: what a reader
+    /// that must not touch the original works on. Every id the project
+    /// uses is adopted, as [`Editor::from_document`] does.
+    pub fn from_project(project: Project) -> Self {
+        let mut mint = IdMint::default();
+        mint.adopt_project(&project);
+        Self {
+            project,
+            mint,
+            undo: VecDeque::new(),
+            redo: Vec::new(),
+        }
+    }
+
     /// Rewrites the picture links `upgrade` changes - one to a retired
     /// effect, read as a link to the effect that stands in for it - as the
     /// document is read, before any edit: not a step to undo, since it is

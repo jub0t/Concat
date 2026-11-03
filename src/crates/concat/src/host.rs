@@ -14,6 +14,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use concat_host::export::Exporter;
 pub use concat_host::media::{strip_window, window_span, window_start};
@@ -53,12 +54,16 @@ pub struct Host {
     pub reversers: Arc<concat_host::Reversers>,
     /// The Concat API on a socket, while the Automation page has it on. Its
     /// own sessions, apart from the window's: a caller edits projects of
-    /// its own, never the one on screen, which `open_projects` keeps it
-    /// from opening; the export slot is shared, so one export at a time
-    /// holds across the two.
+    /// its own, and the one on screen only while `live` is on, through the
+    /// window (`crate::live`); `open_projects` keeps it from opening that
+    /// one behind the window's back. The export slot is shared, so one
+    /// export at a time holds across the two.
     pub server: Option<concat_server::Server>,
     /// Which project folders are open, here or over the socket.
     pub open_projects: concat_api::OpenProjects,
+    /// Whether scripts may edit the project on screen: the Automation
+    /// page's second switch, read by the server's thread at every call.
+    pub live: Arc<AtomicBool>,
 }
 
 impl Host {
@@ -87,6 +92,7 @@ impl Host {
             speech: Arc::new(Speech::new()),
             server: None,
             open_projects: concat_api::OpenProjects::default(),
+            live: Arc::new(AtomicBool::new(false)),
         })
     }
 }
