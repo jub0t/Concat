@@ -29,6 +29,9 @@ use crate::ffi;
 /// The rate everything is mixed at.
 pub const MIX_RATE: u32 = 48_000;
 
+#[cfg(target_os = "android")]
+mod android_aac;
+
 /// The playback rates the engine supports, as source-seconds per
 /// timeline-second. One definition, shared by preview and export - the two
 /// disagreeing at the extremes is how a preview stops matching its render.
@@ -563,8 +566,9 @@ fn opus_encoder() -> Result<(&'static str, Sample)> {
 /// The AAC encoder to mix into and the samples it takes: the platform's
 /// own where FFmpeg wraps one - Apple's AudioToolbox, Windows' Media
 /// Foundation - whose makers license AAC, so Concat carries no encoder of
-/// its own for it there; FFmpeg's elsewhere, until a phone's and a Linux
-/// system's take its place. Both platform encoders take 16-bit samples.
+/// its own for it there; FFmpeg's elsewhere, a Linux system's. A phone's
+/// is Android's own, outside FFmpeg (see `android_aac`). Both platform
+/// encoders here take 16-bit samples.
 fn aac_encoder() -> Result<(&'static str, Sample)> {
     let platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
         Some("aac_at")
@@ -612,6 +616,17 @@ pub fn mix_to_file_with(
     let wav = extension.as_deref() == Some("wav");
     let opus = matches!(extension.as_deref(), Some("webm" | "opus" | "ogg" | "mka"));
     ffi::init();
+    #[cfg(target_os = "android")]
+    if !wav && !opus {
+        for chain in clips
+            .iter()
+            .map(|clip| &clip.filter_chain)
+            .chain(buses.iter().map(|bus| &bus.filter_chain))
+        {
+            validate_chain(chain)?;
+        }
+        return android_aac::mix(clips, buses, duration, destination);
+    }
     let (codec_name, mix_format) = if wav {
         (
             "pcm_s16le",
