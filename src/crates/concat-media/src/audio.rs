@@ -32,7 +32,7 @@ pub const MIX_RATE: u32 = 48_000;
 /// The playback rates the engine supports, as source-seconds per
 /// timeline-second. One definition, shared by preview and export - the two
 /// disagreeing at the extremes is how a preview stops matching its render.
-pub const SPEED_RANGE: std::ops::RangeInclusive<f64> = 0.0625..=16.0;
+pub const SPEED_RANGE: std::ops::RangeInclusive<f64> = 0.0625..=100.0;
 
 /// Clamps a rate into [`SPEED_RANGE`].
 pub fn clamp_speed(speed: f64) -> f64 {
@@ -1233,7 +1233,7 @@ mod tests {
 
     #[test]
     fn every_stage_is_within_the_filter_range() {
-        for speed in [0.0625, 0.25, 0.5, 1.0, 4.0, 8.0, 16.0] {
+        for speed in [0.0625, 0.25, 0.5, 1.0, 4.0, 8.0, 16.0, 50.0, 100.0] {
             for factor in tempo_stages(speed) {
                 assert!(
                     (0.5..=2.0).contains(&factor),
@@ -1246,7 +1246,8 @@ mod tests {
     #[test]
     fn out_of_range_speeds_clamp_rather_than_explode() {
         assert_eq!(clamp_speed(0.0), 0.0625);
-        assert_eq!(clamp_speed(100.0), 16.0);
+        assert_eq!(clamp_speed(100.0), 100.0);
+        assert_eq!(clamp_speed(500.0), 100.0);
         assert_eq!(clamp_speed(1.0), 1.0);
     }
 

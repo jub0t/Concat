@@ -38,7 +38,7 @@ impl SpeedCurve {
     /// and the map would stop being invertible.
     pub const MIN_SPEED: f64 = 0.0625;
     /// And the ceiling, matching the constant rate's.
-    pub const MAX_SPEED: f64 = 16.0;
+    pub const MAX_SPEED: f64 = 100.0;
 
     /// A curve through these points, joined by straight lines, tidied:
     /// sorted by `x`, clamped into the unit interval and the speed range,
@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn nonsense_is_tidied_or_refused() {
         assert!(SpeedCurve::new(&[]).is_none());
-        let curve = SpeedCurve::new(&[(2.0, 0.0), (-1.0, 100.0)]).unwrap();
+        let curve = SpeedCurve::new(&[(2.0, 0.0), (-1.0, 500.0)]).unwrap();
         assert_eq!(curve.points()[0], (0.0, SpeedCurve::MAX_SPEED));
         assert_eq!(curve.points()[1], (1.0, SpeedCurve::MIN_SPEED));
     }
