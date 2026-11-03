@@ -259,11 +259,12 @@ struct CaptionsPanel: View {
     @AppStorage("captionLanguage") private var language = "ar-SA"
     @AppStorage("captionWords") private var words = 3
     @State private var working = false
+    @State private var status = ""
     @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Transcribes your clips' sound and adds timed captions. Runs on device when the language is installed, otherwise through Apple's speech service.")
+            Text("Listens to the video you're editing (clips, voiceovers and extracted audio, not music) and adds captions timed to your timeline. Edit the video first, or generate again after big changes. Runs on device when the language is installed, otherwise through Apple's speech service.")
                 .font(.caption).foregroundStyle(Theme.secondaryText)
             Chips(options: Captioner.languages.map { ($0.id, $0.name) }, selection: $language)
             Stepper("Up to \(words) word\(words == 1 ? "" : "s") per caption", value: $words, in: 1...8)
@@ -272,7 +273,8 @@ struct CaptionsPanel: View {
                 Button {
                     Task { await generate() }
                 } label: {
-                    Label(working ? "Listening…" : "Generate captions", systemImage: "waveform")
+                    Label(working ? "Working…" : model.project.texts.contains(where: \.isCaption) ? "Generate again" : "Generate captions",
+                          systemImage: "waveform")
                         .font(.subheadline.weight(.bold))
                         .frame(maxWidth: .infinity, minHeight: 40)
                         .background(Theme.accent, in: Capsule())
@@ -288,6 +290,12 @@ struct CaptionsPanel: View {
                         .buttonStyle(.plain)
                 }
             }
+            if working, !status.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(status).font(.caption).foregroundStyle(Theme.secondaryText)
+                }
+            }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
     }
@@ -295,9 +303,10 @@ struct CaptionsPanel: View {
     private func generate() async {
         working = true
         error = nil
-        defer { working = false }
+        defer { working = false; status = "" }
+        if model.isPlaying { model.togglePlay() }
         do {
-            let captions = try await Captioner.captions(for: model.project, locale: language, wordsPerCaption: words)
+            let captions = try await Captioner.captions(for: model.project, locale: language, wordsPerCaption: words) { status = $0 }
             model.replaceCaptions(captions)
         } catch {
             self.error = error.localizedDescription
