@@ -23,6 +23,14 @@ To ask about one, email [jub0trd@gmail.com](mailto:jub0trd@gmail.com).
 Only a written agreement signed by the owner grants a commercial licence.
 Nothing in this repository, its issues, pull requests or discussions does.
 
+## Codec patents
+
+Neither licence grants any rights under patents on media formats such as
+H.264, HEVC or AAC. Concat encodes and decodes those formats through the
+operating system's and the hardware's own codecs where it can, which their
+makers license; anyone who distributes Concat, or builds on it, is
+responsible for any patent licences their own use requires.
+
 ## Third-party components
 
 Concat includes and links third-party software, fonts and models, listed in
