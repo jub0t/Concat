@@ -22,10 +22,14 @@ encoders, MediaCodec). Which build a binary carries:
 - Windows and Linux: BtbN's `lgpl-shared` build
   (https://github.com/BtbN/FFmpeg-Builds), LGPL-3.0-or-later, which links
   the same libraries and libaom (BSD-2-Clause), the GPUs' encoder headers,
-  and OpenH264 (BSD-2-Clause, https://github.com/cisco/openh264), which
-  Concat uses for H.264 only on Linux, where no GPU encodes it. OpenH264
-  compiled from source, as BtbN's is, does not carry Cisco's patent licence;
-  that covers Cisco's own binary only.
+  OpenH264 (BSD-2-Clause, https://github.com/cisco/openh264) and Kvazaar
+  (BSD-3-Clause, https://github.com/ultravideo/kvazaar). Concat encodes
+  H.264 with OpenH264 only where nothing of the platform's does - Linux
+  without a GPU encoder, Windows without Media Foundation's - and HEVC with
+  Kvazaar only where no GPU encoder or Media Foundation's takes it.
+  OpenH264 compiled from source, as BtbN's is, does not carry Cisco's
+  patent licence, which covers Cisco's own binary only; neither carries
+  any HEVC patent licence.
 - Android and iOS: an LGPL-2.1-or-later build compiled from FFmpeg's source
   by `src/scripts/ffmpeg-mobile.sh`, with the platform's codecs and nothing
   else, linked statically.

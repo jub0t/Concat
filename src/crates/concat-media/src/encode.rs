@@ -210,15 +210,30 @@ impl VideoCodec {
         }
         match self {
             VideoCodec::H264 if macos => &["h264_videotoolbox"],
-            VideoCodec::H264 if hardware && windows => {
-                &["h264_nvenc", "h264_qsv", "h264_amf", "h264_mf"]
-            }
-            VideoCodec::H264 if windows => &["h264_mf"],
+            // OpenH264 behind Media Foundation: Windows' own encoder is
+            // missing where the Media Feature Pack is (an N edition).
+            VideoCodec::H264 if hardware && windows => &[
+                "h264_nvenc",
+                "h264_qsv",
+                "h264_amf",
+                "h264_mf",
+                "libopenh264",
+            ],
+            VideoCodec::H264 if windows => &["h264_mf", "libopenh264"],
             VideoCodec::H264 if hardware => &["h264_nvenc", "h264_qsv", "h264_amf", "libopenh264"],
             VideoCodec::H264 => &["libopenh264"],
             VideoCodec::Hevc if macos => &["hevc_videotoolbox"],
-            VideoCodec::Hevc if windows => &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_mf"],
-            VideoCodec::Hevc => &["hevc_nvenc", "hevc_qsv", "hevc_amf"],
+            // Kvazaar last: the CPU's HEVC where no chip and no Media
+            // Foundation encoder takes it, and where a chip that stalled
+            // part way through hands the export on.
+            VideoCodec::Hevc if windows => &[
+                "hevc_nvenc",
+                "hevc_qsv",
+                "hevc_amf",
+                "hevc_mf",
+                "libkvazaar",
+            ],
+            VideoCodec::Hevc => &["hevc_nvenc", "hevc_qsv", "hevc_amf", "libkvazaar"],
             VideoCodec::Av1 if macos => &["libsvtav1", "libaom-av1"],
             VideoCodec::Av1 if hardware => {
                 &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1", "libaom-av1"]
@@ -429,6 +444,17 @@ fn svt_preset(preset: &str) -> u8 {
         .map_or(6, |index| SVT[index])
 }
 
+/// Kvazaar's preset for an x264 preset: Kvazaar names its own ten the
+/// same, from ultrafast to placebo, so a known one passes through and
+/// anything else is its default, medium.
+fn kvazaar_preset(preset: &str) -> &'static str {
+    X264_PRESETS
+        .iter()
+        .find(|name| **name == preset)
+        .copied()
+        .unwrap_or("medium")
+}
+
 /// libvpx's `cpu-used` for an x264 preset, at its `good` deadline: 0 is
 /// its slowest and 5 its fastest there, and x264's medium lands on 3.
 fn vpx_speed(preset: &str) -> u8 {
@@ -493,6 +519,10 @@ enum Family {
     /// Linux's H.264 where no GPU encodes it, from the system's FFmpeg and
     /// the OpenH264 Cisco ships, which a distribution or Flatpak installs.
     OpenH264,
+    /// Kvazaar (BSD-3-Clause), the HEVC encoder in the LGPL FFmpeg builds:
+    /// planar 4:2:0 at eight bits, steered by a bitrate. HEVC on the CPU,
+    /// where x265 was before it left the builds.
+    Kvazaar,
     /// NVIDIA's NVENC: semi-planar 4:2:0, steered by a constant quality.
     Nvenc,
     /// Intel's Quick Sync: semi-planar 4:2:0, steered by a quality (ICQ).
@@ -517,6 +547,8 @@ impl Family {
             Family::Amf
         } else if encoder_name == "libopenh264" {
             Family::OpenH264
+        } else if encoder_name == "libkvazaar" {
+            Family::Kvazaar
         } else {
             Family::Software
         }
@@ -527,7 +559,7 @@ impl Family {
     /// also names planar, and a good share of phones refuse it.
     fn pixel_format(self, ten_bit: bool) -> Pixel {
         match (self, ten_bit) {
-            (Family::Software | Family::OpenH264, false) => Pixel::YUV420P,
+            (Family::Software | Family::OpenH264 | Family::Kvazaar, false) => Pixel::YUV420P,
             (Family::Software, true) => Pixel::YUV420P10LE,
             (_, false) => Pixel::NV12,
             (_, true) => Pixel::P010LE,
@@ -539,7 +571,7 @@ impl Family {
     fn steered_by_bitrate(self) -> bool {
         matches!(
             self,
-            Family::MediaCodec | Family::MediaFoundation | Family::OpenH264
+            Family::MediaCodec | Family::MediaFoundation | Family::OpenH264 | Family::Kvazaar
         )
     }
 
@@ -547,8 +579,18 @@ impl Family {
     fn hardware(self) -> bool {
         !matches!(
             self,
-            Family::Software | Family::MediaFoundation | Family::OpenH264
+            Family::Software | Family::MediaFoundation | Family::OpenH264 | Family::Kvazaar
         )
+    }
+
+    /// Whether the family's encoders are there whenever FFmpeg links them,
+    /// so being linked answers whether one opens. Media Foundation's are
+    /// not: FFmpeg asks it for a software encoder, and Windows has one for
+    /// H.264 only where the Media Feature Pack is installed (not on an N
+    /// edition without it) and one for HEVC only with Microsoft's paid
+    /// HEVC extension.
+    fn always_there(self) -> bool {
+        matches!(self, Family::Software | Family::OpenH264 | Family::Kvazaar)
     }
 
     /// Whether opening one loads a GPU vendor's driver into the process:
@@ -593,19 +635,20 @@ fn switched_on(encoder_name: &str, var: impl Fn(&str) -> Option<std::ffi::OsStri
 }
 
 /// [`VideoCodec::encodable`] over `names`, the linked encoders best first,
-/// with `opens` to ask one. A software encoder anywhere in the list means
-/// yes without opening anything: the export falls through to it if the
-/// hardware ahead does not open. Without one - a phone, or a desktop
-/// FFmpeg built without them - a system encoder is opened to find out,
-/// and a vendor's is taken as linked, so the question never loads a
-/// driver (see [`Family::vendor_driver`]); an export it does not open for
-/// says so when it is tried.
+/// with `opens` to ask one. An encoder that is there whenever it is linked
+/// (see [`Family::always_there`]) anywhere in the list means yes without
+/// opening anything: the export falls through to it if the ones ahead do
+/// not open. Without one - a phone, Windows with Media Foundation alone, or
+/// a desktop FFmpeg built without them - a system encoder is opened to
+/// find out, and a vendor's is taken as linked, so the question never
+/// loads a driver (see [`Family::vendor_driver`]); an export it does not
+/// open for says so when it is tried.
 fn encodable_among(
     names: impl Iterator<Item = &'static str>,
     mut opens: impl FnMut(&'static str) -> bool,
 ) -> bool {
     let names: Vec<&'static str> = names.collect();
-    if names.iter().any(|name| !Family::of(name).hardware()) {
+    if names.iter().any(|name| Family::of(name).always_there()) {
         return true;
     }
     names
@@ -723,7 +766,7 @@ fn takes_ten_bits(encoder_name: &str) -> bool {
         Family::Nvenc | Family::Qsv => {
             encoder_name.starts_with("hevc_") || encoder_name.starts_with("av1_")
         }
-        Family::MediaCodec | Family::MediaFoundation | Family::OpenH264 => false,
+        Family::MediaCodec | Family::MediaFoundation | Family::OpenH264 | Family::Kvazaar => false,
     }
 }
 
@@ -1003,6 +1046,12 @@ fn open_video(
     // holding the target.
     let bufsize = format!("{}k", options.bitrate_kbps);
     let settings = match encoder_name {
+        // Kvazaar, steered by the bitrate on the context (above). Its own
+        // preset names match x264's, and "medium" is its default; the
+        // export's preset is passed on as it is for the other CPU encoders.
+        "libkvazaar" => ffmpeg::dict! {
+            "kvazaar-params" => &format!("preset={}", kvazaar_preset(&options.preset)),
+        },
         // Cisco's OpenH264, steered by the bitrate on the context.
         "libopenh264" => ffmpeg::dict! {
             "rc_mode" => "bitrate",
@@ -2585,6 +2634,53 @@ mod tests {
         encoder.finish().expect("finishes");
         assert!(std::fs::metadata(&path).expect("written").len() > 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Kvazaar is HEVC on the CPU: eight-bit planar pictures, a bitrate,
+    /// and there whenever FFmpeg links it, so the sheet answers for it
+    /// without opening anything. Media Foundation's software encoders are
+    /// not always there, so they are opened to find out.
+    #[test]
+    fn kvazaar_is_the_cpus_hevc_and_media_foundation_is_asked() {
+        let kvazaar = Family::of("libkvazaar");
+        assert_eq!(kvazaar, Family::Kvazaar);
+        assert!(!kvazaar.hardware() && kvazaar.always_there());
+        assert!(kvazaar.steered_by_bitrate());
+        assert_eq!(kvazaar.pixel_format(false), Pixel::YUV420P);
+        assert!(!takes_ten_bits("libkvazaar"));
+        assert!(!Family::of("hevc_mf").always_there());
+        assert!(!Family::of("h264_mf").hardware());
+
+        // A list with a CPU encoder that is always there answers yes and
+        // opens nothing; Media Foundation alone is opened.
+        let names = ["hevc_mf", "libkvazaar"].into_iter();
+        assert!(encodable_among(names, |name| panic!("opened {name}")));
+        let mut asked = Vec::new();
+        assert!(!encodable_among(["hevc_mf"].into_iter(), |name| {
+            asked.push(name);
+            false
+        }));
+        assert_eq!(asked, ["hevc_mf"]);
+
+        // Windows and Linux end HEVC on Kvazaar and Windows ends H.264 on
+        // OpenH264, with or without hardware: what a stalled chip's export
+        // goes on with.
+        if cfg!(any(target_os = "windows", target_os = "linux")) {
+            for hardware in [false, true] {
+                assert_eq!(
+                    VideoCodec::Hevc.encoders(hardware).last(),
+                    Some(&"libkvazaar")
+                );
+                assert_eq!(
+                    VideoCodec::H264.encoders(hardware).last(),
+                    Some(&"libopenh264")
+                );
+            }
+        }
+
+        assert_eq!(kvazaar_preset("veryfast"), "veryfast");
+        assert_eq!(kvazaar_preset("placebo"), "placebo");
+        assert_eq!(kvazaar_preset("unheard-of"), "medium");
     }
 
     #[test]
