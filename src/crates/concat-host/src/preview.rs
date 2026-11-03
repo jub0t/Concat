@@ -303,7 +303,8 @@ impl Monitor {
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
-        self.frame_pixels(clips, settings, spec).map(|(pixels, _)| pixels)
+        self.frame_pixels(clips, settings, spec)
+            .map(|(pixels, _)| pixels)
     }
 
     /// [`Monitor::frame`], and whether every picture in it is the exact

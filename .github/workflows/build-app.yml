@@ -19,12 +19,15 @@ name: Build app
 #   FFmpeg 7+ development libraries (headers and import libraries), cmake, a
 #   C++ toolchain and libclang for bindgen. sherpa-onnx is a prebuilt static
 #   library its crate downloads for the target.
-# - Homebrew's FFmpeg serves on macOS and travels with the app: the dylibs
-#   are copied into the bundle and the binary's load paths rewritten, so the
+# - FFmpeg is LGPL everywhere, with nothing GPL in it: Concat encodes H.264,
+#   HEVC and AAC on the platform's own encoders. On macOS it is built here
+#   from source (src/scripts/ffmpeg-macos.sh) against Homebrew's BSD-licensed
+#   VP9, AV1 and Opus libraries, and travels with the app: the dylibs are
+#   copied into the bundle and the binary's load paths rewritten, so the
 #   .dmg runs on a Mac with nothing installed. Windows and Linux use a BtbN
-#   `shared` build - headers, import libraries and runtime libraries in one
-#   archive - and the runtime libraries ship beside the binary; on Linux the
-#   binary carries an rpath to find them there.
+#   `lgpl-shared` build - headers, import libraries and runtime libraries in
+#   one archive - and the runtime libraries ship beside the binary; on Linux
+#   the binary carries an rpath to find them there.
 # - The app is signed and notarised on macOS when the signing secrets are
 #   set on the repository, and ad-hoc signed when they are not, so a build
 #   from a fork still opens (with Gatekeeper's warning).
@@ -74,7 +77,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # The prebuilt dependencies - BtbN's FFmpeg 8.1 (GPL, shared, one per
+  # The prebuilt dependencies - BtbN's FFmpeg 8.1 (LGPL, shared, one per
   # arch), ONNX Runtime, sherpa-onnx, nfpm, appimagetool, LLVM for Windows
   # and Intel's emulator - are each pinned to one file and its digest in
   # scripts/ci/deps.lock, and fetched through scripts/ci/fetch.sh, which
@@ -296,12 +299,40 @@ jobs:
       # of every fallback, so the build never depends on the runner image
       # happening to carry a pkg-config that knows about Homebrew - the
       # arm64 image did not, and the build died in the pkg-config fallback.
+      #
+      # FFmpeg itself is built here, LGPL, against Homebrew's codec
+      # libraries; Homebrew's own FFmpeg is GPL and carries x264 and x265.
+      # The build is cached by the script and by the versions of the
+      # libraries it links, so a Homebrew update rebuilds it rather than
+      # leaving it pointing at a library that is gone.
+      - name: Codec libraries (macOS)
+        id: codecs
+        if: matrix.platform == 'macos'
+        run: |
+          set -euo pipefail
+          brew install cmake dylibbundler pkgconf nasm libvpx svt-av1 opus dav1d
+          echo "versions=$(brew list --versions libvpx svt-av1 opus dav1d | shasum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: FFmpeg for macOS (cached)
+        id: ffmpeg-macos
+        if: matrix.platform == 'macos'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/macos
+          key: ffmpeg-macos-${{ matrix.arch }}-${{ hashFiles('src/scripts/ffmpeg-macos.sh') }}-${{ steps.codecs.outputs.versions }}
+      - name: FFmpeg for macOS
+        if: matrix.platform == 'macos' && steps.ffmpeg-macos.outputs.cache-hit != 'true'
+        run: src/scripts/ffmpeg-macos.sh
+      - name: FFmpeg for macOS (save)
+        if: matrix.platform == 'macos' && steps.ffmpeg-macos.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/macos
+          key: ${{ steps.ffmpeg-macos.outputs.cache-primary-key }}
       - name: FFmpeg development libraries (macOS)
         if: matrix.platform == 'macos'
         run: |
           set -euo pipefail
-          brew install ffmpeg cmake dylibbundler
-          echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> "$GITHUB_ENV"
+          echo "FFMPEG_DIR=$PWD/src/vendor/ffmpeg/macos" >> "$GITHUB_ENV"
           # ggml's Metal code asks `@available(macOS 15, *)` before using
           # residency sets. Below that deployment target the question is
           # answered at run time by ___isPlatformVersionAtLeast, which lives
@@ -646,9 +677,9 @@ jobs:
           fi
 
           # Every library in the bundle against the floor it declares. A
-          # warning for now: Homebrew's FFmpeg is built for the runner's
-          # macOS, so every Mac bundle has some until FFmpeg is built here
-          # for the floor. ONNX Runtime is listed apart, with the macOS it
+          # warning for now: FFmpeg is built here for the floor, but the
+          # codec libraries it links are Homebrew's, built for the runner's
+          # macOS. ONNX Runtime is listed apart, with the macOS it
           # needs: the app reads that same field before loading it, and on
           # an older one the AI features say so instead.
           scripts/ci/check-min-os.sh "$app" "$MACOSX_DEPLOYMENT_TARGET" ${lazy[@]+"${lazy[@]}"}

@@ -10,6 +10,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 4. **Tick an item only once `git blame -w` shows none of that commit's lines left** (`git blame -w <file> | grep <hash>` is empty).
 5. Commits are `refactor(<area>): ... (clean room)`, authored by Jareer, and list the hashes they replace in the body (`Replaces <hash>`).
 6. Re-run the inventory at the end, with the command in the last section. Anything new it finds goes on this list.
+7. When a file's last outside line is gone, its SPDX line drops "and Concat contributors" and says `2026 Jareer Abdullah` alone. Until then it keeps it: those lines are still their authors' copyright.
 
 ## Code (118 commits, 18051 lines)
 

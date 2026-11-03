@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Speech in and out, entirely on this machine.
 //!
 //! - [`transcribe`] - whisper.cpp, in-process, turns a clip's audio into
 //!   timed caption segments.
-//! - [`tts`] - Kokoro, through sherpa-onnx, turns typed narration into a
-//!   WAV in the project folder.
+//! - [`tts`] - Chatterbox on the desktop, and the phone's own voice on
+//!   Android, turn typed narration into a WAV in the project folder.
 //!
 //! Both download their models on demand into the app's data directory and
 //! never bundle them. Both are one-at-a-time: a [`concat_host::SingleFlight`]
 //! refuses a second concurrent run rather than letting two share a cancel
 //! flag.
 //!
-//! A separate crate from `concat-host` so the heavy native dependency
-//! (sherpa-onnx's static libraries) stays out of everything that does not
-//! speak.
+//! A separate crate from `concat-host` so the heavy native dependencies
+//! (whisper.cpp, and ONNX Runtime for Chatterbox) stay out of everything
+//! that does not speak.
 
 #[cfg(feature = "chatterbox")]
 pub mod chatterbox;
@@ -29,9 +29,7 @@ pub use tts::Speech;
 /// Mac's GPU and Neural Engine. Windows and Linux have none in the runtime
 /// the app ships - Windows' is Microsoft's CPU build, and asking it for
 /// DirectML crashed Chatterbox on its second network (#399). Not a setting. Measured on an M5 against
-/// the CPU, a warm read took 10.3 s against 14.8 for Kokoro (and came out
-/// sample for sample the same), 5.6 against 6.5 for Pocket and 48.6
-/// against 60.6 for Chatterbox. The one cost is Chatterbox's load, about
+/// the CPU, a warm Chatterbox read took 48.6 s against 60.6. The one cost is Chatterbox's load, about
 /// eleven seconds longer while CoreML compiles its networks, paid once per
 /// run since the engine stays loaded. A model that will not load for CoreML
 /// at all loads for the CPU instead (tts.rs).
@@ -42,7 +40,7 @@ pub const fn accelerated() -> bool {
 /// How far a transcription or a read has got, as it reports it: the stage
 /// it is in, and in the work itself where it is and where the step under
 /// way will leave it. A job is mostly long waits between reports - whisper
-/// reports once per thirty seconds of sound, sherpa once per sentence - and
+/// reports once per thirty seconds of sound, Chatterbox every few words - and
 /// `next` is what lets a bar move through the wait without promising more
 /// than the job has done.
 #[derive(Clone, Copy, Debug, PartialEq)]

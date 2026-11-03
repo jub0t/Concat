@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Where a downloadable model is fetched from, and what proves it arrived
 //! whole.
 //!
-//! Concat carries no weights in its bundle: a cutout network, a Kokoro voice
-//! bank and a whisper model together outweigh the editor many times over,
+//! Concat carries no weights in its bundle: a cutout network, a Chatterbox
+//! voice and a whisper model together outweigh the editor many times over,
 //! and most people never ask for all three. Each is fetched the first time a
 //! feature needs one.
 //!

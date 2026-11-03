@@ -43,7 +43,7 @@ I sampled the last 100 stargazers (03:59–10:27Z today, about 100 stars in 6.5 
 
 - **Views:** 166,377, 91,011 unique. The peak was 26,800 on 10-16; daily views were above 19k on 10-15 to 10-18 and fell to 14,423 on 10-19.
 - **Clones:** 11,098 (3,441 unique).
-- **Referrers:** Google 41,694 (33,424 unique); github.com 21,441; Facebook (l./lm./www.) 11,202 combined; Brave 2,343; `concatenate.pages.dev` 2,228; Bing 1,909; t.co 1,219; youtube.com 1,180.
+- **Referrers:** Google 41,694 (33,424 unique); github.com 21,441; Facebook (l./lm./www.) 11,202 combined; Brave 2,343; `concat.standalones.org` 2,228; Bing 1,909; t.co 1,219; youtube.com 1,180.
 - **Paths:** `/jub0t/concat` and `/jub0t/Concat` are about 105k combined. `/releases` 15,520 and `/releases/tag/v0.2.7` 6,417. `docs/README.es.md` is the 10th most-viewed path (1,962 views), so Spanish speakers are a real segment.
 
 ## 2. Distribution and trust
@@ -53,7 +53,7 @@ I sampled the last 100 stargazers (03:59–10:27Z today, about 100 stars in 6.5 
 | Channel | Status | Evidence |
 |---|---|---|
 | GitHub Releases | Yes, 16 assets / 5 OSes | V |
-| Official site | `concat.standalones.org` (in-app `SITE`, `src/crates/concat/src/panes/start.rs:94`) and `concatenate.pages.dev` (README). Same HTML. **Both link only v0.2.7 assets** (47× "0.2.7", 0× "0.2.8"), plus `releases/latest/download/SHA256SUMS`, which is now 0.2.8's file. Anyone checking the hash of a site download gets a **mismatch**. Owner issue #458 ("website: update ... out-dated data") is open and unlabelled. | V (`curl`, 10:4xZ) |
+| Official site | `concat.standalones.org` (in-app `SITE`, `src/crates/concat/src/panes/start.rs:94`) and `concat.standalones.org` (README). Same HTML. **Both link only v0.2.7 assets** (47× "0.2.7", 0× "0.2.8"), plus `releases/latest/download/SHA256SUMS`, which is now 0.2.8's file. Anyone checking the hash of a site download gets a **mismatch**. Owner issue #458 ("website: update ... out-dated data") is open and unlabelled. | V (`curl`, 10:4xZ) |
 | winget | **No** (`microsoft/winget-pkgs/manifests/j/jub0t` and `.../c/Concat` 404; code search empty). `concat.wxs:9` says the .msi is for "winget" deploys, but there is no manifest. | V |
 | Microsoft Store | **No.** Removed in `be1b882` (2026-10-12, "no Microsoft Store"). Repo **variables** `MSSTORE_IDENTITY_NAME=jub0t.Concat`, `MSSTORE_PUBLISHER`, `MSSTORE_PUBLISHER_DISPLAY_NAME` are still set (`gh variable list`), so the name reservation probably still exists. | V |
 | Google Play | No (`play.google.com/...id=app.concat.editor` 404) | V |
@@ -105,7 +105,7 @@ I sampled the last 100 stargazers (03:59–10:27Z today, about 100 stars in 6.5 
   - Its `.github` profile README is SEO filler: "Concat - Online Video Editor for Fast Browser Editing", "a practical Concat CapCut alternative".
   - It **hotlinks `concat.standalones.org/_astro/editor…webp`** and gives no link to `jub0t/Concat`.
   - This is name squatting or SEO spam riding Concat's name (V, `gh api orgs/Concat-video-editor`). `TRADEMARK.md` exists, and the owner can report it to GitHub.
-- There are **two official domains** (`concat.standalones.org` canonical, `concatenate.pages.dev` in the README). Two names make phishing lookalikes easier to pass off; pick one.
+- There are **two official domains** (`concat.standalones.org` canonical, `concat.standalones.org` in the README). Two names make phishing lookalikes easier to pass off; pick one.
 - README "Paid Sponsors" promotes Proxyon (proxies, `JUB0T` code). That is a trust-optics risk for an app sold on privacy. This is opinion.
 
 ## 3. GitHub state

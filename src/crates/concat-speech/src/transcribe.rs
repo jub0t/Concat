@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Whisper transcription: audio in, timed caption segments out.
 //!
-//! whisper.cpp runs in-process through `whisper-rs`, the way Kokoro runs
-//! through sherpa-onnx: no binary to ship or find, and cancellation is a
+//! whisper.cpp runs in-process through `whisper-rs`: no binary to ship or
+//! find, and cancellation is a
 //! callback returning `true`. On macOS the Metal build is used, so the
 //! encoder runs on the GPU.
 //!

@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · **🇮🇱 עברית** · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
@@ -74,7 +74,7 @@ Concat הוא עורך וידאו חינמי בקוד פתוח וחלופה ל-C
 
 שתי דרכים פנימה:
 
-1. **[האתר](https://concatenate.pages.dev/#download)** נותן לכם את הגרסה הנכונה למחשב שלכם. התחילו כאן.
+1. **[האתר](https://concat.standalones.org/#download)** נותן לכם את הגרסה הנכונה למחשב שלכם. התחילו כאן.
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** מכיל כל גרסה לכל פלטפורמה, עם מתקינים, חבילות וסכומי ביקורת. למקרה שתרצו לבחור בעצמכם.
 
 Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות. [ספרו](https://github.com/jub0t/Concat/issues) כשתמצאו אחד.
@@ -89,7 +89,7 @@ Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות
 
 ✅ נתמך · 🚧 בעבודה · 🧪 טרם נבדק
 
-**דרישות המערכת** וגודלי המודלים האופציונליים נמצאים [באתר](https://concatenate.pages.dev/guides/system-requirements).
+**דרישות המערכת** וגודלי המודלים האופציונליים נמצאים [באתר](https://concat.standalones.org/guides/system-requirements).
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות
 > [!IMPORTANT]
 > הדרך הטובה ביותר לתרום היא לקחת גרסה מעמוד ה-[Releases](https://github.com/jub0t/Concat/releases) ולהשתמש בה: למצוא איפה היא נשברת, ולומר איפה היא יכולה להיות טובה יותר.
 >
-> מוכנים לכתוב קוד? [CONTRIBUTING.md](../CONTRIBUTING.md) מכסה את ההתקנה, מבנה העץ, הבדיקות שצריך להריץ ואת רישוי התרומות. מפעילים את Concat מסקריפט, משירות או מסוכן? [תיעוד המפתחים](https://concatenate.pages.dev/docs) מכסה את ה-API של Concat ואת ערוצי התעבורה שלו: JSON-RPC ו-gRPC. [בדיון הזה](https://github.com/jub0t/Concat/discussions/3) הוכרז הפרויקט.
+> מוכנים לכתוב קוד? [CONTRIBUTING.md](../CONTRIBUTING.md) מכסה את ההתקנה, מבנה העץ, הבדיקות שצריך להריץ ואת רישוי התרומות. מפעילים את Concat מסקריפט, משירות או מסוכן? [תיעוד המפתחים](https://concat.standalones.org/docs) מכסה את ה-API של Concat ואת ערוצי התעבורה שלו: JSON-RPC ו-gRPC. [בדיון הזה](https://github.com/jub0t/Concat/discussions/3) הוכרז הפרויקט.
 > 
 > תורמים יכולים לקבל תפקיד `@Contributor` בשרת ה-Discord: רק צריך לבקש.
 

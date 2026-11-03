@@ -18,11 +18,10 @@ import { Fmt } from "../util.slint";
 // get the read you wanted, so what changes a read is on the surface. The
 // model comes first, because it decides the rest: which voices there are to
 // choose from, and which dials the engine will read. Each model gets its own
-// controls rather than the few every model shares - Kokoro its speed and its
-// pauses, Pocket those and a quality, Chatterbox its expression tags and
-// nothing about pace, since it reads at its own. The two that read in a
-// recording can read in a sample voice instead of a named one: a section of
-// its own, switched on at its header, offering the bin's recordings by their
+// controls rather than the few every model shares - the phone's voice its
+// speed, Chatterbox its expression tags and nothing about pace, since it
+// reads at its own. Chatterbox, which reads in a recording, can read in a
+// sample voice instead of its stock one: a section of its own, switched on at its header, offering the bin's recordings by their
 // waveforms and how far into the chosen one the speaking starts. Opened
 // from a title the script is the title's words; opened from the menu it is
 // whatever you type. While it runs the sheet is the progress report, with a
@@ -42,16 +41,12 @@ export struct SpeechSheetData {
     voice-count: int,
     /// Row in the installed voice model list.
     model: int,
-    /// 0 Kokoro, 1 Pocket TTS, 2 Chatterbox: which controls the model has.
+    /// 0 the phone's own voice, 2 Chatterbox: which controls the model has.
     family: int,
-    /// The rate, 0.5..2; 1 is the voice's own. Kokoro and Pocket.
+    /// The rate, 0.5..2; 1 is the voice's own. The phone's voice.
     speed: float,
-    /// 0 quick, 1 balanced, 2 fine: Pocket's flow steps.
-    quality: int,
-    /// The breath between sentences, 0..1. Kokoro and Pocket.
-    pauses: float,
     /// The model reads in a recording, so a sample voice can be offered:
-    /// Pocket and Chatterbox.
+    /// Chatterbox.
     samples-offered: bool,
     /// Reading in a sample from the bin rather than a named voice.
     use-sample: bool,
@@ -254,8 +249,6 @@ export component SpeechDialog inherits Modal {
     callback voice-changed(index: int);
     callback model-changed(index: int);
     callback speed-changed(value: float);
-    callback quality-changed(index: int);
-    callback pauses-changed(value: float);
     callback reference-start-changed(seconds: float);
     callback use-sample-changed(on: bool);
     callback sample-changed(index: int);
@@ -293,27 +286,23 @@ export component SpeechDialog inherits Modal {
     // from the data whenever it changes - and Rust echoes every change
     // back, so the reseed is the value the slider just set.
     property <float> speed-v;
-    property <float> pauses-v;
     property <float> reference-start-v;
     changed data => {
         if (!root.typing) {
             root.draft = root.data.text;
         }
         root.speed-v = root.data.speed;
-        root.pauses-v = root.data.pauses;
         root.reference-start-v = root.data.reference-start;
     }
     init => {
         root.draft = root.data.text;
         root.speed-v = root.data.speed;
-        root.pauses-v = root.data.pauses;
         root.reference-start-v = root.data.reference-start;
     }
     /// A sample is wanted and the bin has one to give; a read without one
     /// would fail on its first step.
     property <bool> has-reference: !root.data.use-sample || root.data.sample-name != "";
     /// There is a voice to read with: a sample, or a named one on the list.
-    /// Chatterbox names none until Pocket's recordings are on disk.
     property <bool> has-voice: root.data.use-sample || root.data.voice-count > 0;
 
     /// Seconds since the run began; the reference beside the bar.
@@ -470,9 +459,8 @@ export component SpeechDialog inherits Modal {
                 }
             }
 
-            // Chatterbox ships no recording of anyone's, so its named voices
-            // are Pocket's two, borrowed while Pocket is on disk. With
-            // neither there is nothing to read with but a sample.
+            // With no named voice there is nothing to read with but a
+            // sample.
             if root.data.family == 2 && root.data.voice-count == 0 && !root.data.use-sample: Text {
                 text: I18n.t("speech.chatterboxHasNoVoice");
                 color: Theme.danger;
@@ -482,20 +470,15 @@ export component SpeechDialog inherits Modal {
 
             // What this model is, in a line, so the dials under it are not
             // a surprise: a model that is missing one has never had it.
-            if root.data.ready: Text {
-                text: root.data.family == 0
-                    ? I18n.t("speech.speakersBuiltIntoModel")
-                    : root.data.family == 1
-                    ? I18n.t("speech.readsAnyVoiceFew")
-                    : I18n.t("speech.closestStudioVoiceReads");
+            if root.data.ready && root.data.family == 2: Text {
+                text: I18n.t("speech.closestStudioVoiceReads");
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
             }
 
-            // Speed and pauses are sherpa's dials, and Chatterbox is not
-            // sherpa's: it reads at its own pace, and a slider it would
-            // ignore is a lie.
+            // Speed is the phone's voice's dial: Chatterbox reads at its own
+            // pace, and a slider it would ignore is a lie.
             if root.data.family != 2: DialogRow {
                 label: I18n.t("common.speed");
                 Rail {
@@ -514,40 +497,6 @@ export component SpeechDialog inherits Modal {
                     font-size: Theme.fs-sm;
                     vertical-alignment: center;
                     horizontal-alignment: right;
-                }
-            }
-
-            if root.data.family != 2: DialogRow {
-                label: I18n.t("speech.pauses");
-                Rail {
-                    value <=> root.pauses-v;
-                    minimum: 0;
-                    maximum: 1;
-                    step: 0.05;
-                    default-value: 0.2;
-                    changed(v) => { root.pauses-changed(v); }
-                }
-                Text {
-                    width: 52px;
-                    text: root.pauses-v < 0.1 ? I18n.t("common.none")
-                        : root.pauses-v < 0.35 ? I18n.t("speech.natural")
-                        : root.pauses-v < 0.7 ? I18n.t("speech.long")
-                        : I18n.t("speech.longer");
-                    color: Theme.fg-muted;
-                    font-family: Theme.font-technical;
-                    font-size: Theme.fs-sm;
-                    vertical-alignment: center;
-                    horizontal-alignment: right;
-                }
-            }
-
-            // Pocket's flow steps: fewer is quicker, more is cleaner.
-            if root.data.family == 1: DialogRow {
-                label: I18n.t("common.quality");
-                SegmentedControl {
-                    options: [I18n.t("speech.quick"), I18n.t("common.balanced"), I18n.t("speech.fine")];
-                    current: root.data.quality;
-                    changed(index) => { root.quality-changed(index); }
                 }
             }
 

@@ -60,7 +60,7 @@ HEAD = """<p align="center">
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
   <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 {languages}
@@ -98,7 +98,7 @@ HEAD = """<p align="center">
 
 {two_ways}
 
-1. **[{website}](https://concatenate.pages.dev/#download)** {website_text}
+1. **[{website}](https://concat.standalones.org/#download)** {website_text}
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** {releases_text}
 
 {beta}
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     p = os.path.join(ROOT, "README.md")
     s = open(p).read()
     line = language_line("en")
-    marker = '  <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>\n  <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>\n  <a href="https://concatenate.pages.dev/#download"><img src="assets/download_button.svg" alt="Download Concat" width="251" /></a>\n</p>\n'
+    marker = '  <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>\n  <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>\n  <a href="https://concat.standalones.org/#download"><img src="assets/download_button.svg" alt="Download Concat" width="251" /></a>\n</p>\n'
     assert s.count(marker) == 1
     rest = s.split(marker, 1)[1]
     if rest.startswith("\n**🇬🇧 English**"):

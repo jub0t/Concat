@@ -3,19 +3,33 @@
 ## FFmpeg
 
 Concat links FFmpeg's libraries - libavformat, libavcodec, libavfilter,
-libavdevice, libavutil, libswscale and libswresample - through the
-`ffmpeg-the-third` crate. The Slint app spawns no `ffmpeg` or `ffprobe`
-process.
+libavutil, libswscale and libswresample - through the `ffmpeg-the-third`
+crate, as shared libraries that ship beside it and can be replaced. The
+Slint app spawns no `ffmpeg` or `ffprobe` process.
 
-FFmpeg is licensed under the LGPL-2.1-or-later; builds that include x264
-(which the H.264 export uses) are GPL-2.0-or-later. Concat's own sources are
-AGPL-3.0-or-later, and section 13 of the GPL-3.0 and AGPL-3.0 expressly
-permits linking the two, so a distributed build may be conveyed on those
-terms. Which FFmpeg a binary carries depends on the machine that built it:
-Homebrew's on macOS, a BtbN `gpl-shared` build
-(https://github.com/BtbN/FFmpeg-Builds) on Windows and Linux and in CI, and
-on Android and iOS an LGPL build without x264, compiled from FFmpeg's source
-by `src/scripts/ffmpeg-mobile.sh` and linked statically.
+Every FFmpeg Concat ships is LGPL, with nothing GPL or non-free in it: no
+x264, x265 or fdk-aac. H.264, HEVC and AAC are encoded by the platform's own
+encoders (VideoToolbox and AudioToolbox, Media Foundation and the GPUs'
+encoders, MediaCodec). Which build a binary carries:
+
+- macOS: FFmpeg 8.1 compiled from source by `src/scripts/ffmpeg-macos.sh`,
+  LGPL-2.1-or-later, linking libvpx (BSD-3-Clause,
+  https://chromium.googlesource.com/webm/libvpx), SVT-AV1 (BSD-3-Clause-Clear
+  with the Alliance for Open Media patent licence,
+  https://gitlab.com/AOMediaCodec/SVT-AV1), Opus (BSD-3-Clause,
+  https://opus-codec.org) and dav1d (BSD-2-Clause,
+  https://code.videolan.org/videolan/dav1d), as Homebrew builds them.
+- Windows and Linux: BtbN's `lgpl-shared` build
+  (https://github.com/BtbN/FFmpeg-Builds), LGPL-3.0-or-later, which links
+  the same libraries and libaom (BSD-2-Clause), the GPUs' encoder headers,
+  and OpenH264 (BSD-2-Clause, https://github.com/cisco/openh264), which
+  Concat uses for H.264 only on Linux, where no GPU encodes it. OpenH264
+  compiled from source, as BtbN's is, does not carry Cisco's patent licence;
+  that covers Cisco's own binary only.
+- Android and iOS: an LGPL-2.1-or-later build compiled from FFmpeg's source
+  by `src/scripts/ffmpeg-mobile.sh`, with the platform's codecs and nothing
+  else, linked statically.
+
 FFmpeg source code: https://ffmpeg.org/download.html
 
 ## whisper.cpp
@@ -32,20 +46,21 @@ MIT; Silero VAD itself is MIT, https://github.com/snakers4/silero-vad,
 Copyright (c) 2020-present Silero Team). It finds where the speech is, so
 captions are timed from it.
 
-## Slint (used under GPL-3.0-only)
+## Slint (GPL-3.0-only, or Royalty-free for commercial builds)
 
 The `concat` crate (`src/crates/concat`) builds against
 [Slint](https://github.com/slint-ui/slint), which its authors offer under
 **any one** of three licences, at the user's choice: a Royalty-free licence, a
 paid commercial licence, or **GNU GPL-3.0-only**.
 
-**Concat uses Slint under the GPL-3.0-only option.** That choice is deliberate
-and it is recorded here because nothing in the source tree would otherwise say
-which of the three applies. The Royalty-free and commercial options are not
-used: both are aimed at shipping proprietary applications, and neither can
-grant downstream recipients the freedoms Concat's own licence promises them.
+**Concat as published here, under AGPL-3.0-or-later, uses Slint under the
+GPL-3.0-only option.** Builds of Concat distributed under a commercial licence
+from its owner use Slint under the Slint Royalty-free Desktop, Mobile, and Web
+Applications License 2.0, which the owner accepted on 3 November 2026, with
+Slint's attribution badge on the page Concat is downloaded from.
 
-Section 13 of the GPL-3.0 exists for exactly this combination:
+For the GPL-3.0-only option, section 13 of the GPL-3.0 exists for exactly this
+combination:
 
 > Notwithstanding any other provision of this License, you have permission to
 > link or combine any covered work with a work licensed under version 3 of the
@@ -54,10 +69,9 @@ Section 13 of the GPL-3.0 exists for exactly this combination:
 
 So the combined binary is conveyable. Slint's portion remains GPL-3.0-only,
 Concat's portion remains AGPL-3.0-or-later, and the AGPL's section 13 network
-requirement applies to the combination as a whole. Anyone forking Concat who
-would rather not be bound by the GPL must take Slint under one of its other
-two licences and remove or replace Concat's AGPL-licensed code accordingly;
-the two cannot be mixed.
+requirement applies to the combination as a whole. Anyone forking Concat takes
+Slint under the GPL-3.0 with it; the Royalty-free licence is the owner's, and
+does not pass to a fork.
 
 Slint pulls in its Skia renderer (see `src/crates/concat/Cargo.toml`) along
 with winit and their transitive crates, which are

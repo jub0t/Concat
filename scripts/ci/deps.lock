@@ -9,13 +9,15 @@
 # also named elsewhere, change it there too; the comment above each group
 # says where.
 
-# FFmpeg 8.1, BtbN's GPL shared builds. A month's last autobuild, not
-# `latest`: BtbN keeps those, where the daily ones are deleted after a
-# fortnight, and `latest` changes under a build every day.
-ffmpeg-linux64      https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-gpl-shared-8.1.tar.xz      76649c19a7a4615b367251ba4a8adc643f65831278a00e7a0c38398f7f06484b
-ffmpeg-linuxarm64   https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linuxarm64-gpl-shared-8.1.tar.xz   d5b52fcb4f8d86d997bb75f6c4b383ca0be3f4cd9efd94ab3b4f27b22984f91c
-ffmpeg-win64        https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-win64-gpl-shared-8.1.zip          dfe81c3aa0a546ee81980b1b824486dd0fe0a1d452f00cb55135379a74be7bcf
-ffmpeg-winarm64     https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-winarm64-gpl-shared-8.1.zip       31f35037625a8084085248fb47de2958678601ee9ab54e087234693616359c4b
+# FFmpeg 8.1, BtbN's LGPL shared builds: no x264, x265 or fdk-aac, since
+# Concat encodes H.264, HEVC and AAC on the platform's own encoders. A
+# month's last autobuild, not `latest`: BtbN keeps those, where the daily
+# ones are deleted after a fortnight, and `latest` changes under a build
+# every day.
+ffmpeg-linux64      https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-shared-8.1.tar.xz      d4d7b6936f492c0b866b1cb4a29a1bbae09d6a064b4ec4eb90c95bed7969535a
+ffmpeg-linuxarm64   https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linuxarm64-lgpl-shared-8.1.tar.xz   d44838f375c66cf31a8b1473b6f8bad76e5c7dac55870c4d96a75c907a52ba2d
+ffmpeg-win64        https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-win64-lgpl-shared-8.1.zip          3e47bda1607740550141e37c0e49d1e5182b34699f15adfd137ee266d346811a
+ffmpeg-winarm64     https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-winarm64-lgpl-shared-8.1.zip       7674d11915c95c8f65eeec36b329917c3023f6bae5786549cc47aed52cc1cea7
 
 # ONNX Runtime, Microsoft's own builds. 1.28.0 is the version ort
 # 2.0.0-rc.13 is built against (ORT_VERSION in ci.yml and build-app.yml);

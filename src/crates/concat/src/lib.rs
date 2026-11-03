@@ -2298,12 +2298,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_speech_speed_changed(on_window!(|state, value: f32| {
         state.handle(Msg::Speech(SpeechMsg::SpeedChanged(value)));
     }));
-    app.on_speech_quality_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::QualityChanged(index)));
-    }));
-    app.on_speech_pauses_changed(on_window!(|state, value: f32| {
-        state.handle(Msg::Speech(SpeechMsg::PausesChanged(value)));
-    }));
     app.on_speech_reference_start_changed(on_window!(|state, seconds: f32| {
         state.handle(Msg::Speech(SpeechMsg::ReferenceStartChanged(seconds)));
     }));

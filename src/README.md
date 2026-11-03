@@ -108,7 +108,7 @@ whether there is a title strip to drag.
 
 The full reference - every method, every edit command, every type, and a
 page per transport - lives on the website at
-[concatenate.pages.dev/docs](https://concatenate.pages.dev/docs). What follows
+[concat.standalones.org/docs](https://concat.standalones.org/docs). What follows
 is the short version.
 
 Everything the window does to a project, a script can do through the Concat
