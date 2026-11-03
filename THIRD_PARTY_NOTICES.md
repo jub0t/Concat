@@ -150,43 +150,34 @@ the OFL allows for Noto, which reserves no font name.
 The licence does not permit selling the font on its own; shipping the
 `fonts/` directory as it stands satisfies it.
 
-## sherpa-onnx and Kokoro voices
+## Text to speech
 
-Text to speech uses the sherpa-onnx runtime
-(https://github.com/k2-fsa/sherpa-onnx, Apache-2.0), linked statically on
-macOS and Linux, and on Windows, Android and iOS shipped with the app as
-the prebuilt shared libraries k2-fsa publishes. It carries onnxruntime
-(MIT), piper-phonemize (MIT) and espeak-ng
-(**GPL-3.0-or-later**, https://github.com/espeak-ng/espeak-ng) for
-grapheme-to-phoneme conversion. Because espeak-ng is compiled into the app
-binary or into the sherpa-onnx libraries shipped with it, distributed builds
-must comply with the GPL-3.0 for that combined work. Concat's own sources are AGPL-3.0-or-later; section 13 of both GPL-3.0
-and AGPL-3.0 expressly permits that combination, so the combined binary may be
-conveyed on those terms.
+Text to speech on the desktop is Chatterbox Turbo (MIT,
+https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX, Resemble AI), driven
+through ONNX Runtime directly, from Resemble's own ONNX export, downloaded on
+demand from the model mirror. Its GPT-2 tokenizer is read by the tokenizers
+crate (Apache-2.0). Resemble's Python package stamps a Perth watermark on what
+it speaks; the ONNX pipeline carries no such step and Concat adds none, which
+MIT permits and which anyone passing the sound off as a person's should know
+is not there. On a phone, text to speech is the phone's own system voice, which
+Concat neither ships nor downloads.
 
-Kokoro voice model bundles (Apache-2.0,
-https://huggingface.co/hexgrad/Kokoro-82M) originate in the sherpa-onnx
-releases - including espeak-ng's data files. Concat mirrors those bundles
-and downloads them on demand from that mirror, and never bundles them with
-the app. See "The model mirror" below.
+Chatterbox reads in the voice of a short recording. Its stock voice, Bria,
+ships inside the app as `src/crates/concat-speech/voices/bria.flac`: the first
+ten seconds of `audio/bria.mp3` from Kyutai's delayed-streams-modeling
+repository (https://github.com/kyutai-labs/delayed-streams-modeling), at
+24 kHz mono. That repository's `LICENSE` file is Apache-2.0, and its README
+licenses its code (MIT and Apache-2.0) and its speech-to-text weights
+(CC-BY-4.0); it states no separate licence for its sample recordings, nor who
+the speaker is. Concat attributes the recording to Kyutai on those terms.
+Reading in the voice of any other recording is a use the person doing it is
+answerable for: Concat offers it for the narrator's own voice, and Kyutai asks
+that no one's voice be cloned without their consent.
 
-The Pocket TTS bundle is Kyutai's Pocket TTS (CC-BY-4.0,
-https://huggingface.co/kyutai/pocket-tts, https://kyutai.org) as exported
-to ONNX by KevinAHM (https://huggingface.co/KevinAHM/pocket-tts-onnx,
-CC-BY-4.0) and packaged in the sherpa-onnx releases, with two sample
-recordings from Kyutai's delayed-streams-modeling repository as its named
-voices. It is downloaded on demand like the Kokoro bundles. Reading in the
-voice of a recording is a use the person doing it is answerable for:
-Concat offers it for the narrator's own voice, and Kyutai asks that no
-one's voice be cloned without their consent.
-
-Chatterbox Turbo (MIT, https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX,
-Resemble AI) is driven through ONNX Runtime directly, from Resemble's own
-ONNX export, downloaded on demand like the other voices. Its GPT-2
-tokenizer is read by the tokenizers crate (Apache-2.0). Resemble's Python
-package stamps a Perth watermark on what it speaks; the ONNX pipeline
-carries no such step and Concat adds none, which MIT permits and which
-anyone passing the sound off as a person's should know is not there.
+Releases up to 0.2.8 also used the sherpa-onnx runtime (Apache-2.0), which
+carried espeak-ng (GPL-3.0-or-later), with the Kokoro (Apache-2.0) and Pocket
+TTS (CC-BY-4.0) voices; those releases' own notices describe them. No current
+build contains any of them.
 
 ## ONNX Runtime
 
@@ -197,8 +188,7 @@ the phones it is linked into the app from pyke's builds of it; an Intel
 Mac's bundle carries Microsoft's last shared build for that machine in
 `Contents/Frameworks`. The Linux and Windows bundles ship Microsoft's own
 shared build of ONNX Runtime 1.28.0 beside the binary - `lib/libonnxruntime.so.1.28.0` on Linux,
-`onnxruntime.dll` beside `concat.exe` on Windows, one runtime that the
-`ort` crate and sherpa-onnx share - unmodified, as Microsoft publishes it
+`onnxruntime.dll` beside `concat.exe` on Windows - unmodified, as Microsoft publishes it
 at https://github.com/microsoft/onnxruntime/releases/tag/v1.28.0. Its
 licence (MIT, Copyright (c) Microsoft Corporation) and third-party
 notices are in that release's archive.
@@ -260,9 +250,10 @@ what is mirrored, and the digest each download is checked against, is
 mirror.
 
 Mirroring is redistribution, and each model keeps the licence it arrived
-under - Apache-2.0 for the Kokoro bundles, SlimSAM and IS-Net, CC-BY-4.0
-for Pocket TTS, BSD-3-Clause for Real-ESRGAN, MIT for Chatterbox Turbo and
-the whisper conversions, GPL-3.0 for Robust Video Matting. Those terms are met
+under - Apache-2.0 for SlimSAM and IS-Net, BSD-3-Clause for Real-ESRGAN,
+MIT for Chatterbox Turbo and the whisper conversions, GPL-3.0 for Robust
+Video Matting. The Kokoro (Apache-2.0) and Pocket TTS (CC-BY-4.0) bundles
+stay on the mirror for releases up to 0.2.8, which download them. Those terms are met
 by the attributions above and by the licence files each mirrored archive
 carries; a mirrored file is a verbatim copy, never a modification. Nothing
 in the mirror is bundled with the app, and Concat claims no rights over any
