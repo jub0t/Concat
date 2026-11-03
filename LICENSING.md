@@ -35,7 +35,10 @@ commercial licence says how each is handled.
 ## Contributions
 
 Contributions are accepted only under [`CLA.md`](CLA.md), which assigns their
-copyright to the owner, so that both licences can cover them.
+copyright to the owner, so that both licences can cover them. In return,
+contributors keep a licence to use their own work, and the owner promises
+that whatever they contributed stays available under the AGPL, even where it
+is also licensed commercially.
 
 ## The name
 

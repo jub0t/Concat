@@ -80,9 +80,11 @@ also licensed on commercial terms by its owner ([`LICENSING.md`](LICENSING.md)).
 
 Contributions are accepted only under the agreement in [`CLA.md`](CLA.md).
 **You assign your contribution, and every right in it, to Concat's owner**,
-who may then license it on any terms. You keep what the AGPL gives everyone.
-If you are not willing to assign your work, please don't open a pull request;
-an issue describing the problem is just as welcome.
+who may then license it on any terms, commercial ones included. In return you
+get a licence back to use your own work for anything, and a promise that it
+always stays available under the AGPL. If you are not willing to assign your
+work, please don't open a pull request; an issue describing the problem is
+just as welcome.
 
 Sign off your commits to indicate agreement:
 

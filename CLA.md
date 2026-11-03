@@ -1,6 +1,6 @@
 # Concat Contributor Agreement
 
-**Version 3.0**, for contributions submitted on or after 2 November 2026.
+**Version 3.1**, for contributions submitted on or after 2 November 2026.
 
 Thank you for contributing to Concat. Concat is owned by one person, who
 publishes it under AGPL-3.0-or-later and also licenses it on commercial terms
@@ -9,8 +9,9 @@ having the same owner, so this agreement transfers your contribution to that
 owner outright.
 
 **You assign the whole of your contribution, and every right in it, to
-Concat's owner.** You keep the same rights in it that anyone else has under
-the AGPL, and nothing more.
+Concat's owner.** In return you get a licence back to use your own work for
+anything you like, and a promise that it will always stay available under the
+AGPL.
 
 By submitting a contribution to this project (as a pull request, patch, or any
 other form), you agree to the following.
@@ -42,15 +43,19 @@ effect for any other reason, you instead grant the Owner an exclusive,
 perpetual, irrevocable, worldwide, royalty-free and transferable licence, with
 the right to sublicense through any number of tiers, to exercise every right
 in the Contribution that its copyright owner could, for every kind of use,
-including kinds not known today. To the same extent, you agree not to exercise
-or assert any of those rights yourself against the Owner, against anyone the
-Owner licenses, or against anyone who receives Concat from the Owner.
+including kinds not known today, subject only to section 4. To the same
+extent, you agree not to exercise or assert any of those rights against the
+Owner, against anyone the Owner licenses, or against anyone who receives
+Concat from the Owner.
 
-## 4. What you keep
+## 4. Licence back to you
 
-Nothing in this agreement takes away what the AGPL gives everyone: you may use
-your Contribution, as part of Concat or on its own, under AGPL-3.0-or-later
-like anyone else. Any other use needs the Owner's permission.
+The Owner grants you a perpetual, worldwide, non-exclusive, royalty-free,
+irrevocable licence to use, reproduce, modify, publicly display, publicly
+perform, sublicense and distribute your own Contribution, and works you derive
+from it, for any purpose. This covers your Contribution only: it gives you no
+rights in the rest of Concat beyond those the AGPL gives everyone, and it does
+not let you license Concat, or offer licences on the Owner's behalf.
 
 ## 5. Moral rights
 
@@ -76,8 +81,17 @@ under this agreement terminate.
 
 The Owner may use, change, license, relicense, sell, transfer or stop
 distributing Concat and your Contribution, in whole or in part, on any terms,
-open source or proprietary, at the Owner's sole discretion. The Owner owes you
-no payment, royalty, notice or account for any of it.
+open source or proprietary, at the Owner's sole discretion, subject only to
+the promise below. The Owner owes you no payment, royalty, notice or account
+for any of it.
+
+**Your Contribution stays open source.** Whenever the Owner distributes your
+Contribution, or a work containing it, under terms other than
+AGPL-3.0-or-later, the Owner will also publish the source of your Contribution,
+as it is used there, under AGPL-3.0-or-later. Anyone the Owner transfers
+Concat's copyright to takes it subject to this promise. Releases of Concat
+already published under the AGPL stay under it for good, as that licence
+provides.
 
 ## 8. Your representations
 
@@ -124,6 +138,9 @@ rest still applies, and the unenforceable part applies as far as the law
 allows. Only the Owner can waive or change it, in writing.
 
 ## 13. Earlier versions
+
+Contributions submitted under version 3.0 of this agreement are covered by
+this version instead, which gives their contributors more.
 
 Contributions submitted before 2 November 2026 were made under earlier
 versions of this agreement and stay under them, unless their contributor
