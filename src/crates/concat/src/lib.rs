@@ -33,6 +33,8 @@ mod ui {
 
 mod batch_volume;
 mod chips;
+#[cfg(any(target_os = "macos", test))]
+mod desktop_open;
 mod dock;
 mod fonts;
 mod format;
@@ -44,6 +46,8 @@ mod i18n;
 #[cfg(target_os = "ios")]
 mod ios;
 mod keymap;
+#[cfg(target_os = "macos")]
+mod macos;
 mod meters;
 mod platform;
 /// What a phone's own crate installs before the window runs: the way to
@@ -308,6 +312,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             }
         },
     )?;
+
+    #[cfg(target_os = "macos")]
+    macos::install();
 
     let host = match Host::start(gpu) {
         Ok(host) => host,

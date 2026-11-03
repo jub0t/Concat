@@ -87,6 +87,10 @@ libc = "0.2"
 # `leave` in lib.rs.
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std", "NSArray", "NSObject", "NSString", "NSURL",
+] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 slint = { version = "1.18", default-features = false, features = [
@@ -177,6 +181,10 @@ slint-build = "1.18"
 # The .exe's icon, for Explorer and the Start menu, as a Windows resource.
 # Used only when the target is Windows; see build.rs.
 winresource = "0.1"
+
+[dev-dependencies]
+i-slint-backend-testing = "1.18"
+tempfile = "3"
 
 [lints]
 workspace = true

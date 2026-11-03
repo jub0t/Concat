@@ -206,7 +206,7 @@ export component TitleBar inherits Rectangle {
         // Each label reports its own position rather than a fixed one: they
         // are sized from their text, so where "View" starts depends on how
         // long "File" and "Edit" are.
-        if !root.minimal: file := MenuLabel {
+        if !root.minimal && !root.macos: file := MenuLabel {
             label: I18n.t("titleBar.file");
             current: root.menu == 0;
             clicked => {
@@ -219,7 +219,7 @@ export component TitleBar inherits Rectangle {
                 }
             }
         }
-        if !root.minimal: edit := MenuLabel {
+        if !root.minimal && !root.macos: edit := MenuLabel {
             label: I18n.t("titleBar.edit");
             current: root.menu == 1;
             clicked => {
@@ -232,7 +232,7 @@ export component TitleBar inherits Rectangle {
                 }
             }
         }
-        if !root.minimal: view := MenuLabel {
+        if !root.minimal && !root.macos: view := MenuLabel {
             label: I18n.t("titleBar.view");
             current: root.menu == 2;
             clicked => {

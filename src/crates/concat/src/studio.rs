@@ -11883,6 +11883,8 @@ impl Studio {
 
     /// The menus, the dialogs, the bin and the engine lists.
     pub fn publish_chrome(&self, app: &App, models: &Models) {
+        #[cfg(target_os = "macos")]
+        crate::macos::publish(self);
         let editor = app.global::<Editor>();
 
         // The language, when it changed: one property the whole tree
@@ -12608,6 +12610,11 @@ impl Studio {
     }
 
     fn menu_bar(&self) -> Vec<MenuItemData> {
+        self.menu_bar_items(self.open_menu)
+    }
+
+    /// The same actions for the window menus and the macOS menu bar.
+    pub(crate) fn menu_bar_items(&self, index: i32) -> Vec<MenuItemData> {
         let row =
             |id: &str, label: String, glyph: Glyph, shortcut: &str, enabled: bool| MenuItemData {
                 id: id.into(),
@@ -12646,7 +12653,7 @@ impl Studio {
         });
         let has_selection_media = !self.media.selected.is_empty();
 
-        match self.open_menu {
+        match index {
             0 => vec![
                 row(
                     "add-selected",

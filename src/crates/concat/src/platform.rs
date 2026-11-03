@@ -348,6 +348,8 @@ impl CustomApplicationHandler for DropHandler {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) -> EventResult {
+        #[cfg(target_os = "macos")]
+        crate::macos::tick();
         if let Ok(mut arrived) = self.arrived.lock() {
             self.pending.append(&mut arrived);
         }
