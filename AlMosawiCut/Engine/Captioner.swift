@@ -59,7 +59,7 @@ enum Captioner {
             throw CaptionError.unavailable(Locale.current.localizedString(forIdentifier: locale) ?? locale)
         }
         guard !words.isEmpty else { throw CaptionError.noSpeech }
-        return group(words, max: wordsPerCaption)
+        return group(timed(words, over: length), max: wordsPerCaption)
     }
 
     /// Sends the sound to Apple's recognizer a piece at a time and puts the words back on one clock.
@@ -85,7 +85,9 @@ enum Captioner {
                                             duration: CMTime(seconds: min(chunkLength, length - start), preferredTimescale: 600))
             try await session.export(to: piece, as: .m4a)
             do {
-                let heard = try await recognize(piece, with: recognizer, onDevice: false, timeout: 90)
+                let pieceLength = min(chunkLength, length - start)
+                let raw = try await recognize(piece, with: recognizer, onDevice: false, timeout: 90)
+                let heard = timed(raw, over: pieceLength)
                 words += heard.map { Word(text: $0.text, start: $0.start + start, duration: $0.duration) }
             } catch let error as NSError where error.domain == "kAFAssistantErrorDomain" && (error.code == 1110 || error.code == 203) {
                 continue  // nothing spoken in this piece
@@ -125,6 +127,11 @@ enum Captioner {
             lock.lock(); task = t; lock.unlock()
         }
 
+        /// The latest words that came with real times (partial results keep them).
+        private var timedWords: [Word] = []
+        func remember(_ words: [Word]) { lock.lock(); timedWords = words; lock.unlock() }
+        var lastTimed: [Word] { lock.lock(); defer { lock.unlock() }; return timedWords }
+
         func finish(_ result: Result<[Word], Error>) {
             lock.lock()
             let c = continuation
@@ -141,9 +148,21 @@ enum Captioner {
         }
     }
 
+    /// A segment can hold several words; spread its time across them.
+    private static func words(in result: SFSpeechRecognitionResult) -> [Word] {
+        result.bestTranscription.segments.flatMap { segment -> [Word] in
+            let parts = segment.substring.split(whereSeparator: \.isWhitespace).map(String.init)
+            let each = segment.duration / Double(max(1, parts.count))
+            return parts.enumerated().map { i, part in
+                Word(text: part, start: segment.timestamp + Double(i) * each, duration: each)
+            }
+        }
+    }
+
     private static func recognizeOnce(_ audio: URL, with recognizer: SFSpeechRecognizer, onDevice: Bool) async throws -> [Word] {
         let request = SFSpeechURLRecognitionRequest(url: audio)
-        request.shouldReportPartialResults = false
+        // Partial results carry word times even when the final one arrives without them.
+        request.shouldReportPartialResults = true
         request.addsPunctuation = true
         request.requiresOnDeviceRecognition = onDevice
         let recognition = Recognition()
@@ -151,23 +170,46 @@ enum Captioner {
             try await withCheckedThrowingContinuation { c in
                 recognition.start(c) {
                     recognizer.recognitionTask(with: request) { result, error in
-                        if let result, result.isFinal {
-                            // A segment can hold several words; spread its time across them.
-                            recognition.finish(.success(result.bestTranscription.segments.flatMap { segment -> [Word] in
-                                let parts = segment.substring.split(whereSeparator: \.isWhitespace).map(String.init)
-                                let each = segment.duration / Double(max(1, parts.count))
-                                return parts.enumerated().map { i, part in
-                                    Word(text: part, start: segment.timestamp + Double(i) * each, duration: each)
-                                }
-                            }))
-                        } else if let error {
-                            recognition.finish(.failure(error))
+                        if let result {
+                            let words = Self.words(in: result)
+                            if Self.hasTimings(words) { recognition.remember(words) }
+                            if result.isFinal {
+                                let kept = recognition.lastTimed
+                                recognition.finish(.success(Self.hasTimings(words) || kept.isEmpty ? words : kept))
+                                return
+                            }
+                        }
+                        if let error {
+                            // Keep what was heard before a late failure.
+                            let kept = recognition.lastTimed
+                            recognition.finish(kept.isEmpty ? .failure(error) : .success(kept))
                         }
                     }
                 }
             }
         } onCancel: {
             recognition.cancel()
+        }
+    }
+
+    /// True when the recognizer gave the words real times, not all zero.
+    static func hasTimings(_ words: [Word]) -> Bool {
+        guard let first = words.first, let last = words.last else { return false }
+        if words.count == 1 { return first.duration > 0.01 }
+        return last.start - first.start > 0.05
+    }
+
+    /// Words with usable times: as recognized, or, when iOS left them all at
+    /// zero, spread over the sound by their length so captions follow the video.
+    static func timed(_ words: [Word], over length: Double) -> [Word] {
+        guard !hasTimings(words), length > 0 else { return words }
+        let weights = words.map { Double(max(1, $0.text.count)) + 1 }
+        let total = weights.reduce(0, +)
+        var t = 0.0
+        return zip(words, weights).map { word, w in
+            let d = length * w / total
+            defer { t += d }
+            return Word(text: word.text, start: t, duration: d)
         }
     }
 
@@ -191,11 +233,21 @@ enum Captioner {
             if chunk.count >= max || word.text.last.map({ ".?!،؟".contains($0) }) == true { flush() }
         }
         flush()
-        // Hold each caption until the next one starts if the gap is small.
+        // Hold each caption until the next one starts if the gap is small, and
+        // end it where the next begins, but never shorter than half a second.
+        out.sort { $0.start < $1.start }
         for i in out.indices.dropLast() {
             let gap = out[i + 1].start - out[i].end
             if gap > 0, gap < 0.4 { out[i].duration += gap }
             if out[i].end > out[i + 1].start { out[i].duration = out[i + 1].start - out[i].start }
+            if out[i].duration < 0.5 {
+                out[i].duration = 0.5
+                if out[i + 1].start < out[i].end {
+                    let shift = out[i].end - out[i + 1].start
+                    out[i + 1].start += shift
+                    out[i + 1].duration = Swift.max(0.5, out[i + 1].duration - shift)
+                }
+            }
         }
         return out
     }

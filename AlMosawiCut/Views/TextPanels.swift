@@ -318,6 +318,9 @@ struct CaptionsPanel: View {
             let captions = try await Captioner.captions(for: model.project, locale: language, wordsPerCaption: words) { status = $0 }
             model.replaceCaptions(captions)
             if let first = captions.first, let last = captions.last {
+                // Show the first caption on the preview straight away.
+                model.selection = nil
+                model.seek(to: min(first.start + 0.05, max(0, model.duration - 0.05)))
                 summary = "Added \(captions.count) caption\(captions.count == 1 ? "" : "s"), from \(first.start.timecode) to \(last.end.timecode) of \(model.duration.timecode)"
             }
         } catch {
