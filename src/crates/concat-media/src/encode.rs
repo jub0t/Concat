@@ -55,9 +55,25 @@ pub enum VideoCodec {
     /// VP9 with an alpha layer in a `.webm`: a transparent overlay for a
     /// web page or OBS, a small fraction of ProRes' size. Eight bits.
     Vp9Alpha,
+    /// MPEG-4 Part 2, by FFmpeg's own encoder: never an export's, only the
+    /// working copies Concat writes for itself on a desktop - a proxy, a
+    /// reversed clip's pieces. Every FFmpeg build carries it, it loads no
+    /// driver, and it decodes in about two thirds of H.264's time; at
+    /// x264's quality its files are about half as large again, twice on
+    /// grainy footage. Eight bits. Not in [`VideoCodec::ALL`].
+    Mpeg4,
 }
 
 impl VideoCodec {
+    /// The codec Concat writes its own working copies in, a proxy and a
+    /// reversed clip's pieces: MPEG-4 on a desktop, and on a phone H.264,
+    /// which its chip encodes for nothing where MPEG-4 would be its CPU's.
+    pub const WORKING: VideoCodec = if cfg!(any(target_os = "android", target_os = "ios")) {
+        VideoCodec::H264
+    } else {
+        VideoCodec::Mpeg4
+    };
+
     /// Every codec, in the order a menu lists them: the three that make an
     /// ordinary `.mp4`, then the two that keep a transparent frame's alpha.
     pub const ALL: [VideoCodec; 5] = [
@@ -76,6 +92,7 @@ impl VideoCodec {
             VideoCodec::Av1 => "av1",
             VideoCodec::ProRes4444 => "prores-4444",
             VideoCodec::Vp9Alpha => "vp9-alpha",
+            VideoCodec::Mpeg4 => "mpeg4",
         }
     }
 
@@ -103,6 +120,7 @@ impl VideoCodec {
             VideoCodec::Av1 => "AV1",
             VideoCodec::ProRes4444 => "ProRes 4444",
             VideoCodec::Vp9Alpha => "VP9 alpha",
+            VideoCodec::Mpeg4 => "MPEG-4",
         }
     }
 
@@ -119,7 +137,7 @@ impl VideoCodec {
     /// QuickTime's, and VP9's alpha rides in a Matroska block addition.
     pub fn container(self) -> &'static str {
         match self {
-            VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1 => "mp4",
+            VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1 | VideoCodec::Mpeg4 => "mp4",
             VideoCodec::ProRes4444 => "mov",
             VideoCodec::Vp9Alpha => "webm",
         }
@@ -157,14 +175,15 @@ impl VideoCodec {
     /// generously, where that difference does not show, and x264 was the
     /// largest share of every export's time - at 4K, 16 ms a frame on an
     /// M5's ten cores, and several times that on a four-core laptop, where
-    /// the chip takes a frame in a few. Without `hardware` - a proxy, an
-    /// intermediate - the CPU's encoder leads, as it always did. Media
+    /// the chip takes a frame in a few. Without `hardware`, the CPU's
+    /// encoder leads, as it always did. Media
     /// Foundation, Windows' own, is last: it runs on whatever the machine
     /// has, and says little about how.
     pub fn encoders(self, hardware: bool) -> &'static [&'static str] {
         match self {
             VideoCodec::ProRes4444 => return &["prores_ks"],
             VideoCodec::Vp9Alpha => return &["libvpx-vp9"],
+            VideoCodec::Mpeg4 => return &["mpeg4"],
             VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1 => {}
         }
         let macos = cfg!(target_os = "macos");
@@ -174,14 +193,17 @@ impl VideoCodec {
                 VideoCodec::H264 => &["h264_mediacodec"],
                 VideoCodec::Hevc => &["hevc_mediacodec"],
                 VideoCodec::Av1 => &["av1_mediacodec"],
-                VideoCodec::ProRes4444 | VideoCodec::Vp9Alpha => &[],
+                VideoCodec::ProRes4444 | VideoCodec::Vp9Alpha | VideoCodec::Mpeg4 => &[],
             };
         }
         if cfg!(target_os = "ios") {
             return match self {
                 VideoCodec::H264 => &["h264_videotoolbox"],
                 VideoCodec::Hevc => &["hevc_videotoolbox"],
-                VideoCodec::Av1 | VideoCodec::ProRes4444 | VideoCodec::Vp9Alpha => &[],
+                VideoCodec::Av1
+                | VideoCodec::ProRes4444
+                | VideoCodec::Vp9Alpha
+                | VideoCodec::Mpeg4 => &[],
             };
         }
         match self {
@@ -210,7 +232,7 @@ impl VideoCodec {
                 &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1", "libaom-av1"]
             }
             VideoCodec::Av1 => &["libsvtav1", "libaom-av1", "av1_nvenc", "av1_qsv", "av1_amf"],
-            VideoCodec::ProRes4444 | VideoCodec::Vp9Alpha => &[],
+            VideoCodec::ProRes4444 | VideoCodec::Vp9Alpha | VideoCodec::Mpeg4 => &[],
         }
     }
 
@@ -244,13 +266,13 @@ impl VideoCodec {
     pub fn encodable(self) -> bool {
         static KNOWN: [OnceLock<bool>; VideoCodec::ALL.len()] =
             [const { OnceLock::new() }; VideoCodec::ALL.len()];
-        let slot = VideoCodec::ALL
-            .iter()
-            .position(|codec| *codec == self)
-            .expect("every codec is in ALL");
-        *KNOWN[slot].get_or_init(|| {
-            encodable_among(self.linked(true, false), |name| opens_here(self, name))
-        })
+        let ask = || encodable_among(self.linked(true, false), |name| opens_here(self, name));
+        // MPEG-4 is no export's, and its one encoder is software: nothing
+        // is opened to answer.
+        match VideoCodec::ALL.iter().position(|codec| *codec == self) {
+            Some(slot) => *KNOWN[slot].get_or_init(ask),
+            None => ask(),
+        }
     }
 
     /// Whether it can be written at ten bits here: some linked encoder for
@@ -289,6 +311,7 @@ impl VideoCodec {
             VideoCodec::Av1 => 0.5,
             VideoCodec::ProRes4444 => 40.0,
             VideoCodec::Vp9Alpha => 0.8,
+            VideoCodec::Mpeg4 => 1.6,
         }
     }
 }
@@ -445,6 +468,16 @@ fn alpha_pixel_format(encoder_name: &str) -> Option<Pixel> {
 /// x264's bitrate for that picture; the calm ones about the same.
 fn videotoolbox_quality(crf: u8) -> u8 {
     (110.0 - f32::from(crf) * 1.9).round().clamp(1.0, 100.0) as u8
+}
+
+/// MPEG-4 Part 2's quantiser, 1 the best to 31, for an x264 CRF: the one
+/// whose picture scores x264's VMAF at that CRF, measured on an M5 at a
+/// proxy's size and a full one - 16 at 2, 23 at 7 - doubling about every
+/// three and a half steps.
+fn mpeg4_quantiser(crf: u8) -> u8 {
+    2f32.powf((f32::from(crf) - 13.0) / 3.5)
+        .round()
+        .clamp(1.0, 31.0) as u8
 }
 
 /// Which kind of encoder an FFmpeg encoder is: what it takes its pictures
@@ -673,8 +706,8 @@ fn opens_here(codec: VideoCodec, encoder_name: &'static str) -> bool {
 /// and AMF make ten-bit HEVC but not ten-bit H.264, and NVENC and Quick
 /// Sync make ten-bit HEVC and AV1.
 fn takes_ten_bits(encoder_name: &str) -> bool {
-    // libvpx's alpha layer is eight bits only.
-    if encoder_name == "libvpx-vp9" {
+    // libvpx's alpha layer is eight bits only, and MPEG-4 is eight bits.
+    if encoder_name == "libvpx-vp9" || encoder_name == "mpeg4" {
         return false;
     }
     match Family::of(encoder_name) {
@@ -918,6 +951,24 @@ fn open_video(
             };
             video.set_bit_rate(kbps as usize * 1000);
         }
+    }
+    // MPEG-4 takes its quality the same way, as a quantiser. Two B-frames,
+    // and a keyframe every two seconds, so a scrub through a proxy decodes
+    // no more than that to reach a frame.
+    if encoder_name == "mpeg4" {
+        if !average && !cbr {
+            // SAFETY: `video` owns a live AVCodecContext, and `flags` is a
+            // plain field.
+            unsafe {
+                (*video.as_mut_ptr()).flags |= ffmpeg::sys::AV_CODEC_FLAG_QSCALE as i32;
+            }
+            video.set_qmin(1);
+            video.set_global_quality(
+                i32::from(mpeg4_quantiser(options.crf)) * ffmpeg::sys::FF_QP2LAMBDA,
+            );
+        }
+        video.set_max_b_frames(2);
+        video.set_gop((fps.round().max(1.0) * 2.0) as u32);
     }
     // An average, on the context as well as in each encoder's own words:
     // the AV1 encoders read the target and the ceiling from there.
@@ -1182,8 +1233,8 @@ fn open_video(
 /// range whatever is asked: its pictures are ten bits or more, and its
 /// stream has no word for full range, so a full-range file would be read
 /// back as video range by everything that opens it. VP9 with alpha is
-/// eight bits, the only depth libvpx takes an alpha layer at. The other
-/// codecs' options are left exactly as they were.
+/// eight bits, the only depth libvpx takes an alpha layer at, and MPEG-4
+/// has no other. The other codecs' options are left exactly as they were.
 fn settled(options: &EncodeOptions) -> EncodeOptions {
     let mut options = options.clone();
     match options.codec {
@@ -1191,7 +1242,7 @@ fn settled(options: &EncodeOptions) -> EncodeOptions {
             options.ten_bit = true;
             options.color_range = ColorRange::Limited;
         }
-        VideoCodec::Vp9Alpha => options.ten_bit = false,
+        VideoCodec::Vp9Alpha | VideoCodec::Mpeg4 => options.ten_bit = false,
         VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1 => {}
     }
     options
@@ -1934,6 +1985,17 @@ impl FrameSink for Encoder {
         unsafe {
             (*converted.as_mut_ptr()).color_range = self.color_range.into();
         }
+        // An encoder held to a fixed quality - MPEG-4's quantiser - takes
+        // it off each frame, as the command line stamps it there, and
+        // would otherwise run at its finest.
+        // SAFETY: the encoder's context is live for as long as `self` is,
+        // and `flags`, `global_quality` and `quality` are plain fields.
+        unsafe {
+            let context = self.encoder.as_ptr();
+            if (*context).flags & ffmpeg::sys::AV_CODEC_FLAG_QSCALE as i32 != 0 {
+                (*converted.as_mut_ptr()).quality = (*context).global_quality;
+            }
+        }
 
         self.send(Some(&converted))?;
         self.written += 1;
@@ -2359,6 +2421,9 @@ mod tests {
         assert_eq!(videotoolbox_quality(16), 80);
         assert_eq!(videotoolbox_quality(18), 76);
         assert_eq!(videotoolbox_quality(26), 61);
+        assert_eq!(mpeg4_quantiser(8), 1);
+        assert_eq!(mpeg4_quantiser(16), 2);
+        assert_eq!(mpeg4_quantiser(23), 7);
         assert_eq!(fourcc(*b"hvc1"), 0x3163_7668);
     }
 
@@ -2780,6 +2845,45 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(format, Pixel::YUV420P10LE);
         assert_eq!(profile, ffmpeg::sys::AV_PROFILE_HEVC_MAIN_10);
+    }
+
+    /// MPEG-4 is held to the quantiser its CRF comes to: the encoder takes
+    /// it off each frame, and a frame without it is encoded at its finest,
+    /// whatever was asked.
+    #[test]
+    fn the_working_codec_follows_its_quality() {
+        let size = |crf: u8| {
+            let path = std::env::temp_dir().join(format!("concat-encode-mpeg4-{crf}.mp4"));
+            let options = EncodeOptions {
+                codec: VideoCodec::Mpeg4,
+                crf,
+                hardware: false,
+                ..EncodeOptions::default()
+            };
+            let mut encoder =
+                Encoder::create(&path, 320, 180, FrameRate::THIRTY, &options).expect("creates");
+            assert_eq!(encoder.encoder_name(), "mpeg4");
+            let mut seed = 0x2545_f491_u32;
+            for _ in 0..8 {
+                let pixels = (0..320 * 180 * 4)
+                    .map(|_| {
+                        seed ^= seed << 13;
+                        seed ^= seed >> 17;
+                        seed ^= seed << 5;
+                        seed as u8
+                    })
+                    .collect();
+                let frame = Frame::from_rgba(320, 180, pixels).expect("frame");
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+            drop(encoder);
+            let bytes = std::fs::metadata(&path).expect("written").len();
+            let _ = std::fs::remove_file(&path);
+            bytes
+        };
+        let (fine, coarse) = (size(8), size(28));
+        assert!(fine > coarse * 3, "{fine} {coarse}");
     }
 
     /// Every codec the linked FFmpeg has, at eight and ten bits, makes a

@@ -408,15 +408,15 @@ fn footage(
         &EncodeOptions {
             codec: VideoCodec::H264,
             // A copy the timeline reads for as long as the project lives:
-            // near-transparent quality, and the time it takes is spent in
-            // the model anyway.
+            // near-transparent quality, on the machine's own encoder as an
+            // export is, which leaves the CPU to the model.
             preset: "medium".to_owned(),
             crf: 16,
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             ten_bit: false,
             color_range: concat_media::ColorRange::Limited,
-            hardware: false,
+            hardware: true,
             threads: 2,
             software_only: false,
         },

@@ -186,7 +186,8 @@ pub fn sweep(project: &Path, keep: &HashSet<PathBuf>) -> usize {
 }
 
 /// Writes the proxy of `source`, read as `range`, at `size` to `target`:
-/// H.264, a fast preset, two threads, in software, into a temporary name
+/// the working codec (see [`VideoCodec::WORKING`]), two threads, in
+/// software, into a temporary name
 /// that is moved into place only when whole, so a copy that is there is a
 /// copy that is complete. The copy is tagged video range and converted to
 /// match, so it is read as it is and needs no correction of its own. An
@@ -224,7 +225,7 @@ pub fn write(
         codec: if hdr {
             VideoCodec::Hevc
         } else {
-            VideoCodec::H264
+            VideoCodec::WORKING
         },
         preset: "veryfast".to_owned(),
         crf: 23,
