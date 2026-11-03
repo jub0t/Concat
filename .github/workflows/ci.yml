@@ -125,10 +125,9 @@ jobs:
           tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
           echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
 
-      # ONNX Runtime as a shared library, linked dynamically, for the reason
-      # build-app.yml gives: a static one beside sherpa-onnx's is the same
-      # protobuf twice, and the test binary does not link. The tests then
-      # find it through LD_LIBRARY_PATH, as they find FFmpeg.
+      # ONNX Runtime as a shared library, linked dynamically, as the
+      # Linux bundle links it (see build-app.yml). The tests then find it
+      # through LD_LIBRARY_PATH, as they find FFmpeg.
       - name: ONNX Runtime
         run: |
           set -euo pipefail
@@ -142,28 +141,6 @@ jobs:
             echo "ORT_PREFER_DYNAMIC_LINK=1"
             echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib:$PWD/$stem/lib"
           } >> "$GITHUB_ENV"
-
-      # The prebuilt sherpa-onnx library, fetched here as the platform jobs
-      # below fetch theirs. Left to its own build script, sherpa-onnx-sys
-      # unpacks it into target/sherpa-onnx-prebuilt, which rust-cache does
-      # not keep while the build script's run is kept: a cache hit then
-      # links against a folder that is not there. The version is the
-      # lockfile's, and deps.lock must pin that version's file.
-      - name: sherpa-onnx libraries
-        run: |
-          set -euo pipefail
-          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
-          name=sherpa-onnx-linux-x64-static-lib
-          case "$(scripts/ci/fetch.sh --url "$name")" in
-            */v"$version"/*) ;;
-            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
-          esac
-          stem="sherpa-onnx-v$version-linux-x64-static-lib"
-          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
-          mkdir -p sherpa
-          tar -xjf sherpa.tar.bz2 -C sherpa
-          test -d "sherpa/$stem/lib"
-          echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
 
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review. Lints
@@ -248,10 +225,8 @@ jobs:
       matrix:
         include:
           - os: macos-15
-            sherpa: osx-arm64
             verb: Compiles
           - os: windows-2022
-            sherpa: win-x64
             verb: Tests
     runs-on: ${{ matrix.os }}
     # Windows' steps that can run long have timeouts of their own, 115
@@ -331,39 +306,6 @@ jobs:
           "ORT_LIB_LOCATION=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append
           "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
           $lib | Out-File -FilePath $env:GITHUB_PATH -Append
-      # The prebuilt sherpa-onnx library, as build-app.yml fetches it:
-      # static on macOS, the import libraries alone on Windows, whose DLLs
-      # go on the path for the test binaries - all but sherpa's own
-      # onnxruntime.dll, so the one the tests load is the one above.
-      - name: sherpa-onnx libraries
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            kind=shared-MT-Release-lib
-          else
-            kind=static-lib
-          fi
-          name="sherpa-onnx-${{ matrix.sherpa }}-$kind"
-          stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-$kind"
-          case "$(scripts/ci/fetch.sh --url "$name")" in
-            */v"$version"/*) ;;
-            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
-          esac
-          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
-          mkdir -p sherpa
-          python3 -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall('sherpa', **({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
-          test -d "sherpa/$stem/lib"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            mkdir -p sherpa-libs sherpa-dlls
-            cp "sherpa/$stem/lib/"sherpa-onnx-*.lib sherpa-libs/
-            cp "sherpa/$stem/lib/"sherpa-onnx-*.dll sherpa-dlls/
-            echo "SHERPA_ONNX_LIB_DIR=$(pwd -W)\\sherpa-libs" >> "$GITHUB_ENV"
-            echo "$(pwd -W)\\sherpa-dlls" >> "$GITHUB_PATH"
-          else
-            echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
-          fi
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src

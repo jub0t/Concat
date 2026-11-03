@@ -14,8 +14,9 @@ name: Build for phones
 # the iOS job on macOS with Xcode - and the two native libraries that
 # cannot be fetched prebuilt for a phone are built from source here and
 # cached: FFmpeg by src/scripts/ffmpeg-mobile.sh, with the platform's
-# hardware codecs, and whisper.cpp by its crate. sherpa-onnx comes prebuilt
-# from k2-fsa through src/scripts/sherpa-mobile.sh.
+# hardware codecs, and whisper.cpp by its crate. ONNX Runtime comes from
+# ort's own downloads, and on Android the C++ runtime it links (and the
+# emulator's ONNX Runtime) from src/scripts/android-libs.sh.
 #
 # src/scripts/mobile-env.sh is the one description of the build
 # environment, here and on a developer's machine.
@@ -166,8 +167,8 @@ jobs:
           path: src/vendor/ffmpeg/${{ matrix.target }}
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - name: sherpa-onnx for Android
-        run: src/scripts/sherpa-mobile.sh ${{ matrix.target }}
+      - name: Android libraries
+        run: src/scripts/android-libs.sh ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -390,9 +391,6 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - name: sherpa-onnx for iOS
-        run: src/scripts/sherpa-mobile.sh aarch64-apple-ios
-
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
@@ -417,7 +415,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # The bundle: binary, Info.plist and the sherpa-onnx framework, ad-hoc
+      # The bundle: binary, Info.plist and icon, ad-hoc
       # signed. A developer's identity and provisioning profile go on with
       # codesign before it can be installed on a phone.
       - name: Bundle
@@ -453,10 +451,9 @@ jobs:
 
   # The iPhone build again, for the iOS Simulator on this Mac, bundled the
   # way the device build is and started there; it is never shipped. The
-  # same FFmpeg and sherpa-onnx, for the simulator: ffmpeg-mobile.sh and
-  # ios-app.sh take aarch64-apple-ios-sim, and the xcframework
-  # sherpa-mobile.sh fetches for iOS carries a simulator slice beside the
-  # device one. mobile-env.sh does not know the simulator yet, so the
+  # same FFmpeg, for the simulator: ffmpeg-mobile.sh and ios-app.sh take
+  # aarch64-apple-ios-sim, and ort downloads the simulator's ONNX Runtime
+  # itself. mobile-env.sh does not know the simulator yet, so the
   # build's environment is written out in the build step below.
   ios-simulator:
     name: iOS simulator smoke
@@ -498,20 +495,6 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios-sim
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      # The device's fetch, which brings the whole xcframework; the binary
-      # links against the simulator's slice of it, under the name the
-      # linker looks for, as mobile-env.sh does with the device's slice.
-      - name: sherpa-onnx for the iOS Simulator
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-          src/scripts/sherpa-mobile.sh aarch64-apple-ios
-          framework=$(find src/vendor/sherpa-onnx/ios -maxdepth 2 -name '*.xcframework' | head -1)
-          binary=$PWD/$framework/ios-arm64_x86_64-simulator/SherpaOnnxC.framework/SherpaOnnxC
-          [ -f "$binary" ] || { echo "::error::no simulator slice in $framework"; exit 1; }
-          mkdir -p src/vendor/sherpa-onnx/ios/lib-sim
-          ln -sf "$binary" src/vendor/sherpa-onnx/ios/lib-sim/libsherpa-onnx-c-api.dylib
-
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         timeout-minutes: 10
         with:
@@ -519,7 +502,7 @@ jobs:
           key: aarch64-apple-ios-sim
 
       # What `scripts/mobile-env.sh aarch64-apple-ios` exports, for the
-      # simulator: its FFmpeg, its slice of sherpa-onnx, and the same
+      # simulator: its FFmpeg and the same
       # oldest iOS. whisper.cpp's CMake build is told the simulator's SDK
       # outright (whisper-rs-sys hands it every CMAKE_ variable): left to
       # itself, CMake's iOS platform takes the device's.
@@ -529,7 +512,6 @@ jobs:
         run: |
           set -o pipefail
           export FFMPEG_DIR="$PWD/vendor/ffmpeg/aarch64-apple-ios-sim"
-          export SHERPA_ONNX_LIB_DIR="$PWD/vendor/sherpa-onnx/ios/lib-sim"
           export IPHONEOS_DEPLOYMENT_TARGET=15.0
           export CMAKE_OSX_SYSROOT=iphonesimulator
           cargo build --release -p concat --target aarch64-apple-ios-sim 2>&1 | tee build.log
