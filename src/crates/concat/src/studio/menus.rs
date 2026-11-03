@@ -680,6 +680,19 @@ impl Studio {
                     sound,
                 })
             }
+            // A transition clip is laid as one, its package first; the
+            // match then gives it the source's knobs.
+            model::ClipKind::Transition => Some(Command::AddTransitionClip {
+                track_id: Some(track_id.to_owned()),
+                start,
+                duration: Some(source.duration),
+                transition_id: source
+                    .video_effects
+                    .first()
+                    .map(|link| link.id.clone())
+                    .unwrap_or_default(),
+                name: source.name.clone(),
+            }),
             _ => None,
         };
         if let Some(add) = drawn {

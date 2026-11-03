@@ -185,7 +185,8 @@ impl Studio {
                         model::ClipKind::Text
                         | model::ClipKind::Layer
                         | model::ClipKind::SoundLayer
-                        | model::ClipKind::Shape => LANE_SMALL,
+                        | model::ClipKind::Shape
+                        | model::ClipKind::Transition => LANE_SMALL,
                     })
                     .fold(0.0_f32, f32::max);
                 if tallest > 0.0 { tallest } else { LANE_MEDIUM }

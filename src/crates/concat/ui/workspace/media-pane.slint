@@ -2638,7 +2638,10 @@ export component MediaPane inherits Rectangle {
                     ShelfGrid {
                         entries: root.catalogue-transitions;
                         glyph: Glyph.transition;
-                        // Transitions apply directly on single-click — no audition overlay.
+                        // A card drags onto the timeline as a transition
+                        // clip (#621); a click lays one on the selected
+                        // cut, or at the playhead. No audition overlay.
+                        payload-kind: "transition";
                         auditions: false;
                         applied(id, label) => { root.apply-transition(id); }
                     }

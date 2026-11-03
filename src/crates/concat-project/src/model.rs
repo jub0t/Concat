@@ -80,6 +80,16 @@ pub enum ClipKind {
     /// media behind it; what it is and how it is painted lives in
     /// [`Clip::shape`], and it is placed and scaled like a still.
     Shape,
+    /// A transition placed on the timeline as a clip of its own (#621),
+    /// acting on everything beneath it for as long as it runs: across a cut
+    /// under it, the outgoing picture into the incoming one, each carried
+    /// into the span by its own footage or a held frame; over a single
+    /// shot, the package played over that shot. No media behind it; the
+    /// package and its knobs are the one link in [`Clip::video_effects`],
+    /// and its length is the clip's. Unlike [`Clip::transition_in`], which
+    /// ties a transition to the cut into one clip, it is placed, moved and
+    /// trimmed like any clip.
+    Transition,
 }
 
 impl ClipKind {

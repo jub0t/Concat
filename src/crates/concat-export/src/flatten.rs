@@ -76,6 +76,26 @@ pub fn flatten_timeline_in(
                 });
             }
 
+            // A transition placed as a clip (#621): no file, its package and
+            // knobs the one link of its chain, its length the clip's.
+            // `resolve_transitions` finds the cut beneath it, if any. One
+            // whose link is gone or switched off draws nothing.
+            if clip.kind == ModelClipKind::Transition {
+                let package = clip.video_effects.first()?;
+                return Some(ExportClip {
+                    hidden: !track.visible || !package.enabled,
+                    muted: true,
+                    volume: 0.0,
+                    has_audio: Some(false),
+                    transition: Some(TransitionSpec {
+                        kind: package.id.clone(),
+                        duration: clip.duration,
+                        params: package.params.clone(),
+                    }),
+                    ..ExportClip::blank(ClipKind::Transition, clip.start, clip.duration, index)
+                });
+            }
+
             // A sound layer: no file and no picture, a chain over the mix
             // for its span, its opacity the strength and its fades the
             // ramps, silent with its lane.
@@ -104,7 +124,8 @@ pub fn flatten_timeline_in(
                 ModelClipKind::Text
                 | ModelClipKind::Layer
                 | ModelClipKind::SoundLayer
-                | ModelClipKind::Shape => return None,
+                | ModelClipKind::Shape
+                | ModelClipKind::Transition => return None,
             };
             Some(ExportClip {
                 path: media.path.clone(),

@@ -35,6 +35,9 @@ const DEFAULT_IMAGE_DURATION: f64 = 5.0;
 const DEFAULT_TEXT_DURATION: f64 = 4.0;
 /// How long a layer covers when first placed. Editorial default, not a fact.
 const DEFAULT_LAYER_DURATION: f64 = 5.0;
+/// How long a transition clip covers when first placed: a second, half
+/// either side of the cut it is centred on.
+const DEFAULT_TRANSITION_DURATION: f64 = 1.0;
 /// Default hold for a freeze frame when the caller omits duration.
 const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 pub(crate) use crate::model::ranges::{
@@ -421,6 +424,28 @@ pub enum Command {
         /// layer.
         #[serde(default)]
         sound: bool,
+    },
+    /// Places a transition as a clip of its own (#621): the package named,
+    /// at its defaults, acting on everything beneath it for its span - from
+    /// the outgoing picture into the incoming one across a cut under it,
+    /// or played over the one shot where there is no cut. See
+    /// [`crate::model::ClipKind::Transition`].
+    AddTransitionClip {
+        /// The lane to place it on. None picks the first free lane above
+        /// the highest one occupied over its span, as a layer does, minting
+        /// one at the top when every lane above is taken: a transition acts
+        /// on what is beneath it.
+        track_id: Option<String>,
+        /// Timeline position in seconds, floored at 0.
+        start: f64,
+        /// Seconds on the timeline; a second when absent, and never less
+        /// than [`crate::model::ranges::MIN_TRANSITION`].
+        #[serde(default)]
+        duration: Option<f64>,
+        /// The transition package, e.g. "concat.push".
+        transition_id: String,
+        /// What the lane calls it.
+        name: String,
     },
     /// Gives a clip a speed curve, or takes it away. The source covered is
     /// held constant, as a speed change does, so the clip's timeline length
@@ -1126,6 +1151,9 @@ impl Command {
             }
             Command::AddLayerClip {
                 start, duration, ..
+            }
+            | Command::AddTransitionClip {
+                start, duration, ..
             } => bad([*start]) || bad(*duration),
             Command::SetClipSpeedCurve { curve, .. } => bad(curve
                 .iter()
@@ -1290,6 +1318,7 @@ pub fn apply(
         | Command::AddTextClip { .. }
         | Command::AddShapeClip { .. }
         | Command::AddLayerClip { .. }
+        | Command::AddTransitionClip { .. }
         | Command::MoveClips { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }

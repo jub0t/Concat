@@ -4359,6 +4359,86 @@ mod tests {
         );
     }
 
+    /// A transition placed as a clip (#621) goes over the footage like a
+    /// layer, carries its package as its one link, is a second long unless
+    /// told otherwise, and survives the document.
+    #[test]
+    fn a_transition_clip_goes_over_the_footage_and_survives_the_document() {
+        let (mut editor, _, footage) = fixture();
+        let video_track = editor
+            .project()
+            .active()
+            .clip(&footage)
+            .expect("the footage")
+            .track_id
+            .clone();
+        let id = editor
+            .apply(Command::AddTransitionClip {
+                track_id: None,
+                start: 1.5,
+                duration: None,
+                transition_id: "concat.push".into(),
+                name: "Push".into(),
+            })
+            .expect("placed")
+            .created_id
+            .expect("id");
+        let timeline = editor.project().active();
+        let clip = timeline.clip(&id).expect("exists");
+        assert_eq!(clip.kind, ClipKind::Transition);
+        assert_eq!(clip.name, "Push");
+        assert!((clip.duration - 1.0).abs() < 1e-9, "{}", clip.duration);
+        assert_eq!(clip.video_effects.len(), 1);
+        assert_eq!(clip.video_effects[0].id, "concat.push");
+        assert!(clip.media_id.is_empty());
+        let row = |id: &str| timeline.tracks.iter().position(|t| t.id == id);
+        assert!(
+            row(&clip.track_id) > row(&video_track),
+            "a transition acts on what is beneath it"
+        );
+
+        let document = editor.to_document(&settings());
+        assert_eq!(
+            document["timelines"][0]["clips"]
+                .as_array()
+                .expect("clips")
+                .iter()
+                .find(|clip| clip["id"] == id.as_str())
+                .expect("written")["kind"],
+            "transition"
+        );
+        let loaded = Editor::from_document(&document).expect("loads");
+        assert_eq!(loaded.project(), editor.project());
+
+        // Never shorter than a tenth of a second, and nothing that is not a
+        // number.
+        let short = editor
+            .apply(Command::AddTransitionClip {
+                track_id: None,
+                start: 4.0,
+                duration: Some(0.0),
+                transition_id: "concat.cross-fade".into(),
+                name: String::new(),
+            })
+            .expect("placed")
+            .created_id
+            .expect("id");
+        let short = editor.project().active().clip(&short).expect("exists");
+        assert!(short.duration >= crate::model::ranges::MIN_TRANSITION - 1e-9);
+        assert_eq!(short.name, "concat.cross-fade", "named for its package");
+        assert!(
+            editor
+                .apply(Command::AddTransitionClip {
+                    track_id: None,
+                    start: f64::NAN,
+                    duration: None,
+                    transition_id: "concat.push".into(),
+                    name: String::new(),
+                })
+                .is_err()
+        );
+    }
+
     /// A sound layer carries its package on the sound's chain and none on
     /// the picture's, lands over the footage as a picture layer does, is
     /// written as a kind of its own and read back as one, and goes with an

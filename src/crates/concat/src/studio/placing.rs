@@ -80,6 +80,18 @@ impl Studio {
                 duration: LAYER_DURATION,
                 row: 0,
             }),
+            // A transition dragged from the Transitions page: a clip of its
+            // own over the lanes beneath it (#621), drawn as a layer is. The
+            // package id rides in `media` behind `transition:`, which
+            // `place` reads.
+            "transition" => Some(DropPlan {
+                kind: ClipKind::Filter,
+                label: label.to_owned(),
+                media: format!("transition:{id}"),
+                start: 0.0,
+                duration: TRANSITION_DURATION,
+                row: 0,
+            }),
             // A sound effect dragged from the Effects page's sound shelf:
             // a sound layer over a span, treating everything heard there.
             // The package id rides in `media`, as a filter's does.
@@ -112,6 +124,14 @@ impl Studio {
         plan.start = self
             .snapped(seconds.max(0.0), 8.0 * self.lanes.seconds_per_pixel, "")
             .max(0.0);
+        // A transition near a cut is centred on it, as `place_transition`
+        // will lay it, so the ghost is where the clip lands.
+        if plan.media.starts_with("transition:") {
+            let half = f64::from(plan.duration) / 2.0;
+            if let Some(cut) = self.nearest_cut(f64::from(plan.start), half) {
+                plan.start = (cut - half).max(0.0) as f32;
+            }
+        }
         Some(plan)
     }
 
@@ -139,6 +159,19 @@ impl Studio {
         };
         if let Some(card) = plan.media.strip_prefix("sound:") {
             self.place_card(card, Some(track_id), f64::from(plan.start));
+            return;
+        }
+        if let Some(transition) = plan.media.strip_prefix("transition:") {
+            let created = self.place_transition(
+                transition,
+                &plan.label,
+                Some(track_id),
+                f64::from(plan.start),
+                f64::from(plan.duration),
+            );
+            if let Some(id) = created {
+                self.selection = vec![id];
+            }
             return;
         }
         let created = if plan.kind == ClipKind::Text {
@@ -197,6 +230,19 @@ impl Studio {
         let start = f64::from(self.playhead.max(0.0));
         if let Some(card) = plan.media.strip_prefix("sound:") {
             self.place_card(card, None, start);
+            return;
+        }
+        if let Some(transition) = plan.media.strip_prefix("transition:") {
+            let created = self.place_transition(
+                transition,
+                &plan.label,
+                None,
+                start,
+                f64::from(plan.duration),
+            );
+            if let Some(id) = created {
+                self.selection = vec![id];
+            }
             return;
         }
         let created = if plan.kind == ClipKind::Text {
@@ -519,44 +565,80 @@ impl Studio {
         }
     }
 
-    /// Puts the catalogue transition `id` on the cut the selection names;
-    /// see [`Studio::transition_cut`].
+    /// Places the catalogue transition `id` as a clip of its own (#621):
+    /// centred on the cut the selection names (see
+    /// [`Studio::transition_cut`]), or, with no cut selected, at the
+    /// playhead - on the cut there if one is near, over the shot under it
+    /// if not. A transition is no longer written onto the clip coming in.
     pub fn apply_transition(&mut self, id: &str) {
-        let clip_id = match self.transition_cut() {
-            Ok(clip_id) => clip_id,
-            Err(why) => {
-                self.notify(&why, true);
-                return;
-            }
-        };
-        let Some(clip) = self.clip(&clip_id) else {
-            return;
-        };
-        // One clip with nothing meeting it has no cut to put a transition
-        // on: the answer is the other clip, not a longer one.
-        let Some(outgoing) = self.outgoing_of(clip) else {
-            self.notify(&t("studio.selectTwoAdjacentClips"), true);
-            return;
-        };
-        if !clip.kind.is_visual() || !outgoing.kind.is_visual() {
-            self.notify(&t("studio.selectVideoImageClip"), true);
-            return;
-        }
-        let Some(duration) = self.transition_duration(clip, 0.5) else {
-            self.notify(&t("studio.noRoomForTransition"), true);
-            return;
-        };
-        self.apply(Command::UpdateClip {
-            clip_id,
-            patch: ClipPatch {
-                transition_in: Some(Some(Transition {
-                    id: id.to_owned(),
-                    duration,
-                    params: Default::default(),
-                })),
-                ..ClipPatch::default()
+        let label = Catalogue::builtin()
+            .get(id)
+            .map(|package| package.manifest.effect.name.clone())
+            .unwrap_or_default();
+        let duration = f64::from(TRANSITION_DURATION);
+        let at = match self.transition_cut() {
+            Ok(clip_id) => match self.clip(&clip_id) {
+                Some(clip) if self.outgoing_of(clip).is_some() => clip.start,
+                _ => f64::from(self.playhead.max(0.0)),
             },
+            Err(_) => f64::from(self.playhead.max(0.0)),
+        };
+        if let Some(created) = self.place_transition(id, &label, None, at, duration) {
+            self.selection = vec![created];
+        }
+    }
+
+    /// Lays the catalogue transition `id` as a clip `duration` long (#621):
+    /// centred on the cut nearest `at` when one is within half its length,
+    /// from `at` over the shot there otherwise. On `track_id` when that
+    /// lane is free over its span; over the picture otherwise, where a
+    /// layer goes, since a transition acts on what is beneath it.
+    fn place_transition(
+        &mut self,
+        id: &str,
+        label: &str,
+        track_id: Option<String>,
+        at: f64,
+        duration: f64,
+    ) -> Option<String> {
+        let duration = duration.max(model::ranges::MIN_TRANSITION);
+        let start = match self.nearest_cut(at, duration / 2.0) {
+            Some(cut) => (cut - duration / 2.0).max(0.0),
+            None => at.max(0.0),
+        };
+        let track_id = track_id.filter(|lane| {
+            let free = self
+                .timeline()
+                .nearest_free_start(lane, start, duration, &[]);
+            (free - start).abs() < 1e-9
         });
+        self.apply(Command::AddTransitionClip {
+            track_id,
+            start,
+            duration: Some(duration),
+            transition_id: id.to_owned(),
+            name: label.to_owned(),
+        })
+    }
+
+    /// The cut nearest `at`, within `within` seconds: where a picture ends
+    /// and the next on its lane begins.
+    fn nearest_cut(&self, at: f64, within: f64) -> Option<f64> {
+        let clips = &self.timeline().clips;
+        clips
+            .iter()
+            .filter(|incoming| {
+                incoming.kind.is_visual()
+                    && clips.iter().any(|outgoing| {
+                        outgoing.id != incoming.id
+                            && outgoing.kind.is_visual()
+                            && outgoing.track_id == incoming.track_id
+                            && (outgoing.start + outgoing.duration - incoming.start).abs() < 1e-3
+                    })
+            })
+            .map(|clip| clip.start)
+            .filter(|cut| (cut - at).abs() <= within)
+            .min_by(|a, b| (a - at).abs().total_cmp(&(b - at).abs()))
     }
 
     /// The clip whose incoming transition is selected: the one picked on

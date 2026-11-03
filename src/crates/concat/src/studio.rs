@@ -123,6 +123,9 @@ const LANE_SMALL: f32 = 44.0;
 /// How long a title runs when it is placed: long enough to read, short
 /// enough that trimming it is a nudge rather than a fight.
 const LAYER_DURATION: f32 = 3.0;
+/// How long a transition clip covers when first placed: a second, half
+/// either side of the cut it lands on.
+const TRANSITION_DURATION: f32 = 1.0;
 
 /// One media item's filmstrip, as the lanes tile it.
 pub struct Strip {
@@ -1281,6 +1284,9 @@ fn kind_of(clip: &Clip) -> ClipKind {
         model::ClipKind::Layer => ClipKind::Filter,
         model::ClipKind::SoundLayer => ClipKind::SoundLayer,
         model::ClipKind::Shape => ClipKind::Shape,
+        // Drawn as a layer is: a span over the lanes beneath it, named for
+        // its package, with no picture of its own.
+        model::ClipKind::Transition => ClipKind::Filter,
     }
 }
 
@@ -1572,6 +1578,7 @@ fn inspector_family(kind: model::ClipKind) -> u8 {
         model::ClipKind::Shape => 2,
         model::ClipKind::Layer => 3,
         model::ClipKind::Audio | model::ClipKind::SoundLayer => 4,
+        model::ClipKind::Transition => 5,
     }
 }
 
