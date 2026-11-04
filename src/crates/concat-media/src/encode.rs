@@ -3029,7 +3029,7 @@ mod tests {
                 {
                     Ok(encoder) => encoder,
                     Err(error) if ten_bit && codec.ten_bit_only_on_hardware() => {
-                        eprintln!("{} at ten bits: {error}; {}", codec.label(), "skipped");
+                        eprintln!("{} at ten bits: {error}; skipped", codec.label());
                         continue;
                     }
                     Err(error) => panic!("{} {ten_bit}: {error}", codec.label()),

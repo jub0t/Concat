@@ -433,6 +433,51 @@ pub(crate) fn displayed(
     }
 }
 
+/// The platform's own AAC decoder, where FFmpeg wraps one: Apple's
+/// AudioToolbox and Android's MediaCodec, whose makers license AAC. Windows
+/// and Linux have none in FFmpeg, and decode on FFmpeg's.
+const PLATFORM_AAC: Option<&str> = if cfg!(any(target_os = "macos", target_os = "ios")) {
+    Some("aac_at")
+} else if cfg!(target_os = "android") {
+    Some("aac_mediacodec")
+} else {
+    None
+};
+
+/// Opens the audio decoder for `stream`: for AAC the platform's own (see
+/// [`PLATFORM_AAC`]), and FFmpeg's where there is none or it will not open.
+/// Apple's trims an encoder's priming and ends where FFmpeg's does, to the
+/// sample.
+pub(crate) fn audio_decoder(
+    stream: &ffmpeg::format::stream::Stream,
+) -> std::result::Result<ffmpeg::codec::decoder::Audio, ffmpeg::Error> {
+    if stream.parameters().id() == ffmpeg::codec::Id::AAC
+        && let Some(name) = PLATFORM_AAC
+        && let Some(codec) = ffmpeg::codec::decoder::find_by_name(name)
+    {
+        let mut context = ffmpeg::codec::Context::from_parameters(stream.parameters())?;
+        // MediaCodec counts in microseconds, and converts each packet's
+        // stamp from the stream's clock and back when told it.
+        // SAFETY: the context is not opened yet; a plain rational.
+        unsafe {
+            (*context.as_mut_ptr()).pkt_timebase = stream.time_base().into();
+        }
+        match context
+            .decoder()
+            .open_as(codec)
+            .and_then(|opened| opened.audio())
+        {
+            Ok(decoder) => return Ok(decoder),
+            Err(error) => {
+                log::warn!("{name} would not open: {error}; FFmpeg's AAC decoder instead")
+            }
+        }
+    }
+    ffmpeg::codec::Context::from_parameters(stream.parameters())?
+        .decoder()
+        .audio()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,49 +529,4 @@ mod tests {
         assert_eq!(seconds(5, ffmpeg::Rational::new(1, 0)), None);
         assert_eq!(av_ticks(Rational::new(3, 2)), 1_500_000);
     }
-}
-
-/// The platform's own AAC decoder, where FFmpeg wraps one: Apple's
-/// AudioToolbox and Android's MediaCodec, whose makers license AAC. Windows
-/// and Linux have none in FFmpeg, and decode on FFmpeg's.
-const PLATFORM_AAC: Option<&str> = if cfg!(any(target_os = "macos", target_os = "ios")) {
-    Some("aac_at")
-} else if cfg!(target_os = "android") {
-    Some("aac_mediacodec")
-} else {
-    None
-};
-
-/// Opens the audio decoder for `stream`: for AAC the platform's own (see
-/// [`PLATFORM_AAC`]), and FFmpeg's where there is none or it will not open.
-/// Apple's trims an encoder's priming and ends where FFmpeg's does, to the
-/// sample.
-pub(crate) fn audio_decoder(
-    stream: &ffmpeg::format::stream::Stream,
-) -> std::result::Result<ffmpeg::codec::decoder::Audio, ffmpeg::Error> {
-    if stream.parameters().id() == ffmpeg::codec::Id::AAC
-        && let Some(name) = PLATFORM_AAC
-        && let Some(codec) = ffmpeg::codec::decoder::find_by_name(name)
-    {
-        let mut context = ffmpeg::codec::Context::from_parameters(stream.parameters())?;
-        // MediaCodec counts in microseconds, and converts each packet's
-        // stamp from the stream's clock and back when told it.
-        // SAFETY: the context is not opened yet; a plain rational.
-        unsafe {
-            (*context.as_mut_ptr()).pkt_timebase = stream.time_base().into();
-        }
-        match context
-            .decoder()
-            .open_as(codec)
-            .and_then(|opened| opened.audio())
-        {
-            Ok(decoder) => return Ok(decoder),
-            Err(error) => {
-                log::warn!("{name} would not open: {error}; FFmpeg's AAC decoder instead")
-            }
-        }
-    }
-    ffmpeg::codec::Context::from_parameters(stream.parameters())?
-        .decoder()
-        .audio()
 }
