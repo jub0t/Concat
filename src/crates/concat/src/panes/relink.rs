@@ -28,6 +28,9 @@ pub enum RelinkMsg {
     RelinkAll,
     /// The folder the picker answered with: look inside it.
     RelinkIn(PathBuf),
+    /// Take one missing file out of the project, with the clips that use
+    /// it, so it is never asked after again. One undo brings both back.
+    Remove(String),
     Dismiss,
 }
 
@@ -63,8 +66,37 @@ impl RelinkPane {
                 );
             }
             RelinkMsg::RelinkIn(folder) => self.relink_in(studio, folder),
+            RelinkMsg::Remove(id) => self.remove(studio, &id),
             RelinkMsg::Dismiss => self.dismiss(),
         }
+    }
+
+    /// Removes one missing file from the project, and every clip of it on
+    /// every timeline, as `RemoveMedia` does; the dialog closes once
+    /// nothing is left on it.
+    fn remove(&mut self, studio: &mut Studio, id: &str) {
+        let Some(name) = self
+            .items
+            .iter()
+            .find(|item| item.id == id)
+            .map(|item| item.name.clone())
+        else {
+            return;
+        };
+        if studio.session.is_none() {
+            return;
+        }
+        studio.apply(Command::RemoveMedia {
+            media_id: id.to_owned(),
+        });
+        self.items.retain(|item| item.id != id);
+        self.dismissed.remove(id);
+        if self.items.is_empty() {
+            self.open = false;
+        }
+        studio.notify(&crate::i18n::tf("relink.removed", &[&name]), false);
+        studio.request_media_art();
+        studio.request_preview();
     }
 
     /// Opens the dialog on a project's missing files, as opening a project
@@ -188,7 +220,19 @@ impl RelinkPane {
     }
 
     /// The dialog as Slint shows it.
-    pub fn data(&self) -> RelinkData {
+    pub fn data(&self, studio: &Studio) -> RelinkData {
+        // How many clips each missing file is in, across every timeline:
+        // what its Remove takes with it.
+        let clips_of = |id: &str| -> i32 {
+            studio.session.as_ref().map_or(0, |session| {
+                session
+                    .project()
+                    .timelines
+                    .iter()
+                    .map(|timeline| timeline.clips.iter().filter(|clip| clip.media_id == id).count())
+                    .sum::<usize>() as i32
+            })
+        };
         RelinkData {
             open: self.open,
             items: slint::ModelRc::new(VecModel::from(
@@ -198,6 +242,7 @@ impl RelinkPane {
                         id: item.id.clone().into(),
                         name: item.name.clone().into(),
                         path: item.path.clone().into(),
+                        clips: clips_of(&item.id),
                     })
                     .collect::<Vec<_>>(),
             )),

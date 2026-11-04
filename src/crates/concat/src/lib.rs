@@ -1961,6 +1961,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_relink_all(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::RelinkAll));
     }));
+    app.on_relink_remove(on_window!(|state, id: SharedString| {
+        state.handle(Msg::Relink(RelinkMsg::Remove(id.to_string())));
+    }));
     app.on_relink_dismiss(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::Dismiss));
     }));

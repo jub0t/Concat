@@ -5,11 +5,14 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph } from "../icons.slint";
 import { Button, DialogSection, Modal } from "../primitives/modal.slint";
+import { IconButton } from "../primitives/panel.slint";
 
 export struct MissingMediaItem {
     id: string,
     name: string,
     path: string,
+    /// how many clips use it, on every timeline: what Remove takes too
+    clips: int,
 }
 
 export struct RelinkData {
@@ -21,6 +24,8 @@ export component RelinkDialog inherits Modal {
     in property <RelinkData> data;
 
     callback relink-all();
+    /// Take this file out of the project, with its clips, for good.
+    callback remove(id: string);
     callback dismiss();
 
     open: root.data.open;
@@ -53,17 +58,28 @@ export component RelinkDialog inherits Modal {
 
                         HorizontalLayout {
                             padding-left: 8px;
-                            padding-right: 8px;
-                            alignment: start;
+                            padding-right: 4px;
+                            spacing: 8px;
 
                             VerticalLayout {
                                 alignment: center;
+                                horizontal-stretch: 1;
 
-                                Text {
-                                    text: item.name;
-                                    color: Theme.fg;
-                                    font-size: Theme.fs;
-                                    overflow: elide;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: item.name;
+                                        color: Theme.fg;
+                                        font-size: Theme.fs;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                    if item.clips > 0: Text {
+                                        text: I18n.t1("relink.usedByClips", "" + item.clips);
+                                        color: Theme.fg-dim;
+                                        font-size: Theme.fs-sm;
+                                        horizontal-stretch: 0;
+                                    }
                                 }
 
                                 Text {
@@ -72,6 +88,19 @@ export component RelinkDialog inherits Modal {
                                     font-size: Theme.fs-sm;
                                     font-family: Theme.font-technical;
                                     overflow: elide;
+                                }
+                            }
+
+                            // Gone for good, so it is never asked after
+                            // again: the file and the clips made from it.
+                            // Undo brings both back.
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    glyph: Glyph.trash;
+                                    danger: true;
+                                    label: I18n.t("relink.removeFromProject");
+                                    clicked => { root.remove(item.id); }
                                 }
                             }
                         }

@@ -1717,7 +1717,7 @@ impl Studio {
         sync(&models.voices, self.settings.voice_rows());
         sync(&models.versions, self.settings.version_rows());
         sync(&models.version_details, self.settings.version_details());
-        app.set_relink(self.relink.data());
+        app.set_relink(self.relink.data(self));
         app.set_confirm(self.confirm_data());
 
         // The speech sheets, and the lists they choose from.
