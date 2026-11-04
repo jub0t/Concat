@@ -10,6 +10,7 @@
 mod launch;
 
 use launch::Launch;
+use std::net::SocketAddr;
 
 fn main() -> Result<(), slint::PlatformError> {
     // First of all, so that even `--version` says where it crashed if it
@@ -48,7 +49,7 @@ fn main() -> Result<(), slint::PlatformError> {
             })
             .unwrap_or_default();
         let _ = concat_host::logs::open_console(None);
-        let address = std::env::var("CONCAT_MCP_ADDRESS")
+        let address: SocketAddr = std::env::var("CONCAT_MCP_ADDRESS")
             .ok()
             .and_then(|text| text.parse().ok())
             .unwrap_or_else(|| "127.0.0.1:7420".parse().expect("default address parses"));
