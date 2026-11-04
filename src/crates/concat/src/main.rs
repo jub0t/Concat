@@ -48,10 +48,36 @@ fn main() -> Result<(), slint::PlatformError> {
             })
             .unwrap_or_default();
         let _ = concat_host::logs::open_console(None);
-        return concat_mcp::run(mode).map_err(|error| {
-            log::error!("mcp: {error}");
-            slint::PlatformError::Other(error)
-        });
+        let address = std::env::var("CONCAT_MCP_ADDRESS")
+            .ok()
+            .and_then(|text| text.parse().ok())
+            .unwrap_or_else(|| "127.0.0.1:7420".parse().expect("default address parses"));
+
+        #[cfg(all(target_os = "android", feature = "http"))]
+        {
+            return tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| {
+                    log::error!("mcp: could not start runtime: {error}");
+                    slint::PlatformError::Other(error.to_string())
+                })
+                .and_then(|rt| {
+                    rt.block_on(concat_mcp::run_http(address, mode))
+                        .map_err(|error| {
+                            log::error!("mcp: {error}");
+                            slint::PlatformError::Other(error)
+                        })
+                });
+        }
+
+        #[cfg(not(all(target_os = "android", feature = "http")))]
+        {
+            return Err(slint::PlatformError::Other(
+                "concat --mcp is only available on Android with HTTP/SSE transport (stdio removed)"
+                    .to_owned(),
+            ));
+        }
     }
     // A desktop's console is its standard error, which a packaged build
     // has wired to nowhere; hence the file underneath it.

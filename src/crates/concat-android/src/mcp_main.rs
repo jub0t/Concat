@@ -11,6 +11,7 @@
 //! - CONCAT_API_ADDRESS: address of window's server (for window mode)
 //! - CONCAT_API_TOKEN: token for window's server
 //! - CONCAT_MCP_ROOTS: colon-separated paths for headless mode
+//! - CONCAT_MCP_ADDRESS: bind address for the MCP HTTP server (default 127.0.0.1:7420)
 
 use std::env;
 
@@ -21,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_max_level(log::LevelFilter::Info)
             .with_tag("concat-mcp"),
     );
-    
+
     log::info!("Concat MCP server starting (Android headless)");
 
     // Set up directories for the host crate
@@ -34,13 +35,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|word| concat_mcp::Mode::parse(&word))
         .unwrap_or_default();
 
-    log::info!("MCP mode: {:?}", mode);
+    let address = env::var("CONCAT_MCP_ADDRESS")
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .unwrap_or_else(|| "127.0.0.1:7420".parse().expect("default address parses"));
 
-    // Run MCP server
-    concat_mcp::run(mode).map_err(|e| {
-        log::error!("MCP server error: {}", e);
-        e.into()
-    })
+    log::info!("MCP mode: {:?}", mode);
+    log::info!("MCP address: {}", address);
+
+    // Run MCP server over HTTP/SSE
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("could not start tokio runtime: {error}"))?
+        .block_on(concat_mcp::run_http(address, mode))
+        .map_err(|e| {
+            log::error!("MCP server error: {}", e);
+            e.into()
+        })
 }
 
 fn setup_android_directories(app: &slint::android::AndroidApp) {
