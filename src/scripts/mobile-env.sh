@@ -42,23 +42,30 @@ case "$target" in
     # ANDROID_NDK_HOME, CMake's Android platform (whisper.cpp) reads
     # ANDROID_NDK_ROOT, and skia-bindings reads ANDROID_NDK.
     echo "export ANDROID_HOME='$sdk' ANDROID_NDK_HOME='$ndk' ANDROID_NDK_ROOT='$ndk' ANDROID_NDK='$ndk'"
+    host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
+    bindgen_target=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
+    echo "export BINDGEN_EXTRA_CLANG_ARGS_${bindgen_target}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot --target=$target'"
     # bindgen needs libclang from the NDK, not the host's clang. The system's
     # libclang (Ubuntu 18.1.3 here) expects glibc headers which don't exist
     # for Android's bionic libc. Search the NDK toolchain tree for libclang.so
     # and point LIBCLANG_PATH at it; also add the NDK's clang bin dir to PATH
     # so bindgen can find the right clang executable.
-    host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
-    bindgen_target=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
-    echo "export BINDGEN_EXTRA_CLANG_ARGS_${bindgen_target}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot'"
-    # Find libclang.so anywhere under the NDK toolchain directory.
     libclang_so=$(find "$ndk/toolchains/llvm/prebuilt/$host_tag" -name "libclang.so*" -type f 2>/dev/null | head -1)
     if [ -n "$libclang_so" ]; then
       echo "export LIBCLANG_PATH='$libclang_so'"
+      libclang_dir=$(dirname "$libclang_so")
+      echo "export LD_LIBRARY_PATH='$libclang_dir:\${LD_LIBRARY_PATH:-}'"
     fi
     # Tell bindgen which clang to use: the NDK's own clang for the target.
     echo "export CLANG_PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang'"
     # Make sure PATH finds the NDK's clang before any host clang.
     echo "export PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin:\$PATH'"
+    # Cargo target-specific compiler variables so cargo-apk and bindgen use
+    # the NDK's clang, not the host's clang which expects glibc headers.
+    target_env=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
+    echo "export CC_${target_env}='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang'"
+    echo "export CXX_${target_env}='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang++'"
+    echo "export AR_${target_env}='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/llvm-ar'"
     # Cargo target-specific compiler variables so cargo-apk and bindgen use
     # the NDK's clang, not the host's clang which expects glibc headers.
     target_env=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
