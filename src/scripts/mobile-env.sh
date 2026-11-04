@@ -59,6 +59,12 @@ case "$target" in
     echo "export CLANG_PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang'"
     # Make sure PATH finds the NDK's clang before any host clang.
     echo "export PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin:\$PATH'"
+    # Cargo target-specific compiler variables so cargo-apk and bindgen use
+    # the NDK's clang, not the host's clang which expects glibc headers.
+    target_env=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
+    echo "export CC_${target_env}='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang'"
+    echo "export CXX_${target_env}='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang++'"
+    echo "export AR_${target_env}='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/llvm-ar'"
     # Slint's backend compiles a Java helper against the SDK platform's
     # android.jar. cargo-ndk names the NDK API level as ANDROID_PLATFORM,
     # which is also the name the lookup reads for the SDK platform, and the
