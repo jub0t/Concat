@@ -501,6 +501,8 @@
   "settings.playhead": "Oynatma göstəricisi",
   "settings.proxies": "Proksi fayllar",
   "settings.proxiesHint": "Söndürüləndə oynatma fayllarınızı olduğu kimi oxuyur. Açıq olanda HD-dən böyük hər video üçün arxa planda bir dəfə kiçik surət yaradılır ki, Yarım və Dörddəbir keyfiyyətdə oynatma daha hamar olsun.",
+  "settings.rememberLayout": "Düzəni yadda saxla",
+  "settings.rememberLayoutHint": "Açıq olduqda Concat panelləri saxladığınız yerdə və pəncərəni son ölçüsündə açır. Bağlı olduqda hər açılış standart düzənlə başlayır.",
   "settings.rose": "Qızılgül",
   "settings.runsLocally": "Lokal işləyir",
   "settings.scale": "Miqyas",

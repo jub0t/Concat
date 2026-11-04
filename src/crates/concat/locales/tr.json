@@ -501,6 +501,8 @@
   "settings.playhead": "Playhead",
   "settings.proxies": "Proxy dosyaları",
   "settings.proxiesHint": "Kapalıyken oynatma dosyalarınızı olduğu gibi okur. Açıkken HD'den büyük her videonun arka planda bir kez daha küçük bir kopyası yapılır, böylece Yarım ve Çeyrek'te oynatma daha akıcı olur.",
+  "settings.rememberLayout": "Düzeni hatırla",
+  "settings.rememberLayoutHint": "Açıkken Concat panelleri bıraktığınız yerde ve pencereyi son boyutunda açar. Kapalıyken her açılış varsayılan düzenle başlar.",
   "settings.rose": "Gül",
   "settings.runsLocally": "Yerel çalışır",
   "settings.scale": "Scale",

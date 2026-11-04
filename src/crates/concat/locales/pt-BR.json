@@ -501,6 +501,8 @@
   "settings.playhead": "Cursor de reprodução",
   "settings.proxies": "Proxies",
   "settings.proxiesHint": "Desligado, a reprodução lê seus arquivos como são. Ligado, cada vídeo maior que HD ganha uma cópia menor, feita uma vez em segundo plano, para uma reprodução mais suave em Metade e Um quarto.",
+  "settings.rememberLayout": "Lembrar o layout",
+  "settings.rememberLayoutHint": "Ativado, o Concat abre com os painéis onde você os deixou e a janela no último tamanho. Desativado, cada abertura começa no layout padrão.",
   "settings.rose": "Rosa",
   "settings.runsLocally": "Executa localmente",
   "settings.scale": "Escala",

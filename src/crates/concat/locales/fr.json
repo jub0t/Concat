@@ -501,6 +501,8 @@
   "settings.playhead": "Playhead",
   "settings.proxies": "Proxys",
   "settings.proxiesHint": "Désactivé, la lecture lit vos fichiers tels quels. Activé, chaque vidéo plus grande que la HD reçoit une copie plus petite, créée une fois en arrière-plan, pour une lecture plus fluide en Moitié et Quart.",
+  "settings.rememberLayout": "Mémoriser la disposition",
+  "settings.rememberLayoutHint": "Activé, Concat s’ouvre avec les panneaux là où vous les avez laissés et la fenêtre à sa dernière taille. Désactivé, chaque lancement repart de la disposition par défaut.",
   "settings.rose": "Rose",
   "settings.runsLocally": "S'exécute localement",
   "settings.scale": "Scale",

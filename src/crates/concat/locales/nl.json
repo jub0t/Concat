@@ -501,6 +501,8 @@
   "settings.playhead": "Afspeelkop",
   "settings.proxies": "Proxy's",
   "settings.proxiesHint": "Uit: afspelen leest je bestanden zoals ze zijn. Aan: elke video groter dan HD krijgt eenmalig op de achtergrond een kleinere kopie, voor vloeiender afspelen bij Half en Kwart.",
+  "settings.rememberLayout": "Indeling onthouden",
+  "settings.rememberLayoutHint": "Aan: Concat opent met de panelen waar je ze liet en het venster op de laatste grootte. Uit: elke start begint met de standaardindeling.",
   "settings.rose": "Roos",
   "settings.runsLocally": "Draait lokaal",
   "settings.scale": "Scale",

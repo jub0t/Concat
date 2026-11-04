@@ -501,6 +501,8 @@
   "settings.playhead": "Playhead",
   "settings.proxies": "Proxy datoteke",
   "settings.proxiesHint": "Isključeno, reprodukcija čita vaše datoteke kakve jesu. Uključeno, svaki videozapis veći od HD-a dobiva manju kopiju, izrađenu jednom u pozadini, za glađu reprodukciju na Pola i Četvrtina.",
+  "settings.rememberLayout": "Zapamti raspored",
+  "settings.rememberLayoutHint": "Uključeno: Concat se otvara s pločama ondje gdje ste ih ostavili i prozorom u zadnjoj veličini. Isključeno: svako pokretanje kreće od zadanog rasporeda.",
   "settings.rose": "Ruža",
   "settings.runsLocally": "Radi lokalno",
   "settings.scale": "Scale",

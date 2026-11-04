@@ -406,6 +406,28 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.global::<Theme>()
         .set_ui_scale(studio.prefs.scale_index() as i32);
 
+    // The window at the size the last session left it, maximised if it
+    // was, while Settings > General remembers the layout. A size too big
+    // for this screen is maximised by `platform::fit_to_screen`.
+    if !phone
+        && let Some(layout) = studio
+            .prefs
+            .layout
+            .as_ref()
+            .filter(|_| studio.prefs.remembers_layout())
+    {
+        if let (Some(width), Some(height)) = (layout.width, layout.height)
+            && width.is_finite()
+            && height.is_finite()
+        {
+            app.window()
+                .set_size(slint::LogicalSize::new(width.max(900.0), height.max(560.0)));
+        }
+        if layout.maximized {
+            app.window().set_maximized(true);
+        }
+    }
+
     let shell = Rc::new(Shell {
         app: app.as_weak(),
         studio: RefCell::new(studio),
@@ -617,6 +639,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_titlebar_close(|| {
         log::info!("close: titlebar X pressed");
         Shell::with(|shell, app| {
+            shell.studio.borrow_mut().save_layout(app.window());
             let outcome = close_window(
                 || shell.studio.borrow_mut().close_project(),
                 || {
@@ -643,6 +666,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         log::info!("close: system close request (Alt+F4 / taskbar)");
         let saved = std::cell::Cell::new(true);
         Shell::with(|shell, app| {
+            shell.studio.borrow_mut().save_layout(app.window());
             let outcome = close_window(
                 || shell.studio.borrow_mut().close_project(),
                 || {
@@ -710,8 +734,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     macro_rules! on_lanes {
         ($($handler:tt)*) => { handler!(publish_lanes, $($handler)*) };
     }
+    // A dock change is remembered for the next launch, too.
     macro_rules! on_dock {
-        ($($handler:tt)*) => { handler!(publish_dock, $($handler)*) };
+        ($($handler:tt)*) => { handler!(publish_dock_remembered, $($handler)*) };
     }
 
     let editor = app.global::<Editor>();
@@ -2126,6 +2151,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_proxies_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::ProxiesChanged(on)));
     }));
+    app.on_settings_remember_layout_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::RememberLayoutChanged(on)));
+    }));
     app.on_settings_gpu_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::GpuChanged(on)));
     }));
@@ -2410,6 +2438,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 }
                 if action == "close-window" {
                     log::info!("close: File > Close Window");
+                    shell.studio.borrow_mut().save_layout(app.window());
                     let outcome = close_window(
                         || shell.studio.borrow_mut().close_project(),
                         || {

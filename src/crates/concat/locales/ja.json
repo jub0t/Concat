@@ -501,6 +501,8 @@
   "settings.playhead": "再生ヘッド",
   "settings.proxies": "プロキシ",
   "settings.proxiesHint": "オフでは、ファイルをそのまま再生します。オンでは、HDより大きい動画ごとに小さなコピーをバックグラウンドで一度だけ作成し、1/2と1/4でより滑らかに再生します。",
+  "settings.rememberLayout": "レイアウトを記憶",
+  "settings.rememberLayoutHint": "オンにすると、Concat はパネルを前回の配置のまま、ウィンドウを前回のサイズで開きます。オフにすると、毎回既定のレイアウトで起動します。",
   "settings.rose": "ローズ",
   "settings.runsLocally": "ローカルで動作",
   "settings.scale": "Scale",

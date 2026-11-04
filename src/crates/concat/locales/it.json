@@ -501,6 +501,8 @@
   "settings.playhead": "Playhead",
   "settings.proxies": "Proxy",
   "settings.proxiesHint": "Disattivato, la riproduzione legge i file così come sono. Attivato, ogni video più grande dell'HD riceve una copia più piccola, creata una volta in background, per una riproduzione più fluida a Metà e Un quarto.",
+  "settings.rememberLayout": "Ricorda il layout",
+  "settings.rememberLayoutHint": "Attivo, Concat si apre con i pannelli dove li hai lasciati e la finestra all’ultima dimensione. Disattivo, ogni avvio parte dal layout predefinito.",
   "settings.rose": "Rosa",
   "settings.runsLocally": "Funziona in locale",
   "settings.scale": "Scale",

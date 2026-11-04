@@ -283,6 +283,97 @@ pub fn default_dock() -> Dock {
     }
 }
 
+/// A dock as the settings file keeps it between runs: the same tree, with
+/// each view by name, so a view renamed or added later fails one layout
+/// and never the whole file.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SavedDock {
+    Pane(String),
+    Split {
+        columns: bool,
+        ratio: f32,
+        first: Box<SavedDock>,
+        second: Box<SavedDock>,
+    },
+}
+
+/// Deeper than any arrangement a person builds by hand; a file claiming
+/// more is not one Concat wrote.
+const SAVED_DEPTH: usize = 24;
+
+fn pane_name(kind: PaneKind) -> &'static str {
+    match kind {
+        PaneKind::Media => "media",
+        PaneKind::Preview => "preview",
+        PaneKind::Inspector => "inspector",
+        PaneKind::Timeline => "timeline",
+        PaneKind::Keyframes => "keyframes",
+    }
+}
+
+fn pane_of(name: &str) -> Option<PaneKind> {
+    Some(match name {
+        "media" => PaneKind::Media,
+        "preview" => PaneKind::Preview,
+        "inspector" => PaneKind::Inspector,
+        "timeline" => PaneKind::Timeline,
+        "keyframes" => PaneKind::Keyframes,
+        _ => return None,
+    })
+}
+
+impl Dock {
+    pub fn to_saved(&self) -> SavedDock {
+        match self {
+            Dock::Leaf(kind) => SavedDock::Pane(pane_name(*kind).to_owned()),
+            Dock::Split {
+                columns,
+                ratio,
+                first,
+                second,
+            } => SavedDock::Split {
+                columns: *columns,
+                ratio: *ratio,
+                first: Box::new(first.to_saved()),
+                second: Box::new(second.to_saved()),
+            },
+        }
+    }
+
+    /// The dock a saved one describes, or None when any of it does not read:
+    /// a view this build does not know, a ratio that is not a number, a tree
+    /// deeper than a hand could make. A ratio is pulled back inside the
+    /// gutter's reach, so a seat cannot come back squeezed to nothing.
+    pub fn from_saved(saved: &SavedDock) -> Option<Dock> {
+        fn build(saved: &SavedDock, depth: usize) -> Option<Dock> {
+            if depth > SAVED_DEPTH {
+                return None;
+            }
+            Some(match saved {
+                SavedDock::Pane(name) => Dock::Leaf(pane_of(name)?),
+                SavedDock::Split {
+                    columns,
+                    ratio,
+                    first,
+                    second,
+                } => {
+                    if !ratio.is_finite() {
+                        return None;
+                    }
+                    Dock::Split {
+                        columns: *columns,
+                        ratio: ratio.clamp(0.05, 0.95),
+                        first: Box::new(build(first, depth + 1)?),
+                        second: Box::new(build(second, depth + 1)?),
+                    }
+                }
+            })
+        }
+        build(saved, 0)
+    }
+}
+
 /// The top edge of a row, measured down the stack from the first lane.
 /// The dock a narrow window shows: the monitor over the timeline, and
 /// nothing beside either. The library and the inspector are a switch away
@@ -329,4 +420,49 @@ pub fn nearest_row(heights: &[f32], y: f32) -> i32 {
         top += height;
     }
     best
+}
+
+#[cfg(test)]
+mod saved_tests {
+    use super::*;
+
+    #[test]
+    fn a_dock_comes_back_as_it_was_saved() {
+        let saved = default_dock().to_saved();
+        let json = serde_json::to_string(&saved).unwrap();
+        let read: SavedDock = serde_json::from_str(&json).unwrap();
+        assert_eq!(Dock::from_saved(&read).unwrap().to_saved(), saved);
+    }
+
+    #[test]
+    fn a_saved_dock_that_does_not_read_is_none() {
+        let unknown = SavedDock::Split {
+            columns: true,
+            ratio: 0.5,
+            first: Box::new(SavedDock::Pane("media".into())),
+            second: Box::new(SavedDock::Pane("mixer".into())),
+        };
+        assert!(Dock::from_saved(&unknown).is_none());
+        let nan = SavedDock::Split {
+            columns: true,
+            ratio: f32::NAN,
+            first: Box::new(SavedDock::Pane("media".into())),
+            second: Box::new(SavedDock::Pane("preview".into())),
+        };
+        assert!(Dock::from_saved(&nan).is_none());
+    }
+
+    #[test]
+    fn a_squeezed_ratio_is_pulled_back() {
+        let squeezed = SavedDock::Split {
+            columns: false,
+            ratio: 0.0,
+            first: Box::new(SavedDock::Pane("preview".into())),
+            second: Box::new(SavedDock::Pane("timeline".into())),
+        };
+        let Some(Dock::Split { ratio, .. }) = Dock::from_saved(&squeezed) else {
+            panic!("a split reads as a split");
+        };
+        assert!(ratio >= 0.05);
+    }
 }

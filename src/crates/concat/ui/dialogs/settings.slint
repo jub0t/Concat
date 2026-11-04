@@ -77,6 +77,11 @@ export struct SettingsData {
     playhead-stops: bool,
     /// large files get a smaller copy for playback
     proxies: bool,
+    /// a launch opens with the panels and the window where the last
+    /// session left them
+    remember-layout: bool,
+    /// there is a dock to remember: a desk, not a phone
+    layout-switchable: bool,
     /// the window and the compositor draw on the GPU, not in software
     gpu: bool,
     /// there is a software rasteriser to draw on instead: Windows, Linux
@@ -663,6 +668,7 @@ export component SettingsDialog inherits Modal {
     callback scale-changed(index: int);
     callback playhead-stops-changed(on: bool);
     callback proxies-changed(on: bool);
+    callback remember-layout-changed(on: bool);
     callback gpu-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback download-source-changed(index: int);
@@ -1000,6 +1006,19 @@ export component SettingsDialog inherits Modal {
                     on: root.data.proxies;
                     open: false;
                     switched(on) => { root.proxies-changed(on); }
+                }
+
+                // On, the next launch opens with the panels where this one
+                // left them, and the window at its size. Off, every launch
+                // starts on the default arrangement.
+                if root.data.layout-switchable: DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.rememberLayout");
+                    hint: I18n.t("settings.rememberLayoutHint");
+                    switchable: true;
+                    on: root.data.remember-layout;
+                    open: false;
+                    switched(on) => { root.remember-layout-changed(on); }
                 }
 
                 // Off, the window and the compositor draw in software:

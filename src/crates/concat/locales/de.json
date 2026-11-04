@@ -501,6 +501,8 @@
   "settings.playhead": "Playhead",
   "settings.proxies": "Proxys",
   "settings.proxiesHint": "Aus: Die Wiedergabe liest deine Dateien so, wie sie sind. An: Jedes Video über HD bekommt einmalig im Hintergrund eine kleinere Kopie, für flüssigere Wiedergabe bei Halb und Viertel.",
+  "settings.rememberLayout": "Layout merken",
+  "settings.rememberLayoutHint": "Ein: Concat öffnet sich mit den Bereichen dort, wo du sie gelassen hast, und das Fenster in seiner letzten Größe. Aus: Jeder Start beginnt mit dem Standardlayout.",
   "settings.rose": "Rosé",
   "settings.runsLocally": "Läuft lokal",
   "settings.scale": "Scale",

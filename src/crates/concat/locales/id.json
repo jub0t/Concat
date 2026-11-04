@@ -501,6 +501,8 @@
   "settings.playhead": "Penanda putar",
   "settings.proxies": "Proksi",
   "settings.proxiesHint": "Mati, pemutaran membaca file Anda apa adanya. Nyala, setiap video yang lebih besar dari HD mendapat salinan lebih kecil, dibuat sekali di latar belakang, agar pemutaran lebih lancar pada Setengah dan Seperempat.",
+  "settings.rememberLayout": "Ingat tata letak",
+  "settings.rememberLayoutHint": "Aktif, Concat terbuka dengan panel di tempat Anda meninggalkannya dan jendela dalam ukuran terakhirnya. Nonaktif, setiap peluncuran dimulai dengan tata letak bawaan.",
   "settings.rose": "Mawar",
   "settings.runsLocally": "Berjalan secara lokal",
   "settings.scale": "Skala",

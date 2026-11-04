@@ -501,6 +501,8 @@
   "settings.playhead": "Głowica odtwarzania",
   "settings.proxies": "Pliki proxy",
   "settings.proxiesHint": "Wyłączone: odtwarzanie czyta pliki takie, jakie są. Włączone: każdy film większy niż HD dostaje mniejszą kopię, tworzoną raz w tle, by odtwarzanie przy Połowie i Ćwierci było płynniejsze.",
+  "settings.rememberLayout": "Zapamiętaj układ",
+  "settings.rememberLayoutHint": "Włączone: Concat otwiera się z panelami tam, gdzie je zostawiono, i oknem w ostatnim rozmiarze. Wyłączone: każde uruchomienie zaczyna się od domyślnego układu.",
   "settings.rose": "Róża",
   "settings.runsLocally": "Działa lokalnie",
   "settings.scale": "Scale",

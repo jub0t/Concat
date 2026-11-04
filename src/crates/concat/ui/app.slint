@@ -382,6 +382,7 @@ export component App inherits Window {
     callback settings-scale-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
     callback settings-proxies-changed(on: bool);
+    callback settings-remember-layout-changed(on: bool);
     callback settings-gpu-changed(on: bool);
     callback settings-magnetic-changed(on: bool);
     callback settings-download-source-changed(index: int);
@@ -1020,6 +1021,7 @@ export component App inherits Window {
         scale-changed(index) => { root.settings-scale-changed(index); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         proxies-changed(on) => { root.settings-proxies-changed(on); }
+        remember-layout-changed(on) => { root.settings-remember-layout-changed(on); }
         gpu-changed(on) => { root.settings-gpu-changed(on); }
         magnetic-changed(on) => { root.settings-magnetic-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }

@@ -501,6 +501,8 @@
   "settings.playhead": "Playhead",
   "settings.proxies": "Proxies",
   "settings.proxiesHint": "Desactivado, la reproducción lee tus archivos tal cual. Activado, cada vídeo mayor que HD obtiene una copia más pequeña, creada una vez en segundo plano, para una reproducción más fluida en Media y Un cuarto.",
+  "settings.rememberLayout": "Recordar el diseño",
+  "settings.rememberLayoutHint": "Activado, Concat se abre con los paneles donde los dejaste y la ventana con su último tamaño. Desactivado, cada inicio empieza con el diseño predeterminado.",
   "settings.rose": "Rosa",
   "settings.runsLocally": "Se ejecuta localmente",
   "settings.scale": "Scale",

@@ -501,6 +501,8 @@
   "settings.playhead": "播放头",
   "settings.proxies": "代理文件",
   "settings.proxiesHint": "关闭时，播放直接读取原文件。开启后，每个大于高清的视频都会在后台生成一次较小的副本，让“一半”和“四分之一”画质下的播放更流畅。",
+  "settings.rememberLayout": "记住布局",
+  "settings.rememberLayoutHint": "开启后，Concat 打开时面板保持在你上次放置的位置，窗口保持上次的大小。关闭后，每次启动都使用默认布局。",
   "settings.rose": "玫瑰",
   "settings.runsLocally": "在本地运行",
   "settings.scale": "缩放",

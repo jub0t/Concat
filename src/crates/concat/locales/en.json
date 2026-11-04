@@ -501,6 +501,8 @@
   "settings.playhead": "Playhead",
   "settings.proxies": "Proxies",
   "settings.proxiesHint": "Off, playback reads your files as they are. On, each video larger than HD gets a smaller copy, made once in the background, for smoother playback at Half and Quarter.",
+  "settings.rememberLayout": "Remember layout",
+  "settings.rememberLayoutHint": "On, Concat opens with the panels where you left them and the window at its last size. Off, every launch starts on the default layout.",
   "settings.rose": "Rose",
   "settings.runsLocally": "Runs locally",
   "settings.scale": "Scale",

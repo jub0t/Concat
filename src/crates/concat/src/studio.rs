@@ -1089,6 +1089,9 @@ pub struct Studio {
     /// while that clip is still the one selected.
     words: Option<(String, usize, usize)>,
     commit_timer: slint::Timer,
+    /// Saves the layout once the panels have stopped moving; see
+    /// `remember_layout_soon`.
+    layout_timer: slint::Timer,
     /// What the catalogue shelves were last built from; while nothing in
     /// it changes the shelves are not rebuilt.
     shelf_stamp: std::cell::RefCell<Option<ShelfStamp>>,
@@ -2547,6 +2550,20 @@ impl Studio {
     /// read off disk.
     pub fn new(host: Host) -> Self {
         let prefs = Preferences::load(&host.dirs);
+        // The panels where the last session left them, while Settings says
+        // to; a saved dock this build cannot read is the default instead.
+        let saved = prefs
+            .layout
+            .as_ref()
+            .filter(|_| prefs.remembers_layout());
+        let dock = saved
+            .and_then(|layout| layout.wide.as_ref())
+            .and_then(Dock::from_saved)
+            .unwrap_or_else(default_dock);
+        let dock_aside = saved
+            .and_then(|layout| layout.compact.as_ref())
+            .and_then(Dock::from_saved)
+            .unwrap_or_else(crate::dock::compact_dock);
         let mut start = crate::panes::start::StartPane::default();
         if let Some(location) = prefs.project_location() {
             start.location = location.to_owned();
@@ -2617,8 +2634,8 @@ impl Studio {
             posters_pending: HashSet::new(),
             lengths: HashMap::new(),
             project_name: t("common.untitledProject"),
-            dock: default_dock(),
-            dock_aside: crate::dock::compact_dock(),
+            dock,
+            dock_aside,
             compact: false,
             workspace: (0.0, 0.0),
             divider_press: None,
@@ -2633,6 +2650,7 @@ impl Studio {
             commit_targets: Vec::new(),
             words: None,
             commit_timer: slint::Timer::default(),
+            layout_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
             card_paths: HashMap::new(),

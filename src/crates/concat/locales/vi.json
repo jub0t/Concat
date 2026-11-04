@@ -501,6 +501,8 @@
   "settings.playhead": "Đầu phát",
   "settings.proxies": "Proxy",
   "settings.proxiesHint": "Tắt: phát lại đọc tệp của bạn như nguyên bản. Bật: mỗi video lớn hơn HD có một bản sao nhỏ hơn, tạo một lần trong nền, để phát mượt hơn ở Một nửa và Một phần tư.",
+  "settings.rememberLayout": "Ghi nhớ bố cục",
+  "settings.rememberLayoutHint": "Bật: Concat mở với các bảng ở nơi bạn để lại và cửa sổ ở kích thước gần nhất. Tắt: mỗi lần mở đều bắt đầu với bố cục mặc định.",
   "settings.rose": "Hồng phấn",
   "settings.runsLocally": "Chạy cục bộ",
   "settings.scale": "Scale",

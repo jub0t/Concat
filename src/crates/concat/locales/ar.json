@@ -501,6 +501,8 @@
   "settings.playhead": "مؤشر التشغيل",
   "settings.proxies": "الملفات الوكيلة",
   "settings.proxiesHint": "عند الإيقاف، يُشغَّل الملف كما هو. عند التشغيل، يحصل كل فيديو أكبر من HD على نسخة أصغر تُصنع مرة واحدة في الخلفية، لتشغيل أكثر سلاسة بجودة النصف والربع.",
+  "settings.rememberLayout": "تذكّر التخطيط",
+  "settings.rememberLayoutHint": "عند التشغيل، يفتح Concat بالألواح حيث تركتها والنافذة بآخر حجم لها. عند الإيقاف، يبدأ كل تشغيل بالتخطيط الافتراضي.",
   "settings.rose": "وردي",
   "settings.runsLocally": "يعمل محليًا",
   "settings.scale": "Scale",
