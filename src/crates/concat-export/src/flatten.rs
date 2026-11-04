@@ -104,7 +104,8 @@ pub fn flatten_timeline_in(
                 ModelClipKind::Text
                 | ModelClipKind::Layer
                 | ModelClipKind::SoundLayer
-                | ModelClipKind::Shape => return None,
+                | ModelClipKind::Shape
+                | ModelClipKind::Transition => return None,
             };
             Some(ExportClip {
                 path: media.path.clone(),
