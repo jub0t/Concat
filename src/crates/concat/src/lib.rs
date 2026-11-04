@@ -493,6 +493,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         app.set_caption_models(ModelRc::from(models.caption_models.clone()));
         app.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
+        editor.set_caption_models(ModelRc::from(models.caption_models.clone()));
+        editor.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
         app.set_speech_models(ModelRc::from(models.speech_models.clone()));
         app.set_speech_model_details(ModelRc::from(models.speech_model_details.clone()));
         app.set_speech_voices(ModelRc::from(models.speakers.clone()));
@@ -2320,6 +2322,43 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_captions_export_srt(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::ExportSrt));
     }));
+    // The same answers from the library's Captions page, on a desk.
+    editor.on_captions_shown(on_window!(|state, shown: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::Shown(shown)));
+    }));
+    editor.on_captions_voice_toggled(on_window!(|state, on: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::VoiceToggled(on)));
+    }));
+    editor.on_captions_source_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::SourceChanged(index)));
+    }));
+    editor.on_captions_text_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Captions(CaptionsMsg::TextEdited(text.to_string())));
+    }));
+    editor.on_captions_model_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::ModelChanged(index)));
+    }));
+    editor.on_captions_language_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::LanguageChanged(index)));
+    }));
+    editor.on_captions_placement_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::PlacementChanged(index)));
+    }));
+    editor.on_captions_size_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::SizeChanged(index)));
+    }));
+    editor.on_captions_begin(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::Begin));
+    }));
+    editor.on_captions_cancel(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::Cancel));
+    }));
+    editor.on_captions_import_srt(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ImportSrt));
+    }));
+    editor.on_captions_export_srt(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ExportSrt));
+    }));
     app.on_speech_closed(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Close));
     }));
@@ -2767,7 +2806,7 @@ fn typing(app: &App) -> bool {
 
 /// Adds a pane of `kind` beside the largest seat: to its right when that
 /// seat is wide enough to halve across, else below it.
-fn add_pane(state: &mut Studio, kind: PaneKind) {
+pub(crate) fn add_pane(state: &mut Studio, kind: PaneKind) {
     let seats = state.dock_layout().seats;
     let Some(biggest) = seats
         .iter()

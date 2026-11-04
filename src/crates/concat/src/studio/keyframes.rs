@@ -1667,6 +1667,7 @@ impl Studio {
         editor.set_media_selected_count(self.media.selected.len() as i32);
         editor.set_media_filter(self.media.filter);
         editor.set_media_jump_token(self.media_jump);
+        editor.set_captions_jump_token(self.captions_jump);
         editor.set_importing(false);
 
         let (width, height) = self.output_size();
@@ -1725,7 +1726,9 @@ impl Studio {
                 .collect(),
         );
         sync(&models.caption_languages, self.captions.language_rows(self));
-        app.set_captions(self.captions.data(self));
+        let captions = self.captions.data(self);
+        app.global::<Editor>().set_captions_sheet(captions.clone());
+        app.set_captions(captions);
         let voices = installed(&self.settings.voices);
         sync(
             &models.speech_models,
@@ -1778,7 +1781,7 @@ impl Studio {
         sync(&models.voiceover_devices, self.voiceover.device_rows());
         app.set_voiceover(self.voiceover.data(self));
         editor.set_recording(self.voiceover.recording());
-        editor.set_captions_open(self.captions.open);
+        editor.set_captions_open(self.captions.open || self.captions.shown);
         editor.set_speech_open(self.speech.open);
         editor.set_voiceover_open(self.voiceover.is_open());
 

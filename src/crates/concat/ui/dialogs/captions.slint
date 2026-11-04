@@ -26,11 +26,12 @@ import { Switch } from "../inspector/controls.slint";
 // as Malay often enough that a person who knows should be able to say so.
 // The pick is remembered, and an English-only model has English alone.
 //
-// On a desk it is a card floating over the editor (see Modal.floating): the
-// timeline stays live under it, so the clip it transcribes follows the
-// selection - a clip with sound selected is the one shown and run. Closed,
-// a transcription goes on, and opened again the card shows it. On a phone
-// it is a sheet.
+// On a desk it lives in the Library, on the Text & Captions page under
+// Captions (see CaptionsForm): the timeline stays live beside it, so the
+// clip it transcribes follows the selection - a clip with sound selected
+// is the one shown and run. A transcription goes on whatever page is up,
+// and the page shows it when it is back. On a phone, and in a window too
+// narrow for the library beside the work, it is a sheet.
 
 export struct CaptionsSheetData {
     open: bool,
@@ -69,7 +70,10 @@ export struct CaptionsSheetData {
     message: string,
 }
 
-export component CaptionsDialog inherits Modal {
+/// The sheet's body on its own: the Library's Text page shows it in place
+/// on a desk, and the phone's sheet wraps it in a Modal. One body, so the
+/// two never drift apart.
+export component CaptionsForm inherits VerticalLayout {
     in property <CaptionsSheetData> data;
     /// The installed transcriber models, by name.
     in property <[string]> models;
@@ -91,16 +95,10 @@ export component CaptionsDialog inherits Modal {
 
     property <bool> from-voice: root.data.from-voice;
 
-    open: root.data.open;
-    title: I18n.t("captions.captions");
-    glyph: Glyph.text-mark;
-    surface-width: 480px;
-    dismissable: !root.data.running;
-
     // The script being typed, held apart from `data.text` the way the Field
     // primitive holds its draft: a TextInput's binding is dropped on the
-    // first keystroke, so the sheet re-seeds it when it opens and never
-    // while it is being typed into.
+    // first keystroke, so the form re-seeds it when the data changes and
+    // never while it is being typed into.
     property <string> draft;
     /// The script has the caret. Kept up here because the box lives under
     /// an `if`, and nothing outside one can reach into it.
@@ -112,7 +110,6 @@ export component CaptionsDialog inherits Modal {
     }
     init => { root.draft = root.data.text; }
 
-    VerticalLayout {
         if !root.data.running && !root.from-voice: DialogSection {
             first: true;
             title: I18n.t("common.script");
@@ -392,5 +389,45 @@ export component CaptionsDialog inherits Modal {
                 }
             }
         }
+}
+
+export component CaptionsDialog inherits Modal {
+    in property <CaptionsSheetData> data;
+    in property <[string]> models;
+    in property <[string]> languages;
+
+    callback voice-toggled(on: bool);
+    callback source-changed(index: int);
+    callback text-edited(text: string);
+    callback model-changed(index: int);
+    callback language-changed(index: int);
+    callback placement-changed(index: int);
+    callback size-changed(index: int);
+    callback begin();
+    callback cancel();
+    callback import-srt();
+    callback export-srt();
+
+    open: root.data.open;
+    title: I18n.t("captions.captions");
+    glyph: Glyph.text-mark;
+    surface-width: 480px;
+    dismissable: !root.data.running;
+
+    CaptionsForm {
+        data: root.data;
+        models: root.models;
+        languages: root.languages;
+        voice-toggled(on) => { root.voice-toggled(on); }
+        source-changed(index) => { root.source-changed(index); }
+        text-edited(text) => { root.text-edited(text); }
+        model-changed(index) => { root.model-changed(index); }
+        language-changed(index) => { root.language-changed(index); }
+        placement-changed(index) => { root.placement-changed(index); }
+        size-changed(index) => { root.size-changed(index); }
+        begin => { root.begin(); }
+        cancel => { root.cancel(); }
+        import-srt => { root.import-srt(); }
+        export-srt => { root.export-srt(); }
     }
 }

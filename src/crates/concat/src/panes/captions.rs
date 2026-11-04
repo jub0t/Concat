@@ -51,6 +51,9 @@ pub enum CaptionsMsg {
     /// A clip's menu: the sheet on that clip's voice.
     OpenOnClip(String),
     Close,
+    /// The library's Captions page came into view, or left it: a desk's
+    /// home for what the phone's sheet shows.
+    Shown(bool),
     /// The "Use Sample Voice" switch.
     VoiceToggled(bool),
     /// Row in the list of clips with sound.
@@ -101,7 +104,10 @@ const WINDOW_SECONDS_PER_MB: f32 = 1.0 / 160.0;
 /// The captions sheet's state.
 #[derive(Default)]
 pub struct CaptionsPane {
+    /// The sheet is up: a phone's, or a window too narrow for the library.
     pub open: bool,
+    /// The library's Captions page is up, on a desk.
+    pub shown: bool,
     /// "Use Sample Voice": the words come from [`Self::clip`]'s sound
     /// when on, from [`Self::text`] when off.
     pub from_voice: bool,
@@ -145,13 +151,36 @@ impl CaptionsPane {
         match msg {
             // A run in progress is shown as it is, however the panel is
             // asked for again: closing it never stopped the run.
-            CaptionsMsg::Open | CaptionsMsg::OpenOnClip(_) if self.running => self.open = true,
+            CaptionsMsg::Open | CaptionsMsg::OpenOnClip(_) if self.running => {
+                self.open = true;
+                self.into_library(studio);
+            }
             CaptionsMsg::Open => {
                 let selected = studio.sole_selection();
                 self.open_on(studio, selected, false);
+                self.into_library(studio);
             }
-            CaptionsMsg::OpenOnClip(id) => self.open_on(studio, Some(id), true),
+            CaptionsMsg::OpenOnClip(id) => {
+                self.open_on(studio, Some(id), true);
+                self.into_library(studio);
+            }
             CaptionsMsg::Close => self.open = false,
+            CaptionsMsg::Shown(shown) => {
+                // First shown with nothing asked for yet: the panel as the
+                // tray's button would set it up, without the sheet.
+                if shown
+                    && !self.shown
+                    && !self.open
+                    && !self.running
+                    && self.clip.is_none()
+                    && self.text.is_empty()
+                {
+                    let selected = studio.sole_selection();
+                    self.open_on(studio, selected, false);
+                    self.open = false;
+                }
+                self.shown = shown;
+            }
             CaptionsMsg::VoiceToggled(on) => {
                 self.from_voice = on;
                 self.message.clear();
@@ -408,6 +437,22 @@ impl CaptionsPane {
     /// any: the switch starts on when that clip has sound, or when a clip's
     /// menu asked for its voice (`voice`), in which case a clip without
     /// sound falls to the first clip that has some.
+    /// On a desk the panel is the library's Captions page, not a sheet:
+    /// the library is put in the dock if it was taken out, and turned to
+    /// that page. A phone, or a window too narrow for the library beside
+    /// the work, keeps the sheet.
+    fn into_library(&mut self, studio: &mut Studio) {
+        if studio.meters.phone || studio.compact {
+            return;
+        }
+        self.open = false;
+        if !studio.dock.contains(crate::ui::PaneKind::Media) {
+            crate::add_pane(studio, crate::ui::PaneKind::Media);
+            studio.remember_layout_soon();
+        }
+        studio.captions_jump += 1;
+    }
+
     fn open_on(&mut self, studio: &Studio, clip: Option<String>, voice: bool) {
         let installed = installed(&studio.settings.transcribers);
         let model = installed.iter().position(|model| model.active).unwrap_or(0);
@@ -434,6 +479,7 @@ impl CaptionsPane {
             placement: 0,
             size: 1,
             timings: std::mem::take(&mut self.timings),
+            shown: self.shown,
             ..CaptionsPane::default()
         };
     }
@@ -574,7 +620,7 @@ impl CaptionsPane {
     /// and nothing else, so its list is English alone, and is not a choice.
     /// Empty while the sheet is closed, which is most of the time.
     pub fn language_rows(&self, studio: &Studio) -> Vec<slint::SharedString> {
-        if !self.open {
+        if !self.open && !self.shown {
             return Vec::new();
         }
         if self.english_only(studio) {
@@ -591,7 +637,7 @@ impl CaptionsPane {
 
     /// The sheet as Slint shows it.
     pub fn data(&self, studio: &Studio) -> CaptionsSheetData {
-        let sources = if self.open {
+        let sources = if self.open || self.shown {
             sources(studio)
         } else {
             Vec::new()

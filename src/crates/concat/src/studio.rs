@@ -1051,6 +1051,9 @@ pub struct Studio {
     /// Bumped when the library should show its Media page: a file the
     /// editor just made and put in the bin. See `Editor.media-jump-token`.
     pub media_jump: i32,
+    /// Bumped to turn the library to Text & Captions > Captions; see
+    /// `Editor.captions-jump-token`.
+    pub captions_jump: i32,
     /// A look being shown before it is laid down: the filter's id. It is
     /// drawn into the frames the monitor asks for as a layer over the whole
     /// picture, and nowhere else - the timeline does not have it until the
@@ -2650,6 +2653,7 @@ impl Studio {
             stage_guides: Vec::new(),
             inspector_jump: (0, "", ""),
             media_jump: 0,
+            captions_jump: 0,
             audition: None,
             revision: 0,
             flat: None,

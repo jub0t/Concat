@@ -10,6 +10,7 @@ import {
     CurveData, CurveGroupData, WheelData, WheelGroupData,
 } from "inspector/grading.slint";
 import { MediaFilter, MediaItemData, TextPresetData } from "workspace/media-pane.slint";
+import { CaptionsSheetData } from "dialogs/captions.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
 import { MenuItemData } from "primitives/context-menu.slint";
@@ -424,6 +425,27 @@ export global Editor {
     in-out property <bool> recording;
     /// Which of the tray's panels are up, so their buttons read as on.
     in-out property <bool> captions-open;
+    /// Captions as the Library's Text & Captions page shows them on a desk:
+    /// the same data and answers as the phone's sheet (see CaptionsForm).
+    in-out property <CaptionsSheetData> captions-sheet;
+    in-out property <[string]> caption-models;
+    in-out property <[string]> caption-languages;
+    /// Bumped when the library should turn to Text & Captions > Captions:
+    /// the tray's Captions button, or Generate captions on a clip's menu.
+    in-out property <int> captions-jump-token;
+    /// The library's Captions page came into view, or went out of it.
+    callback captions-shown(shown: bool);
+    callback captions-voice-toggled(on: bool);
+    callback captions-source-changed(index: int);
+    callback captions-text-edited(text: string);
+    callback captions-model-changed(index: int);
+    callback captions-language-changed(index: int);
+    callback captions-placement-changed(index: int);
+    callback captions-size-changed(index: int);
+    callback captions-begin();
+    callback captions-cancel();
+    callback captions-import-srt();
+    callback captions-export-srt();
     in-out property <bool> speech-open;
     in-out property <bool> voiceover-open;
     /// The microphone while the voiceover panel is open, as positions

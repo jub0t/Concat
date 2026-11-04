@@ -14,6 +14,7 @@ import { Wave } from "../primitives/wave.slint";
 import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
 import { SourcePreview } from "source-preview.slint";
 import { Sounds, SoundList, VoiceList } from "audio-page.slint";
+import { CaptionsForm, CaptionsSheetData } from "../dialogs/captions.slint";
 
 export { SourcePreview }
 
@@ -1740,6 +1741,36 @@ export component MediaPane inherits Rectangle {
     /// See Editor.media-jump-token: turn to the Media page.
     in property <int> jump-token;
     changed jump-token => { root.tab = 0; }
+    /// Captions, on the Text & Captions page; see Editor.captions.
+    in property <CaptionsSheetData> captions;
+    in property <[string]> caption-models;
+    in property <[string]> caption-languages;
+    /// See Editor.captions-jump-token: turn to Text & Captions > Captions.
+    in property <int> captions-jump-token;
+    changed captions-jump-token => {
+        root.tab = 1;
+        root.captions-open = true;
+        root.text-category = 2;
+    }
+    /// The Captions page is up: Rust lists the clips with sound and the
+    /// languages only while it is, as it does for the phone's sheet.
+    property <bool> showing-captions: root.tab == 1 && root.text-category == 2;
+    changed showing-captions => { root.captions-shown(self.showing-captions); }
+    init => {
+        if (root.showing-captions) { root.captions-shown(true); }
+    }
+    callback captions-shown(shown: bool);
+    callback captions-voice-toggled(on: bool);
+    callback captions-source-changed(index: int);
+    callback captions-text-edited(text: string);
+    callback captions-model-changed(index: int);
+    callback captions-language-changed(index: int);
+    callback captions-placement-changed(index: int);
+    callback captions-size-changed(index: int);
+    callback captions-begin();
+    callback captions-cancel();
+    callback captions-import-srt();
+    callback captions-export-srt();
 
     callback import-media();
     callback filter-changed(filter: MediaFilter);
@@ -1835,7 +1866,8 @@ export component MediaPane inherits Rectangle {
     property <bool> categories-open: true;
     property <bool> generated-open: true;
     property <bool> text-open: true;
-    /// 0 = Styles, 1 = Languages
+    property <bool> captions-open: true;
+    /// 0 = Styles, 1 = Languages, 2 = Captions
     property <int> text-category;
     property <bool> stickers-open: true;
     property <bool> transitions-open: true;
@@ -1963,7 +1995,7 @@ export component MediaPane inherits Rectangle {
                         }
                         LibraryTab {
                             glyph: Glyph.text-mark;
-                            label: I18n.t("common.text");
+                            label: I18n.t("mediaPane.textAndCaptions");
                             current: root.tab == 1;
                             clicked => { root.tab = 1; }
                         }
@@ -2227,6 +2259,20 @@ export component MediaPane inherits Rectangle {
                             label: I18n.t("mediaPane.languages");
                             current: root.text-category == 1;
                             clicked => { root.text-category = 1; }
+                        }
+                        // Words from a clip's voice, or from a script, laid
+                        // down as titles; and SubRip in and out.
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("captions.captions");
+                            open: root.captions-open;
+                            toggled => { root.captions-open = !root.captions-open; }
+                        }
+                        if root.captions-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("mediaPane.autoCaptions");
+                            current: root.text-category == 2;
+                            clicked => { root.text-category = 2; }
                         }
                     }
 
@@ -2607,7 +2653,27 @@ export component MediaPane inherits Rectangle {
                 // The looks. Each card is a title in that look, placed at
                 // the playhead on a click or dragged onto a lane; a preset
                 // that brings a font installs it on the way.
-                if root.tab == 1: HorizontalLayout {
+                if root.tab == 1 && root.text-category == 2: HorizontalLayout {
+                    padding-top: 4px;
+                    CaptionsForm {
+                        horizontal-stretch: 1;
+                        data: root.captions;
+                        models: root.caption-models;
+                        languages: root.caption-languages;
+                        voice-toggled(on) => { root.captions-voice-toggled(on); }
+                        source-changed(index) => { root.captions-source-changed(index); }
+                        text-edited(text) => { root.captions-text-edited(text); }
+                        model-changed(index) => { root.captions-model-changed(index); }
+                        language-changed(index) => { root.captions-language-changed(index); }
+                        placement-changed(index) => { root.captions-placement-changed(index); }
+                        size-changed(index) => { root.captions-size-changed(index); }
+                        begin => { root.captions-begin(); }
+                        cancel => { root.captions-cancel(); }
+                        import-srt => { root.captions-import-srt(); }
+                        export-srt => { root.captions-export-srt(); }
+                    }
+                }
+                if root.tab == 1 && root.text-category != 2: HorizontalLayout {
                     padding: 8px;
 
                     PresetGrid {
