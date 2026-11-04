@@ -28,7 +28,7 @@ mod reference;
 mod transitions;
 pub mod upscale;
 
-pub use compositor::Compositor;
+pub use compositor::{Compositor, Drawn};
 pub use gpu::WgpuCompositor;
 pub use metrics::ssim;
 pub use plan::{

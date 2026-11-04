@@ -461,6 +461,72 @@ fn to_sdr(nits: vec3<f32>) -> vec3<f32> {
 }
 "#;
 
+/// A finished frame out of the working space into the encoder's own YUV:
+/// the resolve's light (`fs_resolve`, or `fs_resolve_tone_mapped` for an
+/// HDR timeline into an SDR file) put through BT.709's coefficients into
+/// eight-bit levels in the stream's range, a plane at a time. The chroma
+/// is of each two by two block's colour. Follows `COPY_SHADER` and
+/// `TONE_MAP`; `yuv_shader` sets the two constants.
+const YUV_SHADER: &str = r#"
+fn encoded_at(texel: vec2<i32>) -> vec3<f32> {
+    var light = textureLoad(picture, texel, 0).rgb;
+    if (TONE_MAPPED) {
+        light = to_sdr(light * 203.0) / 203.0;
+    }
+    return pow(clamp(light, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.4));
+}
+
+fn luma_of(rgb: vec3<f32>) -> f32 {
+    return dot(vec3<f32>(0.2126, 0.7152, 0.0722), rgb);
+}
+
+// Cb and Cr of the block whose top left texel is twice `at`, as levels.
+fn chroma_at(at: vec2<f32>) -> vec2<f32> {
+    let base = vec2<i32>(at) * 2;
+    let rgb = (encoded_at(base) + encoded_at(base + vec2<i32>(1, 0))
+        + encoded_at(base + vec2<i32>(0, 1)) + encoded_at(base + vec2<i32>(1, 1))) * 0.25;
+    let y = luma_of(rgb);
+    let c = vec2<f32>((rgb.b - y) / 1.8556, (rgb.r - y) / 1.5748);
+    if (FULL_RANGE) {
+        return c + vec2<f32>(128.0 / 255.0);
+    }
+    return (c * 224.0 + vec2<f32>(128.0)) / 255.0;
+}
+
+@fragment
+fn fs_luma(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let y = luma_of(encoded_at(vec2<i32>(at.xy)));
+    if (FULL_RANGE) {
+        return vec4<f32>(y, 0.0, 0.0, 1.0);
+    }
+    return vec4<f32>((y * 219.0 + 16.0) / 255.0, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_chroma(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(chroma_at(at.xy), 0.0, 1.0);
+}
+
+@fragment
+fn fs_cb(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(chroma_at(at.xy).x, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_cr(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(chroma_at(at.xy).y, 0.0, 0.0, 1.0);
+}
+"#;
+
+/// The YUV module for an HDR timeline into SDR or not, and for full range
+/// or limited.
+fn yuv_shader(tone_mapped: bool, full_range: bool) -> String {
+    format!(
+        "{COPY_SHADER}{TONE_MAP}\nconst TONE_MAPPED: bool = {tone_mapped};\n\
+         const FULL_RANGE: bool = {full_range};\n{YUV_SHADER}"
+    )
+}
+
 /// A deep frame (sixteen bits a channel, Rec. 2020, its source's own signal)
 /// copied into the working space: the upload of an HDR or wide-gamut clip.
 /// One entry a signal (`concat_core::frame::Signal`): the transfer undone
@@ -821,6 +887,20 @@ pub struct WgpuCompositor {
     /// How many errors the device has reported that no scope caught, as its
     /// handler counts them; see [`Compositor::render`].
     uncaught: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Frames [`Compositor::submit`] started, oldest first, on their way
+    /// back; see [`Compositor::collect`].
+    in_flight: std::collections::VecDeque<Readback>,
+    /// Staging buffers collected frames came back in, kept for the next.
+    spare: Vec<wgpu::Buffer>,
+    /// What frames `submit` starts come back as where they can be; see
+    /// [`Compositor::planar`].
+    planar: Option<concat_core::frame::YuvLayout>,
+    /// The YUV passes, compiled the first time an export asks for them,
+    /// by entry point, tone mapping and range.
+    yuv_pipelines: HashMap<(&'static str, bool, bool), wgpu::RenderPipeline>,
+    /// The planes a YUV frame is drawn into before it is copied out, for
+    /// one size and layout: luma, then the chroma.
+    planes: Option<(u32, u32, concat_core::frame::Chroma, Vec<wgpu::Texture>)>,
 }
 
 impl WgpuCompositor {
@@ -1455,6 +1535,11 @@ impl WgpuCompositor {
             dead: false,
             work,
             uncaught: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            in_flight: std::collections::VecDeque::new(),
+            spare: Vec::new(),
+            planar: None,
+            yuv_pipelines: HashMap::new(),
+            planes: None,
         }
     }
 
@@ -3537,43 +3622,339 @@ impl WgpuCompositor {
             }
         }
 
-        if deep {
-            // Sixteen-bit integers, opaque already: the rows as they are.
-            let row_bytes = width as usize * 8;
-            let mut pixels = vec![0u8; row_bytes * height as usize];
-            {
-                let data = slice.get_mapped_range().ok()?;
-                for row in 0..height as usize {
-                    let from = &data[row * padded_row..row * padded_row + row_bytes];
-                    pixels[row * row_bytes..(row + 1) * row_bytes].copy_from_slice(from);
-                }
-            }
-            target.staging.unmap();
-            return Frame::from_rgba64(width, height, pixels, self.output);
-        }
-        let mut frame = Frame::transparent(width, height);
-        {
-            // A range that will not map is a failed map, as above.
-            let data = slice.get_mapped_range().ok()?;
-            let row_bytes = width as usize * 4;
-            let pixels = frame.pixels_mut();
-            for row in 0..height as usize {
-                let from = &data[row * padded_row..row * padded_row + row_bytes];
-                pixels[row * row_bytes..(row + 1) * row_bytes].copy_from_slice(from);
-            }
-            // The output goes to a screen or an encoder, which have nothing
-            // to show through, and blending may have left alpha short of
-            // one - unless the canvas is see-through, when the alpha is
-            // the point (#456).
-            if !self.see_through {
-                for pixel in pixels.chunks_exact_mut(4) {
-                    pixel[3] = 255;
-                }
-            }
-        }
+        let shape = Shape::rgba(
+            width,
+            height,
+            padded_row,
+            deep,
+            self.see_through,
+            self.output,
+        );
+        let drawn = shape.drawn_from(&target.staging);
         target.staging.unmap();
-        Some(frame)
+        match drawn {
+            Some(crate::Drawn::Rgba(frame)) => Some(frame),
+            _ => None,
+        }
     }
+
+    /// Starts drawing `plan` and reading it back, without waiting for
+    /// either: see [`Compositor::submit`]. The frame lands in a staging
+    /// buffer of its own, so the next one can be drawn and copied while
+    /// this one is still on its way back.
+    fn submit_plan(&mut self, plan: &FramePlan) -> bool {
+        if self.dead {
+            return false;
+        }
+        // The same scopes as `render`'s, over the same calls: what the
+        // device says went wrong with this frame is this frame's.
+        let uncaught = self.uncaught.load(std::sync::atomic::Ordering::Relaxed);
+        let memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let (draws, vertices) = self.prepare(plan);
+        self.write_vertices(&vertices);
+        let (width, height) = (plan.width, plan.height);
+        self.target(width, height);
+        let deep = self.delivering_hdr();
+        // The encoder's YUV where it was asked for and the frame can be:
+        // eight bits, opaque, even on both sides.
+        let yuv = self.planar.filter(|_| {
+            !deep && !self.see_through && width.is_multiple_of(2) && height.is_multiple_of(2)
+        });
+        let shape = match yuv {
+            Some(layout) => Shape::yuv(width, height, layout),
+            None => {
+                let padded_row = self.current_target().padded_row;
+                Shape::rgba(
+                    width,
+                    height,
+                    padded_row,
+                    deep,
+                    self.see_through,
+                    self.output,
+                )
+            }
+        };
+        let size = shape.bytes() as u64;
+        let staging = match self.spare.iter().position(|buffer| buffer.size() == size) {
+            Some(index) => self.spare.swap_remove(index),
+            None => self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("concat readback"),
+                size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }),
+        };
+        let clear = clear_of(plan.canvas);
+        let submission = match yuv {
+            Some(layout) => {
+                self.draw_planes(width, height, &draws, clear, &staging, &shape, layout)
+            }
+            None => {
+                let padded_row = shape.planes[0].padded_row;
+                self.draw_into(width, height, &draws, clear, &staging, padded_row)
+            }
+        };
+        let (mapped_tx, mapped) = std::sync::mpsc::channel();
+        staging
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                let _ = mapped_tx.send(result);
+            });
+        let refused = pollster::block_on(validation.pop());
+        let exhausted = pollster::block_on(memory.pop());
+        let mut failed = false;
+        for error in [exhausted, refused].into_iter().flatten() {
+            log::error!(
+                "GPU composite at {:.3}s failed: {error}",
+                plan.time.as_f64()
+            );
+            failed = true;
+        }
+        if self.uncaught.load(std::sync::atomic::Ordering::Relaxed) != uncaught {
+            log::error!(
+                "GPU composite at {:.3}s was drawn while the device reported an error",
+                plan.time.as_f64()
+            );
+            failed = true;
+        }
+        self.in_flight.push_back(Readback {
+            shape,
+            staging,
+            submission,
+            mapped,
+            failed,
+        });
+        true
+    }
+
+    /// The oldest frame [`WgpuCompositor::submit_plan`] started, waited for
+    /// alone: see [`Compositor::collect`].
+    fn collect_oldest(&mut self) -> Option<crate::Drawn> {
+        let readback = self.in_flight.pop_front()?;
+        let Readback {
+            shape,
+            staging,
+            submission,
+            mapped,
+            failed,
+        } = readback;
+        let black = || crate::Drawn::Rgba(Frame::black(shape.width, shape.height));
+        if self.dead || failed {
+            self.dead = true;
+            return Some(black());
+        }
+        let waited = self.device.poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: Some(DEVICE_WAIT),
+        });
+        if let Err(error) = waited {
+            log::error!(
+                "GPU readback: the device did not finish the frame within {DEVICE_WAIT:?}: {error}"
+            );
+            self.dead = true;
+            return Some(black());
+        }
+        match mapped.try_recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                log::error!("GPU readback: the frame's buffer would not map: {error}");
+                self.dead = true;
+                return Some(black());
+            }
+            Err(_) => {
+                log::error!("GPU readback: the device finished without answering the map");
+                self.dead = true;
+                return Some(black());
+            }
+        }
+        let frame = shape.drawn_from(&staging);
+        staging.unmap();
+        // Kept for the next frame of this size: one a frame in flight and
+        // one beside them is all an export at one size ever asks for.
+        if self.spare.len() < READBACKS {
+            self.spare.push(staging);
+        }
+        match frame {
+            Some(frame) => Some(frame),
+            None => {
+                self.dead = true;
+                Some(black())
+            }
+        }
+    }
+}
+
+/// How many frames [`Compositor::submit`] keeps on their way back at most,
+/// and how many spare staging buffers are kept for them.
+const READBACKS: usize = 3;
+
+/// One plane of a read-back frame: where its rows start in the staging
+/// buffer, how far apart they are there, and how much of each is picture.
+struct Plane {
+    offset: usize,
+    padded_row: usize,
+    row_bytes: usize,
+    rows: usize,
+}
+
+/// What a read-back frame is: its size, its planes in the staging buffer,
+/// and how its pixels are to be taken.
+struct Shape {
+    width: u32,
+    height: u32,
+    planes: Vec<Plane>,
+    kind: Kind,
+}
+
+/// What a read-back frame's bytes are.
+enum Kind {
+    /// RGBA, as the resolve drew it.
+    Rgba {
+        /// Sixteen-bit integers for an HDR file, else eight bits.
+        deep: bool,
+        /// The canvas lets something show through, so the alpha is kept.
+        see_through: bool,
+        /// What the frame's light is in.
+        output: concat_core::frame::Signal,
+    },
+    /// The encoder's YUV, a plane a texture.
+    Yuv(concat_core::frame::YuvLayout),
+}
+
+/// `bytes` rounded up to a texture-to-buffer copy's row alignment.
+fn padded(bytes: usize) -> usize {
+    bytes.div_ceil(ROW_ALIGN) * ROW_ALIGN
+}
+
+impl Shape {
+    /// An RGBA frame, one plane of `padded_row` rows.
+    fn rgba(
+        width: u32,
+        height: u32,
+        padded_row: usize,
+        deep: bool,
+        see_through: bool,
+        output: concat_core::frame::Signal,
+    ) -> Shape {
+        Shape {
+            width,
+            height,
+            planes: vec![Plane {
+                offset: 0,
+                padded_row,
+                row_bytes: width as usize * if deep { 8 } else { 4 },
+                rows: height as usize,
+            }],
+            kind: Kind::Rgba {
+                deep,
+                see_through,
+                output,
+            },
+        }
+    }
+
+    /// A 4:2:0 frame in `layout`: the luma, then the chroma as one plane
+    /// or two, each copied out of its own texture.
+    fn yuv(width: u32, height: u32, layout: concat_core::frame::YuvLayout) -> Shape {
+        let (w, h) = (width as usize, height as usize);
+        let mut rows = vec![(w, h)];
+        match layout.chroma {
+            concat_core::frame::Chroma::Nv12 => rows.push((w, h / 2)),
+            concat_core::frame::Chroma::I420 => rows.extend([(w / 2, h / 2), (w / 2, h / 2)]),
+        }
+        let mut offset = 0;
+        let planes = rows
+            .into_iter()
+            .map(|(row_bytes, rows)| {
+                let plane = Plane {
+                    offset,
+                    padded_row: padded(row_bytes),
+                    row_bytes,
+                    rows,
+                };
+                offset += plane.padded_row * rows;
+                plane
+            })
+            .collect();
+        Shape {
+            width,
+            height,
+            planes,
+            kind: Kind::Yuv(layout),
+        }
+    }
+
+    /// The staging buffer's size.
+    fn bytes(&self) -> usize {
+        self.planes
+            .iter()
+            .map(|plane| plane.padded_row * plane.rows)
+            .sum()
+    }
+
+    /// The frame in `staging`, which is mapped. `None` when its range will
+    /// not map, which is a failed map.
+    fn drawn_from(&self, staging: &wgpu::Buffer) -> Option<crate::Drawn> {
+        let data = staging.slice(..).get_mapped_range().ok()?;
+        // Written once, never zeroed first: at 4K the zeroing alone was a
+        // fifth of the copy.
+        let mut pixels = Vec::with_capacity(
+            self.planes
+                .iter()
+                .map(|plane| plane.row_bytes * plane.rows)
+                .sum(),
+        );
+        for plane in &self.planes {
+            let rows = &data[plane.offset..plane.offset + plane.padded_row * plane.rows];
+            if plane.padded_row == plane.row_bytes {
+                // Rows a multiple of 256 bytes already: one copy.
+                pixels.extend_from_slice(rows);
+            } else {
+                for row in rows.chunks_exact(plane.padded_row) {
+                    pixels.extend_from_slice(&row[..plane.row_bytes]);
+                }
+            }
+        }
+        drop(data);
+        let (width, height) = (self.width, self.height);
+        match self.kind {
+            Kind::Yuv(layout) => concat_core::frame::Yuv420::new(width, height, layout, pixels)
+                .map(crate::Drawn::Yuv),
+            // Sixteen-bit integers, opaque already: the rows as they are.
+            Kind::Rgba {
+                deep: true, output, ..
+            } => Frame::from_rgba64(width, height, pixels, output).map(crate::Drawn::Rgba),
+            Kind::Rgba { see_through, .. } => {
+                // The output goes to a screen or an encoder, which have
+                // nothing to show through, and blending may have left alpha
+                // short of one - unless the canvas is see-through, when the
+                // alpha is the point (#456). A word at a time, which the
+                // compiler widens.
+                if !see_through {
+                    let opaque = u32::from_le_bytes([0, 0, 0, 255]);
+                    for pixel in pixels.chunks_exact_mut(4) {
+                        let word =
+                            u32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]) | opaque;
+                        pixel.copy_from_slice(&word.to_le_bytes());
+                    }
+                }
+                Frame::from_rgba(width, height, pixels).map(crate::Drawn::Rgba)
+            }
+        }
+    }
+}
+
+/// A frame [`Compositor::submit`] started: copied into a staging buffer of
+/// its own, which is being mapped.
+struct Readback {
+    shape: Shape,
+    staging: wgpu::Buffer,
+    /// The submit that draws and copies it: what is waited for, alone.
+    submission: wgpu::SubmissionIndex,
+    mapped: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    /// The device reported an error while it was drawn.
+    failed: bool,
 }
 
 /// A plan's canvas colour as the working space holds it: each eight-bit
@@ -3639,6 +4020,20 @@ impl Compositor for WgpuCompositor {
                 Frame::black(plan.width, plan.height)
             }
         }
+    }
+
+    fn submit(&mut self, plan: &FramePlan) -> bool {
+        // Never more on their way back than there are buffers for: the
+        // oldest is the caller's to collect first.
+        self.in_flight.len() < READBACKS && self.submit_plan(plan)
+    }
+
+    fn collect(&mut self) -> Option<crate::Drawn> {
+        self.collect_oldest()
+    }
+
+    fn planar(&mut self, layout: Option<concat_core::frame::YuvLayout>) {
+        self.planar = layout;
     }
 
     fn lost(&self) -> bool {
@@ -3730,26 +4125,43 @@ impl WgpuCompositor {
         draws: &[Draw],
         clear: wgpu::Color,
     ) -> Option<Frame> {
-        let (canvas, canvas_texture, canvas_view) = self.canvas(width, height);
         self.target(width, height);
         let target = self.current_target();
-        let view = target
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let (staging, padded_row) = (target.staging.clone(), target.padded_row);
+        self.draw_into(width, height, draws, clear, &staging, padded_row);
+        self.read_back()
+    }
+
+    /// Draws `draws` over `clear` into the readback target, which
+    /// [`WgpuCompositor::target`] has ensured for this size, and copies it
+    /// into `staging`: one submit, whose index is handed back.
+    fn draw_into(
+        &mut self,
+        width: u32,
+        height: u32,
+        draws: &[Draw],
+        clear: wgpu::Color,
+        staging: &wgpu::Buffer,
+        padded_row: usize,
+    ) -> wgpu::SubmissionIndex {
+        let (canvas, canvas_texture, canvas_view) = self.canvas(width, height);
+        let target = self.current_target();
+        let texture = target.texture.clone();
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.encode(&canvas_view, &canvas_texture, draws, clear);
         self.resolve(&mut encoder, (width, height), canvas, &view);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &target.texture,
+                texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: &target.staging,
+                buffer: staging,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(target.padded_row as u32),
+                    bytes_per_row: Some(padded_row as u32),
                     rows_per_image: Some(height),
                 },
             },
@@ -3759,9 +4171,170 @@ impl WgpuCompositor {
                 depth_or_array_layers: 1,
             },
         );
-        self.queue.submit([encoder.finish()]);
+        let submission = self.queue.submit([encoder.finish()]);
         self.retire();
-        self.read_back()
+        submission
+    }
+
+    /// Draws `draws` over `clear` into a canvas, converts it into the
+    /// encoder's YUV a plane at a time, and copies the planes into
+    /// `staging` as `shape` lays them out: one submit, whose index is
+    /// handed back.
+    fn draw_planes(
+        &mut self,
+        width: u32,
+        height: u32,
+        draws: &[Draw],
+        clear: wgpu::Color,
+        staging: &wgpu::Buffer,
+        shape: &Shape,
+        layout: concat_core::frame::YuvLayout,
+    ) -> wgpu::SubmissionIndex {
+        use concat_core::frame::Chroma;
+        let tone_mapped = self.output != concat_core::frame::Signal::Sdr;
+        let entries: &[&'static str] = match layout.chroma {
+            Chroma::Nv12 => &["fs_luma", "fs_chroma"],
+            Chroma::I420 => &["fs_luma", "fs_cb", "fs_cr"],
+        };
+        let pipelines: Vec<wgpu::RenderPipeline> = entries
+            .iter()
+            .map(|entry| self.yuv_pipeline(entry, tone_mapped, layout.full_range))
+            .collect();
+        let planes = self.planes_for(width, height, layout.chroma);
+        let (canvas, canvas_texture, canvas_view) = self.canvas(width, height);
+        let mut encoder = self.encode(&canvas_view, &canvas_texture, draws, clear);
+        let from = &self.pool[&(width, height)][canvas].bind_group;
+        for ((pipeline, texture), plane) in pipelines.iter().zip(&planes).zip(&shape.planes) {
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            Self::copy(&mut encoder, pipeline, from, &view);
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: staging,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: plane.offset as u64,
+                        bytes_per_row: Some(plane.padded_row as u32),
+                        rows_per_image: Some(plane.rows as u32),
+                    },
+                },
+                texture.size(),
+            );
+        }
+        let submission = self.queue.submit([encoder.finish()]);
+        self.retire();
+        submission
+    }
+
+    /// The YUV pass `entry` for a timeline tone-mapped or not and a range,
+    /// compiled on first use: an export asks for two or three, and nothing
+    /// else asks at all, so no start pays for them.
+    fn yuv_pipeline(
+        &mut self,
+        entry: &'static str,
+        tone_mapped: bool,
+        full_range: bool,
+    ) -> wgpu::RenderPipeline {
+        if let Some(pipeline) = self.yuv_pipelines.get(&(entry, tone_mapped, full_range)) {
+            return pipeline.clone();
+        }
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("concat yuv"),
+                source: wgpu::ShaderSource::Wgsl(yuv_shader(tone_mapped, full_range).into()),
+            });
+        let layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("concat yuv"),
+                bind_group_layouts: &[Some(&self.bind_layout)],
+                immediate_size: 0,
+            });
+        let format = if entry == "fs_chroma" {
+            wgpu::TextureFormat::Rg8Unorm
+        } else {
+            wgpu::TextureFormat::R8Unorm
+        };
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_full"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+        self.yuv_pipelines
+            .insert((entry, tone_mapped, full_range), pipeline.clone());
+        pipeline
+    }
+
+    /// The textures a YUV frame of this size and layout is drawn into:
+    /// luma, then the chroma as one plane (NV12) or two (I420). Kept for
+    /// the next frame; queue order keeps one frame's copies out ahead of
+    /// the next one's passes.
+    fn planes_for(
+        &mut self,
+        width: u32,
+        height: u32,
+        chroma: concat_core::frame::Chroma,
+    ) -> Vec<wgpu::Texture> {
+        use concat_core::frame::Chroma;
+        if let Some((w, h, c, textures)) = &self.planes
+            && (*w, *h, *c) == (width, height, chroma)
+        {
+            return textures.clone();
+        }
+        let texture = |w: u32, h: u32, format: wgpu::TextureFormat| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("concat yuv plane"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            })
+        };
+        let (half_w, half_h) = (width / 2, height / 2);
+        let mut textures = vec![texture(width, height, wgpu::TextureFormat::R8Unorm)];
+        match chroma {
+            Chroma::Nv12 => textures.push(texture(half_w, half_h, wgpu::TextureFormat::Rg8Unorm)),
+            Chroma::I420 => textures.extend([
+                texture(half_w, half_h, wgpu::TextureFormat::R8Unorm),
+                texture(half_w, half_h, wgpu::TextureFormat::R8Unorm),
+            ]),
+        }
+        self.planes = Some((width, height, chroma, textures.clone()));
+        textures
     }
 }
 

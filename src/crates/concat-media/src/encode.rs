@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use concat_core::frame::{Depth, Frame, Signal};
+use concat_core::frame::{Chroma, Depth, Frame, Signal, Yuv420, YuvLayout};
 use concat_core::time::FrameRate;
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::codec::encoder;
@@ -1308,6 +1308,9 @@ pub struct Encoder {
     /// A PQ file's light, measured as it is written, for the metadata the
     /// file carries once it is finished.
     light: Option<LightLevel>,
+    /// The YUV pictures [`Encoder::write_yuv`] takes as they are, when the
+    /// encoder's own pixel format is one; see [`Encoder::yuv_layout`].
+    takes: Option<YuvLayout>,
 }
 
 /// The mastering display an HDR10 file names: a P3 display of 1000 nits
@@ -1758,12 +1761,108 @@ impl Encoder {
             color_range: options.color_range.as_ffmpeg(),
             deep,
             light: pq.then(LightLevel::new),
+            takes: match pixel_format {
+                _ if deep => None,
+                Pixel::NV12 => Some(Chroma::Nv12),
+                Pixel::YUV420P => Some(Chroma::I420),
+                _ => None,
+            }
+            .map(|chroma| YuvLayout {
+                chroma,
+                full_range: options.color_range == ColorRange::Full,
+            }),
         })
     }
 
     /// Which FFmpeg encoder is doing the work, e.g. "hevc_videotoolbox".
     pub fn encoder_name(&self) -> &'static str {
         self.encoder_name
+    }
+
+    /// Stamps a frame in the encoder's own pixel format and encodes it.
+    fn encode_converted(&mut self, mut converted: Video) -> Result<()> {
+        converted.set_pts(Some(self.written as i64));
+        // The frame says what its numbers span, the same as the stream
+        // does: a hardware encoder reads it off the frame.
+        // SAFETY: `converted` is a live frame, its picture filled in; the
+        // range is a plain field the encoder reads with the picture.
+        unsafe {
+            (*converted.as_mut_ptr()).color_range = self.color_range.into();
+        }
+        // An encoder held to a fixed quality - MPEG-4's quantiser - takes
+        // it off each frame, as the command line stamps it there, and
+        // would otherwise run at its finest.
+        // SAFETY: the encoder's context is live for as long as `self` is,
+        // and `flags`, `global_quality` and `quality` are plain fields.
+        unsafe {
+            let context = self.encoder.as_ptr();
+            if (*context).flags & ffmpeg::sys::AV_CODEC_FLAG_QSCALE as i32 != 0 {
+                (*converted.as_mut_ptr()).quality = (*context).global_quality;
+            }
+        }
+
+        self.send(Some(&converted))?;
+        self.written += 1;
+        self.drain()
+    }
+
+    /// The YUV picture this encoder takes as it is, with no conversion:
+    /// eight-bit 4:2:0 BT.709 in its own chroma layout and its stream's
+    /// range. `None` for one that takes something else - ten bits, alpha,
+    /// an HDR file - which is handed [`Frame`]s.
+    pub fn yuv_layout(&self) -> Option<YuvLayout> {
+        self.takes
+    }
+
+    /// Encodes a picture already in the encoder's own YUV - see
+    /// [`Encoder::yuv_layout`] - copying its planes in, with nothing
+    /// converted. The colour must be the frame [`FrameSink::write_frame`]
+    /// would make of the same picture: BT.709's coefficients, in the
+    /// stream's range.
+    pub fn write_yuv(&mut self, picture: &Yuv420) -> Result<()> {
+        if picture.width() != self.width || picture.height() != self.height {
+            return Err(Error::FrameSizeMismatch {
+                want_width: self.width,
+                want_height: self.height,
+                got_width: picture.width(),
+                got_height: picture.height(),
+            });
+        }
+        if self.finished || self.takes != Some(picture.layout()) {
+            return Err(Error::Io {
+                path: self.path.clone(),
+                source: std::io::Error::other(if self.finished {
+                    "encoder was already finished"
+                } else {
+                    "the picture is not in the encoder's own pixel format"
+                }),
+            });
+        }
+        let width = self.width as usize;
+        let nv12 = picture.layout().chroma == Chroma::Nv12;
+        let mut video = Video::new(
+            if nv12 { Pixel::NV12 } else { Pixel::YUV420P },
+            self.width,
+            self.height,
+        );
+        // Each plane row by row into the frame's own strides, which pad.
+        let mut plane = |index: usize, from: &[u8], row: usize| {
+            let stride = video.stride(index);
+            let data = video.data_mut(index);
+            for (y, source) in from.chunks_exact(row).enumerate() {
+                data[y * stride..y * stride + row].copy_from_slice(source);
+            }
+        };
+        plane(0, picture.luma(), width);
+        let chroma = picture.chroma();
+        if nv12 {
+            plane(1, chroma, width);
+        } else {
+            let (u, v) = chroma.split_at(chroma.len() / 2);
+            plane(1, u, width / 2);
+            plane(2, v, width / 2);
+        }
+        self.encode_converted(video)
     }
 
     /// Whether the platform's hardware is doing the work rather than the
@@ -2001,29 +2100,7 @@ impl FrameSink for Encoder {
         self.scaler
             .run(&rgba, &mut converted)
             .map_err(|error| ffi::fail("convert", &self.path, error))?;
-        converted.set_pts(Some(self.written as i64));
-        // The frame says what its numbers span, the same as the stream
-        // does: a hardware encoder reads it off the frame.
-        // SAFETY: `converted` is a live frame the scaler just filled; the
-        // range is a plain field the encoder reads with the picture.
-        unsafe {
-            (*converted.as_mut_ptr()).color_range = self.color_range.into();
-        }
-        // An encoder held to a fixed quality - MPEG-4's quantiser - takes
-        // it off each frame, as the command line stamps it there, and
-        // would otherwise run at its finest.
-        // SAFETY: the encoder's context is live for as long as `self` is,
-        // and `flags`, `global_quality` and `quality` are plain fields.
-        unsafe {
-            let context = self.encoder.as_ptr();
-            if (*context).flags & ffmpeg::sys::AV_CODEC_FLAG_QSCALE as i32 != 0 {
-                (*converted.as_mut_ptr()).quality = (*context).global_quality;
-            }
-        }
-
-        self.send(Some(&converted))?;
-        self.written += 1;
-        self.drain()
+        self.encode_converted(converted)
     }
 
     fn finish(&mut self) -> Result<()> {

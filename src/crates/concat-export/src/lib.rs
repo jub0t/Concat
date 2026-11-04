@@ -46,7 +46,8 @@ use concat_media::{
 };
 use concat_project::model::{AppliedFilter, ClipMask, ColorSpace, Cutout};
 use concat_render::{
-    Compositor, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor, plan_frame,
+    Compositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor,
+    plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
@@ -1684,7 +1685,7 @@ fn render_picture(
             (request.width, request.height),
             options.clone(),
         );
-        let mut writer = Writer::start(move || {
+        let mut writer = Writer::start(destination, move || {
             if hdr {
                 Encoder::create_hdr(&path, size.0, size.1, rate, &settings, signal)
             } else {
@@ -1692,6 +1693,11 @@ fn render_picture(
             }
         })
         .map_err(|error| failed_encoding(&error, &options))?;
+        // The encoder's own YUV out of the device where it takes one: the
+        // frame is converted where it was drawn, and comes back at a byte
+        // and a half a pixel rather than four.
+        let planar = writer.takes;
+        compositor.planar(planar);
 
         // When progress was last said; see `progress_due`.
         let mut said = std::time::Instant::now();
@@ -1707,6 +1713,14 @@ fn render_picture(
         // drawing the frame, and handing it to the encoder.
         let begun = std::time::Instant::now();
         let mut spent = Spent::default();
+
+        // The frames on their way back from the device, oldest first, each
+        // with its index and the plan it was drawn from; see `Device`. A
+        // pass begun again starts with none: what the last one left on the
+        // device is for a file nobody will finish.
+        let mut in_flight: std::collections::VecDeque<(i64, FramePlan)> =
+            std::collections::VecDeque::new();
+        while compositor.collect().is_some() {}
 
         for index in 0..total_frames {
             reporter.cancelled()?;
@@ -1845,43 +1859,50 @@ fn render_picture(
             };
             let drawing = std::time::Instant::now();
             spent.reading += drawing - reading;
-            // The plan is kept for a second drawing: a frame drawn on a device
-            // that died under it is black, and is drawn again on the device
-            // that takes over. Both drawings borrow it - the layers' pictures
-            // were never copied, and now their passes are not either.
-            let mut composed = composite_treated(
-                &mut EffectClock {
-                    inner: &mut compositor,
-                    offset: effect_offset,
-                },
-                &frame_plan,
-                &treatments,
-                &transitions,
-            );
-            while compositor.lost() {
-                losses += 1;
-                let adapter = compositor.adapter_info();
-                log::error!(
-                    "export: the GPU device on {} was lost drawing frame {index} of {total_frames} \
-                 ({:.3}s into the cut); the frame is drawn again on the next device",
-                    adapter.name,
-                    time.as_f64(),
-                );
-                let fresh = recovered(losses, hdr, lent.then_some(&compositor))?;
-                compositor = fresh;
-                composed = composite_treated(
-                    &mut EffectClock {
-                        inner: &mut compositor,
-                        offset: effect_offset,
-                    },
-                    &frame_plan,
-                    &treatments,
-                    &transitions,
-                );
+            let mut device = Device {
+                compositor: &mut compositor,
+                offset: effect_offset,
+                losses: &mut losses,
+                hdr,
+                lent,
+                total_frames,
+                planar,
+            };
+            // A frame one draw makes goes to the device and is collected a
+            // frame or two later, so the device draws while the next frame's
+            // footage is read; one a transition spans is several draws, and
+            // waits for those ahead of it to come back first.
+            let mut drawn = Vec::new();
+            let mut unsent = Some(frame_plan);
+            if !transitions.iter().any(|span| span.covers(time))
+                && let Some(mut plan) = unsent.take()
+            {
+                plan.treatments = live_treatments(&treatments, time);
+                if in_flight.len() >= IN_FLIGHT {
+                    drawn.extend(device.collect(&mut in_flight)?);
+                }
+                if device.clock().submit(&plan) {
+                    in_flight.push_back((index, plan));
+                } else {
+                    unsent = Some(plan);
+                }
+            }
+            if let Some(frame_plan) = unsent {
+                while !in_flight.is_empty() {
+                    drawn.extend(device.collect(&mut in_flight)?);
+                }
+                // The plan is kept for a second drawing: a frame drawn on a
+                // device that died under it is black, and is drawn again on
+                // the device that takes over. Both drawings borrow it - the
+                // layers' pictures were never copied, and their passes are
+                // not either.
+                drawn.push(Drawn::Rgba(device.surviving(index, time, |clock| {
+                    composite_treated(clock, &frame_plan, &treatments, &transitions)
+                })?));
             }
             let queueing = std::time::Instant::now();
             spent.drawing += queueing - drawing;
-            let taken = writer.write(composed);
+            let taken = drawn.into_iter().all(|frame| writer.write(frame));
             spent.waiting += queueing.elapsed();
             if !taken {
                 // The stopped encoder is closed before the file is opened
@@ -1904,6 +1925,31 @@ fn render_picture(
                 reporter.emit(index, total_frames, stage);
                 said = std::time::Instant::now();
             }
+        }
+
+        // The last frames, still on their way back.
+        let mut device = Device {
+            compositor: &mut compositor,
+            offset: effect_offset,
+            losses: &mut losses,
+            hdr,
+            lent,
+            total_frames,
+            planar,
+        };
+        let mut taken = true;
+        while taken && !in_flight.is_empty() {
+            let drawn = device.collect(&mut in_flight)?;
+            taken = drawn.into_iter().all(|frame| writer.write(frame));
+        }
+        if !taken {
+            let (written, error) = match writer.finish() {
+                Err(stopped) => stopped,
+                Ok(_) => unreachable!("an encoder that refused a frame finished"),
+            };
+            again_in_software(&error, &mut options, written, total_frames)?;
+            reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
+            continue 'pass;
         }
 
         let finishing = std::time::Instant::now();
@@ -1932,6 +1978,9 @@ const ENCODER_QUEUE: usize = 2;
 /// What the encoder's thread is handed.
 enum Job {
     Frame(Frame),
+    /// A picture already in the encoder's own YUV; see
+    /// [`Encoder::yuv_layout`].
+    Yuv(concat_core::frame::Yuv420),
     /// Every frame has been handed over: the file is finished.
     Finish,
 }
@@ -1950,6 +1999,9 @@ enum Job {
 struct Writer {
     jobs: Option<std::sync::mpsc::SyncSender<Job>>,
     thread: Option<EncoderThread>,
+    /// The YUV the encoder takes as it is, which the compositor is asked
+    /// to hand over in its place; see [`Encoder::yuv_layout`].
+    takes: Option<concat_core::frame::YuvLayout>,
 }
 
 /// The encoder's thread: the time it spent encoding, or how many frames it
@@ -1963,6 +2015,7 @@ impl Writer {
     /// encoder is best talked to from the thread that opened it - and
     /// says which it is.
     fn start(
+        path: &Path,
         open: impl FnOnce() -> Result<Encoder, concat_media::Error> + Send + 'static,
     ) -> Result<Writer, concat_media::Error> {
         let (jobs, taken) = std::sync::mpsc::sync_channel::<Job>(ENCODER_QUEUE);
@@ -1981,11 +2034,11 @@ impl Writer {
                                 "software"
                             }
                         );
-                        let _ = opened.send(None);
+                        let _ = opened.send(Ok(encoder.yuv_layout()));
                         encoder
                     }
                     Err(error) => {
-                        let _ = opened.send(Some(error));
+                        let _ = opened.send(Err(error));
                         return Ok(std::time::Duration::ZERO);
                     }
                 };
@@ -2000,6 +2053,12 @@ impl Writer {
                                 .map_err(|error| (written, error))?;
                             written += 1;
                         }
+                        Job::Yuv(picture) => {
+                            encoder
+                                .write_yuv(&picture)
+                                .map_err(|error| (written, error))?;
+                            written += 1;
+                        }
                         Job::Finish => {
                             encoder.finish().map_err(|error| (written, error))?;
                             return Ok(busy + begun.elapsed());
@@ -2011,23 +2070,37 @@ impl Writer {
                 Ok(busy)
             })
             .expect("a thread for the encoder");
-        let writer = Writer {
+        let mut writer = Writer {
             jobs: Some(jobs),
             thread: Some(thread),
+            takes: None,
         };
         match open_result.recv() {
-            Ok(None) => Ok(writer),
-            Ok(Some(error)) => Err(error),
-            Err(_) => panic!("the encoder's thread ended before it said whether it opened"),
+            Ok(Ok(takes)) => {
+                writer.takes = takes;
+                Ok(writer)
+            }
+            Ok(Err(error)) => Err(error),
+            // A panic inside FFmpeg's open: an error the window can say,
+            // where this used to be a second panic on the export's thread.
+            Err(_) => Err(concat_media::Error::Ffi {
+                operation: "open the encoder",
+                path: path.to_path_buf(),
+                detail: "the encoder's thread ended before it said whether it opened".into(),
+            }),
         }
     }
 
     /// Hands `frame` to the encoder, waiting while the queue is full.
     /// False when the encoder has stopped; [`Writer::finish`] says why.
-    fn write(&mut self, frame: Frame) -> bool {
+    fn write(&mut self, drawn: Drawn) -> bool {
+        let job = match drawn {
+            Drawn::Rgba(frame) => Job::Frame(frame),
+            Drawn::Yuv(picture) => Job::Yuv(picture),
+        };
         self.jobs
             .as_ref()
-            .is_some_and(|jobs| jobs.send(Job::Frame(frame)).is_ok())
+            .is_some_and(|jobs| jobs.send(job).is_ok())
     }
 
     /// Finishes the file once every frame handed over is encoded: the time
@@ -2164,17 +2237,39 @@ struct EffectClock<'a> {
     offset: Rational,
 }
 
-impl Compositor for EffectClock<'_> {
-    fn render(&mut self, plan: &FramePlan) -> Frame {
+impl EffectClock<'_> {
+    /// `plan` on the shader clock: borrowed as it is when the clock is the
+    /// timeline's own.
+    fn shifted<'p>(&self, plan: &'p FramePlan) -> std::borrow::Cow<'p, FramePlan> {
         if self.offset == Rational::ZERO {
-            return self.inner.render(plan);
+            return std::borrow::Cow::Borrowed(plan);
         }
         let mut shifted = plan.clone();
         shifted.time += self.offset;
         for layer in &mut shifted.layers {
             layer.clip_start += self.offset;
         }
-        self.inner.render(&shifted)
+        std::borrow::Cow::Owned(shifted)
+    }
+}
+
+impl Compositor for EffectClock<'_> {
+    fn render(&mut self, plan: &FramePlan) -> Frame {
+        let plan = self.shifted(plan);
+        self.inner.render(&plan)
+    }
+
+    fn submit(&mut self, plan: &FramePlan) -> bool {
+        let plan = self.shifted(plan);
+        self.inner.submit(&plan)
+    }
+
+    fn collect(&mut self) -> Option<Drawn> {
+        self.inner.collect()
+    }
+
+    fn planar(&mut self, layout: Option<concat_core::frame::YuvLayout>) {
+        self.inner.planar(layout);
     }
 
     fn combine(
@@ -2210,19 +2305,7 @@ fn composite_treated(
     transitions: &[TransitionSpan],
 ) -> Frame {
     let time = plan.time;
-    let mut live: Vec<&Treatment> = treatments
-        .iter()
-        .filter(|treatment| treatment.covers(time))
-        .collect();
-    live.sort_by_key(|treatment| treatment.track);
-    let planned: Vec<PlannedTreatment> = live
-        .iter()
-        .map(|treatment| PlannedTreatment {
-            track: treatment.track,
-            effects: treatment.passes_at(time),
-            strength: treatment.strength_at(time),
-        })
-        .collect();
+    let planned = live_treatments(treatments, time);
     // A packaged transition live at this instant combines the outgoing stack
     // with the incoming picture through its shader, and an adjustment layer
     // live over the same frame grades it where it sits: one above the
@@ -2233,12 +2316,121 @@ fn composite_treated(
         return combine_transition(compositor, plan, span, &planned)
             .unwrap_or_else(|| dissolve_transition(compositor, plan, span, &planned));
     }
+    compositor.render(&with_treatments(plan, planned))
+}
+
+/// The treatments live at `time`, in track order, as a plan carries them.
+fn live_treatments(treatments: &[Treatment], time: Rational) -> Vec<PlannedTreatment> {
+    let mut live: Vec<&Treatment> = treatments
+        .iter()
+        .filter(|treatment| treatment.covers(time))
+        .collect();
+    live.sort_by_key(|treatment| treatment.track);
+    live.iter()
+        .map(|treatment| PlannedTreatment {
+            track: treatment.track,
+            effects: treatment.passes_at(time),
+            strength: treatment.strength_at(time),
+        })
+        .collect()
+}
+
+/// `plan` carrying `planned`: borrowed as it is when neither has any.
+fn with_treatments(
+    plan: &FramePlan,
+    planned: Vec<PlannedTreatment>,
+) -> std::borrow::Cow<'_, FramePlan> {
     if planned.is_empty() && plan.treatments.is_empty() {
-        return compositor.render(plan);
+        return std::borrow::Cow::Borrowed(plan);
     }
     let mut plan = plan.clone();
     plan.treatments = planned;
-    compositor.render(&plan)
+    std::borrow::Cow::Owned(plan)
+}
+
+/// How many frames an export keeps on their way back from the device: the
+/// one being drawn and the one being read back while the next frame's
+/// footage is decoded.
+const IN_FLIGHT: usize = 2;
+
+/// The export's device and what it takes to keep one: the compositor, the
+/// shader clock's offset, and what a device lost under the export needs to
+/// find the next (see `recovered`).
+struct Device<'a> {
+    compositor: &'a mut WgpuCompositor,
+    offset: Rational,
+    losses: &'a mut u32,
+    hdr: bool,
+    lent: bool,
+    total_frames: i64,
+    /// What the compositor hands back where it can; see
+    /// [`Compositor::planar`]. The device that takes over is asked too.
+    planar: Option<concat_core::frame::YuvLayout>,
+}
+
+impl Device<'_> {
+    /// The compositor on the shader clock.
+    fn clock(&mut self) -> EffectClock<'_> {
+        EffectClock {
+            inner: &mut *self.compositor,
+            offset: self.offset,
+        }
+    }
+
+    /// Draws with `draw` until a device survives it: a frame drawn on a
+    /// device that died under it is black, and is drawn again on the one
+    /// that takes over.
+    fn surviving(
+        &mut self,
+        index: i64,
+        time: Rational,
+        mut draw: impl FnMut(&mut dyn Compositor) -> Frame,
+    ) -> Result<Frame, String> {
+        let mut frame = draw(&mut self.clock());
+        while self.compositor.lost() {
+            *self.losses += 1;
+            let adapter = self.compositor.adapter_info();
+            log::error!(
+                "export: the GPU device on {} was lost drawing frame {index} of {} \
+                 ({:.3}s into the cut); the frame is drawn again on the next device",
+                adapter.name,
+                self.total_frames,
+                time.as_f64(),
+            );
+            *self.compositor = recovered(
+                *self.losses,
+                self.hdr,
+                self.lent.then_some(&*self.compositor),
+            )?;
+            self.compositor.planar(self.planar);
+            frame = draw(&mut self.clock());
+        }
+        Ok(frame)
+    }
+
+    /// The oldest frame on its way back, in order. A device lost under it
+    /// takes every frame still in flight with it: each is drawn again, in
+    /// order, on the device that takes over.
+    fn collect(
+        &mut self,
+        in_flight: &mut std::collections::VecDeque<(i64, FramePlan)>,
+    ) -> Result<Vec<Drawn>, String> {
+        let Some(oldest) = in_flight.pop_front() else {
+            return Ok(Vec::new());
+        };
+        let frame = self.compositor.collect();
+        if let Some(frame) = frame
+            && !self.compositor.lost()
+        {
+            return Ok(vec![frame]);
+        }
+        let mut frames = Vec::with_capacity(in_flight.len() + 1);
+        for (index, plan) in std::iter::once(oldest).chain(in_flight.drain(..)) {
+            let frame = self.surviving(index, plan.time, |clock| clock.render(&plan))?;
+            frames.push(Drawn::Rgba(frame));
+        }
+        Ok(frames)
+    }
 }
 
 /// The two pictures a transition combines: the stack beneath its lane as it
