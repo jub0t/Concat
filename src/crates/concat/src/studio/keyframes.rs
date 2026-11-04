@@ -1051,6 +1051,7 @@ impl Studio {
                 .copied()
         });
         let mut enhance = self.enhance_readout(clip);
+        let shape = clip.shape.clone().unwrap_or_default();
         let steady = self.stabilize_readout(clip);
         let enhance_preview = enhance.preview.is_some();
         let (enhance_before, enhance_after, (estimate_total, estimate_frames, estimate_per_frame)) =
@@ -1213,6 +1214,67 @@ impl Studio {
             enhance_on: self.enhance_ticked(clip),
             enhance_busy: !self.enhance_jobs.is_empty() || self.enhance_previewing.is_some(),
             enhance_scale: enhance.scale,
+            shape_kind: model::ShapeKind::ALL
+                .iter()
+                .position(|kind| *kind == shape.kind)
+                .unwrap_or(0) as i32,
+            shape_is_line: shape.kind.is_line(),
+            shape_width: shape.width as f32,
+            shape_height: shape.figure_box().1 as f32,
+            shape_radius: shape.corner_radius as f32,
+            shape_sides: shape.sides as i32,
+            shape_points: shape.points as i32,
+            shape_inner: shape.inner_radius as f32,
+            shape_fill_on: !shape.fill.is_empty(),
+            shape_fill: if shape.fill.is_empty() {
+                slint::Color::from_rgb_u8(255, 255, 255)
+            } else {
+                crate::format::colour_of(&shape.fill)
+            },
+            shape_gradient: match &shape.gradient {
+                None => 0,
+                Some(gradient) if gradient.radial => 2,
+                Some(_) => 1,
+            },
+            shape_gradient_color: crate::format::colour_of(
+                &shape.gradient.clone().unwrap_or_default().color,
+            ),
+            shape_gradient_angle: shape.gradient.as_ref().map_or(90.0, |g| g.angle) as f32,
+            shape_stroke_on: !shape.stroke.is_empty() && shape.stroke_width > 0.0,
+            // A line is drawn in its outline's colour, or its fill's.
+            shape_stroke: match (shape.stroke.is_empty(), shape.fill.is_empty()) {
+                (false, _) => crate::format::colour_of(&shape.stroke),
+                (true, false) if shape.kind.is_line() => crate::format::colour_of(&shape.fill),
+                _ => slint::Color::from_rgb_u8(255, 255, 255),
+            },
+            shape_stroke_width: shape.stroke_width as f32,
+            shape_stroke_align: match shape.stroke_align {
+                model::StrokeAlign::Center => 0,
+                model::StrokeAlign::Inside => 1,
+                model::StrokeAlign::Outside => 2,
+            },
+            shape_dash: match shape.dash {
+                model::StrokeDash::Solid => 0,
+                model::StrokeDash::Dashed => 1,
+                model::StrokeDash::Dotted => 2,
+            },
+            shape_start_head: model::LineHead::ALL
+                .iter()
+                .position(|head| *head == shape.start())
+                .unwrap_or(0) as i32,
+            shape_end_head: model::LineHead::ALL
+                .iter()
+                .position(|head| *head == shape.end())
+                .unwrap_or(0) as i32,
+            shape_trim_start: shape.trim_start as f32,
+            shape_trim_end: shape.trim_end as f32,
+            shape_shadow_on: shape.shadow.is_some(),
+            shape_shadow_color: crate::format::colour_of(
+                &shape.shadow.clone().unwrap_or_default().color,
+            ),
+            shape_shadow_blur: shape.shadow.as_ref().map_or(0.02, |s| s.blur) as f32,
+            shape_shadow_distance: shape.shadow.as_ref().map_or(0.012, |s| s.distance) as f32,
+            shape_shadow_angle: shape.shadow.as_ref().map_or(90.0, |s| s.angle) as f32,
             enhance_auto: self.enhance_scale <= 0.0,
             enhance_auto_scale: enhance.auto_scale,
             enhance_max_scale: enhance.max_scale,

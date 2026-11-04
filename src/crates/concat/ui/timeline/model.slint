@@ -192,6 +192,18 @@ export enum ClipField {
     /// and the edge's softness 0..1
     mask-shape, mask-invert,
     mask-x, mask-y, mask-width, mask-height, mask-rotation, mask-roundness, mask-feather,
+    /// a shape: its figure as a place in ShapeKind::ALL, its box as
+    /// fractions of frame height, corners 0..1, a polygon's sides and a
+    /// star's points and inner radius; its fill on (1) or off, the blend
+    /// (0 none, 1 straight, 2 round) and its angle; its outline on, its
+    /// thickness, where it sits (0 centre, 1 inside, 2 outside) and its
+    /// pattern (0 solid, 1 dashed, 2 dotted); a line's ends as places in
+    /// LineHead::ALL; how much of it is drawn; and its shadow
+    shape-kind, shape-width, shape-height, shape-radius, shape-sides, shape-points, shape-inner,
+    shape-fill-on, shape-gradient, shape-gradient-angle,
+    shape-stroke-on, shape-stroke-width, shape-stroke-align, shape-dash,
+    shape-start-head, shape-end-head, shape-trim-start, shape-trim-end,
+    shape-shadow-on, shape-shadow-blur, shape-shadow-distance, shape-shadow-angle,
 }
 
 /// One keyable property's state at the playhead, as the inspector needs it.
@@ -448,6 +460,36 @@ export struct SelectedClipData {
     /// most it may be enlarged, 2K's limit; the file's size and the copy's,
     /// "1280 × 720" and "2560 × 1440"; and why it cannot move, or empty
     enhance-scale: float,
+    /// A shape clip's figure and paint, as the Shape section shows them;
+    /// see ClipField's shape fields for what each number means. The box's
+    /// height is the one drawn, its own or the figure's proportion.
+    shape-kind: int,
+    shape-is-line: bool,
+    shape-width: float,
+    shape-height: float,
+    shape-radius: float,
+    shape-sides: int,
+    shape-points: int,
+    shape-inner: float,
+    shape-fill-on: bool,
+    shape-fill: color,
+    shape-gradient: int,
+    shape-gradient-color: color,
+    shape-gradient-angle: float,
+    shape-stroke-on: bool,
+    shape-stroke: color,
+    shape-stroke-width: float,
+    shape-stroke-align: int,
+    shape-dash: int,
+    shape-start-head: int,
+    shape-end-head: int,
+    shape-trim-start: float,
+    shape-trim-end: float,
+    shape-shadow-on: bool,
+    shape-shadow-color: color,
+    shape-shadow-blur: float,
+    shape-shadow-distance: float,
+    shape-shadow-angle: float,
     enhance-auto: bool,
     enhance-auto-scale: float,
     enhance-max-scale: float,

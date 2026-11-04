@@ -169,6 +169,8 @@ export global Editor {
     /// The selected words back in the title's own look.
     callback clip-reset-words();
     callback clip-set-colour(field: ClipTextField, value: color);
+    /// A shape's colour; see ShapePanel.set-colour.
+    callback clip-shape-colour(which: int, value: color);
     callback clip-commit();
     /// The families a title can be set in: the bundled face, the user's
     /// own fonts, then the machine's. See `Studio::font_families`.

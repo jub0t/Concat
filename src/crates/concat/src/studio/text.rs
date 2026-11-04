@@ -152,6 +152,37 @@ impl Studio {
         }
     }
 
+    /// One of a shape's colours from the Shape section: 0 the fill, 1 the
+    /// blend's second colour, 2 the outline - a line's own colour - and 3
+    /// the shadow. Each keeps its alpha.
+    pub fn clip_shape_colour(&mut self, which: i32, value: slint::Color) {
+        let ids = self.edit_targets();
+        if ids.is_empty() {
+            return;
+        }
+        self.commit_targets = ids.clone();
+        self.begin_echo();
+        let hex = crate::format::hex_rgba(value);
+        for id in ids {
+            let Some(clip) = self.echo_clip_mut(&id) else {
+                continue;
+            };
+            if clip.kind != model::ClipKind::Shape {
+                continue;
+            }
+            let shape = clip.shape.get_or_insert_with(model::ShapeStyle::default);
+            match which {
+                0 => shape.fill = hex.clone(),
+                1 => {
+                    shape.gradient.get_or_insert_with(model::ShapeGradient::default).color = hex.clone();
+                }
+                2 => shape.stroke = hex.clone(),
+                3 => shape.shadow.get_or_insert_with(model::ShapeShadow::default).color = hex.clone(),
+                _ => {}
+            }
+        }
+    }
+
     // ── styled words ──
     //
     // A title is one look, and over it some of its words can wear their

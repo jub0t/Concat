@@ -20,6 +20,7 @@ import {
     CurveData, CurveGroupData, WheelData, WheelGroupData,
 } from "../inspector/grading.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
+import { ShapePanel } from "../inspector/shape-panel.slint";
 import {
     ClipField, ClipKind, ClipTextField, SelectedClipData, SelectedTransitionData,
 } from "../timeline/model.slint";
@@ -200,6 +201,9 @@ export component ConfigPane inherits Rectangle {
     callback clip-select-words(anchor: int, cursor: int);
     callback clip-reset-words();
     callback clip-set-colour(field: ClipTextField, value: color);
+    /// A shape's colour: 0 the fill, 1 the blend's second, 2 the outline,
+    /// 3 the shadow.
+    callback clip-shape-colour(which: int, value: color);
     callback clip-commit();
     /// The Text tab's font picker and its import button; see Editor.
     in property <[string]> font-families;
@@ -335,7 +339,7 @@ export component ConfigPane inherits Rectangle {
 
     /// The sections of the current tab, as the dropdown lists them.
     property <[string]> sections: root.heading == "Video"
-            ? (root.is-shape ? ["Basic"] : ["Basic", "Enhance", "Adjust"])
+            ? (root.is-shape ? ["Shape", "Basic"] : ["Basic", "Enhance", "Adjust"])
         // Audio's chain library is a page of its own, beside the level,
         // fades and treatments rather than under them, the way Video's
         // Adjust sits beside its Basic. Named apart from Video's "Basic"
@@ -352,7 +356,7 @@ export component ConfigPane inherits Rectangle {
     /// what makes it better, its colour's knobs; its level and its sound's
     /// chain; a layer's own strength, then its colour and its chain.
     property <[Glyph]> section-icons: root.heading == "Video"
-            ? (root.is-shape ? [Glyph.move] : [Glyph.move, Glyph.wand, Glyph.sliders])
+            ? (root.is-shape ? [Glyph.shapes, Glyph.move] : [Glyph.move, Glyph.wand, Glyph.sliders])
         : root.heading == "Audio"
             ? (root.selected.batch-volume ? [Glyph.volume]
                 : root.is-sound-layer ? [Glyph.filter, Glyph.waveform]
@@ -362,7 +366,7 @@ export component ConfigPane inherits Rectangle {
         : [Glyph.filter, Glyph.sliders, Glyph.sparkle];
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
-            ? (root.is-shape ? [I18n.t("configPane.basic")]
+            ? (root.is-shape ? [I18n.t("shapePanel.shape"), I18n.t("configPane.basic")]
                 : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")])
         : root.heading == "Audio"
             ? (root.selected.batch-volume ? [I18n.t("configPane.basic")]
@@ -777,6 +781,13 @@ export component ConfigPane inherits Rectangle {
                     help: root.is-sound-layer ? I18n.t("clipInspector.soundLayerTreatsTheMix")
                         : I18n.t("clipInspector.layerTreatsEverythingUnder");
                     set(field, value) => { root.clip-set(field, value); }
+                    commit => { root.clip-commit(); }
+                }
+
+                if root.showing == "Shape": ShapePanel {
+                    selected: root.selected;
+                    set(field, value) => { root.clip-set(field, value); }
+                    set-colour(which, value) => { root.clip-shape-colour(which, value); }
                     commit => { root.clip-commit(); }
                 }
 

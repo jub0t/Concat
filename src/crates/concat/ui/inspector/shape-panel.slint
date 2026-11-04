@@ -1,0 +1,356 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+import { I18n } from "../i18n.slint";
+import { Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
+import { ColourField, Param, ParamFormat } from "controls.slint";
+import { ClipField, SelectedClipData } from "../timeline/model.slint";
+
+// The Shape section: everything a vector figure is, in the order it is
+// made. The figure and its size; its inside, one colour or a blend; its
+// outline - or, for a line, the line itself and its ends; how much of the
+// outline is drawn; and a shadow or glow under it. Where it sits, how it
+// turns and how see-through it is stay on Basic, as for any picture.
+//
+// Sizes are fractions of the frame's height, as a title's are, so a shape
+// drawn at 1080p is the same shape at 4K; the fields show them as percents
+// of the height.
+export component ShapePanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    /// 0 the fill, 1 the blend's second colour, 2 the outline, 3 the shadow.
+    callback set-colour(which: int, value: color);
+    callback commit();
+
+    property <bool> line: root.selected.shape-is-line;
+    property <int> kind: root.selected.shape-kind;
+    /// Figures with corners to round: not a circle, a heart or a line.
+    property <bool> cornered: !root.line && root.kind != 1 && root.kind != 5;
+
+    // Local editing state, seeded rather than bound, as TextPanel's is: a
+    // drag takes the binding, and the next clip must not inherit it.
+    property <float> box-w;
+    property <float> box-h;
+    property <float> radius;
+    property <float> sides;
+    property <float> points;
+    property <float> inner;
+    property <float> angle;
+    property <float> stroke-width;
+    property <float> trim-start;
+    property <float> trim-end;
+    property <float> blur;
+    property <float> distance;
+    property <float> shadow-angle;
+
+    function seed() {
+        root.box-w = root.selected.shape-width;
+        root.box-h = root.selected.shape-height;
+        root.radius = root.selected.shape-radius;
+        root.sides = root.selected.shape-sides;
+        root.points = root.selected.shape-points;
+        root.inner = root.selected.shape-inner;
+        root.angle = root.selected.shape-gradient-angle;
+        root.stroke-width = root.selected.shape-stroke-width;
+        root.trim-start = root.selected.shape-trim-start;
+        root.trim-end = root.selected.shape-trim-end;
+        root.blur = root.selected.shape-shadow-blur;
+        root.distance = root.selected.shape-shadow-distance;
+        root.shadow-angle = root.selected.shape-shadow-angle;
+    }
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    function put(field: ClipField, value: float) {
+        root.set(field, value);
+        root.commit();
+    }
+
+    // ── the figure ───────────────────────────────────────────────────────
+    Section {
+        first: true;
+        SectionHeader {
+            title: I18n.t("shapePanel.figure");
+        }
+        SectionBody {
+            // In ShapeKind::ALL's order.
+            Row {
+                label: I18n.t("shapePanel.figure");
+                Select {
+                    options: [
+                        I18n.t("mediaPane.shapeSquare"),
+                        I18n.t("mediaPane.shapeCircle"),
+                        I18n.t("mediaPane.shapeTriangle"),
+                        I18n.t("shapePanel.polygon"),
+                        I18n.t("mediaPane.shapeStar"),
+                        I18n.t("mediaPane.shapeHeart"),
+                        I18n.t("mediaPane.shapeParallelogram"),
+                        I18n.t("mediaPane.shapeTrapezoid"),
+                        I18n.t("mediaPane.shapeLine"),
+                        I18n.t("mediaPane.shapeArrow"),
+                    ];
+                    current: root.kind;
+                    changed(index) => { root.put(ClipField.shape-kind, index); }
+                }
+            }
+            Param {
+                label: root.line ? I18n.t("shapePanel.length") : I18n.t("common.width");
+                value <=> root.box-w;
+                minimum: 0.01;
+                maximum: 2;
+                step: 0.005;
+                default-value: 0.35;
+                fmt: ParamFormat.height;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.put(ClipField.shape-width, v); }
+            }
+            if !root.line: Param {
+                label: I18n.t("shapePanel.height");
+                value <=> root.box-h;
+                minimum: 0.01;
+                maximum: 2;
+                step: 0.005;
+                default-value: root.box-w;
+                fmt: ParamFormat.height;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.put(ClipField.shape-height, v); }
+            }
+            if root.cornered: Param {
+                label: I18n.t("shapePanel.corners");
+                value <=> root.radius;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 0;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                help: I18n.t("shapePanel.cornersHelp");
+                changed(v) => { root.put(ClipField.shape-radius, v); }
+            }
+            if root.kind == 3: Param {
+                label: I18n.t("shapePanel.sides");
+                value <=> root.sides;
+                minimum: 3;
+                maximum: 12;
+                step: 1;
+                default-value: 6;
+                fmt: ParamFormat.steps;
+                changed(v) => { root.put(ClipField.shape-sides, v); }
+            }
+            if root.kind == 4: Param {
+                label: I18n.t("shapePanel.points");
+                value <=> root.points;
+                minimum: 3;
+                maximum: 24;
+                step: 1;
+                default-value: 5;
+                fmt: ParamFormat.steps;
+                changed(v) => { root.put(ClipField.shape-points, v); }
+            }
+            if root.kind == 4: Param {
+                label: I18n.t("shapePanel.innerRadius");
+                value <=> root.inner;
+                minimum: 0.05;
+                maximum: 0.95;
+                step: 0.01;
+                default-value: 0.45;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                help: I18n.t("shapePanel.innerRadiusHelp");
+                changed(v) => { root.put(ClipField.shape-inner, v); }
+            }
+        }
+    }
+
+    // ── the fill ─────────────────────────────────────────────────────────
+    if !root.line: Section {
+        fill := SectionHeader {
+            title: I18n.t("shapePanel.fill");
+            switchable: true;
+            on: root.selected.shape-fill-on;
+            switched(on) => { root.put(ClipField.shape-fill-on, on ? 1 : 0); }
+        }
+        if root.selected.shape-fill-on: SectionBody {
+            ColourField {
+                label: root.selected.shape-gradient > 0 ? I18n.t("shapePanel.from") : I18n.t("common.color");
+                value: root.selected.shape-fill;
+                alpha: true;
+                changed(colour) => { root.set-colour(0, colour); root.commit(); }
+            }
+            Row {
+                label: I18n.t("shapePanel.gradient");
+                SegmentedControl {
+                    options: [I18n.t("common.none"), I18n.t("shapePanel.linear"), I18n.t("shapePanel.radial")];
+                    current: root.selected.shape-gradient;
+                    changed(index) => { root.put(ClipField.shape-gradient, index); }
+                }
+            }
+            if root.selected.shape-gradient > 0: ColourField {
+                label: I18n.t("shapePanel.to");
+                value: root.selected.shape-gradient-color;
+                alpha: true;
+                changed(colour) => { root.set-colour(1, colour); root.commit(); }
+            }
+            if root.selected.shape-gradient == 1: Param {
+                label: I18n.t("shapePanel.angle");
+                value <=> root.angle;
+                minimum: 0;
+                maximum: 360;
+                step: 1;
+                default-value: 90;
+                fmt: ParamFormat.degrees;
+                changed(v) => { root.put(ClipField.shape-gradient-angle, v); }
+            }
+        }
+    }
+
+    // ── the outline, or the line ─────────────────────────────────────────
+    Section {
+        SectionHeader {
+            title: root.line ? I18n.t("mediaPane.shapeLine") : I18n.t("shapePanel.outline");
+            switchable: !root.line;
+            on: root.line || root.selected.shape-stroke-on;
+            switched(on) => { root.put(ClipField.shape-stroke-on, on ? 1 : 0); }
+        }
+        if root.line || root.selected.shape-stroke-on: SectionBody {
+            ColourField {
+                label: I18n.t("common.color");
+                value: root.selected.shape-stroke;
+                alpha: true;
+                changed(colour) => { root.set-colour(2, colour); root.commit(); }
+            }
+            Param {
+                label: I18n.t("shapePanel.thickness");
+                value <=> root.stroke-width;
+                minimum: 0.001;
+                maximum: 0.2;
+                step: 0.001;
+                default-value: 0.012;
+                fmt: ParamFormat.height;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.put(ClipField.shape-stroke-width, v); }
+            }
+            if !root.line: Row {
+                label: I18n.t("shapePanel.position");
+                SegmentedControl {
+                    options: [I18n.t("shapePanel.centre"), I18n.t("shapePanel.inside"), I18n.t("shapePanel.outside")];
+                    current: root.selected.shape-stroke-align;
+                    changed(index) => { root.put(ClipField.shape-stroke-align, index); }
+                }
+            }
+            Row {
+                label: I18n.t("shapePanel.style");
+                SegmentedControl {
+                    options: [I18n.t("shapePanel.solid"), I18n.t("shapePanel.dashed"), I18n.t("shapePanel.dotted")];
+                    current: root.selected.shape-dash;
+                    changed(index) => { root.put(ClipField.shape-dash, index); }
+                }
+            }
+            if root.line: Row {
+                label: I18n.t("shapePanel.start");
+                Select {
+                    options: [I18n.t("common.none"), I18n.t("mediaPane.shapeArrow"), I18n.t("mediaPane.shapeTriangle"),
+                        I18n.t("mediaPane.shapeCircle"), I18n.t("shapePanel.bar")];
+                    current: root.selected.shape-start-head;
+                    changed(index) => { root.put(ClipField.shape-start-head, index); }
+                }
+            }
+            if root.line: Row {
+                label: I18n.t("shapePanel.end");
+                Select {
+                    options: [I18n.t("common.none"), I18n.t("mediaPane.shapeArrow"), I18n.t("mediaPane.shapeTriangle"),
+                        I18n.t("mediaPane.shapeCircle"), I18n.t("shapePanel.bar")];
+                    current: root.selected.shape-end-head;
+                    changed(index) => { root.put(ClipField.shape-end-head, index); }
+                }
+            }
+            // Part of the way round: a ring part-drawn, a progress arc.
+            Param {
+                label: I18n.t("shapePanel.trimStart");
+                value <=> root.trim-start;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 0;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                help: I18n.t("shapePanel.trimHelp");
+                changed(v) => { root.put(ClipField.shape-trim-start, v); }
+            }
+            Param {
+                label: I18n.t("shapePanel.trimEnd");
+                value <=> root.trim-end;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 1;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.put(ClipField.shape-trim-end, v); }
+            }
+        }
+    }
+
+    // ── the shadow ───────────────────────────────────────────────────────
+    Section {
+        SectionHeader {
+            title: I18n.t("shapePanel.shadow");
+            switchable: true;
+            on: root.selected.shape-shadow-on;
+            switched(on) => { root.put(ClipField.shape-shadow-on, on ? 1 : 0); }
+        }
+        if root.selected.shape-shadow-on: SectionBody {
+            ColourField {
+                label: I18n.t("common.color");
+                value: root.selected.shape-shadow-color;
+                alpha: true;
+                changed(colour) => { root.set-colour(3, colour); root.commit(); }
+            }
+            Param {
+                label: I18n.t("shapePanel.blur");
+                value <=> root.blur;
+                minimum: 0;
+                maximum: 0.2;
+                step: 0.002;
+                default-value: 0.02;
+                fmt: ParamFormat.height;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.put(ClipField.shape-shadow-blur, v); }
+            }
+            Param {
+                label: I18n.t("shapePanel.distance");
+                value <=> root.distance;
+                minimum: 0;
+                maximum: 0.2;
+                step: 0.002;
+                default-value: 0.012;
+                fmt: ParamFormat.height;
+                unit: "%";
+                unit-scale: 100;
+                help: I18n.t("shapePanel.glowHelp");
+                changed(v) => { root.put(ClipField.shape-shadow-distance, v); }
+            }
+            Param {
+                label: I18n.t("shapePanel.angle");
+                value <=> root.shadow-angle;
+                minimum: 0;
+                maximum: 360;
+                step: 1;
+                default-value: 90;
+                fmt: ParamFormat.degrees;
+                changed(v) => { root.put(ClipField.shape-shadow-angle, v); }
+            }
+        }
+    }
+}

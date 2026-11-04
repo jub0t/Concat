@@ -1655,16 +1655,34 @@ export component ShapeGrid inherits Rectangle {
 
     // The ids are written into project files, so they are stable for ever;
     // see ShapeKind in concat-project.
+    // A card that is a figure set a particular way - a rounded square, a
+    // hexagon - carries an id of its own; see ShapeStyle::preset.
     property <[ShapeCardData]> shapes: [
         { id: "square", label: I18n.t("mediaPane.shapeSquare"), commands: "M4 4h16v16H4z" },
+        { id: "rounded", label: I18n.t("mediaPane.shapeRounded"),
+            commands: "M4 9a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z" },
         { id: "circle", label: I18n.t("mediaPane.shapeCircle"),
             commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" },
+        { id: "ring", label: I18n.t("mediaPane.shapeRing"),
+            commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M7 12a5 5 0 1 0 10 0a5 5 0 1 0 -10 0" },
         { id: "triangle", label: I18n.t("mediaPane.shapeTriangle"), commands: "M12 4l9 16H3z" },
+        { id: "pentagon", label: I18n.t("mediaPane.shapePentagon"),
+            commands: "M12 2.5l9.5 6.9-3.6 11.1H6.1L2.5 9.4z" },
+        { id: "polygon", label: I18n.t("mediaPane.shapeHexagon"),
+            commands: "M12 2l8.66 5v10L12 22l-8.66-5V7z" },
+        { id: "star", label: I18n.t("mediaPane.shapeStar"),
+            commands: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" },
+        { id: "heart", label: I18n.t("mediaPane.shapeHeart"),
+            commands: "M12 20s-8-4.5-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 9c0 6.5-8 11-8 11z" },
+        { id: "pill", label: I18n.t("mediaPane.shapePill"),
+            commands: "M8 8h8a4 4 0 0 1 0 8H8a4 4 0 0 1 0-8z" },
         { id: "parallelogram", label: I18n.t("mediaPane.shapeParallelogram"),
             commands: "M8 5h13l-5 14H3z" },
         { id: "trapezoid", label: I18n.t("mediaPane.shapeTrapezoid"), commands: "M8 5h8l5 14H3z" },
         { id: "line", label: I18n.t("mediaPane.shapeLine"), commands: "M3 12h18" },
         { id: "arrow", label: I18n.t("mediaPane.shapeArrow"), commands: "M3 12h18 M15 6l6 6-6 6" },
+        { id: "double-arrow", label: I18n.t("mediaPane.shapeDoubleArrow"),
+            commands: "M3 12h18 M9 6l-6 6 6 6 M15 6l6 6-6 6" },
     ];
 
     property <length> gap: 8px;

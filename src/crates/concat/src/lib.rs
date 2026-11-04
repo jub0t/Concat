@@ -1424,6 +1424,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_reset_words(on_lanes!(|state| {
         state.reset_words();
     }));
+    editor.on_clip_shape_colour(on_lanes!(|state, which: i32, value: slint::Color| {
+        state.clip_shape_colour(which, value);
+    }));
     editor.on_clip_set_colour(on_lanes!(
         |state, field: ClipTextField, value: slint::Color| {
             state.clip_set_colour(field, value);

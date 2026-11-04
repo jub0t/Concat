@@ -1858,6 +1858,11 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
     if after.mask != before.mask {
         patch.mask = Some(after.mask);
     }
+    if after.shape != before.shape
+        && let Some(shape) = after.shape.clone()
+    {
+        patch.shape = Some(shape);
+    }
     commands.extend(key_commands(id, before, after));
     if after.text != before.text {
         patch.text = Some(after.text.clone());

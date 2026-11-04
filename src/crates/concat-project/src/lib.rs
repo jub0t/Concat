@@ -5675,7 +5675,7 @@ mod tests {
                 track_id: None,
                 start: 0.0,
                 style: Some(ShapeStyle {
-                    size: 40.0,
+                    width: 40.0,
                     stroke_width: -1.0,
                     ..ShapeStyle::default()
                 }),
@@ -5687,7 +5687,7 @@ mod tests {
             .expect("id");
         let clip = editor.project().active().clip(&wild).expect("exists");
         let shape = clip.shape.as_ref().expect("figure");
-        assert_eq!((shape.size, shape.stroke_width), (2.0, 0.0));
+        assert_eq!((shape.width, shape.stroke_width), (4.0, 0.0));
         assert_eq!(
             clip.name, "square",
             "an empty name falls back to the figure's"

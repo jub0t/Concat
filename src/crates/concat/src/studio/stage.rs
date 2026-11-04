@@ -50,16 +50,8 @@ impl Studio {
         } else if clip.kind == model::ClipKind::Shape {
             // Not painted yet: the figure's box from its style, the way the
             // painter sizes it, until the painter says.
-            let shape = clip.shape.clone().unwrap_or_default();
-            let side = shape.size.clamp(0.01, 2.0) * height;
-            let (w, h) = match shape.kind {
-                model::ShapeKind::Square | model::ShapeKind::Circle => (side, side),
-                model::ShapeKind::Triangle => (side, side * 0.866),
-                model::ShapeKind::Parallelogram | model::ShapeKind::Trapezoid => (side, side * 0.6),
-                model::ShapeKind::Line => (side, shape.stroke_width * height),
-                model::ShapeKind::Arrow => (side, (shape.stroke_width * 4.0).max(0.18) * side),
-            };
-            (w * clip.scale / width, h * clip.scale / height)
+            let (w, h) = clip.shape.clone().unwrap_or_default().figure_box();
+            (w * height * clip.scale / width, h * height * clip.scale / height)
         } else {
             let media = self.project().media_by_id(&clip.media_id);
             let source = media
@@ -404,13 +396,22 @@ impl Studio {
             } else {
                 -dx * sin + dy * cos
             };
+            // A shape's side grips pull its own width and height, which
+            // keeps its outline even and its corners round; a picture's
+            // pull its stretch.
+            let figure = clip
+                .shape
+                .as_ref()
+                .filter(|_| clip.kind == model::ClipKind::Shape && !clip.shape.as_ref().is_some_and(|s| s.kind.is_line() && !across))
+                .map(|shape| shape.figure_box());
             Gesture::StageStretch {
                 clip: id.to_owned(),
                 across,
-                stretch: if across {
-                    clip.stretch_x
-                } else {
-                    clip.stretch_y
+                stretch: match (figure, across) {
+                    (Some((w, _)), true) => w,
+                    (Some((_, h)), false) => h,
+                    (None, true) => clip.stretch_x,
+                    (None, false) => clip.stretch_y,
                 },
                 centre,
                 from: along.abs().max(1.0),
@@ -621,7 +622,15 @@ impl Studio {
                     next = (next * 20.0).round() / 20.0;
                 }
                 if let Some(clip) = self.echo_clip_mut(clip) {
-                    if *across {
+                    let line = clip.shape.as_ref().is_some_and(|shape| shape.kind.is_line());
+                    if clip.kind == model::ClipKind::Shape && (*across || !line) {
+                        let shape = clip.shape.get_or_insert_with(model::ShapeStyle::default);
+                        if *across {
+                            shape.width = next.clamp(0.01, 4.0);
+                        } else {
+                            shape.height = next.clamp(0.01, 4.0);
+                        }
+                    } else if *across {
                         clip.stretch_x = next.clamp(0.1, 10.0);
                     } else {
                         clip.stretch_y = next.clamp(0.1, 10.0);
@@ -812,6 +821,18 @@ impl Studio {
                     clip_id: id.clone(),
                     patch: ClipPatch {
                         mask: Some(after.mask),
+                        ..Default::default()
+                    },
+                });
+            }
+            // A shape's width or height, from its side grips.
+            if after.shape != before.shape
+                && let Some(shape) = after.shape.clone()
+            {
+                commands.push(Command::UpdateClip {
+                    clip_id: id.clone(),
+                    patch: ClipPatch {
+                        shape: Some(shape),
                         ..Default::default()
                     },
                 });

@@ -163,6 +163,10 @@ pub struct ClipPatch {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "Option<TextStyle>"))]
     pub text: Option<Option<TextStyle>>,
+    /// A shape clip's figure and paint, whole: absent leaves it alone. Only
+    /// a shape clip takes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<ShapeStyle>,
     /// Which of the media's audio streams the clip plays, by stream index:
     /// absent leaves it alone, null goes back to the file's first, a value
     /// names one. See `Clip::audio_stream`.
@@ -1124,7 +1128,7 @@ impl Command {
                     || bad(*duration)
                     || style
                         .iter()
-                        .any(|style| bad([style.size, style.stroke_width]))
+                        .any(|style| bad(style.numbers()))
             }
             Command::AddTextClip {
                 start,
@@ -1210,6 +1214,7 @@ impl Command {
                             mask.feather,
                         ])
                     })
+                    || patch.shape.iter().any(|style| bad(style.numbers()))
                     || patch.filters.as_deref().is_some_and(bad_chain)
                     || patch.video_effects.as_deref().is_some_and(bad_chain)
                     || patch

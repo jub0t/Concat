@@ -287,6 +287,36 @@ impl Studio {
                 ClipField::BackgroundPaddingY => {
                     text.background_padding_y = value.clamp(0.0, 0.5);
                 }
+                ClipField::ShapeKind
+                | ClipField::ShapeWidth
+                | ClipField::ShapeHeight
+                | ClipField::ShapeRadius
+                | ClipField::ShapeSides
+                | ClipField::ShapePoints
+                | ClipField::ShapeInner
+                | ClipField::ShapeFillOn
+                | ClipField::ShapeGradient
+                | ClipField::ShapeGradientAngle
+                | ClipField::ShapeStrokeOn
+                | ClipField::ShapeStrokeWidth
+                | ClipField::ShapeStrokeAlign
+                | ClipField::ShapeDash
+                | ClipField::ShapeStartHead
+                | ClipField::ShapeEndHead
+                | ClipField::ShapeTrimStart
+                | ClipField::ShapeTrimEnd
+                | ClipField::ShapeShadowOn
+                | ClipField::ShapeShadowBlur
+                | ClipField::ShapeShadowDistance
+                | ClipField::ShapeShadowAngle => {
+                    if clip.kind == model::ClipKind::Shape {
+                        set_shape(
+                            clip.shape.get_or_insert_with(model::ShapeStyle::default),
+                            field,
+                            value,
+                        );
+                    }
+                }
             }
             // A media clip has no text; the placeholder must not linger.
             if clip.kind != model::ClipKind::Text {
@@ -362,5 +392,107 @@ impl Studio {
         // the blur does, and a flush before then lands them too.
         self.commit_pending = true;
         self.request_preview();
+    }
+}
+
+/// One of the Shape section's numbers onto `shape`. A switch turned on
+/// brings back a visible default rather than an invisible one: a fill in
+/// white, an outline in white a little over a pixel thick, a soft shadow.
+fn set_shape(shape: &mut model::ShapeStyle, field: ClipField, value: f64) {
+    let index = value.max(0.0).round() as usize;
+    match field {
+        ClipField::ShapeKind => {
+            if let Some(kind) = model::ShapeKind::ALL.get(index) {
+                shape.kind = *kind;
+            }
+        }
+        ClipField::ShapeWidth => shape.width = value.clamp(0.01, 4.0),
+        ClipField::ShapeHeight => shape.height = value.clamp(0.01, 4.0),
+        ClipField::ShapeRadius => shape.corner_radius = value.clamp(0.0, 1.0),
+        ClipField::ShapeSides => shape.sides = (value.round() as u32).clamp(3, 12),
+        ClipField::ShapePoints => shape.points = (value.round() as u32).clamp(3, 24),
+        ClipField::ShapeInner => shape.inner_radius = value.clamp(0.05, 0.95),
+        ClipField::ShapeFillOn => {
+            if value != 0.0 {
+                if shape.fill.is_empty() {
+                    shape.fill = "#ffffff".to_owned();
+                }
+            } else {
+                shape.fill.clear();
+            }
+        }
+        ClipField::ShapeGradient => {
+            shape.gradient = match index {
+                0 => None,
+                _ => Some(model::ShapeGradient {
+                    radial: index == 2,
+                    ..shape.gradient.clone().unwrap_or_default()
+                }),
+            };
+        }
+        ClipField::ShapeGradientAngle => {
+            if let Some(gradient) = shape.gradient.as_mut() {
+                gradient.angle = value.rem_euclid(360.0);
+            }
+        }
+        ClipField::ShapeStrokeOn => {
+            if value != 0.0 {
+                if shape.stroke.is_empty() {
+                    shape.stroke = "#ffffff".to_owned();
+                }
+                if shape.stroke_width <= 0.0 {
+                    shape.stroke_width = 0.012;
+                }
+            } else {
+                shape.stroke.clear();
+            }
+        }
+        ClipField::ShapeStrokeWidth => shape.stroke_width = value.clamp(0.0, 0.5),
+        ClipField::ShapeStrokeAlign => {
+            shape.stroke_align = match index {
+                1 => model::StrokeAlign::Inside,
+                2 => model::StrokeAlign::Outside,
+                _ => model::StrokeAlign::Center,
+            };
+        }
+        ClipField::ShapeDash => {
+            shape.dash = match index {
+                1 => model::StrokeDash::Dashed,
+                2 => model::StrokeDash::Dotted,
+                _ => model::StrokeDash::Solid,
+            };
+        }
+        ClipField::ShapeStartHead => {
+            shape.start_head = model::LineHead::ALL.get(index).copied();
+        }
+        ClipField::ShapeEndHead => {
+            shape.end_head = model::LineHead::ALL.get(index).copied();
+        }
+        // Each end held on its own side of the other.
+        ClipField::ShapeTrimStart => {
+            shape.trim_start = value.clamp(0.0, 1.0).min(shape.trim_end);
+        }
+        ClipField::ShapeTrimEnd => {
+            shape.trim_end = value.clamp(0.0, 1.0).max(shape.trim_start);
+        }
+        ClipField::ShapeShadowOn => {
+            shape.shadow = (value != 0.0).then(|| shape.shadow.clone().unwrap_or_default());
+        }
+        ClipField::ShapeShadowBlur => {
+            if let Some(shadow) = shape.shadow.as_mut() {
+                shadow.blur = value.clamp(0.0, 0.2);
+            }
+        }
+        ClipField::ShapeShadowDistance => {
+            if let Some(shadow) = shape.shadow.as_mut() {
+                shadow.distance = value.clamp(0.0, 0.2);
+            }
+        }
+        ClipField::ShapeShadowAngle => {
+            if let Some(shadow) = shape.shadow.as_mut() {
+                shadow.angle = value.rem_euclid(360.0);
+            }
+        }
+        _ => {}
     }
 }

@@ -52,7 +52,7 @@ impl Studio {
             "shape" => Some(DropPlan {
                 kind: ClipKind::Shape,
                 label: label.to_owned(),
-                media: model::ShapeKind::parse(id)?.id().to_owned(),
+                media: model::ShapeStyle::preset(id).map(|_| id.to_owned())?,
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
@@ -324,12 +324,11 @@ impl Studio {
         shape: &str,
         name: &str,
     ) -> Option<String> {
-        let kind = model::ShapeKind::parse(shape).unwrap_or_default();
         self.apply(Command::AddShapeClip {
             track_id,
             above: true,
             start,
-            style: Some(model::ShapeStyle::of(kind)),
+            style: Some(model::ShapeStyle::preset(shape).unwrap_or_default()),
             duration: Some(duration),
             name: name.to_owned(),
         })

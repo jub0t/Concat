@@ -81,6 +81,11 @@ pub(super) fn apply(
                 }
                 applied |= assign(&mut clip.text, text);
             }
+            if let Some(shape) = patch.shape
+                && clip.kind == crate::model::ClipKind::Shape
+            {
+                applied |= assign(&mut clip.shape, Some(shape.tidy()));
+            }
             if let Some(stream) = patch.audio_stream {
                 applied |= assign(&mut clip.audio_stream, stream);
             }

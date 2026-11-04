@@ -19,6 +19,7 @@ import {
     SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
+import { ShapePanel } from "../inspector/shape-panel.slint";
 import { RoundButton, ToolItem, ToolStrip } from "controls.slint";
 import { PhoneSheet } from "sheet.slint";
 import { PhoneCanvas } from "canvas.slint";
@@ -429,6 +430,7 @@ export component PhoneEditor inherits Rectangle {
         return name == "media" ? I18n.t("common.media")
             : name == "audio" ? I18n.t("common.audio")
             : name == "text" || name == "clip-text" ? I18n.t("common.text")
+            : name == "clip-shape" ? I18n.t("shapePanel.shape")
             : name == "effects" || name == "clip-effects" ? I18n.t("common.effects")
             : name == "filters" ? I18n.t("mediaPane.filters")
             : name == "adjustments" ? I18n.t("mediaPane.adjustments")
@@ -1043,6 +1045,13 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("common.delete");
                 clicked => { Editor.delete-selected(); }
             }
+            // The figure itself: its size, fill, outline and shadow.
+            if root.is-shape: ToolItem {
+                glyph: Glyph.shapes;
+                label: I18n.t("shapePanel.shape");
+                current: root.sheet == "clip-shape";
+                clicked => { root.show("clip-shape", true); }
+            }
             if root.is-picture || root.is-shape: ToolItem {
                 glyph: Glyph.fit;
                 label: I18n.t("phone.edit");
@@ -1611,6 +1620,13 @@ export component PhoneEditor inherits Rectangle {
             commit => { Editor.clip-commit(); }
             import-font => { Editor.import-font(); }
             set-default => { Editor.text-style-default(); }
+        }
+
+        if root.sheet == "clip-shape": ShapePanel {
+            selected: Editor.selected-clip;
+            set(field, value) => { Editor.clip-set(field, value); }
+            set-colour(which, value) => { Editor.clip-shape-colour(which, value); }
+            commit => { Editor.clip-commit(); }
         }
 
         if root.sheet == "clip-layer": FilterPanel {
