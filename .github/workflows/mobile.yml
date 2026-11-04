@@ -147,6 +147,8 @@ jobs:
       # name from what mobile-env.sh exports.
       - name: System libraries
         run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
+      - name: Install bindgen-cli
+        run: cargo install bindgen-cli
 
       # Restored and saved as two steps rather than one, so the FFmpeg
       # build is kept the moment it finishes, whatever happens to the Rust
