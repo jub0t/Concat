@@ -33,6 +33,11 @@ onnxruntime.dll                any
 onnxruntime_providers_shared.dll any
 libonnxruntime.so*             any
 
+# sherpa-onnx's Windows DLLs: built with the static MSVC runtime, whose
+# maths functions carry FMA3 twins chosen at run time.
+sherpa-onnx-c-api.dll          any
+sherpa-onnx-cxx-api.dll        any
+
 # The MSVC runtime, shipped beside the binary: memcpy and friends pick
 # their AVX2 paths at run time.
 vcruntime140*.dll              any
@@ -78,7 +83,8 @@ whisper.dll                    48    0     0      0          0
 # Haswell and Skylake-X stages beside the baseline ones - so the vector
 # classes are not limited. The compiler-made BMI column is the one that
 # tells: pyke's static ONNX Runtime, linked into concat.exe in 0.2.5 and
-# 0.2.6 (#313), brought some 2,700 of them.
+# 0.2.6 (#313), brought some 2,700 of them. On Linux the binary also links
+# sherpa-onnx statically, with an ONNX Runtime of its own inside.
 #
 # PROVISIONAL: these BMI limits are estimates, not measurements, so for
 # now they warn rather than fail; the emulated Ivy Bridge in the smoke

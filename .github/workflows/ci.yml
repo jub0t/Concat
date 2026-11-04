@@ -125,9 +125,10 @@ jobs:
           tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
           echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
 
-      # ONNX Runtime as a shared library, linked dynamically, as the
-      # Linux bundle links it (see build-app.yml). The tests then find it
-      # through LD_LIBRARY_PATH, as they find FFmpeg.
+      # ONNX Runtime as a shared library, linked dynamically, for the reason
+      # build-app.yml gives: a static one beside sherpa-onnx's is the same
+      # protobuf twice, and the test binary does not link. The tests then
+      # find it through LD_LIBRARY_PATH, as they find FFmpeg.
       - name: ONNX Runtime
         run: |
           set -euo pipefail
@@ -142,16 +143,35 @@ jobs:
             echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib:$PWD/$stem/lib"
           } >> "$GITHUB_ENV"
 
+      # The prebuilt sherpa-onnx library, fetched here as the platform jobs
+      # below fetch theirs. Left to its own build script, sherpa-onnx-sys
+      # unpacks it into target/sherpa-onnx-prebuilt, which rust-cache does
+      # not keep while the build script's run is kept: a cache hit then
+      # links against a folder that is not there. The version is the
+      # lockfile's, and deps.lock must pin that version's file.
+      - name: sherpa-onnx libraries
+        run: |
+          set -euo pipefail
+          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          name=sherpa-onnx-linux-x64-static-lib
+          case "$(scripts/ci/fetch.sh --url "$name")" in
+            */v"$version"/*) ;;
+            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
+          esac
+          stem="sherpa-onnx-v$version-linux-x64-static-lib"
+          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
+          mkdir -p sherpa
+          tar -xjf sherpa.tar.bz2 -C sherpa
+          test -d "sherpa/$stem/lib"
+          echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
+
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review. Lints
       # before tests: they finish in a fraction of the time and catch the
       # most.
-      - name: Clippy
+      - run: cargo clippy --workspace --all-targets -- -D warnings
         timeout-minutes: 25
         working-directory: src
-        run: |
-          set -o pipefail
-          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee clippy.log
 
       # The tests are compiled in a step of their own, so a slow compile
       # and a slow test are told apart by which step ran out of time. One
@@ -163,9 +183,7 @@ jobs:
         working-directory: src
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
-        run: |
-          set -o pipefail
-          cargo nextest run --workspace --no-run --build-jobs 1 2>&1 | tee build-tests.log
+        run: cargo nextest run --workspace --no-run --build-jobs 1
       # CONCAT_REQUIRE_GPU: the GPU tests fail rather than skip when no
       # adapter is usable, so the parity suite is known to have run. The
       # report and the log are kept when it fails (the last step).
@@ -190,12 +208,9 @@ jobs:
         run: cargo test --workspace --doc -j 1
       # The gRPC transport is a feature nothing else in the workspace turns
       # on, so it is linted and tested here on its own. See concat-server.
-      - name: Clippy (gRPC)
+      - run: cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings
         timeout-minutes: 10
         working-directory: src
-        run: |
-          set -o pipefail
-          cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings 2>&1 | tee clippy-grpc.log
       - name: Run the gRPC tests
         timeout-minutes: 10
         working-directory: src
@@ -205,13 +220,6 @@ jobs:
           cargo nextest run -p concat-server --features grpc --profile ci 2>&1 | tee nextest-grpc.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-grpc.xml 2>/dev/null || true
           exit "$status"
-
-      # A job's log needs a signed-in session to read; annotations do not.
-      # The cargo steps above tee their output, and this turns the
-      # failures in it into annotations on the run (scripts/ci/annotate.py).
-      - name: Failures to annotations (failure only)
-        if: failure()
-        run: python3 scripts/ci/annotate.py src/clippy.log src/build-tests.log src/nextest-workspace.log src/clippy-grpc.log src/nextest-grpc.log
 
       - name: Keep the test report (failure only)
         if: failure()
@@ -240,8 +248,10 @@ jobs:
       matrix:
         include:
           - os: macos-15
+            sherpa: osx-arm64
             verb: Compiles
           - os: windows-2022
+            sherpa: win-x64
             verb: Tests
     runs-on: ${{ matrix.os }}
     # Windows' steps that can run long have timeouts of their own, 115
@@ -321,18 +331,48 @@ jobs:
           "ORT_LIB_LOCATION=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append
           "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
           $lib | Out-File -FilePath $env:GITHUB_PATH -Append
+      # The prebuilt sherpa-onnx library, as build-app.yml fetches it:
+      # static on macOS, the import libraries alone on Windows, whose DLLs
+      # go on the path for the test binaries - all but sherpa's own
+      # onnxruntime.dll, so the one the tests load is the one above.
+      - name: sherpa-onnx libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            kind=shared-MT-Release-lib
+          else
+            kind=static-lib
+          fi
+          name="sherpa-onnx-${{ matrix.sherpa }}-$kind"
+          stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-$kind"
+          case "$(scripts/ci/fetch.sh --url "$name")" in
+            */v"$version"/*) ;;
+            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
+          esac
+          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
+          mkdir -p sherpa
+          python3 -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall('sherpa', **({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
+          test -d "sherpa/$stem/lib"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            mkdir -p sherpa-libs sherpa-dlls
+            cp "sherpa/$stem/lib/"sherpa-onnx-*.lib sherpa-libs/
+            cp "sherpa/$stem/lib/"sherpa-onnx-*.dll sherpa-dlls/
+            echo "SHERPA_ONNX_LIB_DIR=$(pwd -W)\\sherpa-libs" >> "$GITHUB_ENV"
+            echo "$(pwd -W)\\sherpa-dlls" >> "$GITHUB_PATH"
+          else
+            echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
+          fi
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
           key: check-${{ matrix.os }}
           cache-on-failure: true
-      - name: Check
+      - run: cargo check --workspace --all-targets
         if: runner.os != 'Windows'
         timeout-minutes: 45
         working-directory: src
-        run: |
-          set -o pipefail
-          cargo check --workspace --all-targets 2>&1 | tee check.log
 
       # Windows: compile, then run, then the one scenario that has hung
       # here on its own. Each step has its own timeout, so a red run says
@@ -346,9 +386,7 @@ jobs:
         timeout-minutes: 60
         working-directory: src
         shell: bash
-        run: |
-          set -o pipefail
-          cargo nextest run --workspace --no-run --build-jobs 2 2>&1 | tee build-tests.log
+        run: cargo nextest run --workspace --no-run --build-jobs 2
       - name: Run the tests (Windows)
         if: runner.os == 'Windows'
         timeout-minutes: 30
@@ -376,13 +414,6 @@ jobs:
             -E 'test(=every_edit_still_exports)' 2>&1 | tee nextest-every-edit.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-every-edit.xml 2>/dev/null || true
           exit "$status"
-      - name: Failures to annotations (failure only)
-        if: failure()
-        shell: bash
-        run: |
-          python=python3
-          command -v python3 >/dev/null 2>&1 || python=python
-          "$python" scripts/ci/annotate.py src/check.log src/build-tests.log src/nextest-workspace.log src/nextest-every-edit.log
       - name: Keep the test report (failure only)
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -42,6 +42,7 @@ HOST_MODELS = CRATES / "concat-host" / "src" / "models.rs"
 # Where each family's table lives in the engine, for --check.
 TABLES = {
     "cutout": CRATES / "concat-vision" / "src" / "models.rs",
+    "tts": CRATES / "concat-speech" / "src" / "tts.rs",
     "chatterbox": CRATES / "concat-speech" / "src" / "chatterbox.rs",
     "whisper": CRATES / "concat-speech" / "src" / "transcribe.rs",
 }

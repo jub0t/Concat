@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
-//! Concat for AI agents: a Model Context Protocol server over standard
-//! input and output, shipped inside the app as `concat --mcp`.
+//! Concat for AI agents: an MCP server over HTTP with Server-Sent Events
+//! (SSE) whose tools are the Concat API's methods, with schemas generated
+//! from those request types. The stdio transport is removed; MCP speaks
+//! HTTP/SSE only (Android).
 //!
 //! It is a thin adapter, and deliberately so. Every tool is a
 //! [`concat_api::Request`] - a method of the API, or one of its edit
@@ -16,6 +18,13 @@
 //! ([`summary`]), and where requests go ([`backend`]): the window's own
 //! server when the Automation page has it on, or an API in this process
 //! when it does not.
+//!
+//! Transport: `POST /mcp` for agent-to-server messages, `GET /mcp` for
+//! server-to-agent Server-Sent Events. Sessions are named by
+//! `Mcp-Session-Id`.
+
+#[cfg(all(target_os = "android", feature = "http"))]
+pub mod http;
 
 pub mod backend;
 pub mod protocol;
@@ -25,17 +34,10 @@ pub mod tools;
 
 pub use backend::{Backend, Headless, Mode, Window};
 
-/// Serves MCP on standard input and output until the client closes its
-/// end, through the backend `mode` picks. Logs to standard error, which
-/// MCP clients show as the server's log; standard output carries nothing
-/// but protocol.
-pub fn run(mode: Mode) -> Result<(), String> {
-    let backend = backend::open(mode)?;
-    eprintln!("concat mcp: serving through {}", backend.describe());
-    protocol::serve(
-        std::io::BufReader::new(std::io::stdin()),
-        std::io::stdout(),
-        backend,
-    );
-    Ok(())
+/// Serves MCP over HTTP/SSE on `addr` until the process ends, through the
+/// backend `mode` picks. Logs to standard error; standard output carries
+/// nothing but protocol bytes on the SSE stream. Android only.
+#[cfg(all(target_os = "android", feature = "http"))]
+pub async fn run_http(addr: std::net::SocketAddr, mode: Mode) -> Result<(), String> {
+    http::run_http(addr, mode).await
 }

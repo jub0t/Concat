@@ -1110,7 +1110,7 @@ impl ReaderPool {
         .into_iter()
         .flatten()
         .min()
-        .unwrap_or_else(|| rate.fps().ceil().max(1));
+        .unwrap_or_else(|| (rate.fps().ceil() as i64).max(1));
         if let Ok(cache) = self.sources.lock() {
             let mut near = key.clone();
             for step in 1..reach {

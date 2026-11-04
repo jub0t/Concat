@@ -5,14 +5,14 @@ plugins {
 }
 
 android {
-    namespace = "app.concat.editor.spike"
+    namespace = "org.standalones.concat.spike"
     compileSdk = 35
     // The NDK the engine is built with; AGP strips the .so's symbols with it.
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        // Never app.concat.editor: this installs beside the shipping app.
-        applicationId = "app.concat.editor.spike"
+        // Never org.standalones.concat: this installs beside the shipping app.
+        applicationId = "org.standalones.concat.spike"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

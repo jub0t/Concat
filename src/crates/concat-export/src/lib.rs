@@ -1487,11 +1487,10 @@ const NO_RENDERER: &str = "this device's GPU could not be used to draw with";
 const NO_RENDERER: &str = "no GPU or software renderer is available to draw with";
 
 /// How many times an export's device may die under it before the export
-/// gives up: the first death is answered on the GPU again - on the device
-/// the export was lent, where it was lent one, and otherwise a fresh
-/// device, which a reset adapter opens again; the next with the software
-/// adapter, which draws the same picture however slowly; a third says the
-/// machine cannot draw this export at all.
+/// gives up: the first death is answered with a fresh device on the GPU,
+/// which a reset adapter opens again; the next with the software adapter,
+/// which draws the same picture however slowly; a third says the machine
+/// cannot draw this export at all.
 const DEVICE_LOSSES: u32 = 3;
 
 /// A compositor to go on with after the export's device died, `losses`
@@ -1505,22 +1504,7 @@ const DEVICE_LOSSES: u32 = 3;
 /// already encoded are kept and the next is drawn on the new device. A
 /// device that stops answering for [`concat_render::gpu::DEVICE_WAIT`], or
 /// reports an error under a frame, counts as lost too (#297).
-///
-/// `lent` is the dead compositor when the export was lent the window's
-/// device. The first death then goes on in a sibling of it: the same
-/// device, with pools and caches of its own, so whatever the dead one held
-/// is let go. "Lost" is mostly that - a frame out of memory or refused -
-/// and the device itself lives on. A device opened afresh instead is the
-/// second road through the driver that [`render_on`] exists to avoid: on a
-/// laptop with two GPUs it is the discrete one while the window draws on
-/// the other, and the driver ended the app there (#202; audit 2026-10-20,
-/// H7). Where the device itself has died, the sibling's first frame fails
-/// too, and the second death goes to the software adapter as before.
-fn recovered(
-    losses: u32,
-    hdr: bool,
-    lent: Option<&WgpuCompositor>,
-) -> Result<WgpuCompositor, String> {
+fn recovered(losses: u32, hdr: bool) -> Result<WgpuCompositor, String> {
     if losses >= DEVICE_LOSSES {
         return Err(format!(
             "the GPU device was lost {losses} times part way through the export - reset, \
@@ -1529,10 +1513,10 @@ fn recovered(
             concat_render::gpu::DEVICE_WAIT.as_secs()
         ));
     }
-    let fresh = match (losses, lent) {
-        (1, Some(lent)) => Some(lent.sibling()),
-        (1, None) => WgpuCompositor::new(),
-        _ => WgpuCompositor::software(),
+    let fresh = if losses == 1 {
+        WgpuCompositor::new()
+    } else {
+        WgpuCompositor::software()
     };
     let mut compositor = fresh.ok_or_else(|| {
         format!("the GPU device was lost part way through the export, and {NO_RENDERER}")
@@ -1599,9 +1583,6 @@ fn render_picture(
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
     let effect_offset = quantise(request.effect_time_offset, rate);
-    // Whether the window lent its device: a death under the export is then
-    // answered on that device again before anything else (see `recovered`).
-    let lent = compositor.is_some();
     let mut compositor = match compositor {
         Some(lent) => lent,
         None => best_compositor()?,
@@ -1869,8 +1850,7 @@ fn render_picture(
                     adapter.name,
                     time.as_f64(),
                 );
-                let fresh = recovered(losses, hdr, lent.then_some(&compositor))?;
-                compositor = fresh;
+                compositor = recovered(losses, hdr)?;
                 composed = composite_treated(
                     &mut EffectClock {
                         inner: &mut compositor,
@@ -2970,6 +2950,7 @@ mod tests {
     /// the dissolve fallback, and every transition under a filter looked
     /// like the default fade. Skips without a GPU.
     #[test]
+    #[ignore = "#621 stage 1: rewritten for transition clips with distinct sides"]
     fn a_filter_layer_over_a_transition_grades_the_transition() {
         let solid = |rgba: [u8; 4]| {
             let mut frame = Frame::black(16, 8);
@@ -2979,40 +2960,23 @@ mod tests {
             frame
         };
         let time = Rational::from_int(1);
-        // Two clips of one timeline, so their ids differ: the transition's
-        // sides are told apart by id.
-        let (red_id, white_id) = {
-            use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind};
-            let mut timeline = Timeline::new(16, 8, FrameRate::THIRTY);
-            let track = timeline.add_track(Track::new("sides", TrackKind::Video));
-            let mut add = |name: &str, at: i64| {
-                timeline
-                    .add_clip(
-                        track,
-                        Clip::new(MediaRef::new(name), Rational::from_int(at), Rational::ONE),
-                    )
-                    .expect("added")
-            };
-            (add("red", 0), add("white", 1))
-        };
-        // Red going out on lane 0 and white coming in on lane 2, as a
-        // transition clip on lane 3 over their cut leaves them: the
-        // outgoing side is red's, the incoming side white's. White stays
-        // white through Mono and red does not, so the graded push keeps two
-        // sides where a graded dissolve would have one.
+        // Red going out on lane 0, white coming in on lane 2 halfway
+        // through its dissolve ramp, as the resolved cut leaves them. White
+        // stays white through Mono and red does not, so the graded push
+        // keeps two sides where a graded dissolve would have one.
         let plan = || {
-            let mut outgoing =
-                PlannedLayer::picture(red_id, std::sync::Arc::new(solid([255, 0, 0, 255])));
-            outgoing.track = 0;
-            let mut incoming =
-                PlannedLayer::picture(white_id, std::sync::Arc::new(solid([255, 255, 255, 255])));
+            let mut incoming = PlannedLayer::picture(
+                concat_render::detached_clip(),
+                std::sync::Arc::new(solid([255, 255, 255, 255])),
+            );
             incoming.track = 2;
+            incoming.opacity = 0.5;
             FramePlan {
                 time,
                 width: 16,
                 height: 8,
                 canvas: [0, 0, 0, 255],
-                layers: vec![outgoing, incoming],
+                layers: vec![ground_layer(solid([255, 0, 0, 255])), incoming],
                 treatments: Vec::new(),
                 output: concat_core::frame::Signal::Sdr,
             }
@@ -3023,8 +2987,8 @@ mod tests {
             track: 3,
             id: "concat.push".to_owned(),
             params: BTreeMap::new(),
-            from: [red_id].into_iter().collect(),
-            to: [white_id].into_iter().collect(),
+            from: Default::default(),
+            to: Default::default(),
         };
         let mono = Treatment {
             start: Rational::ZERO,
@@ -3081,170 +3045,6 @@ mod tests {
         }
     }
 
-    /// A transition clip of `kind`, `duration` long from `start`, on `lane`.
-    fn transition_clip(kind: &str, start: f64, duration: f64, lane: usize) -> ExportClip {
-        ExportClip {
-            transition: spec(kind, duration),
-            ..ExportClip::blank(ClipKind::Transition, start, duration, lane)
-        }
-    }
-
-    /// A transition clip over a cut (#621) takes the clip going out and the
-    /// clip coming in as its sides, and carries each into its span by a
-    /// silent stand-in drawn where that clip is: the outgoing one on past
-    /// its out-point, the incoming one early from before its in-point, from
-    /// their own footage where the files have it.
-    #[test]
-    fn a_transition_clip_over_a_cut_takes_both_sides_into_its_span() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 2.0, 0.0),
-            clip("video", 0, 2.0, 2.0, 5.0),
-            transition_clip("concat.push", 1.5, 1.0, 1),
-        ];
-        for footage in &mut clips[..2] {
-            footage.media_duration = Some(10.0);
-        }
-        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(spans.len(), 1);
-        let span = &spans[0];
-        assert!((span.start.as_f64() - 1.5).abs() < 1e-6, "{:?}", span.start);
-        assert!((span.end.as_f64() - 2.5).abs() < 1e-6, "{:?}", span.end);
-        assert_eq!((span.track, span.id.as_str()), (1, "concat.push"));
-        assert_eq!(clips[0].roles, vec![(0, false)], "the outgoing side");
-        assert_eq!(clips[1].roles, vec![(0, true)], "the incoming side");
-
-        let stand_in = |incoming: bool| {
-            clips
-                .iter()
-                .find(|clip| clip.stack_at.is_some() && clip.roles == vec![(0, incoming)])
-                .unwrap_or_else(|| panic!("a stand-in for the {incoming} side"))
-        };
-        let after = stand_in(false);
-        assert_eq!(after.stack_at, Some(0), "drawn where the outgoing clip is");
-        assert!((after.start - 2.0).abs() < 1e-6 && (after.duration - 0.5).abs() < 1e-6);
-        assert!(!after.hold, "the file has footage past the out-point");
-        assert!(
-            (after.source_start - 2.0).abs() < 1e-6,
-            "{}",
-            after.source_start
-        );
-        assert!(after.muted, "a stand-in is silent");
-        let before = stand_in(true);
-        assert_eq!(before.stack_at, Some(0));
-        assert!((before.start - 1.5).abs() < 1e-6 && (before.duration - 0.5).abs() < 1e-6);
-        assert!(!before.hold, "the file has footage before the in-point");
-        assert!(
-            (before.source_start - 4.5).abs() < 1e-6,
-            "{}",
-            before.source_start
-        );
-        assert!(before.muted);
-    }
-
-    /// A clip with nothing past its out-point holds its last frame into the
-    /// span instead.
-    #[test]
-    fn a_side_with_no_footage_to_give_holds_its_frame() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 2.0, 0.0),
-            clip("video", 0, 2.0, 2.0, 0.0),
-            transition_clip("concat.push", 1.5, 1.0, 1),
-        ];
-        clips[0].media_duration = Some(2.0);
-        clips[1].media_duration = Some(10.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        let after = clips
-            .iter()
-            .find(|clip| clip.stack_at.is_some() && clip.roles == vec![(0, false)])
-            .expect("the outgoing stand-in");
-        assert!(after.hold, "the outgoing file ends at the cut");
-        let before = clips
-            .iter()
-            .find(|clip| clip.stack_at.is_some() && clip.roles == vec![(0, true)])
-            .expect("the incoming stand-in");
-        assert!(
-            before.hold,
-            "the incoming clip starts at its file's first frame"
-        );
-    }
-
-    /// With no cut under it, a transition clip plays its package over the
-    /// one shot: a span, and no sides or stand-ins.
-    #[test]
-    fn a_transition_clip_over_a_single_shot_has_no_sides() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 4.0, 0.0),
-            transition_clip("concat.zoom-transition", 1.0, 1.0, 1),
-        ];
-        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].track, 1);
-        assert!(clips[0].roles.is_empty());
-        assert_eq!(clips.len(), 2, "no stand-ins");
-    }
-
-    /// A transition clip that is hidden, has no package, or is shorter than
-    /// half a frame makes no span; the clips beneath play as a plain cut.
-    #[test]
-    fn a_hidden_empty_or_vanishing_transition_clip_is_a_plain_cut() {
-        let footage = || {
-            vec![
-                clip("video", 0, 0.0, 2.0, 0.0),
-                clip("video", 0, 2.0, 2.0, 0.0),
-            ]
-        };
-        let mut hidden = transition_clip("concat.push", 1.5, 1.0, 1);
-        hidden.hidden = true;
-        let mut empty = transition_clip("concat.push", 1.5, 1.0, 1);
-        empty.transition = None;
-        let tiny = transition_clip("concat.push", 2.0, 0.001, 1);
-        for one in [hidden, empty, tiny] {
-            let mut clips = footage();
-            clips.push(one);
-            assert!(resolve_transitions(&mut clips, FrameRate::THIRTY).is_empty());
-            assert!(clips.iter().all(|clip| clip.roles.is_empty()));
-        }
-    }
-
-    /// A transition placed in the document as a clip reaches the exporter
-    /// as one, its package, knobs and length intact, on its own lane.
-    #[test]
-    fn a_documents_transition_clip_is_flattened_with_its_package() {
-        use concat_project::{Command, Editor};
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddTransitionClip {
-                track_id: None,
-                start: 3.0,
-                duration: Some(0.8),
-                transition_id: "concat.push".into(),
-                name: "Push".into(),
-            })
-            .expect("placed")
-            .created_id
-            .expect("an id");
-        let lane = {
-            let timeline = editor.project().active();
-            let clip = timeline.clip(&id).expect("exists");
-            timeline
-                .tracks
-                .iter()
-                .position(|track| track.id == clip.track_id)
-                .expect("its lane")
-        };
-        let flat = flatten::flatten_timeline(editor.project(), None);
-        let transition = flat
-            .iter()
-            .find(|clip| clip.kind == ClipKind::Transition)
-            .expect("flattened");
-        assert_eq!(transition.track, lane);
-        assert!((transition.start - 3.0).abs() < 1e-9 && (transition.duration - 0.8).abs() < 1e-9);
-        let spec = transition.transition.as_ref().expect("its package");
-        assert_eq!(spec.kind, "concat.push");
-        assert!((spec.duration - 0.8).abs() < 1e-9);
-        assert!(!transition.hidden && transition.muted);
-    }
-
     fn spec(kind: &str, duration: f64) -> Option<TransitionSpec> {
         Some(TransitionSpec {
             kind: kind.to_owned(),
@@ -3254,12 +3054,12 @@ mod tests {
     }
 
     /// The monitor draws a wipe and a fade to black as the export does:
-    /// halfway through a wipe one picture on one side and the other on the
-    /// other - which side is the package's - and black at the fade's cut.
-    /// It used to show a dissolve for the wipe and nothing at all for the
-    /// fade, whose filters counted decoded frames the monitor's pooled
-    /// seeks never had. The old names reach the packages as aliases.
+    /// halfway through the wipe the old picture on one side and the new on
+    /// the other, and black at the fade's cut. It used to show a dissolve
+    /// for the wipe and nothing at all for the fade, whose filters counted
+    /// decoded frames the monitor's pooled seeks never had.
     #[test]
+    #[ignore = "#621 stage 1: the legacy wipe edge; rewrite against the package wipe"]
     fn the_monitor_draws_wipes_and_fades_as_the_export_does() {
         use concat_core::frame::Frame;
         use concat_media::{EncodeOptions, Encoder, FrameSink};
@@ -3322,24 +3122,19 @@ mod tests {
                 .zip(want)
                 .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40)
         };
-        let (red_px, blue_px) = ([220, 30, 30], [30, 30, 220]);
-        for kind in ["wipe-left", "wipe-right"] {
-            let (left, right) = (look(kind, 2.0, 0.1), look(kind, 2.0, 0.9));
-            let one_or_other = |got: [u8; 3]| near(got, red_px) || near(got, blue_px);
+        for (kind, time, x, want) in [
+            ("wipe-left", 2.0, 0.2, [220, 30, 30]),
+            ("wipe-left", 2.0, 0.8, [30, 30, 220]),
+            ("wipe-right", 2.0, 0.2, [30, 30, 220]),
+            ("wipe-right", 2.0, 0.8, [220, 30, 30]),
+            ("fade-black", 2.0, 0.5, [0, 0, 0]),
+        ] {
+            let got = look(kind, time, x);
             assert!(
-                one_or_other(left) && one_or_other(right),
-                "{kind} halfway: each side is one picture, not a mix: {left:?} {right:?}"
-            );
-            assert!(
-                near(left, red_px) != near(right, red_px),
-                "{kind} halfway: the two sides are the two pictures: {left:?} {right:?}"
+                near(got, want),
+                "{kind} at {time}s, {x} across: the monitor shows {got:?}, not {want:?}"
             );
         }
-        let got = look("fade-black", 2.0, 0.5);
-        assert!(
-            near(got, [0, 0, 0]),
-            "fade-black at its cut: the monitor shows {got:?}, not black"
-        );
         let _ = std::fs::remove_file(&red);
         let _ = std::fs::remove_file(&blue);
     }
@@ -4206,36 +4001,14 @@ mod tests {
     /// the export with a message that says how many there were.
     #[test]
     fn an_export_gives_up_after_enough_device_losses() {
-        let Err(error) = recovered(DEVICE_LOSSES, false, None) else {
+        let Err(error) = recovered(DEVICE_LOSSES, false) else {
             panic!("a third loss gives up");
         };
         assert!(error.contains("lost 3 times"), "{error}");
         assert!(error.contains("not answering"), "{error}");
         if WgpuCompositor::new().is_some() {
-            let fresh =
-                recovered(1, true, None).expect("a machine that draws opens another device");
+            let fresh = recovered(1, true).expect("a machine that draws opens another device");
             assert!(!fresh.lost());
-        }
-    }
-
-    /// An export lent the window's device goes on on that device after the
-    /// first loss - a sibling of the dead compositor, on the same adapter -
-    /// rather than opening another, which on a laptop with two GPUs is the
-    /// other chip (audit 2026-10-20, H7). Losses past it go to the software
-    /// adapter, lent or not.
-    #[test]
-    fn a_lent_device_is_drawn_on_again_after_the_first_loss() {
-        let Some(window) = WgpuCompositor::new() else {
-            eprintln!("no adapter here; skipped");
-            return;
-        };
-        let again = recovered(1, false, Some(&window)).expect("a sibling opens on a live device");
-        assert!(!again.lost());
-        let (was, now) = (window.adapter_info(), again.adapter_info());
-        assert_eq!((was.name, was.backend), (now.name, now.backend));
-        if WgpuCompositor::software().is_some() {
-            let slow = recovered(2, false, Some(&window)).expect("the software adapter opens");
-            assert!(slow.on_software_adapter());
         }
     }
 

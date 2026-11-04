@@ -45,6 +45,11 @@ pub struct Listing {
     /// Where to connect: the JSON-RPC address, made reachable from this
     /// machine - a server bound to every interface is reached on loopback.
     pub address: SocketAddr,
+    /// Android LocalSocket name (abstract namespace or filesystem path).
+    /// Only present when the server is listening on a LocalSocket.
+    #[cfg(target_os = "android")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_socket: Option<String>,
     /// The token to present.
     pub token: String,
     /// The process serving, for a reader that wants to tell a stale file
@@ -62,6 +67,24 @@ impl Listing {
         Listing {
             version: VERSION,
             address: crate::loopback(bound),
+            #[cfg(target_os = "android")]
+            local_socket: None,
+            token: token.to_owned(),
+            pid: std::process::id(),
+            concat: env!("CARGO_PKG_VERSION").to_owned(),
+            api_version: concat_api::API_VERSION.to_owned(),
+        }
+    }
+
+    /// A listing for a server with Android LocalSocket.
+    #[cfg(target_os = "android")]
+    pub fn new_local(local_socket: String, token: &str) -> Listing {
+        // Use a dummy address since we're connecting via LocalSocket
+        let bound = "127.0.0.1:0".parse().unwrap();
+        Listing {
+            version: VERSION,
+            address: crate::loopback(bound),
+            local_socket: Some(local_socket),
             token: token.to_owned(),
             pid: std::process::id(),
             concat: env!("CARGO_PKG_VERSION").to_owned(),

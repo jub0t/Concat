@@ -580,11 +580,7 @@ impl Package {
     }
 
     /// The link `replaced`'s knobs make of `link`; see `replacing`.
-    fn carried_over(
-        &self,
-        replaced: &crate::manifest::Replaces,
-        link: &AppliedFilter,
-    ) -> AppliedFilter {
+    fn carried_over(&self, replaced: &crate::manifest::Replaces, link: &AppliedFilter) -> AppliedFilter {
         let old: BTreeMap<String, Value> = replaced
             .defaults
             .iter()

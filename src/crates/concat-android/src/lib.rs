@@ -112,9 +112,9 @@ mod java {
     use jni::{Env, JavaVM, jni_sig, jni_str};
     use slint::android::AndroidApp;
 
-    /// The classes build.rs compiled: app.concat.editor.ConcatFiles.
+    /// The classes build.rs compiled: org.standalones.concat.ConcatFiles.
     const DEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/classes.dex"));
-    const CLASS_NAME: &str = "app.concat.editor.ConcatFiles";
+    const CLASS_NAME: &str = "org.standalones.concat.ConcatFiles";
 
     /// The fragment class, loaded once and kept.
     static CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
@@ -507,6 +507,88 @@ mod links {
         }));
     }
 }
+/// Starts the Concat API server (JSON-RPC over TCP/LocalSocket) if enabled.
+/// Configuration via environment variables:
+/// - CONCAT_API_ENABLE=1 to enable
+/// - CONCAT_API_ADDRESS=0.0.0.0:7420 (default) - bind address for TCP
+/// - CONCAT_API_LOCAL_SOCKET=@concat-api (optional) - Android LocalSocket name (abstract namespace)
+/// - CONCAT_API_TOKEN=... (optional, auto-generated if not set)
+fn start_api_server_if_enabled(app: &slint::android::AndroidApp) {
+    use std::env;
+    use std::net::SocketAddr;
+
+    if env::var("CONCAT_API_ENABLE").unwrap_or_default() != "1" {
+        return;
+    }
+
+    // TCP address (optional if LocalSocket is used)
+    let address: Option<SocketAddr> = env::var("CONCAT_API_ADDRESS")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse().expect("CONCAT_API_ADDRESS must be a valid socket address like 0.0.0.0:7420"));
+
+    // Android LocalSocket name (abstract namespace like @concat-api or filesystem path)
+    let local_socket: Option<String> = env::var("CONCAT_API_LOCAL_SOCKET")
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    // Require at least one transport
+    if address.is_none() && local_socket.is_none() {
+        log::warn!("CONCAT_API_ENABLE=1 but no CONCAT_API_ADDRESS or CONCAT_API_LOCAL_SOCKET set; defaulting to 0.0.0.0:7420");
+    }
+
+    let token = env::var("CONCAT_API_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| {
+            concat_server::mint_token().unwrap_or_else(|_| {
+                // Fallback: generate a random token
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let mut hasher = DefaultHasher::new();
+                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos().hash(&mut hasher);
+                format!("{:x}", hasher.finish())
+            })
+        });
+
+    // Get config directory for automation.json discovery file
+    let config_dir = app.internal_data_path()
+        .map(|p| p.join("config"))
+        .expect("internal_data_path not available");
+
+    let _ = std::fs::create_dir_all(&config_dir);
+
+    let config = concat_server::Config {
+        json: address,
+        #[cfg(target_os = "android")]
+        local_socket,
+        token: Some(token.clone()),
+        discovery: Some(concat_server::discovery::path_in(&config_dir)),
+        roots: Some(vec![
+            app.internal_data_path().unwrap_or_else(|| config_dir.clone()),
+            app.external_data_path().unwrap_or_else(|| config_dir.clone()),
+        ]),
+        ..Default::default()
+    };
+
+    let exporter = concat_host::Exporter::new();
+    let open_projects = concat_api::OpenProjects::default();
+
+    std::thread::Builder::new()
+        .name("concat-api-server".into())
+        .spawn(move || {
+            let addr_str = address.map(|a| a.to_string()).unwrap_or_else(|| "local-socket".to_string());
+            log::info!("Starting Concat API server on {} (token: {})", addr_str, token);
+            let _ = concat_server::Server::start(config, move |events| {
+                let mut api = concat_api::Api::new(events).unwrap();
+                api.share_exporter(exporter.clone());
+                api.share_open_projects(open_projects.clone());
+                Ok(api)
+            });
+        })
+        .expect("failed to spawn API server thread");
+}
 
 /// Called by the activity's native glue; the name is the contract.
 #[cfg(target_os = "android")]
@@ -516,6 +598,10 @@ fn android_main(app: slint::android::AndroidApp) {
     activity::name_directories(&app);
     activity::open_log();
     log::info!("Concat {} starting", env!("CARGO_PKG_VERSION"));
+
+    // Start API server if enabled via environment variable
+    start_api_server_if_enabled(&app);
+
     if let Err(error) = slint::android::init(app.clone()) {
         log::error!("could not start the Android backend: {error}");
         return;

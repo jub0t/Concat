@@ -934,6 +934,7 @@ fn expected_tokens(chunk: &str) -> usize {
     ((chunk.chars().count() as f32 / 15.0) * TOKENS_PER_SECOND) as usize + 10
 }
 
+
 /// Where the bundle lives under the models folder.
 pub fn bundle_dir(models: &Path) -> PathBuf {
     models.join(BUNDLE_ID)

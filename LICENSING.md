@@ -23,12 +23,6 @@ To ask about one, email [jub0trd@gmail.com](mailto:jub0trd@gmail.com).
 Only a written agreement signed by the owner grants a commercial licence.
 Nothing in this repository, its issues, pull requests or discussions does.
 
-A commercial licence can cover only code the owner holds the copyright in.
-Some of Concat is still outside contributors' code under the AGPL alone;
-[`audit/CLEAN-ROOM.md`](audit/CLEAN-ROOM.md) lists it, and it is being
-rewritten. Until that list is done, a commercial licence names what it
-covers and how the rest is handled.
-
 ## Codec patents
 
 Neither licence grants any rights under patents on media formats such as
@@ -42,11 +36,9 @@ responsible for any patent licences their own use requires.
 Concat includes and links third-party software, fonts and models, listed in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Each keeps its own licence,
 and neither of the licences above covers it. Some of them (Slint under its
-GPL-3.0 option, and the Robust Video Matting weights, which are GPL-3.0 and
-downloaded on demand) cannot go into a closed-source build as they are; a
-commercial licence says how each is handled. The FFmpeg builds Concat ships
-are LGPL, which a closed-source build may link if its users can relink it
-against their own FFmpeg.
+GPL-3.0 option, the GPL builds of FFmpeg with x264, espeak-ng, and the Robust
+Video Matting weights) cannot go into a closed-source build as they are; a
+commercial licence says how each is handled.
 
 ## Contributions
 

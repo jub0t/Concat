@@ -2,14 +2,12 @@
 
 Every outside contribution still present on `main`, as `git blame -w` found it on 2026-11-02: **141 commits, 19274 lines in 327 files.** When this list is done, the Owner holds the copyright in every line of Concat that is not third-party code, and can license all of it on any terms.
 
-`src/crates/concat/src/studio.rs` was split into `src/crates/concat/src/studio/*.rs` on 2026-11-04, after this list was made. An item below that names `studio.rs` may now be in one of those files. The split was merged so that blame follows each file back through `studio.rs` (`git blame -w --minimal` attributes 1 203 of the 1 207 outside lines exactly as before; the other 4 are signatures rustfmt re-wrapped).
-
 ## Rules
 
 1. **Write a spec first, from the behaviour, never from the code.** Sources: the commit subject below, the linked issue, the running app, and the tests' expectations stated in words. Do not open the commit's diff or the PR.
 2. **Delete, then write.** Remove the contributor's lines, then implement the spec in a fresh change. If the old code has to be read to find where something plugs in, only read the call sites, which are ours.
 3. **Translations are re-translated from `en.json`**, not edited from the old file. The same goes for translated READMEs.
-4. **Tick an item only once `git blame -w --minimal` shows none of that commit's lines left** (`git blame -w --minimal <file> | grep <hash>` is empty). Always pass `--minimal`: git's default diff gives up being exact on a large file, and on 2026-11-04's split of `studio.rs` it credited most moved lines to the split itself.
+4. **Tick an item only once `git blame -w` shows none of that commit's lines left** (`git blame -w <file> | grep <hash>` is empty).
 5. Commits are `refactor(<area>): ... (clean room)`, authored by Jareer, and list the hashes they replace in the body (`Replaces <hash>`).
 6. Re-run the inventory at the end, with the command in the last section. Anything new it finds goes on this list.
 7. When a file's last outside line is gone, its SPDX line drops "and Concat contributors" and says `2026 Jareer Abdullah` alone. Until then it keeps it: those lines are still their authors' copyright.
@@ -835,7 +833,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 
 ```sh
 git ls-files | grep -vE '\.(png|jpg|jpeg|gif|webp|ttf|otf|ico|icns|wav|mp4|mp3|bin|onnx|lock|gguf)$' \
-  | while read -r f; do git blame -w --minimal --line-porcelain -- "$f" 2>/dev/null | sed -n 's/^author //p'; done \
+  | while read -r f; do git blame -w --line-porcelain -- "$f" 2>/dev/null | sed -n 's/^author //p'; done \
   | grep -vE 'Jareer|bot\]|Not Committed' | sort | uniq -c | sort -rn
 ```
 

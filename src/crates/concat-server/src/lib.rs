@@ -107,6 +107,10 @@ pub struct Config {
     /// A Unix socket path for JSON-RPC lines. Unix only; a file already
     /// there is replaced.
     pub socket: Option<PathBuf>,
+    /// An Android LocalSocket name (abstract namespace or filesystem path).
+    /// Android only; enables JSON-RPC over LocalSocket for local apps.
+    #[cfg(target_os = "android")]
+    pub local_socket: Option<String>,
     /// A TCP address for gRPC. Needs the `grpc` feature.
     pub grpc: Option<SocketAddr>,
     /// What every connection presents before its first call. `None` or
@@ -164,6 +168,9 @@ pub struct Server {
     stopper: Stopper,
     json: Option<SocketAddr>,
     socket: Option<PathBuf>,
+    /// Android LocalSocket name (abstract namespace or filesystem path)
+    #[cfg(target_os = "android")]
+    local_socket: Option<String>,
     grpc: Option<SocketAddr>,
     token: String,
     roots: Vec<PathBuf>,
@@ -280,6 +287,56 @@ impl Server {
                     .map_err(|error| could_not(&shown, &error))?,
             );
         }
+        #[cfg(all(target_os = "android", feature = "local-socket"))]
+        if let Some(name) = config.local_socket {
+            use socket2::{Domain, Protocol, Socket, Type};
+            use std::os::fd::AsRawFd;
+            let socket = Socket::new(Domain::UNIX, Type::STREAM, Some(Protocol::from(0)))
+                .map_err(|error| could_not("LocalSocket", &error))?;
+            
+            // Abstract namespace: name starts with '@' or use filesystem path
+            if name.starts_with('@') {
+                // Abstract namespace socket
+                let mut addr = libc::sockaddr_un::default();
+                addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+                let name_bytes = name[1..].as_bytes();
+                let len = name_bytes.len().min(107); // Linux abstract namespace limit
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        name_bytes.as_ptr(),
+                        addr.sun_path[1..].as_mut_ptr() as *mut u8,
+                        len,
+                    );
+                }
+                // Length is sizeof(sa_family_t) + 1 + len for abstract
+                let addr_len = std::mem::size_of::<libc::sa_family_t>() + 1 + len;
+                socket.bind(&socket2::SockAddr::from(addr))
+                    .map_err(|error| could_not(&name, &error))?;
+                socket.listen(128)
+                    .map_err(|error| could_not(&name, &error))?;
+            } else {
+                // Filesystem path
+                let _ = std::fs::remove_file(&name);
+                let path = std::path::Path::new(&name);
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let listener = std::os::unix::net::UnixListener::bind(path)
+                    .map_err(|error| could_not(&name, &error))?;
+                let addr = socket2::SockAddr::from(listener.local_addr()
+                    .map_err(|error| could_not(&name, &error))?);
+                socket.bind(&addr)
+                    .map_err(|error| could_not(&name, &error))?;
+                socket.listen(128)
+                    .map_err(|error| could_not(&name, &error))?;
+            }
+            
+            server.local_socket = Some(name.clone());
+            server.listeners.push(
+                json::serve_local(socket, door.clone())
+                    .map_err(|error| could_not(&name, &error))?,
+            );
+        }
 
         #[cfg(feature = "grpc")]
         if let Some(address) = config.grpc {
@@ -297,10 +354,15 @@ impl Server {
 
         // Last, so nothing is listed that is not yet listening. A listing
         // that cannot be written costs the agent a way in, not the server.
-        if let (Some(path), Some(address)) = (config.discovery, server.json)
-            && discovery::write(&path, &discovery::Listing::new(address, &server.token)).is_ok()
-        {
-            server.listing = Some(path);
+        #[cfg(target_os = "android")]
+        if let (Some(path), Some(name)) = (config.discovery.clone(), server.local_socket.clone()) {
+            if discovery::write(&path, &discovery::Listing::new_local(name, &server.token)).is_ok() {
+                server.listing = Some(path);
+            }
+        } else if let (Some(path), Some(address)) = (config.discovery, server.json) {
+            if discovery::write(&path, &discovery::Listing::new(address, &server.token)).is_ok() {
+                server.listing = Some(path);
+            }
         }
 
         Ok(server)
