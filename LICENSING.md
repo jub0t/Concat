@@ -25,7 +25,7 @@ Nothing in this repository, its issues, pull requests or discussions does.
 
 A commercial licence can cover only code the owner holds the copyright in.
 Some of Concat is still outside contributors' code under the AGPL alone;
-[`audit/CLEAN-ROOM.md`](audit/CLEAN-ROOM.md) lists it, and it is being
+[`CLEAN-ROOM.md`](CLEAN-ROOM.md) lists it, and it is being
 rewritten. Until that list is done, a commercial licence names what it
 covers and how the rest is handled.
 
