@@ -548,3 +548,15 @@
 "Zoom out" = "تصغير";
 "iOS fonts" = "خطوط iOS";
 "◆ records the strength at the playhead; with keyframes, the effect changes over time." = "◆ يسجّل القوة عند المؤشر؛ مع الإطارات المفتاحية يتغير التأثير مع الوقت.";
+"Settings" = "الإعدادات";
+"Language" = "اللغة";
+"Change app language" = "تغيير لغة التطبيق";
+"Opens Settings › AlMosawiCut › Language. The app is in English and Arabic." = "يفتح الإعدادات › AlMosawiCut › اللغة. التطبيق متوفر بالإنجليزية والعربية.";
+"Download" = "تنزيل";
+"Editing" = "التحرير";
+"About" = "حول";
+"Version" = "الإصدار";
+"Canvas & project" = "اللوحة والمشروع";
+"Title fonts are open-source (SIL Open Font License); their licences are inside the app." = "خطوط العناوين مفتوحة المصدر (رخصة SIL للخطوط المفتوحة)؛ تراخيصها داخل التطبيق.";
+"No templates yet. Open a project, tap the canvas button at the top of the editor (the ⚙︎ next to Export), then Save as template." = "لا قوالب بعد. افتح مشروعًا، واضغط زر اللوحة أعلى المحرر (⚙︎ بجانب «تصدير»)، ثم «حفظ كقالب».";
+"%lld slots · %@" = "%lld خانات · %@";

@@ -180,12 +180,13 @@ struct EditorView: View {
             Spacer(minLength: 4)
             Button { open(.canvas) } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "aspectratio").font(.caption.weight(.bold))
+                    Image(systemName: "gearshape.fill").font(.caption.weight(.bold))
                     Text(model.project.aspect.rawValue).font(.caption.weight(.bold))
                 }
                 .padding(.horizontal, 11).frame(height: 32)
                 .background(Theme.surface, in: Capsule())
             }
+            .accessibilityLabel("Canvas & project")
             Button {
                 model.player.pause(); model.isPlaying = false
                 showExport = true
@@ -310,7 +311,7 @@ struct EditorView: View {
         case .music: "Add audio"
         case .record: "Record voiceover"
         case .audioItem: "Audio"
-        case .canvas: "Canvas"
+        case .canvas: "Canvas & project"
         }
     }
 }

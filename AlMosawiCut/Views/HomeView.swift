@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct HomeView: View {
     @Environment(ProjectStore.self) private var store
@@ -10,6 +11,7 @@ struct HomeView: View {
     @State private var newProjectTool: HomeTool?
     /// The template the next Photos pick fills.
     @State private var templateToFill: Project?
+    @State private var showSettings = false
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var showPicker = false
     @State private var importing = false
@@ -26,7 +28,7 @@ struct HomeView: View {
                     header
                     newProjectCard
                     features
-                    if !store.templates.isEmpty { templatesRow }
+                    templatesRow
                     if !store.projects.isEmpty {
                         HStack {
                             Text("Projects").font(.title3.weight(.bold))
@@ -64,6 +66,7 @@ struct HomeView: View {
                 if ProcessInfo.processInfo.arguments.contains("-selftest") { await SelfTest.run(store: store) }
             }
             #endif
+            .sheet(isPresented: $showSettings) { SettingsView() }
             .fullScreenCover(item: $openRequest, onDismiss: { store.reload() }) { request in
                 EditorHost(project: request.project, startTool: request.tool)
             }
@@ -105,10 +108,14 @@ struct HomeView: View {
                 Text("Edit anywhere. No watermark.").font(.subheadline).foregroundStyle(Theme.secondaryText)
             }
             Spacer()
-            Image(systemName: "scissors")
-                .font(.system(size: 18, weight: .bold))
-                .frame(width: 42, height: 42)
-                .background(Theme.surface, in: Circle())
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .frame(width: 42, height: 42)
+                    .background(Theme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
         }
         .padding(.top, 8)
     }
@@ -177,6 +184,16 @@ struct HomeView: View {
     private var templatesRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Templates").font(.title3.weight(.bold))
+            if store.templates.isEmpty {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "rectangle.stack.badge.plus").font(.title2).foregroundStyle(Theme.accent)
+                    Text("No templates yet. Open a project, tap the canvas button at the top of the editor (the ⚙︎ next to Export), then Save as template.")
+                        .font(.caption).foregroundStyle(Theme.secondaryText)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(store.templates) { t in
@@ -355,5 +372,129 @@ private struct ProjectCard: View {
             }
         }
         .contentShape(Rectangle())
+    }
+}
+
+/// App-wide settings: language, captions, fonts, templates, editing and export defaults.
+struct SettingsView: View {
+    @Environment(ProjectStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @AppStorage("captionEngine") private var engineRaw = Captioner.Engine.whisper.rawValue
+    @AppStorage("rippleEdits") private var ripple = true
+    @AppStorage("exportQuality") private var quality: ExportQuality = .hd1080
+    @AppStorage("exportFPS") private var fps = 30
+    @AppStorage("exportHEVC") private var hevc = false
+    @AppStorage("export10bit") private var tenBit = false
+    @State private var whisper = WhisperEngine.shared
+    @State private var fonts = FontLibrary.shared
+    @State private var importingFont = false
+    @State private var downloading: WhisperEngine.Size?
+    @State private var message: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    } label: {
+                        Label("Change app language", systemImage: "globe")
+                    }
+                } header: { Text("Language") } footer: {
+                    Text("Opens Settings › AlMosawiCut › Language. The app is in English and Arabic.")
+                }
+
+                Section {
+                    Picker("Engine", selection: $engineRaw) {
+                        ForEach(Captioner.Engine.allCases) { Text(LocalizedStringKey($0.label)).tag($0.rawValue) }
+                    }
+                    ForEach(WhisperEngine.Size.allCases) { size in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(LocalizedStringKey(size.label))
+                                Text(LocalizedStringKey(size.detail)).font(.caption).foregroundStyle(Theme.secondaryText)
+                            }
+                            Spacer()
+                            if whisper.isDownloaded(size) {
+                                Button("Remove", role: .destructive) { whisper.delete(size) }.buttonStyle(.borderless)
+                            } else if downloading == size {
+                                ProgressView(value: whisper.downloadProgress ?? 0).frame(width: 60)
+                            } else {
+                                Button("Download") { Task { await download(size) } }
+                                    .buttonStyle(.borderless)
+                                    .disabled(downloading != nil)
+                            }
+                        }
+                    }
+                } header: { Text("Auto captions") } footer: {
+                    Text("Whisper runs on this iPhone. No microphone, permissions or Dictation; offline after a one-time model download.")
+                }
+
+                Section {
+                    if fonts.fonts.isEmpty {
+                        Text("Add .ttf, .otf or .ttc files from Files. They stay in the app for every project.")
+                            .font(.caption).foregroundStyle(Theme.secondaryText)
+                    }
+                    ForEach(fonts.fonts) { entry in
+                        Text(entry.displayName)
+                            .font(Font(TextRasterizer.customFont(entry.postScriptName, size: 17, bold: false) ?? .systemFont(ofSize: 17)))
+                    }
+                    .onDelete { offsets in offsets.map { fonts.fonts[$0] }.forEach { fonts.remove($0) } }
+                    Button { importingFont = true } label: { Label("Add font", systemImage: "plus") }
+                } header: { Text("My fonts") }
+
+                Section {
+                    if store.templates.isEmpty {
+                        Text("No templates yet. Open a project, tap the canvas button at the top of the editor (the ⚙︎ next to Export), then Save as template.")
+                            .font(.caption).foregroundStyle(Theme.secondaryText)
+                    }
+                    ForEach(store.templates) { t in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(t.name)
+                            Text("\(t.clips.count) slots · \(t.aspect.rawValue)").font(.caption).foregroundStyle(Theme.secondaryText)
+                        }
+                    }
+                    .onDelete { offsets in offsets.map { store.templates[$0] }.forEach { store.deleteTemplate($0) } }
+                } header: { Text("Templates") }
+
+                Section {
+                    Toggle("Ripple delete: titles, overlays and sounds after a deleted clip move back with it", isOn: $ripple)
+                } header: { Text("Editing") }
+
+                Section {
+                    Picker("Resolution", selection: $quality) { ForEach(ExportQuality.allCases) { Text($0.rawValue).tag($0) } }
+                    Picker("Frame rate", selection: $fps) { ForEach([24, 30, 60], id: \.self) { Text("\($0) fps").tag($0) } }
+                    Toggle("HEVC (smaller files)", isOn: $hevc)
+                    if hevc { Toggle("10-bit HDR (HLG)", isOn: $tenBit) }
+                } header: { Text("Export") }
+
+                Section {
+                    LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
+                    Text("No watermark. Everything renders on this device.").font(.caption)
+                    Text("Title fonts are open-source (SIL Open Font License); their licences are inside the app.")
+                        .font(.caption).foregroundStyle(Theme.secondaryText)
+                } header: { Text("About") }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .fileImporter(isPresented: $importingFont, allowedContentTypes: [.font], allowsMultipleSelection: true) { result in
+                guard case .success(let urls) = result else { return }
+                for url in urls {
+                    do { try fonts.importFont(at: url) } catch { message = error.localizedDescription }
+                }
+            }
+            .alert("Something went wrong", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+                Button("OK") {}
+            } message: { Text(message ?? "") }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func download(_ size: WhisperEngine.Size) async {
+        downloading = size
+        defer { downloading = nil }
+        do { try await whisper.download(size) } catch { message = error.localizedDescription }
     }
 }

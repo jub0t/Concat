@@ -113,6 +113,11 @@ final class WhisperEngine {
         return made
     }
 
+    /// Downloads (and loads) a model ahead of time, from Settings.
+    func download(_ size: Size) async throws {
+        _ = try await pipeline(size) { _ in }
+    }
+
     /// Words with their times in `audio`, in `language` (a Whisper code such as "ar"; nil hears it).
     func transcribe(_ audio: URL, language: String?, size: Size, progress: @MainActor (String) -> Void) async throws -> [Captioner.Word] {
         let kit = try await pipeline(size, progress: progress)
