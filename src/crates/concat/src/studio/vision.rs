@@ -435,7 +435,11 @@ impl Studio {
     /// carried here from a smaller clip is held to what this one may take;
     /// see `concat_vision::enhance::scale_of`.
     pub fn clip_enhance_scale(&mut self, scale: f32) {
-        self.enhance_scale = if scale > 0.0 { scale.clamp(1.0, 4.0) } else { 0.0 };
+        self.enhance_scale = if scale > 0.0 {
+            scale.clamp(1.0, 4.0)
+        } else {
+            0.0
+        };
     }
 
     /// The Strength row, 0 to 1: how much of the model's answer the copy
@@ -663,7 +667,10 @@ impl Studio {
         let clip_id = clip.id.clone();
         self.enhance_jobs.insert(clip_id.clone(), (false, 0.0));
         self.notify(
-            &tf("studio.enhancingWayFrameFrame", &[&media.name, &times(scale)]),
+            &tf(
+                "studio.enhancingWayFrameFrame",
+                &[&media.name, &times(scale)],
+            ),
             false,
         );
         let enhancers = Arc::clone(&self.host.enhancers);

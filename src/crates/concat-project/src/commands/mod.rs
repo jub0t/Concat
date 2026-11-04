@@ -1123,13 +1123,7 @@ impl Command {
                 duration,
                 style,
                 ..
-            } => {
-                bad([*start])
-                    || bad(*duration)
-                    || style
-                        .iter()
-                        .any(|style| bad(style.numbers()))
-            }
+            } => bad([*start]) || bad(*duration) || style.iter().any(|style| bad(style.numbers())),
             Command::AddTextClip {
                 start,
                 duration,

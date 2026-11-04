@@ -21,6 +21,7 @@
 //! document model needs serde, and concat-core's zero-dependency rule is worth
 //! more than the adjacency.
 
+pub mod capcut;
 pub mod commands;
 pub mod doc;
 pub mod editor;
@@ -29,7 +30,6 @@ pub mod placement;
 pub mod runs;
 pub mod speed;
 pub mod srt;
-pub mod capcut;
 
 pub use commands::{
     Command, CommandError, Outcome, PlayheadSide, consolidation_clips, delete_to_playhead,

@@ -229,7 +229,13 @@ impl RelinkPane {
                     .project()
                     .timelines
                     .iter()
-                    .map(|timeline| timeline.clips.iter().filter(|clip| clip.media_id == id).count())
+                    .map(|timeline| {
+                        timeline
+                            .clips
+                            .iter()
+                            .filter(|clip| clip.media_id == id)
+                            .count()
+                    })
                     .sum::<usize>() as i32
             })
         };

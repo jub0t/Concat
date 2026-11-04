@@ -149,7 +149,7 @@ pub struct Enhancers {
 /// rest, to the hundredth the slider moves in.
 fn scale_name(scale: f32) -> String {
     let hundredths = (scale * 100.0).round() as u32;
-    if hundredths % 100 == 0 {
+    if hundredths.is_multiple_of(100) {
         format!("{}x", hundredths / 100)
     } else {
         format!("{}.{:02}x", hundredths / 100, hundredths % 100)
@@ -953,10 +953,16 @@ mod tests {
         );
         // A scale off the whole numbers is named to the hundredth.
         let between = target_for(&project, &media, 1.5, 1.0, false, None).expect("named");
-        assert!(between.to_string_lossy().ends_with("-1.50x.mp4"), "{between:?}");
+        assert!(
+            between.to_string_lossy().ends_with("-1.50x.mp4"),
+            "{between:?}"
+        );
         // A file with different bytes is a different copy.
         std::fs::write(&media, b"not really, but longer").expect("write");
-        assert_ne!(target_for(&project, &media, 2.0, 1.0, false, None), Some(two));
+        assert_ne!(
+            target_for(&project, &media, 2.0, 1.0, false, None),
+            Some(two)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -119,7 +119,7 @@ pub fn auto_scale(width: u32, height: u32) -> f32 {
 /// on, so 4x picked on a small clip and carried to a 4K one comes out
 /// once, not at 16K.
 pub fn scale_of(asked: f32, width: u32, height: u32) -> f32 {
-    if !(asked > 0.0) {
+    if asked.is_nan() || asked <= 0.0 {
         return auto_scale(width, height);
     }
     let most = max_scale(width, height);
@@ -639,10 +639,20 @@ mod tests {
 
     #[test]
     fn nothing_comes_out_past_2k() {
-        for (w, h) in [(640, 360), (854, 480), (1280, 720), (1920, 1080), (1080, 1920), (500, 500)] {
+        for (w, h) in [
+            (640, 360),
+            (854, 480),
+            (1280, 720),
+            (1920, 1080),
+            (1080, 1920),
+            (500, 500),
+        ] {
             let most = max_scale(w, h);
             let (ow, oh) = size_at(w, h, most);
-            assert!(ow.max(oh) <= MAX_LONG && ow.min(oh) <= MAX_SHORT, "{w}x{h} -> {ow}x{oh}");
+            assert!(
+                ow.max(oh) <= MAX_LONG && ow.min(oh) <= MAX_SHORT,
+                "{w}x{h} -> {ow}x{oh}"
+            );
             assert!(most <= 4.0);
         }
         assert_eq!(max_scale(320, 180), 4.0);
@@ -760,10 +770,18 @@ mod tests {
         // A one-pixel checkerboard at a non-integer ratio comes out grey,
         // not the stripes a sampling filter leaves.
         let checks = picture(30, 30, |x, y| {
-            if (x + y) % 2 == 0 { [255, 255, 255, 255] } else { [0, 0, 0, 255] }
+            if (x + y) % 2 == 0 {
+                [255, 255, 255, 255]
+            } else {
+                [0, 0, 0, 255]
+            }
         });
         let grey = area_resize(&checks, 11, 11);
-        assert!(grey.pixels().chunks(4).all(|p| (100..=156).contains(&p[0])), "{:?}", &grey.pixels()[..16]);
+        assert!(
+            grey.pixels().chunks(4).all(|p| (100..=156).contains(&p[0])),
+            "{:?}",
+            &grey.pixels()[..16]
+        );
     }
 
     #[test]

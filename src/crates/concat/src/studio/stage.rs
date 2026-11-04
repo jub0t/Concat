@@ -51,7 +51,10 @@ impl Studio {
             // Not painted yet: the figure's box from its style, the way the
             // painter sizes it, until the painter says.
             let (w, h) = clip.shape.clone().unwrap_or_default().figure_box();
-            (w * height * clip.scale / width, h * height * clip.scale / height)
+            (
+                w * height * clip.scale / width,
+                h * height * clip.scale / height,
+            )
         } else {
             let media = self.project().media_by_id(&clip.media_id);
             let source = media
@@ -402,7 +405,13 @@ impl Studio {
             let figure = clip
                 .shape
                 .as_ref()
-                .filter(|_| clip.kind == model::ClipKind::Shape && !clip.shape.as_ref().is_some_and(|s| s.kind.is_line() && !across))
+                .filter(|_| {
+                    clip.kind == model::ClipKind::Shape
+                        && !clip
+                            .shape
+                            .as_ref()
+                            .is_some_and(|s| s.kind.is_line() && !across)
+                })
                 .map(|shape| shape.figure_box());
             Gesture::StageStretch {
                 clip: id.to_owned(),
@@ -622,7 +631,10 @@ impl Studio {
                     next = (next * 20.0).round() / 20.0;
                 }
                 if let Some(clip) = self.echo_clip_mut(clip) {
-                    let line = clip.shape.as_ref().is_some_and(|shape| shape.kind.is_line());
+                    let line = clip
+                        .shape
+                        .as_ref()
+                        .is_some_and(|shape| shape.kind.is_line());
                     if clip.kind == model::ClipKind::Shape && (*across || !line) {
                         let shape = clip.shape.get_or_insert_with(model::ShapeStyle::default);
                         if *across {

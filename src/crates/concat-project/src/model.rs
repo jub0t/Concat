@@ -3396,11 +3396,13 @@ mod shape_tests {
     #[test]
     fn a_shape_written_before_heights_reads_as_it_was_drawn() {
         let old: ShapeStyle =
-            serde_json::from_str(r##"{"kind":"arrow","size":0.5,"fill":"#ff0000"}"##).expect("reads");
+            serde_json::from_str(r##"{"kind":"arrow","size":0.5,"fill":"#ff0000"}"##)
+                .expect("reads");
         assert_eq!(old.width, 0.5);
         assert_eq!(old.end(), LineHead::Arrow, "an arrow keeps its head");
         assert_eq!(old.start(), LineHead::None);
-        let square: ShapeStyle = serde_json::from_str(r#"{"kind":"square","size":0.3}"#).expect("reads");
+        let square: ShapeStyle =
+            serde_json::from_str(r#"{"kind":"square","size":0.3}"#).expect("reads");
         assert_eq!(square.figure_box(), (0.3, 0.3));
     }
 
@@ -3420,7 +3422,10 @@ mod shape_tests {
     fn a_preset_is_a_figure_set_a_particular_way() {
         assert_eq!(ShapeStyle::preset("pentagon").map(|s| s.sides), Some(5));
         assert!(ShapeStyle::preset("rounded").is_some_and(|s| s.corner_radius > 0.0));
-        assert_eq!(ShapeStyle::preset("double-arrow").map(|s| s.start()), Some(LineHead::Arrow));
+        assert_eq!(
+            ShapeStyle::preset("double-arrow").map(|s| s.start()),
+            Some(LineHead::Arrow)
+        );
         assert!(ShapeStyle::preset("nonsense").is_none());
     }
 }

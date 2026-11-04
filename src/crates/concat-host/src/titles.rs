@@ -678,11 +678,14 @@ fn shape_style(style: &ShapeStyle) -> concat_text::ShapeStyle {
         height,
         corner_radius: style.corner_radius,
         fill: style.fill.clone(),
-        gradient: style.gradient.as_ref().map(|gradient| concat_text::Gradient {
-            radial: gradient.radial,
-            color: gradient.color.clone(),
-            angle: gradient.angle,
-        }),
+        gradient: style
+            .gradient
+            .as_ref()
+            .map(|gradient| concat_text::Gradient {
+                radial: gradient.radial,
+                color: gradient.color.clone(),
+                angle: gradient.angle,
+            }),
         stroke: style.stroke.clone(),
         stroke_width: style.stroke_width,
         align: match style.stroke_align {

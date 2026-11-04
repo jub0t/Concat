@@ -15,8 +15,8 @@
 
 use tiny_skia::{
     Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Mask, Paint, Path,
-    PathBuilder, PathSegment, Pixmap, PixmapPaint, Point, RadialGradient, Rect,
-    SpreadMode, Stroke, StrokeDash, Transform,
+    PathBuilder, PathSegment, Pixmap, PixmapPaint, Point, RadialGradient, Rect, SpreadMode, Stroke,
+    StrokeDash, Transform,
 };
 
 use crate::{Error, Rendered, RenderedFrame, colour, straight_rgba};
@@ -229,7 +229,8 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, (
         (style.height.clamp(0.005, 4.0) as f32) * frame_h
     };
     let (cx, cy) = (width as f32 / 2.0, frame_h / 2.0);
-    let bounds = Rect::from_xywh(cx - w / 2.0, cy - h / 2.0, w, h).ok_or(Error::Canvas(width, height))?;
+    let bounds =
+        Rect::from_xywh(cx - w / 2.0, cy - h / 2.0, w, h).ok_or(Error::Canvas(width, height))?;
 
     // Everything is drawn onto a layer first, so a shadow can be cast from
     // exactly what was drawn.
@@ -245,7 +246,13 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, (
     } else if let Some(path) = figure_path(style, bounds) {
         if let Some(fill) = fill {
             let paint = fill_paint(style, fill, bounds);
-            layer.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+            layer.fill_path(
+                &path,
+                &paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
         }
         if rule > 0.0
             && let Some(edge) = edge
@@ -263,7 +270,8 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, (
                     Align::Center => None,
                     Align::Inside | Align::Outside => {
                         stroke.width = rule * 2.0;
-                        let mut mask = Mask::new(width, height).ok_or(Error::Canvas(width, height))?;
+                        let mut mask =
+                            Mask::new(width, height).ok_or(Error::Canvas(width, height))?;
                         mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
                         if style.align == Align::Outside {
                             mask.invert();
@@ -274,7 +282,13 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, (
                 if let Some(dash) = dash_of(style.dash, stroke.width) {
                     stroke.dash = Some(dash);
                 }
-                layer.stroke_path(&outline, &solid(edge), &stroke, Transform::identity(), mask.as_ref());
+                layer.stroke_path(
+                    &outline,
+                    &solid(edge),
+                    &stroke,
+                    Transform::identity(),
+                    mask.as_ref(),
+                );
             }
         }
     }
@@ -282,7 +296,14 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, (
     if let Some(shadow) = &style.shadow {
         cast_shadow(&mut canvas, &layer, shadow, frame_h);
     }
-    canvas.draw_pixmap(0, 0, layer.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+    canvas.draw_pixmap(
+        0,
+        0,
+        layer.as_ref(),
+        &PixmapPaint::default(),
+        Transform::identity(),
+        None,
+    );
 
     // The box the monitor outlines: the figure, plus whatever outline sits
     // outside its edge.
@@ -319,10 +340,21 @@ fn fill_paint(style: &ShapeStyle, fill: Color, bounds: Rect) -> Paint<'static> {
         return solid(fill);
     };
     let stops = vec![GradientStop::new(0.0, fill), GradientStop::new(1.0, to)];
-    let centre = Point::from_xy(bounds.x() + bounds.width() / 2.0, bounds.y() + bounds.height() / 2.0);
+    let centre = Point::from_xy(
+        bounds.x() + bounds.width() / 2.0,
+        bounds.y() + bounds.height() / 2.0,
+    );
     let shader = if gradient.radial {
         let radius = bounds.width().max(bounds.height()) / 2.0;
-        RadialGradient::new(centre, 0.0, centre, radius, stops, SpreadMode::Pad, Transform::identity())
+        RadialGradient::new(
+            centre,
+            0.0,
+            centre,
+            radius,
+            stops,
+            SpreadMode::Pad,
+            Transform::identity(),
+        )
     } else {
         // Across the box along the angle, edge to edge: the reach is the
         // box's extent in that direction, so the blend uses all of it.
@@ -349,7 +381,11 @@ fn fill_paint(style: &ShapeStyle, fill: Color, bounds: Rect) -> Paint<'static> {
 fn outline_stroke(dash: Dash, rule: f32) -> Stroke {
     Stroke {
         width: rule,
-        line_cap: if dash == Dash::Dashed { LineCap::Butt } else { LineCap::Round },
+        line_cap: if dash == Dash::Dashed {
+            LineCap::Butt
+        } else {
+            LineCap::Round
+        },
         line_join: LineJoin::Round,
         ..Stroke::default()
     }
@@ -468,7 +504,10 @@ fn rounded_polygon(corners: &[Point], round: f32) -> Option<Path> {
     let length = |a: Point, b: Point| ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
     let toward = |from: Point, to: Point, by: f32| {
         let d = length(from, to).max(1e-6);
-        Point::from_xy(from.x + (to.x - from.x) * by / d, from.y + (to.y - from.y) * by / d)
+        Point::from_xy(
+            from.x + (to.x - from.x) * by / d,
+            from.y + (to.y - from.y) * by / d,
+        )
     };
     for i in 0..count {
         let previous = corners[(i + count - 1) % count];
@@ -558,8 +597,14 @@ fn path_length(path: &Path) -> f32 {
                     let t = step as f32 / 16.0;
                     let u = 1.0 - t;
                     let q = Point::from_xy(
-                        u * u * u * at.x + 3.0 * u * u * t * c1.x + 3.0 * u * t * t * c2.x + t * t * t * p.x,
-                        u * u * u * at.y + 3.0 * u * u * t * c1.y + 3.0 * u * t * t * c2.y + t * t * t * p.y,
+                        u * u * u * at.x
+                            + 3.0 * u * u * t * c1.x
+                            + 3.0 * u * t * t * c2.x
+                            + t * t * t * p.x,
+                        u * u * u * at.y
+                            + 3.0 * u * u * t * c1.y
+                            + 3.0 * u * t * t * c2.y
+                            + t * t * t * p.y,
                     );
                     length += dist(last, q);
                     last = q;
@@ -652,13 +697,25 @@ fn paint_line(layer: &mut Pixmap, style: &ShapeStyle, bounds: Rect, rule: f32, i
                 path.line_to(tip - out * arm * 1.6, cy + arm);
                 path.close();
                 if let Some(path) = path.finish() {
-                    layer.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                    layer.fill_path(
+                        &path,
+                        &paint,
+                        FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
                 }
             }
             Head::Circle => {
                 path.push_circle(tip - out * (arm * 0.7 - rule / 2.0), cy, arm * 0.7);
                 if let Some(path) = path.finish() {
-                    layer.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                    layer.fill_path(
+                        &path,
+                        &paint,
+                        FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
                 }
             }
             Head::Bar => {
@@ -729,10 +786,7 @@ fn box_blur(plane: &mut [f32], width: usize, height: usize, radius: usize) {
     let mut line = vec![0f32; width.max(height)];
     for y in 0..height {
         let row = &mut plane[y * width..(y + 1) * width];
-        let mut sum = 0.0;
-        for i in 0..=radius.min(width - 1) {
-            sum += row[i];
-        }
+        let mut sum: f32 = row[..=radius.min(width - 1)].iter().sum();
         sum += row[0] * radius as f32;
         for x in 0..width {
             line[x] = sum / span;
@@ -767,7 +821,12 @@ mod tests {
 
     fn pixel(frame: &RenderedFrame, x: u32, y: u32) -> [u8; 4] {
         let at = ((y * frame.width + x) * 4) as usize;
-        [frame.rgba[at], frame.rgba[at + 1], frame.rgba[at + 2], frame.rgba[at + 3]]
+        [
+            frame.rgba[at],
+            frame.rgba[at + 1],
+            frame.rgba[at + 2],
+            frame.rgba[at + 3],
+        ]
     }
 
     fn square(fill: &str) -> ShapeStyle {
@@ -783,8 +842,16 @@ mod tests {
     fn a_shape_is_painted_centred_at_its_size() {
         let frame = render_shape_frame(&square("#ff0000"), 400, 200).expect("paints");
         assert_eq!((frame.block_width, frame.block_height), (100, 100));
-        assert_eq!(pixel(&frame, 200, 100), [255, 0, 0, 255], "the centre is red and solid");
-        assert_eq!(pixel(&frame, 140, 100)[3], 0, "ten pixels past the edge is clear");
+        assert_eq!(
+            pixel(&frame, 200, 100),
+            [255, 0, 0, 255],
+            "the centre is red and solid"
+        );
+        assert_eq!(
+            pixel(&frame, 140, 100)[3],
+            0,
+            "ten pixels past the edge is clear"
+        );
 
         let line = ShapeStyle {
             figure: Figure::Line,
@@ -796,7 +863,11 @@ mod tests {
         };
         let frame = render_shape_frame(&line, 400, 200).expect("paints");
         assert_eq!((frame.block_width, frame.block_height), (100, 10));
-        assert_eq!(pixel(&frame, 200, 100)[1..], [255, 0, 255][..], "the rule runs through the centre");
+        assert_eq!(
+            pixel(&frame, 200, 100)[1..],
+            [255, 0, 255][..],
+            "the rule runs through the centre"
+        );
         assert_eq!(pixel(&frame, 140, 100)[3], 0, "and stops at its length");
 
         let png = render_shape(&square("#ff0000"), 64, 64).expect("encodes");
@@ -820,7 +891,11 @@ mod tests {
         round.corner_radius = 1.0;
         let frame = render_shape_frame(&round, 400, 200).expect("paints");
         assert_eq!(pixel(&frame, 152, 52)[3], 0, "the corner is gone");
-        assert_eq!(pixel(&frame, 200, 52)[3], 255, "the top edge's middle stays");
+        assert_eq!(
+            pixel(&frame, 200, 52)[3],
+            255,
+            "the top edge's middle stays"
+        );
     }
 
     #[test]
@@ -882,8 +957,16 @@ mod tests {
             angle: 90.0,
         });
         let frame = render_shape_frame(&lifted, 400, 200).expect("paints");
-        assert_eq!(pixel(&frame, 200, 160), [0, 0, 0, 255], "under the square is its shadow");
-        assert_eq!(pixel(&frame, 200, 100), [255, 255, 255, 255], "the square is on top");
+        assert_eq!(
+            pixel(&frame, 200, 160),
+            [0, 0, 0, 255],
+            "under the square is its shadow"
+        );
+        assert_eq!(
+            pixel(&frame, 200, 100),
+            [255, 255, 255, 255],
+            "the square is on top"
+        );
         assert_eq!(pixel(&frame, 200, 40)[3], 0, "and nothing above it");
     }
 
@@ -907,4 +990,3 @@ mod tests {
         }
     }
 }
-

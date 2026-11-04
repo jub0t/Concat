@@ -153,16 +153,16 @@ impl CaptionsPane {
             // asked for again: closing it never stopped the run.
             CaptionsMsg::Open | CaptionsMsg::OpenOnClip(_) if self.running => {
                 self.open = true;
-                self.into_library(studio);
+                self.show_in_library(studio);
             }
             CaptionsMsg::Open => {
                 let selected = studio.sole_selection();
                 self.open_on(studio, selected, false);
-                self.into_library(studio);
+                self.show_in_library(studio);
             }
             CaptionsMsg::OpenOnClip(id) => {
                 self.open_on(studio, Some(id), true);
-                self.into_library(studio);
+                self.show_in_library(studio);
             }
             CaptionsMsg::Close => self.open = false,
             CaptionsMsg::Shown(shown) => {
@@ -441,7 +441,7 @@ impl CaptionsPane {
     /// the library is put in the dock if it was taken out, and turned to
     /// that page. A phone, or a window too narrow for the library beside
     /// the work, keeps the sheet.
-    fn into_library(&mut self, studio: &mut Studio) {
+    fn show_in_library(&mut self, studio: &mut Studio) {
         if studio.meters.phone || studio.compact {
             return;
         }

@@ -24,7 +24,10 @@ pub fn drafts_folder() -> Option<PathBuf> {
     let candidates = [
         // The download from capcut.com, then the App Store's, which is
         // sandboxed into a container of its own.
-        under(home.clone(), "Movies/CapCut/User Data/Projects/com.lveditor.draft"),
+        under(
+            home.clone(),
+            "Movies/CapCut/User Data/Projects/com.lveditor.draft",
+        ),
         under(
             home,
             "Library/Containers/com.lemon.lvoverseas/Data/Movies/CapCut/User Data/Projects/com.lveditor.draft",
@@ -34,7 +37,10 @@ pub fn drafts_folder() -> Option<PathBuf> {
             "CapCut/User Data/Projects/com.lveditor.draft",
         ),
     ];
-    candidates.into_iter().flatten().find(|folder| folder.is_dir())
+    candidates
+        .into_iter()
+        .flatten()
+        .find(|folder| folder.is_dir())
 }
 
 /// Whether `folder` is a CapCut draft.
@@ -62,8 +68,8 @@ fn edit_in(folder: &Path) -> Option<Result<Value, String>> {
 /// Reads the draft in `folder`: its name and every timeline it has, the
 /// one CapCut opens first first.
 pub fn read(folder: &Path) -> Result<Draft, String> {
-    let main = edit_in(folder)
-        .ok_or_else(|| format!("{} is not a CapCut draft", folder.display()))??;
+    let main =
+        edit_in(folder).ok_or_else(|| format!("{} is not a CapCut draft", folder.display()))??;
     let meta = json(&folder.join("draft_meta_info.json")).and_then(Result::ok);
     let name = meta
         .as_ref()
@@ -71,7 +77,11 @@ pub fn read(folder: &Path) -> Result<Draft, String> {
         .and_then(Value::as_str)
         .filter(|name| !name.trim().is_empty())
         .map(str::to_owned)
-        .or_else(|| folder.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .or_else(|| {
+            folder
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .unwrap_or_else(|| "CapCut draft".to_owned());
 
     // A draft of several timelines lists them in `Timelines/project.json`,
@@ -140,7 +150,11 @@ pub fn import(folder: &Path, location: &str) -> Result<Import, String> {
     let imported = concat_project::capcut::import(&draft).map_err(|error| error.to_string())?;
     let settings = &imported.settings;
     let base = settings.name.trim();
-    let base = if base.is_empty() { "CapCut draft" } else { base };
+    let base = if base.is_empty() {
+        "CapCut draft"
+    } else {
+        base
+    };
     let name = (1..)
         .map(|number| {
             if number == 1 {
@@ -149,7 +163,11 @@ pub fn import(folder: &Path, location: &str) -> Result<Import, String> {
                 format!("{base} {number}")
             }
         })
-        .find(|name| !Path::new(location).join(projects::folder_name(name)).exists())
+        .find(|name| {
+            !Path::new(location)
+                .join(projects::folder_name(name))
+                .exists()
+        })
         .expect("a free name");
     let project = projects::create(
         location,
@@ -227,7 +245,9 @@ mod tests {
 
     #[test]
     fn a_folder_without_a_draft_is_said_to_be_one() {
-        let error = read(Path::new("/nonexistent/folder")).err().expect("refused");
+        let error = read(Path::new("/nonexistent/folder"))
+            .err()
+            .expect("refused");
         assert!(error.contains("not a CapCut draft"), "{error}");
     }
 }

@@ -40,7 +40,7 @@
 
 mod shape;
 pub use shape::{
-    Align as StrokeAlign, Dash, Figure, Gradient, Head, ShapeStyle, Shadow, render_shape,
+    Align as StrokeAlign, Dash, Figure, Gradient, Head, Shadow, ShapeStyle, render_shape,
     render_shape_frame,
 };
 
@@ -2097,7 +2097,6 @@ fn straight_rgba(canvas: &Pixmap) -> Vec<u8> {
     }
     rgba
 }
-
 
 #[cfg(test)]
 mod tests {

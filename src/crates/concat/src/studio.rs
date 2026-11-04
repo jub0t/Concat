@@ -2568,10 +2568,7 @@ impl Studio {
         let prefs = Preferences::load(&host.dirs);
         // The panels where the last session left them, while Settings says
         // to; a saved dock this build cannot read is the default instead.
-        let saved = prefs
-            .layout
-            .as_ref()
-            .filter(|_| prefs.remembers_layout());
+        let saved = prefs.layout.as_ref().filter(|_| prefs.remembers_layout());
         let dock = saved
             .and_then(|layout| layout.wide.as_ref())
             .and_then(Dock::from_saved)

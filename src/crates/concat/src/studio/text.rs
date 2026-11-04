@@ -174,10 +174,18 @@ impl Studio {
             match which {
                 0 => shape.fill = hex.clone(),
                 1 => {
-                    shape.gradient.get_or_insert_with(model::ShapeGradient::default).color = hex.clone();
+                    shape
+                        .gradient
+                        .get_or_insert_with(model::ShapeGradient::default)
+                        .color = hex.clone();
                 }
                 2 => shape.stroke = hex.clone(),
-                3 => shape.shadow.get_or_insert_with(model::ShapeShadow::default).color = hex.clone(),
+                3 => {
+                    shape
+                        .shadow
+                        .get_or_insert_with(model::ShapeShadow::default)
+                        .color = hex.clone()
+                }
                 _ => {}
             }
         }
