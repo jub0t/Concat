@@ -48,6 +48,14 @@ case "$target" in
     host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
     bindgen_target=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
     echo "export BINDGEN_EXTRA_CLANG_ARGS_${bindgen_target}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot'"
+    # bindgen needs libclang from the NDK, not the host's clang. Find libclang.so
+    # under the NDK toolchain's lib directory and point LIBCLANG_PATH at it.
+    libclang_dir=$(ls -d "$ndk/toolchains/llvm/prebuilt/$host_tag/lib64" "$ndk/toolchains/llvm/prebuilt/$host_tag/lib" 2>/dev/null | head -1)
+    if [ -f "$libclang_dir/libclang.so" ]; then
+      echo "export LIBCLANG_PATH='$libclang_dir/libclang.so'"
+    fi
+    # Tell bindgen which clang to use: the NDK's own clang for the target.
+    echo "export CLANG_PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang'"
     # Slint's backend compiles a Java helper against the SDK platform's
     # android.jar. cargo-ndk names the NDK API level as ANDROID_PLATFORM,
     # which is also the name the lookup reads for the SDK platform, and the
