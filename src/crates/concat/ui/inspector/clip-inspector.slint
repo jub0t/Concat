@@ -2131,34 +2131,97 @@ export component VideoPanel inherits VerticalLayout {
     }
 }
 
-/// One half of Enhance's before and after: a label over the picture,
-/// fitted whole into a fixed height so the pair reads the same on a phone
-/// as in the desktop inspector, and nothing in the layout leans on the
-/// picture's own size.
-component PreviewHalf inherits VerticalLayout {
-    in property <string> label;
-    in property <image> source;
+/// Enhance's before and after as one picture: the model's answer under a
+/// line that is dragged across it, the plain enlargement left of the line.
+/// One picture rather than two stacked, so the eye compares the same
+/// pixels in place, and the pair costs one height in the inspector, on a
+/// phone as on a desk.
+component Comparison inherits Rectangle {
+    in property <image> before;
+    in property <image> after;
+    in property <string> before-label;
+    in property <string> after-label;
+    /// Where the line is, 0 at the left edge to 1 at the right.
+    in-out property <float> split: 0.5;
 
-    padding-left: Theme.pad;
-    padding-right: Theme.pad;
-    spacing: 4px;
+    height: 180px;
+    background: Theme.well;
+    border-radius: Theme.r-sm;
+    clip: true;
 
-    Text {
-        text: root.label;
-        color: Theme.fg-muted;
-        font-size: Theme.fs-sm;
+    // The picture's own box inside the well, fitted whole.
+    property <float> aspect: root.after.width > 0 && root.after.height > 0
+        ? root.after.width / root.after.height : 16 / 9;
+    property <length> pw: Math.min(root.width, root.height * root.aspect);
+    property <length> ph: root.pw / root.aspect;
+    property <length> px: (root.width - root.pw) / 2;
+    property <length> py: (root.height - root.ph) / 2;
+    property <length> line: root.px + root.pw * root.split;
+
+    Image {
+        x: root.px; y: root.py;
+        width: root.pw; height: root.ph;
+        source: root.after;
+        image-fit: fill;
     }
     Rectangle {
-        height: 150px;
-        background: Theme.well;
-        border-radius: Theme.r-sm;
+        x: root.px; y: root.py;
+        width: Math.max(0px, root.line - root.px); height: root.ph;
         clip: true;
-
         Image {
-            width: parent.width;
-            height: parent.height;
-            source: root.source;
-            image-fit: contain;
+            x: 0; y: 0;
+            width: root.pw; height: root.ph;
+            source: root.before;
+            image-fit: fill;
+        }
+    }
+    // The line and its grip.
+    Rectangle {
+        x: root.line - 1px; y: root.py;
+        width: 2px; height: root.ph;
+        background: Theme.fg;
+    }
+    Rectangle {
+        x: root.line - 9px; y: root.py + root.ph / 2 - 9px;
+        width: 18px; height: 18px;
+        border-radius: 9px;
+        background: Theme.fg;
+        HorizontalLayout {
+            alignment: center;
+            Icon { glyph: Glyph.chevron-left; size: 9px; tint: Theme.well; y: (parent.height - self.height) / 2; }
+            Icon { glyph: Glyph.chevron-right; size: 9px; tint: Theme.well; y: (parent.height - self.height) / 2; }
+        }
+    }
+    // Each side says which it is, in its own corner.
+    Rectangle {
+        x: root.px + 6px; y: root.py + 6px;
+        width: before-text.preferred-width + 10px; height: 18px;
+        border-radius: 4px;
+        background: #000000a0;
+        before-text := Text { text: root.before-label; color: #ffffff; font-size: Theme.fs-sm; }
+    }
+    Rectangle {
+        x: root.px + root.pw - self.width - 6px; y: root.py + 6px;
+        width: after-text.preferred-width + 10px; height: 18px;
+        border-radius: 4px;
+        background: #000000a0;
+        after-text := Text { text: root.after-label; color: #ffffff; font-size: Theme.fs-sm; }
+    }
+
+    TouchArea {
+        mouse-cursor: ew-resize;
+        function follow(x: length) {
+            root.split = Math.clamp((x - root.px) / Math.max(1px, root.pw), 0, 1);
+        }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                self.follow(self.mouse-x);
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                self.follow(self.mouse-x);
+            }
         }
     }
 }
@@ -2173,19 +2236,22 @@ component PreviewHalf inherits VerticalLayout {
 /// Enhance, Enhance again once there is a copy, and Terminate while one is
 /// going.
 ///
-/// Below the tick, what the run is made with - Size and Strength - and a
-/// preview of the frame under the playhead at those settings, so the
-/// person judges the look, and what a whole run will cost, in seconds
-/// rather than after minutes of their machine. Strength is the answer to
-/// the waxen, "plastic" faces a full-strength enhancer is known for: it
-/// blends the model's answer back towards the original.
+/// Below the tick, what the run is made with. Scale is any size from the
+/// picture's own to as large as 2K allows, in hundredths: Auto picks
+/// twice, or what fits, and moving the slider makes it the person's own;
+/// the line under it says the copy's size in pixels, which is what anyone
+/// is choosing. Strength is the answer to the waxen, "plastic" faces a
+/// full-strength enhancer is known for: it blends the model's answer back
+/// towards the original. The preview runs the frame under the playhead at
+/// those settings and shows before and after as one picture split by a
+/// line, with what a whole run will cost.
 export component EnhancePanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
 
     /// The tick: the section on or off, and the copy shown or not.
     callback enhance-set(on: bool);
-    /// 0 Auto, 1 once, 2 twice, 3 four times.
-    callback enhance-size(index: int);
+    /// Times larger, 1 to 4; zero is Auto.
+    callback enhance-scale(scale: float);
     callback enhance-strength(strength: float);
     callback enhance-preview();
     /// The button: a run with the settings as they are, or, while this
@@ -2196,17 +2262,22 @@ export component EnhancePanel inherits VerticalLayout {
     property <bool> running: root.selected.enhance-progress >= 0;
     /// The section is ticked: everything under the header answers.
     property <bool> live: root.selected.enhance-on;
+    /// There is room to enlarge: under 2K on both sides.
+    property <bool> can-grow: root.selected.enhance-max-scale > 1.001;
 
     property <float> strength;
+    property <float> scale;
 
     init => {
         root.strength = root.selected.enhance-strength;
+        root.scale = root.selected.enhance-scale;
     }
-    // Put back on every publish: a click on the row takes its binding, and
-    // the next clip's file may not take the size this one showed.
+    // Put back on every publish: a drag on the row takes its binding, and
+    // the next clip's file may not take the scale this one showed.
     changed selected => {
         root.strength = root.selected.enhance-strength;
-        sizes.current = root.selected.enhance-size;
+        root.scale = root.selected.enhance-scale;
+        mode.current = root.selected.enhance-auto ? 0 : 1;
     }
 
     Section {
@@ -2232,27 +2303,68 @@ export component EnhancePanel inherits VerticalLayout {
                     : I18n.t("clipInspector.enhanceShowingOriginal");
             }
 
-            // A dropdown, as the inspector's other choices of one are:
-            // the sizes past the longest side the model can take are
-            // listed greyed, and the note under the row says why.
+            // Auto or the person's own; the slider under it is the scale
+            // either way, and moving it makes it their own.
             Row {
-                label: I18n.t("clipInspector.enhanceSize");
-                sizes := Select {
+                label: I18n.t("clipInspector.enhanceScale");
+                mode := SegmentedControl {
                     options: [
-                        I18n.t1("clipInspector.enhanceAuto", "\{root.selected.enhance-auto}x"),
-                        "1x",
-                        "2x",
-                        "4x",
+                        I18n.t1("clipInspector.enhanceAuto",
+                            "\{Math.round(root.selected.enhance-auto-scale * 100) / 100}x"),
+                        I18n.t("clipInspector.enhanceCustom"),
                     ];
-                    disabled: [
-                        false,
-                        false,
-                        !root.selected.enhance-fits-2x,
-                        !root.selected.enhance-fits-4x,
-                    ];
-                    current: root.selected.enhance-size;
-                    enabled: root.live;
-                    changed(index) => { root.enhance-size(index); }
+                    current: root.selected.enhance-auto ? 0 : 1;
+                    enabled: root.live && root.can-grow;
+                    changed(index) => {
+                        root.enhance-scale(index == 0 ? 0 : root.scale);
+                    }
+                }
+            }
+            if root.can-grow: Param {
+                label: "";
+                value <=> root.scale;
+                minimum: 1;
+                maximum: root.selected.enhance-max-scale;
+                step: 0.05;
+                default-value: root.selected.enhance-auto-scale;
+                fmt: ParamFormat.rate;
+                enabled: root.live;
+                changed(v) => { root.enhance-scale(v); }
+            }
+            // What the choice comes to, in pixels: the file's size and the
+            // copy's, and that 2K is as far as it goes.
+            if root.selected.enhance-output-size != "": Row {
+                label: "";
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: root.selected.enhance-source-size;
+                        color: Theme.fg-muted;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: "→";
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.selected.enhance-output-size;
+                        color: root.live ? Theme.fg : Theme.fg-muted;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: I18n.t("clipInspector.enhanceUpTo2k");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
                 }
             }
             if root.selected.enhance-size-note != "": Note {
@@ -2276,9 +2388,24 @@ export component EnhancePanel inherits VerticalLayout {
                 text: I18n.t("clipInspector.enhanceStrengthExplain");
             }
 
+            if root.selected.enhance-preview: Comparison {
+                before: root.selected.enhance-before;
+                after: root.selected.enhance-after;
+                before-label: I18n.t("clipInspector.enhanceBefore");
+                after-label: I18n.t1("clipInspector.enhanceAfter", "\{Math.round(root.strength * 100)}");
+            }
+            if root.selected.enhance-previewing: Note {
+                text: root.selected.enhance-preview-fetch >= 0
+                    ? I18n.t1("clipInspector.fetchingTheModel",
+                        "\{Math.round(root.selected.enhance-preview-fetch * 100)}")
+                    : I18n.t("clipInspector.enhancePreviewing");
+            }
+
             Row {
                 Button {
-                    label: I18n.t("clipInspector.enhancePreview");
+                    label: root.selected.enhance-preview
+                        ? I18n.t("clipInspector.enhancePreviewAgain")
+                        : I18n.t("clipInspector.enhancePreview");
                     enabled: root.live && !root.selected.enhance-busy;
                     clicked => { root.enhance-preview(); }
                 }
@@ -2295,21 +2422,6 @@ export component EnhancePanel inherits VerticalLayout {
                     enabled: root.running || (root.live && !root.selected.enhance-busy);
                     clicked => { root.enhance-run(); }
                 }
-            }
-            if root.selected.enhance-previewing: Note {
-                text: root.selected.enhance-preview-fetch >= 0
-                    ? I18n.t1("clipInspector.fetchingTheModel",
-                        "\{Math.round(root.selected.enhance-preview-fetch * 100)}")
-                    : I18n.t("clipInspector.enhancePreviewing");
-            }
-
-            if root.selected.enhance-preview: PreviewHalf {
-                label: I18n.t("clipInspector.enhanceBefore");
-                source: root.selected.enhance-before;
-            }
-            if root.selected.enhance-preview: PreviewHalf {
-                label: I18n.t1("clipInspector.enhanceAfter", "\{Math.round(root.strength * 100)}");
-                source: root.selected.enhance-after;
             }
             if root.selected.enhance-preview: Note {
                 text: root.selected.enhance-estimate;

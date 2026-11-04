@@ -146,7 +146,7 @@ struct EnhancePreview {
     /// a preview of other settings or another file is not this one.
     clip_id: String,
     media_id: String,
-    factor: u32,
+    scale: f32,
     /// The plain enlargement and the model's full-strength answer, kept so
     /// Strength re-blends them at once rather than running the model again.
     plain: concat_core::Frame,
@@ -163,13 +163,17 @@ struct EnhancePreview {
 /// The Enhance section's rows for one clip; see `Studio::enhance_readout`.
 #[derive(Default)]
 struct EnhanceReadout {
-    /// The Size row's segment: 0 Auto, 1 once, 2 twice, 3 four times.
-    size: i32,
-    /// What Auto comes to for this file.
-    auto: u32,
-    fits_2x: bool,
-    fits_4x: bool,
-    /// Why a size is greyed, or empty.
+    /// The scale a run would make, once to four times: Auto's, or the ask
+    /// held to what this file may take.
+    scale: f32,
+    /// What Auto comes to for this file, and the most it may be enlarged:
+    /// as far as 2K, never past the model's four times.
+    auto_scale: f32,
+    max_scale: f32,
+    /// The file's size and the copy's, "1280 × 720" and "2560 × 1440".
+    source: String,
+    output: String,
+    /// Why the scale cannot move, or empty.
     size_note: String,
     /// Before, after and the estimate for a whole run, when a preview of
     /// these settings is on hand.
@@ -1192,12 +1196,12 @@ pub struct Studio {
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
-    /// The Enhance section's Size, in times larger, 0 for Auto, and its
+    /// The Enhance section's Scale, in times larger, 0 for Auto, and its
     /// Strength, 0 to 1. The window's rather than a clip's: they are what
     /// the next run is made with, carried from clip to clip the way a
     /// tool's settings are, and a copy already made is named by its own;
     /// see `concat_host::enhance::target_for`.
-    enhance_size: u32,
+    enhance_scale: f32,
     enhance_strength: f32,
     /// The last preview of a frame through the model, while the clip it
     /// was made for is the one in the inspector.
@@ -2688,7 +2692,7 @@ impl Studio {
             stabilize_jobs: HashMap::new(),
             stabilize_retry: HashSet::new(),
             enhance_jobs: HashMap::new(),
-            enhance_size: 0,
+            enhance_scale: 0.0,
             enhance_strength: concat_host::enhance::DEFAULT_STRENGTH,
             enhance_preview: None,
             enhance_previewing: None,

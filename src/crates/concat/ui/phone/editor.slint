@@ -1593,7 +1593,7 @@ export component PhoneEditor inherits Rectangle {
         if root.sheet == "clip-enhance": EnhancePanel {
             selected: Editor.selected-clip;
             enhance-set(on) => { Editor.clip-enhance-set(on); }
-            enhance-size(index) => { Editor.clip-enhance-size(index); }
+            enhance-scale(scale) => { Editor.clip-enhance-scale(scale); }
             enhance-strength(strength) => { Editor.clip-enhance-strength(strength); }
             enhance-preview => { Editor.clip-enhance-preview(); }
             enhance-run => { Editor.clip-enhance-run(); }

@@ -431,17 +431,11 @@ impl Studio {
         }
     }
 
-    /// The Size row: 0 Auto, then once, twice and four times. A size this
-    /// clip cannot take is greyed in the row, and one carried here from a
-    /// smaller clip falls to the largest that fits; see
-    /// `concat_vision::enhance::factor_of`.
-    pub fn clip_enhance_size(&mut self, index: i32) {
-        self.enhance_size = match index {
-            1 => 1,
-            2 => 2,
-            3 => 4,
-            _ => 0,
-        };
+    /// The Scale row: zero or less is Auto, otherwise times larger. One
+    /// carried here from a smaller clip is held to what this one may take;
+    /// see `concat_vision::enhance::scale_of`.
+    pub fn clip_enhance_scale(&mut self, scale: f32) {
+        self.enhance_scale = if scale > 0.0 { scale.clamp(1.0, 4.0) } else { 0.0 };
     }
 
     /// The Strength row, 0 to 1: how much of the model's answer the copy
@@ -494,10 +488,10 @@ impl Studio {
             .cloned()
     }
 
-    /// How many times larger `media` comes out at the section's Size.
-    pub(super) fn enhance_factor(&self, media: &model::MediaItem) -> u32 {
-        concat_vision::enhance::factor_of(
-            self.enhance_size,
+    /// How many times larger `media` comes out at the section's Scale.
+    pub(super) fn enhance_scale_of(&self, media: &model::MediaItem) -> f32 {
+        concat_vision::enhance::scale_of(
+            self.enhance_scale,
             media.width.unwrap_or(0),
             media.height.unwrap_or(0),
         )
@@ -532,7 +526,7 @@ impl Studio {
             self.notify(&t("studio.fileHasNoPicture"), true);
             return;
         }
-        let factor = self.enhance_factor(&media);
+        let scale = self.enhance_scale_of(&media);
         // The moment under the playhead in the original's seconds, which is
         // the file the preview reads, the clip may be showing a copy of a
         // span that starts partway into it.
@@ -544,7 +538,7 @@ impl Studio {
         let request = concat_host::enhance::PreviewRequest {
             media_path: media.path.clone(),
             seconds,
-            factor,
+            scale,
         };
         self.enhance_previewing = Some((id.clone(), false, 0.0));
         let enhancers = Arc::clone(&self.host.enhancers);
@@ -569,16 +563,16 @@ impl Studio {
                         }
                     }
                 });
-                (id, media_id, factor, result)
+                (id, media_id, scale, result)
             },
-            |studio, _, _, (clip_id, media_id, factor, result)| {
+            |studio, _, _, (clip_id, media_id, scale, result)| {
                 studio.enhance_previewing = None;
                 match result {
                     Ok(preview) => {
                         let mut made = EnhancePreview {
                             clip_id,
                             media_id,
-                            factor,
+                            scale,
                             before: image_of(&preview.plain),
                             after: image_of(&preview.enhanced),
                             after_percent: 100,
@@ -597,16 +591,18 @@ impl Studio {
         );
     }
 
-    /// The preview on screen for `clip` read from `media` at `factor`, if
+    /// The preview on screen for `clip` read from `media` at `scale`, if
     /// the last one made is that.
     pub(super) fn enhance_preview_for(
         &self,
         clip: &Clip,
         media: &model::MediaItem,
-        factor: u32,
+        scale: f32,
     ) -> Option<&EnhancePreview> {
         self.enhance_preview.as_ref().filter(|preview| {
-            preview.clip_id == clip.id && preview.media_id == media.id && preview.factor == factor
+            preview.clip_id == clip.id
+                && preview.media_id == media.id
+                && (preview.scale - scale).abs() < 1e-4
         })
     }
 
@@ -636,7 +632,7 @@ impl Studio {
             self.notify(&t("studio.fileHasNoPicture"), true);
             return;
         }
-        let factor = self.enhance_factor(&media);
+        let scale = self.enhance_scale_of(&media);
         let strength = self.enhance_strength;
         let still = clip.kind == model::ClipKind::Image;
         // The span the clip shows of the original, and a second either side
@@ -650,7 +646,7 @@ impl Studio {
             (from, (to - from).max(covered))
         });
         let Some(target) =
-            concat_host::enhance::target_for(&project, &media.path, factor, strength, still, span)
+            concat_host::enhance::target_for(&project, &media.path, scale, strength, still, span)
         else {
             self.notify(&tf("studio.couldNotRead", &[&media.path]), true);
             return;
@@ -658,7 +654,7 @@ impl Studio {
         let request = EnhanceRequest {
             media_path: media.path.clone(),
             still,
-            factor,
+            scale,
             strength,
             target,
             span,
@@ -667,7 +663,7 @@ impl Studio {
         let clip_id = clip.id.clone();
         self.enhance_jobs.insert(clip_id.clone(), (false, 0.0));
         self.notify(
-            &tf("studio.enhancingWayFrameFrame", &[&media.name, &factor]),
+            &tf("studio.enhancingWayFrameFrame", &[&media.name, &times(scale)]),
             false,
         );
         let enhancers = Arc::clone(&self.host.enhancers);
@@ -709,7 +705,7 @@ impl Studio {
                     Ok(path) if ticked => {
                         studio.enhance_ticked.remove(&clip_id);
                         let offset = span.map_or(0.0, |(start, _)| start);
-                        studio.adopt_enhanced(&clip_id, &path, factor, percent, offset);
+                        studio.adopt_enhanced(&clip_id, &path, scale, percent, offset);
                     }
                     Ok(_) => {}
                     Err(error) if error.contains("cancelled") => {}
@@ -855,7 +851,7 @@ impl Studio {
         &mut self,
         id: &str,
         path: &std::path::Path,
-        factor: u32,
+        scale: f32,
         percent: u32,
         offset: f64,
     ) {
@@ -882,7 +878,7 @@ impl Studio {
         // was made with - one file can have a copy for each setting -
         // rather than after its cache file.
         if let Some(original) = self.clip(id).and_then(|clip| self.enhance_source(clip)) {
-            item.name = format!("{} (enhanced {factor}x, {percent}%)", original.name);
+            item.name = format!("{} (enhanced {}x, {percent}%)", original.name, times(scale));
         }
         if let Some(length) = item.duration
             && start + clip.duration * clip.speed > length + 1e-3
@@ -1103,4 +1099,11 @@ impl Studio {
         );
         (path, width, erase)
     }
+}
+
+/// A scale as a person reads it: "2", "1.5", "1.33" - the hundredths the
+/// slider moves in, without the zeros after them.
+pub(crate) fn times(scale: f32) -> String {
+    let text = format!("{scale:.2}");
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }

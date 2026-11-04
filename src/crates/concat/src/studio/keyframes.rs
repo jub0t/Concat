@@ -1212,10 +1212,12 @@ impl Studio {
             enhance_linked: clip.enhanced.is_some(),
             enhance_on: self.enhance_ticked(clip),
             enhance_busy: !self.enhance_jobs.is_empty() || self.enhance_previewing.is_some(),
-            enhance_size: enhance.size,
-            enhance_auto: enhance.auto as i32,
-            enhance_fits_2x: enhance.fits_2x,
-            enhance_fits_4x: enhance.fits_4x,
+            enhance_scale: enhance.scale,
+            enhance_auto: self.enhance_scale <= 0.0,
+            enhance_auto_scale: enhance.auto_scale,
+            enhance_max_scale: enhance.max_scale,
+            enhance_source_size: enhance.source.into(),
+            enhance_output_size: enhance.output.into(),
             enhance_size_note: enhance.size_note.into(),
             enhance_strength: self.enhance_strength,
             enhance_previewing: self
@@ -1244,31 +1246,24 @@ impl Studio {
             return readout;
         };
         let (width, height) = (media.width.unwrap_or(0), media.height.unwrap_or(0));
-        let limit = concat_vision::enhance::LONGEST_SIDE;
-        let factor = self.enhance_factor(&media);
-        readout.auto = concat_vision::enhance::factor_for(width, height);
-        readout.fits_2x = concat_vision::enhance::fits(width, height, 2);
-        readout.fits_4x = concat_vision::enhance::fits(width, height, 4);
-        // The row shows what will happen: Auto as Auto, and an ask this
-        // file cannot take as the size it falls to.
-        readout.size = match (self.enhance_size, factor) {
-            (0, _) => 0,
-            (_, 1) => 1,
-            (_, 2) => 2,
-            _ => 3,
-        };
-        readout.size_note = if !readout.fits_2x {
-            tf("studio.enhanceOnlyRestore", &[&width.max(height), &limit])
-        } else if !readout.fits_4x {
-            tf(
-                "studio.enhanceNoFourTimes",
-                &[&(width * 4), &(height * 4), &limit],
-            )
+        let scale = self.enhance_scale_of(&media);
+        // The row shows what will happen: an ask this file cannot take as
+        // the scale it is held to.
+        readout.scale = scale;
+        readout.auto_scale = concat_vision::enhance::auto_scale(width, height);
+        readout.max_scale = concat_vision::enhance::max_scale(width, height);
+        if width > 0 && height > 0 {
+            let (ow, oh) = concat_vision::enhance::size_at(width, height, scale);
+            readout.source = format!("{width} × {height}");
+            readout.output = format!("{ow} × {oh}");
+        }
+        readout.size_note = if readout.max_scale <= 1.0 {
+            t("studio.enhanceAt2k")
         } else {
             String::new()
         };
         readout.preview = self
-            .enhance_preview_for(clip, &media, factor)
+            .enhance_preview_for(clip, &media, scale)
             .map(|preview| {
                 // The model's work on the whole file - every frame of it,
                 // not only the span the clip shows - at the warm tile time

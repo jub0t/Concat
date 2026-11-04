@@ -319,8 +319,8 @@ export global Editor {
     callback cutout-clear();
     callback clip-enhance-set(on: bool);
     /// The Enhance section's settings and its preview; see EnhancePanel.
-    /// `index` is 0 Auto, then 1x, 2x and 4x.
-    callback clip-enhance-size(index: int);
+    /// `scale` is times larger, zero for Auto.
+    callback clip-enhance-scale(scale: float);
     callback clip-enhance-strength(strength: float);
     callback clip-enhance-preview();
     callback clip-enhance-run();

@@ -443,14 +443,16 @@ export struct SelectedClipData {
     /// Enhance at work on some clip, a run or a preview: the model is one
     /// model, so the section's buttons wait for it
     enhance-busy: bool,
-    /// The Size row: 0 Auto, 1 once, 2 twice, 3 four times - what will
-    /// happen, so an ask this file cannot take shows as what it falls to.
-    /// `enhance-auto` is what Auto comes to here; a size that would pass
-    /// the longest-side limit is greyed, `enhance-size-note` saying why
-    enhance-size: int,
-    enhance-auto: int,
-    enhance-fits-2x: bool,
-    enhance-fits-4x: bool,
+    /// The Scale row: the scale a run makes, once to four times, as this
+    /// file takes it; whether it follows Auto, and what Auto comes to; the
+    /// most it may be enlarged, 2K's limit; the file's size and the copy's,
+    /// "1280 × 720" and "2560 × 1440"; and why it cannot move, or empty
+    enhance-scale: float,
+    enhance-auto: bool,
+    enhance-auto-scale: float,
+    enhance-max-scale: float,
+    enhance-source-size: string,
+    enhance-output-size: string,
     enhance-size-note: string,
     /// The Strength row, 0 to 1: how much of the model's answer is kept
     enhance-strength: float,

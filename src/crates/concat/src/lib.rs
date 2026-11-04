@@ -1688,8 +1688,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_enhance_set(on_window!(|state, on: bool| {
         state.clip_enhance_set(on);
     }));
-    editor.on_clip_enhance_size(on_window!(|state, index: i32| {
-        state.clip_enhance_size(index);
+    editor.on_clip_enhance_scale(on_window!(|state, scale: f32| {
+        state.clip_enhance_scale(scale);
     }));
     editor.on_clip_enhance_strength(on_window!(|state, strength: f32| {
         state.clip_enhance_strength(strength);
