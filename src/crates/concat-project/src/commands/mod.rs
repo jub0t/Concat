@@ -422,6 +422,21 @@ pub enum Command {
         #[serde(default)]
         sound: bool,
     },
+    /// Places a transition clip across a cut: it acts on everything beneath
+    /// it for its span. No media; the package it names supplies the look.
+    AddTransitionClip {
+        /// The lane to place it on; None picks a lane as above says.
+        track_id: Option<String>,
+        /// Timeline position in seconds, floored at 0.
+        start: f64,
+        /// Seconds on the timeline; the editorial default when absent.
+        #[serde(default)]
+        duration: Option<f64>,
+        /// The transition package the clip applies, e.g. "concat.dissolve".
+        transition_id: String,
+        /// What the lane calls it.
+        name: String,
+    },
     /// Gives a clip a speed curve, or takes it away. The source covered is
     /// held constant, as a speed change does, so the clip's timeline length
     /// follows the curve's mean; `speed` is kept at that mean.
