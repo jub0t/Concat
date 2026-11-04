@@ -35,6 +35,10 @@ const DEFAULT_IMAGE_DURATION: f64 = 5.0;
 const DEFAULT_TEXT_DURATION: f64 = 4.0;
 /// How long a layer covers when first placed. Editorial default, not a fact.
 const DEFAULT_LAYER_DURATION: f64 = 5.0;
+/// How long a transition covers when first placed. Editorial default.
+const DEFAULT_TRANSITION_DURATION: f64 = 1.0;
+/// Shortest a transition may be.
+const MIN_TRANSITION_DURATION: f64 = 0.2;
 /// Default hold for a freeze frame when the caller omits duration.
 const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 pub(crate) use crate::model::ranges::{
@@ -1305,6 +1309,7 @@ pub fn apply(
         | Command::AddTextClip { .. }
         | Command::AddShapeClip { .. }
         | Command::AddLayerClip { .. }
+        | Command::AddTransitionClip { .. }
         | Command::MoveClips { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }
