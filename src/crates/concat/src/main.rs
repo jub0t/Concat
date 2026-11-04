@@ -54,7 +54,7 @@ fn main() -> Result<(), slint::PlatformError> {
             .and_then(|text| text.parse().ok())
             .unwrap_or_else(|| "127.0.0.1:7420".parse().expect("default address parses"));
 
-        #[cfg(all(target_os = "android", feature = "http"))]
+        #[cfg(target_os = "android")]
         {
             return tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -72,7 +72,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 });
         }
 
-        #[cfg(not(all(target_os = "android", feature = "http")))]
+        #[cfg(not(target_os = "android"))]
         {
             return Err(slint::PlatformError::Other(
                 "concat --mcp is only available on Android with HTTP/SSE transport (stdio removed)"

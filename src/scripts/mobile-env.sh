@@ -43,9 +43,11 @@ case "$target" in
     # ANDROID_NDK_ROOT, and skia-bindings reads ANDROID_NDK.
     echo "export ANDROID_HOME='$sdk' ANDROID_NDK_HOME='$ndk' ANDROID_NDK_ROOT='$ndk' ANDROID_NDK='$ndk'"
     # bindgen reads FFmpeg's headers with its own libclang, which knows
-    # nothing of the NDK until told where the sysroot is.
+    # nothing of the NDK until told where the sysroot is. The variable name
+    # must be the target triple uppercased, as bindgen expects.
     host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
-    echo "export BINDGEN_EXTRA_CLANG_ARGS_${target//-/_}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot'"
+    bindgen_target=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
+    echo "export BINDGEN_EXTRA_CLANG_ARGS_${bindgen_target}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot'"
     # Slint's backend compiles a Java helper against the SDK platform's
     # android.jar. cargo-ndk names the NDK API level as ANDROID_PLATFORM,
     # which is also the name the lookup reads for the SDK platform, and the
