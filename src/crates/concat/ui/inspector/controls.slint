@@ -326,6 +326,62 @@ export component KeyCluster inherits HorizontalLayout {
     }
 }
 
+// A "?" that explains on hover. The prose is a popover beside the mark, so
+// it never rearranges the panel it sits in, and it goes when the pointer
+// does. The mark has no height of its own: it fills whatever row it is
+// given and sits in the middle of it, which is what keeps it level with a
+// title or a switch rather than floating at the top of the row.
+export component HelpButton inherits Rectangle {
+    /// The sentence or two the popover shows.
+    in property <string> text;
+
+    width: 16px;
+
+    mark := Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: touch.has-hover ? Theme.accent-soft : Theme.field;
+
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+        Text {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            text: "?";
+            color: touch.has-hover ? Theme.accent : Theme.fg-muted;
+            font-size: Theme.fs-xs;
+            font-weight: Theme.weight-title;
+        }
+
+        touch := TouchArea {
+            mouse-cursor: help;
+        }
+
+        Tooltip {
+            Rectangle {
+                width: 260px;
+                background: Theme.raised;
+                border-width: 1px;
+                border-color: Theme.line-strong;
+                border-radius: Theme.r;
+
+                HorizontalLayout {
+                    padding: 10px;
+                    Text {
+                        text: root.text;
+                        color: Theme.fg;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The inspector's repeating unit, on one line: label, a formatted readout
 // (the value in a unit you reason about — "none", "auto", "1.00x"), keys
 // and a raw number field, which scrubs on a drag. Keeping readout and field
@@ -361,6 +417,9 @@ export component Param inherits VerticalLayout {
     /// See KeyCluster: a row keyed by name is handed its key state.
     in property <string> key-name;
     in property <ClipKeyData> key-state: Keyframes.row(root.field);
+    /// A sentence or two behind a "?" beside the label, on hover, for a
+    /// knob whose meaning is not in its name.
+    in property <string> help;
 
     callback changed(value: float);
 
@@ -385,6 +444,9 @@ export component Param inherits VerticalLayout {
                 }
             }
         }
+
+        if root.help != "": Rectangle { width: 6px; }
+        if root.help != "": HelpButton { text: root.help; }
 
         Rectangle { horizontal-stretch: 1; }
 
@@ -596,62 +658,6 @@ export component SwitchRow inherits HorizontalLayout {
         Switch {
             checked <=> root.checked;
             toggled(on) => { root.toggled(on); }
-        }
-    }
-}
-
-// A "?" that explains on hover. The prose is a popover beside the mark, so
-// it never rearranges the panel it sits in, and it goes when the pointer
-// does. The mark has no height of its own: it fills whatever row it is
-// given and sits in the middle of it, which is what keeps it level with a
-// title or a switch rather than floating at the top of the row.
-export component HelpButton inherits Rectangle {
-    /// The sentence or two the popover shows.
-    in property <string> text;
-
-    width: 16px;
-
-    mark := Rectangle {
-        x: 0;
-        y: (parent.height - self.height) / 2;
-        width: 16px;
-        height: 16px;
-        border-radius: 8px;
-        background: touch.has-hover ? Theme.accent-soft : Theme.field;
-
-        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-        Text {
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            text: "?";
-            color: touch.has-hover ? Theme.accent : Theme.fg-muted;
-            font-size: Theme.fs-xs;
-            font-weight: Theme.weight-title;
-        }
-
-        touch := TouchArea {
-            mouse-cursor: help;
-        }
-
-        Tooltip {
-            Rectangle {
-                width: 260px;
-                background: Theme.raised;
-                border-width: 1px;
-                border-color: Theme.line-strong;
-                border-radius: Theme.r;
-
-                HorizontalLayout {
-                    padding: 10px;
-                    Text {
-                        text: root.text;
-                        color: Theme.fg;
-                        font-size: Theme.fs-sm;
-                        wrap: word-wrap;
-                    }
-                }
-            }
         }
     }
 }

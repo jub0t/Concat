@@ -11,7 +11,7 @@ import {
     SectionBody,
     SectionHeader,
 } from "../primitives/panel.slint";
-import { Button } from "../primitives/modal.slint";
+import { Button, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import { SpeedGraph, SpeedRamp } from "speed-ramp.slint";
@@ -1122,18 +1122,64 @@ component StabilizeRow inherits Row {
 }
 
 /// Enhance at work on the clip's media: the model on its way, then the
-/// frames, one by one, into the copy the clip will show.
-component EnhanceRow inherits Row {
+/// frames, one by one, into the copy the clip will show. What it is doing
+/// and how far, over a bar that fills as it goes.
+component EnhanceRow inherits VerticalLayout {
     in property <float> progress;
     in property <bool> fetching;
 
-    label: I18n.t("common.enhance");
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    spacing: 6px;
+
+    HorizontalLayout {
+        Text {
+            horizontal-stretch: 1;
+            text: root.fetching
+                ? I18n.t("clipInspector.enhanceFetchingModel")
+                : I18n.t("clipInspector.enhanceWorking");
+            color: Theme.fg;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+        Text {
+            text: "\{Math.floor(bar.shown * 100)}%";
+            color: Theme.fg-muted;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+    }
+    bar := Progress {
+        value: root.progress;
+        live: true;
+    }
+}
+
+/// One fact of a run's estimate: its name at the left, its value at the
+/// right, the row's width between them.
+component StatRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    height: 22px;
+
     Text {
-        text: root.fetching
-            ? I18n.t1("clipInspector.fetchingTheModel", "\{Math.round(root.progress * 100)}")
-            : I18n.t1("clipInspector.enhancing", "\{Math.round(root.progress * 100)}");
+        horizontal-stretch: 1;
+        text: root.label;
         color: Theme.fg-muted;
-        font-size: Theme.fs;
+        font-size: Theme.fs-sm;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.value;
+        color: Theme.fg;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs-sm;
         vertical-alignment: center;
     }
 }
@@ -2382,10 +2428,8 @@ export component EnhancePanel inherits VerticalLayout {
                 unit: "%";
                 unit-scale: 100;
                 enabled: root.live;
+                help: I18n.t("clipInspector.enhanceStrengthExplain");
                 changed(v) => { root.enhance-strength(v); }
-            }
-            Note {
-                text: I18n.t("clipInspector.enhanceStrengthExplain");
             }
 
             if root.selected.enhance-preview: Comparison {
@@ -2423,8 +2467,25 @@ export component EnhancePanel inherits VerticalLayout {
                     clicked => { root.enhance-run(); }
                 }
             }
-            if root.selected.enhance-preview: Note {
-                text: root.selected.enhance-estimate;
+            // What a run would take, at the speed the preview measured.
+            if root.selected.enhance-preview: VerticalLayout {
+                padding-top: 4px;
+                StatRow {
+                    label: I18n.t("clipInspector.enhanceEstimatedTime");
+                    value: root.selected.enhance-estimate-total;
+                }
+                if root.selected.enhance-estimate-frames != "": StatRow {
+                    label: I18n.t("clipInspector.enhanceFrames");
+                    value: root.selected.enhance-estimate-frames;
+                }
+                if root.selected.enhance-estimate-per-frame != "": StatRow {
+                    label: I18n.t("clipInspector.enhanceTimePerFrame");
+                    value: root.selected.enhance-estimate-per-frame;
+                }
+                if root.selected.enhance-output-size != "": StatRow {
+                    label: I18n.t("clipInspector.enhanceOutputSize");
+                    value: root.selected.enhance-output-size;
+                }
             }
         }
     }

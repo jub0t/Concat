@@ -462,12 +462,15 @@ export struct SelectedClipData {
     enhance-previewing: bool,
     enhance-preview-fetch: float,
     /// The preview made for this clip at these settings: the middle of
-    /// the frame enlarged plainly and enhanced, and what a whole run would
-    /// take at the speed it measured
+    /// the frame enlarged plainly and enhanced, and what a run would take
+    /// at the speed it measured - in all, in frames and per frame, the
+    /// last two empty for a still
     enhance-preview: bool,
     enhance-before: image,
     enhance-after: image,
-    enhance-estimate: string,
+    enhance-estimate-total: string,
+    enhance-estimate-frames: string,
+    enhance-estimate-per-frame: string,
     /// Reverse writing this clip's backwards copy: -1 when it is not,
     /// else how far along
     reverse-progress: float,

@@ -175,9 +175,10 @@ struct EnhanceReadout {
     output: String,
     /// Why the scale cannot move, or empty.
     size_note: String,
-    /// Before, after and the estimate for a whole run, when a preview of
-    /// these settings is on hand.
-    preview: Option<(slint::Image, slint::Image, String)>,
+    /// Before, after and the estimate for a whole run - its time, its
+    /// frames and each frame's time, the last two empty for a still - when
+    /// a preview of these settings is on hand.
+    preview: Option<(slint::Image, slint::Image, (String, String, String))>,
 }
 
 impl EnhancePreview {

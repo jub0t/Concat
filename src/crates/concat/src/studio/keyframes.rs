@@ -1053,7 +1053,7 @@ impl Studio {
         let mut enhance = self.enhance_readout(clip);
         let steady = self.stabilize_readout(clip);
         let enhance_preview = enhance.preview.is_some();
-        let (enhance_before, enhance_after, enhance_estimate) =
+        let (enhance_before, enhance_after, (estimate_total, estimate_frames, estimate_per_frame)) =
             enhance.preview.take().unwrap_or_default();
         SelectedClipData {
             present: true,
@@ -1233,7 +1233,9 @@ impl Studio {
             enhance_preview,
             enhance_before,
             enhance_after,
-            enhance_estimate: enhance_estimate.into(),
+            enhance_estimate_total: estimate_total.into(),
+            enhance_estimate_frames: estimate_frames.into(),
+            enhance_estimate_per_frame: estimate_per_frame.into(),
         }
     }
 
@@ -1265,13 +1267,14 @@ impl Studio {
         readout.preview = self
             .enhance_preview_for(clip, &media, scale)
             .map(|preview| {
-                // The model's work on the whole file - every frame of it,
-                // not only the span the clip shows - at the warm tile time
-                // the preview measured.
+                // The model's work on what a run covers - the span the clip
+                // shows and a second either side, as `enhance_clip` cuts it -
+                // at the warm tile time the preview measured.
                 let frames = if clip.kind == model::ClipKind::Image {
                     1.0
                 } else {
-                    media.duration.unwrap_or(0.0) * media.frame_rate.unwrap_or(30.0)
+                    let span = clip.duration * clip.speed + 2.0 * super::ENHANCE_MARGIN;
+                    span.min(media.duration.unwrap_or(f64::MAX)) * media.frame_rate.unwrap_or(30.0)
                 };
                 let per_frame = preview.tile_seconds * preview.tiles_per_frame as f64;
                 let total = concat_host::enhance::estimate_seconds(
@@ -1279,19 +1282,15 @@ impl Studio {
                     preview.tiles_per_frame,
                     frames,
                 );
+                // The time, and for a video what it is made of: the frames
+                // and each one's time. A still is one frame, said once.
                 let estimate = if clip.kind == model::ClipKind::Image {
-                    tf(
-                        "studio.enhanceEstimateStill",
-                        &[&crate::format::span(total)],
-                    )
+                    (crate::format::span(total), String::new(), String::new())
                 } else {
-                    tf(
-                        "studio.enhanceEstimate",
-                        &[
-                            &crate::format::span(total),
-                            &format!("{:.0}", frames.max(1.0)),
-                            &format!("{per_frame:.1}"),
-                        ],
+                    (
+                        crate::format::span(total),
+                        format!("{:.0}", frames.max(1.0)),
+                        format!("{per_frame:.1} s"),
                     )
                 };
                 (preview.before.clone(), preview.after.clone(), estimate)
