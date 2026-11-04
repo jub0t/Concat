@@ -60,6 +60,8 @@ impl Gpu {
             // The window's device is the monitor's and the export's too;
             // see `concat_render::gpu::MEMORY_BUDGET`.
             memory_budget_thresholds: concat_render::gpu::MEMORY_BUDGET,
+            // No indirect-call validation; see `concat_render::gpu::instance_flags`.
+            flags: concat_render::gpu::instance_flags(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
         // FXC, never wgpu's default `Auto`: Concat ships no dxcompiler.dll,

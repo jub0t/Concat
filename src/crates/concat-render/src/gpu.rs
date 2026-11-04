@@ -295,6 +295,18 @@ const WORK_FALLBACK: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// frame a software adapter draws at 8K.
 pub const DEVICE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The instance flags every device Concat opens is made with: wgpu's
+/// defaults less indirect-call validation, which builds a compute pipeline
+/// as each device opens to check indirect draws Concat never makes. On an
+/// Intel Iris Pro Mac that pipeline met an internal compiler error, and on
+/// a GCN Radeon under OpenCore Legacy Patcher a `-std=metal3.2` the
+/// compiler refused; either way the device was lost as it opened and no
+/// window ever came up (#600, #423). `WGPU_VALIDATION_INDIRECT_CALL=1`
+/// turns it back on.
+pub fn instance_flags() -> wgpu::InstanceFlags {
+    (wgpu::InstanceFlags::default() - wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL).with_env()
+}
+
 /// How near its memory budget a device lets Concat go, as Firefox ships it
 /// to every Windows user of WebGPU: past 95% a texture or buffer is refused
 /// with an out-of-memory error, which a composite catches and an export
@@ -958,10 +970,14 @@ impl WgpuCompositor {
         // Vulkan (#507): a phone has no software adapter, and reading it as
         // "software alone" left the monitor and every export with nothing
         // to draw on for the rest of the build. There it asks for GL first.
+        // Nor on a Mac, which has no software adapter either: there a safe
+        // start draws the window on Skia's own rasteriser, and the
+        // compositor stays on Metal, the one device a Mac has (#600).
         let safe = std::env::var("CONCAT_GPU")
             .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
         let android = cfg!(target_os = "android");
-        let software_only = software_only || (safe && !android);
+        let apple = cfg!(target_vendor = "apple");
+        let software_only = software_only || (safe && !android && !apple);
         let own = if android && safe {
             wgpu::Backends::GL
         } else if cfg!(target_vendor = "apple") {
@@ -982,6 +998,7 @@ impl WgpuCompositor {
     fn on_backends(backends: wgpu::Backends, software_only: bool) -> Option<Self> {
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
+            flags: instance_flags(),
             memory_budget_thresholds: MEMORY_BUDGET,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };

@@ -443,11 +443,24 @@ pub fn select_backend(
     // path run on a CPU - and the monitor composites on a device of its
     // own, on the software adapter too (CONCAT_GPU, which the compositor
     // reads), handing the window pixels as it does with no GPU at all.
-    let software = gpu.as_ref().is_some_and(Gpu::is_software);
-    if software {
+    // A Mac asked to draw in software has no software adapter to find
+    // (`Gpu::acquire` comes back empty), and Slint's own choice would be
+    // Skia on Metal again - the device that would not open (#600). Skia's
+    // own rasteriser draws the window instead, as on WARP.
+    let asked = cfg!(target_vendor = "apple")
+        && std::env::var("CONCAT_GPU")
+            .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
+    let software = asked || gpu.as_ref().is_some_and(Gpu::is_software);
+    if asked {
+        log::warn!(
+            "CONCAT_GPU=software: the window draws on the CPU and the monitor on a Metal device of its own"
+        );
+    } else if software {
         log::warn!(
             "the GPU adapter is a software rasteriser; the window draws on the CPU and the monitor on a device of its own"
         );
+    }
+    if software {
         // SAFETY: the process is single-threaded at this point - the
         // backend, the engine's threads and the window all come after
         // this function - so nothing reads the environment concurrently.

@@ -2818,9 +2818,17 @@ const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 /// on, and on Android, where the safe way is OpenGL ES in place of Vulkan:
 /// a phone whose Vulkan driver dies on the first frame closed on every
 /// launch, and the backend's fall back to OpenGL ES only catches a surface
-/// that fails to open (#507). A Mac has neither.
+/// that fails to open (#507). A Mac draws the window on Skia's own
+/// rasteriser and keeps the compositor on Metal: an Iris Pro or a patched
+/// Radeon whose Metal compiler failed as the device opened never showed a
+/// window at all (#600, #423).
 fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
-    if !cfg!(any(windows, target_os = "linux", target_os = "android")) {
+    if !cfg!(any(
+        windows,
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos"
+    )) {
         return (None, false);
     }
     let Ok(dirs) = concat_host::AppDirs::locate() else {
@@ -2852,7 +2860,7 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
 /// squares, where the switch itself cannot be seen. The switch turns it
 /// back on. Nothing where [`safe_start`] has no software rasteriser.
 pub fn draw_in_software() {
-    if !cfg!(any(windows, target_os = "linux")) {
+    if !cfg!(any(windows, target_os = "linux", target_os = "macos")) {
         log::warn!("start: --software has no software rasteriser to draw on here");
         return;
     }

@@ -953,7 +953,7 @@ impl SettingsPane {
             playhead_stops: self.playhead_stops,
             proxies: studio.prefs.proxies,
             gpu: !studio.prefs.draws_in_software(),
-            gpu_switchable: cfg!(any(windows, target_os = "linux")),
+            gpu_switchable: cfg!(any(windows, target_os = "linux", target_os = "macos")),
             magnetic: studio.prefs.magnetic(),
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
