@@ -9,9 +9,14 @@ struct BuiltComposition {
     let videoTrackIDs: [CMPersistentTrackID]
 
     /// A fresh video composition drawing through `state`.
-    func videoComposition(state: RenderState, frameRate: Int32 = 30) -> AVVideoComposition {
+    func videoComposition(state: RenderState, frameRate: Int32 = 30, hdr: Bool = false) -> AVVideoComposition {
         let vc = AVMutableVideoComposition()
-        vc.customVideoCompositorClass = RenderCompositor.self
+        vc.customVideoCompositorClass = hdr ? HDRRenderCompositor.self : RenderCompositor.self
+        if hdr {
+            vc.colorPrimaries = AVVideoColorPrimaries_ITU_R_2020
+            vc.colorTransferFunction = AVVideoTransferFunction_ITU_R_2100_HLG
+            vc.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_2020
+        }
         vc.instructions = [RenderInstruction(
             timeRange: CMTimeRange(start: .zero, duration: composition.duration),
             trackIDs: videoTrackIDs, state: state)]

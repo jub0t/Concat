@@ -6,6 +6,7 @@ struct ExportSheet: View {
     @AppStorage("exportQuality") private var quality: ExportQuality = .hd1080
     @AppStorage("exportFPS") private var fps = 30
     @AppStorage("exportHEVC") private var hevc = false
+    @AppStorage("export10bit") private var tenBit = false
     @State private var progress: Double?
     @State private var result: URL?
     @State private var saved = false
@@ -58,6 +59,13 @@ struct ExportSheet: View {
                                 .pickerStyle(.segmented)
                         }
                         Toggle("HEVC (smaller files)", isOn: $hevc).font(.subheadline)
+                        if hevc {
+                            Toggle("10-bit HDR (HLG)", isOn: $tenBit).font(.subheadline)
+                            if tenBit {
+                                Text("Brighter highlights and smoother gradients on HDR screens. Plays on recent iPhones, Macs and HDR TVs.")
+                                    .font(.caption).foregroundStyle(Theme.secondaryText)
+                            }
+                        }
                         HStack {
                             info("Canvas", project.aspect.rawValue)
                             info("Length", project.duration.timecode)
@@ -111,7 +119,7 @@ struct ExportSheet: View {
         progress = 0
         task = Task {
             do {
-                let url = try await Exporter.export(project, quality: quality, hevc: hevc, frameRate: Int32(fps)) { p in
+                let url = try await Exporter.export(project, quality: quality, hevc: hevc, frameRate: Int32(fps), tenBit: hevc && tenBit) { p in
                     Task { @MainActor in if progress != nil { progress = p } }
                 }
                 result = url

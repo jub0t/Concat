@@ -101,8 +101,9 @@ enum FrameRenderer {
     static func layer(_ source: CIImage, seg: Segment, clip: Clip, local: Double, canvas: CGSize, overlay: Bool,
                       mask: MaskShape = .none, feather: Double = 0) -> CIImage {
         var img = upright(source, seg: seg, clip: clip)
+        img = Imaging.stabilized(img, clip: clip, sourceTime: clip.sourceTime(atLocal: local))
         img = Imaging.grade(img, clip: clip, time: local)
-        img = Imaging.cutout(img, mode: clip.cutout)
+        img = Imaging.cutout(img, clip: clip)
         if overlay, mask != .none, let m = Imaging.shapeMask(mask, feather: feather, extent: img.extent) {
             let f = CIFilter.blendWithMask()
             f.inputImage = img; f.backgroundImage = CIImage.empty(); f.maskImage = m

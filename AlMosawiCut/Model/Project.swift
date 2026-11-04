@@ -124,6 +124,15 @@ struct TrackFlags: Codable, Hashable {
     var audioMuted = false, audioLocked = false
 }
 
+/// A brush stroke on a clip's picture: Keep brings back what the cut-out removed,
+/// Erase takes more away. Points are x, y pairs, 0...1 across the picture, y from the top.
+struct MaskStroke: Codable, Hashable {
+    var points: [Double] = []
+    /// Brush radius as a fraction of the picture's shorter side.
+    var radius = 0.05
+    var keep = true
+}
+
 /// One word of a title drawn in its own colour; `index` counts words from 0.
 struct WordHighlight: Codable, Hashable {
     var index: Int
@@ -262,6 +271,13 @@ struct Clip: Codable, Identifiable, Hashable {
     var vignette: Double = 0
     var wheels = ColorWheels()
     var colorRange: ColorRangeMode = .auto
+    var maskStrokes: [MaskStroke] = []
+    /// Stabilisation strength, 0 off ... 1 strongest.
+    var stabilize = 0.0
+    /// Measured shake: dx, dy pairs (fractions of the picture) every 1/10 s of source.
+    var stabilizePath: [Double] = []
+    /// Denoise and sharpen, 0...1.
+    var enhance = 0.0
     var fill = false
     var flipped = false
     var flippedV = false
@@ -330,7 +346,7 @@ struct Clip: Codable, Identifiable, Hashable {
     var hasAdjustments: Bool {
         brightness != 0 || contrast != 1 || saturation != 1 || exposure != 0 || temperature != 0 || tint != 0
             || highlights != 1 || shadows != 0 || sharpness != 0 || vignette != 0 || !wheels.isNeutral
-            || colorRange != .auto
+            || colorRange != .auto || enhance > 0
     }
 }
 

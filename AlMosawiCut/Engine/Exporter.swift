@@ -16,7 +16,7 @@ enum ExportQuality: String, CaseIterable, Identifiable {
 
 enum Exporter {
     static func export(
-        _ project: Project, quality: ExportQuality, hevc: Bool, frameRate: Int32,
+        _ project: Project, quality: ExportQuality, hevc: Bool, frameRate: Int32, tenBit: Bool = false,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
         let built = try await CompositionBuilder.build(project)
@@ -25,11 +25,11 @@ enum Exporter {
                             height: (base.height * quality.scale / 2).rounded() * 2)
         let state = RenderState(project: project, segments: built.segments, canvas: canvas)
 
-        let preset = hevc ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
+        let preset = hevc || tenBit ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
         guard let session = AVAssetExportSession(asset: built.composition, presetName: preset) else {
             throw CocoaError(.featureUnsupported)
         }
-        session.videoComposition = built.videoComposition(state: state, frameRate: frameRate)
+        session.videoComposition = built.videoComposition(state: state, frameRate: frameRate, hdr: tenBit)
         session.audioMix = built.audioMix
 
         let safeName = project.name.replacingOccurrences(of: "/", with: "-")

@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
@@ -53,6 +54,15 @@ enum Imaging {
         }
         if clip.vignette != 0 { x = vignette(x, amount: clip.vignette * 2, extent: extent) }
         if !clip.wheels.isNeutral { x = colorWheels(x, clip.wheels) }
+        if clip.enhance > 0 {
+            // Clean up noise, then bring back edge detail.
+            let n = CIFilter.noiseReduction()
+            n.inputImage = x; n.noiseLevel = Float(0.01 + clip.enhance * 0.03); n.sharpness = Float(0.4 + clip.enhance * 0.6)
+            x = n.outputImage ?? x
+            let u = CIFilter.unsharpMask()
+            u.inputImage = x; u.radius = Float(max(2, max(extent.width, extent.height) / 600)); u.intensity = Float(clip.enhance * 0.8)
+            x = u.outputImage ?? x
+        }
         return x.cropped(to: extent)
     }
 
@@ -251,6 +261,97 @@ enum Imaging {
     }
 
     // MARK: Cutout
+
+    /// The cut-out, then the painted strokes: Keep restores, Erase removes.
+    static func cutout(_ image: CIImage, clip: Clip) -> CIImage {
+        let cut = cutout(image, mode: clip.cutout)
+        guard !clip.maskStrokes.isEmpty else { return cut }
+        let masks = strokeMasks(clip.maskStrokes, extent: image.extent)
+        var out = cut
+        if let keep = masks.keep {
+            let f = CIFilter.blendWithMask()
+            f.inputImage = image; f.backgroundImage = out; f.maskImage = keep
+            out = f.outputImage ?? out
+        }
+        if let erase = masks.erase {
+            let f = CIFilter.blendWithMask()
+            f.inputImage = CIImage.empty(); f.backgroundImage = out; f.maskImage = erase
+            out = f.outputImage ?? out
+        }
+        return out.cropped(to: image.extent)
+    }
+
+    private static let strokeCache = Locked<[String: (CIImage?, CIImage?)]>([:])
+
+    /// White where the strokes painted, black elsewhere, the size of `extent`.
+    static func strokeMasks(_ strokes: [MaskStroke], extent: CGRect) -> (keep: CIImage?, erase: CIImage?) {
+        let key = "\(strokes.hashValue)-\(Int(extent.width))x\(Int(extent.height))"
+        if let hit = strokeCache.withLock({ $0[key] }) { return (hit.0, hit.1) }
+        let scale = 512 / max(1, max(extent.width, extent.height))
+        let size = CGSize(width: max(1, (extent.width * scale).rounded()), height: max(1, (extent.height * scale).rounded()))
+        func render(_ list: [MaskStroke]) -> CIImage? {
+            guard !list.isEmpty else { return nil }
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let picture = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+                UIColor.black.setFill()
+                ctx.fill(CGRect(origin: .zero, size: size))
+                UIColor.white.setFill()
+                UIColor.white.setStroke()
+                let short = min(size.width, size.height)
+                for stroke in list {
+                    let r = max(1, CGFloat(stroke.radius) * short)
+                    let pts = stride(from: 0, to: stroke.points.count - 1, by: 2).map {
+                        CGPoint(x: CGFloat(stroke.points[$0]) * size.width, y: CGFloat(stroke.points[$0 + 1]) * size.height)
+                    }
+                    guard let first = pts.first else { continue }
+                    if pts.count == 1 {
+                        UIBezierPath(ovalIn: CGRect(x: first.x - r, y: first.y - r, width: r * 2, height: r * 2)).fill()
+                        continue
+                    }
+                    let path = UIBezierPath()
+                    path.lineWidth = r * 2
+                    path.lineCapStyle = .round
+                    path.lineJoinStyle = .round
+                    path.move(to: first)
+                    for p in pts.dropFirst() { path.addLine(to: p) }
+                    path.stroke()
+                }
+            }
+            guard let cg = picture.cgImage else { return nil }
+            return CIImage(cgImage: cg)
+                .transformed(by: CGAffineTransform(scaleX: extent.width / size.width, y: extent.height / size.height))
+                .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
+        }
+        let result = (render(strokes.filter(\.keep)), render(strokes.filter { !$0.keep }))
+        strokeCache.withLock { cache in
+            if cache.count > 40 { cache.removeAll() }
+            cache[key] = result
+        }
+        return (result.0, result.1)
+    }
+
+    /// The picture moved against the measured shake, zoomed a little so no edge shows.
+    static func stabilized(_ image: CIImage, clip: Clip, sourceTime: Double) -> CIImage {
+        let path = clip.stabilizePath
+        guard clip.stabilize > 0, path.count >= 4 else { return image }
+        let n = path.count / 2
+        let f = max(0, min(Double(n - 1), sourceTime * 10))
+        let i = Int(f), j = min(n - 1, i + 1), t = f - Double(i)
+        var dx = path[2 * i] + (path[2 * j] - path[2 * i]) * t
+        var dy = path[2 * i + 1] + (path[2 * j + 1] - path[2 * i + 1]) * t
+        if clip.flipped { dx = -dx }
+        if clip.flippedV { dy = -dy }
+        let e = image.extent
+        let s = clip.stabilize
+        let zoom = 1 + 0.12 * s
+        let moved = image
+            .transformed(by: CGAffineTransform(translationX: -e.midX, y: -e.midY))
+            .transformed(by: CGAffineTransform(scaleX: zoom, y: zoom))
+            .transformed(by: CGAffineTransform(translationX: e.midX + dx * e.width * s, y: e.midY + dy * e.height * s))
+        return moved.clampedToExtent().cropped(to: e)
+    }
 
     static func cutout(_ image: CIImage, mode: CutoutMode) -> CIImage {
         switch mode {
@@ -478,6 +579,54 @@ enum Imaging {
         guard let cg = picture.cgImage else { return nil }
         let img = CIImage(cgImage: cg)
         return img.transformed(by: CGAffineTransform(scaleX: size.width / img.extent.width, y: size.height / img.extent.height))
+    }
+}
+
+/// Measures a clip's shake: how far each frame moved from the last, the camera's
+/// path smoothed, and the difference kept as a correction for every 1/10 s.
+enum Stabilizer {
+    static func analyse(_ url: URL, duration: Double, progress: @escaping @Sendable (Double) -> Void) async throws -> [Double] {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 320, height: 320)
+        generator.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 60)
+        generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 60)
+        let count = max(2, Int(duration * 10))
+        let times = (0..<count).map { CMTime(seconds: Double($0) / 10, preferredTimescale: 600) }
+        var previous: CGImage?
+        var x = 0.0, y = 0.0
+        var path: [(Double, Double)] = []
+        for await result in generator.images(for: times) {
+            try Task.checkCancellation()
+            guard let frame = try? result.image else {
+                path.append((x, y))
+                continue
+            }
+            if let previous {
+                let request = VNTranslationalImageRegistrationRequest(targetedCGImage: frame)
+                try? VNImageRequestHandler(cgImage: previous).perform([request])
+                if let shift = request.results?.first?.alignmentTransform {
+                    // The shift that lines this frame up with the last is the motion, reversed.
+                    x -= Double(shift.tx) / Double(max(1, frame.width))
+                    y -= Double(shift.ty) / Double(max(1, frame.height))
+                }
+            }
+            previous = frame
+            path.append((x, y))
+            progress(Double(path.count) / Double(count))
+        }
+        // Follow a smoothed path (about a second either side), so pans stay but shake goes.
+        let radius = 10
+        var out: [Double] = []
+        for i in path.indices {
+            let lo = max(0, i - radius), hi = min(path.count - 1, i + radius)
+            let span = path[lo...hi]
+            let sx = span.reduce(0) { $0 + $1.0 } / Double(span.count)
+            let sy = span.reduce(0) { $0 + $1.1 } / Double(span.count)
+            out.append(sx - path[i].0)
+            out.append(sy - path[i].1)
+        }
+        return out
     }
 }
 

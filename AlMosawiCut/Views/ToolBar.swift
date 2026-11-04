@@ -48,6 +48,8 @@ struct ToolBar: View {
             Tool("Effects", "sparkles") { open(.effects) }
             Tool("Adjust", "slider.horizontal.3") { open(.adjust) }
             Tool("Remove BG", "person.crop.rectangle") { open(.cutout) }
+            Tool("Brush", "paintbrush.pointed.fill") { open(.brush) }
+            Tool("Stabilize", "camera.metering.matrix") { open(.stabilize) }
             Tool("Crop", "crop") { open(.crop) }
             Tool("Volume", "speaker.wave.2.fill") { open(.volume) }
             Tool("Voice FX", "waveform.badge.magnifyingglass") { open(.voiceFX) }
@@ -82,6 +84,8 @@ struct ToolBar: View {
             Tool("Blend", "square.on.square.intersection.dashed") { open(.blend) }
             Tool("Mask", "circle.dashed.inset.filled") { open(.mask) }
             Tool("Remove BG", "person.crop.rectangle") { open(.cutout) }
+            Tool("Brush", "paintbrush.pointed.fill") { open(.brush) }
+            Tool("Stabilize", "camera.metering.matrix") { open(.stabilize) }
             Tool("Filters", "camera.filters") { open(.filters) }
             Tool("Effects", "sparkles") { open(.effects) }
             Tool("Adjust", "slider.horizontal.3") { open(.adjust) }

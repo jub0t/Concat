@@ -21,6 +21,15 @@ final class EditorModel {
     var isScrubbing = false
     var canUndo = false
     var canRedo = false
+    /// The brush panel is open: drags on the preview paint the mask.
+    var brushing = false
+    var brushKeep = true
+    /// Brush radius as a fraction of the picture's shorter side.
+    var brushSize = 0.05
+    /// The stroke being drawn, in preview points.
+    var liveStroke: [CGPoint] = []
+    /// The selected media's upright size, for mapping brush strokes onto it.
+    var brushSourceSize: CGSize?
 
     let player = AVPlayer()
     @ObservationIgnored private let store: ProjectStore
@@ -742,6 +751,56 @@ final class EditorModel {
 
     func setAspect(_ aspect: AspectRatio) { edit { $0.aspect = aspect } }
     func rename(_ name: String) { edit { $0.name = name } }
+
+    // MARK: Brush
+
+    /// Turns the stroke drawn on the preview into picture coordinates, undoing the clip's placement.
+    func commitStroke(in box: CGSize) {
+        defer { liveStroke = [] }
+        guard let clip = selectedMedia, let local = selectedLocalTime, let src = brushSourceSize,
+              !liveStroke.isEmpty, box.width > 0, box.height > 0 else { return }
+        let canvas = project.aspect.baseSize
+        let w = src.width * clip.crop.w, h = src.height * clip.crop.h
+        guard w > 0, h > 0 else { return }
+        let sx = canvas.width / w, sy = canvas.height / h
+        let base = (clip.fill && !selectedIsOverlay) ? max(sx, sy) : min(sx, sy)
+        let tr = clip.transform(atLocal: local)
+        let s = base * tr.scale
+        let theta = tr.rotation * .pi / 180
+        var points: [Double] = []
+        for p in liveStroke {
+            let cx = p.x / box.width * canvas.width
+            let cy = (1 - p.y / box.height) * canvas.height
+            let qx = cx - (canvas.width / 2 + tr.x * canvas.width)
+            let qy = cy - (canvas.height / 2 - tr.y * canvas.height)
+            let rx = qx * cos(theta) - qy * sin(theta)
+            let ry = qx * sin(theta) + qy * cos(theta)
+            let px = rx / s + w / 2, py = ry / s + h / 2
+            points.append(Double(px / w))
+            points.append(Double(1 - py / h))
+        }
+        let stroke = MaskStroke(points: points, radius: brushSize, keep: brushKeep)
+        editMedia { $0.maskStrokes.append(stroke) }
+    }
+
+    /// Measures the selected clip's shake and switches stabilising on.
+    func analyseShake() async {
+        guard let clip = selectedMedia else { return }
+        let url = ProjectStore.mediaFolder(for: project.id).appendingPathComponent(clip.file)
+        busyMessage = "Measuring the shake…"
+        defer { busyMessage = nil }
+        do {
+            let path = try await Stabilizer.analyse(url, duration: clip.sourceDuration) { p in
+                Task { @MainActor in self.busyMessage = "Measuring the shake… \(Int(p * 100))%" }
+            }
+            editMedia { c in
+                c.stabilizePath = path
+                if c.stabilize == 0 { c.stabilize = 0.6 }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 
     // MARK: Timelines
 

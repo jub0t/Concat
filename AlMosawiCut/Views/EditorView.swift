@@ -18,7 +18,7 @@ struct EditorHost: View {
 }
 
 enum Panel: Hashable {
-    case speed, volume, animate, crop, filters, effects, adjust, cutout, voiceFX, fade, trim
+    case speed, volume, animate, crop, filters, effects, adjust, cutout, voiceFX, fade, trim, brush, stabilize
     case transition(Int), blend, mask
     case text(TextTab), textTemplates, shapes, captions
     case tts, music, record, audioItem
@@ -78,6 +78,10 @@ struct EditorView: View {
             guard let startTool, !startedTool else { return }
             startedTool = true
             start(startTool)
+        }
+        .onChange(of: panel) { _, p in
+            model.brushing = p == .brush
+            model.liveStroke = []
         }
         .onChange(of: model.selection) { old, new in
             if old != new, new != panelOwner, !(panel.map(Self.keepsPanel) ?? false) { panel = nil }
@@ -288,6 +292,8 @@ struct EditorView: View {
         case .effects: "Effects"
         case .adjust: "Adjust"
         case .cutout: "Remove background"
+        case .brush: "Brush mask"
+        case .stabilize: "Stabilize & enhance"
         case .voiceFX: "Voice effects"
         case .fade: "Fade"
         case .trim: "Trim"
@@ -332,6 +338,7 @@ struct PreviewArea: View {
                 .foregroundStyle(Theme.secondaryText)
             }
             manipulation(CGSize(width: w, height: h))
+            if model.brushing { brushLayer(CGSize(width: w, height: h)) }
         }
         .frame(width: w, height: h)
         .background(Color.black)
@@ -376,6 +383,23 @@ struct PreviewArea: View {
                         .onEnded { _ in textStart = nil })
             }
         }
+    }
+
+    /// While the brush panel is open, drags paint the selected clip's mask.
+    private func brushLayer(_ box: CGSize) -> some View {
+        Color.white.opacity(0.001)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { v in model.liveStroke.append(v.location) }
+                .onEnded { _ in model.commitStroke(in: box) })
+            .overlay {
+                let r = max(4, model.brushSize * min(box.width, box.height))
+                Path { p in
+                    for pt in model.liveStroke { p.addEllipse(in: CGRect(x: pt.x - r, y: pt.y - r, width: r * 2, height: r * 2)) }
+                }
+                .fill(model.brushKeep ? Color.green.opacity(0.35) : Color.red.opacity(0.35))
+                .allowsHitTesting(false)
+            }
     }
 
     private func mediaDrag(_ box: CGSize) -> some Gesture {

@@ -17,6 +17,8 @@ struct PanelContent: View {
         case .effects: EffectsPanel(model: model)
         case .adjust: AdjustPanel(model: model)
         case .cutout: CutoutPanel(model: model)
+        case .brush: BrushPanel(model: model)
+        case .stabilize: StabilizePanel(model: model)
         case .voiceFX: VoiceFXPanel(model: model)
         case .fade: FadePanel(model: model)
         case .trim: TrimPanel(model: model)
@@ -710,6 +712,80 @@ private struct CutoutPanel: View {
         case .lumaKey: "sun.max.fill"
         case .removeBlack: "moon.fill"
         }
+    }
+}
+
+/// Paint on the preview to fix a cut-out: Keep brings back, Erase takes away.
+private struct BrushPanel: View {
+    @Bindable var model: EditorModel
+
+    var body: some View {
+        if let clip = model.selectedMedia {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("", selection: $model.brushKeep) {
+                    Text("Keep").tag(true)
+                    Text("Erase").tag(false)
+                }
+                .pickerStyle(.segmented)
+                LabeledSlider(title: "Brush size", value: $model.brushSize, range: 0.01...0.25, format: { "\(Int($0 * 100))" }, reset: 0.05)
+                Text("Paint on the preview. Keep brings back what the background removal cut away; Erase removes more. Works with or without background removal.")
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+                HStack(spacing: 8) {
+                    Button("Undo stroke") { model.editMedia { if !$0.maskStrokes.isEmpty { $0.maskStrokes.removeLast() } } }
+                        .disabled(clip.maskStrokes.isEmpty)
+                    Button("Clear all", role: .destructive) { model.editMedia { $0.maskStrokes.removeAll() } }
+                        .disabled(clip.maskStrokes.isEmpty)
+                    Spacer()
+                    Text("\(clip.maskStrokes.count) strokes").font(.caption).foregroundStyle(Theme.secondaryText)
+                }
+                .font(.caption.weight(.bold)).buttonStyle(.bordered)
+            }
+            .task(id: clip.file) {
+                model.brushSourceSize = nil
+                let url = ProjectStore.mediaFolder(for: model.project.id).appendingPathComponent(clip.file)
+                if let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first,
+                   let (size, t) = try? await track.load(.naturalSize, .preferredTransform) {
+                    let r = size.applying(t)
+                    model.brushSourceSize = CGSize(width: abs(r.width), height: abs(r.height))
+                }
+            }
+        } else { NeedsSelection(text: "Select a clip or overlay first.") }
+    }
+}
+
+/// Smooths camera shake, and cleans up noisy or soft footage.
+private struct StabilizePanel: View {
+    @Bindable var model: EditorModel
+
+    var body: some View {
+        if let clip = model.selectedMedia {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionLabel("Stabilize")
+                if clip.stabilizePath.isEmpty {
+                    Button { Task { await model.analyseShake() } } label: {
+                        Label("Analyse and stabilize", systemImage: "camera.metering.matrix")
+                            .font(.subheadline.weight(.bold))
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .background(Theme.accent, in: Capsule())
+                            .foregroundStyle(.black)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(clip.isPhoto)
+                    Text("Measures how the camera shook, then steadies the picture while keeping deliberate pans. Zooms in slightly to hide the edges.")
+                        .font(.caption).foregroundStyle(Theme.secondaryText)
+                } else {
+                    LabeledSlider(title: "Strength", value: model.mediaBinding(\.stabilize, fallback: 0), range: 0...1,
+                                  format: { "\(Int($0 * 100))%" }, reset: 0.6)
+                    Button("Analyse again") { Task { await model.analyseShake() } }
+                        .font(.caption.weight(.bold)).buttonStyle(.bordered)
+                }
+                SectionLabel("Enhance")
+                LabeledSlider(title: "Clean up and sharpen", value: model.mediaBinding(\.enhance, fallback: 0), range: 0...1,
+                              format: { "\(Int($0 * 100))%" }, reset: 0)
+                Text("Reduces noise from low light, then restores edge detail. Exports at up to 4K from any source.")
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+            }
+        } else { NeedsSelection(text: "Select a clip first.") }
     }
 }
 
