@@ -274,6 +274,8 @@ export component App inherits Window {
     callback start-create();
     /// Open a project that already exists, picked from disk.
     callback start-open();
+    /// Make a project of a CapCut draft (#477).
+    callback start-import-capcut();
     callback start-open-recent(path: string);
     callback start-forget-recent(path: string);
     callback start-reveal-recent(path: string);
@@ -289,6 +291,8 @@ export component App inherits Window {
     in property <string> app-version;
     /// A file can be dragged in from the system: a desk, not a phone.
     in property <bool> can-drop;
+    /// CapCut keeps drafts on this machine; see `concat_host::capcut`.
+    in property <bool> capcut;
 
     // Title bar. The drag/maximize pair must be handled in main.rs — a window
     // cannot drag itself from inside the scene graph; the rest are seams like
@@ -755,9 +759,11 @@ export component App inherits Window {
                 phone: root.phone;
                 version: root.app-version;
                 can-drop: root.can-drop;
+                capcut: root.capcut;
 
                 compose => { root.start-compose(); }
                 open => { root.start-open(); }
+                import-capcut => { root.start-import-capcut(); }
                 open-settings => { root.open-settings(); }
                 open-recent(path) => { root.start-open-recent(path); }
                 forget-recent(path) => { root.start-forget-recent(path); }

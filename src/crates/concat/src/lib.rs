@@ -329,6 +329,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // offered: a drag in from the system is a desk's (see platform.rs).
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
     app.set_can_drop(cfg!(not(any(target_os = "android", target_os = "ios"))));
+    app.set_capcut(concat_host::capcut::drafts_folder().is_some());
 
     // The user's own packages - imported looks, and any effect folder they
     // or the community wrote - sit beside the built-ins from the first
@@ -791,6 +792,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_start_open(on_window!(|state| {
         state.handle(Msg::Start(StartMsg::Open));
+    }));
+    app.on_start_import_capcut(on_window!(|state| {
+        state.handle(Msg::Start(StartMsg::ImportCapcut));
     }));
     app.on_start_open_recent(on_window!(|state, path: SharedString| {
         state.handle(Msg::Start(StartMsg::OpenRecent(path.to_string())));

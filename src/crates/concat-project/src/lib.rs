@@ -29,6 +29,7 @@ pub mod placement;
 pub mod runs;
 pub mod speed;
 pub mod srt;
+pub mod capcut;
 
 pub use commands::{
     Command, CommandError, Outcome, PlayheadSide, consolidation_clips, delete_to_playhead,

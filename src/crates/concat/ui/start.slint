@@ -1622,9 +1622,12 @@ component WideHome inherits Rectangle {
     in property <bool> busy;
     in property <string> version;
     in property <bool> can-drop;
+    /// CapCut has drafts on this machine, which can come in as projects.
+    in property <bool> capcut;
 
     callback compose();
     callback open();
+    callback import-capcut();
     callback open-recent(path: string);
     callback forget-recent(path: string);
     callback reveal-recent(path: string);
@@ -1647,8 +1650,9 @@ component WideHome inherits Rectangle {
     /// The create row shares its width by weight - New a third again as
     /// wide as the others - and not by what its words would like, so a
     /// longer line on one tile does not shoulder the others aside.
-    property <length> tile-unit: (root.main-w - (root.drop-tile ? 2 : 1) * 14px)
-        / (root.drop-tile ? 3.3 : 2.3);
+    property <int> extra-tiles: (root.drop-tile ? 1 : 0) + (root.capcut ? 1 : 0);
+    property <length> tile-unit: (root.main-w - (1 + root.extra-tiles) * 14px)
+        / (2.3 + root.extra-tiles);
     property <bool> searchable: root.recents-total > 8;
 
     flick := Flickable {
@@ -1720,6 +1724,15 @@ component WideHome inherits Rectangle {
                         note: I18n.t("start.openProjectNote");
                         enabled: !root.busy;
                         clicked => { root.open(); }
+                    }
+
+                    if root.capcut: CreateTile {
+                        width: root.tile-unit;
+                        glyph: Glyph.import;
+                        title: I18n.t("start.importCapcut");
+                        note: I18n.t("start.importCapcutNote");
+                        enabled: !root.busy;
+                        clicked => { root.import-capcut(); }
                     }
 
                     if root.drop-tile: DropTile {
@@ -1892,9 +1905,11 @@ component NarrowHome inherits Rectangle {
     /// own folder, which the page already lists. See platform::pick_folder.
     /// https://github.com/jub0t/Concat/issues/222
     in property <bool> phone;
+    in property <bool> capcut;
 
     callback compose();
     callback open();
+    callback import-capcut();
     callback open-settings();
     callback open-recent(path: string);
     callback forget-recent(path: string);
@@ -1943,6 +1958,16 @@ component NarrowHome inherits Rectangle {
                         label: I18n.t("start.openProject");
                         enabled: !root.busy;
                         clicked => { root.open(); }
+                    }
+                }
+
+                if root.capcut && !root.phone: VerticalLayout {
+                    alignment: center;
+                    BarAction {
+                        glyph: Glyph.import;
+                        label: I18n.t("start.importCapcut");
+                        enabled: !root.busy;
+                        clicked => { root.import-capcut(); }
                     }
                 }
 
@@ -2084,11 +2109,15 @@ export component StartScreen inherits Rectangle {
     /// A file can be dragged in from the system here.
     in property <bool> can-drop;
     in property <bool> phone;
+    /// CapCut has drafts on this machine.
+    in property <bool> capcut;
 
     /// Put up the sheet a new project is described on.
     callback compose();
     /// Open a project that already exists, picked from disk.
     callback open();
+    /// Make a project of a CapCut draft, picked from CapCut's drafts.
+    callback import-capcut();
     callback open-recent(path: string);
     callback forget-recent(path: string);
     callback reveal-recent(path: string);
@@ -2113,8 +2142,10 @@ export component StartScreen inherits Rectangle {
         busy: root.busy;
         version: root.version;
         can-drop: root.can-drop;
+        capcut: root.capcut;
         compose => { root.compose(); }
         open => { root.open(); }
+        import-capcut => { root.import-capcut(); }
         open-recent(path) => { root.open-recent(path); }
         forget-recent(path) => { root.forget-recent(path); }
         reveal-recent(path) => { root.reveal-recent(path); }
@@ -2132,8 +2163,10 @@ export component StartScreen inherits Rectangle {
         busy: root.busy;
         version: root.version;
         phone: root.phone;
+        capcut: root.capcut;
         compose => { root.compose(); }
         open => { root.open(); }
+        import-capcut => { root.import-capcut(); }
         open-settings => { root.open-settings(); }
         open-recent(path) => { root.open-recent(path); }
         forget-recent(path) => { root.forget-recent(path); }

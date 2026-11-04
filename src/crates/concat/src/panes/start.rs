@@ -46,6 +46,8 @@ pub enum StartMsg {
     Open,
     /// The folder the Open picker answered with.
     OpenChosen(PathBuf),
+    /// Make a project of a CapCut draft, picked from CapCut's drafts.
+    ImportCapcut,
     OpenRecent(String),
     ForgetRecent(String),
     /// Show a project's folder in the file manager.
@@ -308,7 +310,19 @@ impl StartPane {
             StartMsg::FolderChosen(folder) => self.location = folder,
             StartMsg::Create => self.create(studio),
             StartMsg::Open => self.open(),
-            StartMsg::OpenChosen(folder) => Self::open_chosen(&folder, studio),
+            StartMsg::OpenChosen(folder) => Self::open_chosen(&folder, &self.location, studio),
+            StartMsg::ImportCapcut => {
+                let title = t("start.importCapcut");
+                let drafts = concat_host::capcut::drafts_folder()
+                    .map(|folder| folder.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                crate::host::after_dialog(
+                    move || platform::pick_folder(&title, &drafts),
+                    |studio, _, _, folder| {
+                        studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
+                    },
+                );
+            }
             // Both of the grid's verbs report through the toast, as Open
             // does: the sheet is down while a card is pressed, and a notice
             // inside it would go unseen.
@@ -373,10 +387,13 @@ impl StartPane {
         if self.busy {
             return;
         }
-        if let Some(folder) = paths.iter().find(|path| projects::is_project(path)) {
+        if let Some(folder) = paths
+            .iter()
+            .find(|path| projects::is_project(path) || concat_host::capcut::is_draft(path))
+        {
             self.dropped.clear();
             self.composing = false;
-            Self::open_chosen(folder, studio);
+            Self::open_chosen(folder, &self.location, studio);
             return;
         }
         let media: Vec<PathBuf> = paths.into_iter().filter(|path| path.is_file()).collect();
@@ -460,15 +477,43 @@ impl StartPane {
         );
     }
 
-    /// The folder Open was answered with: checked, then opened.
-    fn open_chosen(folder: &Path, studio: &mut Studio) {
+    /// The folder Open was answered with: checked, then opened. A CapCut
+    /// draft is made a project of first, under `location` - where a new
+    /// project goes - and the draft itself is left as it was (#477).
+    fn open_chosen(folder: &Path, location: &str, studio: &mut Studio) {
         let path = folder.to_string_lossy().into_owned();
+        if !projects::is_project(folder) && concat_host::capcut::is_draft(folder) {
+            Self::import_capcut(folder, location, studio);
+            return;
+        }
         if !projects::is_project(folder) {
             studio.notify(&tf("start.notConcatProjectFolder", &[&path]), true);
             return;
         }
         if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info)) {
             studio.notify(&error, true);
+        }
+    }
+
+    /// Makes a project of the CapCut draft in `folder` and opens it, saying
+    /// how much of it came across: what did not is named in the log.
+    fn import_capcut(folder: &Path, location: &str, studio: &mut Studio) {
+        let imported = concat_host::capcut::import(folder, location);
+        match imported {
+            Ok(import) => {
+                let left = import.notes.len();
+                if let Err(error) = studio.open_project(import.project) {
+                    studio.notify(&error, true);
+                    return;
+                }
+                let said = if left == 0 {
+                    t("start.capcutImported")
+                } else {
+                    tf("start.capcutImportedSome", &[&left])
+                };
+                studio.notify(&said, false);
+            }
+            Err(error) => studio.notify(&tf("start.capcutImportFailed", &[&error]), true),
         }
     }
 
