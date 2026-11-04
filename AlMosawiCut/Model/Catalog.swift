@@ -324,3 +324,162 @@ enum LookCatalog {
 
     static func name(_ id: String) -> String { byID[id]?.name ?? "Original" }
 }
+
+// MARK: Starter templates
+
+/// Templates that come with the app: original edits in popular short-video styles,
+/// built from the app's own looks, transitions, speed curves, keyframes and title fonts.
+/// Their clips are empty slots (no media); filling one from Photos makes a project.
+enum TemplatePack {
+    /// Symbol and slot hint for each, shown on its card.
+    static let symbols: [String: String] = [
+        "Beat Sync": "metronome.fill", "Vlog Intro": "video.fill", "Travel Montage": "airplane",
+        "Product Showcase": "bag.fill", "Before & After": "rectangle.split.2x1.fill", "Celebration": "party.popper.fill",
+        "Talking Head": "person.wave.2.fill", "Eid Greeting": "moon.stars.fill", "VHS Memories": "tv.fill", "Speed Ramp": "bolt.fill",
+    ]
+
+    static let all: [Project] = [
+        beatSync, vlogIntro, travel, product, beforeAfter, celebration, talkingHead, eid, vhs, speedRamp,
+    ]
+
+    static func isBuiltIn(_ project: Project) -> Bool { all.contains { $0.id == project.id } }
+
+    // MARK: Building blocks
+
+    private static func slot(_ length: Double, look: String = "none", into: TransitionKind = .none, over: Double = 0.4,
+                             curve: SpeedCurve = .none, zoom: (Double, Double)? = nil, effects: [(VideoEffect, Double)] = []) -> Clip {
+        var c = Clip()
+        c.sourceDuration = length
+        c.trimEnd = length
+        c.fill = true
+        c.filter = look
+        c.speedCurve = curve
+        c.transitionIn = Transition(kind: into, duration: over)
+        c.effects = effects.map { AppliedEffect(kind: $0.0, amount: $0.1) }
+        if let zoom {
+            var a = Transform(), b = Transform()
+            a.scale = zoom.0
+            b.scale = zoom.1
+            c.keyframes = [Keyframe(time: 0, value: a), Keyframe(time: c.duration, value: b)]
+        }
+        return c
+    }
+
+    private static func title(_ text: String, at start: Double, for duration: Double, size: Double, y: Double,
+                              color: RGBA = .white, accent: RGBA = .black, style: TextStyle = .shadow,
+                              font: String? = nil, system: TextFont = .system, tracking: Double = 0,
+                              animate: TextAnimation = .fade, out: TextAnimation = .fade) -> TextOverlay {
+        var t = TextOverlay()
+        t.text = text
+        t.start = start
+        t.duration = duration
+        t.size = size
+        t.y = y
+        t.color = color
+        t.accent = accent
+        t.style = style
+        t.customFont = font
+        t.font = system
+        t.bold = font == nil
+        t.tracking = tracking
+        t.animationIn = animate
+        t.animationOut = out
+        return t
+    }
+
+    private static func template(_ name: String, clips: [Clip], texts: [TextOverlay], aspect: AspectRatio = .portrait) -> Project {
+        var p = Project()
+        p.name = name
+        p.aspect = aspect
+        p.background = .blur
+        p.clips = clips
+        p.texts = texts
+        return p
+    }
+
+    // MARK: The pack
+
+    /// Quick cuts that land on a beat, with flash and zoom between them.
+    static let beatSync = template("Beat Sync", clips: (0..<8).map { i in
+        slot(0.6, look: "vivid", into: i.isMultiple(of: 2) ? .flash : .zoom, over: 0.15)
+    }, texts: [
+        title("YOUR STORY", at: 0, for: 1.4, size: 0.13, y: 0.5, style: .outline, font: "BebasNeue-Regular", tracking: 0.04, animate: .pop),
+    ])
+
+    /// A slow, filmic open with a title and a name strap.
+    static let vlogIntro = template("Vlog Intro", clips: (0..<4).map { _ in
+        slot(2.5, look: "film", into: .dissolve, over: 0.5, zoom: (1, 1.15))
+    }, texts: [
+        title("Day in my life", at: 0.3, for: 3, size: 0.1, y: 0.42, font: "Pacifico-Regular"),
+        title("Your name", at: 3.5, for: 3, size: 0.045, y: 0.82, color: RGBA(r: 0.06, g: 0.09, b: 0.04),
+              accent: RGBA(r: 0.78, g: 0.96, b: 0.2), style: .box, font: "HankenGrotesk-SemiBold", animate: .slideUp),
+    ])
+
+    /// Whip pans and speed ramps between places, in teal and orange.
+    static let travel = template("Travel Montage", clips: (0..<6).map { i in
+        slot(1.8, look: "tealOrange", into: .whipPan, over: 0.35, curve: i % 3 == 1 ? .montage : .none)
+    }, texts: [
+        title("WHERE TO NEXT?", at: 0, for: 2, size: 0.11, y: 0.5, font: "BebasNeue-Regular", tracking: 0.03, animate: .slideUp),
+        title("City, Country", at: 7.5, for: 2.5, size: 0.05, y: 0.8, font: "SpaceGrotesk-Medium", tracking: 0.02),
+    ])
+
+    /// Clean shots that push in on the product, with a launch title and a call to action.
+    static let product = template("Product Showcase", clips: (0..<5).map { _ in
+        slot(2, look: "clean", into: .push, over: 0.4, zoom: (1, 1.25), effects: [(.sharpen, 0.4)])
+    }, texts: [
+        title("NEW DROP", at: 0, for: 2, size: 0.07, y: 0.2, color: RGBA(r: 0.07, g: 0.07, b: 0.07),
+              accent: RGBA(r: 1, g: 0.88, b: 0.29), style: .box, font: "ArchivoBlack-Regular", animate: .pop),
+        title("Shop now", at: 7.5, for: 2.5, size: 0.07, y: 0.78, style: .outline, font: "Montserrat-Black", animate: .bounce),
+    ])
+
+    /// Two shots, wiped across, labelled.
+    static let beforeAfter = template("Before & After", clips: [
+        slot(3, look: "mono"),
+        slot(3, look: "vivid", into: .linearWipe, over: 0.8),
+    ], texts: [
+        title("BEFORE", at: 0, for: 2.6, size: 0.08, y: 0.12, style: .outline, font: "Anton-Regular", tracking: 0.04),
+        title("AFTER", at: 2.6, for: 3.4, size: 0.08, y: 0.12, style: .outline, font: "Anton-Regular", tracking: 0.04),
+    ])
+
+    /// Bright, glowing and bouncy.
+    static let celebration = template("Celebration", clips: (0..<6).map { i in
+        slot(1.5, look: "vivid", into: i.isMultiple(of: 2) ? .flash : .spin, over: 0.3,
+             effects: i == 0 ? [(.glow, 0.4)] : [(.bloomPulse, 0.3)])
+    }, texts: [
+        title("Happy Birthday!", at: 0.2, for: 3, size: 0.1, y: 0.4, color: RGBA(r: 1, g: 0.44, b: 0.71),
+              accent: RGBA(r: 0.23, g: 0.04, b: 0.17), style: .outline, font: "Pacifico-Regular", animate: .bounce),
+    ])
+
+    /// One talking shot with a topic tag and a name strap; add Auto captions after filling it.
+    static let talkingHead = template("Talking Head", clips: [
+        slot(15, look: "natural", zoom: (1, 1.06)),
+    ], texts: [
+        title("TOPIC", at: 0, for: 4, size: 0.05, y: 0.12, color: RGBA(r: 0.07, g: 0.07, b: 0.07),
+              accent: .yellow, style: .box, font: "ArchivoBlack-Regular", animate: .slideDown),
+        title("Your name", at: 1, for: 4, size: 0.045, y: 0.84, style: .shadow, font: "HankenGrotesk-SemiBold", animate: .slideUp),
+    ])
+
+    /// Warm, gold and gentle, with an Arabic greeting.
+    static let eid = template("Eid Greeting", clips: (0..<4).map { _ in
+        slot(2.5, look: "goldenHour", into: .dissolve, over: 0.8, zoom: (1.05, 1.15), effects: [(.glow, 0.3)])
+    }, texts: [
+        title("عيد مبارك", at: 0.3, for: 5, size: 0.12, y: 0.42, color: RGBA(r: 1, g: 0.86, b: 0.5), system: .naskh),
+        title("كل عام وأنتم بخير", at: 4.5, for: 5, size: 0.06, y: 0.56, system: .geeza),
+    ])
+
+    /// Tape look with grain and a typed title.
+    static let vhs = template("VHS Memories", clips: (0..<5).map { _ in
+        slot(2, look: "vhs", into: .glitch, over: 0.3, effects: [(.vhs, 0.5), (.filmGrain, 0.4)])
+    }, texts: [
+        title("MEMORIES", at: 0.2, for: 3, size: 0.08, y: 0.48, system: .typewriter, animate: .typewriter),
+        title("PLAY ▶", at: 0, for: 10, size: 0.04, y: 0.08, style: .plain, system: .mono, animate: .none, out: .none),
+    ])
+
+    /// Slow-fast-slow ramps with zoom blur between them.
+    static let speedRamp = template("Speed Ramp", clips: (0..<4).map { i in
+        slot(3, look: i.isMultiple(of: 2) ? "cyberpunk" : "moody", into: .zoomBlur, over: 0.3,
+             curve: i.isMultiple(of: 2) ? .hero : .bullet)
+    }, texts: [
+        title("GO.", at: 0, for: 1.5, size: 0.16, y: 0.5, style: .outline, font: "Anton-Regular", animate: .zoom),
+    ])
+}

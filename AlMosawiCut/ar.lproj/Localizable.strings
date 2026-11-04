@@ -560,3 +560,15 @@
 "Title fonts are open-source (SIL Open Font License); their licences are inside the app." = "خطوط العناوين مفتوحة المصدر (رخصة SIL للخطوط المفتوحة)؛ تراخيصها داخل التطبيق.";
 "No templates yet. Open a project, tap the canvas button at the top of the editor (the ⚙︎ next to Export), then Save as template." = "لا قوالب بعد. افتح مشروعًا، واضغط زر اللوحة أعلى المحرر (⚙︎ بجانب «تصدير»)، ثم «حفظ كقالب».";
 "%lld slots · %@" = "%lld خانات · %@";
+"Starter templates" = "قوالب جاهزة";
+"My templates" = "قوالبي";
+"Beat Sync" = "على الإيقاع";
+"Vlog Intro" = "مقدمة فلوق";
+"Travel Montage" = "مونتاج سفر";
+"Product Showcase" = "عرض منتج";
+"Before & After" = "قبل وبعد";
+"Celebration" = "احتفال";
+"Talking Head" = "متحدث للكاميرا";
+"Eid Greeting" = "تهنئة العيد";
+"VHS Memories" = "ذكريات VHS";
+"Speed Ramp" = "تدرج السرعة";

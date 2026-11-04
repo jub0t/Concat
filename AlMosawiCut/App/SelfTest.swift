@@ -63,6 +63,25 @@ enum SelfTest {
             store.deleteTemplate(template)
         }
 
+        await record("starterTemplates") {
+            try check(TemplatePack.all.count == 10, "ten starter templates")
+            for t in TemplatePack.all {
+                try check(!t.clips.isEmpty, "\(t.name) has slots")
+                for c in t.clips {
+                    try check(c.filter == "none" || LookCatalog.byID[c.filter] != nil, "\(t.name) look \(c.filter) exists")
+                    var filled = c
+                    filled.replaceMedia(with: clip)
+                    try check(filled.duration > 0.1 && filled.file == clip.file, "\(t.name) slot fills")
+                }
+                for text in t.texts {
+                    if let font = text.customFont { try check(FontLibrary.shared.isInstalled(font), "\(t.name) font \(font) is bundled") }
+                }
+                var p = t
+                p.clips = t.clips.map { var c = $0; c.replaceMedia(with: clip); return c }
+                try check(p.duration > 0.5, "\(t.name) plays (\(p.duration) s)")
+            }
+        }
+
         await record("brushMask") {
             let red = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 200, height: 200))
             var c = Clip()

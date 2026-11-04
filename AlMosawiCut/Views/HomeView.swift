@@ -184,6 +184,15 @@ struct HomeView: View {
     private var templatesRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Templates").font(.title3.weight(.bold))
+            SectionLabel("Starter templates")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(TemplatePack.all) { t in
+                        templateCard(t, icon: TemplatePack.symbols[t.name] ?? "sparkles", localized: true)
+                    }
+                }
+            }
+            SectionLabel("My templates")
             if store.templates.isEmpty {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "rectangle.stack.badge.plus").font(.title2).foregroundStyle(Theme.accent)
@@ -193,28 +202,14 @@ struct HomeView: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(store.templates) { t in
-                        Button {
-                            templateToFill = t
-                            newProjectTool = nil
-                            showPicker = true
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Image(systemName: "rectangle.stack.badge.play.fill").font(.title2).foregroundStyle(Theme.accent)
-                                Text(t.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                                Text("\(t.clips.count) slot\(t.clips.count == 1 ? "" : "s") · \(t.aspect.rawValue)")
-                                    .font(.caption).foregroundStyle(Theme.secondaryText)
-                            }
-                            .padding(14)
-                            .frame(width: 150, alignment: .leading)
-                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
-                        }
-                        .buttonStyle(PressStyle())
-                        .contextMenu {
-                            Button("Delete template", systemImage: "trash", role: .destructive) { store.deleteTemplate(t) }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(store.templates) { t in
+                            templateCard(t, icon: "rectangle.stack.badge.play.fill", localized: false)
+                                .contextMenu {
+                                    Button("Delete template", systemImage: "trash", role: .destructive) { store.deleteTemplate(t) }
+                                }
                         }
                     }
                 }
@@ -222,6 +217,58 @@ struct HomeView: View {
             Text("Tap a template and pick your videos: they fill its slots in order, with its edits, titles and music.")
                 .font(.caption).foregroundStyle(Theme.secondaryText)
         }
+    }
+
+    private func templateCard(_ t: Project, icon: String, localized: Bool) -> some View {
+        Button {
+            templateToFill = t
+            newProjectTool = nil
+            showPicker = true
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: icon).font(.title2).foregroundStyle(Theme.accent)
+                Group {
+                    if localized { Text(LocalizedStringKey(t.name)) } else { Text(t.name) }
+                }
+                .font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text("\(t.clips.count) slots · \(t.aspect.rawValue)")
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+            }
+            .padding(14)
+            .frame(width: 150, alignment: .leading)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(PressStyle())
+    }
+
+    /// A project from a starter template: the slots, in order, take the picked footage; unfilled slots are dropped.
+    private func fillStarter(_ template: Project, with items: [PhotosPickerItem]) async {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, HH:mm"
+        let made = store.create(named: template.name + " " + formatter.string(from: Date()))
+        let (clips, failures) = await PickerImport.clips(from: items, projectID: made.id)
+        if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
+        guard !clips.isEmpty else { store.delete(made); return }
+        var project = template
+        project.id = made.id
+        project.name = made.name
+        project.createdAt = made.createdAt
+        project.timelineID = UUID()
+        var filled: [Clip] = []
+        for (i, clip) in clips.enumerated() {
+            if i < template.clips.count {
+                var c = template.clips[i]
+                c.id = UUID()
+                c.replaceMedia(with: clip)
+                filled.append(c)
+            } else {
+                filled.append(clip)
+            }
+        }
+        project.clips = filled
+        project.texts = template.texts.map { var t = $0; t.id = UUID(); return t }
+        store.save(project)
+        openRequest = OpenRequest(project: project)
     }
 
     /// A project from a template, its slots filled with the picked footage in order.
@@ -245,7 +292,11 @@ struct HomeView: View {
         let template = templateToFill
         defer { importing = false; pickerItems = []; newProjectTool = nil; templateToFill = nil }
         if let template {
-            await fillTemplate(template, with: items)
+            if TemplatePack.isBuiltIn(template) {
+                await fillStarter(template, with: items)
+            } else {
+                await fillTemplate(template, with: items)
+            }
             return
         }
         let formatter = DateFormatter()
