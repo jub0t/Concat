@@ -6,6 +6,8 @@ import Observation
 @Observable
 final class ProjectStore {
     private(set) var projects: [Project] = []
+    /// Saved templates: projects whose main clips are slots to fill with new footage.
+    private(set) var templates: [Project] = []
 
     nonisolated static let root: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -24,7 +26,60 @@ final class ProjectStore {
         return url
     }
 
-    init() { reload() }
+    init() {
+        reload()
+        reloadTemplates()
+    }
+
+    // MARK: Templates
+
+    nonisolated static let templatesRoot: URL = {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let url = docs.appendingPathComponent("Templates", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }()
+
+    func reloadTemplates() {
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: Self.templatesRoot, includingPropertiesForKeys: nil)) ?? []
+        templates = dirs.compactMap { dir in
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent("template.json")) else { return nil }
+            return Self.decode(data)
+        }
+        .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Saves the project (its media too) as a template.
+    func saveTemplate(from project: Project, name: String) {
+        var t = project
+        t.id = UUID()
+        t.name = name
+        t.createdAt = Date()
+        let folder = Self.templatesRoot.appendingPathComponent(t.id.uuidString, isDirectory: true)
+        let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? fm.copyItem(at: Self.mediaFolder(for: project.id), to: folder.appendingPathComponent("media"))
+        try? JSONEncoder().encode(t).write(to: folder.appendingPathComponent("template.json"), options: .atomic)
+        reloadTemplates()
+    }
+
+    func deleteTemplate(_ template: Project) {
+        try? FileManager.default.removeItem(at: Self.templatesRoot.appendingPathComponent(template.id.uuidString))
+        reloadTemplates()
+    }
+
+    /// A new project from a template, with the template's media copied in.
+    func project(fromTemplate template: Project) -> Project {
+        var p = template
+        p.id = UUID()
+        p.createdAt = Date()
+        let fm = FileManager.default
+        try? fm.createDirectory(at: Self.folder(for: p.id), withIntermediateDirectories: true)
+        let source = Self.templatesRoot.appendingPathComponent(template.id.uuidString).appendingPathComponent("media")
+        try? fm.copyItem(at: source, to: Self.folder(for: p.id).appendingPathComponent("media"))
+        save(p)
+        return p
+    }
 
     func reload() {
         let fm = FileManager.default

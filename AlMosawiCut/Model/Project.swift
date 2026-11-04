@@ -334,6 +334,19 @@ struct Clip: Codable, Identifiable, Hashable {
     }
 }
 
+extension Clip {
+    /// New footage in this clip's place, keeping its length, look, effects and animation.
+    mutating func replaceMedia(with new: Clip) {
+        let length = max(0.1, trimEnd - trimStart)
+        file = new.file
+        isPhoto = new.isPhoto
+        hasAudio = new.hasAudio
+        sourceDuration = new.sourceDuration
+        trimStart = 0
+        trimEnd = min(new.sourceDuration, length)
+    }
+}
+
 /// A clip floating above the main track: picture-in-picture, stickers, B-roll.
 struct OverlayItem: Codable, Identifiable, Hashable {
     var id = UUID()
@@ -478,6 +491,19 @@ struct AudioItem: Codable, Identifiable, Hashable {
     var length: Double { max(0.05, trimEnd - trimStart) }
 }
 
+/// A timeline that isn't the one being edited: another cut of the same project's media.
+struct TimelineSnapshot: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var name = "Timeline"
+    var aspect: AspectRatio = .portrait
+    var background: CanvasBackground = .black
+    var clips: [Clip] = []
+    var overlays: [OverlayItem] = []
+    var texts: [TextOverlay] = []
+    var audios: [AudioItem] = []
+    var tracks = TrackFlags()
+}
+
 struct Project: Codable, Identifiable, Hashable {
     var id = UUID()
     var name: String = "Project"
@@ -490,6 +516,45 @@ struct Project: Codable, Identifiable, Hashable {
     var texts: [TextOverlay] = []
     var audios: [AudioItem] = []
     var tracks = TrackFlags()
+    /// The timeline being edited; the fields above are its contents.
+    var timelineID = UUID()
+    var timelineName = "Main"
+    /// The project's other timelines, in order.
+    var otherTimelines: [TimelineSnapshot] = []
+
+    /// The timeline being edited, packed up.
+    var currentTimeline: TimelineSnapshot {
+        TimelineSnapshot(id: timelineID, name: timelineName, aspect: aspect, background: background,
+                         clips: clips, overlays: overlays, texts: texts, audios: audios, tracks: tracks)
+    }
+
+    private mutating func load(_ t: TimelineSnapshot) {
+        timelineID = t.id; timelineName = t.name; aspect = t.aspect; background = t.background
+        clips = t.clips; overlays = t.overlays; texts = t.texts; audios = t.audios; tracks = t.tracks
+    }
+
+    /// Makes timeline `id` the one being edited, keeping the others' order.
+    mutating func switchTimeline(to id: UUID) {
+        guard id != timelineID, let i = otherTimelines.firstIndex(where: { $0.id == id }) else { return }
+        let target = otherTimelines[i]
+        otherTimelines[i] = currentTimeline
+        load(target)
+    }
+
+    /// A new timeline, a copy of this one or empty, which becomes the one being edited.
+    mutating func addTimeline(copying: Bool) {
+        var t = copying ? currentTimeline : TimelineSnapshot(aspect: aspect, background: background)
+        t.id = UUID()
+        t.name = "Timeline \(otherTimelines.count + 2)"
+        otherTimelines.append(currentTimeline)
+        load(t)
+    }
+
+    /// Deletes the timeline being edited and opens the next one (a project keeps at least one).
+    mutating func deleteCurrentTimeline() {
+        guard !otherTimelines.isEmpty else { return }
+        load(otherTimelines.removeFirst())
+    }
 
     /// How much clip `index` overlaps the one before it.
     func overlap(at index: Int) -> Double {

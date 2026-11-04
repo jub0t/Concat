@@ -8,6 +8,8 @@ struct HomeView: View {
     @State private var toolChoice: HomeTool?
     /// The tool to open once a new project has been made from Photos.
     @State private var newProjectTool: HomeTool?
+    /// The template the next Photos pick fills.
+    @State private var templateToFill: Project?
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var showPicker = false
     @State private var importing = false
@@ -24,6 +26,7 @@ struct HomeView: View {
                     header
                     newProjectCard
                     features
+                    if !store.templates.isEmpty { templatesRow }
                     if !store.projects.isEmpty {
                         HStack {
                             Text("Projects").font(.title3.weight(.bold))
@@ -69,7 +72,7 @@ struct HomeView: View {
                     if let latest = store.projects.first {
                         Button("Use in “\(latest.name)”") { afterDialog { openRequest = OpenRequest(project: latest, tool: tool) } }
                     }
-                    Button("New project from Photos") { newProjectTool = tool; afterDialog { showPicker = true } }
+                    Button("New project from Photos") { newProjectTool = tool; templateToFill = nil; afterDialog { showPicker = true } }
                     Button("Cancel", role: .cancel) {}
                 }
             }
@@ -110,7 +113,7 @@ struct HomeView: View {
     }
 
     private var newProjectCard: some View {
-        Button { newProjectTool = nil; showPicker = true } label: {
+        Button { newProjectTool = nil; templateToFill = nil; showPicker = true } label: {
             HStack(spacing: 16) {
                 Image(systemName: "plus")
                     .font(.system(size: 26, weight: .bold))
@@ -161,6 +164,7 @@ struct HomeView: View {
 
     /// With no projects yet, a tool starts a new one; otherwise ask which to use.
     private func pick(_ tool: HomeTool) {
+        templateToFill = nil
         if store.projects.isEmpty {
             newProjectTool = tool
             showPicker = true
@@ -169,10 +173,63 @@ struct HomeView: View {
         }
     }
 
+    private var templatesRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Templates").font(.title3.weight(.bold))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(store.templates) { t in
+                        Button {
+                            templateToFill = t
+                            newProjectTool = nil
+                            showPicker = true
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Image(systemName: "rectangle.stack.badge.play.fill").font(.title2).foregroundStyle(Theme.accent)
+                                Text(t.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                Text("\(t.clips.count) slot\(t.clips.count == 1 ? "" : "s") · \(t.aspect.rawValue)")
+                                    .font(.caption).foregroundStyle(Theme.secondaryText)
+                            }
+                            .padding(14)
+                            .frame(width: 150, alignment: .leading)
+                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+                        }
+                        .buttonStyle(PressStyle())
+                        .contextMenu {
+                            Button("Delete template", systemImage: "trash", role: .destructive) { store.deleteTemplate(t) }
+                        }
+                    }
+                }
+            }
+            Text("Tap a template and pick your videos: they fill its slots in order, with its edits, titles and music.")
+                .font(.caption).foregroundStyle(Theme.secondaryText)
+        }
+    }
+
+    /// A project from a template, its slots filled with the picked footage in order.
+    private func fillTemplate(_ template: Project, with items: [PhotosPickerItem]) async {
+        var project = store.project(fromTemplate: template)
+        let (clips, failures) = await PickerImport.clips(from: items, projectID: project.id)
+        for (i, clip) in clips.enumerated() {
+            if i < project.clips.count { project.clips[i].replaceMedia(with: clip) } else { project.clips.append(clip) }
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, HH:mm"
+        project.name = template.name + " " + formatter.string(from: Date())
+        store.save(project)
+        if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
+        openRequest = OpenRequest(project: project)
+    }
+
     private func createProject(from items: [PhotosPickerItem]) async {
         importing = true
         let tool = newProjectTool
-        defer { importing = false; pickerItems = []; newProjectTool = nil }
+        let template = templateToFill
+        defer { importing = false; pickerItems = []; newProjectTool = nil; templateToFill = nil }
+        if let template {
+            await fillTemplate(template, with: items)
+            return
+        }
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
         var project = store.create(named: "Project " + formatter.string(from: Date()))

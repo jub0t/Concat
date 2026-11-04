@@ -801,9 +801,15 @@ private struct CanvasPanel: View {
     @Bindable var model: EditorModel
     @State private var name = ""
     @AppStorage("rippleEdits") private var ripple = true
+    @Environment(ProjectStore.self) private var store
+    @State private var timelineName = ""
+    @State private var templateName = ""
+    @State private var naming = false
+    @State private var savedTemplate = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            timelines
             SectionLabel("Aspect ratio")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -841,6 +847,25 @@ private struct CanvasPanel: View {
             Toggle("Ripple delete: titles, overlays and sounds after a deleted clip move back with it",
                    isOn: $ripple)
                 .font(.caption)
+            Button {
+                templateName = model.project.name
+                naming = true
+            } label: {
+                Label(savedTemplate ? "Saved as a template" : "Save as template", systemImage: savedTemplate ? "checkmark" : "rectangle.stack.badge.plus")
+                    .font(.caption.weight(.bold))
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.project.clips.isEmpty)
+            .alert("Save as template", isPresented: $naming) {
+                TextField("Template name", text: $templateName)
+                Button("Save") {
+                    store.saveTemplate(from: model.project, name: templateName.isEmpty ? model.project.name : templateName)
+                    savedTemplate = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The main clips become slots. On the home screen, pick new videos to fill them, keeping these edits, titles and music.")
+            }
             SectionLabel("Project name")
             TextField("Project name", text: $name)
                 .onSubmit { if !name.isEmpty { model.rename(name) } }
@@ -848,6 +873,55 @@ private struct CanvasPanel: View {
                 .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 10))
         }
         .onAppear { name = model.project.name }
+    }
+
+    /// The project's timelines: switch, add, rename and delete.
+    private var timelines: some View {
+        let all = [model.project.currentTimeline] + model.project.otherTimelines
+        return VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Timelines")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(all) { t in
+                        let on = t.id == model.project.timelineID
+                        Button { model.switchTimeline(to: t.id) } label: {
+                            VStack(spacing: 2) {
+                                Text(t.name).font(.caption.weight(.bold)).lineLimit(1)
+                                Text("\(t.aspect.rawValue) · \(t.clips.count) clips").font(.system(size: 9))
+                            }
+                            .padding(.horizontal, 12).frame(height: 40)
+                            .background(on ? Theme.accent : Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 10))
+                            .foregroundStyle(on ? .black : .white)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Menu {
+                        Button("Copy of this timeline", systemImage: "plus.square.on.square") { model.addTimeline(copying: true) }
+                        Button("Empty timeline", systemImage: "plus.square.dashed") { model.addTimeline(copying: false) }
+                    } label: {
+                        Image(systemName: "plus").font(.caption.weight(.bold))
+                            .frame(width: 40, height: 40)
+                            .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                TextField("Timeline name", text: $timelineName)
+                    .onSubmit { model.renameTimeline(timelineName) }
+                    .padding(8)
+                    .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 8))
+                if !model.project.otherTimelines.isEmpty {
+                    Button(role: .destructive) { model.deleteCurrentTimeline() } label: {
+                        Image(systemName: "trash").frame(width: 36, height: 34)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            Text("Each timeline is its own cut of this project's media: its own clips, titles, sound and canvas. Export makes the one shown.")
+                .font(.caption).foregroundStyle(Theme.secondaryText)
+        }
+        .onAppear { timelineName = model.project.timelineName }
+        .onChange(of: model.project.timelineID) { _, _ in timelineName = model.project.timelineName }
     }
 
     /// One track's hide, mute and lock switches.

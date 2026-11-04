@@ -629,18 +629,9 @@ final class EditorModel {
 
     /// Swaps a clip's or overlay's footage, keeping its length, look, effects and animation.
     func replaceMedia(of id: UUID, with new: Clip) {
-        func swap(_ c: inout Clip) {
-            let length = max(0.1, c.trimEnd - c.trimStart)
-            c.file = new.file
-            c.isPhoto = new.isPhoto
-            c.hasAudio = new.hasAudio
-            c.sourceDuration = new.sourceDuration
-            c.trimStart = 0
-            c.trimEnd = min(new.sourceDuration, length)
-        }
         edit { p in
-            if let j = p.clips.firstIndex(where: { $0.id == id }) { swap(&p.clips[j]) }
-            if let j = p.overlays.firstIndex(where: { $0.id == id }) { swap(&p.overlays[j].clip) }
+            if let j = p.clips.firstIndex(where: { $0.id == id }) { p.clips[j].replaceMedia(with: new) }
+            if let j = p.overlays.firstIndex(where: { $0.id == id }) { p.overlays[j].clip.replaceMedia(with: new) }
         }
     }
 
@@ -751,4 +742,31 @@ final class EditorModel {
 
     func setAspect(_ aspect: AspectRatio) { edit { $0.aspect = aspect } }
     func rename(_ name: String) { edit { $0.name = name } }
+
+    // MARK: Timelines
+
+    func switchTimeline(to id: UUID) {
+        guard id != project.timelineID else { return }
+        selection = nil
+        edit { $0.switchTimeline(to: id) }
+        seek(to: 0)
+    }
+
+    func addTimeline(copying: Bool) {
+        selection = nil
+        edit { $0.addTimeline(copying: copying) }
+        seek(to: 0)
+    }
+
+    func deleteCurrentTimeline() {
+        selection = nil
+        edit { $0.deleteCurrentTimeline() }
+        seek(to: 0)
+    }
+
+    func renameTimeline(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        edit { $0.timelineName = trimmed }
+    }
 }
