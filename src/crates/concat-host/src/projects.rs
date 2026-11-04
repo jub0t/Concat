@@ -42,9 +42,10 @@ pub fn manifest_path(root: &Path) -> PathBuf {
     current
 }
 
-/// Whether `root` holds a project: any manifest, current or legacy.
+/// Whether `root` holds a project: any manifest, current or legacy - or a
+/// CapCut draft, which [`open`] converts into one on the way in.
 pub fn is_project(root: &Path) -> bool {
-    manifest_path(root).is_file()
+    manifest_path(root).is_file() || crate::capcut::is_draft(root)
 }
 
 const RECENTS: &str = "recents.json";
@@ -470,6 +471,9 @@ pub fn read_document(path: &str) -> Result<Option<serde_json::Value>, String> {
 /// Reads an existing project's settings.
 pub fn open(path: &str) -> Result<ProjectInfo, String> {
     let root = PathBuf::from(path);
+    // A folder holding a CapCut draft and no manifest is converted here,
+    // once; any other folder passes through untouched.
+    crate::capcut::adopt(&root)?;
     let manifest = manifest_path(&root);
 
     let bytes = std::fs::read(&manifest)
