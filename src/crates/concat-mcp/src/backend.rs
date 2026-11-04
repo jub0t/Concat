@@ -21,6 +21,11 @@
 //!   shared with a window: a project open in the window can be opened here
 //!   too, which is why the window's server is preferred when it is there.
 
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
 use concat_api::{Api, ApiError, AppDirs, Request, Response, Stopper};
 use concat_server::client::Client;
 use concat_server::discovery;
