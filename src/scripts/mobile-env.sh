@@ -42,20 +42,23 @@ case "$target" in
     # ANDROID_NDK_HOME, CMake's Android platform (whisper.cpp) reads
     # ANDROID_NDK_ROOT, and skia-bindings reads ANDROID_NDK.
     echo "export ANDROID_HOME='$sdk' ANDROID_NDK_HOME='$ndk' ANDROID_NDK_ROOT='$ndk' ANDROID_NDK='$ndk'"
-    # bindgen reads FFmpeg's headers with its own libclang, which knows
-    # nothing of the NDK until told where the sysroot is. The variable name
-    # must be the target triple uppercased, as bindgen expects.
+    # bindgen needs libclang from the NDK, not the host's clang. The system's
+    # libclang (Ubuntu 18.1.3 here) expects glibc headers which don't exist
+    # for Android's bionic libc. Search the NDK toolchain tree for libclang.so
+    # and point LIBCLANG_PATH at it; also add the NDK's clang bin dir to PATH
+    # so bindgen can find the right clang executable.
     host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
     bindgen_target=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
     echo "export BINDGEN_EXTRA_CLANG_ARGS_${bindgen_target}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot'"
-    # bindgen needs libclang from the NDK, not the host's clang. Find libclang.so
-    # under the NDK toolchain's lib directory and point LIBCLANG_PATH at it.
-    libclang_dir=$(ls -d "$ndk/toolchains/llvm/prebuilt/$host_tag/lib64" "$ndk/toolchains/llvm/prebuilt/$host_tag/lib" 2>/dev/null | head -1)
-    if [ -f "$libclang_dir/libclang.so" ]; then
-      echo "export LIBCLANG_PATH='$libclang_dir/libclang.so'"
+    # Find libclang.so anywhere under the NDK toolchain directory.
+    libclang_so=$(find "$ndk/toolchains/llvm/prebuilt/$host_tag" -name "libclang.so*" -type f 2>/dev/null | head -1)
+    if [ -n "$libclang_so" ]; then
+      echo "export LIBCLANG_PATH='$libclang_so'"
     fi
     # Tell bindgen which clang to use: the NDK's own clang for the target.
     echo "export CLANG_PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang'"
+    # Make sure PATH finds the NDK's clang before any host clang.
+    echo "export PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin:\$PATH'"
     # Slint's backend compiles a Java helper against the SDK platform's
     # android.jar. cargo-ndk names the NDK API level as ANDROID_PLATFORM,
     # which is also the name the lookup reads for the SDK platform, and the
