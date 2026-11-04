@@ -180,7 +180,7 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" >> "$GITHUB_ENV"
 
       - name: Android libraries
-        run: src/scripts/android-libs.sh ${{ matrix.target }}
+        run: scripts/android-libs.sh ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
