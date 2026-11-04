@@ -15,6 +15,14 @@ export struct ConfirmData {
     message: string,
     /// The button that goes ahead, in the danger tone: "Delete".
     action: string,
+    /// The button that backs out; empty is Cancel.
+    cancel: string,
+    /// Going ahead destroys nothing - a restart - so its button is the
+    /// primary one, not the danger tone.
+    calm: bool,
+    /// The heading's mark; none is the bin, for the deletes most of these
+    /// ask about.
+    glyph: Glyph,
 }
 
 // The confirmation sheet. Return goes ahead and Escape backs out, so a
@@ -28,7 +36,7 @@ export component ConfirmDialog inherits Modal {
 
     open: root.data.open;
     title: root.data.title;
-    glyph: Glyph.trash;
+    glyph: root.data.glyph == Glyph.none ? Glyph.trash : root.data.glyph;
     surface-width: 400px;
 
     closed => { root.dismissed(); }
@@ -70,12 +78,13 @@ export component ConfirmDialog inherits Modal {
                 spacing: 8px;
 
                 Button {
-                    label: I18n.t("common.cancel");
+                    label: root.data.cancel == "" ? I18n.t("common.cancel") : root.data.cancel;
                     clicked => { root.dismissed(); }
                 }
 
                 Button {
-                    danger: true;
+                    danger: !root.data.calm;
+                    primary: root.data.calm;
                     label: root.data.action;
                     clicked => { root.confirmed(); }
                 }

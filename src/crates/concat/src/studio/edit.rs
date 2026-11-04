@@ -81,6 +81,13 @@ impl Studio {
                     crate::panes::export::ExportMsg::Overwrite,
                 ));
             }
+            Some(Confirm::Restart) => {
+                let project = self
+                    .session
+                    .as_ref()
+                    .map(|session| std::path::PathBuf::from(session.path()));
+                crate::panes::settings::restart(project);
+            }
             Some(Confirm::QuitWithoutSaving { .. }) => {
                 log::warn!("close: quitting without saving, as asked");
                 self.release_project();
@@ -113,6 +120,7 @@ impl Studio {
                     title: t("timeline.deleteTrackTitle").into(),
                     message: message.into(),
                     action: t("common.delete").into(),
+                    ..Default::default()
                 }
             }
             Confirm::ReplaceExport { path } => crate::ui::ConfirmData {
@@ -120,12 +128,23 @@ impl Studio {
                 title: t("export.replaceFileTitle").into(),
                 message: tf("export.replaceFileMessage", &[path]).into(),
                 action: t("export.replace").into(),
+                ..Default::default()
             },
             Confirm::QuitWithoutSaving { error } => crate::ui::ConfirmData {
                 open: true,
                 title: t("close.unsavedTitle").into(),
                 message: tf("close.unsavedMessage", &[error]).into(),
                 action: t("close.quitWithoutSaving").into(),
+                ..Default::default()
+            },
+            Confirm::Restart => crate::ui::ConfirmData {
+                open: true,
+                title: t("settings.restartTitle").into(),
+                message: t("settings.restartMessage").into(),
+                action: t("settings.restartNow").into(),
+                cancel: t("settings.restartLater").into(),
+                calm: true,
+                glyph: crate::ui::Glyph::Reset,
             },
         }
     }

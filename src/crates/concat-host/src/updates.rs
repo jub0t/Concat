@@ -636,6 +636,48 @@ pub fn relaunch() -> Result<(), String> {
     }
 }
 
+/// Starts this build again, on `project` when one was open, so a setting
+/// read only at launch - drawing on the GPU or in software - takes hold.
+/// The caller saves, closes the project and quits; the new process opens
+/// it once this one has let go of its lock. A Mac's app is started from
+/// its bundle, so the Dock shows the one Concat; a build from the tree,
+/// Linux and Windows start the executable itself. Nothing on a phone.
+pub fn restart(project: Option<&Path>) -> Result<(), String> {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        return Err("a phone's app is started from its launcher".to_owned());
+    }
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    if let Some(project) = project {
+        args.push("--project".into());
+        args.push(project.into());
+    }
+    if cfg!(target_os = "macos")
+        && let Some(bundle) = own_bundle()
+    {
+        return detach(
+            Command::new("sh")
+                .args(["-c", "sleep 1; exec open -n \"$0\" --args \"$@\""])
+                .arg(bundle)
+                .args(&args),
+        );
+    }
+    let target = std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok())
+        .ok_or_else(|| "could not tell what to start".to_owned())?;
+    if cfg!(windows) {
+        // The project is saved and its lock let go before this is called,
+        // so the new window can open it straight away.
+        return detach(Command::new(target).args(&args));
+    }
+    detach(
+        Command::new("sh")
+            .args(["-c", "sleep 1; exec \"$0\" \"$@\""])
+            .arg(target)
+            .args(&args),
+    )
+}
+
 /// Runs a command to its end and reads its failure off standard error.
 fn run(command: &mut Command) -> Result<(), String> {
     let program = command.get_program().to_string_lossy().into_owned();

@@ -396,7 +396,9 @@ impl SettingsPane {
                 studio.prefs.software_gpu = !on;
                 studio.prefs.software_after_crash = None;
                 studio.prefs.save(&studio.host.dirs);
-                studio.notify(&t("settings.gpuNextStart"), false);
+                // Read only at launch: offered as a restart now, which
+                // saves and reopens the project, or later.
+                studio.confirm = Some(crate::studio::Confirm::Restart);
             }
             SettingsMsg::MagneticChanged(on) => {
                 studio.prefs.set_magnetic(on);
@@ -1057,6 +1059,17 @@ fn fixed_note(why: Fixed) -> String {
 /// session. Now a failed save starts nothing and quits nothing: the window
 /// stays up with `close_project`'s reason, and the bundle already on disk
 /// can be started by hand.
+/// Saves, quits and starts Concat again on `project`; see
+/// `updates::restart`. A save that fails keeps the window, as any close.
+pub(crate) fn restart(project: Option<std::path::PathBuf>) {
+    log::info!("close: restarting for a setting read at launch");
+    quit_for_switch(move || {
+        if let Err(error) = updates::restart(project.as_deref()) {
+            log::warn!("restart: could not start Concat again: {error}");
+        }
+    });
+}
+
 fn quit_for_switch(after: impl FnOnce() + Send + 'static) {
     on_ui(move |studio, app, models| {
         log::info!("close: quitting for a version switch");

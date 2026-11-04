@@ -2393,6 +2393,9 @@ pub enum Confirm {
     /// this a disk unplugged, full or read-only made a window that would
     /// never close.
     QuitWithoutSaving { error: String },
+    /// Restarting for a setting that is read only at launch: the project
+    /// is saved, and opens again in the new window.
+    Restart,
 }
 
 /// One clip on the clipboard: the clip as it was when copied, the row of
