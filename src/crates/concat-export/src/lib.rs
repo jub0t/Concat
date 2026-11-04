@@ -755,10 +755,8 @@ fn on_their_own_lanes(clips: &mut Vec<ExportClip>, frame: f64) {
         })
         .collect();
     for clip in clips.iter_mut() {
-        if clip.kind != ClipKind::Transition {
-            if cuts.is_empty() {
-                clip.transition = None;
-            }
+        if clip.kind != ClipKind::Transition && cuts.is_empty() {
+            clip.transition = None;
         }
     }
     if cuts.is_empty() {

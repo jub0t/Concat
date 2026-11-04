@@ -2190,20 +2190,29 @@ pub(crate) mod tests {
     /// A scrub far from any frame decoded is shown the nearest keyframe, at
     /// once and said to be inexact; the frame itself, asked for exactly
     /// once the scrub rests, is the true one and not the keyframe cached
-    /// under its instant; and once it is cached a scrub gets it. The
-    /// counting clip has a keyframe every twelve frames: 60 and 72 sit
-    /// either side of 65, and 60 is nearer.
+    /// under its instant; and once it is cached a scrub gets it. Where the
+    /// keyframes fall is the encoder's to choose - a VideoToolbox clip has
+    /// one every twelve frames, an OpenH264 one every sixty - so the test
+    /// reads them from the index and scrubs between two of them, nearer
+    /// the first.
     #[test]
     fn a_scrub_is_shown_the_nearest_keyframe_and_never_caches_it_as_the_frame() {
         let path = counting_video("nearest", 64, 120);
         let pool = ReaderPool::new(64 * 1024 * 1024, 8);
         let facts = pool.facts_for(&path, false).expect("probes");
-        assert_eq!(
-            facts.keyframes.get(5).copied(),
-            Some(Rational::from_int(2)),
-            "the index names the keyframes: {:?}",
-            facts.keyframes
-        );
+        let keys: Vec<i64> = facts
+            .keyframes
+            .iter()
+            .map(|at| (at.as_f64() * 30.0).round() as i64)
+            .collect();
+        let Some((before, after)) = keys
+            .windows(2)
+            .map(|pair| (pair[0], pair[1]))
+            .find(|(before, after)| after - before >= 8)
+        else {
+            panic!("the index names two keyframes apart: {keys:?}");
+        };
+        let target = before + ((after - before) / 4).max(2);
         let at = |index: i64| {
             FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(index), 64, 64)
                 .at_any_size(true)
@@ -2211,22 +2220,26 @@ pub(crate) mod tests {
         // Frame n is filled with red 2n.
         let frame_of = |frame: &Frame| i64::from(frame.pixel(32, 32).expect("inside")[0]) / 2;
 
-        let first = pool.frame_nearest(&at(65)).expect("decodes");
+        let first = pool.frame_nearest(&at(target)).expect("decodes");
         assert!(!first.exact, "a walk never timed gives way");
-        assert!((59..=61).contains(&frame_of(&first.frame)), "keyframe 60");
-
-        let exact = pool.frame(&at(65)).expect("decodes");
         assert!(
-            (64..=66).contains(&frame_of(&exact)),
+            (before - 1..=before + 1).contains(&frame_of(&first.frame)),
+            "keyframe {before} for frame {target}, of {keys:?}: {}",
+            frame_of(&first.frame)
+        );
+
+        let exact = pool.frame(&at(target)).expect("decodes");
+        assert!(
+            (target - 1..=target + 1).contains(&frame_of(&exact)),
             "the frame itself, not the keyframe: {}",
             frame_of(&exact)
         );
 
-        let again = pool.frame_nearest(&at(65)).expect("cached");
+        let again = pool.frame_nearest(&at(target)).expect("cached");
         assert!(again.exact);
         assert!(Arc::ptr_eq(&again.frame, &exact));
         assert!(
-            pool.frame_nearest(&at(72)).expect("decodes").exact,
+            pool.frame_nearest(&at(after)).expect("decodes").exact,
             "a keyframe is exact"
         );
         let _ = std::fs::remove_file(&path);

@@ -255,6 +255,16 @@ impl VideoCodec {
             .filter(|name| encoder::find_by_name(name).is_some())
     }
 
+    /// Whether every ten-bit encoder linked for it is a chip's: no CPU
+    /// encoder makes it at ten bits, so a machine without the hardware -
+    /// a CI runner, a desktop with no GPU encoder - cannot write it. HEVC
+    /// on Windows and Linux since x265 left the builds; Kvazaar is eight
+    /// bits only. True as well where nothing at ten bits is linked.
+    pub fn ten_bit_only_on_hardware(self) -> bool {
+        self.linked(true, true)
+            .all(|name| Family::of(name).hardware())
+    }
+
     /// Whether the linked FFmpeg carries an encoder for it.
     pub fn available(self) -> bool {
         self.linked(true, false).next().is_some()
@@ -2281,9 +2291,12 @@ mod tests {
                 hardware: false,
                 ..EncodeOptions::default()
             };
-            let mut encoder = Encoder::create(&path, 320, 180, FrameRate::THIRTY, &options)
+            // 176 rows, not 180: HEVC on the CPU is Kvazaar, which takes
+            // sizes in eights.
+            let mut encoder = Encoder::create(&path, 320, 176, FrameRate::THIRTY, &options)
                 .unwrap_or_else(|error| panic!("{codec:?} CBR opens: {error}"));
-            let mut frame = Frame::black(320, 180);
+            let name = encoder.encoder_name().to_owned();
+            let mut frame = Frame::black(320, 176);
             let mut state = 0x2545_F491_4F6C_DD1D_u64;
             for _ in 0..FRAMES {
                 for byte in frame.pixels_mut() {
@@ -2300,7 +2313,7 @@ mod tests {
                 / (f64::from(FRAMES) / 30.0);
             assert!(
                 (f64::from(KBPS) * 0.7..=f64::from(KBPS) * 1.3).contains(&kbps),
-                "{codec:?} CBR at {KBPS} kb/s came out at {kbps:.0} kb/s"
+                "{codec:?} CBR at {KBPS} kb/s came out at {kbps:.0} kb/s on {name}"
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -2330,9 +2343,10 @@ mod tests {
             };
             let rate_of = |noisy: bool| {
                 let path = dir.join(format!("{}-{noisy}.mp4", codec.name()));
-                let mut encoder = Encoder::create(&path, 320, 180, FrameRate::THIRTY, &options)
+                let mut encoder = Encoder::create(&path, 320, 176, FrameRate::THIRTY, &options)
                     .unwrap_or_else(|error| panic!("{codec:?} average opens: {error}"));
-                let mut frame = Frame::black(320, 180);
+                let name = encoder.encoder_name().to_owned();
+                let mut frame = Frame::black(320, 176);
                 let mut state = 0x2545_F491_4F6C_DD1D_u64;
                 for _ in 0..FRAMES {
                     if noisy {
@@ -2346,17 +2360,20 @@ mod tests {
                     encoder.write_frame(&frame).expect("writes");
                 }
                 encoder.finish().expect("finishes");
-                std::fs::metadata(&path).expect("written").len() as f64 * 8.0 / 1000.0 / seconds
+                let kbps = std::fs::metadata(&path).expect("written").len() as f64 * 8.0
+                    / 1000.0
+                    / seconds;
+                (kbps, name)
             };
-            let busy = rate_of(true);
+            let (busy, name) = rate_of(true);
             assert!(
                 (f64::from(KBPS) * 0.6..=f64::from(KBPS) * 1.6).contains(&busy),
-                "{codec:?} averaging {KBPS} kb/s came out at {busy:.0} kb/s on noise"
+                "{codec:?} averaging {KBPS} kb/s came out at {busy:.0} kb/s on noise, on {name}"
             );
-            let calm = rate_of(false);
+            let (calm, name) = rate_of(false);
             assert!(
                 calm < f64::from(KBPS) * 0.5,
-                "{codec:?} averaging {KBPS} kb/s padded a black picture to {calm:.0} kb/s"
+                "{codec:?} averaging {KBPS} kb/s padded a black picture to {calm:.0} kb/s, on {name}"
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -2894,8 +2911,10 @@ mod tests {
             hardware: true,
             ..EncodeOptions::default()
         };
-        let mut encoder =
-            Encoder::create(&path, 1280, 720, FrameRate::THIRTY, &options).expect("creates");
+        let Ok(mut encoder) = Encoder::create(&path, 1280, 720, FrameRate::THIRTY, &options) else {
+            eprintln!("no ten-bit HEVC encoder opens here; skipped");
+            return;
+        };
         if encoder.encoder_name() != "hevc_amf" {
             eprintln!("{} chosen, not AMF; skipped", encoder.encoder_name());
             let _ = std::fs::remove_file(&path);
@@ -2999,8 +3018,15 @@ mod tests {
                     threads: 0,
                     software_only: false,
                 };
-                let mut encoder = Encoder::create(&path, 64, 64, FrameRate::THIRTY, &options)
-                    .unwrap_or_else(|error| panic!("{} {ten_bit}: {error}", codec.label()));
+                let mut encoder = match Encoder::create(&path, 64, 64, FrameRate::THIRTY, &options)
+                {
+                    Ok(encoder) => encoder,
+                    Err(error) if ten_bit && codec.ten_bit_only_on_hardware() => {
+                        eprintln!("{} at ten bits: {error}; {}", codec.label(), "skipped");
+                        continue;
+                    }
+                    Err(error) => panic!("{} {ten_bit}: {error}", codec.label()),
+                };
                 let mut frame = Frame::black(64, 64);
                 frame.fill([200, 40, 40, 255]);
                 for _ in 0..4 {
@@ -3064,9 +3090,21 @@ mod tests {
             for (signal, level) in [(Signal::Hlg, 0.75f64), (Signal::Pq, 0.58)] {
                 let path = std::env::temp_dir()
                     .join(format!("concat-encode-hdr-{}-{signal:?}.mp4", codec.name()));
-                let mut encoder =
-                    Encoder::create_hdr(&path, 64, 64, FrameRate::THIRTY, &options(codec), signal)
-                        .unwrap_or_else(|error| panic!("{} {signal:?}: {error}", codec.label()));
+                let mut encoder = match Encoder::create_hdr(
+                    &path,
+                    64,
+                    64,
+                    FrameRate::THIRTY,
+                    &options(codec),
+                    signal,
+                ) {
+                    Ok(encoder) => encoder,
+                    Err(error) if codec.ten_bit_only_on_hardware() => {
+                        eprintln!("{} {signal:?}: {error}; skipped", codec.label());
+                        break;
+                    }
+                    Err(error) => panic!("{} {signal:?}: {error}", codec.label()),
+                };
                 let value = (level * 65_535.0).round() as u16;
                 let pixel: Vec<u8> = [value, value, value, u16::MAX]
                     .iter()

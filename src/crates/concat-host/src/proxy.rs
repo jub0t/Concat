@@ -290,7 +290,7 @@ mod tests {
         let media = dir.join("iphone.mp4");
         let value = (0.6f64 * 65_535.0).round() as u16;
         {
-            let mut encoder = Encoder::create_hdr(
+            let encoder = Encoder::create_hdr(
                 &media,
                 640,
                 360,
@@ -302,8 +302,15 @@ mod tests {
                     ..EncodeOptions::default()
                 },
                 Signal::Hlg,
-            )
-            .expect("encodes");
+            );
+            let mut encoder = match encoder {
+                Ok(encoder) => encoder,
+                Err(error) if VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                    eprintln!("no ten-bit HEVC encoder opens here ({error}); skipped");
+                    return;
+                }
+                Err(error) => panic!("encodes: {error}"),
+            };
             let pixel: Vec<u8> = [value, value, value, u16::MAX]
                 .iter()
                 .flat_map(|channel| channel.to_le_bytes())

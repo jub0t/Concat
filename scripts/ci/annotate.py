@@ -85,7 +85,19 @@ def failures(lines):
                     if not path.startswith(("/", ROOT)) and not re.match(r"^[A-Za-z]:/", path):
                         path = ROOT + path
                     break
-            keep = [b for b in block if "panicked at" in b or b.strip().startswith(("left:", "right:", "assertion"))]
+            # The panic's own message follows its "panicked at" line, up to a
+            # blank line or the note about backtraces: that is the line that
+            # says what was wrong, so it is kept with the assertion's sides.
+            keep = []
+            for k, b in enumerate(block):
+                if "panicked at" in b:
+                    keep.append(b)
+                    for after in block[k + 1 : k + 9]:
+                        if not after.strip() or after.strip().startswith(("note:", "stack backtrace")):
+                            break
+                        keep.append(after)
+                elif b.strip().startswith(("left:", "right:")) and b not in keep:
+                    keep.append(b)
             body = "\n".join([line] + keep[:BODY])
             found.append((f"test failed: {hit.group(1).strip()[:160]}", path, number, body))
             i = j

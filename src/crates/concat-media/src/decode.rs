@@ -1975,15 +1975,22 @@ mod tests {
             threads: 0,
             software_only: false,
         };
-        let mut encoder = Encoder::create_tagged(
+        let encoder = Encoder::create_tagged(
             &path,
             64,
             64,
             FrameRate::THIRTY,
             &options,
             (Primaries::BT2020, Transfer::SMPTE2084, Space::BT2020NCL),
-        )
-        .expect("an HEVC encoder");
+        );
+        let mut encoder = match encoder {
+            Ok(encoder) => encoder,
+            Err(error) if VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                eprintln!("no ten-bit HEVC encoder opens here ({error}); skipped");
+                return;
+            }
+            Err(error) => panic!("an HEVC encoder: {error}"),
+        };
         let mut frame = Frame::black(64, 64);
         frame.fill([180, 180, 180, 255]);
         for _ in 0..3 {

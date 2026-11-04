@@ -1109,13 +1109,30 @@ fn fades_and_wipes_reach_the_picture() {
         studio.export(&format!("transition {kind}"))
     };
 
-    // The wipes overlap the two clips for the second centred on the cut.
-    let wiped = with(&mut studio, "wipe-left");
-    wiped.expect_colours(0.5, &[((0.5, 0.5), red)]);
-    wiped.expect_colours(2.0, &[((0.2, 0.5), red), ((0.8, 0.5), blue)]);
-    wiped.expect_colours(2.9, &[((0.5, 0.5), blue)]);
-    let wiped = with(&mut studio, "wipe-right");
-    wiped.expect_colours(2.0, &[((0.2, 0.5), blue), ((0.8, 0.5), red)]);
+    // The wipes overlap the two clips for the second centred on the cut:
+    // halfway, one picture on one side and the other on the other. Which
+    // side is the package's (#621: every transition runs through its
+    // package, and the old names are its aliases); that they are the two
+    // pictures, and not a dissolve of them, is what this pins.
+    let near = |got: [u8; 3], want: [u8; 3]| {
+        got.iter()
+            .zip(want)
+            .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40)
+    };
+    for kind in ["wipe-left", "wipe-right"] {
+        let wiped = with(&mut studio, kind);
+        wiped.expect_colours(0.5, &[((0.5, 0.5), red)]);
+        let (left, right) = (
+            wiped.colour_at_point(2.0, 0.1, 0.5),
+            wiped.colour_at_point(2.0, 0.9, 0.5),
+        );
+        let one_or_other = |got: [u8; 3]| near(got, red) || near(got, blue);
+        assert!(
+            one_or_other(left) && one_or_other(right) && near(left, red) != near(right, red),
+            "{kind} halfway: the two pictures side by side, not {left:?} and {right:?}"
+        );
+        wiped.expect_colours(2.9, &[((0.5, 0.5), blue)]);
+    }
 
     // The fades split the second across the cut, and do not overlap.
     for (kind, colour) in [("fade-black", [0, 0, 0]), ("fade-white", [255, 255, 255])] {
@@ -1160,15 +1177,22 @@ fn an_hlg_clip_exports_through_the_gpu_conversion() {
             threads: 0,
             software_only: false,
         };
-        let mut encoder = Encoder::create_mislabelled_hdr(
+        let encoder = Encoder::create_mislabelled_hdr(
             &path,
             WIDTH,
             HEIGHT,
             FrameRate::THIRTY,
             &options,
             false,
-        )
-        .expect("an HEVC encoder");
+        );
+        let mut encoder = match encoder {
+            Ok(encoder) => encoder,
+            Err(error) if VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                eprintln!("no ten-bit HEVC encoder opens here ({error}); skipped");
+                return;
+            }
+            Err(error) => panic!("an HEVC encoder: {error}"),
+        };
         let mut frame = Frame::black(WIDTH, HEIGHT);
         frame.fill([160, 160, 160, 255]);
         for _ in 0..30 {
@@ -1221,15 +1245,22 @@ fn an_hlg_timeline_exports_as_hdr_or_sdr() {
         software_only: false,
     };
     {
-        let mut encoder = Encoder::create_hdr(
+        let encoder = Encoder::create_hdr(
             &path,
             WIDTH,
             HEIGHT,
             FrameRate::THIRTY,
             &options,
             Signal::Hlg,
-        )
-        .expect("an HEVC encoder");
+        );
+        let mut encoder = match encoder {
+            Ok(encoder) => encoder,
+            Err(error) if VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                eprintln!("no ten-bit HEVC encoder opens here ({error}); skipped");
+                return;
+            }
+            Err(error) => panic!("an HEVC encoder: {error}"),
+        };
         let value = (LEVEL * 65_535.0).round() as u16;
         let pixel: Vec<u8> = [value, value, value, u16::MAX]
             .iter()
@@ -1984,7 +2015,24 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     let scratch = Scratch::new("hardware");
     // HEVC, not the H.264 the other scenarios use: 8-bit H.264 is the one
     // stream the preference leaves on the CPU, which decodes it faster
-    // (concat_media::hardware::hardware_wins).
+    // (concat_media::hardware::hardware_wins). HEVC on the CPU is Kvazaar
+    // since x265 left the builds, which takes sizes in eights only, so on
+    // a machine with no chip for it this clip's 90 rows have no encoder.
+    let can_encode = Encoder::create(
+        scratch.path().join("can-encode.mp4"),
+        WIDTH,
+        HEIGHT,
+        FrameRate::THIRTY,
+        &EncodeOptions {
+            codec: VideoCodec::Hevc,
+            preset: "ultrafast".to_owned(),
+            ..EncodeOptions::default()
+        },
+    );
+    if let Err(error) = can_encode {
+        eprintln!("no HEVC encoder opens at {WIDTH}x{HEIGHT} here ({error}); skipped");
+        return;
+    }
     let sources = Sources::make_in(scratch.path(), VideoCodec::Hevc);
 
     if let Some(device) = HwDevice::platform_default() {

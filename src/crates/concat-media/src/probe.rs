@@ -459,11 +459,18 @@ mod tests {
             ("pq.mp4", Some(true), Signal::Pq),
         ] {
             let path = dir.join(name);
-            let mut encoder = match hdr {
+            let encoder = match hdr {
                 None => Encoder::create(&path, 64, 64, rate, &options),
                 Some(pq) => Encoder::create_mislabelled_hdr(&path, 64, 64, rate, &options, pq),
-            }
-            .expect("encodes");
+            };
+            let mut encoder = match encoder {
+                Ok(encoder) => encoder,
+                Err(error) if hdr.is_some() && VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                    eprintln!("{name}: no ten-bit HEVC encoder opens here ({error}); skipped");
+                    continue;
+                }
+                Err(error) => panic!("{name} encodes: {error}"),
+            };
             for _ in 0..3 {
                 encoder.write_frame(&Frame::black(64, 64)).expect("writes");
             }
