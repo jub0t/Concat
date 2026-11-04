@@ -32,9 +32,13 @@ final class WhisperEngine {
     }
 
     enum EngineError: LocalizedError {
-        case noModel
+        /// The download failed every attempt; carries the last underlying reason.
+        case noModel(String)
         var errorDescription: String? {
-            "The speech model couldn't be downloaded. Connect to the internet once to download it; after that captions work offline."
+            switch self {
+            case .noModel(let reason):
+                "The speech model couldn't be downloaded. Connect to the internet once to download it; after that captions work offline. (\(reason))"
+            }
         }
     }
 
@@ -90,14 +94,28 @@ final class WhisperEngine {
             progress("Downloading the \(size.label) speech model, once…")
             downloadProgress = 0
             defer { downloadProgress = nil }
-            do {
-                folder = try await WhisperKit.download(variant: size.variant, downloadBase: Self.folder) { p in
-                    let fraction = p.fractionCompleted
-                    Task { @MainActor in WhisperEngine.shared.downloadProgress = fraction }
+            // A dropped connection or a busy server shouldn't end it: try three times, waiting longer each time.
+            var downloaded: URL?
+            var lastError: Error?
+            for attempt in 1...3 {
+                do {
+                    downloaded = try await WhisperKit.download(variant: size.variant, downloadBase: Self.folder) { p in
+                        let fraction = p.fractionCompleted
+                        Task { @MainActor in WhisperEngine.shared.downloadProgress = fraction }
+                    }
+                    break
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    lastError = error
+                    if attempt < 3 {
+                        progress("Download interrupted, trying again…")
+                        try await Task.sleep(for: .seconds(Double(attempt * 3)))
+                    }
                 }
-            } catch {
-                throw EngineError.noModel
             }
+            guard let downloaded else { throw EngineError.noModel(lastError?.localizedDescription ?? "unknown error") }
+            folder = downloaded
             let base = Self.folder.standardizedFileURL.path
             let full = folder.standardizedFileURL.path
             let relative = full.hasPrefix(base) ? String(full.dropFirst(base.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/")) : full
