@@ -118,3 +118,37 @@ esac
 make -C "$build" -j"$jobs" install
 echo "FFmpeg $version for $target is in $out"
 echo "  export FFMPEG_DIR=$out"
+
+# Genera bindings de Rust con bindgen CLI usando el clang del NDK, para que
+# ffmpeg-sys-the-third no tenga que ejecutar bindgen (que falla con el clang
+# del host por cabeceras glibc vs bionic). Los bindings se guardan en
+# vendor/ffmpeg-bindings/<target>/bindings.rs y se leen mediante
+# FFMPEG_SYS_NO_BINDGEN=1 + FFMPEG_SYS_BINDINGS_DIR.
+if [ "$target" = aarch64-linux-android ] || [ "$target" = x86_64-linux-android ]; then
+  bindgen_out="$workspace/vendor/ffmpeg-bindings/$target"
+  mkdir -p "$bindgen_out"
+  host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
+  clang="$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang"
+  sysroot="$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot"
+  headers=(
+    "$out/include/libavcodec/avcodec.h"
+    "$out/include/libavformat/avformat.h"
+    "$out/include/libavutil/avutil.h"
+    "$out/include/libavfilter/avfilter.h"
+    "$out/include/libswscale/swscale.h"
+    "$out/include/libswresample/swresample.h"
+  )
+  header_args=""
+  for h in "${headers[@]}"; do
+    [ -f "$h" ] && header_args="$header_args $h"
+  done
+  if [ -n "$header_args" ] && command -v bindgen >/dev/null 2>&1; then
+    echo "Generando bindings Rust con bindgen CLI para $target"
+    bindgen $header_args \
+      -- --sysroot="$sysroot" \
+      --target="$target" \
+      -I"$out/include" \
+      > "$bindgen_out/bindings.rs" 2>/dev/null || true
+    echo "Bindings guardados en $bindgen_out/bindings.rs"
+  fi
+fi

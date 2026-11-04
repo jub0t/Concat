@@ -38,3 +38,6 @@ ndk = { version = "0.9", default-features = false, features = ["media", "api-lev
 
 [lints]
 workspace = true
+
+[patch.crates-io]
+ffmpeg-sys-the-third = { path = "../../vendor/ffmpeg-sys-the-third" }
