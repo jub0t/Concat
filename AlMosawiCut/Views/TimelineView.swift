@@ -12,6 +12,7 @@ struct TimelineView: View {
     @State private var position = ScrollPosition(edge: .leading)
     @State private var phase: ScrollPhase = .idle
     @State private var thumbs = Thumbnails.shared
+    @State private var waves = Waveforms.shared
 
     private let mainHeight: CGFloat = 54
     private let overlayHeight: CGFloat = 36
@@ -122,7 +123,7 @@ struct TimelineView: View {
                 FilmStrip(clip: clip, projectID: model.project.id, pps: pps, height: mainHeight,
                           selected: selected, accent: .white, thumbs: thumbs)
                     .offset(x: start)
-                    .onTapGesture { model.selection = selected ? nil : .clip(clip.id) }
+                    .onTapGesture { if model.canSelect(.clip(clip.id)) { model.selection = selected ? nil : .clip(clip.id) } }
             }
             ForEach(1..<max(1, clips.count), id: \.self) { i in
                 let s = model.project.start(ofClipAt: i) + model.project.overlap(at: i) / 2
@@ -154,7 +155,7 @@ struct TimelineView: View {
                             .padding(3).background(Theme.overlayTrack, in: RoundedRectangle(cornerRadius: 3)).padding(3)
                     }
                     .offset(x: CGFloat(item.start) * pps)
-                    .onTapGesture { model.selection = selected ? nil : .overlay(item.id) }
+                    .onTapGesture { if model.canSelect(.overlay(item.id)) { model.selection = selected ? nil : .overlay(item.id) } }
             }
         }
         .frame(width: width, height: overlayHeight, alignment: .leading)
@@ -178,7 +179,7 @@ struct TimelineView: View {
                 .background(color, in: RoundedRectangle(cornerRadius: 5))
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? .white : .clear, lineWidth: 2))
                 .offset(x: CGFloat(text.start) * pps)
-                .onTapGesture { model.selection = selected ? nil : .text(text.id) }
+                .onTapGesture { if model.canSelect(.text(text.id)) { model.selection = selected ? nil : .text(text.id) } }
             }
         }
         .frame(width: width, height: textHeight, alignment: .leading)
@@ -201,14 +202,21 @@ struct TimelineView: View {
                 .padding(.horizontal, 7)
                 .frame(width: max(18, w - 2), height: audioHeight, alignment: .leading)
                 .background(
-                    WaveformStripes()
-                        .fill(Color.white.opacity(0.18))
-                        .background(item.kind == .voiceover ? Theme.voiceTrack : Theme.musicTrack)
+                    Group {
+                        if let peaks = waves.peaks(for: item.file, projectID: model.project.id), !peaks.isEmpty {
+                            WaveformPeaks(peaks: peaks, start: item.trimStart, length: item.length, loop: item.loop,
+                                          seconds: Double(max(18, w - 2) / pps))
+                                .fill(Color.white.opacity(0.35))
+                        } else {
+                            WaveformStripes().fill(Color.white.opacity(0.18))
+                        }
+                    }
+                    .background(item.kind == .voiceover ? Theme.voiceTrack : Theme.musicTrack)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? .white : .clear, lineWidth: 2))
                 .offset(x: CGFloat(item.start) * pps)
-                .onTapGesture { model.selection = selected ? nil : .audio(item.id) }
+                .onTapGesture { if model.canSelect(.audio(item.id)) { model.selection = selected ? nil : .audio(item.id) } }
             }
         }
         .frame(width: width, height: audioHeight, alignment: .leading)
@@ -304,6 +312,31 @@ struct FilmStrip: View {
         .padding(.horizontal, 4).padding(.vertical, 1.5)
         .background(.black.opacity(0.62), in: Capsule())
         .lineLimit(1)
+    }
+}
+
+/// The sound's real loudness across the shown stretch, repeating when it loops.
+struct WaveformPeaks: Shape {
+    let peaks: [Float]
+    let start: Double
+    let length: Double
+    let loop: Bool
+    let seconds: Double
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        guard rect.width > 0, seconds > 0 else { return p }
+        var x: CGFloat = 0
+        while x < rect.width {
+            var t = Double(x / rect.width) * seconds
+            if loop, length > 0 { t = t.truncatingRemainder(dividingBy: length) }
+            let i = Int((start + t) * Waveforms.rate)
+            let v = i >= 0 && i < peaks.count ? CGFloat(peaks[i]) : 0
+            let h = max(1, rect.height * 0.9 * v)
+            p.addRect(CGRect(x: x, y: (rect.height - h) / 2, width: 1.5, height: h))
+            x += 2.5
+        }
+        return p
     }
 }
 

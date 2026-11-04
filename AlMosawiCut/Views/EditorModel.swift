@@ -465,6 +465,13 @@ final class EditorModel {
             first.keyframes = clip.keyframes.filter { $0.time <= local }
             second.id = UUID(); second.trimStart = cut; second.fadeIn = 0; second.transitionIn = Transition()
             second.keyframes = clip.keyframes.filter { $0.time > local }.map { var k = $0; k.time -= local; return k }
+            first.effects = clip.effects.map { e in var e = e; e.keys = e.keys.filter { $0.time <= local }; return e }
+            second.effects = clip.effects.map { e in
+                var e = e
+                e.amount = e.amount(at: local)
+                e.keys = e.keys.filter { $0.time > local }.map { var k = $0; k.time -= local; return k }
+                return e
+            }
             if !clip.keyframes.isEmpty { second.transform = clip.transform(atLocal: local) }
             edit { p in p.clips.replaceSubrange(i...i, with: [first, second]) }
             selection = .clip(second.id)
@@ -573,12 +580,125 @@ final class EditorModel {
         let item = AudioItem(file: clip.file, name: "Audio from clip \(i + 1)", kind: .extracted, start: start,
                              sourceDuration: clip.sourceDuration, trimStart: clip.trimStart,
                              trimEnd: clip.speedCurve == .none && clip.speed == 1 ? clip.trimEnd : clip.trimStart + clip.duration,
-                             volume: clip.volume, effect: clip.audioEffect, cleanup: clip.cleanup)
+                             volume: clip.volume, effect: clip.audioEffect, cleanup: clip.cleanup, sourceClip: clip.id)
         edit { p in
             p.clips[i].volume = 0
             p.audios.append(item)
         }
         selection = .audio(item.id)
+    }
+
+    /// Joins the selected clip with the next when they are neighbouring pieces of one shot.
+    func mergeWithNext() {
+        guard let i = selectedClipIndex, i + 1 < project.clips.count else { return }
+        let a = project.clips[i], b = project.clips[i + 1]
+        guard a.file == b.file, abs(a.trimEnd - b.trimStart) < 0.05, a.speed == b.speed,
+              a.speedCurve == .none, b.speedCurve == .none, b.transitionIn.kind == .none else {
+            errorMessage = "Only two neighbouring pieces of the same shot, at the same speed and with no transition between them, can be merged."
+            return
+        }
+        let shift = a.duration
+        edit { p in
+            p.clips[i].trimEnd = b.trimEnd
+            p.clips[i].fadeOut = b.fadeOut
+            if !b.keyframes.isEmpty || !a.keyframes.isEmpty {
+                p.clips[i].keyframes += b.keyframes.map { var k = $0; k.time += shift; return k }
+            }
+            p.clips.remove(at: i + 1)
+        }
+    }
+
+    /// Puts an extracted sound back into the clip it came from.
+    func reattachAudio() {
+        guard let i = selectedAudioIndex, let clipID = project.audios[i].sourceClip,
+              project.clips.contains(where: { $0.id == clipID }) else {
+            errorMessage = "The clip this sound came from is no longer on the timeline."
+            return
+        }
+        let item = project.audios[i]
+        edit { p in
+            if let j = p.clips.firstIndex(where: { $0.id == clipID }) {
+                p.clips[j].volume = item.volume
+                p.clips[j].audioEffect = item.effect
+                p.clips[j].cleanup = item.cleanup
+            }
+            p.audios.removeAll { $0.id == item.id }
+        }
+        selection = .clip(clipID)
+    }
+
+    /// Swaps a clip's or overlay's footage, keeping its length, look, effects and animation.
+    func replaceMedia(of id: UUID, with new: Clip) {
+        func swap(_ c: inout Clip) {
+            let length = max(0.1, c.trimEnd - c.trimStart)
+            c.file = new.file
+            c.isPhoto = new.isPhoto
+            c.hasAudio = new.hasAudio
+            c.sourceDuration = new.sourceDuration
+            c.trimStart = 0
+            c.trimEnd = min(new.sourceDuration, length)
+        }
+        edit { p in
+            if let j = p.clips.firstIndex(where: { $0.id == id }) { swap(&p.clips[j]) }
+            if let j = p.overlays.firstIndex(where: { $0.id == id }) { swap(&p.overlays[j].clip) }
+        }
+    }
+
+    /// The strength of an applied effect at the playhead; with keyframes, setting it records one here.
+    func effectAmountBinding(_ effectID: UUID) -> Binding<Double> {
+        Binding(get: {
+            guard let e = self.selectedMedia?.effects.first(where: { $0.id == effectID }) else { return 0.5 }
+            return e.amount(at: self.selectedLocalTime ?? 0)
+        }, set: { v in
+            let local = self.selectedLocalTime ?? 0
+            self.editMedia { c in
+                guard let i = c.effects.firstIndex(where: { $0.id == effectID }) else { return }
+                if c.effects[i].keys.isEmpty {
+                    c.effects[i].amount = v
+                } else if let k = c.effects[i].keys.firstIndex(where: { abs($0.time - local) < 0.06 }) {
+                    c.effects[i].keys[k].amount = v
+                } else {
+                    c.effects[i].keys.append(EffectKey(time: max(0, local), amount: v))
+                }
+            }
+        })
+    }
+
+    func effectHasKey(_ effectID: UUID) -> Bool {
+        guard let local = selectedLocalTime, let e = selectedMedia?.effects.first(where: { $0.id == effectID }) else { return false }
+        return e.keys.contains { abs($0.time - local) < 0.06 }
+    }
+
+    /// Adds or removes an effect keyframe at the playhead.
+    func toggleEffectKey(_ effectID: UUID) {
+        guard let local = selectedLocalTime else { return }
+        editMedia { c in
+            guard let i = c.effects.firstIndex(where: { $0.id == effectID }) else { return }
+            if let k = c.effects[i].keys.firstIndex(where: { abs($0.time - local) < 0.06 }) {
+                if c.effects[i].keys.count == 1 { c.effects[i].amount = c.effects[i].keys[k].amount }
+                c.effects[i].keys.remove(at: k)
+            } else {
+                c.effects[i].keys.append(EffectKey(time: max(0, local), amount: c.effects[i].amount(at: local)))
+            }
+        }
+    }
+
+    func setTracks(_ change: (inout TrackFlags) -> Void) {
+        edit { change(&$0.tracks) }
+        if project.tracks.mainLocked, case .clip = selection { selection = nil }
+        if project.tracks.overlaysLocked, case .overlay = selection { selection = nil }
+        if project.tracks.textLocked, case .text = selection { selection = nil }
+        if project.tracks.audioLocked, case .audio = selection { selection = nil }
+    }
+
+    /// Whether the timeline lets this be picked (its track isn't locked).
+    func canSelect(_ s: Selection) -> Bool {
+        switch s {
+        case .clip: !project.tracks.mainLocked
+        case .overlay: !project.tracks.overlaysLocked
+        case .text: !project.tracks.textLocked
+        case .audio: !project.tracks.audioLocked
+        }
     }
 
     // MARK: Text, shapes and audio
@@ -615,6 +735,7 @@ final class EditorModel {
                 p.texts[i].color = source.color; p.texts[i].accent = source.accent
                 p.texts[i].size = source.size; p.texts[i].bold = source.bold; p.texts[i].font = source.font
                 p.texts[i].customFont = source.customFont; p.texts[i].tracking = source.tracking
+                p.texts[i].karaoke = source.karaoke; p.texts[i].karaokeColor = source.karaokeColor
                 p.texts[i].style = source.style; p.texts[i].x = source.x; p.texts[i].y = source.y
                 p.texts[i].textCase = source.textCase; p.texts[i].animationIn = source.animationIn
             }

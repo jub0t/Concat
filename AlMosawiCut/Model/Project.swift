@@ -103,6 +103,33 @@ struct ColorWheels: Codable, Hashable {
     var isNeutral: Bool { shadows.a == 0 && midtones.a == 0 && highlights.a == 0 }
 }
 
+/// How a clip's pixel levels are read, for footage that looks washed out or crushed.
+enum ColorRangeMode: String, Codable, CaseIterable, Identifiable {
+    case auto, limited, full
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .auto: "Auto"
+        case .limited: "Expand (washed out)"
+        case .full: "Compress (crushed)"
+        }
+    }
+}
+
+/// Hide, mute and lock for each kind of track.
+struct TrackFlags: Codable, Hashable {
+    var mainHidden = false, mainMuted = false, mainLocked = false
+    var overlaysHidden = false, overlaysMuted = false, overlaysLocked = false
+    var textHidden = false, textLocked = false
+    var audioMuted = false, audioLocked = false
+}
+
+/// One word of a title drawn in its own colour; `index` counts words from 0.
+struct WordHighlight: Codable, Hashable {
+    var index: Int
+    var color: RGBA
+}
+
 /// Normalised crop, origin top-left of the upright source.
 struct CropRect: Codable, Hashable {
     var x = 0.0, y = 0.0, w = 1.0, h = 1.0
@@ -163,7 +190,7 @@ enum CutoutMode: String, Codable, CaseIterable, Identifiable {
 
 /// Speed shapes over a clip's length: (position 0...1, speed).
 enum SpeedCurve: String, Codable, CaseIterable, Identifiable {
-    case none, montage, hero, bullet, jumpCut, flashIn, flashOut
+    case none, montage, hero, bullet, jumpCut, flashIn, flashOut, custom
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -184,6 +211,7 @@ enum SpeedCurve: String, Codable, CaseIterable, Identifiable {
         case .jumpCut: [(0, 1), (0.3, 1), (0.35, 5), (0.45, 5), (0.5, 1), (0.8, 1), (0.85, 5), (1, 5)]
         case .flashIn: [(0, 4), (0.3, 4), (0.5, 1), (1, 1)]
         case .flashOut: [(0, 1), (0.5, 1), (0.7, 4), (1, 4)]
+        case .custom: [(0, 1), (1, 1)]
         }
     }
 
@@ -216,6 +244,8 @@ struct Clip: Codable, Identifiable, Hashable {
     var trimEnd: Double = 0
     var speed: Double = 1
     var speedCurve: SpeedCurve = .none
+    /// The custom curve: speeds at six evenly spaced points across the clip.
+    var speedPoints: [Double] = [1, 1, 1, 1, 1, 1]
     var volume: Double = 1
     var filter: String = "none"
     var filterIntensity: Double = 1
@@ -231,6 +261,7 @@ struct Clip: Codable, Identifiable, Hashable {
     var sharpness: Double = 0
     var vignette: Double = 0
     var wheels = ColorWheels()
+    var colorRange: ColorRangeMode = .auto
     var fill = false
     var flipped = false
     var flippedV = false
@@ -255,9 +286,20 @@ struct Clip: Codable, Identifiable, Hashable {
         let step = length / Double(n)
         return (0..<n).map { i in
             let p = (Double(i) + 0.5) / Double(n)
+            let factor = speedCurve == .custom ? Self.interpolate(speedPoints, at: p) : speedCurve.speed(at: p)
             return SpeedPiece(sourceStart: trimStart + Double(i) * step, sourceDuration: step,
-                              speed: max(0.05, speed * speedCurve.speed(at: p)))
+                              speed: max(0.05, speed * factor))
         }
+    }
+
+    /// A value between evenly spaced points, eased so the speed changes smoothly.
+    static func interpolate(_ points: [Double], at p: Double) -> Double {
+        guard points.count > 1 else { return points.first ?? 1 }
+        let x = max(0, min(1, p)) * Double(points.count - 1)
+        let i = min(points.count - 2, Int(x))
+        let t = x - Double(i)
+        let e = t * t * (3 - 2 * t)
+        return points[i] + (points[i + 1] - points[i]) * e
     }
 
     /// Seconds this clip takes on the timeline.
@@ -288,6 +330,7 @@ struct Clip: Codable, Identifiable, Hashable {
     var hasAdjustments: Bool {
         brightness != 0 || contrast != 1 || saturation != 1 || exposure != 0 || temperature != 0 || tint != 0
             || highlights != 1 || shadows != 0 || sharpness != 0 || vignette != 0 || !wheels.isNeutral
+            || colorRange != .auto
     }
 }
 
@@ -387,6 +430,13 @@ struct TextOverlay: Codable, Identifiable, Hashable {
     var rotation: Double = 0
     var opacity: Double = 1
     var isCaption = false
+    /// Words drawn in their own colour.
+    var highlights: [WordHighlight] = []
+    /// When each word is spoken, seconds from the start (captions made from speech).
+    var wordStarts: [Double] = []
+    /// Light up each word as it is spoken.
+    var karaoke = false
+    var karaokeColor: RGBA = .yellow
     /// When set, this item draws a shape instead of text.
     var shape: ShapeKind?
 
@@ -422,6 +472,8 @@ struct AudioItem: Codable, Identifiable, Hashable {
     var loop = false
     var effect: AudioEffect = .none
     var cleanup = VoiceCleanup()
+    /// The clip this sound was extracted from, so it can be put back.
+    var sourceClip: UUID?
 
     var length: Double { max(0.05, trimEnd - trimStart) }
 }
@@ -437,6 +489,7 @@ struct Project: Codable, Identifiable, Hashable {
     var overlays: [OverlayItem] = []
     var texts: [TextOverlay] = []
     var audios: [AudioItem] = []
+    var tracks = TrackFlags()
 
     /// How much clip `index` overlaps the one before it.
     func overlap(at index: Int) -> Double {
@@ -473,10 +526,11 @@ struct Project: Codable, Identifiable, Hashable {
     /// Anything else only changes how frames are drawn.
     var structureKey: String {
         let c = clips.map {
-            "\($0.id)|\($0.file)|\($0.trimStart)|\($0.trimEnd)|\($0.speed)|\($0.speedCurve)|\($0.volume)|\($0.transitionIn.kind)|\($0.transitionIn.duration)|\($0.audioEffect)|\($0.cleanup)|\($0.keyframes.map { "\($0.time):\($0.value.volume)" })|\($0.fadeIn)|\($0.fadeOut)"
+            "\($0.id)|\($0.file)|\($0.trimStart)|\($0.trimEnd)|\($0.speed)|\($0.speedCurve)|\($0.speedPoints)|\($0.volume)|\($0.transitionIn.kind)|\($0.transitionIn.duration)|\($0.audioEffect)|\($0.cleanup)|\($0.keyframes.map { "\($0.time):\($0.value.volume)" })|\($0.fadeIn)|\($0.fadeOut)"
         }
-        let o = overlays.map { "\($0.id)|\($0.clip.file)|\($0.start)|\($0.clip.trimStart)|\($0.clip.trimEnd)|\($0.clip.speed)|\($0.clip.speedCurve)|\($0.clip.volume)|\($0.clip.audioEffect)|\($0.clip.cleanup)" }
+        let o = overlays.map { "\($0.id)|\($0.clip.file)|\($0.start)|\($0.clip.trimStart)|\($0.clip.trimEnd)|\($0.clip.speed)|\($0.clip.speedCurve)|\($0.clip.speedPoints)|\($0.clip.volume)|\($0.clip.audioEffect)|\($0.clip.cleanup)" }
         let a = audios.map { "\($0.id)|\($0.file)|\($0.start)|\($0.trimStart)|\($0.trimEnd)|\($0.volume)|\($0.loop)|\($0.fadeIn)|\($0.fadeOut)|\($0.effect)|\($0.cleanup)" }
         return c.joined(separator: ",") + "#" + o.joined(separator: ",") + "#" + a.joined(separator: ",") + "#" + aspect.rawValue
+            + "#\(tracks.mainMuted)\(tracks.overlaysMuted)\(tracks.audioMuted)"
     }
 }

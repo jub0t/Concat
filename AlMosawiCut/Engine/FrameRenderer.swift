@@ -49,7 +49,7 @@ enum FrameRenderer {
         let clips = Dictionary(project.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let overlays = Dictionary(project.overlays.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
-        let mains = segments
+        let mains = project.tracks.mainHidden ? [] : segments
             .filter { !$0.isOverlay && t >= $0.start - 0.001 && t < $0.end + 0.001 }
             .sorted { $0.start < $1.start }
 
@@ -76,7 +76,7 @@ enum FrameRenderer {
             output = f
         }
 
-        for item in project.overlays {
+        for item in project.overlays where !project.tracks.overlaysHidden {
             guard t >= item.start, t < item.end,
                   let seg = segments.first(where: { $0.isOverlay && $0.itemID == item.id }),
                   let src = sources[seg.trackID], let ov = overlays[item.id] else { continue }
@@ -89,7 +89,7 @@ enum FrameRenderer {
             output = blend(img, over: output, mode: ov.blend)
         }
 
-        for text in project.texts where t >= text.start && t < text.end {
+        for text in project.texts where !project.tracks.textHidden && t >= text.start && t < text.end {
             if let layer = textLayer(text, time: t, canvas: canvas) { output = layer.composited(over: output) }
         }
         return output.cropped(to: rect)
@@ -239,6 +239,11 @@ enum FrameRenderer {
         if text.animationIn != .none { animate(text.animationIn, text.animationIn == .typewriter ? 1 : local / window, entering: true) }
         if text.animationIn == .typewriter { animate(.typewriter, 0, entering: true) }
         if text.animationOut != .none, remaining < window { animate(text.animationOut, remaining / window, entering: false) }
+        if text.karaoke, !text.wordStarts.isEmpty {
+            let spoken = text.wordStarts.filter { $0 <= local + 0.02 }.count
+            let lit = (0..<spoken).map { WordHighlight(index: $0, color: text.karaokeColor) }
+            shown.highlights = text.highlights.filter { $0.index >= spoken } + lit
+        }
         guard alpha > 0.01, var img = TextRasterizer.shared.image(for: shown, canvas: canvas) else { return nil }
         let w = img.extent.width, h = img.extent.height
         img = img.transformed(by: CGAffineTransform(translationX: -w / 2, y: -h / 2))
@@ -333,6 +338,15 @@ final class TextRasterizer: @unchecked Sendable {
         let size = CGSize(width: bounds.width + pad * 2, height: bounds.height + pad * 2)
         let textRect = CGRect(x: pad, y: pad, width: bounds.width, height: bounds.height)
 
+        // Words given their own colour (by hand, or lit up by karaoke).
+        let words = Self.wordRanges(in: string)
+        func fill(_ a: [NSAttributedString.Key: Any]) -> NSAttributedString {
+            let out = NSMutableAttributedString(string: string, attributes: a)
+            for h in text.highlights where h.index >= 0 && h.index < words.count {
+                out.addAttribute(.foregroundColor, value: h.color.uiColor, range: words[h.index])
+            }
+            return out
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
@@ -340,11 +354,11 @@ final class TextRasterizer: @unchecked Sendable {
             let ns = string as NSString
             switch text.style {
             case .plain:
-                ns.draw(with: textRect, options: .usesLineFragmentOrigin, attributes: attrs, context: nil)
+                fill(attrs).draw(with: textRect, options: .usesLineFragmentOrigin, context: nil)
             case .box:
                 text.accent.uiColor.withAlphaComponent(0.85 * text.accent.a).setFill()
                 UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: fontSize * 0.3).fill()
-                ns.draw(with: textRect, options: .usesLineFragmentOrigin, attributes: attrs, context: nil)
+                fill(attrs).draw(with: textRect, options: .usesLineFragmentOrigin, context: nil)
             case .outline:
                 // Stamping the text round a circle gives an outline with round corners,
                 // unlike a stroke, which spikes at sharp letter joins.
@@ -355,19 +369,25 @@ final class TextRasterizer: @unchecked Sendable {
                     let a = Double(i) / 16 * 2 * .pi
                     ns.draw(with: textRect.offsetBy(dx: cos(a) * r, dy: sin(a) * r), options: .usesLineFragmentOrigin, attributes: stroke, context: nil)
                 }
-                ns.draw(with: textRect, options: .usesLineFragmentOrigin, attributes: attrs, context: nil)
+                fill(attrs).draw(with: textRect, options: .usesLineFragmentOrigin, context: nil)
             case .shadow, .glow:
                 let shadow = NSShadow()
                 shadow.shadowColor = text.accent.uiColor.withAlphaComponent(text.style == .glow ? 1 : 0.8)
                 shadow.shadowBlurRadius = fontSize * (text.style == .glow ? 0.45 : 0.25)
                 shadow.shadowOffset = text.style == .glow ? .zero : CGSize(width: 0, height: fontSize * 0.06)
                 attrs[.shadow] = shadow
-                ns.draw(with: textRect, options: .usesLineFragmentOrigin, attributes: attrs, context: nil)
-                if text.style == .glow { ns.draw(with: textRect, options: .usesLineFragmentOrigin, attributes: attrs, context: nil) }
+                fill(attrs).draw(with: textRect, options: .usesLineFragmentOrigin, context: nil)
+                if text.style == .glow { fill(attrs).draw(with: textRect, options: .usesLineFragmentOrigin, context: nil) }
             }
         }
         guard let cg = picture.cgImage else { return nil }
         return CIImage(cgImage: cg)
+    }
+
+    /// Where each whitespace-separated word sits in `string`.
+    static func wordRanges(in string: String) -> [NSRange] {
+        guard let re = try? NSRegularExpression(pattern: "\\S+") else { return [] }
+        return re.matches(in: string, range: NSRange(location: 0, length: (string as NSString).length)).map(\.range)
     }
 
     private func drawShape(_ item: TextOverlay, canvas: CGSize) -> CIImage? {

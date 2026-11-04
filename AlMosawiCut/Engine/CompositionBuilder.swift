@@ -53,7 +53,7 @@ enum CompositionBuilder {
             guard let source = try await asset.loadTracks(withMediaType: .video).first else { continue }
             let transform = try await source.load(.preferredTransform)
             try insert(clip.pieces, of: source, into: vt, at: start)
-            if clip.hasAudio, clip.volume > 0, let sound = try await audioTrack(for: clip.file, effect: clip.audioEffect, cleanup: clip.cleanup, media: media, keep: &keep) {
+            if !project.tracks.mainMuted, clip.hasAudio, clip.volume > 0, let sound = try await audioTrack(for: clip.file, effect: clip.audioEffect, cleanup: clip.cleanup, media: media, keep: &keep) {
                 try insert(clip.pieces, of: sound, into: at, at: start)
                 let inOverlap = project.overlap(at: i)
                 let outOverlap = i + 1 < project.clips.count ? project.overlap(at: i + 1) : 0
@@ -76,7 +76,7 @@ enum CompositionBuilder {
             let vt = try newTrack(.video)
             try insert(clip.pieces, of: source, into: vt, at: item.start)
             videoTrackIDs.append(vt.trackID)
-            if clip.hasAudio, clip.volume > 0, let sound = try await audioTrack(for: clip.file, effect: clip.audioEffect, cleanup: clip.cleanup, media: media, keep: &keep) {
+            if !project.tracks.overlaysMuted, clip.hasAudio, clip.volume > 0, let sound = try await audioTrack(for: clip.file, effect: clip.audioEffect, cleanup: clip.cleanup, media: media, keep: &keep) {
                 let at = try newTrack(.audio)
                 try insert(clip.pieces, of: sound, into: at, at: item.start)
                 envelopes[at.trackID, default: []] += envelope(start: item.start, duration: clip.duration) { local in
@@ -87,7 +87,7 @@ enum CompositionBuilder {
                                     duration: clip.duration, orientation: transform.videoOrientation))
         }
 
-        if includeAudioItems, projectEnd > 0 {
+        if includeAudioItems, projectEnd > 0, !project.tracks.audioMuted {
             for item in project.audios where item.start < projectEnd {
                 guard let sound = try await audioTrack(for: item.file, effect: item.effect, cleanup: item.cleanup, media: media, keep: &keep) else { continue }
                 let track = try newTrack(.audio)

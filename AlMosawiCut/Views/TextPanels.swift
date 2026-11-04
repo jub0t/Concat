@@ -6,6 +6,7 @@ struct TextPanel: View {
     @State private var tab: TextTab
     @FocusState private var focused: Bool
     @State private var library = FontLibrary.shared
+    @State private var wordColor: RGBA = .yellow
     @State private var importingFont = false
     @State private var fontError: String?
 
@@ -40,6 +41,7 @@ struct TextPanel: View {
                 .focused($focused)
                 .padding(12)
                 .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 12))
+            wordColors(item)
             HStack {
                 Chips(options: TextCase.allCases.map { ($0, $0.label) }, selection: model.textBinding(\.textCase, fallback: .none))
                 Toggle("Bold", isOn: model.textBinding(\.bold, fallback: true)).font(.caption.weight(.semibold)).fixedSize()
@@ -63,11 +65,53 @@ struct TextPanel: View {
             swatches(accentLabel(item), model.textBinding(\.accent, fallback: .black))
             LabeledSlider(title: "Opacity", value: model.textBinding(\.opacity, fallback: 1), range: 0...1, format: { "\(Int($0 * 100))%" }, reset: 1)
             LabeledSlider(title: "Rotation", value: model.textBinding(\.rotation, fallback: 0), range: -180...180, format: { "\(Int($0))°" }, reset: 0)
+            if !item.wordStarts.isEmpty {
+                Toggle("Light up words as they're spoken", isOn: model.textBinding(\.karaoke, fallback: false))
+                    .font(.subheadline)
+                if item.karaoke { swatches("Spoken words", model.textBinding(\.karaokeColor, fallback: .yellow)) }
+            }
             if item.isCaption {
                 Button { model.applyStyleToAllCaptions(from: item) } label: {
                     Label("Use this style for every caption", systemImage: "captions.bubble.fill").font(.caption.weight(.bold))
                 }
                 .buttonStyle(.plain).foregroundStyle(Theme.accent)
+            }
+        }
+    }
+
+    /// Tap a word to give it its own colour; tap again to clear it.
+    @ViewBuilder
+    private func wordColors(_ item: TextOverlay) -> some View {
+        let words = item.text.split(whereSeparator: \.isWhitespace).map(String.init)
+        if words.count > 1 {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionLabel("Color single words")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(words.enumerated()), id: \.offset) { i, word in
+                            let mark = item.highlights.first { $0.index == i }
+                            Button {
+                                var list = item.highlights.filter { $0.index != i }
+                                if mark == nil { list.append(WordHighlight(index: i, color: wordColor)) }
+                                model.textBinding(\.highlights, fallback: []).wrappedValue = list
+                            } label: {
+                                Text(word)
+                                    .font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 10).frame(height: 28)
+                                    .background(mark.map { Color(uiColor: $0.color.uiColor).opacity(0.35) } ?? Theme.surfaceHigh, in: Capsule())
+                                    .overlay(Capsule().stroke(mark.map { Color(uiColor: $0.color.uiColor) } ?? .clear, lineWidth: 2))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                HStack(spacing: 8) {
+                    ForEach(RGBA.swatches, id: \.self) { c in
+                        Circle().fill(Color(uiColor: c.uiColor)).frame(width: 22, height: 22)
+                            .overlay(Circle().stroke(wordColor == c ? Theme.accent : .white.opacity(0.25), lineWidth: wordColor == c ? 3 : 1))
+                            .onTapGesture { wordColor = c }
+                    }
+                }
             }
         }
     }
@@ -446,6 +490,7 @@ struct CaptionsPanel: View {
         let captions = cues.map { cue -> TextOverlay in
             var c = look
             c.id = UUID(); c.text = cue.text; c.start = cue.start; c.duration = cue.end - cue.start; c.isCaption = true
+            c.wordStarts = []; c.highlights = []; c.karaoke = false
             return c
         }
         model.replaceCaptions(captions)

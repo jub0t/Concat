@@ -139,10 +139,29 @@ enum VideoEffect: String, Codable, CaseIterable, Identifiable {
     var defaultAmount: Double { isBipolar ? 0.7 : 0.5 }
 }
 
+/// An effect's strength pinned to a moment of the clip (seconds from its start).
+struct EffectKey: Codable, Hashable {
+    var time: Double
+    var amount: Double
+}
+
 struct AppliedEffect: Codable, Hashable, Identifiable {
     var id = UUID()
     var kind: VideoEffect = .sharpen
     var amount: Double = 0.5
+    /// When set, the strength follows these keyframes instead of `amount`.
+    var keys: [EffectKey] = []
+
+    func amount(at t: Double) -> Double {
+        let sorted = keys.sorted { $0.time < $1.time }
+        guard let first = sorted.first, let last = sorted.last else { return amount }
+        if t <= first.time { return first.amount }
+        if t >= last.time { return last.amount }
+        guard let i = sorted.firstIndex(where: { $0.time > t }) else { return last.amount }
+        let a = sorted[i - 1], b = sorted[i]
+        let p = (t - a.time) / max(0.0001, b.time - a.time)
+        return a.amount + (b.amount - a.amount) * p * p * (3 - 2 * p)
+    }
 }
 
 // MARK: Audio effects

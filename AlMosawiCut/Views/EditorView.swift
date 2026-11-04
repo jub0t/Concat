@@ -29,7 +29,11 @@ enum TextTab: String, CaseIterable, Hashable {
     case edit = "Edit", style = "Style", font = "Font", animate = "Animate"
 }
 
-enum PickerTarget { case mainTrack, overlay }
+enum PickerTarget: Equatable {
+    case mainTrack, overlay
+    /// New footage for an existing clip or overlay, keeping its edits.
+    case replace(UUID)
+}
 
 struct EditorView: View {
     @Bindable var model: EditorModel
@@ -88,7 +92,11 @@ struct EditorView: View {
             Task {
                 importing = true
                 let (clips, failures) = await PickerImport.clips(from: items, projectID: model.project.id)
-                if target == .overlay { model.addOverlays(clips) } else { model.addClips(clips) }
+                switch target {
+                case .overlay: model.addOverlays(clips)
+                case .replace(let id): if let first = clips.first { model.replaceMedia(of: id, with: first) }
+                case .mainTrack: model.addClips(clips)
+                }
                 if !failures.isEmpty { model.errorMessage = failures.joined(separator: "\n") }
                 pickerItems = []
                 picker = nil
@@ -353,9 +361,10 @@ struct PreviewArea: View {
                     .frame(width: b.width, height: b.height)
                     .rotationEffect(.degrees(text.rotation))
                     .position(x: text.x * box.width, y: text.y * box.height)
-                    .onTapGesture { model.selection = .text(text.id) }
+                    .onTapGesture { if model.canSelect(.text(text.id)) { model.selection = .text(text.id) } }
                     .gesture(DragGesture(minimumDistance: 2)
                         .onChanged { value in
+                            guard model.canSelect(.text(text.id)) else { return }
                             if textStart == nil {
                                 model.selection = .text(text.id)
                                 textStart = CGPoint(x: text.x, y: text.y)

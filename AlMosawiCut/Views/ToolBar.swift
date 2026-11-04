@@ -66,6 +66,12 @@ struct ToolBar: View {
             Tool("Flip", "arrow.up.and.down.righttriangle.up.righttriangle.down") {
                 model.mediaBinding(\.flippedV, fallback: false).wrappedValue.toggle()
             }
+            if let i = model.selectedClipIndex, i + 1 < model.project.clips.count {
+                Tool("Merge", "arrow.triangle.merge") { model.mergeWithNext() }
+            }
+            if let id = model.selectedClipIndex.map({ model.project.clips[$0].id }) {
+                Tool("Replace", "arrow.triangle.2.circlepath") { addMedia(.replace(id)) }
+            }
             Tool("Move left", "arrow.left.to.line") { model.moveSelectedClip(by: -1) }
             Tool("Move right", "arrow.right.to.line") { model.moveSelectedClip(by: 1) }
             Tool("Duplicate", "plus.square.on.square") { model.duplicateSelection() }
@@ -88,6 +94,9 @@ struct ToolBar: View {
             Tool("Mirror", "arrow.left.and.right.righttriangle.left.righttriangle.right") {
                 model.mediaBinding(\.flipped, fallback: false).wrappedValue.toggle()
             }
+            if let id = model.selectedOverlayIndex.map({ model.project.overlays[$0].id }) {
+                Tool("Replace", "arrow.triangle.2.circlepath") { addMedia(.replace(id)) }
+            }
             Tool("Duplicate", "plus.square.on.square") { model.duplicateSelection() }
             Tool("Delete", "trash", destructive: true) { model.deleteSelection() }
         case .text:
@@ -102,6 +111,9 @@ struct ToolBar: View {
         case .audio:
             Tool("Volume", "speaker.wave.2.fill") { open(.audioItem) }
             Tool("Voice FX", "waveform.badge.magnifyingglass") { open(.voiceFX) }
+            if model.selectedAudioIndex.flatMap({ model.project.audios[$0].sourceClip }) != nil {
+                Tool("Reattach", "arrow.uturn.left.circle") { model.reattachAudio() }
+            }
             Tool("Split", "scissors") { model.splitAtPlayhead() }
             Tool("Duplicate", "plus.square.on.square") { model.duplicateSelection() }
             Tool("Delete", "trash", destructive: true) { model.deleteSelection() }

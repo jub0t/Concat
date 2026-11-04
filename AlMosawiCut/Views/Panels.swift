@@ -167,6 +167,11 @@ private struct SpeedPanel: View {
                             .buttonStyle(PressStyle())
                         }
                     }
+                    if curve.wrappedValue == .custom {
+                        Text("Drag the points: up is faster, down is slower.").font(.caption).foregroundStyle(Theme.secondaryText)
+                        SpeedCurveEditor(points: model.mediaBinding(\.speedPoints, fallback: [1, 1, 1, 1, 1, 1]))
+                            .frame(height: 140)
+                    }
                 } else {
                     HStack(spacing: 6) {
                         ForEach(presets, id: \.self) { p in
@@ -184,6 +189,59 @@ private struct SpeedPanel: View {
                 Text("Length on timeline: \(clip.duration.timecode)").font(.caption).foregroundStyle(Theme.secondaryText)
             }
         } else { NeedsSelection(text: "Select a clip first.") }
+    }
+}
+
+/// Six draggable speed points on a log scale from 0.1x to 10x.
+struct SpeedCurveEditor: View {
+    @Binding var points: [Double]
+
+    private func y(_ speed: Double, _ h: CGFloat) -> CGFloat {
+        let v = (log10(max(0.1, min(10, speed))) + 1) / 2  // 0.1x -> 0, 10x -> 1
+        return h * (1 - CGFloat(v))
+    }
+
+    private func speed(atY yy: CGFloat, _ h: CGFloat) -> Double {
+        let v = 1 - Double(max(0, min(h, yy)) / max(1, h))
+        let s = pow(10, v * 2 - 1)
+        return (s * 20).rounded() / 20
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            let n = max(2, points.count)
+            let xs = (0..<n).map { CGFloat($0) / CGFloat(n - 1) * (w - 24) + 12 }
+            ZStack {
+                RoundedRectangle(cornerRadius: 12).fill(Theme.surfaceHigh)
+                Path { p in p.move(to: CGPoint(x: 0, y: y(1, h))); p.addLine(to: CGPoint(x: w, y: y(1, h))) }
+                    .stroke(Color.white.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                Path { p in
+                    for i in 0...60 {
+                        let t = Double(i) / 60
+                        let pt = CGPoint(x: 12 + CGFloat(t) * (w - 24), y: y(Clip.interpolate(points, at: t), h))
+                        i == 0 ? p.move(to: pt) : p.addLine(to: pt)
+                    }
+                }
+                .stroke(Theme.accent, lineWidth: 2.5)
+                ForEach(0..<n, id: \.self) { i in
+                    let s = i < points.count ? points[i] : 1
+                    Circle().fill(Color.white).frame(width: 22, height: 22)
+                        .overlay(Text(String(format: "%.2g", s)).font(.system(size: 7, weight: .bold)).foregroundStyle(.black))
+                        .position(x: xs[i], y: y(s, h))
+                        .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                            guard i < points.count else { return }
+                            points[i] = speed(atY: v.location.y, h)
+                        })
+                }
+                VStack {
+                    HStack { Text("10x"); Spacer() }
+                    Spacer()
+                    HStack { Text("0.1x"); Spacer() }
+                }
+                .font(.system(size: 9)).foregroundStyle(Theme.secondaryText).padding(6).allowsHitTesting(false)
+            }
+        }
     }
 }
 
@@ -514,7 +572,15 @@ private struct EffectsPanel: View {
                     SectionLabel("Applied")
                     ForEach(clip.effects) { e in
                         HStack(alignment: .bottom, spacing: 10) {
-                            LabeledSlider(title: e.kind.label, value: amount(e.id), range: 0...1, format: { "\(Int($0 * 100))" })
+                            LabeledSlider(title: e.kind.label + (e.keys.isEmpty ? "" : " · \(e.keys.count) keyframes"),
+                                          value: model.effectAmountBinding(e.id), range: 0...1, format: { "\(Int($0 * 100))" })
+                            Button { model.toggleEffectKey(e.id) } label: {
+                                Image(systemName: model.effectHasKey(e.id) ? "diamond.fill" : "diamond")
+                                    .font(.caption.weight(.bold)).frame(width: 30, height: 30)
+                                    .background(Theme.surfaceHigh, in: Circle())
+                            }
+                            .buttonStyle(.plain).foregroundStyle(model.effectHasKey(e.id) ? Theme.accent : .white)
+                            .accessibilityLabel("Keyframe this effect at the playhead")
                             Button { model.editMedia { $0.effects.removeAll { $0.id == e.id } } } label: {
                                 Image(systemName: "trash").font(.caption.weight(.bold)).frame(width: 30, height: 30)
                                     .background(Theme.surfaceHigh, in: Circle())
@@ -522,6 +588,10 @@ private struct EffectsPanel: View {
                             .buttonStyle(.plain).foregroundStyle(.red)
                         }
                     }
+                }
+                if !clip.effects.isEmpty {
+                    Text("◆ records the strength at the playhead; with keyframes, the effect changes over time.")
+                        .font(.caption).foregroundStyle(Theme.secondaryText)
                 }
                 SectionLabel("Add effect")
                 Chips(options: VideoEffect.categories.map { ($0, $0) }, selection: $category)
@@ -561,6 +631,8 @@ private struct AdjustPanel: View {
                 row("Shadows", \.shadows, -1...1, 0)
                 row("Sharpen", \.sharpness, 0...1, 0)
                 row("Vignette", \.vignette, 0...1, 0)
+                SectionLabel("Color range")
+                Chips(options: ColorRangeMode.allCases.map { ($0, $0.label) }, selection: model.mediaBinding(\.colorRange, fallback: .auto))
                 SectionLabel("Color wheels")
                 wheel("Shadows", \.wheels.shadows)
                 wheel("Midtones", \.wheels.midtones)
@@ -569,7 +641,7 @@ private struct AdjustPanel: View {
                     model.editMedia { c in
                         c.brightness = 0; c.contrast = 1; c.saturation = 1; c.exposure = 0; c.temperature = 0
                         c.tint = 0; c.highlights = 1; c.shadows = 0; c.sharpness = 0; c.vignette = 0
-                        c.wheels = ColorWheels()
+                        c.wheels = ColorWheels(); c.colorRange = .auto
                     }
                 }
                 .font(.caption.weight(.bold)).buttonStyle(.plain).foregroundStyle(Theme.accent)
@@ -761,6 +833,11 @@ private struct CanvasPanel: View {
                 Button("Fit all clips") { model.edit { p in for i in p.clips.indices { p.clips[i].fill = false } } }
             }
             .font(.caption.weight(.bold)).buttonStyle(.bordered)
+            SectionLabel("Tracks")
+            trackRow("Video", "film", hidden: \.mainHidden, muted: \.mainMuted, locked: \.mainLocked)
+            trackRow("Overlays", "square.on.square", hidden: \.overlaysHidden, muted: \.overlaysMuted, locked: \.overlaysLocked)
+            trackRow("Text", "textformat", hidden: \.textHidden, muted: nil, locked: \.textLocked)
+            trackRow("Audio", "music.note", hidden: nil, muted: \.audioMuted, locked: \.audioLocked)
             Toggle("Ripple delete: titles, overlays and sounds after a deleted clip move back with it",
                    isOn: $ripple)
                 .font(.caption)
@@ -771,5 +848,29 @@ private struct CanvasPanel: View {
                 .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 10))
         }
         .onAppear { name = model.project.name }
+    }
+
+    /// One track's hide, mute and lock switches.
+    private func trackRow(_ title: String, _ icon: String, hidden: WritableKeyPath<TrackFlags, Bool>?,
+                          muted: WritableKeyPath<TrackFlags, Bool>?, locked: WritableKeyPath<TrackFlags, Bool>) -> some View {
+        let flags = model.project.tracks
+        func toggle(_ key: WritableKeyPath<TrackFlags, Bool>, on: String, off: String, _ label: String) -> some View {
+            Button { model.setTracks { $0[keyPath: key].toggle() } } label: {
+                Image(systemName: flags[keyPath: key] ? on : off)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 36, height: 32)
+                    .background(flags[keyPath: key] ? Theme.accent.opacity(0.25) : Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 8))
+                    .foregroundStyle(flags[keyPath: key] ? Theme.accent : .white)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+        }
+        return HStack(spacing: 8) {
+            Label(title, systemImage: icon).font(.subheadline)
+            Spacer()
+            if let hidden { toggle(hidden, on: "eye.slash.fill", off: "eye", "Hide \(title)") }
+            if let muted { toggle(muted, on: "speaker.slash.fill", off: "speaker.wave.2", "Mute \(title)") }
+            toggle(locked, on: "lock.fill", off: "lock.open", "Lock \(title)")
+        }
     }
 }

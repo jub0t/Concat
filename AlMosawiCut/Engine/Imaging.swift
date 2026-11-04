@@ -23,6 +23,17 @@ enum Imaging {
     private static func adjust(_ image: CIImage, clip: Clip) -> CIImage {
         var x = image
         let extent = image.extent
+        if clip.colorRange != .auto {
+            // Video levels run 16-235; re-read them as full range or squeeze full range into them.
+            let f = CIFilter.colorMatrix()
+            f.inputImage = x
+            let (gain, bias): (CGFloat, CGFloat) = clip.colorRange == .limited ? (255.0 / 219.0, -16.0 / 219.0) : (219.0 / 255.0, 16.0 / 255.0)
+            f.rVector = CIVector(x: gain, y: 0, z: 0, w: 0)
+            f.gVector = CIVector(x: 0, y: gain, z: 0, w: 0)
+            f.bVector = CIVector(x: 0, y: 0, z: gain, w: 0)
+            f.biasVector = CIVector(x: bias, y: bias, z: bias, w: 0)
+            x = f.outputImage ?? x
+        }
         if clip.exposure != 0 {
             let f = CIFilter.exposureAdjust(); f.inputImage = x; f.ev = Float(clip.exposure * 2); x = f.outputImage ?? x
         }
@@ -125,7 +136,7 @@ enum Imaging {
 
     static func apply(_ effect: AppliedEffect, to image: CIImage, time: Double) -> CIImage {
         let extent = image.extent
-        let a = effect.amount
+        let a = effect.amount(at: time)
         let bi = (a - 0.5) * 2
         let center = CIVector(x: extent.midX, y: extent.midY)
         let short = min(extent.width, extent.height)

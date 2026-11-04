@@ -243,11 +243,13 @@ enum Captioner {
         func flush() {
             guard let first = chunk.first, let last = chunk.last else { return }
             let end = last.start + Swift.max(last.duration, 0.25)
-            out.append(TextOverlay(
+            var caption = TextOverlay(
                 text: chunk.map(\.text).joined(separator: " "),
                 start: first.start, duration: Swift.max(0.3, end - first.start),
                 color: .white, accent: .black, size: 0.075, bold: true, style: .outline,
-                x: 0.5, y: 0.72, isCaption: true))
+                x: 0.5, y: 0.72, isCaption: true)
+            caption.wordStarts = chunk.map { Swift.max(0, $0.start - first.start) }
+            out.append(caption)
             chunk.removeAll()
         }
         for word in words {
@@ -280,6 +282,7 @@ enum Captioner {
     /// effects are dropped so the words are clear.
     private static func exportVoice(of project: Project) async throws -> URL {
         var voice = project
+        voice.tracks = TrackFlags()  // mute is for playback; captions still hear the speech
         for i in voice.clips.indices { voice.clips[i].audioEffect = .none }
         for i in voice.overlays.indices { voice.overlays[i].clip.audioEffect = .none }
         voice.audios = voice.audios
