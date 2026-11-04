@@ -42,18 +42,20 @@ fresh implementation of the same ideas for iPhone and iPad.
 
 | Concat | AlMosawiCut (iOS) |
 | --- | --- |
-| Auto-captions with local Whisper | Yes: Whisper on the iPhone via WhisperKit, or Apple speech |
-| Text to speech, voice cloning | Device voices and your Personal Voice; no cloning model |
-| Background removal: people, objects | Yes (Vision). Painting the mask by hand: not yet |
-| Keyframes, curve editor | Transform and volume keyframes with per-keyframe curves; effect parameters are not keyframed |
+| Auto-captions with local Whisper | Yes: Whisper on the iPhone via WhisperKit, or Apple speech; `.srt` in and out |
+| Text to speech, voice cloning | Device voices and your Personal Voice (iOS's own voice cloning) |
+| Background removal, painted masks | Yes: people or any subject, keys, and a Keep/Erase brush |
+| Keyframes, curve editor | Transform, volume and effect strength, each keyframe with its own curve |
 | ~100 effects, filters, transitions | Same catalogue: 56 looks, 32 effects, 25 transitions, 22 voice effects, colour wheels |
-| Split, trim, ripple, merge, freeze, speed | Yes, merge excepted |
-| Multi-track overlays, blend modes, crop, flips | Yes |
-| Several timelines in one project | Not yet: one timeline per project |
-| Titles: fonts, stroke, shadow, plate, presets | Yes, Concat's presets and fonts, plus your own fonts |
+| Split, trim, ripple, merge, freeze, speed | Yes, with preset and hand-drawn speed curves |
+| Multi-track, blend modes, crop, flips, track mute/hide/lock | Yes |
+| Several timelines in one project | Yes |
+| Titles: fonts, stroke, shadow, plate, presets, styled words | Yes: Concat's presets and fonts, your own fonts, per-word colour, karaoke captions |
 | Voice cleanup and voice effects | Yes, plus pitch |
-| Stabilise, AI upscale | Not yet |
-| Export H.264, HEVC, AV1, 4K60, 10-bit | H.264 and HEVC up to 4K60 (8-bit); iPhones have no AV1 encoder |
+| Stabilise, enhance | Yes (Vision shake analysis; denoise and sharpen, not an AI upscaler) |
+| Templates with slots | Yes |
+| Export H.264, HEVC, AV1, 4K60, 10-bit | H.264 and HEVC up to 4K60, 10-bit HDR (HLG); iPhones have no AV1 encoder |
+| 26 interface languages | English and Arabic so far |
 | MCP server, JSON-RPC | Not applicable on iPhone |
 
 ## Build

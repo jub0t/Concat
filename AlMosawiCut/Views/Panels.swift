@@ -50,7 +50,7 @@ struct LabeledSlider: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(title).font(.caption.weight(.medium)).foregroundStyle(Theme.secondaryText)
+                Text(LocalizedStringKey(title)).font(.caption.weight(.medium)).foregroundStyle(Theme.secondaryText)
                 Spacer()
                 Text(format(value)).font(.caption.monospacedDigit().weight(.semibold))
                 if let reset, abs(value - reset) > 0.0001 {
@@ -76,7 +76,7 @@ struct Chips<T: Hashable>: View {
                 ForEach(options, id: \.0) { option in
                     let on = option.0 == selection
                     Button { selection = option.0 } label: {
-                        Text(option.1)
+                        Text(LocalizedStringKey(option.1))
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 12).frame(height: 30)
                             .background(on ? Theme.accent : Theme.surfaceHigh, in: Capsule())
@@ -103,7 +103,7 @@ struct GridPick: View {
                     .frame(width: 54, height: 46)
                     .background(selected ? Theme.accent.opacity(0.22) : Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Theme.accent : .clear, lineWidth: 2))
-                Text(label)
+                Text(LocalizedStringKey(label))
                     .font(.system(size: 10, weight: .medium))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -120,7 +120,7 @@ struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        Text(text.uppercased()).font(.system(size: 10.5, weight: .bold)).foregroundStyle(Theme.secondaryText)
+        Text(LocalizedStringKey(text)).textCase(.uppercase).font(.system(size: 10.5, weight: .bold)).foregroundStyle(Theme.secondaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -128,7 +128,7 @@ struct SectionLabel: View {
 struct NeedsSelection: View {
     let text: String
     var body: some View {
-        Text(text).font(.subheadline).foregroundStyle(Theme.secondaryText).frame(maxWidth: .infinity).padding(.top, 20)
+        Text(LocalizedStringKey(text)).font(.subheadline).foregroundStyle(Theme.secondaryText).frame(maxWidth: .infinity).padding(.top, 20)
     }
 }
 
@@ -535,7 +535,7 @@ private struct FilterPanel: View {
                     .frame(width: 62, height: 62)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Theme.accent : .clear, lineWidth: 2.5))
-                Text(name).font(.system(size: 10, weight: .medium)).lineLimit(1).frame(width: 66)
+                Text(LocalizedStringKey(name)).font(.system(size: 10, weight: .medium)).lineLimit(1).frame(width: 66)
                     .foregroundStyle(selected ? Theme.accent : .white)
             }
         }

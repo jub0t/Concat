@@ -327,7 +327,7 @@ struct TextTemplatesPanel: View {
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .background(t.style == .box ? Color(uiColor: t.accent.uiColor) : .clear, in: RoundedRectangle(cornerRadius: 6))
                             .lineLimit(1)
-                        Text(name).font(.system(size: 10)).foregroundStyle(Theme.secondaryText)
+                        Text(LocalizedStringKey(name)).font(.system(size: 10)).foregroundStyle(Theme.secondaryText)
                     }
                     .frame(maxWidth: .infinity, minHeight: 74)
                     .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 12))

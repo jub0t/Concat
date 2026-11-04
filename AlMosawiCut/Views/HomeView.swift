@@ -141,7 +141,7 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 ForEach(HomeTool.allCases) { tool in
                     Button { pick(tool) } label: {
-                        Label(tool.title, systemImage: tool.icon)
+                        Label(LocalizedStringKey(tool.title), systemImage: tool.icon)
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 12).frame(height: 32)
                             .background(Theme.surface, in: Capsule())

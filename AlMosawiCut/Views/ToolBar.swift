@@ -171,7 +171,7 @@ struct Tool: View {
                 Image(systemName: icon)
                     .font(.system(size: 19, weight: .medium))
                     .frame(height: 24)
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 10.5, weight: .medium))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)

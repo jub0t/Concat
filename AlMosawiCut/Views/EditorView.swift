@@ -61,12 +61,14 @@ struct EditorView: View {
                 topBar.frame(height: topH)
                 PreviewArea(model: model, size: CGSize(width: geo.size.width - 24, height: previewH - 12))
                     .frame(width: geo.size.width, height: previewH)
+                    .environment(\.layoutDirection, .leftToRight)
                 transport.frame(height: transportH)
                 TimelineView(model: model,
                              onAddMedia: { picker = .mainTrack },
                              onTransition: { index in model.selection = nil; open(.transition(index)) },
                              onAddAudio: { menu = .audio })
                     .frame(height: timelineH)
+                    .environment(\.layoutDirection, .leftToRight)
                 bottomArea
                     .frame(height: bottomH)
                     .animation(.snappy(duration: 0.22), value: panel)
@@ -110,12 +112,12 @@ struct EditorView: View {
         .sheet(isPresented: $showExport) { ExportSheet(project: model.project) }
         .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") {}
-        } message: { Text(model.errorMessage ?? "") }
+        } message: { Text(LocalizedStringKey(model.errorMessage ?? "")) }
         .overlay {
             if importing || model.busyMessage != nil {
                 VStack(spacing: 12) {
                     ProgressView().controlSize(.large)
-                    Text(model.busyMessage ?? "Importing…").font(.subheadline.weight(.medium))
+                    Text(LocalizedStringKey(model.busyMessage ?? "Importing…")).font(.subheadline.weight(.medium))
                 }
                 .padding(28)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
@@ -253,7 +255,7 @@ struct EditorView: View {
         if let panel {
             VStack(spacing: 0) {
                 HStack {
-                    Text(title(for: panel)).font(.subheadline.weight(.bold))
+                    Text(LocalizedStringKey(title(for: panel))).font(.subheadline.weight(.bold))
                     Spacer()
                     Button {
                         withAnimation(.snappy(duration: 0.22)) { self.panel = nil }

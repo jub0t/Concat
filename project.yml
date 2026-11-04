@@ -18,8 +18,12 @@ targets:
     platform: iOS
     sources:
       - path: AlMosawiCut
-        excludes: [Fonts]
+        excludes: [Fonts, ar.lproj, en.lproj]
       - path: AlMosawiCut/Fonts
+        type: folder
+      - path: AlMosawiCut/ar.lproj
+        type: folder
+      - path: AlMosawiCut/en.lproj
         type: folder
     dependencies:
       - package: WhisperKit
