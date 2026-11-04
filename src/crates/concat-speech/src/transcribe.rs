@@ -645,16 +645,16 @@ impl Recipe {
     };
 }
 
-/// Greedy decoding, not beam search. Beam search five wide - whisper's
-/// default for it, and what OpenAI's figures were taken with - was
-/// measured against greedy on an Indonesian reel (the measurement in the
-/// tests, FLEURS read speech among music and silence, base and small, on
-/// the Mac's GPU and its CPU): it took 1.2 to 1.9 times as long, its word
-/// error rate came out a point either side of greedy's, and in three runs
-/// of eight it left a whole sentence out, which greedy never did. Greedy
-/// with whisper's fallback reads an unsure window again at higher
-/// temperatures, five candidates at a time (`best_of`), which is where
-/// beam search's care pays off, and only where it is needed.
+// Greedy decoding, not beam search. Beam search five wide - whisper's
+// default for it, and what OpenAI's figures were taken with - was
+// measured against greedy on an Indonesian reel (the measurement in the
+// tests, FLEURS read speech among music and silence, base and small, on
+// the Mac's GPU and its CPU): it took 1.2 to 1.9 times as long, its word
+// error rate came out a point either side of greedy's, and in three runs
+// of eight it left a whole sentence out, which greedy never did. Greedy
+// with whisper's fallback reads an unsure window again at higher
+// temperatures, five candidates at a time (`best_of`), which is where
+// beam search's care pays off, and only where it is needed.
 
 /// The transcriber: the one transcription and the one model download that
 /// can run at a time, and the model kept loaded between runs.
