@@ -2265,24 +2265,54 @@ mod tests {
         assert!(failed.is_err());
     }
 
-    /// A constant-bitrate export opens with each encoder the machine has for
-    /// H.264 and HEVC and comes out near the rate asked for. Noise, so the
-    /// content costs more than the target and the encoder has to hold it
-    /// rather than coast under.
+    /// Paints the rate tests' picture: a texture of 16-pixel blocks panning
+    /// three pixels a frame under fresh grain of +/-8, so the encoder has
+    /// motion to predict and detail it cannot, as in footage.
     ///
-    /// The target is above what noise this size costs at an encoder's
-    /// coarsest quantiser. Below it the file is that floor whatever was
-    /// asked: 3 to 6 Mb/s from Media Foundation's H.264 and OpenH264 at
-    /// 320x176, measured with the vendored FFmpeg, where x264 could still
-    /// reach 2. Kvazaar's control wants the headroom too - 29% over at
-    /// 10 Mb/s in two seconds, 14% at 12.
+    /// Not noise in every byte. At 320x176 that costs near the raw rate,
+    /// about 20 Mb/s, at any quantiser, so no target measured the rate
+    /// control: below 6 Mb/s Media Foundation and OpenH264 sat on noise's
+    /// floor, and Kvazaar starts from its estimate for ordinary pictures
+    /// and takes three or four seconds to come down from it (17, 15, 13,
+    /// then 12 Mb/s a second asked for 12). On this picture at 1 Mb/s, in
+    /// two seconds, Kvazaar comes out at 91%, OpenH264 at 100% and Media
+    /// Foundation's H.264 at 103% in CBR, 83% in its VBR - measured with
+    /// the vendored FFmpeg, as each is configured here.
+    fn paint_footage(frame: &mut Frame, index: u32, grain: &mut u64) {
+        fn mix(mut z: u64) -> u64 {
+            z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+        let width = frame.width() as usize;
+        let pan = index as usize * 3;
+        for (i, pixel) in frame.pixels_mut().chunks_exact_mut(4).enumerate() {
+            let (x, y) = (i % width + pan, i / width);
+            let colour = mix((((x / 16) as u64) << 32) | (y / 16) as u64);
+            *grain ^= *grain << 13;
+            *grain ^= *grain >> 7;
+            *grain ^= *grain << 17;
+            for (k, channel) in pixel[..3].iter_mut().enumerate() {
+                let base = i32::from((colour >> (8 * k)) as u8);
+                let jitter = i32::from((*grain >> (8 * k)) as u8) % 17 - 8;
+                *channel = (base + jitter).clamp(0, 255) as u8;
+            }
+            pixel[3] = 255;
+        }
+    }
+
+    /// A constant-bitrate export opens with each encoder the machine has for
+    /// H.264 and HEVC and comes out near the rate asked for, on a picture
+    /// that costs more than the target, so the encoder has to hold it
+    /// rather than coast under. See `paint_footage` for why that picture.
     #[test]
     fn a_cbr_export_opens_and_holds_its_rate() {
         let dir =
             std::env::temp_dir().join(format!("concat-media-cbr-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
-        const KBPS: u32 = 12_000;
+        const KBPS: u32 = 1_000;
         const FRAMES: u32 = 60;
         for codec in [VideoCodec::H264, VideoCodec::Hevc] {
             if !codec.encodable() {
@@ -2304,14 +2334,9 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{codec:?} CBR opens: {error}"));
             let name = encoder.encoder_name().to_owned();
             let mut frame = Frame::black(320, 176);
-            let mut state = 0x2545_F491_4F6C_DD1D_u64;
-            for _ in 0..FRAMES {
-                for byte in frame.pixels_mut() {
-                    state ^= state << 13;
-                    state ^= state >> 7;
-                    state ^= state << 17;
-                    *byte = state as u8;
-                }
+            let mut grain = 0x2545_F491_4F6C_DD1D_u64;
+            for index in 0..FRAMES {
+                paint_footage(&mut frame, index, &mut grain);
                 encoder.write_frame(&frame).expect("writes");
             }
             encoder.finish().expect("finishes");
@@ -2329,14 +2354,14 @@ mod tests {
     /// An average-bitrate export, the export sheet's: busy pictures come
     /// out near the target, so the size the sheet promised is the size
     /// written, and calm ones well under it, not padded up to it as CBR
-    /// pads. The target is above noise's floor, as the CBR test's is.
+    /// pads. Busy is the CBR test's picture (see `paint_footage`).
     #[test]
     fn an_average_export_keeps_near_its_target_and_does_not_pad() {
         let dir =
             std::env::temp_dir().join(format!("concat-media-abr-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
-        const KBPS: u32 = 12_000;
+        const KBPS: u32 = 1_000;
         const FRAMES: u32 = 60;
         let seconds = f64::from(FRAMES) / 30.0;
         for codec in [VideoCodec::H264, VideoCodec::Hevc] {
@@ -2354,15 +2379,10 @@ mod tests {
                     .unwrap_or_else(|error| panic!("{codec:?} average opens: {error}"));
                 let name = encoder.encoder_name().to_owned();
                 let mut frame = Frame::black(320, 176);
-                let mut state = 0x2545_F491_4F6C_DD1D_u64;
-                for _ in 0..FRAMES {
+                let mut grain = 0x2545_F491_4F6C_DD1D_u64;
+                for index in 0..FRAMES {
                     if noisy {
-                        for byte in frame.pixels_mut() {
-                            state ^= state << 13;
-                            state ^= state >> 7;
-                            state ^= state << 17;
-                            *byte = state as u8;
-                        }
+                        paint_footage(&mut frame, index, &mut grain);
                     }
                     encoder.write_frame(&frame).expect("writes");
                 }
@@ -2375,7 +2395,7 @@ mod tests {
             let (busy, name) = rate_of(true);
             assert!(
                 (f64::from(KBPS) * 0.6..=f64::from(KBPS) * 1.6).contains(&busy),
-                "{codec:?} averaging {KBPS} kb/s came out at {busy:.0} kb/s on noise, on {name}"
+                "{codec:?} averaging {KBPS} kb/s came out at {busy:.0} kb/s on footage, on {name}"
             );
             let (calm, name) = rate_of(false);
             assert!(

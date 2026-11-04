@@ -2606,10 +2606,12 @@ mod tests {
         let (editor, _, _) = fixture();
         let current = editor.to_document(&settings());
         assert_eq!(crate::document_version(&current), crate::DOCUMENT_VERSION);
-        assert!(
-            crate::DOCUMENT_VERSION >= 2,
-            "0.2.8 reads version 1, and must refuse what it would lose"
-        );
+        const {
+            assert!(
+                crate::DOCUMENT_VERSION >= 2,
+                "0.2.8 reads version 1, and must refuse what it would lose"
+            );
+        }
         let mut old = current.clone();
         old["version"] = serde_json::json!(1);
         let loaded = Editor::from_document(&old).expect("a version 1 document opens");
