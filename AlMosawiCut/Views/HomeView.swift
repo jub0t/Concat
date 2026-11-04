@@ -61,6 +61,7 @@ struct HomeView: View {
             .task {
                 // `-open` jumps straight into the newest project when launching from Xcode.
                 if ProcessInfo.processInfo.arguments.contains("-open") { openRequest = store.projects.first.map { OpenRequest(project: $0) } }
+                if ProcessInfo.processInfo.arguments.contains("-selftest") { await SelfTest.run(store: store) }
             }
             #endif
             .fullScreenCover(item: $openRequest, onDismiss: { store.reload() }) { request in

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1F0C0DE0000000000000040 /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000041 /* SelfTest.swift */; };
 		A1F0C0DE0000000000000033 /* en.lproj in Resources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000032 /* en.lproj */; };
 		A1F0C0DE0000000000000031 /* ar.lproj in Resources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000030 /* ar.lproj */; };
 		A1F0C0DE0000000000000005 /* WhisperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000006 /* WhisperEngine.swift */; };
@@ -41,6 +42,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A1F0C0DE0000000000000041 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
 		A1F0C0DE0000000000000032 /* en.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = en.lproj; sourceTree = "<group>"; };
 		A1F0C0DE0000000000000030 /* ar.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ar.lproj; sourceTree = "<group>"; };
 		A1F0C0DE0000000000000006 /* WhisperEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperEngine.swift; sourceTree = "<group>"; };
@@ -105,6 +107,7 @@
 			isa = PBXGroup;
 			children = (
 				6816FF20CD65FB572583CEAE /* AlMosawiCutApp.swift */,
+				A1F0C0DE0000000000000041 /* SelfTest.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -252,6 +255,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1C367A94BD3F914861C9E67B /* AlMosawiCutApp.swift in Sources */,
+				A1F0C0DE0000000000000040 /* SelfTest.swift in Sources */,
 				AA17814D2CB40EBB647879B4 /* Audio.swift in Sources */,
 				99068B488F6BF7FF5F708876 /* AudioPanels.swift in Sources */,
 				5210BA18C594C0878D9302A5 /* Captioner.swift in Sources */,

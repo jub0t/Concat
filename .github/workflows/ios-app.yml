@@ -68,6 +68,7 @@ jobs:
           DEVICE=$(xcrun simctl list devices available -j \
             | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,l in d.items() if "iOS" in r for x in l if x["name"].startswith("iPhone")))')
           echo "Simulator: $DEVICE"
+          echo "DEVICE=$DEVICE" >> "$GITHUB_ENV"
           xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl install "$DEVICE" build/Debug-iphonesimulator/AlMosawiCut.app
@@ -103,6 +104,50 @@ jobs:
             exit 1
           fi
 
+      - name: Self-test the features in the Simulator
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" || true
+          DATA=$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)
+          PID=$(uuidgen)
+          MEDIA="$DATA/Documents/Projects/$PID/media"
+          mkdir -p "$MEDIA"
+          # A shaky picture (a crop that wobbles) with a real spoken sentence for Whisper to hear.
+          say -o speech.aiff "This is a test of automatic captions in the editor. The captions come straight from the video."
+          ffmpeg -loglevel error -f lavfi -i "testsrc2=size=1280x800:rate=30" -i speech.aiff \
+            -filter_complex "[0:v]crop=1080:720:x='100+60*sin(n*1.3)':y='40+30*cos(n*1.9)',format=yuv420p[v]" \
+            -map "[v]" -map 1:a -c:v libx264 -c:a aac -shortest "$MEDIA/speech.mp4"
+          DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$MEDIA/speech.mp4")
+          echo "Test clip: $DUR s"
+          cat > "$DATA/Documents/Projects/$PID/project.json" <<EOF
+          {"id":"$PID","name":"CI self test","aspect":"16:9","clips":[{"file":"speech.mp4","sourceDuration":$DUR,"trimEnd":$DUR}]}
+          EOF
+          RESULT="$DATA/Documents/selftest.json"
+          rm -f "$RESULT"
+          xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -selftest
+          for i in $(seq 1 130); do
+            if [ -f "$RESULT" ] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("_done")=="yes" else 1)' "$RESULT"; then break; fi
+            sleep 10
+          done
+          xcrun simctl io "$DEVICE" screenshot selftest.png || true
+          cp "$RESULT" selftest.json 2>/dev/null || echo '{"_done":"no","app":"FAILED: no results written (crashed or timed out)"}' > selftest.json
+          cat selftest.json
+          python3 - <<'PY'
+          import json, sys
+          r = json.load(open("selftest.json"))
+          bad = {k: v for k, v in r.items() if k != "_done" and v != "ok"}
+          if r.get("_done") != "yes":
+              bad["_done"] = "the self-test didn't finish"
+          for k, v in sorted(r.items()):
+              if k != "_done":
+                  print(("PASS " if v == "ok" else "FAIL ") + k + ("" if v == "ok" else ": " + v))
+          if bad:
+              for k, v in bad.items():
+                  print(f"::error::{k}: {v}")
+              sys.exit(1)
+          PY
+
       - name: Upload screenshots and app
         if: always()
         uses: actions/upload-artifact@v4
@@ -111,6 +156,8 @@ jobs:
           path: |
             home.png
             editor.png
+            selftest.png
+            selftest.json
             build-sim.log
             build-device.log
             build/Debug-iphonesimulator/AlMosawiCut.app
