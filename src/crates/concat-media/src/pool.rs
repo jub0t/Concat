@@ -2228,11 +2228,15 @@ pub(crate) mod tests {
             frame_of(&first.frame)
         );
 
+        // Media Foundation's H.264, Windows' encoder, lets this fixture's
+        // slow fade lag by up to two frames - its frame 15 decodes red 26,
+        // with FFmpeg's own decoder too - so the frame is allowed to read
+        // a little early, as long as it is past the keyframe.
         let exact = pool.frame(&at(target)).expect("decodes");
+        let read = frame_of(&exact);
         assert!(
-            (target - 1..=target + 1).contains(&frame_of(&exact)),
-            "the frame itself, not the keyframe: {}",
-            frame_of(&exact)
+            (target - 3..=target + 1).contains(&read) && read > before + 1,
+            "the frame itself, {target}, not keyframe {before}: {read}"
         );
 
         let again = pool.frame_nearest(&at(target)).expect("cached");

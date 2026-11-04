@@ -2269,13 +2269,20 @@ mod tests {
     /// H.264 and HEVC and comes out near the rate asked for. Noise, so the
     /// content costs more than the target and the encoder has to hold it
     /// rather than coast under.
+    ///
+    /// The target is above what noise this size costs at an encoder's
+    /// coarsest quantiser. Below it the file is that floor whatever was
+    /// asked: 3 to 6 Mb/s from Media Foundation's H.264 and OpenH264 at
+    /// 320x176, measured with the vendored FFmpeg, where x264 could still
+    /// reach 2. Kvazaar's control wants the headroom too - 29% over at
+    /// 10 Mb/s in two seconds, 14% at 12.
     #[test]
     fn a_cbr_export_opens_and_holds_its_rate() {
         let dir =
             std::env::temp_dir().join(format!("concat-media-cbr-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
-        const KBPS: u32 = 2_000;
+        const KBPS: u32 = 12_000;
         const FRAMES: u32 = 60;
         for codec in [VideoCodec::H264, VideoCodec::Hevc] {
             if !codec.encodable() {
@@ -2322,14 +2329,14 @@ mod tests {
     /// An average-bitrate export, the export sheet's: busy pictures come
     /// out near the target, so the size the sheet promised is the size
     /// written, and calm ones well under it, not padded up to it as CBR
-    /// pads.
+    /// pads. The target is above noise's floor, as the CBR test's is.
     #[test]
     fn an_average_export_keeps_near_its_target_and_does_not_pad() {
         let dir =
             std::env::temp_dir().join(format!("concat-media-abr-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
-        const KBPS: u32 = 2_000;
+        const KBPS: u32 = 12_000;
         const FRAMES: u32 = 60;
         let seconds = f64::from(FRAMES) / 30.0;
         for codec in [VideoCodec::H264, VideoCodec::Hevc] {

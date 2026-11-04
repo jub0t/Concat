@@ -411,8 +411,9 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// What the tests of this crate share.
-#[cfg(test)]
+/// What the tests of this crate share: the CoreML probe in `enhance`,
+/// which is built for Apple with inference alone, so this is too.
+#[cfg(all(test, feature = "infer", target_vendor = "apple"))]
 pub(crate) mod tests_support {
     pub(crate) use super::tests::fetched_model;
 }
