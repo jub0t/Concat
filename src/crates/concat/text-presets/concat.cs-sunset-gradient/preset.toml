@@ -1,0 +1,25 @@
+id = "concat.cs-sunset-gradient"
+name = "Sunset"
+language = "Captions"
+order = 357
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.08
+color = "#ffb347"
+strokeWidth = 0.012
+strokeColor = "#5a1a00"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Modern"
+motion = "scale"
+seconds = 0.3
+intensity = 1.0
+active = "#ff5e62"

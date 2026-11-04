@@ -1,0 +1,24 @@
+id = "concat.cs-youtube-classic"
+name = "YouTube Classic"
+language = "Captions"
+order = 306
+sample = "Aa"
+offsetY = 0.35
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 600
+fontSize = 0.05
+color = "#ffff66"
+background = "#000000b3"
+backgroundRadius = 0.006
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Social"
+motion = "none"
+seconds = 0.3
+intensity = 1.0

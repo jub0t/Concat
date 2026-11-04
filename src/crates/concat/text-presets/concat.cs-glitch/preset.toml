@@ -1,0 +1,25 @@
+id = "concat.cs-glitch"
+name = "Glitch"
+language = "Captions"
+order = 356
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.08
+color = "#ffffff"
+strokeWidth = 0.01
+strokeColor = "#ff0055"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Modern"
+motion = "glitch"
+seconds = 0.4
+intensity = 1.3
+active = "#00e5ff"

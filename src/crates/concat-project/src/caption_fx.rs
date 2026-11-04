@@ -72,6 +72,66 @@ pub enum Effect {
         /// The starting size, as a fraction of its own (0.6 is 60 %).
         from: f64,
     },
+    /// Drops in large, falls past its size and bounces back, settling.
+    Bounce {
+        /// Seconds the move takes.
+        seconds: f64,
+        /// How hard it bounces: 1 is the usual, 0.5 gentle, 2 wild.
+        intensity: f64,
+    },
+    /// Springs in and rings about its size, each swing smaller.
+    Elastic {
+        /// Seconds the move takes.
+        seconds: f64,
+        /// How far it swings: 1 is the usual.
+        intensity: f64,
+    },
+    /// A few quick sideways jumps and a jolt of size, then still: a signal
+    /// glitching in.
+    Glitch {
+        /// Seconds the burst takes.
+        seconds: f64,
+        /// How far it jumps: 1 is the usual.
+        intensity: f64,
+    },
+}
+
+impl Effect {
+    /// The motion a preset names, with its time and strength: "none",
+    /// "fade", "pop", "slide" (or "slide-left", "slide-right", "slide-up",
+    /// "slide-down"; plain "slide" comes from below), "scale", "bounce",
+    /// "elastic" or "glitch". Anything else is no motion.
+    pub fn named(name: &str, seconds: f64, intensity: f64) -> Effect {
+        let seconds = seconds.clamp(0.05, 3.0);
+        let intensity = intensity.clamp(0.1, 3.0);
+        let slide = |from| Effect::Slide {
+            seconds,
+            from,
+            distance: 0.06 * intensity,
+        };
+        match name.trim().to_ascii_lowercase().as_str() {
+            "fade" => Effect::Fade {
+                fade_in: seconds,
+                fade_out: seconds,
+            },
+            "pop" => Effect::Pop {
+                seconds,
+                overshoot: 0.1 * intensity,
+            },
+            "slide" | "slide-up" => slide(Direction::Down),
+            "slide-down" => slide(Direction::Up),
+            "slide-left" => slide(Direction::Right),
+            "slide-right" => slide(Direction::Left),
+            "scale" => Effect::Scale {
+                seconds,
+                from: (1.0 - 0.3 * intensity).clamp(0.1, 1.0),
+            },
+            "bounce" => Effect::Bounce { seconds, intensity },
+            "elastic" => Effect::Elastic { seconds, intensity },
+            "glitch" => Effect::Glitch { seconds, intensity },
+            _ => Effect::None,
+        }
+    }
 }
 
 /// The properties this module keys. Anything it puts on a clip is on these
@@ -159,6 +219,73 @@ pub fn commands(clip: &Clip, effect: &Effect) -> Vec<Command> {
                 key(KeyProperty::Opacity, end * 0.7, opacity, KeyEase::LINEAR);
             }
         }
+        Effect::Bounce { seconds, intensity } => {
+            let end = share(seconds);
+            if end > 0.0 {
+                let k = intensity.clamp(0.1, 3.0);
+                // Large, then under its size, then over by less, then home.
+                let steps = [
+                    (0.0, 1.0 + 0.35 * k),
+                    (0.35, 1.0 - 0.18 * k),
+                    (0.6, 1.0 + 0.08 * k),
+                    (0.8, 1.0 - 0.03 * k),
+                    (1.0, 1.0),
+                ];
+                for (at, factor) in steps {
+                    key(KeyProperty::Scale, end * at, size * factor, KeyEase::IN_OUT);
+                }
+                key(KeyProperty::Opacity, 0.0, 0.0, KeyEase::LINEAR);
+                key(KeyProperty::Opacity, end * 0.25, opacity, KeyEase::LINEAR);
+            }
+        }
+        Effect::Elastic { seconds, intensity } => {
+            let end = share(seconds);
+            if end > 0.0 {
+                let k = intensity.clamp(0.1, 3.0);
+                let steps = [
+                    (0.0, 0.5),
+                    (0.3, 1.0 + 0.25 * k),
+                    (0.5, 1.0 - 0.12 * k),
+                    (0.7, 1.0 + 0.06 * k),
+                    (0.85, 1.0 - 0.02 * k),
+                    (1.0, 1.0),
+                ];
+                for (at, factor) in steps {
+                    key(KeyProperty::Scale, end * at, size * factor, KeyEase::OUT);
+                }
+                key(KeyProperty::Opacity, 0.0, 0.0, KeyEase::LINEAR);
+                key(KeyProperty::Opacity, end * 0.2, opacity, KeyEase::LINEAR);
+            }
+        }
+        Effect::Glitch { seconds, intensity } => {
+            let end = share(seconds);
+            if end > 0.0 {
+                let d = 0.02 * intensity.clamp(0.1, 3.0);
+                // Jumps, never glides: a straight line between near keys
+                // is a jump at this speed.
+                let steps = [
+                    (0.0, -d),
+                    (0.2, d * 1.5),
+                    (0.4, -d * 0.5),
+                    (0.6, d),
+                    (0.8, -d * 0.25),
+                    (1.0, 0.0),
+                ];
+                for (at, shift) in steps {
+                    key(
+                        KeyProperty::OffsetX,
+                        end * at,
+                        clip.offset_x + shift,
+                        KeyEase::LINEAR,
+                    );
+                }
+                key(KeyProperty::Scale, 0.0, size * 1.08, KeyEase::LINEAR);
+                key(KeyProperty::Scale, end * 0.5, size * 0.97, KeyEase::LINEAR);
+                key(KeyProperty::Scale, end, size, KeyEase::LINEAR);
+                key(KeyProperty::Opacity, 0.0, 0.0, KeyEase::LINEAR);
+                key(KeyProperty::Opacity, end * 0.1, opacity, KeyEase::LINEAR);
+            }
+        }
         Effect::Scale { seconds, from } => {
             let end = share(seconds);
             if end > 0.0 {
@@ -214,27 +341,39 @@ pub const HIGHLIGHT_NAME: &str = "caption-highlight";
 /// A word's box on the title's canvas: `(x, y, width, height)` in pixels.
 pub type WordBox = (i32, i32, u32, u32);
 
-/// The layout lists words line by line and left to right within a line.
-/// Spoken order is the same for left-to-right writing and runs right to
-/// left within each line for Persian, Arabic and Hebrew.
+/// Whether a text is written right to left: its first letter decides, as
+/// in the paragraph direction rule, so a Persian sentence with an English
+/// word in it is right to left and an English one with a Persian word in
+/// it is not.
+pub fn is_rtl(text: &str) -> bool {
+    text.chars()
+        .find(|c| c.is_alphabetic())
+        .is_some_and(|c| matches!(c, '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}'))
+}
+
+/// The words' boxes in the order they are spoken. The layout's own order is
+/// not relied on, only where the boxes are: lines top to bottom, and within
+/// a line left to right for left-to-right writing, right to left for
+/// Persian, Arabic and Hebrew. A word of the other script inside a line sits
+/// where the shaper put it, so for a mixed line the order is the visual one.
 pub fn spoken_order(boxes: &[WordBox], rtl: bool) -> Vec<WordBox> {
-    let mut out: Vec<WordBox> = Vec::with_capacity(boxes.len());
-    let mut line: Vec<WordBox> = Vec::new();
-    let flush = |line: &mut Vec<WordBox>, out: &mut Vec<WordBox>| {
-        if rtl {
-            line.reverse();
+    let mut rows: Vec<Vec<WordBox>> = Vec::new();
+    let mut sorted: Vec<WordBox> = boxes.to_vec();
+    sorted.sort_by_key(|word| word.1);
+    for word in sorted {
+        match rows.last_mut() {
+            Some(row) if (word.1 - row[0].1).unsigned_abs() * 2 < row[0].3.max(1) => row.push(word),
+            _ => rows.push(vec![word]),
         }
-        out.append(line);
-    };
-    for word in boxes {
-        if let Some(first) = line.first()
-            && (word.1 - first.1).unsigned_abs() * 2 >= first.3.max(1)
-        {
-            flush(&mut line, &mut out);
-        }
-        line.push(*word);
     }
-    flush(&mut line, &mut out);
+    let mut out = Vec::with_capacity(boxes.len());
+    for mut row in rows {
+        row.sort_by_key(|word| word.0);
+        if rtl {
+            row.reverse();
+        }
+        out.extend(row);
+    }
     out
 }
 
@@ -663,9 +802,8 @@ mod tests {
     }
 
     #[test]
-    fn spoken_order_reverses_each_line_for_right_to_left_writing() {
-        // Two lines of three words each, as the layout lists them.
-        let boxes: Vec<WordBox> = vec![
+    fn spoken_order_follows_the_boxes_not_the_layouts_list() {
+        let lines: Vec<WordBox> = vec![
             (10, 10, 30, 20),
             (50, 10, 30, 20),
             (90, 10, 30, 20),
@@ -673,12 +811,30 @@ mod tests {
             (50, 50, 30, 20),
             (90, 50, 30, 20),
         ];
-        let ltr = spoken_order(&boxes, false);
-        assert_eq!(ltr, boxes);
-        let rtl = spoken_order(&boxes, true);
-        assert_eq!(rtl[0], (90, 10, 30, 20));
-        assert_eq!(rtl[2], (10, 10, 30, 20));
-        assert_eq!(rtl[3], (90, 50, 30, 20));
+        // Left to right: the same whichever way the layout listed them.
+        let mut shuffled = lines.clone();
+        shuffled.reverse();
+        assert_eq!(spoken_order(&lines, false), lines);
+        assert_eq!(spoken_order(&shuffled, false), lines);
+        // Right to left: each line from its right edge, lines still top down.
+        for given in [&lines, &shuffled] {
+            let rtl = spoken_order(given, true);
+            assert_eq!(rtl[0], (90, 10, 30, 20));
+            assert_eq!(rtl[2], (10, 10, 30, 20));
+            assert_eq!(rtl[3], (90, 50, 30, 20));
+            assert_eq!(rtl[5], (10, 50, 30, 20));
+        }
+    }
+
+    #[test]
+    fn the_first_letter_decides_the_direction() {
+        assert!(is_rtl("سلام دنیا"));
+        assert!(is_rtl("123 سلام"));
+        assert!(is_rtl("«سلام» hello"));
+        assert!(is_rtl("שלום"));
+        assert!(!is_rtl("Hello سلام"));
+        assert!(!is_rtl("Hello world"));
+        assert!(!is_rtl("123 ..."));
     }
 
     #[test]
@@ -710,6 +866,38 @@ mod tests {
         }
         assert!(slots[3].1 > slots[1].1, "a longer word is lit longer");
         assert!(word_slots(0.0, 1.0, "   ").is_empty());
+    }
+
+    #[test]
+    fn named_motions_end_on_the_clips_own_size_and_place() {
+        for name in [
+            "pop",
+            "scale",
+            "bounce",
+            "elastic",
+            "glitch",
+            "slide-left",
+            "fade",
+        ] {
+            let (mut editor, id) = editor_with_clip(3.0);
+            let effect = Effect::named(name, 0.4, 1.0);
+            assert_ne!(effect, Effect::None, "{name}");
+            apply(&mut editor, &id, effect);
+            let clip = editor.project().active().clip(&id).expect("clip").clone();
+            assert!(!clip.keys.is_empty(), "{name} sets keys");
+            if name != "fade" {
+                let scale = keys(&editor, &id, KeyProperty::Scale);
+                if let Some(last) = scale.last() {
+                    assert!((last.1 - clip.scale).abs() < 1e-9, "{name} settles");
+                }
+            }
+            let ox = keys(&editor, &id, KeyProperty::OffsetX);
+            if let Some(last) = ox.last() {
+                assert!((last.1 - clip.offset_x).abs() < 1e-9, "{name} lands");
+            }
+        }
+        assert_eq!(Effect::named("nonsense", 1.0, 1.0), Effect::None);
+        assert_eq!(Effect::named("none", 1.0, 1.0), Effect::None);
     }
 
     #[test]

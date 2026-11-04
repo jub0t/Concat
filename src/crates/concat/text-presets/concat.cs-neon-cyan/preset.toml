@@ -1,0 +1,25 @@
+id = "concat.cs-neon-cyan"
+name = "Neon Cyan"
+language = "Captions"
+order = 355
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 800
+fontSize = 0.075
+color = "#5ef2ff"
+strokeWidth = 0.006
+strokeColor = "#00406b"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Modern"
+motion = "fade"
+seconds = 0.3
+intensity = 1.0
+active = "#ffffff"

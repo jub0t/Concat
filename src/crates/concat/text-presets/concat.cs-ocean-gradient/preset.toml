@@ -1,0 +1,25 @@
+id = "concat.cs-ocean-gradient"
+name = "Ocean"
+language = "Captions"
+order = 358
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.08
+color = "#7de2ff"
+strokeWidth = 0.012
+strokeColor = "#003a5a"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Modern"
+motion = "slide"
+seconds = 0.3
+intensity = 1.0
+active = "#ffffff"

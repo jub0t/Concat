@@ -1,0 +1,24 @@
+id = "concat.cs-chalkboard"
+name = "Chalkboard"
+language = "Captions"
+order = 415
+sample = "Aa"
+offsetY = 0.3
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 600
+fontSize = 0.06
+color = "#f2f2e6"
+background = "#1f3a2fe6"
+backgroundRadius = 0.01
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Educational"
+motion = "fade"
+seconds = 0.3
+intensity = 1.0

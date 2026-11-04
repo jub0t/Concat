@@ -1,0 +1,22 @@
+id = "concat.cs-film-white"
+name = "Film"
+language = "Captions"
+order = 389
+sample = "Aa"
+offsetY = 0.37
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 400
+fontSize = 0.052
+color = "#f2f2f2"
+shadow = true
+lineHeight = 1.45
+maxWidth = 0.86
+
+[caption]
+category = "Cinematic"
+motion = "fade"
+seconds = 0.5
+intensity = 1.0

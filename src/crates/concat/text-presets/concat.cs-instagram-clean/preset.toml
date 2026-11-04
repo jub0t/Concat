@@ -1,0 +1,23 @@
+id = "concat.cs-instagram-clean"
+name = "Instagram Clean"
+language = "Captions"
+order = 305
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 600
+fontSize = 0.065
+color = "#ffffff"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Social"
+motion = "fade"
+seconds = 0.3
+intensity = 1.0
+active = "#ff9f1c"

@@ -1,0 +1,22 @@
+id = "concat.cs-fade"
+name = "Soft Fade"
+language = "Captions"
+order = 388
+sample = "Aa"
+offsetY = 0.35
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 500
+fontSize = 0.06
+color = "#ffffff"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Cinematic"
+motion = "fade"
+seconds = 0.8
+intensity = 1.0

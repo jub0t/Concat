@@ -44,7 +44,15 @@ const CAPTION_OFFSETS: [f64; 3] = [0.35, 0.0, -0.35];
 /// A caption's cap height by the sheet's row, as a fraction of the frame.
 const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
 /// How many motions the sheet lists: none, fade, pop, slide, scale.
-const MOTIONS: usize = 5;
+const MOTIONS: usize = 8;
+/// The motions of the sheet's list, by the name `Effect::named` reads.
+const MOTION_NAMES: [&str; 8] = [
+    "none", "fade", "pop", "slide", "scale", "bounce", "elastic", "glitch",
+];
+/// Seconds a motion takes: slow, normal, fast.
+const SPEEDS: [f64; 3] = [0.6, 0.35, 0.2];
+/// How strong a motion is: soft, normal, strong.
+const STRENGTHS: [f64; 3] = [0.5, 1.0, 2.0];
 /// The colours the highlight layer can light a word in; the sheet's list
 /// is "none" and then these.
 /// The faces the sheet offers, Persian and then Latin: the family as the
@@ -87,6 +95,20 @@ const FONTS: [(&str, f64, &str); 34] = [
     ("Londrina Solid", 900.0, "Londrina Solid"),
 ];
 
+/// What a style lights: the spoken word's colour, or the rainbow's in turn,
+/// and the colour the longest word of each caption is kept in.
+#[derive(Default)]
+struct Lighting {
+    colour: Option<String>,
+    rainbow: bool,
+    keywords: Option<String>,
+}
+
+/// The colours the rainbow lights words in, one after another.
+const RAINBOW: [&str; 7] = [
+    "#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#5ac8fa", "#5856d6", "#ff2d92",
+];
+
 const HIGHLIGHTS: [&str; 5] = ["#ffe600", "#3dff6e", "#5ef2ff", "#ff4fd8", "#ff9f1c"];
 
 /// A rough speaking rate, for a script's timing and the speech sheet's
@@ -126,6 +148,10 @@ pub enum CaptionsMsg {
     MotionChanged(i32),
     /// Give the captions lane that motion.
     ApplyMotion,
+    /// The speed row of the motion: slow, normal, fast.
+    SpeedChanged(i32),
+    /// The strength row of the motion: soft, normal, strong.
+    IntensityChanged(i32),
     /// The style row of the sheet.
     StyleChanged(i32),
     /// Dress the captions lane in that style.
@@ -210,6 +236,10 @@ pub struct CaptionsPane {
     pub size: usize,
     /// Row of the motion list: none, fade, pop, slide, scale.
     pub motion: usize,
+    /// Row of the speed list: slow, normal, fast.
+    pub speed: usize,
+    /// Row of the strength list: soft, normal, strong.
+    pub intensity: usize,
     /// Row of the style list: the kept look, then the Text page's presets.
     pub style: usize,
     /// Row of the highlight list: none, then `HIGHLIGHTS`.
@@ -340,6 +370,12 @@ impl CaptionsPane {
                 self.motion = (index.max(0) as usize).min(MOTIONS - 1);
             }
             CaptionsMsg::ApplyMotion => self.apply_motion(studio),
+            CaptionsMsg::SpeedChanged(index) => {
+                self.speed = (index.max(0) as usize).min(SPEEDS.len() - 1);
+            }
+            CaptionsMsg::IntensityChanged(index) => {
+                self.intensity = (index.max(0) as usize).min(STRENGTHS.len() - 1);
+            }
             CaptionsMsg::StyleChanged(index) => {
                 self.style = (index.max(0) as usize).min(style_ids(studio).len());
             }
@@ -410,11 +446,19 @@ impl CaptionsPane {
                         } else {
                             studio.apply(Command::Batch { commands });
                             studio.notify(&tf("captions.addedCaptions", &[&count]), false);
-                            if self.engine == 1
+                            if let Some(fx) = self.style_fx(studio) {
+                                self.give_style_fx(studio, &fx);
+                            } else if self.engine == 1
                                 && self.gemini.reveal == gemini_captions::HIGHLIGHT_REVEAL
                             {
                                 let colour = HIGHLIGHTS[self.highlight.saturating_sub(1)];
-                                self.light_words(studio, Some(colour));
+                                self.light_words(
+                                    studio,
+                                    Lighting {
+                                        colour: Some(colour.to_owned()),
+                                        ..Lighting::default()
+                                    },
+                                );
                             }
                         }
                     }
@@ -667,34 +711,27 @@ impl CaptionsPane {
     /// title's lane, or the busiest. Keys on the clips' own opacity, scale
     /// and offset, one undo step, editable afterwards on the timeline.
     fn apply_motion(&mut self, studio: &mut Studio) {
+        let effect = Effect::named(
+            MOTION_NAMES[self.motion.min(MOTIONS - 1)],
+            SPEEDS[self.speed.min(SPEEDS.len() - 1)],
+            STRENGTHS[self.intensity.min(STRENGTHS.len() - 1)],
+        );
+        self.give_motion(studio, effect);
+    }
+
+    /// Gives every caption on the lane `effect`.
+    fn give_motion(&mut self, studio: &mut Studio, effect: Effect) {
         let Some(lane) = export_lane(studio) else {
             self.message = t("captions.noCaptionsToExport");
             return;
         };
-        let effect = match self.motion {
-            1 => Effect::Fade {
-                fade_in: 0.25,
-                fade_out: 0.25,
-            },
-            2 => Effect::Pop {
-                seconds: 0.35,
-                overshoot: 0.1,
-            },
-            3 => Effect::Slide {
-                seconds: 0.35,
-                from: Direction::Down,
-                distance: 0.06,
-            },
-            4 => Effect::Scale {
-                seconds: 0.3,
-                from: 0.7,
-            },
-            _ => Effect::None,
-        };
         let mut commands: Vec<Command> = Vec::new();
         let mut count = 0;
         for clip in studio.timeline().clips.iter() {
-            if clip.kind == ClipKind::Text && clip.track_id == lane.track_id {
+            if clip.kind == ClipKind::Text
+                && clip.track_id == lane.track_id
+                && clip.name != caption_fx::HIGHLIGHT_NAME
+            {
                 commands.extend(caption_fx::commands(clip, &effect));
                 count += 1;
             }
@@ -704,6 +741,33 @@ impl CaptionsPane {
         }
         studio.apply(Command::Batch { commands });
         studio.notify(&tf("captions.motionApplied", &[&count]), false);
+    }
+
+    /// The motion and word lighting of the style the sheet names, if it is
+    /// a caption style.
+    fn style_fx(&self, studio: &Studio) -> Option<crate::presets::CaptionFx> {
+        let ids = style_ids(studio);
+        let id = self.style.checked_sub(1).and_then(|row| ids.get(row))?;
+        studio
+            .text_presets
+            .iter()
+            .find(|held| &held.id == id)
+            .and_then(|preset| preset.caption.clone())
+    }
+
+    /// Gives the captions on the lane the style's motion and word lighting.
+    fn give_style_fx(&mut self, studio: &mut Studio, fx: &crate::presets::CaptionFx) {
+        self.give_motion(studio, Effect::named(&fx.motion, fx.seconds, fx.intensity));
+        if fx.active.is_some() || fx.rainbow || fx.keywords.is_some() {
+            self.light_words(
+                studio,
+                Lighting {
+                    colour: fx.active.clone(),
+                    rainbow: fx.rainbow,
+                    keywords: fx.keywords.clone(),
+                },
+            );
+        }
     }
 
     /// The look new captions are made in: the style the sheet names, or
@@ -751,12 +815,18 @@ impl CaptionsPane {
             .highlight
             .checked_sub(1)
             .and_then(|index| HIGHLIGHTS.get(index))
-            .copied();
-        self.light_words(studio, colour);
+            .map(|colour| (*colour).to_owned());
+        self.light_words(
+            studio,
+            Lighting {
+                colour,
+                ..Lighting::default()
+            },
+        );
     }
 
     /// [`Self::apply_highlight`] in a given colour; `None` takes the layer off.
-    fn light_words(&mut self, studio: &mut Studio, colour: Option<&'static str>) {
+    fn light_words(&mut self, studio: &mut Studio, lighting: Lighting) {
         let Some(lane) = export_lane(studio) else {
             self.message = t("captions.noCaptionsToExport");
             return;
@@ -774,10 +844,10 @@ impl CaptionsPane {
                 ripple: false,
             });
         }
-        let Some(colour) = colour else {
+        if lighting.colour.is_none() && !lighting.rainbow && lighting.keywords.is_none() {
             studio.notify(&t("captions.highlightRemoved"), false);
             return;
-        };
+        }
         let (width, height) = studio.output_size();
         let captions: Vec<concat_project::model::Clip> = studio
             .timeline()
@@ -791,16 +861,14 @@ impl CaptionsPane {
             .map(|clip| (**clip).clone())
             .collect();
         let mut layer: Option<String> = None;
+        let mut key_layer: Option<String> = None;
         let (mut words_lit, mut skipped) = (0usize, 0usize);
         for clip in captions {
             let Some(text) = clip.text.clone() else {
                 continue;
             };
             let count = text.content.split_whitespace().count();
-            let rtl = text
-                .content
-                .chars()
-                .any(|c| ('\u{0590}'..='\u{08FF}').contains(&c));
+            let rtl = caption_fx::is_rtl(&text.content);
             let boxes = studio
                 .host
                 .titles
@@ -810,41 +878,77 @@ impl CaptionsPane {
                 skipped += 1;
                 continue;
             }
-            let overlay = TextStyle {
+            let overlay = |colour: &str| TextStyle {
                 color: colour.to_owned(),
                 background: String::new(),
                 shadow: false,
                 ..text.clone()
             };
-            let slots = caption_fx::word_slots(clip.start, clip.duration, &text.content);
-            for (index, (start, duration)) in slots.into_iter().enumerate() {
+            // Each mark is one title over the caption, masked to one word.
+            let mut mark = |studio: &mut Studio,
+                            lane: &mut Option<String>,
+                            colour: &str,
+                            word: usize,
+                            start: f64,
+                            duration: f64| {
                 let created = studio.apply(Command::AddTextClip {
-                    track_id: layer.clone(),
+                    track_id: lane.clone(),
                     above: true,
                     start,
-                    style: Some(overlay.clone()),
+                    style: Some(overlay(colour)),
                     duration: Some(duration),
                     offset_y: Some(clip.offset_y),
                 });
                 let Some(id) = created else {
-                    continue;
+                    return false;
                 };
-                if layer.is_none() {
-                    layer = studio.clip(&id).map(|made| made.track_id.clone());
+                if lane.is_none() {
+                    *lane = studio.clip(&id).map(|made| made.track_id.clone());
                 }
                 studio.apply(Command::UpdateClip {
                     clip_id: id,
                     patch: concat_project::commands::ClipPatch {
                         name: Some(caption_fx::HIGHLIGHT_NAME.to_owned()),
-                        mask: Some(Some(caption_fx::word_mask(
-                            &ordered,
-                            index,
-                            (width, height),
-                        ))),
+                        mask: Some(Some(caption_fx::word_mask(&ordered, word, (width, height)))),
                         ..concat_project::commands::ClipPatch::default()
                     },
                 });
-                words_lit += 1;
+                true
+            };
+            // The longest word, kept lit the whole caption on a lane under
+            // the moving mark.
+            if let Some(keyword) = lighting.keywords.as_deref() {
+                let longest = text
+                    .content
+                    .split_whitespace()
+                    .enumerate()
+                    .max_by_key(|(index, word)| (word.chars().count(), std::cmp::Reverse(*index)));
+                if let Some((word, found)) = longest
+                    && found.chars().count() >= 5
+                {
+                    mark(
+                        studio,
+                        &mut key_layer,
+                        keyword,
+                        word,
+                        clip.start,
+                        clip.duration,
+                    );
+                }
+            }
+            let slots = caption_fx::word_slots(clip.start, clip.duration, &text.content);
+            for (index, (start, duration)) in slots.into_iter().enumerate() {
+                let colour = if lighting.rainbow {
+                    RAINBOW[index % RAINBOW.len()]
+                } else {
+                    match lighting.colour.as_deref() {
+                        Some(colour) => colour,
+                        None => continue,
+                    }
+                };
+                if mark(studio, &mut layer, colour, index, start, duration) {
+                    words_lit += 1;
+                }
             }
         }
         if words_lit == 0 {
@@ -945,6 +1049,9 @@ impl CaptionsPane {
         let count = commands.len();
         studio.apply(Command::Batch { commands });
         studio.notify(&tf("captions.styleApplied", &[&count]), false);
+        if let Some(fx) = self.style_fx(studio) {
+            self.give_style_fx(studio, &fx);
+        }
     }
 
     /// The sheet opened afresh. `clip` is the clip it was opened on, if
@@ -1315,6 +1422,20 @@ impl CaptionsPane {
             ]))
             .into(),
             motion: self.motion as i32,
+            speed: self.speed as i32,
+            speeds: std::rc::Rc::new(slint::VecModel::from(vec![
+                slint::SharedString::from(t("captions.speedSlow")),
+                slint::SharedString::from(t("captions.speedNormal")),
+                slint::SharedString::from(t("captions.speedFast")),
+            ]))
+            .into(),
+            intensity: self.intensity as i32,
+            strengths: std::rc::Rc::new(slint::VecModel::from(vec![
+                slint::SharedString::from(t("captions.strengthSoft")),
+                slint::SharedString::from(t("captions.strengthNormal")),
+                slint::SharedString::from(t("captions.strengthStrong")),
+            ]))
+            .into(),
             style: self.style as i32,
             highlight: self.highlight as i32,
             font: self.font as i32,
@@ -1349,6 +1470,9 @@ impl CaptionsPane {
                 slint::SharedString::from(t("captions.motionPop")),
                 slint::SharedString::from(t("captions.motionSlide")),
                 slint::SharedString::from(t("captions.motionScale")),
+                slint::SharedString::from(t("captions.motionBounce")),
+                slint::SharedString::from(t("captions.motionElastic")),
+                slint::SharedString::from(t("captions.motionGlitch")),
             ]))
             .into(),
         }

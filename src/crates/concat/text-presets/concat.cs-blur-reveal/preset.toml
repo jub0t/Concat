@@ -1,0 +1,22 @@
+id = "concat.cs-blur-reveal"
+name = "Slow Reveal"
+language = "Captions"
+order = 390
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 500
+fontSize = 0.065
+color = "#ffffff"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Cinematic"
+motion = "scale"
+seconds = 1.0
+intensity = 0.5

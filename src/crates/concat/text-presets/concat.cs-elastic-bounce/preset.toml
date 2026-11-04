@@ -1,0 +1,24 @@
+id = "concat.cs-elastic-bounce"
+name = "Elastic Bounce"
+language = "Captions"
+order = 361
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.085
+color = "#ffe600"
+strokeWidth = 0.014
+strokeColor = "#000000"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Motion"
+motion = "elastic"
+seconds = 0.5
+intensity = 1.2

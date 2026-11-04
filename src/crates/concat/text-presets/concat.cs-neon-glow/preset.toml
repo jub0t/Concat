@@ -1,0 +1,25 @@
+id = "concat.cs-neon-glow"
+name = "Neon Glow"
+language = "Captions"
+order = 354
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 800
+fontSize = 0.075
+color = "#ff4fd8"
+strokeWidth = 0.006
+strokeColor = "#7a0066"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Modern"
+motion = "fade"
+seconds = 0.3
+intensity = 1.0
+active = "#ffffff"

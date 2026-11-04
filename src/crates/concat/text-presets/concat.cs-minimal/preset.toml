@@ -1,0 +1,22 @@
+id = "concat.cs-minimal"
+name = "Minimal"
+language = "Captions"
+order = 387
+sample = "Aa"
+offsetY = 0.37
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 500
+fontSize = 0.05
+color = "#ffffff"
+shadow = true
+lineHeight = 1.4
+maxWidth = 0.86
+
+[caption]
+category = "Cinematic"
+motion = "none"
+seconds = 0.3
+intensity = 1.0

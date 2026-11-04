@@ -44,6 +44,27 @@ use concat_host::AppDirs;
 use concat_project::model::{TextAlign, TextStyle};
 use serde::Deserialize;
 
+/// What makes a look a caption style: how it moves in, how the spoken word
+/// is lit, and where it is shelved. Absent for a plain title look.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CaptionFx {
+    /// The shelf of the style library: "Social", "Word", "Modern",
+    /// "Motion", "Cinematic" or "Educational".
+    pub category: String,
+    /// The motion's name, as `caption_fx::Effect::named` reads it.
+    pub motion: String,
+    /// Seconds the motion takes.
+    pub seconds: f64,
+    /// How strong the motion is; 1 is the usual.
+    pub intensity: f64,
+    /// The colour the spoken word is lit in, when the style lights words.
+    pub active: Option<String>,
+    /// Light each spoken word in the next colour of the rainbow instead.
+    pub rainbow: bool,
+    /// The colour of the longest words of each caption, kept lit.
+    pub keywords: Option<String>,
+}
+
 /// One look a title can be given.
 pub struct TextPreset {
     /// Stable for ever; "default" is the plain title.
@@ -64,6 +85,22 @@ pub struct TextPreset {
     /// Latin and the first two characters of its words for any other
     /// writing, so a Japanese card shows Japanese.
     pub sample: String,
+    /// Motion and word lighting, for a look that is a caption style.
+    pub caption: Option<CaptionFx>,
+}
+
+/// The `[caption]` table of a preset file.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CaptionFile {
+    category: Option<String>,
+    motion: Option<String>,
+    seconds: Option<f64>,
+    intensity: Option<f64>,
+    active: Option<String>,
+    #[serde(default)]
+    rainbow: bool,
+    keywords: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -85,6 +122,9 @@ struct PresetFile {
     sample: Option<String>,
     #[serde(default)]
     style: PresetStyle,
+    /// Makes the look a caption style; see [`CaptionFx`].
+    #[serde(default)]
+    caption: Option<CaptionFile>,
 }
 
 /// A title's fields, every one optional, laid over the default style.
@@ -261,6 +301,18 @@ fn parse(text: &str, folder: Option<&Path>) -> Option<(i64, TextPreset)> {
             font,
             language,
             sample,
+            caption: file.caption.map(|caption| CaptionFx {
+                category: caption
+                    .category
+                    .filter(|c| !c.trim().is_empty())
+                    .unwrap_or_else(|| "Social".to_owned()),
+                motion: caption.motion.unwrap_or_else(|| "none".to_owned()),
+                seconds: caption.seconds.unwrap_or(0.3).clamp(0.05, 3.0),
+                intensity: caption.intensity.unwrap_or(1.0).clamp(0.1, 3.0),
+                active: caption.active.filter(|c| !c.trim().is_empty()),
+                rainbow: caption.rainbow,
+                keywords: caption.keywords.filter(|c| !c.trim().is_empty()),
+            }),
         },
     ))
 }

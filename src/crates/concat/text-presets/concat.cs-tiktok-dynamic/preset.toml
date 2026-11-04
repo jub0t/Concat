@@ -1,0 +1,25 @@
+id = "concat.cs-tiktok-dynamic"
+name = "TikTok Dynamic"
+language = "Captions"
+order = 304
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 800
+fontSize = 0.075
+color = "#ffffff"
+background = "#000000cc"
+backgroundRadius = 0.014
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Social"
+motion = "slide"
+seconds = 0.25
+intensity = 1.0
+active = "#ff2d55"

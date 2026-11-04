@@ -66,6 +66,11 @@ export struct CaptionsSheetData {
     /// The motions the captions lane can be given, by name, and the row.
     motions: [string],
     motion: int,
+    /// How fast and how strong a motion is, by name, and the rows.
+    speeds: [string],
+    speed: int,
+    strengths: [string],
+    intensity: int,
     /// The styles captions can be made in: the kept look, then the presets.
     styles: [string],
     style: int,
@@ -115,6 +120,8 @@ export component CaptionsDialog inherits Modal {
     callback gemini-reveal-changed(index: int);
     callback motion-changed(index: int);
     callback apply-motion();
+    callback speed-changed(index: int);
+    callback intensity-changed(index: int);
     callback style-changed(index: int);
     callback apply-style();
     callback highlight-changed(index: int);
@@ -410,6 +417,23 @@ export component CaptionsDialog inherits Modal {
                         label: I18n.t("captions.applyMotion");
                         ghost: true;
                         clicked => { root.apply-motion(); }
+                    }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.speed");
+                HorizontalLayout {
+                    spacing: 6px;
+                    Select {
+                        options: root.data.speeds;
+                        current: root.data.speed;
+                        changed(index) => { root.speed-changed(index); }
+                    }
+                    Select {
+                        options: root.data.strengths;
+                        current: root.data.intensity;
+                        changed(index) => { root.intensity-changed(index); }
                     }
                 }
             }

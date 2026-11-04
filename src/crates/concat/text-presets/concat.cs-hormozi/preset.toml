@@ -1,0 +1,25 @@
+id = "concat.cs-hormozi"
+name = "Hormozi"
+language = "Captions"
+order = 301
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.085
+color = "#ffffff"
+strokeWidth = 0.014
+strokeColor = "#000000"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Social"
+motion = "pop"
+seconds = 0.2
+intensity = 1.0
+active = "#ffe600"

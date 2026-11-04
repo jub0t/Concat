@@ -1,0 +1,25 @@
+id = "concat.cs-rainbow-pop"
+name = "Rainbow Pop"
+language = "Captions"
+order = 359
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.085
+color = "#ffffff"
+strokeWidth = 0.016
+strokeColor = "#000000"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Modern"
+motion = "pop"
+seconds = 0.25
+intensity = 1.0
+rainbow = true

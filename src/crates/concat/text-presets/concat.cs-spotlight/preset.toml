@@ -1,0 +1,23 @@
+id = "concat.cs-spotlight"
+name = "Spotlight"
+language = "Captions"
+order = 333
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 800
+fontSize = 0.075
+color = "#8a8a8a"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Word"
+motion = "fade"
+seconds = 0.25
+intensity = 1.0
+active = "#ffffff"

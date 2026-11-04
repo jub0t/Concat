@@ -1,0 +1,24 @@
+id = "concat.cs-numbered-steps"
+name = "Numbered Steps"
+language = "Captions"
+order = 413
+sample = "Aa"
+offsetY = 0.3
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 700
+fontSize = 0.06
+color = "#ffffff"
+background = "#0f766ee6"
+backgroundRadius = 0.016
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Educational"
+motion = "slide-left"
+seconds = 0.3
+intensity = 1.0

@@ -1,0 +1,26 @@
+id = "concat.cs-colorful-keywords"
+name = "Colorful Keywords"
+language = "Captions"
+order = 332
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 800
+fontSize = 0.075
+color = "#ffffff"
+strokeWidth = 0.012
+strokeColor = "#000000"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Word"
+motion = "none"
+seconds = 0.3
+intensity = 1.0
+active = "#5ef2ff"
+keywords = "#ffd400"

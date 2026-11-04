@@ -1,0 +1,24 @@
+id = "concat.cs-bounce"
+name = "Bounce"
+language = "Captions"
+order = 360
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.085
+color = "#ffffff"
+strokeWidth = 0.014
+strokeColor = "#000000"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Motion"
+motion = "bounce"
+seconds = 0.45
+intensity = 1.2

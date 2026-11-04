@@ -1,0 +1,25 @@
+id = "concat.cs-podcast-highlight"
+name = "Podcast Highlight"
+language = "Captions"
+order = 303
+sample = "Aa"
+offsetY = 0.3
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 700
+fontSize = 0.06
+color = "#ffffff"
+background = "#111111d9"
+backgroundRadius = 0.012
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Social"
+motion = "fade"
+seconds = 0.25
+intensity = 1.0
+active = "#5ef2ff"

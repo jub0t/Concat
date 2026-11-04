@@ -1,0 +1,25 @@
+id = "concat.cs-mrbeast"
+name = "MrBeast"
+language = "Captions"
+order = 300
+sample = "Aa"
+offsetY = 0.2
+
+[style]
+content = "Hello · سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 900
+fontSize = 0.09
+color = "#ffd400"
+strokeWidth = 0.02
+strokeColor = "#000000"
+shadow = true
+lineHeight = 1.3
+maxWidth = 0.86
+
+[caption]
+category = "Social"
+motion = "pop"
+seconds = 0.25
+intensity = 1.0
+active = "#ff2d2d"
