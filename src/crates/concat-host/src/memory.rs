@@ -75,10 +75,15 @@ pub fn release_freed() {
         // Bionic's M_PURGE, Android 9 and later: its allocator returns the
         // pages it can. An older release refuses the option, harmlessly.
         const M_PURGE: libc::c_int = -101;
+        // Bionic exports mallopt, but the libc crate doesn't declare it for
+        // Android, so it is declared here.
+        unsafe extern "C" {
+            fn mallopt(param: libc::c_int, value: libc::c_int) -> libc::c_int;
+        }
         // SAFETY: mallopt takes an option and a value, and refuses one it
         // does not know.
         unsafe {
-            libc::mallopt(M_PURGE, 0);
+            mallopt(M_PURGE, 0);
         }
     }
     #[cfg(windows)]
