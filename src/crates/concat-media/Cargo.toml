@@ -31,5 +31,10 @@ log = "0.4"
 resvg = "0.48"
 thiserror.workspace = true
 
+# Android's own AAC encoder, through the NDK's MediaCodec: FFmpeg wraps a
+# phone's video encoders and not its audio one. See audio/android_aac.rs.
+[target.'cfg(target_os = "android")'.dependencies]
+ndk = { version = "0.9", default-features = false, features = ["media", "api-level-26"] }
+
 [lints]
 workspace = true

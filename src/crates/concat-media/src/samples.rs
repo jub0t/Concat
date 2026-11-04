@@ -198,12 +198,8 @@ impl AudioDecoder {
         // picture and the export mix are; without this the preview's sound
         // and a transcript ran ahead of the picture (audit 2026-10-04, #3).
         let origin = ffi::origin(&input).as_f64();
-        let context = ffmpeg::codec::Context::from_parameters(stream.parameters())
-            .map_err(|error| ffi::fail("codec parameters", path, error))?;
-        let decoder = context
-            .decoder()
-            .audio()
-            .map_err(|error| ffi::fail("open decoder", path, error))?;
+        let decoder =
+            ffi::audio_decoder(&stream).map_err(|error| ffi::fail("open decoder", path, error))?;
 
         // Near the start, not at it: the graph's atrim does the exact cut,
         // and a seek only saves decoding what comes before.
