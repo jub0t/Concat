@@ -145,6 +145,9 @@ concat-core.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
 concat-export.workspace = true
+# The compositor's limits the window's device is opened with
+# (`gpu::MEMORY_BUDGET`); linked through the host already.
+concat-render = { workspace = true, features = ["gpu"] }
 concat-host = { workspace = true, features = ["gpu"] }
 concat-speech = { workspace = true, features = ["chatterbox"] }
 # The Settings sheet's Automation page: the Concat API on a socket while the

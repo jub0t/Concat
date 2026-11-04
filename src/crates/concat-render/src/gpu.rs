@@ -295,6 +295,19 @@ const WORK_FALLBACK: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// frame a software adapter draws at 8K.
 pub const DEVICE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// How near its memory budget a device lets Concat go, as Firefox ships it
+/// to every Windows user of WebGPU: past 95% a texture or buffer is refused
+/// with an out-of-memory error, which a composite catches and an export
+/// answers on the next device; past 99% the device is lost, which the
+/// export answers the same way. Without them an 8 GB card shared by the
+/// window, the decoders and an export at 4K lost its device in the driver
+/// (#223) or hung with no loss reported at all (#297). Only Direct3D 12
+/// and Vulkan read them.
+pub const MEMORY_BUDGET: wgpu::MemoryBudgetThresholds = wgpu::MemoryBudgetThresholds {
+    for_resource_creation: Some(95),
+    for_device_loss: Some(99),
+};
+
 /// A picture copied texel for texel into a target of the same size, through
 /// the colour conversion at each end of the working space: an uploaded
 /// frame into it (`fs_upload`), and a finished frame out of it into the
@@ -969,6 +982,7 @@ impl WgpuCompositor {
     fn on_backends(backends: wgpu::Backends, software_only: bool) -> Option<Self> {
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
+            memory_budget_thresholds: MEMORY_BUDGET,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
         // FXC, never wgpu's default `Auto`: Concat ships no dxcompiler.dll,
