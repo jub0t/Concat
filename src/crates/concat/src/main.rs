@@ -10,6 +10,7 @@
 mod launch;
 
 use launch::Launch;
+use std::net::SocketAddr;
 
 fn main() -> Result<(), slint::PlatformError> {
     // First of all, so that even `--version` says where it crashed if it

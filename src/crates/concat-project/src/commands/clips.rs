@@ -248,6 +248,39 @@ pub(super) fn apply(
             })
         }
 
+        Command::AddTransitionClip {
+            track_id,
+            start,
+            duration,
+            transition_id,
+            name,
+        } => {
+            let duration = duration
+                .unwrap_or(DEFAULT_TRANSITION_DURATION)
+                .max(MIN_TRANSITION_DURATION);
+            let timeline = project.active_mut();
+            let track_id = match track_id {
+                Some(id) if timeline.track(&id).is_some() => id,
+                Some(_) => return Err(CommandError::TrackGone),
+                None => first_free_track_above(timeline, start, duration)
+                    .unwrap_or_else(|| fresh_track(timeline, mint)),
+            };
+            let start = timeline.nearest_free_start(&track_id, start, duration, &[]);
+            let id = mint.next("c");
+            let name = if name.trim().is_empty() {
+                transition_id.clone()
+            } else {
+                name
+            };
+            let mut clip = Clip::blank(id.clone(), track_id, ClipKind::Transition, name, start, duration);
+            clip.video_effects = vec![AppliedFilter::new(transition_id)];
+            timeline.clips.push(Arc::new(clip));
+            Ok(Outcome {
+                created_id: Some(id),
+                applied: true,
+            })
+        }
+
         Command::MoveClips { moves } => {
             let timeline = project.active_mut();
             // Onto another clip is never where a move lands: the group goes

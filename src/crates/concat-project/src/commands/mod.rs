@@ -35,6 +35,10 @@ const DEFAULT_IMAGE_DURATION: f64 = 5.0;
 const DEFAULT_TEXT_DURATION: f64 = 4.0;
 /// How long a layer covers when first placed. Editorial default, not a fact.
 const DEFAULT_LAYER_DURATION: f64 = 5.0;
+/// How long a transition covers when first placed. Editorial default.
+const DEFAULT_TRANSITION_DURATION: f64 = 1.0;
+/// Shortest a transition may be.
+const MIN_TRANSITION_DURATION: f64 = 0.2;
 /// Default hold for a freeze frame when the caller omits duration.
 const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 pub(crate) use crate::model::ranges::{
@@ -421,6 +425,21 @@ pub enum Command {
         /// layer.
         #[serde(default)]
         sound: bool,
+    },
+    /// Places a transition clip across a cut: it acts on everything beneath
+    /// it for its span. No media; the package it names supplies the look.
+    AddTransitionClip {
+        /// The lane to place it on; None picks a lane as above says.
+        track_id: Option<String>,
+        /// Timeline position in seconds, floored at 0.
+        start: f64,
+        /// Seconds on the timeline; the editorial default when absent.
+        #[serde(default)]
+        duration: Option<f64>,
+        /// The transition package the clip applies, e.g. "concat.dissolve".
+        transition_id: String,
+        /// What the lane calls it.
+        name: String,
     },
     /// Gives a clip a speed curve, or takes it away. The source covered is
     /// held constant, as a speed change does, so the clip's timeline length
@@ -1290,6 +1309,7 @@ pub fn apply(
         | Command::AddTextClip { .. }
         | Command::AddShapeClip { .. }
         | Command::AddLayerClip { .. }
+        | Command::AddTransitionClip { .. }
         | Command::MoveClips { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }

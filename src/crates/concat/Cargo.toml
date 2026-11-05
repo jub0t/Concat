@@ -130,6 +130,8 @@ slint = { version = "1.18", default-features = false, features = [
     # embeds, so a preset card is drawn in its own face; see fonts.rs.
     "unstable-fontique-011",
 ] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "net", "time", "macros"] }
+concat-mcp = { workspace = true, features = ["http"] }
 
 [dependencies]
 # The log facade. The window writes `log::warn!`; where that ends up is

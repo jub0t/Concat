@@ -80,6 +80,10 @@ pub enum ClipKind {
     /// media behind it; what it is and how it is painted lives in
     /// [`Clip::shape`], and it is placed and scaled like a still.
     Shape,
+    /// A transition laid across a cut: it acts on everything beneath it for
+    /// its span, minting a "c" id. No media behind it; the package it names
+    /// supplies the look and the knobs.
+    Transition,
 }
 
 impl ClipKind {
