@@ -32,6 +32,7 @@ pub struct Session {
 
 /// What every mutating call returns: the authoritative state plus history
 /// availability, so undo/redo affordances are never guessing.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorView {
@@ -50,6 +51,7 @@ pub struct EditorView {
 }
 
 /// The session's settings, as the window shows them.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {

@@ -54,6 +54,7 @@ const RECENTS: &str = "recents.json";
 const MAX_RECENTS: usize = 40;
 
 /// Everything needed to reopen a project.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectInfo {

@@ -28,6 +28,8 @@
 //! once and the job reports through the [`EventSink`] the API was made
 //! with, from that thread, which is why the sink must be `Send + Sync`.
 
+#[cfg(feature = "schema")]
+mod contract;
 mod job;
 pub mod message;
 pub mod rpc;
@@ -74,6 +76,11 @@ const CAPABILITIES: &[&str] = &["events"];
 /// what a caller is told about a field is what its maintainer wrote next
 /// to it. Generated, never written by hand: a method or a command field
 /// added to the types is in the schema on the next build.
+#[cfg(feature = "schema")]
+pub use contract::contract_schema;
+
+/// The JSON Schema of [`Request`] alone; see [`contract_schema`] for the
+/// whole contract.
 #[cfg(feature = "schema")]
 pub fn request_schema() -> serde_json::Value {
     serde_json::to_value(schemars::schema_for!(Request)).unwrap_or_default()

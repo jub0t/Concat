@@ -10,6 +10,9 @@ description = "What the editor window needs that is not the edit itself: session
 # The wgpu compositor for previews and exports, off by default for the same
 # reason as everywhere else in the engine; the window turns it on.
 gpu = ["concat-export/gpu", "concat-render/gpu"]
+# A JSON Schema for every reply type, so the API can state its whole
+# contract; see concat_api::contract_schema.
+schema = ["dep:schemars", "concat-project/schema"]
 
 [dependencies]
 concat-core.workspace = true
@@ -47,6 +50,7 @@ log = { version = "0.4", features = ["std"] }
 # `gpu`, so a headless host pays for no GPU tree.
 concat-render.workspace = true
 serde = { version = "1", features = ["derive"] }
+schemars = { workspace = true, optional = true }
 serde_json.workspace = true
 
 # Engine-owned audio playback: cpal talks to the output device, memmap2 keeps

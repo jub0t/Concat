@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --software | --mcp [auto|window|headless] | --version | --smoke | --whisper-cpu]";
+const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --software | --mcp [auto|window|headless] | --schema | --version | --smoke | --whisper-cpu]";
 
 /// What one run of the binary was asked to do.
 #[derive(Debug, PartialEq, Eq)]
@@ -24,6 +24,11 @@ pub enum Launch {
     /// server, on its own, or whichever is there; `CONCAT_MCP_MODE`
     /// otherwise, and `auto` without that.
     Mcp(Option<concat_mcp::Mode>),
+    /// Print the Concat API's whole contract as JSON Schema and exit:
+    /// every method, its reply, every edit command, event and error. What
+    /// a developer generates a client from, and what the docs are built
+    /// from, so both describe this very build.
+    Schema,
     /// Print the version and exit, before logging, the GPU or a window: a
     /// run that gets this far has proved the executable and every library
     /// it links were found and loaded, which on Windows fails before `main`.
@@ -50,6 +55,8 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String>
     };
     let launch = if option == "--version" {
         Launch::Version
+    } else if option == "--schema" {
+        Launch::Schema
     } else if option == "--smoke" {
         Launch::Smoke
     } else if option == "--software" {
@@ -104,6 +111,8 @@ mod tests {
     #[test]
     fn version_and_smoke_take_no_arguments() {
         assert_eq!(parse_strs(&["--version"]).unwrap(), Launch::Version);
+        assert_eq!(parse_strs(&["--schema"]).unwrap(), Launch::Schema);
+        assert!(parse_strs(&["--schema", "extra"]).is_err());
         assert_eq!(parse_strs(&["--smoke"]).unwrap(), Launch::Smoke);
         assert_eq!(parse_strs(&["--software"]).unwrap(), Launch::Software);
         assert_eq!(parse_strs(&["--whisper-cpu"]).unwrap(), Launch::WhisperCpu);
