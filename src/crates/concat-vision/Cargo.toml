@@ -18,7 +18,7 @@ concat-core.workspace = true
 concat-project.workspace = true
 # Masks on disk are eight-bit grey PNGs: a tenth the size of raw bytes, and
 # a file anyone can open to see what the model saw.
-png = "0.17"
+png = "0.18"
 # ONNX Runtime. The platform's accelerator is a feature per target below;
 # the CPU provider is always there behind it.
 ort = { workspace = true, optional = true }
