@@ -1287,6 +1287,7 @@ dependencies = [
  "png 0.17.16",
  "rustls",
  "rustls-native-certs",
+ "schemars",
  "serde",
  "serde_json",
  "sha2",
