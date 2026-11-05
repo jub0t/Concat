@@ -173,12 +173,6 @@ jobs:
           workspaces: src
           key: ${{ matrix.target }}
 
-      - name: sherpa-onnx for Android
-        working-directory: src
-        run: |
-          eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
-          scripts/sherpa-mobile.sh ${{ matrix.target }}
-
       # Set up build environment before fetching sherpa-onnx so NDK paths are known
       - name: Set up mobile build env
         working-directory: src
@@ -464,9 +458,6 @@ jobs:
         with:
           path: src/vendor/ffmpeg/${{ matrix.target }}
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
-      - name: sherpa-onnx for iOS
-        working-directory: src
-        run: scripts/sherpa-mobile.sh ${{ matrix.target }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src

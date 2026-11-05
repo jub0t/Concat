@@ -157,9 +157,6 @@ concat-api.workspace = true
 # HTTP/SSE on Android (stdio removed). The `http` feature turns it on.
 concat-mcp = { workspace = true, features = [] }
 
-[target.'cfg(target_os = "android")'.dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "net", "time", "macros"] }
-concat-mcp = { workspace = true, features = ["http"] }
 # The effect catalogue: the inspector's shelves and each link's knobs.
 concat-effects.workspace = true
 # The cutout's mapping from a stage press to a source fraction; the model
