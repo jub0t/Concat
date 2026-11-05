@@ -459,9 +459,11 @@ mod tests {
     #[test]
     fn the_tool_list_fits_an_agents_context() {
         // Every tool's schema sits in the agent's context for the whole
-        // session. Measured at about 100 KB in all, 41 KB of it the whole
-        // edit vocabulary under edit_apply; a type that grows past these
-        // is worth a look before it ships.
+        // session. Measured at about 162 KB in all once shapes became
+        // editable figures (#288), 61 KB of it the whole edit vocabulary
+        // under edit_apply; cutting nested descriptions to one sentence
+        // saved only 7% and lost what agents need. A type that grows past
+        // these is worth a look before it ships.
         let toolbox = crate::tools::Toolbox::new();
         let sizes: Vec<(String, usize)> = toolbox
             .list()
@@ -469,9 +471,9 @@ mod tests {
             .map(|tool| (tool["name"].to_string(), tool.to_string().len()))
             .collect();
         let total: usize = sizes.iter().map(|(_, size)| size).sum();
-        assert!(total < 160_000, "{total}: {sizes:?}");
+        assert!(total < 180_000, "{total}: {sizes:?}");
         for (name, size) in &sizes {
-            assert!(*size < 64_000, "{name}: {size}");
+            assert!(*size < 72_000, "{name}: {size}");
         }
     }
 
