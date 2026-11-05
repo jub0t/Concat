@@ -1,10 +1,10 @@
 CODE="vi"
 L=dict(name="Tiếng Việt", flag="🇻🇳",
-tagline="Lựa chọn thay thế CapCut miễn phí, mã nguồn mở và đa nền tảng.",
+tagline="Trình biên tập video miễn phí, mã nguồn mở và đa nền tảng.",
 note="Dịch từ README tiếng Anh ngày 11 tháng 10 năm 2026. Bản tiếng Anh là bản được cập nhật thường xuyên.",
 sponsors_h="Nhà tài trợ trả phí", proxyon="Proxy trả theo mức dùng cho lập trình viên", proxyon_code="Dùng mã <code>JUB0T</code> để giảm 20 %",
 about_h="Giới thiệu",
-about1="Concat là trình biên tập video miễn phí, mã nguồn mở và là lựa chọn thay thế CapCut cho macOS, Windows, Linux và Android. Nó làm được những việc mà người ta thực sự mở CapCut để làm: phụ đề tự động, chuyển văn bản thành giọng nói, xóa nền, hoạt ảnh keyframe, hiệu ứng và tiêu đề, cắt nhiều track, xuất 4K. Không có bất kỳ ràng buộc nào: không watermark, không tài khoản, không đăng ký, không tải lên.",
+about1="Concat là trình biên tập video miễn phí, mã nguồn mở cho macOS, Windows, Linux và Android. Nó có những gì phần lớn các bản dựng cần: phụ đề tự động, chuyển văn bản thành giọng nói, xóa nền, hoạt ảnh keyframe, hiệu ứng và tiêu đề, cắt nhiều track, xuất 4K. Không có bất kỳ ràng buộc nào: không watermark, không tài khoản, không đăng ký, không tải lên.",
 about2="Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp GPU. Cài đặt, kéo thả footage, cắt. Các mô hình AI cho phụ đề, giọng nói và tách nền tải một lần từ Cài đặt và sau đó hoạt động ngoại tuyến. Footage của bạn không bao giờ rời khỏi ổ đĩa của bạn.",
 good_for="Phù hợp cho:", good_for_list="TikTok, Reels và Shorts, video YouTube, hướng dẫn và ghi màn hình, trích đoạn podcast, meme.",
 machines="Cũng dành cho máy móc:", machines_text="API JSON-RPC, để script và các tác nhân AI cũng có thể cắt video bằng nó.",

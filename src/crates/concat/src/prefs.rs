@@ -85,7 +85,7 @@ pub struct Preferences {
     pub playhead_stops_at_end: bool,
     /// Proxies: a file larger than HD gets a smaller copy written in the
     /// background, and playback at Half and Quarter reads that copy. Off
-    /// by default, as in CapCut: a proxy is a full re-encode of every large
+    /// by default: a proxy is a full re-encode of every large
     /// file, on the CPU of a phone or through a hardware encoder a laptop
     /// may not take (an HDR one opened NVENC first), and the person who
     /// wants one for smoother playback turns it on in Settings.

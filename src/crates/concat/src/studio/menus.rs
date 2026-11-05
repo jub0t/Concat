@@ -32,7 +32,7 @@ impl Studio {
         }
     }
 
-    /// Delete Left / Delete Right, CapCut's Q and W: the selected clips the
+    /// Delete Left / Delete Right, Q and W: the selected clips the
     /// playhead runs through lose everything before it, or everything
     /// after it, as one undo step. With nothing selected, the one clip
     /// under the playhead is cut; with several there and none chosen, a
@@ -311,7 +311,7 @@ impl Studio {
 
     /// Whether removing these clips closes the gap they leave: always with
     /// the magnetic timeline on, and on a phone, until the person sets it,
-    /// when every one of them is on the main picture's lane - CapCut's main
+    /// when every one of them is on the main picture's lane - the main
     /// track, where a Split and Delete is done (#497). Titles, captions and
     /// overlays keep their time there: a caption deleted must not pull the
     /// ones after it off the words they were timed to.

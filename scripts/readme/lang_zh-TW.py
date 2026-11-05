@@ -1,10 +1,10 @@
 CODE="zh-TW"
 L=dict(name="繁體中文", flag="🇹🇼",
-tagline="免費、開源、跨平台的 CapCut 替代方案。",
+tagline="免費、開源、跨平台的影片編輯器。",
 note="譯自 2026 年 10 月 11 日的英文 README。以英文版為準，它才是持續更新的版本。",
 sponsors_h="付費贊助商", proxyon="給開發者的按量計費代理", proxyon_code="使用代碼 <code>JUB0T</code> 享 20 % 折扣",
 about_h="關於",
-about1="Concat 是一款免費、開源的影片編輯器，是 macOS、Windows、Linux 與 Android 上的 CapCut 替代方案。它涵蓋了人們真正打開 CapCut 要做的事：自動字幕、文字轉語音、背景移除、關鍵影格動畫、特效與標題、多軌剪輯、4K 輸出。而且沒有任何陷阱：無浮水印、不需帳號、不需訂閱、不上傳。",
+about1="Concat 是一款免費、開源的影片編輯器，支援 macOS、Windows、Linux 與 Android。它涵蓋了大多數剪輯所需的功能：自動字幕、文字轉語音、背景移除、關鍵影格動畫、特效與標題、多軌剪輯、4K 輸出。而且沒有任何陷阱：無浮水印、不需帳號、不需訂閱、不上傳。",
 about2="一切都在本機執行，基於帶 GPU 合成器的原生 Rust 引擎。安裝、拖入素材、開剪。字幕、語音與去背所用的 AI 模型只需在設定中下載一次，之後離線可用。您的素材永遠不會離開您的硬碟。",
 good_for="適合：", good_for_list="TikTok、Reels 與 Shorts，YouTube 影片，教學與螢幕錄影，Podcast 片段，迷因。",
 machines="也適合機器：", machines_text="提供 JSON-RPC API，指令碼與 AI 代理同樣可以用它剪影片。",

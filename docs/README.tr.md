@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">Ücretsiz, açık kaynaklı ve çok platformlu CapCut alternatifi.</h3>
+<h3 align="center">Ücretsiz, açık kaynaklı ve çok platformlu video düzenleyici.</h3>
 
 <div align="center">
 
@@ -44,7 +44,7 @@
 
 ## Hakkında
 
-Concat; macOS, Windows, Linux ve Android için ücretsiz, açık kaynaklı bir video düzenleyici ve bir CapCut alternatifidir. İnsanların CapCut’ı gerçekten ne için açtıklarını karşılar: otomatik altyazı, metinden sese, arka plan kaldırma, anahtar kare animasyonu, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.
+Concat; macOS, Windows, Linux ve Android için ücretsiz, açık kaynaklı bir video düzenleyicidir. Çoğu kurgunun ihtiyaç duyduğu her şeyi karşılar: otomatik altyazı, metinden sese, arka plan kaldırma, anahtar kare animasyonu, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.
 
 Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır. Kurun, görüntüleri bırakın, kesin. Altyazı, ses ve kesme için yapay zekâ modelleri Ayarlar’dan bir kez indirilir ve sonrasında çevrimdışı çalışır. Görüntüleriniz diskinizden asla çıkmaz.
 

@@ -1,10 +1,10 @@
 CODE="tr"
 L=dict(name="Türkçe", flag="🇹🇷",
-tagline="Ücretsiz, açık kaynaklı ve çok platformlu CapCut alternatifi.",
+tagline="Ücretsiz, açık kaynaklı ve çok platformlu video düzenleyici.",
 note="İngilizce README’den 11 Ekim 2026’da çevrildi. Güncel tutulan sürüm İngilizce olandır.",
 sponsors_h="Ücretli Sponsorlar", proxyon="Geliştiriciler için kullandıkça öde proxy’ler", proxyon_code="<code>JUB0T</code> koduyla %20 indirim",
 about_h="Hakkında",
-about1="Concat; macOS, Windows, Linux ve Android için ücretsiz, açık kaynaklı bir video düzenleyici ve bir CapCut alternatifidir. İnsanların CapCut’ı gerçekten ne için açtıklarını karşılar: otomatik altyazı, metinden sese, arka plan kaldırma, anahtar kare animasyonu, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.",
+about1="Concat; macOS, Windows, Linux ve Android için ücretsiz, açık kaynaklı bir video düzenleyicidir. Çoğu kurgunun ihtiyaç duyduğu her şeyi karşılar: otomatik altyazı, metinden sese, arka plan kaldırma, anahtar kare animasyonu, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.",
 about2="Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır. Kurun, görüntüleri bırakın, kesin. Altyazı, ses ve kesme için yapay zekâ modelleri Ayarlar’dan bir kez indirilir ve sonrasında çevrimdışı çalışır. Görüntüleriniz diskinizden asla çıkmaz.",
 good_for="Şunlar için uygun:", good_for_list="TikTok, Reels ve Shorts, YouTube videoları, eğitimler ve ekran kayıtları, podcast kesitleri, memler.",
 machines="Makineler için de:", machines_text="bir JSON-RPC API’si; böylece betikler ve yapay zekâ ajanları da onunla video kesebilir.",

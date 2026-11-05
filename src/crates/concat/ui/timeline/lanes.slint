@@ -598,7 +598,7 @@ component Clip inherits Rectangle {
                 // a swipe meant to scroll the lanes dragged the clip
                 // instead. Under a finger a press is nothing yet - a tap
                 // selects, a swipe scrolls, and only a hold picks the clip
-                // up to move, as in CapCut. An edge of the selected clip
+                // up to move. An edge of the selected clip
                 // still trims straight away: it was aimed at.
                 if (root.finger && !(self.on-edge && root.item.selected)) {
                     self.held = true;
@@ -682,8 +682,7 @@ component Clip inherits Rectangle {
         out property <bool> lifted;
     }
 
-    // A hold's beat: Android's long press is 400 ms, CapCut's about the
-    // same. Stopped by a swipe or a release before it.
+    // A hold's beat: Android's long press, 400 ms. Stopped by a swipe or a release before it.
     hold := Timer {
         interval: 400ms;
         running: false;
@@ -790,8 +789,8 @@ component Clip inherits Rectangle {
     //
     // A small round knob on each top corner of the fade wedge - at the
     // clip's edge with no fade - dragged along the clip to set how long
-    // the sound takes to come up or go down, as CapCut's audio clips have
-    // them. Shown while the clip is hovered or selected, so a lane of
+    // the sound takes to come up or go down, as audio clips have them in
+    // most editors. Shown while the clip is hovered or selected, so a lane of
     // sounds is not dotted with them. Up to half the clip each, the cap
     // the inspector's knob has; within a few pixels of the edge it is no
     // fade at all. The desk's: a phone sets its fades in the Fade sheet,

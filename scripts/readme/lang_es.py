@@ -1,10 +1,10 @@
 CODE="es"
 L=dict(name="Español", flag="🇪🇸",
-tagline="El reemplazo de CapCut gratuito, de código abierto y multiplataforma.",
+tagline="El editor de vídeo gratuito, de código abierto y multiplataforma.",
 note="Traducido del README en inglés el 11 de octubre de 2026. La versión en inglés es la que se mantiene al día.",
 sponsors_h="Patrocinadores de pago", proxyon="Proxies de pago por uso para desarrolladores", proxyon_code="Usa el código <code>JUB0T</code> para un 20 % de descuento",
 about_h="Acerca de",
-about1="Concat es un editor de vídeo gratuito y de código abierto, una alternativa a CapCut para macOS, Windows, Linux y Android. Cubre aquello para lo que la gente realmente abre CapCut: subtítulos automáticos, texto a voz, eliminación de fondo, animación por fotogramas clave, efectos y títulos, corte multipista, exportación 4K. Sin trampas: sin marca de agua, sin cuenta, sin suscripción, sin subir nada.",
+about1="Concat es un editor de vídeo gratuito y de código abierto para macOS, Windows, Linux y Android. Cubre lo que necesita la mayoría de las ediciones: subtítulos automáticos, texto a voz, eliminación de fondo, animación por fotogramas clave, efectos y títulos, corte multipista, exportación 4K. Sin trampas: sin marca de agua, sin cuenta, sin suscripción, sin subir nada.",
 about2="Todo corre en local sobre un motor nativo en Rust con un compositor por GPU. Instálalo, suelta el material, corta. Los modelos de IA para subtítulos, voces y recorte se descargan una vez desde Ajustes y después funcionan sin conexión. Tu material nunca sale de tu disco.",
 good_for="Bueno para:", good_for_list="TikTok, Reels y Shorts, vídeos de YouTube, tutoriales y grabaciones de pantalla, clips de pódcast, memes.",
 machines="También para máquinas:", machines_text="una API JSON-RPC, para que los scripts y los agentes de IA también puedan cortar vídeo con él.",

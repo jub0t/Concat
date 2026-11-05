@@ -1084,9 +1084,9 @@ fn first_free_track_above(timeline: &Timeline, start: f64, duration: f64) -> Opt
 /// Which side of the playhead [`delete_to_playhead`] takes away.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PlayheadSide {
-    /// From the clip's start up to the playhead: CapCut's Delete Left (Q).
+    /// From the clip's start up to the playhead: Delete Left (Q).
     Left,
-    /// From the playhead to the clip's end: CapCut's Delete Right (W).
+    /// From the playhead to the clip's end: Delete Right (W).
     Right,
 }
 

@@ -189,7 +189,7 @@ export component TimelinePane inherits Rectangle {
     property <length> overflow: Math.max(0px,
         root.stack-h - Math.max(0px, lanes.height - root.ruler-height));
     /// `track-scroll` is measured up from the foot of the stack, where the
-    /// main lane is: CapCut's main track is the row always in view, with the
+    /// main lane is: a phone editor's main track is the row always in view, with the
     /// overlays stacked above it. Read from the head, a project with more
     /// lanes than the pane holds opened on its top lanes, empty, with the
     /// video under the fold - as the phone did until 1e683882.

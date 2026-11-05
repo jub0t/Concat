@@ -1,10 +1,10 @@
 CODE="id"
 L=dict(name="Bahasa Indonesia", flag="🇮🇩",
-tagline="Pengganti CapCut yang gratis, sumber terbuka, dan lintas platform.",
+tagline="Penyunting video yang gratis, sumber terbuka, dan lintas platform.",
 note="Diterjemahkan dari README bahasa Inggris pada 11 Oktober 2026. Versi bahasa Inggris adalah yang selalu diperbarui.",
 sponsors_h="Sponsor Berbayar", proxyon="Proxy bayar sesuai pemakaian untuk pengembang", proxyon_code="Pakai kode <code>JUB0T</code> untuk diskon 20 %",
 about_h="Tentang",
-about1="Concat adalah penyunting video gratis dan sumber terbuka, alternatif CapCut untuk macOS, Windows, Linux, dan Android. Ia mencakup hal-hal yang sebenarnya dicari orang saat membuka CapCut: teks otomatis, teks ke suara, penghapusan latar, animasi keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.",
+about1="Concat adalah penyunting video gratis dan sumber terbuka untuk macOS, Windows, Linux, dan Android. Ia mencakup yang dibutuhkan sebagian besar suntingan: teks otomatis, teks ke suara, penghapusan latar, animasi keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.",
 about2="Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatuhkan rekaman, potong. Model AI untuk teks, suara, dan pemotongan latar diunduh sekali dari Pengaturan dan setelah itu bekerja luring. Rekaman Anda tidak pernah meninggalkan disk Anda.",
 good_for="Cocok untuk:", good_for_list="TikTok, Reels, dan Shorts, video YouTube, tutorial dan rekaman layar, klip podcast, meme.",
 machines="Juga untuk mesin:", machines_text="API JSON-RPC, sehingga skrip dan agen AI juga bisa memotong video dengannya.",

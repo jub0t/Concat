@@ -108,7 +108,7 @@ pub const ACTIONS: &[Action] = &[
         id: "freeze",
         defaults: &["f"],
     },
-    // CapCut's Delete Left and Delete Right, on its keys: the clip under
+    // Delete Left and Delete Right, on Q and W: the clip under
     // the playhead loses everything before it (Q) or after it (W).
     // https://github.com/jub0t/Concat/issues/400
     Action {
@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn the_defaults_resolve_to_their_actions() {
         let prefs = Preferences::default();
-        // CapCut's Delete Left and Right; E is nobody's.
+        // Delete Left and Right; E is nobody's.
         assert_eq!(resolve(&prefs, "q"), Some("delete-left"));
         assert_eq!(resolve(&prefs, "w"), Some("delete-right"));
         assert_eq!(resolve(&prefs, "e"), None);

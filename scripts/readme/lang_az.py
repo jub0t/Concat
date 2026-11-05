@@ -1,10 +1,10 @@
 CODE="az"
 L=dict(name="Azərbaycanca", flag="🇦🇿",
-tagline="Pulsuz, açıq mənbəli və bütün platformalarda işləyən CapCut alternativi.",
+tagline="Pulsuz, açıq mənbəli və bütün platformalarda işləyən video redaktoru.",
 note="Bu mətn 18 oktyabr 2026-cı ildə ingiliscə README-dən tərcümə olunub. Ən aktual versiya ingiliscə README-dir.",
 sponsors_h="Ödənişli sponsorlar", proxyon="Developerlər üçün istifadəyə görə ödənişli proxy xidməti", proxyon_code="<code>JUB0T</code> kodu ilə 20% endirim",
 about_h="Haqqında",
-about1="Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktorudur və CapCut-a alternativdir. İnsanların CapCut-dan ən çox istifadə etdiyi imkanların hamısı burada var: avtomatik subtitrlər, mətnin səsləndirilməsi, fonun silinməsi, açar kadrlarla animasiya, effektlər və yazılar, bir neçə trekdə montaj, 4K ixrac. Üstəlik heç bir gizli şərt yoxdur: nə su nişanı, nə hesab, nə abunəlik, nə də faylların serverə yüklənməsi.",
+about1="Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktorudur. Montajların çoxuna lazım olan hər şey burada var: avtomatik subtitrlər, mətnin səsləndirilməsi, fonun silinməsi, açar kadrlarla animasiya, effektlər və yazılar, bir neçə trekdə montaj, 4K ixrac. Üstəlik heç bir gizli şərt yoxdur: nə su nişanı, nə hesab, nə abunəlik, nə də faylların serverə yüklənməsi.",
 about2="Hər şey Rust ilə yazılmış öz mühərriki üzərində, birbaşa kompüterinizdə işləyir; görüntünün birləşdirilməsi (kompozitinq) GPU-da aparılır. Proqramı quraşdırın, videonuzu əlavə edin və montaja başlayın. Subtitr, səsləndirmə və fon silmə üçün süni intellekt modelləri Parametrlər bölməsindən bir dəfə cihazınıza endirilir, sonra internetsiz işləyir. Videolarınız heç vaxt kompüterinizdən kənara çıxmır.",
 good_for="Nə üçün uyğundur:", good_for_list="TikTok, Reels və Shorts, YouTube videoları, dərslər və ekran yazıları, podkastlardan kəsiklər, memlər.",
 machines="Avtomatlaşdırma üçün də:", machines_text="süni intellekt agentləri üçün daxili MCP serveri (`concat --mcp`, [quraşdırma](MCP.md)) və skriptlər üçün JSON-RPC API. Belə ki, onlar da Concat ilə video montaj edə bilər.",

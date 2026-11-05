@@ -759,7 +759,7 @@ export component PhoneEditor inherits Rectangle {
         // The stack scrolls here rather than in Rust, as it does in the
         // timeline pane and for the same reason: it is a property of
         // looking at the lanes, not of the edit. Measured up from the
-        // foot, where the main lane is: CapCut's main track is the row
+        // foot, where the main lane is: a phone editor's main track is the row
         // always in view, with the overlays stacked above it, and a stack
         // read from its head left the main lane - the video, and every
         // picture added to it - below the card once there were four lanes.
@@ -860,7 +860,7 @@ export component PhoneEditor inherits Rectangle {
                 wrap: word-wrap;
             }
 
-            // The way in from the lanes: CapCut's plus at the end of the
+            // The way in from the lanes: the plus at the end of the
             // main track. The bin, and Add lays the picks after the main
             // lane's last clip, wherever the playhead is.
             add-media := Rectangle {
@@ -940,7 +940,7 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "media";
                 clicked => { root.show-media(false); }
             }
-            // Beside Media, as CapCut keeps it: the user's own sounds.
+            // Beside Media: the user's own sounds.
             ToolItem {
                 glyph: Glyph.music;
                 label: I18n.t("common.audio");
@@ -965,7 +965,7 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "filters";
                 clicked => { root.show("filters", false); }
             }
-            // CapCut's Adjust, beside Filters: a layer that grades the
+            // Adjust, beside Filters: a layer that grades the
             // whole picture beneath it, and the user's LUTs.
             ToolItem {
                 glyph: Glyph.sun;
@@ -1001,7 +1001,7 @@ export component PhoneEditor inherits Rectangle {
                 }
             }
             // What fills a tall frame beside a wide shot, for the whole
-            // timeline: CapCut's Canvas, where a phone editor keeps it.
+            // timeline: the Canvas, where a phone editor keeps it.
             ToolItem {
                 glyph: Glyph.frame;
                 label: I18n.t("phone.canvas");
@@ -1111,7 +1111,7 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "clip-audio-effects";
                 clicked => { root.show("clip-audio-effects", true); }
             }
-            // CapCut's Mask, on a sheet of its own.
+            // The Mask, on a sheet of its own.
             if root.is-picture: ToolItem {
                 glyph: Glyph.mask-circle;
                 label: I18n.t("mask.title");

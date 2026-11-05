@@ -274,7 +274,7 @@ impl MediaBin {
     }
 
     /// The phone's Add. Pictures go onto the main lane - the lowest one
-    /// holding a picture, CapCut's main track - inserted where the playhead
+    /// holding a picture, the main track - inserted where the playhead
     /// is (at the nearer edge of the clip under it, the rest of the lane
     /// moved along to make room) or after the lane's last clip, never past
     /// it into a gap; a timeline with no picture yet starts one. Anything

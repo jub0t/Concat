@@ -1956,7 +1956,7 @@ impl Studio {
                 &keymap::label(&self.prefs, "split"),
                 straddled && !locked,
             ),
-            // CapCut's Delete Left and Right, here as on the keys; on a
+            // Delete Left and Right, here as on the keys; on a
             // phone, whose More is this menu, the only way to them.
             action(
                 "delete-left",

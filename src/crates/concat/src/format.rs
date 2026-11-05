@@ -231,8 +231,8 @@ pub fn wave_path(
 
     // Each bar is the peak of everything under its pitch, drawn on the
     // leading `bar` of it: the rest is the gap that makes it a bar and
-    // not a run of columns. Bars stand on the floor, the way CapCut draws
-    // a clip's sound: a beat reads as a spike up and silence as a hairline
+    // not a run of columns. Bars stand on the floor, the way phone editors
+    // draw a clip's sound: a beat reads as a spike up and silence as a hairline
     // along the foot. They stood about the centre line for a while (#105),
     // and the mirrored fish read as a shape, not as a level.
     let bar = bar.clamp(0.1, 1.0);

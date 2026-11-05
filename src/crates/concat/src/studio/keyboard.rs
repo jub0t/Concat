@@ -33,7 +33,7 @@ impl Studio {
                     TimelineTool::Split
                 };
             }
-            // Q / W, as in CapCut: the clip loses what is left, or right,
+            // Q / W: the clip loses what is left, or right,
             // of the playhead.
             "delete-left" => self.delete_to_playhead(PlayheadSide::Left),
             "delete-right" => self.delete_to_playhead(PlayheadSide::Right),

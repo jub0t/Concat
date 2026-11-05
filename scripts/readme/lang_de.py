@@ -1,10 +1,10 @@
 CODE="de"
 L=dict(name="Deutsch", flag="🇩🇪",
-tagline="Der kostenlose, quelloffene CapCut-Ersatz für alle Plattformen.",
+tagline="Der kostenlose, quelloffene Videoeditor für alle Plattformen.",
 note="Übersetzt aus der englischen README vom 11. Oktober 2026. Die englische Fassung ist die, die aktuell gehalten wird.",
 sponsors_h="Zahlende Sponsoren", proxyon="Pay-as-you-go-Proxys für Entwickler", proxyon_code="Mit dem Code <code>JUB0T</code> 20 % Rabatt",
 about_h="Über Concat",
-about1="Concat ist ein kostenloser, quelloffener Videoeditor und eine CapCut-Alternative für macOS, Windows, Linux und Android. Er kann das, wofür man CapCut tatsächlich öffnet: automatische Untertitel, Text-zu-Sprache, Hintergrundentfernung, Keyframe-Animation, Effekte und Titel, Schnitt auf mehreren Spuren, 4K-Export. Ohne die Haken: kein Wasserzeichen, kein Konto, kein Abo, kein Upload.",
+about1="Concat ist ein kostenloser, quelloffener Videoeditor für macOS, Windows, Linux und Android. Er kann, was die meisten Schnitte brauchen: automatische Untertitel, Text-zu-Sprache, Hintergrundentfernung, Keyframe-Animation, Effekte und Titel, Schnitt auf mehreren Spuren, 4K-Export. Ohne die Haken: kein Wasserzeichen, kein Konto, kein Abo, kein Upload.",
 about2="Alles läuft lokal auf einer nativen Rust-Engine mit GPU-Compositor. Installieren, Material hineinziehen, schneiden. Die KI-Modelle für Untertitel, Stimmen und Freisteller werden einmal in den Einstellungen geladen und arbeiten danach offline. Dein Material verlässt deine Festplatte nie.",
 good_for="Gut für:", good_for_list="TikTok, Reels und Shorts, YouTube-Videos, Tutorials und Bildschirmaufnahmen, Podcast-Clips, Memes.",
 machines="Auch für Maschinen:", machines_text="eine JSON-RPC-API, damit auch Skripte und KI-Agenten damit Video schneiden können.",

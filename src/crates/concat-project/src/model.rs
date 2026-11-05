@@ -908,7 +908,7 @@ impl MaskShape {
     }
 }
 
-/// A shape that keeps part of a clip's picture: CapCut's Mask. Drawn over
+/// A shape that keeps part of a clip's picture: the Mask. Drawn over
 /// the picture as it is seen - after the crop and the flips, before the
 /// placement - so it moves, scales and turns with the clip, and multiplies
 /// with the cutout's matte and everything else that weighs the picture.
@@ -2913,8 +2913,8 @@ pub struct Timeline {
     /// Linkage: whether the other lanes follow an edit that closes up or
     /// opens the main lane ([`Timeline::background_lane`]), so a caption,
     /// a title, an overlay or a sound placed against the footage stays on
-    /// the frames it was placed against. CapCut's Linkage, Final Cut's
-    /// connected clips. On unless turned off, and left out of the document
+    /// the frames it was placed against, as connected clips are in other
+    /// editors. On unless turned off, and left out of the document
     /// while on.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub linkage: bool,
@@ -3350,7 +3350,7 @@ impl Timeline {
     }
 
     /// The lane whose pictures have a background: the lowest lane holding a
-    /// video or a still - the main picture of the cut, where CapCut has its
+    /// video or a still - the main picture of the cut, a phone editor's
     /// main track. Lowest rather than simply the first lane, so a cut whose
     /// bottom lane holds only music still has one. None for a timeline
     /// without a picture.

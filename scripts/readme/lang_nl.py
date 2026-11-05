@@ -1,10 +1,10 @@
 CODE="nl"
 L=dict(name="Nederlands", flag="🇳🇱",
-tagline="De gratis, open-source en cross-platform vervanger voor CapCut.",
+tagline="De gratis, open-source en cross-platform video-editor.",
 note="Vertaald uit de Engelse README van 11 oktober 2026. De Engelse versie is degene die actueel wordt gehouden.",
 sponsors_h="Betaalde sponsors", proxyon="Pay-as-you-go-proxy’s voor ontwikkelaars", proxyon_code="Gebruik code <code>JUB0T</code> voor 20% korting",
 about_h="Over Concat",
-about1="Concat is een gratis, open-source video-editor en een alternatief voor CapCut op macOS, Windows, Linux en Android. Het doet waarvoor mensen CapCut eigenlijk openen: automatische ondertitels, tekst-naar-spraak, achtergrond verwijderen, keyframe-animatie, effecten en titels, monteren op meerdere sporen, exporteren in 4K. En dat zonder addertjes onder het gras: geen watermerk, geen account, geen abonnement, geen upload.",
+about1="Concat is een gratis, open-source video-editor voor macOS, Windows, Linux en Android. Het doet wat de meeste montages nodig hebben: automatische ondertitels, tekst-naar-spraak, achtergrond verwijderen, keyframe-animatie, effecten en titels, monteren op meerdere sporen, exporteren in 4K. En dat zonder addertjes onder het gras: geen watermerk, geen account, geen abonnement, geen upload.",
 about2="Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installeren, beeldmateriaal erin slepen, knippen. De AI-modellen voor ondertitels, stemmen en uitsnijden download je één keer via Instellingen, daarna werken ze offline. Je beeldmateriaal verlaat je schijf nooit.",
 good_for="Geschikt voor:", good_for_list="TikTok, Reels en Shorts, YouTube-video’s, tutorials en schermopnames, podcastfragmenten, memes.",
 machines="Ook voor machines:", machines_text="een JSON-RPC-API, zodat ook scripts en AI-agents er video mee kunnen knippen.",

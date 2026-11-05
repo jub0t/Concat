@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">O substituto do CapCut gratuito, de código aberto e multiplataforma.</h3>
+<h3 align="center">O editor de vídeo gratuito, de código aberto e multiplataforma.</h3>
 
 <div align="center">
 
@@ -44,7 +44,7 @@
 
 ## Sobre
 
-O Concat é um editor de vídeo gratuito e de código aberto, uma alternativa ao CapCut para macOS, Windows, Linux e Android. Ele cobre aquilo para que as pessoas realmente abrem o CapCut: legendas automáticas, texto para fala, remoção de fundo, animação por keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
+O Concat é um editor de vídeo gratuito e de código aberto para macOS, Windows, Linux e Android. Ele cobre o que a maioria das edições precisa: legendas automáticas, texto para fala, remoção de fundo, animação por keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
 
 Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instale, solte o material, corte. Os modelos de IA para legendas, vozes e recorte são baixados uma vez nas Configurações e depois funcionam offline. Seu material nunca sai do seu disco.
 
