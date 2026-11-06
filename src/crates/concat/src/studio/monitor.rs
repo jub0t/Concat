@@ -15,12 +15,33 @@ impl Studio {
         ));
     }
 
+    /// Compare the timeline without its visual effect chains. The project,
+    /// individual enable switches, audio and colour-management settings stay
+    /// untouched, so returning to the edited view restores every setting.
+    pub fn toggle_preview_effects(&mut self) {
+        self.preview_effects_bypassed = !self.preview_effects_bypassed;
+        self.flat = None;
+        self.request_preview();
+    }
+
     /// What the monitor draws at the playhead: the document flattened with
     /// its titles, plus the frame's own additions - a look being shown, a
     /// cutout being painted - and the session's settings. None without a
     /// project.
     pub fn preview_clips(
         &mut self,
+    ) -> Option<(
+        std::sync::Arc<Vec<concat_export::ExportClip>>,
+        concat_project::DocumentSettings,
+    )> {
+        self.composition_clips(self.preview_effects_bypassed)
+    }
+
+    /// A frame's composition, with the monitor's comparison explicitly
+    /// chosen. File outputs always ask for the effects to remain enabled.
+    pub(super) fn composition_clips(
+        &mut self,
+        bypass_effects: bool,
     ) -> Option<(
         std::sync::Arc<Vec<concat_export::ExportClip>>,
         concat_project::DocumentSettings,
@@ -42,12 +63,11 @@ impl Studio {
         // playback and scrubbing neither flatten nor plan again. A gesture
         // in flight - the echo - is not the document, and flattens fresh.
         let cached = self.echo.is_none()
-            && self
-                .flat
-                .as_ref()
-                .is_some_and(|(at, w, h, _)| *at == self.revision && *w == width && *h == height);
+            && self.flat.as_ref().is_some_and(|(at, w, h, bypassed, _)| {
+                *at == self.revision && *w == width && *h == height && *bypassed == bypass_effects
+            });
         let clips = if cached {
-            std::sync::Arc::clone(&self.flat.as_ref().expect("checked").3)
+            std::sync::Arc::clone(&self.flat.as_ref().expect("checked").4)
         } else {
             let mut clips = concat_export::flatten::flatten_timeline_in(
                 self.project(),
@@ -94,9 +114,20 @@ impl Studio {
                     clips.push(title.clip);
                 }
             }
+            if bypass_effects {
+                for clip in &mut clips {
+                    clip.effects.clear();
+                }
+            }
             let clips = std::sync::Arc::new(clips);
             if self.echo.is_none() {
-                self.flat = Some((self.revision, width, height, std::sync::Arc::clone(&clips)));
+                self.flat = Some((
+                    self.revision,
+                    width,
+                    height,
+                    bypass_effects,
+                    std::sync::Arc::clone(&clips),
+                ));
             }
             clips
         };
@@ -106,7 +137,7 @@ impl Studio {
         // The look being shown before it is laid down goes into this
         // frame only, as the layer it would be: over every track, the
         // whole way along, at full strength. The timeline is as it was.
-        if let Some(filter_id) = self.audition.clone() {
+        if !bypass_effects && let Some(filter_id) = self.audition.clone() {
             let effects = vec![AppliedFilter::new(filter_id)];
             let track = clips
                 .iter()
