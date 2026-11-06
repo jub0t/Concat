@@ -498,8 +498,8 @@ mod tests {
         ] {
             let path = dir.join(name);
             let encoder = match hdr {
-                None => Encoder::create(&path, 64, 64, rate, &options),
-                Some(pq) => Encoder::create_mislabelled_hdr(&path, 64, 64, rate, &options, pq),
+                None => Encoder::create(&path, 320, 176, rate, &options),
+                Some(pq) => Encoder::create_mislabelled_hdr(&path, 320, 176, rate, &options, pq),
             };
             let mut encoder = match encoder {
                 Ok(encoder) => encoder,
@@ -510,7 +510,9 @@ mod tests {
                 Err(error) => panic!("{name} encodes: {error}"),
             };
             for _ in 0..3 {
-                encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+                encoder
+                    .write_frame(&Frame::black(320, 176))
+                    .expect("writes");
             }
             encoder.finish().expect("finishes");
             let info = probe(&path).expect("probes");
