@@ -45,12 +45,12 @@ case "$target" in
     if [ -n "$libclang_so" ]; then
       libclang_dir=$(dirname "$libclang_so")
       echo "export LIBCLANG_PATH='$libclang_dir'"
-      echo "export LD_LIBRARY_PATH='$libclang_dir:\${LD_LIBRARY_PATH:-}'"
+      echo "export LD_LIBRARY_PATH='$libclang_dir':\${LD_LIBRARY_PATH:-}"
     fi
     # Tell bindgen which clang to use: the NDK's own clang for the target.
     echo "export CLANG_PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin/$target$android_api-clang'"
     # Make sure PATH finds the NDK's clang before any host clang.
-    echo "export PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin:\$PATH'"
+    echo "export PATH='$ndk/toolchains/llvm/prebuilt/$host_tag/bin':\$PATH"
     # Cargo target-specific compiler variables so cargo-apk and bindgen use
     # the NDK's clang, not the host's clang which expects glibc headers.
     target_env=$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')
