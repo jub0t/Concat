@@ -1745,6 +1745,7 @@ impl Studio {
                 .map_or(-1, |index| index as i32),
         );
         editor.set_quality_index(self.quality_of() as i32);
+        editor.set_preview_effects_bypassed(self.preview_effects_bypassed);
 
         // The Details panel, and the sheet its Modify button opens. The
         // frame, rate and duration are the active timeline's, and the panel
