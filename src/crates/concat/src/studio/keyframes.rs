@@ -1610,20 +1610,10 @@ impl Studio {
 
         app.set_on_start(self.on_start);
         app.set_project_name(self.project_name.as_str().into());
-        app.set_project_status(
-            if self.dirty {
-                "unsaved changes"
-            } else {
-                "saved"
-            }
-            .into(),
-        );
-        app.set_toast(ToastData {
-            token: self.toast.token,
-            message: self.toast.message.as_str().into(),
-            failed: self.toast.failed,
+        self.publish_status(app);
+        set_changed(app.get_start(), self.start.data(), same_start, |data| {
+            app.set_start(data)
         });
-        app.set_start(self.start.data());
         app.set_recents_total(self.recents.len() as i32);
         sync(
             &models.recents,
@@ -1768,13 +1758,28 @@ impl Studio {
         sync(&models.menu, rows);
         editor.set_menu_token(self.menu_token);
 
-        app.set_export(self.export.data(self));
-        app.set_settings(self.settings.data(self));
+        set_changed(
+            app.get_export(),
+            self.export.data(self),
+            same_export,
+            |data| app.set_export(data),
+        );
+        set_changed(
+            app.get_settings(),
+            self.settings.data(self),
+            same_settings,
+            |data| app.set_settings(data),
+        );
         sync(&models.transcribers, self.settings.transcriber_rows());
         sync(&models.voices, self.settings.voice_rows());
         sync(&models.versions, self.settings.version_rows());
         sync(&models.version_details, self.settings.version_details());
-        app.set_relink(self.relink.data(self));
+        set_changed(
+            app.get_relink(),
+            self.relink.data(self),
+            same_relink,
+            |data| app.set_relink(data),
+        );
         app.set_confirm(self.confirm_data());
 
         // The speech sheets, and the lists they choose from.
@@ -1788,8 +1793,16 @@ impl Studio {
         );
         sync(&models.caption_languages, self.captions.language_rows(self));
         let captions = self.captions.data(self);
-        app.global::<Editor>().set_captions_sheet(captions.clone());
-        app.set_captions(captions);
+        let editor = app.global::<Editor>();
+        set_changed(
+            editor.get_captions_sheet(),
+            captions.clone(),
+            same_captions,
+            |data| editor.set_captions_sheet(data),
+        );
+        set_changed(app.get_captions(), captions, same_captions, |data| {
+            app.set_captions(data)
+        });
         let voices = installed(&self.settings.voices);
         sync(
             &models.speech_models,

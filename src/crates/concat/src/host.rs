@@ -226,6 +226,18 @@ pub fn spawn_in_project<T: Send + 'static>(
     spawn_detached(move || deliver(Some(epoch), work(), then));
 }
 
+/// [`spawn_in_project`] with the publish after `then` chosen by the caller:
+/// for work whose result touches one corner of the window, where a whole
+/// publish would be all cost.
+pub fn spawn_in_project_publishing<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+    publish: impl FnOnce(&Studio, &App, &Models) + Send + 'static,
+) {
+    let epoch = project_epoch();
+    spawn_detached(move || deliver_then(Some(epoch), work(), then, publish));
+}
+
 /// [`spawn_in_project`] for the monitor's frames. While playback runs a
 /// frame arrives every few dozen milliseconds and changes nothing but the
 /// picture, so only the picture is published then; the transport's own

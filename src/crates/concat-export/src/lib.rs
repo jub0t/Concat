@@ -1583,7 +1583,9 @@ fn headless<T>(draw: impl FnOnce(&mut WgpuCompositor) -> T) -> Result<T, String>
     // frame and filled the log with the same failure, frame after frame.
     static NEXT_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
     if gpu.lost() {
-        let mut next = NEXT_TRY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut next = NEXT_TRY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = std::time::Instant::now();
         if next.is_none_or(|at| now >= at) {
             match WgpuCompositor::new() {

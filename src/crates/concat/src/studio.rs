@@ -907,11 +907,25 @@ impl Models {
 /// Republish a list into a live model without resetting it: rows that did
 /// not change are not written, and the length changes a row at a time.
 pub fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, next: Vec<T>) {
+    sync_with(model, next, |held, next| held == next);
+}
+
+/// [`sync`] with the rows compared by `same`: for a row that holds a model
+/// of its own, whose `==` is the model's identity. A row rebuilt with a
+/// fresh model was never equal to the one shown, so every publish wrote it
+/// again - and an open dropdown whose options were swapped under it closed,
+/// and a field being typed in was handed back its old value: the autosave
+/// a second and a half after an edit is a publish, which is how #622 met it.
+pub fn sync_with<T: Clone + 'static>(
+    model: &VecModel<T>,
+    next: Vec<T>,
+    same: impl Fn(&T, &T) -> bool,
+) {
     let mut next = next;
     let shared = model.row_count().min(next.len());
     let tail = next.split_off(shared);
     for (row, value) in next.into_iter().enumerate() {
-        if model.row_data(row).as_ref() != Some(&value) {
+        if !model.row_data(row).is_some_and(|held| same(&held, &value)) {
             model.set_row_data(row, value);
         }
     }
@@ -920,6 +934,60 @@ pub fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, next: Vec<T>) {
     }
     for value in tail {
         model.push(value);
+    }
+}
+
+/// Whether two models hold the same rows, in the same order.
+pub fn same_rows<T: PartialEq + 'static>(a: &ModelRc<T>, b: &ModelRc<T>) -> bool {
+    a.row_count() == b.row_count()
+        && (0..a.row_count()).all(|row| a.row_data(row) == b.row_data(row))
+}
+
+/// Two rows the same in everything, their models compared by their rows:
+/// `with_models` copies `b`'s models into a clone of `a`, so every other
+/// field - and any field added later - is held to `==` as it is.
+fn same_but_models<T: Clone + PartialEq>(
+    a: &T,
+    b: &T,
+    models_same: bool,
+    with_models: impl FnOnce(&mut T, &T),
+) -> bool {
+    models_same && {
+        let mut a = a.clone();
+        with_models(&mut a, b);
+        a == *b
+    }
+}
+
+/// `fn $name(a, b) -> bool` for a struct whose `$field`s are models: equal
+/// when those hold the same rows and everything else is `==`.
+macro_rules! same_with_models {
+    ($($name:ident: $ty:ty => $($field:ident),+;)+) => {$(
+        pub fn $name(a: &$ty, b: &$ty) -> bool {
+            same_but_models(a, b, true $(&& same_rows(&a.$field, &b.$field))+, |a, b| {
+                $(a.$field = b.$field.clone();)+
+            })
+        }
+    )+};
+}
+
+same_with_models! {
+    same_chain_choice: crate::ui::ChainChoiceData => options, values;
+    same_transition_choice: crate::ui::TransitionChoiceData => options, values;
+    same_key_row: crate::ui::KeyRowData => keys;
+    same_export: crate::ui::ExportData => resolutions, rates, rate_details;
+    same_settings: crate::ui::SettingsData => shortcuts;
+    same_relink: crate::ui::RelinkData => items;
+    same_start: crate::ui::StartData => rate_options;
+    same_captions: crate::ui::CaptionsSheetData => sources;
+}
+
+/// Writes `next` through `set` unless it is `same` as what `held` shows: a
+/// struct carrying a model is rebuilt with a fresh one on every publish,
+/// and written regardless it reset the dialog reading it.
+pub fn set_changed<T>(held: T, next: T, same: fn(&T, &T) -> bool, set: impl FnOnce(T)) {
+    if !same(&held, &next) {
+        set(next);
     }
 }
 
@@ -2800,6 +2868,48 @@ mod tests {
         colour_about, custom_frame, custom_rate, fps_of, grading_rows, has_hue, home_folder,
         key_commands, packed, place_in, shown, wheel_partners, write_keyable,
     };
+
+    /// A row rebuilt with fresh models of the same rows is the same row, so
+    /// a publish leaves it - and the dropdown reading it - alone (#622);
+    /// a changed option, or any other field, is a change.
+    #[test]
+    fn rows_holding_models_are_compared_by_what_the_models_hold() {
+        use slint::{Model, ModelRc, SharedString, VecModel};
+        let choice = |options: &[&str], current: i32| crate::ui::ChainChoiceData {
+            options: ModelRc::new(VecModel::from(
+                options
+                    .iter()
+                    .map(|o| SharedString::from(*o))
+                    .collect::<Vec<_>>(),
+            )),
+            values: ModelRc::new(VecModel::from(vec![0.0f32, 1.0])),
+            current,
+            ..Default::default()
+        };
+        let shown = choice(&["Soft", "Hard"], 0);
+        assert!(super::same_chain_choice(
+            &shown,
+            &choice(&["Soft", "Hard"], 0)
+        ));
+        assert!(!super::same_chain_choice(
+            &shown,
+            &choice(&["Soft", "Harder"], 0)
+        ));
+        assert!(!super::same_chain_choice(
+            &shown,
+            &choice(&["Soft", "Hard"], 1)
+        ));
+
+        let model = VecModel::from(vec![shown.clone()]);
+        let held = model.row_data(0).expect("a row").options;
+        super::sync_with(
+            &model,
+            vec![choice(&["Soft", "Hard"], 0)],
+            super::same_chain_choice,
+        );
+        let after = model.row_data(0).expect("a row").options;
+        assert!(held == after, "an unchanged row kept its model");
+    }
 
     /// Up and Down walk the cuts on every lane in order, a playhead a
     /// hair off a cut by rounding counts as on it, and past the last cut
