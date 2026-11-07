@@ -190,6 +190,11 @@ export enum ClipField {
     /// stabilization: on (1) or off (0), how smooth, the most it may zoom,
     /// and tripod (1) or following the camera's move (0)
     stabilize, stabilize-smoothness, stabilize-max-zoom, stabilize-tripod,
+    /// voice isolation: off (0), the voice alone (1) or the voice taken
+    /// out (2); and the voice's and the rest's gains, 0 to 2
+    voice-mode, voice-level, background-level,
+    /// and what the voice is set apart from: music (0) or noise (1)
+    voice-kind,
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
     audio-track,
@@ -449,6 +454,19 @@ export struct SelectedClipData {
     stabilize-progress: float,
     stabilize-zoom: float,
     stabilize-needed: float,
+
+    // Voice isolation: off (0), the voice alone (1), the voice taken out
+    // (2), or levels of one's own (3); the voice's and the rest's gains;
+    // and the split of the media's sound, -1 when none is running, else
+    // how far along
+    voice-mode: int,
+    voice-level: float,
+    background-level: float,
+    voice-progress: float,
+    // the split is the vocal model still downloading
+    voice-fetching: bool,
+    // vocals apart from music (0), or speech apart from noise (1)
+    voice-kind: int,
 
     // Enhance writing this clip's enhanced copy: -1 when it is not, else
     // how far along, and whether that is the model downloading rather

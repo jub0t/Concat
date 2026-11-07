@@ -47,6 +47,11 @@ export global Theme {
     /// the tree is a property read away from it, so the window retones in a
     /// frame without anything being rebuilt.
     in-out property <bool> dark: true;
+    /// Whether a dialog's go-ahead button comes before its Cancel, as on
+    /// Windows, rather than after it, as on macOS and the Linux desktops
+    /// (#681). Set once at start-up from the platform (lib.rs); read by
+    /// `ActionPair`.
+    in-out property <bool> ok-first: false;
     /// Which of the palettes' accents the accent tokens are read from: an
     /// index into `accent-names`, and into each palette's `accents`.
     /// Settings > Appearance picks it (lib.rs, `on_settings_accent_changed`)

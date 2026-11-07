@@ -38,6 +38,9 @@ pub struct Gpu {
     pub device: wgpu::Device,
     /// The one queue, so submissions from both sides are ordered.
     pub queue: wgpu::Queue,
+    /// Set when the device is lost, for the monitor's compositor to stop
+    /// drawing on it (see `WgpuCompositor::watching`).
+    pub lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Gpu {
@@ -128,7 +131,10 @@ impl Gpu {
         // Said in the log when it dies, with wgpu's reason: the one line a
         // report of "the GPU device was lost" needs, which until now there
         // was none of. https://github.com/jub0t/Concat/issues/223
-        device.set_device_lost_callback(|reason, message| {
+        let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let marked = std::sync::Arc::clone(&lost);
+        device.set_device_lost_callback(move |reason, message| {
+            marked.store(true, std::sync::atomic::Ordering::Relaxed);
             log::error!("the window's GPU device was lost ({reason:?}): {message}");
         });
         // An error no scope caught goes to the log too. wgpu's default
@@ -143,6 +149,7 @@ impl Gpu {
             adapter,
             device,
             queue,
+            lost,
         })
     }
 

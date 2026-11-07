@@ -444,6 +444,38 @@ impl Fonts {
         Fonts::with_system(true)
     }
 
+    /// The faces the app carries and nothing of the machine's: what a
+    /// title draws with on a machine that has no fonts of its own.
+    pub fn bundled() -> Fonts {
+        Fonts::with_system(false)
+    }
+
+    /// The characters of `text`, other than spaces, that the face `family`
+    /// picks at `weight` has no glyph for - all of them when no face of
+    /// that family is known. What a preset is checked by: one that names a
+    /// face must be drawn in it, not in a fallback.
+    pub fn missing(&self, family: &str, weight: u16, text: &str) -> Vec<char> {
+        let query = fontdb::Query {
+            families: &[fontdb::Family::Name(family)],
+            weight: fontdb::Weight(weight),
+            ..fontdb::Query::default()
+        };
+        let wanted = || text.chars().filter(|c| !c.is_whitespace());
+        let Some(id) = self.db.query(&query) else {
+            return wanted().collect();
+        };
+        self.db
+            .with_face_data(id, |data, index| {
+                let Ok(face) = ttf_parser::Face::parse(data, index) else {
+                    return wanted().collect();
+                };
+                wanted()
+                    .filter(|&c| face.glyph_index(c).is_none())
+                    .collect()
+            })
+            .unwrap_or_else(|| wanted().collect())
+    }
+
     /// The faces titles can use, the machine's own among them or not. The
     /// machine's come first, so where it has a face for a script, at the
     /// title's weight, that face draws it; the script fallbacks come last.

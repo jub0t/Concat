@@ -87,6 +87,49 @@ impl ClipKind {
     }
 }
 
+/// A clip's sound split by voice isolation: the voice, and everything
+/// else, each a file at a gain of its own. The two files add up to the
+/// recording.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceStems {
+    /// The voice's file.
+    pub voice: String,
+    /// Everything else's file.
+    pub rest: String,
+    /// The voice's gain over the clip's own volume.
+    pub voice_gain: f64,
+    /// Everything else's.
+    pub rest_gain: f64,
+}
+
+/// Where voice isolation keeps stream `stream` (the first when `None`) of
+/// `media_path` split, under `project`: a folder named by a hash of the
+/// path, as the masks' and the stabilizer's are, holding `voice.wav` and
+/// `rest.wav`. The engine's version is in the name, so a better model
+/// makes its parts afresh rather than reading the old ones.
+pub fn voice_stems_dir(
+    project: &Path,
+    media_path: &str,
+    stream: Option<u32>,
+    kind: concat_project::model::VoiceKind,
+) -> PathBuf {
+    // FNV-1a, as concat-vision names its folders.
+    let hash = media_path
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    let stream = stream.map_or_else(|| "a".to_owned(), |index| index.to_string());
+    project.join("cache").join("voice").join(format!(
+        "{hash:016x}-{stream}-{}",
+        match kind {
+            concat_project::model::VoiceKind::Vocals => "spleeter2",
+            concat_project::model::VoiceKind::Speech => "dfn3",
+        }
+    ))
+}
+
 /// One clip, as the frontend's flattener describes it.
 #[derive(Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -266,6 +309,12 @@ pub struct ExportClip {
     /// flattener had no project folder to name it by.
     #[serde(default)]
     pub motion_dir: String,
+    /// The clip's sound as its voice and everything else, each at a level
+    /// of its own (the document's `Clip::voice`), when both parts have
+    /// been worked out; absent, the clip plays its file as recorded. Set
+    /// by the flattener, which knows where the parts are kept.
+    #[serde(default)]
+    pub voice: Option<VoiceStems>,
     /// A title's per-word reveal order, baked at rasterize time and set by
     /// the host - never by the wire format, like `transition_chain`. Every
     /// shader pass over this clip carries it, so a reveal effect can read
@@ -382,6 +431,7 @@ impl ExportClip {
             mask_dir: String::new(),
             stabilize: None,
             motion_dir: String::new(),
+            voice: None,
             highlighted: false,
             reveal_map: None,
             backdrop: None,
@@ -1269,18 +1319,42 @@ pub fn audio_buses(clips: &[ExportClip]) -> Vec<audio::AudioBus> {
 /// into pieces of constant rate, each at the mean of its stretch of the
 /// curve and starting where the curve says the source had got to.
 pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
+    let Some(stems) = &clip.voice else {
+        return audio_pieces_of(clip, &clip.path, clip.audio_stream, 1.0);
+    };
+    // Each part on its own, from the same place in it as the clip is in
+    // its file: the parts are the whole file's, split. A part turned all
+    // the way down is not read at all.
+    [
+        (&stems.voice, stems.voice_gain),
+        (&stems.rest, stems.rest_gain),
+    ]
+    .into_iter()
+    .filter(|(_, gain)| *gain > 0.0)
+    .flat_map(|(path, gain)| audio_pieces_of(clip, path, None, gain))
+    .collect()
+}
+
+/// [`audio_pieces`] read from `path`'s stream `stream`, `gain` times as
+/// loud as the clip is.
+fn audio_pieces_of(
+    clip: &ExportClip,
+    path: &str,
+    stream: Option<u32>,
+    gain: f64,
+) -> Vec<AudioClip> {
     let chain = clip.filter_chain.clone();
     let track = volume_track(clip);
     let Some(curve) = clip.retime() else {
         return vec![AudioClip {
-            path: PathBuf::from(&clip.path),
-            stream: clip.audio_stream.map(|index| index as usize),
+            path: PathBuf::from(path),
+            stream: stream.map(|index| index as usize),
             start: clip.start,
             duration: clip.duration,
             source_start: clip.source_start,
             speed: audio::clamp_speed(clip.speed),
             preserve_pitch: clip.preserve_pitch,
-            volume: clip.volume,
+            volume: clip.volume * gain,
             volume_curve: track,
             fade_in: clip.fade_in,
             fade_out: clip.fade_out,
@@ -1304,14 +1378,14 @@ pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
             let fade_out_from = clip.start + clip.duration - clip.fade_out;
             let fade_out = (piece_end - fade_out_from.max(piece_start)).clamp(0.0, piece_duration);
             AudioClip {
-                path: PathBuf::from(&clip.path),
-                stream: clip.audio_stream.map(|index| index as usize),
+                path: PathBuf::from(path),
+                stream: stream.map(|index| index as usize),
                 start: piece_start,
                 duration: piece_duration,
                 source_start,
                 speed: audio::clamp_speed(mean),
                 preserve_pitch: clip.preserve_pitch,
-                volume: clip.volume,
+                volume: clip.volume * gain,
                 volume_curve: track_slice(&track, x0, x1),
                 fade_in: if clip.fade_in > 0.0 { fade_in } else { 0.0 },
                 fade_out: if clip.fade_out > 0.0 { fade_out } else { 0.0 },
@@ -1576,12 +1650,35 @@ fn headless<T>(draw: impl FnOnce(&mut WgpuCompositor) -> T) -> Result<T, String>
         .ok_or_else(|| NO_RENDERER.to_owned())?;
     let mut gpu = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     // A device that died under an earlier preview is not kept: every
-    // preview after it would be black.
-    if gpu.lost()
-        && let Some(fresh) = WgpuCompositor::new()
-    {
-        log::warn!("previews: the GPU device was lost; drawing on a fresh one");
-        *gpu = fresh;
+    // preview after it would be black. A fresh one is asked for at most
+    // every two seconds: asking makes an instance and walks every backend's
+    // adapters, and where none answers - WARP lost on a Windows PC, with
+    // nothing else to fall back to (#673) - asking on every frame cost the
+    // frame and filled the log with the same failure, frame after frame.
+    static NEXT_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    if gpu.lost() {
+        let mut next = NEXT_TRY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let now = std::time::Instant::now();
+        if next.is_none_or(|at| now >= at) {
+            match WgpuCompositor::new() {
+                Some(fresh) => {
+                    log::warn!("previews: the GPU device was lost; drawing on a fresh one");
+                    *gpu = fresh;
+                    *next = None;
+                }
+                None => {
+                    if next.is_none() {
+                        log::error!(
+                            "previews: the GPU device was lost and no other opens: {NO_RENDERER}; \
+                             trying again every two seconds"
+                        );
+                    }
+                    *next = Some(now + std::time::Duration::from_secs(2));
+                }
+            }
+        }
     }
     Ok(draw(&mut gpu))
 }

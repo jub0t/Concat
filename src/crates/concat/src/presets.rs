@@ -386,6 +386,37 @@ mod tests {
         assert_eq!(builtin().len(), embedded::BUILTIN.len());
     }
 
+    /// Every built-in preset's words are drawn in the face it names, from
+    /// the faces the app carries alone: a language preset whose letters
+    /// came from a fallback, or were boxes on a machine without the
+    /// script, would not be the look its card shows (#675).
+    #[test]
+    fn every_built_in_preset_is_drawn_in_its_own_face() {
+        let fonts = concat_text::Fonts::bundled();
+        // The check sees a gap where there is one: Abril Fatface is Latin.
+        assert_eq!(fonts.missing("Abril Fatface", 400, "Ж"), vec!['Ж']);
+        let mut wrong = Vec::new();
+        for preset in builtin() {
+            let style = &preset.style;
+            let missing = fonts.missing(
+                &style.font_family,
+                style.font_weight.round() as u16,
+                &style.content,
+            );
+            if !missing.is_empty() {
+                wrong.push(format!(
+                    "{} ({} {}): {missing:?}",
+                    preset.id, style.font_family, style.font_weight
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "letters their face lacks:\n{}",
+            wrong.join("\n")
+        );
+    }
+
     #[test]
     fn a_partial_style_lays_over_the_default() {
         let file: PresetFile = toml::from_str(

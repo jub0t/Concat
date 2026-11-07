@@ -443,6 +443,7 @@ impl Studio {
         self.request_preview();
         self.ensure_cutouts();
         self.ensure_stabilizers();
+        self.ensure_voices();
         self.ensure_regions();
     }
 
@@ -491,7 +492,7 @@ impl Studio {
             || {
                 crate::host::Shell::with(|shell, app| {
                     shell.studio.borrow_mut().save(false);
-                    shell.studio.borrow().publish(&app, &shell.models);
+                    shell.studio.borrow().publish_status(&app);
                 });
             },
         );
@@ -509,7 +510,7 @@ impl Studio {
         // worker happens to pick it up.
         let ticket = projects::ticket();
         self.dirty = false;
-        spawn_in_project(
+        crate::host::spawn_in_project_publishing(
             move || projects::save_ordered(&path, &document, ticket),
             move |studio, _, _, result| match result {
                 Ok(_) if announce => studio.notify(&t("studio.projectSaved"), false),
@@ -519,6 +520,7 @@ impl Studio {
                     studio.notify(&tf("studio.couldNotSave", &[&error]), true);
                 }
             },
+            |studio, app, _| studio.publish_status(app),
         );
     }
 

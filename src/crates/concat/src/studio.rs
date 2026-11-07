@@ -65,6 +65,7 @@ mod speech;
 mod stage;
 mod text;
 mod vision;
+mod voice;
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 use crate::dock::{
@@ -907,11 +908,25 @@ impl Models {
 /// Republish a list into a live model without resetting it: rows that did
 /// not change are not written, and the length changes a row at a time.
 pub fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, next: Vec<T>) {
+    sync_with(model, next, |held, next| held == next);
+}
+
+/// [`sync`] with the rows compared by `same`: for a row that holds a model
+/// of its own, whose `==` is the model's identity. A row rebuilt with a
+/// fresh model was never equal to the one shown, so every publish wrote it
+/// again - and an open dropdown whose options were swapped under it closed,
+/// and a field being typed in was handed back its old value: the autosave
+/// a second and a half after an edit is a publish, which is how #622 met it.
+pub fn sync_with<T: Clone + 'static>(
+    model: &VecModel<T>,
+    next: Vec<T>,
+    same: impl Fn(&T, &T) -> bool,
+) {
     let mut next = next;
     let shared = model.row_count().min(next.len());
     let tail = next.split_off(shared);
     for (row, value) in next.into_iter().enumerate() {
-        if model.row_data(row).as_ref() != Some(&value) {
+        if !model.row_data(row).is_some_and(|held| same(&held, &value)) {
             model.set_row_data(row, value);
         }
     }
@@ -920,6 +935,60 @@ pub fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, next: Vec<T>) {
     }
     for value in tail {
         model.push(value);
+    }
+}
+
+/// Whether two models hold the same rows, in the same order.
+pub fn same_rows<T: PartialEq + 'static>(a: &ModelRc<T>, b: &ModelRc<T>) -> bool {
+    a.row_count() == b.row_count()
+        && (0..a.row_count()).all(|row| a.row_data(row) == b.row_data(row))
+}
+
+/// Two rows the same in everything, their models compared by their rows:
+/// `with_models` copies `b`'s models into a clone of `a`, so every other
+/// field - and any field added later - is held to `==` as it is.
+fn same_but_models<T: Clone + PartialEq>(
+    a: &T,
+    b: &T,
+    models_same: bool,
+    with_models: impl FnOnce(&mut T, &T),
+) -> bool {
+    models_same && {
+        let mut a = a.clone();
+        with_models(&mut a, b);
+        a == *b
+    }
+}
+
+/// `fn $name(a, b) -> bool` for a struct whose `$field`s are models: equal
+/// when those hold the same rows and everything else is `==`.
+macro_rules! same_with_models {
+    ($($name:ident: $ty:ty => $($field:ident),+;)+) => {$(
+        pub fn $name(a: &$ty, b: &$ty) -> bool {
+            same_but_models(a, b, true $(&& same_rows(&a.$field, &b.$field))+, |a, b| {
+                $(a.$field = b.$field.clone();)+
+            })
+        }
+    )+};
+}
+
+same_with_models! {
+    same_chain_choice: crate::ui::ChainChoiceData => options, values;
+    same_transition_choice: crate::ui::TransitionChoiceData => options, values;
+    same_key_row: crate::ui::KeyRowData => keys;
+    same_export: crate::ui::ExportData => resolutions, rates, rate_details;
+    same_settings: crate::ui::SettingsData => shortcuts;
+    same_relink: crate::ui::RelinkData => items;
+    same_start: crate::ui::StartData => rate_options;
+    same_captions: crate::ui::CaptionsSheetData => sources;
+}
+
+/// Writes `next` through `set` unless it is `same` as what `held` shows: a
+/// struct carrying a model is rebuilt with a fresh one on every publish,
+/// and written regardless it reset the dialog reading it.
+pub fn set_changed<T>(held: T, next: T, same: fn(&T, &T) -> bool, set: impl FnOnce(T)) {
+    if !same(&held, &next) {
+        set(next);
     }
 }
 
@@ -1197,6 +1266,15 @@ pub struct Studio {
     /// Media whose stabilization was turned on anew, so an analysis the
     /// app died in last time is tried again rather than skipped.
     stabilize_retry: HashSet<String>,
+    /// Voice isolation splitting a file, by the parts' folder: whether its
+    /// model is still downloading, and how far it has got. One at a time,
+    /// like the analyses.
+    voice_jobs: HashMap<std::path::PathBuf, (bool, f32)>,
+    /// The running split's stop.
+    voice_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Files whose split failed this session: not tried again by itself,
+    /// only when a clip is asked anew.
+    voice_failed: HashSet<std::path::PathBuf>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
@@ -1792,6 +1870,14 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
         commands.push(Command::SetClipStabilize {
             clip_id: id.to_owned(),
             stabilize: after.stabilize,
+        });
+    }
+    // Without this the inspector's Voice isolation wrote the echo and the
+    // commit dropped it: the way chosen sprang back to Everything.
+    if after.voice != before.voice {
+        commands.push(Command::SetClipVoice {
+            clip_id: id.to_owned(),
+            voice: after.voice,
         });
     }
     if after.speed_curve != before.speed_curve {
@@ -2697,6 +2783,9 @@ impl Studio {
             picking: None,
             cutout_jobs: HashMap::new(),
             stabilize_jobs: HashMap::new(),
+            voice_jobs: HashMap::new(),
+            voice_cancel: None,
+            voice_failed: HashSet::new(),
             stabilize_retry: HashSet::new(),
             enhance_jobs: HashMap::new(),
             enhance_scale: 0.0,
@@ -2800,6 +2889,77 @@ mod tests {
         colour_about, custom_frame, custom_rate, fps_of, grading_rows, has_hue, home_folder,
         key_commands, packed, place_in, shown, wheel_partners, write_keyable,
     };
+
+    /// The inspector writes its Voice isolation into the echo, and the
+    /// commit is the difference between the echo and the document: a
+    /// difference with no command dropped the choice, and the inspector's
+    /// Voice only and No voice sprang back to Everything.
+    #[test]
+    fn a_voice_set_in_the_inspector_is_committed() {
+        use concat_project::model::{Clip, ClipKind as Kind, VoiceMix};
+        let before = Clip::blank("c1", "t1", Kind::Audio, "m1", 0.0, 4.0);
+        for mix in [Some(VoiceMix::KEEP_VOICE), Some(VoiceMix::REMOVE_VOICE)] {
+            let mut after = before.clone();
+            after.voice = mix;
+            let commands = super::clip_commands("c1", &before, &after, false);
+            assert!(
+                commands.iter().any(|command| matches!(
+                    command,
+                    Command::SetClipVoice { voice, .. } if *voice == mix
+                )),
+                "no command carries {mix:?}: {commands:?}"
+            );
+        }
+        let mut on = before.clone();
+        on.voice = Some(VoiceMix::KEEP_VOICE);
+        assert!(
+            super::clip_commands("c1", &on, &before, false)
+                .iter()
+                .any(|command| matches!(command, Command::SetClipVoice { voice: None, .. }))
+        );
+    }
+
+    /// A row rebuilt with fresh models of the same rows is the same row, so
+    /// a publish leaves it - and the dropdown reading it - alone (#622);
+    /// a changed option, or any other field, is a change.
+    #[test]
+    fn rows_holding_models_are_compared_by_what_the_models_hold() {
+        use slint::{Model, ModelRc, SharedString, VecModel};
+        let choice = |options: &[&str], current: i32| crate::ui::ChainChoiceData {
+            options: ModelRc::new(VecModel::from(
+                options
+                    .iter()
+                    .map(|o| SharedString::from(*o))
+                    .collect::<Vec<_>>(),
+            )),
+            values: ModelRc::new(VecModel::from(vec![0.0f32, 1.0])),
+            current,
+            ..Default::default()
+        };
+        let shown = choice(&["Soft", "Hard"], 0);
+        assert!(super::same_chain_choice(
+            &shown,
+            &choice(&["Soft", "Hard"], 0)
+        ));
+        assert!(!super::same_chain_choice(
+            &shown,
+            &choice(&["Soft", "Harder"], 0)
+        ));
+        assert!(!super::same_chain_choice(
+            &shown,
+            &choice(&["Soft", "Hard"], 1)
+        ));
+
+        let model = VecModel::from(vec![shown.clone()]);
+        let held = model.row_data(0).expect("a row").options;
+        super::sync_with(
+            &model,
+            vec![choice(&["Soft", "Hard"], 0)],
+            super::same_chain_choice,
+        );
+        let after = model.row_data(0).expect("a row").options;
+        assert!(held == after, "an unchanged row kept its model");
+    }
 
     /// Up and Down walk the cuts on every lane in order, a playhead a
     /// hair off a cut by rounding counts as on it, and past the last cut

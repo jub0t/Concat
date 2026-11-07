@@ -110,6 +110,7 @@ impl Studio {
                 self.request_preview();
                 self.ensure_cutouts();
                 self.ensure_stabilizers();
+                self.ensure_voices();
                 self.ensure_regions();
 
                 // Effects this build no longer has, named once as the project
@@ -302,6 +303,7 @@ impl Studio {
         self.cutout_jobs.clear();
         self.stabilize_jobs.clear();
         self.stabilize_retry.clear();
+        self.cancel_voices();
         self.region_job = None;
         self.picking = None;
         self.autosave.stop();

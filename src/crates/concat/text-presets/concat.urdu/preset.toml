@@ -1,0 +1,14 @@
+id = "concat.urdu"
+name = "Urdu"
+language = "Urdu"
+order = 42
+
+# Urdu in the Arabic UI face's Naskh-like forms, not Nastaliq: every
+# Urdu letter is there.
+[style]
+content = "خوش آمدید"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 400
+fontSize = 0.09
+strokeWidth = 0.008
+strokeColor = "#000000"

@@ -198,6 +198,30 @@ impl Studio {
                 self.inspector_jump = (self.inspector_jump.0 + 1, "Video", "Enhance");
             }
             "export-audio" => self.export_clip_audio(id),
+            // One of the two ways, or back to the recording when that way
+            // is the one already on; on the selection when the clip is in
+            // it, else on the clip alone.
+            "voice-keep" | "voice-remove" => {
+                self.flush_commit();
+                if !self.selection.iter().any(|held| held == id) {
+                    self.selection = vec![id.to_owned()];
+                    self.transition_selected = None;
+                }
+                let wanted = concat_project::model::VoiceMix {
+                    // The kind the clip had; vocals apart from music else.
+                    kind: clip.voice.unwrap_or_default().kind,
+                    ..if action == "voice-keep" {
+                        concat_project::model::VoiceMix::KEEP_VOICE
+                    } else {
+                        concat_project::model::VoiceMix::REMOVE_VOICE
+                    }
+                };
+                let on = clip.voice.is_some_and(|mix| {
+                    (mix.voice == 0.0) == (wanted.voice == 0.0)
+                        && (mix.background == 0.0) == (wanted.background == 0.0)
+                });
+                self.set_voice((!on).then_some(wanted));
+            }
             "detach" => self.detach_audio(&clip),
             "reattach" => {
                 self.apply(Command::ReattachAudio {

@@ -47,6 +47,25 @@ impl Studio {
         self.publish_dock(app, models);
     }
 
+    /// The project's saved state and the toast, and nothing else: what a
+    /// save changes. The autosave publishes only this - a whole publish a
+    /// second and a half after every edit was all cost (#622).
+    pub fn publish_status(&self, app: &App) {
+        app.set_project_status(
+            if self.dirty {
+                "unsaved changes"
+            } else {
+                "saved"
+            }
+            .into(),
+        );
+        app.set_toast(ToastData {
+            token: self.toast.token,
+            message: self.toast.message.as_str().into(),
+            failed: self.toast.failed,
+        });
+    }
+
     pub fn publish_dock(&self, _app: &App, models: &Models) {
         let out = self.dock_layout();
         sync(&models.seats, out.seats);
@@ -379,7 +398,7 @@ impl Studio {
         editor.set_selected_transition(self.selected_transition_data());
         let (knobs, choices) = self.transition_knobs();
         sync(&models.transition_knobs, knobs);
-        sync(&models.transition_choices, choices);
+        sync_with(&models.transition_choices, choices, same_transition_choice);
         // The background and Fit and Fill, on their own global: the Details
         // panel, the Video panel and the phone all read it.
         self.publish_backdrop(app);
@@ -398,9 +417,13 @@ impl Studio {
         // The keyframe cluster's state, on its own global: every keyable row
         // in the inspector reads it, and none of them is threaded to.
         let keys = app.global::<Keyframes>();
-        // The Keyframes panel: set whole, since a row holds a model of its
-        // keys and cannot be compared for a diff.
-        models.key_editor_rows.set_vec(self.key_editor_rows());
+        // The Keyframes panel: a row holds a model of its keys, so rows are
+        // compared by what those keys are, and an unchanged row is left be.
+        sync_with(
+            &models.key_editor_rows,
+            self.key_editor_rows(),
+            same_key_row,
+        );
         app.global::<KeyEditor>().set_at(
             self.sole_selection()
                 .and_then(|id| self.clip(&id))
@@ -536,12 +559,13 @@ impl Studio {
                 None => Vec::new(),
             },
         );
-        sync(
+        sync_with(
             &models.visual_choices,
             match self.sole_selection().and_then(|id| self.clip(&id)) {
                 Some(clip) => chain_choices(&clip.video_effects),
                 None => Vec::new(),
             },
+            same_chain_choice,
         );
         sync(&models.applied_audio, sound);
         sync(&models.audio_params, sound_params);
