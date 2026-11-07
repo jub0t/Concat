@@ -119,10 +119,7 @@ impl Socket for std::os::unix::net::UnixStream {
 #[cfg(all(target_os = "android", feature = "local-socket"))]
 impl Socket for socket2::Socket {
     fn duplicate(&self) -> std::io::Result<Self> {
-        // socket2::Socket doesn't implement Clone, but we can create a new one from the fd
-        use std::os::fd::AsRawFd;
-        let fd = self.as_raw_fd();
-        unsafe { Ok(socket2::Socket::from_raw_fd(fd)) }
+        self.try_clone()
     }
     fn hang_up(&self) {
         let _ = self.shutdown(std::net::Shutdown::Both);
@@ -229,31 +226,7 @@ pub(crate) fn serve_local(
 ) -> std::io::Result<JoinHandle<()>> {
     std::thread::Builder::new()
         .name("concat local accept".to_owned())
-        .spawn(move || {
-            // socket2::Socket doesn't have a direct accept() method, we need to use the raw fd
-            use std::os::fd::AsRawFd;
-            let fd = listener.as_raw_fd();
-            accept_loop(
-                || {
-                    let mut addr = libc::sockaddr_un::default();
-                    let mut addr_len = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
-                    let conn_fd = unsafe {
-                        libc::accept(
-                            fd,
-                            &mut addr as *mut _ as *mut libc::sockaddr,
-                            &mut addr_len,
-                        )
-                    };
-                    if conn_fd < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    // Create a new socket2::Socket from the accepted fd
-                    let socket = unsafe { socket2::Socket::from_raw_fd(conn_fd) };
-                    Ok(socket)
-                },
-                door,
-            );
-        })
+        .spawn(move || accept_loop(|| listener.accept().map(|(stream, _)| stream), door))
 }
 
 /// Takes connections until the server stops. A failed accept - the

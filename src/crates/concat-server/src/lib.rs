@@ -247,6 +247,8 @@ impl Server {
             stopper,
             json: None,
             socket: None,
+            #[cfg(target_os = "android")]
+            local_socket: None,
             grpc: None,
             token,
             roots,
@@ -289,54 +291,50 @@ impl Server {
         }
         #[cfg(all(target_os = "android", feature = "local-socket"))]
         if let Some(name) = config.local_socket {
-            use socket2::{Domain, Protocol, Socket, Type};
-            use std::os::fd::AsRawFd;
+            use socket2::{Domain, Protocol, SockAddr, Socket, Type};
             let socket = Socket::new(Domain::UNIX, Type::STREAM, Some(Protocol::from(0)))
                 .map_err(|error| could_not("LocalSocket", &error))?;
 
-            // Abstract namespace: name starts with '@' or use filesystem path
-            if name.starts_with('@') {
-                // Abstract namespace socket
-                let mut addr = libc::sockaddr_un::default();
-                addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
-                let name_bytes = name[1..].as_bytes();
-                let len = name_bytes.len().min(107); // Linux abstract namespace limit
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        name_bytes.as_ptr(),
-                        addr.sun_path[1..].as_mut_ptr() as *mut u8,
-                        len,
-                    );
+            // A name that begins with `@` inhabits the abstract namespace,
+            // Linux's sockets that leave nothing on disk: the `@` becomes the
+            // leading NUL byte that marks the address. Any other name is a
+            // filesystem path, and a file already there is replaced.
+            let addr = if let Some(abstract_name) = name.strip_prefix('@') {
+                // SAFETY: `try_init` offers a zeroed storage to fill; the bytes
+                // written are the `sockaddr_un` family, the leading NUL and the
+                // abstract name, and the length set is exactly what was
+                // written, as the call asks of its closure.
+                let (_, addr) = unsafe {
+                    SockAddr::try_init(|storage, len| {
+                        let addr = &mut *storage.cast::<libc::sockaddr_un>();
+                        addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+                        let bytes = abstract_name.as_bytes();
+                        let held = bytes.len().min(addr.sun_path.len() - 1);
+                        std::ptr::copy_nonoverlapping(
+                            bytes.as_ptr(),
+                            addr.sun_path[1..].as_mut_ptr().cast::<u8>(),
+                            held,
+                        );
+                        *len = (std::mem::size_of::<libc::sa_family_t>() + 1 + held)
+                            as libc::socklen_t;
+                        Ok(())
+                    })
                 }
-                // Length is sizeof(sa_family_t) + 1 + len for abstract
-                let addr_len = std::mem::size_of::<libc::sa_family_t>() + 1 + len;
-                socket
-                    .bind(&socket2::SockAddr::from(addr))
-                    .map_err(|error| could_not(&name, &error))?;
-                socket
-                    .listen(128)
-                    .map_err(|error| could_not(&name, &error))?;
+                .map_err(|error| could_not(&name, &error))?;
+                addr
             } else {
-                // Filesystem path
                 let _ = std::fs::remove_file(&name);
-                let path = std::path::Path::new(&name);
-                if let Some(parent) = path.parent() {
+                if let Some(parent) = std::path::Path::new(&name).parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                let listener = std::os::unix::net::UnixListener::bind(path)
-                    .map_err(|error| could_not(&name, &error))?;
-                let addr = socket2::SockAddr::from(
-                    listener
-                        .local_addr()
-                        .map_err(|error| could_not(&name, &error))?,
-                );
-                socket
-                    .bind(&addr)
-                    .map_err(|error| could_not(&name, &error))?;
-                socket
-                    .listen(128)
-                    .map_err(|error| could_not(&name, &error))?;
-            }
+                SockAddr::unix(&name).map_err(|error| could_not(&name, &error))?
+            };
+            socket
+                .bind(&addr)
+                .map_err(|error| could_not(&name, &error))?;
+            socket
+                .listen(128)
+                .map_err(|error| could_not(&name, &error))?;
 
             server.local_socket = Some(name.clone());
             server.listeners.push(

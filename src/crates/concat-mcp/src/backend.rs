@@ -30,8 +30,6 @@ use concat_api::{Api, ApiError, AppDirs, Request, Response, Stopper};
 use concat_server::client::Client;
 use concat_server::discovery;
 use serde_json::Value;
-#[cfg(all(target_os = "android", feature = "local-socket"))]
-use socket2::Socket;
 
 /// How long a connection to the window's server may take to open.
 const PATIENCE: Duration = Duration::from_secs(3);
@@ -231,7 +229,6 @@ impl ClientLocal {
     /// Connects to the LocalSocket `name` and presents `token`.
     pub fn connect(name: &str, token: &str, patience: Duration) -> Result<ClientLocal, String> {
         use socket2::{Domain, Protocol, Socket, Type};
-        use std::os::fd::AsRawFd;
         use std::time::Instant;
 
         let deadline = Instant::now() + patience;
@@ -245,35 +242,38 @@ impl ClientLocal {
             .set_write_timeout(Some(timeout))
             .map_err(|e| format!("failed to set write timeout: {e}"))?;
 
-        // Connect to abstract namespace or filesystem socket
-        if name.starts_with('@') {
-            let mut addr = libc::sockaddr_un::default();
-            addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
-            let name_bytes = name[1..].as_bytes();
-            let len = name_bytes.len().min(107);
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    name_bytes.as_ptr(),
-                    addr.sun_path[1..].as_mut_ptr() as *mut u8,
-                    len,
-                );
+        // Connect to the abstract namespace or to a filesystem path: a name
+        // that begins with `@` is the abstract namespace, whose `@` becomes
+        // the leading NUL byte that marks the address.
+        let addr = if let Some(abstract_name) = name.strip_prefix('@') {
+            // SAFETY: `try_init` offers a zeroed storage to fill; the bytes
+            // written are the `sockaddr_un` family, the leading NUL and the
+            // abstract name, and the length set is exactly what was written,
+            // as the call asks of its closure.
+            let (_, addr) = unsafe {
+                socket2::SockAddr::try_init(|storage, len| {
+                    let addr = &mut *storage.cast::<libc::sockaddr_un>();
+                    addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+                    let bytes = abstract_name.as_bytes();
+                    let held = bytes.len().min(addr.sun_path.len() - 1);
+                    std::ptr::copy_nonoverlapping(
+                        bytes.as_ptr(),
+                        addr.sun_path[1..].as_mut_ptr().cast::<u8>(),
+                        held,
+                    );
+                    *len = (std::mem::size_of::<libc::sa_family_t>() + 1 + held) as libc::socklen_t;
+                    Ok(())
+                })
             }
-            let addr_len = std::mem::size_of::<libc::sa_family_t>() + 1 + len;
-            socket
-                .connect(&socket2::SockAddr::from(addr))
-                .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
+            .map_err(|e| format!("failed to build the LocalSocket address for {name}: {e}"))?;
+            addr
         } else {
-            let path = std::path::Path::new(name);
-            let addr = socket2::SockAddr::from(
-                std::os::unix::net::UnixStream::connect(path)
-                    .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?
-                    .local_addr()
-                    .map_err(|e| format!("failed to get local addr: {e}"))?,
-            );
-            socket
-                .connect(&addr)
-                .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
-        }
+            socket2::SockAddr::unix(name)
+                .map_err(|e| format!("failed to build the LocalSocket address for {name}: {e}"))?
+        };
+        socket
+            .connect(&addr)
+            .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
 
         // Handshake: send auth token
         let auth_msg = serde_json::json!({
