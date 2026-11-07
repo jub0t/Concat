@@ -1051,6 +1051,7 @@ export component App inherits Window {
 
     in property <RelinkData> relink;
     callback relink-all();
+    callback relink-locate(id: string);
     callback relink-remove(id: string);
     callback relink-dismiss();
 
@@ -1108,6 +1109,7 @@ export component App inherits Window {
         inset-right: root.safe-area-insets.right;
         data: root.relink;
         relink-all => { root.relink-all(); }
+        locate(id) => { root.relink-locate(id); }
         remove(id) => { root.relink-remove(id); }
         dismiss => { root.relink-dismiss(); }
     }
