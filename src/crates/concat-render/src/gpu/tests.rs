@@ -801,7 +801,24 @@ fn every_shader_package_renders_at_its_defaults() {
 /// preview down with it (#673). A sixteen-pixel trial is cheap anywhere.
 #[test]
 fn every_shader_package_builds_on_this_adapter() {
+    // wgpu's own words - an uncaught error, a lost device's reason - go to
+    // the log; without a logger the failure said only "Validation Error".
+    struct Stderr;
+    impl log::Log for Stderr {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Warn
+        }
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                eprintln!("{} {}: {}", record.level(), record.target(), record.args());
+            }
+        }
+        fn flush(&self) {}
+    }
+    let _ = log::set_logger(&Stderr).map(|()| log::set_max_level(log::LevelFilter::Warn));
+
     let Some(mut gpu) = gpu() else { return };
+    let canary = package("test.canary", INVERT, "", &[], 1.0);
     let catalogue = concat_effects::Catalogue::builtin();
     let mut refused = Vec::new();
     for package in catalogue.packages() {
@@ -818,6 +835,19 @@ fn every_shader_package_builds_on_this_adapter() {
         );
         if let Err(error) = gpu.trial(&pass, std::time::Duration::from_secs(60)) {
             refused.push(format!("{}: {error}", package.id()));
+        }
+        // A pass that leaves the device unusable fails every one after it,
+        // each with an error that is not its own: name the one it was, and
+        // go on with a fresh device so the rest are judged for themselves.
+        if let Err(error) = gpu.trial(&canary, std::time::Duration::from_secs(60)) {
+            refused.push(format!(
+                "{}: the device was unusable after it ({error})",
+                package.id()
+            ));
+            let Some(fresh) = WgpuCompositor::new() else {
+                break;
+            };
+            gpu = fresh;
         }
     }
     assert!(
