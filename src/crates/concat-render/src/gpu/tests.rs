@@ -793,6 +793,41 @@ fn every_shader_package_renders_at_its_defaults() {
     }
 }
 
+/// Every built-in effect's pipeline is one the driver takes - on whatever
+/// adapter there is, software included. The test above is skipped on a
+/// software adapter, which left Windows CI's WARP, the one runner whose
+/// Direct3D 12 compiles with FXC, never building a package: halation
+/// shipped in 0.2.9 refused by FXC, and its Library card took the
+/// preview down with it (#673). A sixteen-pixel trial is cheap anywhere.
+#[test]
+fn every_shader_package_builds_on_this_adapter() {
+    let Some(mut gpu) = gpu() else { return };
+    let catalogue = concat_effects::Catalogue::builtin();
+    let mut refused = Vec::new();
+    for package in catalogue.packages() {
+        let Some(shader) = package.shader() else {
+            continue;
+        };
+        let values = package.resolve(&Default::default());
+        let pass = shader.pass(
+            &values,
+            &package.manifest.params,
+            1.0,
+            package.lut().cloned(),
+            None,
+        );
+        if let Err(error) = gpu.trial(&pass, std::time::Duration::from_secs(60)) {
+            refused.push(format!("{}: {error}", package.id()));
+        }
+    }
+    assert!(
+        refused.is_empty(),
+        "refused on {:?}:\n{}",
+        gpu.adapter_info().backend,
+        refused.join("\n")
+    );
+}
+
 /// A pass reads how long its own clip has been on screen through
 /// `frame.clip_time` - the gap between the frame's own time and where the
 /// clip begins on the timeline, not the timeline's absolute clock. A
