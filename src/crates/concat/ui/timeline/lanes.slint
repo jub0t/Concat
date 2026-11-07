@@ -268,6 +268,34 @@ component Clip inherits Rectangle {
     // scrim after it.
     border-radius: Theme.r-sm;
     background: root.well;
+    // Chapter metadata is carried by OBS Hybrid MP4/MOV recordings. Project
+    // each source timestamp through the trim and speed map, then pin it to
+    // the clip so it remains visible as the timeline zooms and scrolls.
+    for chapter in root.item.chapters: Rectangle {
+        x: chapter.at * root.width - 4px;
+        y: 1px;
+        width: 8px;
+        height: 10px;
+        z: 4;
+
+        // A tiny point beneath the head makes this read as a chapter pin,
+        // without carrying the full-height line down the clip.
+        Rectangle {
+            x: 3px;
+            y: 5px;
+            width: 2px;
+            height: 5px;
+            background: #ffd166;
+        }
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: #ffd166;
+        }
+    }
 
     // ── body ─────────────────────────────────────────────────────────────
     Rectangle {

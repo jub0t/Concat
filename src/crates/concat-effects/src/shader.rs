@@ -111,6 +111,12 @@ fn sample(uv: vec2<f32>) -> vec4<f32> {
     return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
 }
 
+/// The layer at `uv` sampled without implicit derivatives, for texture reads
+/// inside dynamic loops.
+fn sample_level(uv: vec2<f32>) -> vec4<f32> {
+    return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
+}
+
 /// A colour of the layer as the texture holds it, in the space `sample`
 /// hands it over in: here, as it is.
 fn into_space(c: vec4<f32>) -> vec4<f32> {
@@ -128,6 +134,12 @@ fn sample(uv: vec2<f32>) -> vec4<f32> {
     return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
 }
 
+/// The layer at `uv` sampled without implicit derivatives, for texture reads
+/// inside dynamic loops.
+fn sample_level(uv: vec2<f32>) -> vec4<f32> {
+    return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
+}
+
 /// A colour of the layer as the texture holds it, in the space `sample`
 /// hands it over in: here, the display encoding.
 fn into_space(c: vec4<f32>) -> vec4<f32> {
@@ -141,6 +153,12 @@ const EFFECT_SAMPLE_LOG: &str = r#"
 /// space a table made for ACEScct reads, and where every level of light,
 /// far past white, has a place between 0 and 1.
 fn sample(uv: vec2<f32>) -> vec4<f32> {
+    return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
+}
+
+/// The layer at `uv` sampled without implicit derivatives, for texture reads
+/// inside dynamic loops.
+fn sample_level(uv: vec2<f32>) -> vec4<f32> {
     return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
 }
 

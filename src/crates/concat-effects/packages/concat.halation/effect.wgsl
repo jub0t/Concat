@@ -29,7 +29,9 @@ fn weight(d: f32, s: f32) -> f32 {
 /// The picture's own light where it is bright, premultiplied by alpha so a
 /// clear pixel adds none, with colour kept: the halo takes its hue later.
 fn source_at(uv: vec2<f32>) -> vec4<f32> {
-    let c = sample(uv);
+    // The radius sets a dynamic blur loop. Explicit LOD avoids derivative
+    // instructions inside that loop, which FXC cannot compile on D3D12.
+    let c = sample_level(uv);
     let d = to_display(max(c.rgb, vec3<f32>(0.0)));
     let level = luma(d) * max(c.a, 0.0);
     let th = params.threshold / 100.0;

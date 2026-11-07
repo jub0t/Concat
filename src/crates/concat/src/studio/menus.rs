@@ -618,6 +618,7 @@ impl Studio {
                         audio_codec: item.audio_codec.clone(),
                         has_audio: item.has_audio,
                         audio_tracks: item.audio_tracks.clone(),
+                        chapters: item.chapters.clone(),
                         origin: item.origin,
                         color_space: item.color_space,
                     },

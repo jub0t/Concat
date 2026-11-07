@@ -103,6 +103,8 @@ pub struct MediaSummary {
     pub audio: Option<AudioStreamInfo>,
     /// Every audio stream, in file order.
     pub audio_tracks: Vec<AudioStreamInfo>,
+    /// Named chapter markers embedded in the media container.
+    pub chapters: Vec<concat_project::model::MediaChapter>,
 }
 
 impl MediaSummary {
@@ -131,6 +133,7 @@ impl MediaSummary {
                 .iter()
                 .map(AudioStreamInfo::to_track)
                 .collect(),
+            chapters: self.chapters.clone(),
             origin: None,
             color_space: self
                 .video
@@ -218,6 +221,15 @@ impl From<concat_media::MediaInfo> for MediaSummary {
                 .audio_streams
                 .into_iter()
                 .map(AudioStreamInfo::from_stream)
+                .collect(),
+            chapters: info
+                .chapters
+                .into_iter()
+                .map(|chapter| concat_project::model::MediaChapter {
+                    start: chapter.start.as_f64(),
+                    end: chapter.end.as_f64(),
+                    name: chapter.name,
+                })
                 .collect(),
         }
     }
@@ -1003,6 +1015,7 @@ mod tests {
             }),
             audio: None,
             audio_streams: Vec::new(),
+            chapters: Vec::new(),
         }
     }
 
@@ -1332,6 +1345,7 @@ mod tests {
                         audio_codec: None,
                         has_audio: false,
                         audio_tracks: Vec::new(),
+                        chapters: Vec::new(),
                         origin: None,
                         color_space: Default::default(),
                     },

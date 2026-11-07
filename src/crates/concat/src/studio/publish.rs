@@ -254,6 +254,53 @@ impl Studio {
                         } else {
                             Default::default()
                         };
+                    let chapters = project
+                        .media
+                        .iter()
+                        .find(|media| media.id == clip.media_id)
+                        .map(|media| {
+                            let curve = clip
+                                .speed_curve
+                                .as_deref()
+                                .and_then(concat_project::speed::curve_of);
+                            let source_span = curve
+                                .as_ref()
+                                .map(|curve| clip.duration * curve.consumed(1.0))
+                                .unwrap_or(clip.duration * clip.speed);
+                            if !source_span.is_finite() || source_span <= 0.0 {
+                                return Vec::new();
+                            }
+                            media
+                                .chapters
+                                .iter()
+                                .filter_map(|chapter| {
+                                    let source_offset = chapter.start - clip.source_start;
+                                    if !source_offset.is_finite()
+                                        || source_offset < 0.0
+                                        || source_offset >= source_span
+                                    {
+                                        return None;
+                                    }
+                                    let at = if let Some(curve) = &curve {
+                                        let target = source_offset / clip.duration;
+                                        let (mut low, mut high) = (0.0, 1.0);
+                                        for _ in 0..32 {
+                                            let middle = (low + high) / 2.0;
+                                            if curve.consumed(middle) < target {
+                                                low = middle;
+                                            } else {
+                                                high = middle;
+                                            }
+                                        }
+                                        (low + high) / 2.0
+                                    } else {
+                                        source_offset / source_span
+                                    };
+                                    Some(ChapterMarkerData { at: at as f32 })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     ClipData {
                         id: clip.id.as_str().into(),
                         name: clip.name.as_str().into(),
@@ -285,6 +332,7 @@ impl Studio {
                         wave_span: wave.2,
                         has_audio: self.clip_has_sound(clip),
                         strip: self.strip_of(clip),
+                        chapters: ModelRc::new(VecModel::from(chapters)),
                     }
                 })
                 .collect(),
