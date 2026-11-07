@@ -112,12 +112,24 @@ impl Monitor {
     /// are.
     #[cfg(feature = "gpu")]
     pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        Self::with_gpu_watching(device, queue, Arc::default())
+    }
+
+    /// [`Monitor::with_gpu`] on a device whose lost callback sets `lost`:
+    /// from then on the monitor's frames are errors, not black pictures
+    /// drawn on a device that is gone.
+    #[cfg(feature = "gpu")]
+    pub fn with_gpu_watching(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        lost: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
         Self {
             pool: Arc::clone(crate::scheduler().pool()),
             plan: Arc::new(Mutex::new(None)),
             early: Arc::new(Mutex::new(Vec::new())),
             gpu: Some(Arc::new(Mutex::new(
-                concat_render::WgpuCompositor::with_device(device, queue),
+                concat_render::WgpuCompositor::with_device(device, queue).watching(lost),
             ))),
         }
     }
