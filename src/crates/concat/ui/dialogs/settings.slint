@@ -5,7 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, DialogSection, Field, Progress, Sheet } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
@@ -629,7 +629,7 @@ component ShortcutRow inherits Rectangle {
     }
 }
 
-export component SettingsDialog inherits Modal {
+export component SettingsDialog inherits Sheet {
     in property <SettingsData> data;
     in property <[ModelData]> transcribers;
     in property <[ModelData]> voices;
@@ -747,7 +747,7 @@ export component SettingsDialog inherits Modal {
     /// The column of pages' width, as the hairline beside it was last left.
     /// In-out because it is dragged; what is drawn is `pages` below, which
     /// keeps it inside the room the sheet has.
-    in-out property <length> pages-w: root.phone ? 112px : 164px;
+    in-out property <length> pages-w: root.phone ? 112px : 200px;
     /// Narrow enough to be a real squeeze, wide enough for a mark and the
     /// start of a word.
     property <length> min-pages: 64px;
@@ -771,12 +771,14 @@ export component SettingsDialog inherits Modal {
     open: root.data.open;
     title: I18n.t("common.settings");
     glyph: Glyph.settings;
-    surface-width: 640px;
-    // Fixed rather than fitted: the pages are different lengths and a sheet
-    // that resized as you moved between them would be its own distraction.
-    surface-height: 460px;
 
+    // The whole window, as Export is. The pages and the page are held to
+    // a column a person can read across, centred in whatever width is
+    // left over, rather than stretched to the edges of a wide screen.
     HorizontalLayout {
+        vertical-stretch: 1;
+        alignment: center;
+        padding-top: root.compact ? 0px : 12px;
         // The clipboard takes text, so there has to be a TextInput holding
         // the report: Slint copies from a text element's own selection and
         // has no other way in. It is never read — it is zero wide and clipped
@@ -810,6 +812,7 @@ export component SettingsDialog inherits Modal {
         // shorter than a layout and the stretch factors that would express it.
         body := Rectangle {
             horizontal-stretch: 1;
+            max-width: 1080px;
 
             /// The column as it is drawn: never past two fifths of the
             /// sheet, whatever it was dragged to on a wider one, so a phone
