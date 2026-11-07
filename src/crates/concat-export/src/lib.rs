@@ -1576,12 +1576,33 @@ fn headless<T>(draw: impl FnOnce(&mut WgpuCompositor) -> T) -> Result<T, String>
         .ok_or_else(|| NO_RENDERER.to_owned())?;
     let mut gpu = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     // A device that died under an earlier preview is not kept: every
-    // preview after it would be black.
-    if gpu.lost()
-        && let Some(fresh) = WgpuCompositor::new()
-    {
-        log::warn!("previews: the GPU device was lost; drawing on a fresh one");
-        *gpu = fresh;
+    // preview after it would be black. A fresh one is asked for at most
+    // every two seconds: asking makes an instance and walks every backend's
+    // adapters, and where none answers - WARP lost on a Windows PC, with
+    // nothing else to fall back to (#673) - asking on every frame cost the
+    // frame and filled the log with the same failure, frame after frame.
+    static NEXT_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    if gpu.lost() {
+        let mut next = NEXT_TRY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let now = std::time::Instant::now();
+        if next.is_none_or(|at| now >= at) {
+            match WgpuCompositor::new() {
+                Some(fresh) => {
+                    log::warn!("previews: the GPU device was lost; drawing on a fresh one");
+                    *gpu = fresh;
+                    *next = None;
+                }
+                None => {
+                    if next.is_none() {
+                        log::error!(
+                            "previews: the GPU device was lost and no other opens: {NO_RENDERER}; \
+                             trying again every two seconds"
+                        );
+                    }
+                    *next = Some(now + std::time::Duration::from_secs(2));
+                }
+            }
+        }
     }
     Ok(draw(&mut gpu))
 }
