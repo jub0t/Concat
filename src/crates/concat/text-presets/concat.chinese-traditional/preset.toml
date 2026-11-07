@@ -1,0 +1,16 @@
+id = "concat.chinese-traditional"
+name = "Chinese (Traditional)"
+language = "Chinese"
+order = 33
+
+# Traditional characters in the bundled CJK face, which carries Big5's
+# level 1. Where Taiwan's forms differ from the mainland's, the
+# Simplified face's are drawn; a machine's own font comes first.
+[style]
+content = "歡迎"
+fontFamily = "Noto Sans CJK SC"
+fontWeight = 400
+fontSize = 0.09
+color = "#FFE14D"
+strokeWidth = 0.008
+strokeColor = "#1A1A1A"

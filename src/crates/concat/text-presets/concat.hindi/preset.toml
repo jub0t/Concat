@@ -1,0 +1,12 @@
+id = "concat.hindi"
+name = "Hindi"
+language = "Hindi"
+order = 50
+
+[style]
+content = "नमस्ते"
+fontFamily = "Noto Sans Devanagari"
+fontWeight = 400
+fontSize = 0.1
+strokeWidth = 0.008
+strokeColor = "#000000"

@@ -1,0 +1,15 @@
+id = "concat.chinese"
+name = "Chinese"
+language = "Chinese"
+order = 32
+
+# Simplified Chinese in the CJK face the app carries (GB 2312 and Big5
+# level 1), white with a dark edge: how a Chinese subtitle reads over any
+# picture (#675).
+[style]
+content = "你好"
+fontFamily = "Noto Sans CJK SC"
+fontWeight = 400
+fontSize = 0.09
+strokeWidth = 0.008
+strokeColor = "#000000"

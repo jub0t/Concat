@@ -1,0 +1,13 @@
+id = "concat.arabic"
+name = "Arabic"
+language = "Arabic"
+order = 40
+
+# Right to left, joined, in the bundled Arabic UI face.
+[style]
+content = "مرحبا"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 400
+fontSize = 0.1
+strokeWidth = 0.008
+strokeColor = "#000000"

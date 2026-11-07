@@ -1,0 +1,13 @@
+id = "concat.korean"
+name = "Korean"
+language = "Korean"
+order = 34
+
+# Hangul in the bundled CJK face (KS X 1001's syllables).
+[style]
+content = "안녕하세요"
+fontFamily = "Noto Sans CJK SC"
+fontWeight = 400
+fontSize = 0.08
+strokeWidth = 0.007
+strokeColor = "#000000"
