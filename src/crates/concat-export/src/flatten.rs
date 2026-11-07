@@ -204,6 +204,22 @@ pub fn flatten_timeline_in(
                     _ => String::new(),
                 },
                 stabilize: clip.stabilize.filter(|_| kind == ClipKind::Video),
+                voice: match (&clip.voice, project_dir) {
+                    (Some(mix), Some(dir)) if kind != ClipKind::Image => {
+                        let stems =
+                            crate::voice_stems_dir(dir, &media.path, clip.audio_stream, mix.kind);
+                        let (voice, rest) = (stems.join("voice.wav"), stems.join("rest.wav"));
+                        // Until both parts are there the clip plays as
+                        // recorded, and the host is making them.
+                        (voice.is_file() && rest.is_file()).then(|| crate::VoiceStems {
+                            voice: voice.to_string_lossy().into_owned(),
+                            rest: rest.to_string_lossy().into_owned(),
+                            voice_gain: mix.voice,
+                            rest_gain: mix.background,
+                        })
+                    }
+                    _ => None,
+                },
                 motion_dir: match (&clip.stabilize, project_dir) {
                     (Some(_), Some(dir)) if kind == ClipKind::Video => {
                         concat_vision::stabilize::motion_dir(dir, &media.path)

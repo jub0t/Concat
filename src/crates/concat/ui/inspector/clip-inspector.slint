@@ -2610,6 +2610,30 @@ export component TransitionPanel inherits VerticalLayout {
     }
 }
 
+/// Voice isolation splitting the clip's file: what it is doing and how far,
+/// over a bar that fills as it goes.
+component VoiceRow inherits VerticalLayout {
+    in property <float> progress;
+    in property <bool> fetching;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    spacing: 6px;
+
+    Text {
+        text: I18n.t1(root.fetching ? "voice.downloading" : "voice.isolating",
+            "\{Math.round(root.progress * 100)}");
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+    }
+    Progress {
+        value: root.progress;
+        live: true;
+    }
+}
+
 /// Audio: the level, the fades, and whether the pitch follows the speed.
 /// The voice and room chain sits under it in the same tab; see config-pane.
 ///
@@ -2637,8 +2661,12 @@ export component AudioPanel inherits VerticalLayout {
     property <float> level;
     property <float> fade-in;
     property <float> fade-out;
+    property <float> voice-level;
+    property <float> background-level;
 
     function seed() {
+        root.voice-level = root.selected.voice-level * 100;
+        root.background-level = root.selected.background-level * 100;
         root.level = InspectorFmt.to-decibels(root.selected.volume);
         root.fade-in = root.selected.fade-in;
         root.fade-out = root.selected.fade-out;
@@ -2708,6 +2736,93 @@ export component AudioPanel inherits VerticalLayout {
                     root.set(ClipField.volume, InspectorFmt.from-decibels(v));
                     root.commit();
                 }
+            }
+        }
+    }
+
+    // Voice isolation (#120): the voice in the sound set apart from
+    // everything else, kept alone or taken out, each part at a level of
+    // its own - the music under a talk brought down rather than off.
+    if !root.selected.batch-volume: Section {
+        voice := SectionHeader {
+            title: I18n.t("voice.title");
+            collapsible: true;
+            summary: root.selected.voice-progress >= 0
+                ? I18n.t1(root.selected.voice-fetching ? "voice.downloading" : "voice.isolating",
+                    "\{Math.round(root.selected.voice-progress * 100)}")
+                : root.selected.voice-mode == 1 ? I18n.t("voice.keep")
+                : root.selected.voice-mode == 2 ? I18n.t("voice.removeShort")
+                : root.selected.voice-mode == 3 ? I18n.t("voice.custom")
+                : I18n.t("common.off");
+
+            ResetButton {
+                dirty: root.selected.voice-mode != 0;
+                reset => {
+                    root.set(ClipField.voice-mode, 0);
+                    root.commit();
+                }
+            }
+        }
+
+        if voice.open: SectionBody {
+            Row {
+                label: I18n.t("voice.mode");
+                SegmentedControl {
+                    options: [I18n.t("voice.off"), I18n.t("voice.keep"), I18n.t("voice.removeShort")];
+                    // Levels of one's own are neither way: nothing lit.
+                    property <int> shown: root.selected.voice-mode == 3 ? -1 : root.selected.voice-mode;
+                    current: self.shown;
+                    changed shown => { self.current = self.shown; }
+                    changed(index) => {
+                        root.set(ClipField.voice-mode, index);
+                        root.commit();
+                    }
+                }
+            }
+
+            // A song's singing apart from its music, or speech apart from
+            // the noise behind it: two models, each good at its own.
+            if root.selected.voice-mode != 0: Row {
+                label: I18n.t("voice.kind");
+                SegmentedControl {
+                    options: [I18n.t("voice.kindSong"), I18n.t("voice.kindSpeech")];
+                    property <int> shown: root.selected.voice-kind;
+                    current: self.shown;
+                    changed shown => { self.current = self.shown; }
+                    changed(index) => {
+                        root.set(ClipField.voice-kind, index);
+                        root.commit();
+                    }
+                }
+            }
+
+            if root.selected.voice-mode != 0: Param {
+                label: I18n.t("voice.voiceLevel");
+                rail: true;
+                value <=> root.voice-level;
+                minimum: 0;
+                maximum: 200;
+                step: 1;
+                default-value: 100;
+                fmt: ParamFormat.percent;
+                changed(v) => { root.set(ClipField.voice-level, v / 100); root.commit(); }
+            }
+
+            if root.selected.voice-mode != 0: Param {
+                label: I18n.t("voice.backgroundLevel");
+                rail: true;
+                value <=> root.background-level;
+                minimum: 0;
+                maximum: 200;
+                step: 1;
+                default-value: 100;
+                fmt: ParamFormat.percent;
+                changed(v) => { root.set(ClipField.background-level, v / 100); root.commit(); }
+            }
+
+            if root.selected.voice-progress >= 0: VoiceRow {
+                progress: root.selected.voice-progress;
+                fetching: root.selected.voice-fetching;
             }
         }
     }

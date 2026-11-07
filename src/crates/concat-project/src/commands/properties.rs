@@ -204,6 +204,22 @@ pub(super) fn apply(
             })
         }
 
+        Command::SetClipVoice { clip_id, voice } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            // Only what plays sound has a voice in it: footage and sound.
+            if !matches!(clip.kind, ClipKind::Video | ClipKind::Audio) && voice.is_some() {
+                return Ok(Outcome::default());
+            }
+            let applied = assign(&mut clip.voice, voice.map(VoiceMix::tidy));
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
         Command::AddCutoutStroke { clip_id, stroke } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {

@@ -23,6 +23,8 @@ pub mod chatterbox;
 pub mod isolate;
 pub mod transcribe;
 pub mod tts;
+#[cfg(feature = "isolate")]
+pub mod vocals;
 
 pub use transcribe::Transcriber;
 pub use tts::Speech;

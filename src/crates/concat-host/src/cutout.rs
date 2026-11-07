@@ -389,6 +389,27 @@ impl Cutouts {
 ///
 /// Nothing is fetched for a runtime that cannot run it: an Intel Mac older
 /// than its ONNX Runtime is told so here, before the download.
+/// [`fetch`] for a model of the table that is no cutout's - voice
+/// isolation's networks - into its place under `data`, unless it is there
+/// already. `progress` is told (received, total) as the bytes come.
+pub fn fetch_model(
+    data: &Path,
+    id: ModelId,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<std::path::PathBuf, String> {
+    let file = concat_vision::models::model_file(data, id);
+    if concat_vision::models::installed(data, id) {
+        return Ok(file);
+    }
+    fetch(id, &file, cancel, &mut |step| {
+        if let Progress::Fetching { received, total } = step {
+            progress(received, total);
+        }
+    })?;
+    Ok(file)
+}
+
 pub(crate) fn fetch(
     id: ModelId,
     file: &Path,

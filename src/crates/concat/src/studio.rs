@@ -65,6 +65,7 @@ mod speech;
 mod stage;
 mod text;
 mod vision;
+mod voice;
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 use crate::dock::{
@@ -1265,6 +1266,15 @@ pub struct Studio {
     /// Media whose stabilization was turned on anew, so an analysis the
     /// app died in last time is tried again rather than skipped.
     stabilize_retry: HashSet<String>,
+    /// Voice isolation splitting a file, by the parts' folder: whether its
+    /// model is still downloading, and how far it has got. One at a time,
+    /// like the analyses.
+    voice_jobs: HashMap<std::path::PathBuf, (bool, f32)>,
+    /// The running split's stop.
+    voice_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Files whose split failed this session: not tried again by itself,
+    /// only when a clip is asked anew.
+    voice_failed: HashSet<std::path::PathBuf>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
@@ -2765,6 +2775,9 @@ impl Studio {
             picking: None,
             cutout_jobs: HashMap::new(),
             stabilize_jobs: HashMap::new(),
+            voice_jobs: HashMap::new(),
+            voice_cancel: None,
+            voice_failed: HashSet::new(),
             stabilize_retry: HashSet::new(),
             enhance_jobs: HashMap::new(),
             enhance_scale: 0.0,

@@ -606,6 +606,79 @@ impl Stroke {
     }
 }
 
+/// Voice isolation on a clip's sound: how loud the voice in it plays, and
+/// how loud everything else does - music, noise, the room. Each is a gain,
+/// `0..=MAX_VOICE_GAIN`, 1 as recorded; both at 1 is the clip as it was,
+/// voice alone is a background of 0, and the voice taken out is a voice of
+/// 0. The two parts are worked out by the host the first time a clip of
+/// the media asks for them; until then the clip plays as recorded.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VoiceMix {
+    /// The voice's gain.
+    pub voice: f64,
+    /// The gain of everything but the voice.
+    pub background: f64,
+    /// What the voice is set apart from: a song's music, or a recording's
+    /// noise.
+    pub kind: VoiceKind,
+}
+
+/// The two kinds of voice isolation, each its own model.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VoiceKind {
+    /// Singing apart from the music under it: a song's vocals and its
+    /// instrumental. Deezer's Spleeter.
+    #[default]
+    Vocals,
+    /// Speech apart from the noise, the room and the music bed behind it:
+    /// dialogue cleaned. DeepFilterNet 3.
+    Speech,
+}
+
+/// The loudest either part of a [`VoiceMix`] may be made: twice as loud.
+pub const MAX_VOICE_GAIN: f64 = 2.0;
+
+impl Default for VoiceMix {
+    fn default() -> Self {
+        VoiceMix::KEEP_VOICE
+    }
+}
+
+impl VoiceMix {
+    /// The voice alone.
+    pub const KEEP_VOICE: VoiceMix = VoiceMix {
+        voice: 1.0,
+        background: 0.0,
+        kind: VoiceKind::Vocals,
+    };
+    /// Everything but the voice.
+    pub const REMOVE_VOICE: VoiceMix = VoiceMix {
+        voice: 0.0,
+        background: 1.0,
+        kind: VoiceKind::Vocals,
+    };
+
+    /// Both gains in range; a gain that is not a number is as recorded.
+    pub fn tidy(self) -> VoiceMix {
+        let gain = |value: f64| {
+            if value.is_finite() {
+                value.clamp(0.0, MAX_VOICE_GAIN)
+            } else {
+                1.0
+            }
+        };
+        VoiceMix {
+            voice: gain(self.voice),
+            background: gain(self.background),
+            kind: self.kind,
+        }
+    }
+}
+
 /// A clip's stabilization: the camera's shake taken out of the picture.
 ///
 /// The camera's movement is measured once, frame to frame, by the host's
@@ -2325,6 +2398,11 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub stabilize: Option<Stabilize>,
+    /// The voice in the clip's sound set apart from everything else, each
+    /// at a level of its own; see [`VoiceMix`]. None plays it as recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub voice: Option<VoiceMix>,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,
@@ -2465,6 +2543,7 @@ impl Clip {
             cutout: None,
             mask: None,
             stabilize: None,
+            voice: None,
             filters: Vec::new(),
             video_effects: Vec::new(),
             audio_stream: None,

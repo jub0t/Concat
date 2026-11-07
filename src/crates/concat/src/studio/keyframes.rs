@@ -1200,6 +1200,20 @@ impl Studio {
                 .unwrap_or(-1.0),
             stabilize_zoom: steady.map_or(-1.0, |(zoom, _)| zoom as f32),
             stabilize_needed: steady.map_or(-1.0, |(_, needed)| needed as f32),
+            voice_mode: match clip.voice {
+                None => 0,
+                Some(mix) if mix.voice == 1.0 && mix.background == 0.0 => 1,
+                Some(mix) if mix.voice == 0.0 && mix.background == 1.0 => 2,
+                Some(_) => 3,
+            },
+            voice_level: clip.voice.map_or(1.0, |mix| mix.voice as f32),
+            background_level: clip.voice.map_or(1.0, |mix| mix.background as f32),
+            voice_progress: self.voice_progress(clip).0,
+            voice_fetching: self.voice_progress(clip).1,
+            voice_kind: match clip.voice.unwrap_or_default().kind {
+                model::VoiceKind::Vocals => 0,
+                model::VoiceKind::Speech => 1,
+            },
             enhance_progress: self
                 .enhance_jobs
                 .get(&clip.id)
@@ -2092,6 +2106,26 @@ impl Studio {
                 Glyph::TextMark,
                 "",
                 self.clip_has_sound(clip),
+            ));
+            rows.push(rule());
+            // Voice isolation, both ways, one click each: ticked when it is
+            // what the clip plays, and chosen again to play it as recorded
+            // (#120).
+            let voiced = self.clip_has_sound(clip) && !locked;
+            let mix = clip.voice;
+            rows.push(check(
+                "voice-keep",
+                &t("voice.keepOnly"),
+                "",
+                mix.is_some_and(|mix| mix.voice > 0.0 && mix.background == 0.0),
+                voiced,
+            ));
+            rows.push(check(
+                "voice-remove",
+                &t("voice.remove"),
+                "",
+                mix.is_some_and(|mix| mix.voice == 0.0),
+                voiced,
             ));
             rows.push(rule());
         }

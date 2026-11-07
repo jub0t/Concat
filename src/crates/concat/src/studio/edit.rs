@@ -443,6 +443,7 @@ impl Studio {
         self.request_preview();
         self.ensure_cutouts();
         self.ensure_stabilizers();
+        self.ensure_voices();
         self.ensure_regions();
     }
 

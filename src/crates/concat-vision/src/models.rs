@@ -37,6 +37,11 @@ pub enum ModelId {
     /// Real-ESRGAN's compact general model: a picture four times its size
     /// with its noise and compression gone, what Enhance is made of.
     Enhance,
+    /// Spleeter's vocals network: the singing in a song, as a magnitude
+    /// spectrum. Voice isolation's, for music; see concat-speech's vocals.
+    SpleeterVocals,
+    /// Spleeter's accompaniment network: everything but the singing.
+    SpleeterAccompaniment,
 }
 
 /// One model as the table describes it.
@@ -60,7 +65,7 @@ pub struct ModelSpec {
 }
 
 /// Every downloadable model.
-pub const MODELS: [ModelSpec; 5] = [
+pub const MODELS: [ModelSpec; 7] = [
     ModelSpec {
         id: ModelId::Person,
         file: "rvm-mobilenetv3.onnx",
@@ -101,6 +106,25 @@ pub const MODELS: [ModelSpec; 5] = [
         sha256: "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112",
         licence: "BSD-3-Clause",
     },
+    // Deezer's weights (MIT), as sherpa-onnx exported them, in half floats:
+    // the same answers as the full-precision export to a hundredth of a
+    // decibel on the test song, at half the download.
+    ModelSpec {
+        id: ModelId::SpleeterVocals,
+        file: "spleeter-2stems-vocals.fp16.onnx",
+        upstream: "https://huggingface.co/csukuangfj/sherpa-onnx-spleeter-2stems-fp16/resolve/93ba771920ade509f8cbd6825b1a90856c797e08/vocals.fp16.onnx",
+        bytes: 19_681_017,
+        sha256: "24cef84aedcd1fe87c0b743ef3370ad34dc1fabf6c9014d6128a75a538c7b668",
+        licence: "MIT",
+    },
+    ModelSpec {
+        id: ModelId::SpleeterAccompaniment,
+        file: "spleeter-2stems-accompaniment.fp16.onnx",
+        upstream: "https://huggingface.co/csukuangfj/sherpa-onnx-spleeter-2stems-fp16/resolve/93ba771920ade509f8cbd6825b1a90856c797e08/accompaniment.fp16.onnx",
+        bytes: 19_681_024,
+        sha256: "d14cea55793cc531a5875f5f4da08207d1c5ab9292e8e0099a104eecb014fcc0",
+        licence: "MIT",
+    },
 ];
 
 impl ModelId {
@@ -120,6 +144,8 @@ impl ModelId {
             ModelId::BrushEncoder => "slimsam-77-encoder",
             ModelId::BrushDecoder => "slimsam-77-decoder",
             ModelId::Enhance => "realesr-general-x4v3",
+            ModelId::SpleeterVocals => "spleeter-2stems-vocals",
+            ModelId::SpleeterAccompaniment => "spleeter-2stems-accompaniment",
         }
     }
 }

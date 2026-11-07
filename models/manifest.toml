@@ -84,6 +84,27 @@ sha256 = "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112"
 licence = "BSD-3-Clause"
 upstream = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/c6a971706797c7502945a2b4c4274fce4900d4ab/realesr-general-x4v3.onnx"
 
+# Voice isolation's music networks: Deezer's Spleeter, two stems (MIT),
+# as sherpa-onnx exported them, in half floats. In the cutout family for the
+# same reason Enhance is: the vision crate's table holds them.
+[[model]]
+id = "spleeter-vocals"
+family = "cutout"
+file = "spleeter-2stems-vocals.fp16.onnx"
+bytes = 19681017
+sha256 = "24cef84aedcd1fe87c0b743ef3370ad34dc1fabf6c9014d6128a75a538c7b668"
+licence = "MIT"
+upstream = "https://huggingface.co/csukuangfj/sherpa-onnx-spleeter-2stems-fp16/resolve/93ba771920ade509f8cbd6825b1a90856c797e08/vocals.fp16.onnx"
+
+[[model]]
+id = "spleeter-accompaniment"
+family = "cutout"
+file = "spleeter-2stems-accompaniment.fp16.onnx"
+bytes = 19681024
+sha256 = "d14cea55793cc531a5875f5f4da08207d1c5ab9292e8e0099a104eecb014fcc0"
+licence = "MIT"
+upstream = "https://huggingface.co/csukuangfj/sherpa-onnx-spleeter-2stems-fp16/resolve/93ba771920ade509f8cbd6825b1a90856c797e08/accompaniment.fp16.onnx"
+
 # ── Text to speech ───────────────────────────────────────────────────────
 # Kokoro and Pocket TTS left the app with sherpa-onnx (e63756df). Their
 # files stay on the mirror, which nothing prunes, because 0.2.8 and older

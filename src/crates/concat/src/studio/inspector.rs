@@ -146,6 +146,38 @@ impl Studio {
                         stabilize.max_zoom = value.clamp(1.0, model::MAX_STABILIZE_ZOOM);
                     }
                 }
+                // Only what plays sound has a voice in it.
+                // A new way keeps the kind the clip had.
+                ClipField::VoiceMode => {
+                    let sounding =
+                        matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Audio);
+                    let kind = clip.voice.unwrap_or_default().kind;
+                    clip.voice = match value as i32 {
+                        1 if sounding => Some(model::VoiceMix::KEEP_VOICE),
+                        2 if sounding => Some(model::VoiceMix::REMOVE_VOICE),
+                        _ => None,
+                    }
+                    .map(|mix| model::VoiceMix { kind, ..mix });
+                }
+                ClipField::VoiceKind => {
+                    if let Some(mix) = clip.voice.as_mut() {
+                        mix.kind = if value as i32 == 1 {
+                            model::VoiceKind::Speech
+                        } else {
+                            model::VoiceKind::Vocals
+                        };
+                    }
+                }
+                ClipField::VoiceLevel => {
+                    if let Some(mix) = clip.voice.as_mut() {
+                        mix.voice = value.clamp(0.0, model::MAX_VOICE_GAIN);
+                    }
+                }
+                ClipField::BackgroundLevel => {
+                    if let Some(mix) = clip.voice.as_mut() {
+                        mix.background = value.clamp(0.0, model::MAX_VOICE_GAIN);
+                    }
+                }
                 ClipField::StabilizeTripod => {
                     if let Some(stabilize) = clip.stabilize.as_mut() {
                         stabilize.tripod = value != 0.0;

@@ -138,8 +138,8 @@ pub fn isolate(
     let voice_part = part(&stems.voice);
     let rest_part = part(&stems.rest);
     let writer = std::sync::Mutex::new(Writer {
-        voice: Wav::create(&voice_part, channels, survey.samples)?,
-        rest: Wav::create(&rest_part, channels, survey.samples)?,
+        voice: Wav::create(&voice_part, RATE, channels, survey.samples)?,
+        rest: Wav::create(&rest_part, RATE, channels, survey.samples)?,
         seams: std::collections::HashMap::new(),
     });
 
@@ -208,7 +208,7 @@ fn cancel_all(next: &AtomicUsize, chunks: usize) {
     next.store(chunks, Ordering::Relaxed);
 }
 
-fn part(path: &Path) -> PathBuf {
+pub(crate) fn part(path: &Path) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
     name.push(".part");
     PathBuf::from(name)
@@ -400,7 +400,7 @@ fn warm_start(index: usize) -> usize {
 /// from the file rather than decoded as stereo throughout: FFmpeg's mono
 /// to stereo is three decibels down a side, and stems decoded so played
 /// back three decibels quieter than the clip they stand in for.
-fn channels_of(source: &Path, stream: Option<usize>) -> Result<usize, String> {
+pub(crate) fn channels_of(source: &Path, stream: Option<usize>) -> Result<usize, String> {
     let info = concat_media::probe::probe(source).map_err(|error| error.to_string())?;
     let audio = info
         .audio_streams
@@ -575,23 +575,23 @@ impl Networks {
 
 /// A stretch of a stem: its first sample and its samples, interleaved in
 /// the survey's channels.
-struct Piece {
-    at: usize,
-    voice: Vec<f32>,
+pub(crate) struct Piece {
+    pub(crate) at: usize,
+    pub(crate) voice: Vec<f32>,
     /// The recording over the same stretch.
-    original: Vec<f32>,
+    pub(crate) original: Vec<f32>,
 }
 
 /// What a chunk answers: the stretch it alone covers, and the two seams
 /// it shares with its neighbours - its frames weighed by the fade, to be
 /// added to the neighbour's over the same samples.
-struct ChunkOut {
-    index: usize,
-    body: Piece,
+pub(crate) struct ChunkOut {
+    pub(crate) index: usize,
+    pub(crate) body: Piece,
     /// The seam with the chunk before, which is seam `index`.
-    head: Option<Piece>,
+    pub(crate) head: Option<Piece>,
     /// The seam with the chunk after, seam `index + 1`.
-    tail: Option<Piece>,
+    pub(crate) tail: Option<Piece>,
 }
 
 /// Seam `index`'s samples: from the start of the chunk's first frame to the
@@ -823,10 +823,10 @@ fn chunk(
 }
 
 /// The two stems, and the seams waiting for their second half.
-struct Writer {
-    voice: Wav,
-    rest: Wav,
-    seams: std::collections::HashMap<usize, Piece>,
+pub(crate) struct Writer {
+    pub(crate) voice: Wav,
+    pub(crate) rest: Wav,
+    pub(crate) seams: std::collections::HashMap<usize, Piece>,
 }
 
 impl Writer {
@@ -868,7 +868,7 @@ impl Writer {
         }
     }
 
-    fn take(&mut self, out: ChunkOut) -> Result<(), String> {
+    pub(crate) fn take(&mut self, out: ChunkOut) -> Result<(), String> {
         self.put(&out.body)?;
         if let Some(head) = out.head {
             self.meet(out.index, head)?;
@@ -883,18 +883,22 @@ impl Writer {
 // ── the files ───────────────────────────────────────────────────────────
 
 /// A 16-bit PCM WAV of known length, written in pieces in any order.
-struct Wav {
+pub(crate) struct Wav {
     file: std::fs::File,
     path: PathBuf,
     channels: usize,
 }
 
 impl Wav {
-    fn create(path: &Path, channels: usize, samples: usize) -> Result<Wav, String> {
+    pub(crate) fn create(
+        path: &Path,
+        rate: u32,
+        channels: usize,
+        samples: usize,
+    ) -> Result<Wav, String> {
         let fail = |error: std::io::Error| format!("could not write {}: {error}", path.display());
         let mut file = std::fs::File::create(path).map_err(fail)?;
         let data = (samples * channels * 2) as u32;
-        let rate = RATE;
         let block = (channels * 2) as u16;
         let mut header = Vec::with_capacity(44);
         header.extend_from_slice(b"RIFF");
@@ -922,7 +926,7 @@ impl Wav {
     /// `interleaved` at sample `at`, clipped to 16 bits with dither left
     /// out: the stems are for playing, and their sum is the recording to
     /// within one step.
-    fn write_at(&mut self, at: usize, interleaved: &[f32]) -> Result<(), String> {
+    pub(crate) fn write_at(&mut self, at: usize, interleaved: &[f32]) -> Result<(), String> {
         let fail =
             |error: std::io::Error| format!("could not write {}: {error}", self.path.display());
         let bytes: Vec<u8> = interleaved
@@ -935,7 +939,7 @@ impl Wav {
         self.file.write_all(&bytes).map_err(fail)
     }
 
-    fn finish(self) -> Result<(), String> {
+    pub(crate) fn finish(self) -> Result<(), String> {
         self.file
             .sync_all()
             .map_err(|error| format!("could not write {}: {error}", self.path.display()))
@@ -1014,7 +1018,7 @@ mod tests {
             })
             .collect();
         let mixed = dir.join("mix.wav");
-        let mut wav = Wav::create(&mixed, 1, mix.len()).expect("a file");
+        let mut wav = Wav::create(&mixed, RATE, 1, mix.len()).expect("a file");
         wav.write_at(0, &mix).expect("written");
         wav.finish().expect("finished");
         let stems = Stems {
