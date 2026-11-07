@@ -13,20 +13,19 @@
 //! blocking thread, bridged to HTTP through inbound/outbound channels.
 
 use std::collections::HashMap;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::stream::StreamExt;
-use hyper::{
-    Request, Response, StatusCode,
-    header::{CONTENT_TYPE, HeaderValue},
-    service::service_fn,
-};
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Full, StreamBody};
+use hyper::body::{Frame, Incoming};
+use hyper::header::CONTENT_TYPE;
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex as TokioMutex, broadcast, mpsc};
@@ -36,6 +35,20 @@ use crate::backend::{Backend, Mode};
 use crate::protocol;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Every handler replies with this body: a complete buffer, or a stream for
+/// the SSE endpoint, boxed so one response type serves both.
+type Body = BoxBody<Bytes, io::Error>;
+
+/// A reply body holding `bytes` and nothing more.
+fn complete(bytes: impl Into<Bytes>) -> Body {
+    Full::new(bytes.into())
+        .map_err(|never: std::convert::Infallible| -> io::Error { match never {} })
+        .boxed()
+}
+
+/// The sessions, reachable from both HTTP handlers.
+type Sessions = Arc<TokioMutex<HashMap<String, Arc<Session>>>>;
 
 /// One MCP session's shared state, reachable from both HTTP handlers.
 struct Session {
@@ -48,7 +61,7 @@ impl Session {
     /// Creates a session, returning it plus the receiving ends the protocol
     /// thread consumes.
     fn new() -> (
-        std::sync::Arc<Self>,
+        Arc<Self>,
         mpsc::UnboundedReceiver<String>,
         broadcast::Receiver<String>,
     ) {
@@ -56,7 +69,7 @@ impl Session {
         let (outbound_tx, outbound_rx) = broadcast::channel::<String>(16);
         let id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed).to_string();
         (
-            std::sync::Arc::new(Session {
+            Arc::new(Session {
                 id,
                 inbound_tx,
                 outbound_tx,
@@ -74,24 +87,35 @@ struct ChannelReader {
     pos: usize,
 }
 
+impl Read for ChannelReader {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        let taken = {
+            let available = self.fill_buf()?;
+            let taken = available.len().min(out.len());
+            out[..taken].copy_from_slice(&available[..taken]);
+            taken
+        };
+        self.consume(taken);
+        Ok(taken)
+    }
+}
+
 impl BufRead for ChannelReader {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         if self.pos >= self.buf.len() {
             self.buf.clear();
             self.pos = 0;
-            match self.rx.recv() {
-                Ok(line) => {
-                    self.buf.extend_from_slice(line.as_bytes());
-                    self.buf.push(b'\n');
-                }
-                Err(_) => {} // channel closed: EOF
+            // A closed channel is end of input, not an error.
+            if let Some(line) = self.rx.blocking_recv() {
+                self.buf.extend_from_slice(line.as_bytes());
+                self.buf.push(b'\n');
             }
         }
         Ok(&self.buf[self.pos..])
     }
 
-    fn consume(&mut self, amt: usize) {
-        self.pos += amt;
+    fn consume(&mut self, amount: usize) {
+        self.pos += amount;
     }
 }
 
@@ -117,7 +141,7 @@ impl Write for ChannelWriter {
 /// Runs the protocol over this session's channels in a blocking thread until
 /// the inbound channel closes.
 fn run_protocol(
-    session: std::sync::Arc<Session>,
+    session: Arc<Session>,
     inbound_rx: mpsc::UnboundedReceiver<String>,
     outbound_rx: broadcast::Receiver<String>,
     mode: Mode,
@@ -173,38 +197,38 @@ fn run_protocol(
 
 /// The HTTP service: dispatches `POST /mcp` and `GET /mcp`.
 async fn handle_request(
-    req: Request<hyper::body::Incoming>,
-    sessions: std::sync::Arc<TokioMutex<HashMap<String, std::sync::Arc<Session>>>>,
+    req: Request<Incoming>,
+    sessions: Sessions,
     mode: Mode,
-) -> Result<Response<hyper::body::Body>, hyper::Error> {
+) -> Result<Response<Body>, io::Error> {
     if req.uri().path() != "/mcp" {
         return Ok(Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(hyper::body::Body::from("not found"))
-            .unwrap());
+            .body(complete("not found"))
+            .expect("a fixed response builds"));
     }
 
-    match req.method() {
-        &hyper::Method::POST => handle_post(req, sessions, mode).await,
-        &hyper::Method::GET => handle_get(req, sessions).await,
+    match *req.method() {
+        Method::POST => handle_post(req, sessions, mode).await,
+        Method::GET => handle_get(req, sessions).await,
         _ => Ok(Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
-            .body(hyper::body::Body::from("method not allowed"))
-            .unwrap()),
+            .body(complete("method not allowed"))
+            .expect("a fixed response builds")),
     }
 }
 
 /// POST /mcp: queue one JSON-RPC message for the session.
 async fn handle_post(
-    req: Request<hyper::body::Incoming>,
-    sessions: std::sync::Arc<TokioMutex<HashMap<String, std::sync::Arc<Session>>>>,
+    req: Request<Incoming>,
+    sessions: Sessions,
     mode: Mode,
-) -> Result<Response<hyper::body::Body>, hyper::Error> {
+) -> Result<Response<Body>, io::Error> {
     let session_id = req
         .headers()
         .get("mcp-session-id")
         .and_then(|value| value.to_str().ok())
-        .map(|text| text.to_owned());
+        .map(str::to_owned);
 
     let session = match session_id.as_deref() {
         Some(id) => sessions.lock().await.get(id).cloned(),
@@ -215,61 +239,52 @@ async fn handle_post(
         Some(session) => session,
         None => {
             let (session, inbound_rx, outbound_rx) = Session::new();
-            let session_clone = session.clone();
 
-            std::thread::spawn(move || {
-                run_protocol(session_clone, inbound_rx, outbound_rx, mode);
+            std::thread::spawn({
+                let session = Arc::clone(&session);
+                move || run_protocol(session, inbound_rx, outbound_rx, mode)
             });
 
-            let id = session.id.clone();
-            sessions.lock().await.insert(id, session.clone());
+            sessions
+                .lock()
+                .await
+                .insert(session.id.clone(), Arc::clone(&session));
             session
         }
     };
 
-    let id = session.id.clone();
-
-    let body = hyper::body::to_bytes(req.into_body())
+    let body = req
+        .into_body()
+        .collect()
         .await
-        .map_err(|error| {
-            hyper::Error::from(io::Error::new(
-                io::ErrorKind::Other,
-                format!("could not read request body: {error}"),
-            ))
-        })?;
-    let text = String::from_utf8_lossy(&body).to_string();
+        .map_err(|error| io::Error::other(format!("could not read the request body: {error}")))?
+        .to_bytes();
+    let text = String::from_utf8_lossy(&body).into_owned();
 
-    session.inbound_tx.send(text).map_err(|_| {
-        hyper::Error::from(io::Error::new(
-            io::ErrorKind::BrokenPipe,
-            "session inbound channel closed",
-        ))
-    })?;
+    session
+        .inbound_tx
+        .send(text)
+        .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "the session has ended"))?;
 
-    let mut response = Response::builder()
+    Ok(Response::builder()
         .status(StatusCode::ACCEPTED)
-        .header("mcp-session-id", &id)
-        .body(hyper::body::Body::empty())
-        .unwrap();
-
-    Ok(response)
+        .header("mcp-session-id", session.id.as_str())
+        .body(complete(Bytes::new()))
+        .expect("a fixed response builds"))
 }
 
 /// GET /mcp: SSE stream of responses for the session.
 async fn handle_get(
-    req: Request<hyper::body::Incoming>,
-    sessions: std::sync::Arc<TokioMutex<HashMap<String, std::sync::Arc<Session>>>>,
-) -> Result<Response<hyper::body::Body>, hyper::Error> {
+    req: Request<Incoming>,
+    sessions: Sessions,
+) -> Result<Response<Body>, io::Error> {
     let session_id = req
         .headers()
         .get("mcp-session-id")
         .and_then(|value| value.to_str().ok())
-        .map(|text| text.to_owned())
+        .map(str::to_owned)
         .ok_or_else(|| {
-            hyper::Error::from(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "missing mcp-session-id header",
-            ))
+            io::Error::new(io::ErrorKind::InvalidInput, "missing mcp-session-id header")
         })?;
 
     let session = sessions
@@ -277,38 +292,30 @@ async fn handle_get(
         .await
         .get(&session_id)
         .cloned()
-        .ok_or_else(|| {
-            hyper::Error::from(io::Error::new(io::ErrorKind::NotFound, "session not found"))
-        })?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "session not found"))?;
 
-    let mut rx = session.outbound_tx.subscribe();
+    let rx = session.outbound_tx.subscribe();
 
-    let stream = BroadcastStream::new(rx).map(|result| match result {
-        Ok(line) => {
-            let payload = format!("data: {}\n\n", line);
-            Ok::<_, hyper::Error>(Bytes::from(payload))
-        }
-        Err(_) => Ok::<_, hyper::Error>(Bytes::new()),
-    });
+    // A lagging reader loses the messages it did not keep up with rather
+    // than ending the stream.
+    let stream = BroadcastStream::new(rx)
+        .filter_map(|result| std::future::ready(result.ok()))
+        .map(|line| {
+            Ok::<Frame<Bytes>, io::Error>(Frame::data(Bytes::from(format!("data: {line}\n\n"))))
+        });
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/event-stream")
         .header("cache-control", "no-cache")
         .header("connection", "keep-alive")
-        .body(hyper::body::Body::wrap_stream(stream))
-        .unwrap())
+        .body(BodyExt::boxed(StreamBody::new(stream)))
+        .expect("a fixed response builds"))
 }
 
 /// Serves MCP over HTTP/SSE on `addr`, through the backend `mode` picks.
-pub async fn run_http(addr: std::net::SocketAddr, mode: Mode) -> Result<(), String> {
-    let sessions: std::sync::Arc<TokioMutex<HashMap<String, std::sync::Arc<Session>>>> =
-        std::sync::Arc::default();
-
-    let service = service_fn(move |req| {
-        let sessions = sessions.clone();
-        async move { handle_request(req, sessions, mode).await }
-    });
+pub async fn run_http(addr: SocketAddr, mode: Mode) -> Result<(), String> {
+    let sessions: Sessions = Sessions::default();
 
     let listener = TcpListener::bind(addr)
         .await
@@ -322,7 +329,14 @@ pub async fn run_http(addr: std::net::SocketAddr, mode: Mode) -> Result<(), Stri
             .await
             .map_err(|error| format!("accept failed: {error}"))?;
         let io = TokioIo::new(stream);
-        let service = service.clone();
+
+        let service = {
+            let sessions = Arc::clone(&sessions);
+            service_fn(move |req| {
+                let sessions = Arc::clone(&sessions);
+                async move { handle_request(req, sessions, mode).await }
+            })
+        };
 
         tokio::spawn(async move {
             if let Err(error) = hyper::server::conn::http1::Builder::new()

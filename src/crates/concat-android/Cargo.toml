@@ -29,8 +29,14 @@ concat.workspace = true
 concat-server = { workspace = true, features = ["local-socket"] }
 # API types and dispatcher
 concat-api.workspace = true
-# MCP server for AI agents (headless binary)
-concat-mcp = { workspace = true, features = ["local-socket"] }
+# The session, flattening and export the headless API server binary shares
+# with the window (`lib.rs`, `api_server_main.rs`).
+concat-host = { workspace = true, features = ["gpu"] }
+# MCP server for AI agents: the stdio server, and the HTTP/SSE one the
+# headless binary serves on a phone.
+concat-mcp = { workspace = true, features = ["local-socket", "http"] }
+# The runtime the headless MCP binary (`mcp_main.rs`) serves on.
+tokio = { version = "1", features = ["rt", "net", "sync", "time"] }
 slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-android-activity-06",

@@ -21,6 +21,8 @@
 //!   shared with a window: a project open in the window can be opened here
 //!   too, which is why the window's server is preferred when it is there.
 
+#[cfg(target_os = "android")]
+use std::io::{BufRead, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,6 +35,11 @@ use serde_json::Value;
 
 /// How long a connection to the window's server may take to open.
 const PATIENCE: Duration = Duration::from_secs(3);
+
+/// The longest reply line read from a LocalSocket: a project's whole
+/// document fits.
+#[cfg(target_os = "android")]
+const MAX_REPLY: u64 = 256 * 1024 * 1024;
 
 /// What a tool's request is handed to.
 pub trait Backend: Send {
@@ -229,18 +236,14 @@ impl ClientLocal {
     /// Connects to the LocalSocket `name` and presents `token`.
     pub fn connect(name: &str, token: &str, patience: Duration) -> Result<ClientLocal, String> {
         use socket2::{Domain, Protocol, Socket, Type};
-        use std::time::Instant;
-
-        let deadline = Instant::now() + patience;
 
         let socket = Socket::new(Domain::UNIX, Type::STREAM, Some(Protocol::from(0)))
-            .map_err(|e| format!("failed to create socket: {e}"))?;
-
-        // Set connect timeout
-        let timeout = deadline.saturating_duration_since(Instant::now());
+            .map_err(|e| format!("could not open the LocalSocket {name}: {e}"))?;
+        // Bounds the handshake below, and cleared once the connection is
+        // in use, where a call may take as long as its method does.
         socket
-            .set_write_timeout(Some(timeout))
-            .map_err(|e| format!("failed to set write timeout: {e}"))?;
+            .set_read_timeout(Some(patience))
+            .map_err(|e| format!("could not set the LocalSocket timeout: {e}"))?;
 
         // Connect to the abstract namespace or to a filesystem path: a name
         // that begins with `@` is the abstract namespace, whose `@` becomes
@@ -275,110 +278,98 @@ impl ClientLocal {
             .connect(&addr)
             .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
 
-        // Handshake: send auth token
-        let auth_msg = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "auth",
-            "params": { "token": token }
-        });
-        let auth_line = auth_msg.to_string() + "\n";
-        socket
-            .write_all(auth_line.as_bytes())
-            .map_err(|e| format!("failed to send auth: {e}"))?;
-        socket
-            .flush()
-            .map_err(|e| format!("failed to flush auth: {e}"))?;
-
-        // Read response
-        let mut reader = std::io::BufReader::new(
-            socket
-                .try_clone()
-                .map_err(|e| format!("failed to clone socket: {e}"))?,
-        );
-        let mut response = String::new();
-        reader
-            .read_line(&mut response)
-            .map_err(|e| format!("failed to read auth response: {e}"))?;
-
-        let response: serde_json::Value =
-            serde_json::from_str(&response).map_err(|e| format!("invalid auth response: {e}"))?;
-
-        if response.get("error").is_some() {
-            let msg = response["error"]["message"]
-                .as_str()
-                .unwrap_or("auth failed");
-            return Err(format!("auth failed: {msg}"));
-        }
-
-        Ok(ClientLocal {
-            reader: std::io::BufReader::new(
-                socket
-                    .try_clone()
-                    .map_err(|e| format!("failed to clone socket: {e}"))?,
-            ),
+        let reader = socket
+            .try_clone()
+            .map_err(|e| format!("could not clone the LocalSocket {name}: {e}"))?;
+        let mut client = ClientLocal {
+            reader: std::io::BufReader::new(reader),
             writer: socket,
-            next_id: 2,
-            socket_name: name.to_string(),
-        })
+            next_id: 1,
+            socket_name: name.to_owned(),
+        };
+
+        // Present the token, the way the connection to a TCP server does.
+        client
+            .exchange("auth", serde_json::json!({ "token": token }))
+            .map_err(|error| format!("could not reach the Concat server at {name}: {error}"))?;
+        client
+            .reader
+            .get_ref()
+            .set_read_timeout(None)
+            .map_err(|e| format!("could not clear the LocalSocket timeout: {e}"))?;
+        Ok(client)
     }
 
     pub fn socket_name(&self) -> &str {
         &self.socket_name
     }
 
-    /// Runs one request and returns its result.
+    /// Runs one request and returns its result, as the JSON the server
+    /// sent.
     pub fn call(&mut self, request: &Request) -> Result<Value, ApiError> {
-        use concat_api::{ErrorCode, Request as ApiRequest};
-        use serde_json::{Value, json};
+        let Value::Object(mut fields) = serde_json::to_value(request)
+            .map_err(|error| ApiError::invalid(format!("not a request: {error}")))?
+        else {
+            return Err(ApiError::invalid("a request is an object"));
+        };
+        let method = match fields.remove("method") {
+            Some(Value::String(method)) => method,
+            _ => return Err(ApiError::invalid("a request names its method")),
+        };
+        self.exchange(&method, Value::Object(fields))
+    }
+
+    /// Sends one call and reads lines until its reply.
+    fn exchange(&mut self, method: &str, params: Value) -> Result<Value, ApiError> {
+        use concat_api::ErrorCode;
+        use serde_json::json;
 
         let id = self.next_id;
         self.next_id += 1;
-
-        let params = match serde_json::to_value(&request.params) {
-            Ok(v) => v,
-            Err(e) => return Err(ApiError::new(ErrorCode::InvalidParams, e.to_string())),
+        let line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+        let gone = |error: &dyn std::fmt::Display| {
+            ApiError::failed(format!(
+                "the connection to the Concat server failed: {error}"
+            ))
         };
-
-        let msg = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": request.method,
-            "params": params,
-        });
-
-        let line = msg.to_string() + "\n";
-        self.writer
-            .write_all(line.as_bytes())
-            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("write failed: {e}")))?;
-        self.writer
-            .flush()
-            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("flush failed: {e}")))?;
-
-        let mut response = String::new();
-        self.reader
-            .read_line(&mut response)
-            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("read failed: {e}")))?;
-
-        let response: Value = serde_json::from_str(&response).map_err(|e| {
-            ApiError::new(ErrorCode::InternalError, format!("invalid response: {e}"))
-        })?;
-
-        if let Some(error) = response.get("error") {
-            let code = error["code"].as_i64().unwrap_or(-32603);
-            let message = error["message"].as_str().unwrap_or("unknown error");
-            return Err(ApiError::new(
-                ErrorCode::from_code(code),
-                message.to_string(),
-            ));
+        writeln!(self.writer, "{line}").map_err(|error| gone(&error))?;
+        self.writer.flush().map_err(|error| gone(&error))?;
+        loop {
+            let mut reply = String::new();
+            let read = std::io::Read::take(&mut self.reader, MAX_REPLY)
+                .read_line(&mut reply)
+                .map_err(|error| gone(&error))?;
+            if read == 0 {
+                return Err(gone(&"the server hung up"));
+            }
+            let Ok(Value::Object(mut message)) = serde_json::from_str::<Value>(&reply) else {
+                return Err(gone(&"the server sent something that is not JSON-RPC"));
+            };
+            // An event, or the refusal of a connection the server never let
+            // in (null id): the latter is the answer.
+            let answered = match message.get("id") {
+                Some(Value::Number(number)) => number.as_u64() == Some(id),
+                Some(Value::Null) => message.contains_key("error"),
+                _ => false,
+            };
+            if !answered {
+                continue;
+            }
+            if let Some(result) = message.remove("result") {
+                return Ok(result);
+            }
+            let error = message.remove("error").unwrap_or(Value::Null);
+            let code = error
+                .pointer("/data/code")
+                .cloned()
+                .and_then(|code| serde_json::from_value::<ErrorCode>(code).ok())
+                .unwrap_or(ErrorCode::Failed);
+            let text = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("the server refused the call");
+            return Err(ApiError::new(code, text));
         }
-
-        response.get("result").cloned().ok_or_else(|| {
-            ApiError::new(
-                ErrorCode::InternalError,
-                "no result in response".to_string(),
-            )
-        })
     }
 }
 
@@ -404,17 +395,10 @@ fn locate_local() -> Result<(String, String), String> {
     let dirs = AppDirs::locate()?;
     let path = discovery::path_in(&dirs.config);
     match discovery::read(&path)? {
-        Some(listing) => {
-            // If the listing has a local_socket field, use it
-            // For now, construct from the address if it's a local address
-            if listing.address.ip().is_loopback() {
-                // Use a default abstract namespace socket name
-                let socket_name = format!("@concat-{}", listing.address.port());
-                Ok((socket_name, listing.token))
-            } else {
-                Err("window server is not on a local socket".to_owned())
-            }
-        }
+        Some(listing) => match listing.local_socket {
+            Some(socket_name) => Ok((socket_name, listing.token)),
+            None => Err("the window's server is not serving the API via LocalSocket".to_owned()),
+        },
         None => Err(
             "the Concat window is not serving the API via LocalSocket: enable it in Settings > Automation"
                 .to_owned(),

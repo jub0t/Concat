@@ -575,12 +575,12 @@ fn start_api_server_if_enabled(app: &slint::android::AndroidApp) {
         local_socket,
         token: Some(token.clone()),
         discovery: Some(concat_server::discovery::path_in(&config_dir)),
-        roots: Some(vec![
+        roots: vec![
             app.internal_data_path()
                 .unwrap_or_else(|| config_dir.clone()),
             app.external_data_path()
                 .unwrap_or_else(|| config_dir.clone()),
-        ]),
+        ],
         ..Default::default()
     };
 
