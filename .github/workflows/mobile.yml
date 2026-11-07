@@ -16,7 +16,7 @@ name: Build for phones
 # cached: FFmpeg by src/scripts/ffmpeg-mobile.sh, with the platform's
 # hardware codecs, and whisper.cpp by its crate. ONNX Runtime comes from
 # ort's own downloads - except on the x86_64 emulator APK, whose target
-# it publishes no prebuilt for and src/scripts/android-libs.sh stages
+# it publishes no prebuilt for and scripts/android-libs.sh stages
 # Microsoft's own Android build instead.
 #
 # src/scripts/mobile-env.sh is the one description of the build
@@ -318,113 +318,61 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           sparse-checkout: scripts/ci
-      - uses: actions/download-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 10
         with:
           name: smoke-apk-android-x86_64
           path: apk
-      - name: Read the version
-        id: version
+
+      # The emulator needs KVM, which the runner has but only root may
+      # open until a udev rule says otherwise.
+      - name: KVM for the emulator
+        timeout-minutes: 2
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Testing Concat $version on API ${{ matrix.api }}"
-      - name: Start emulator
-        uses: android-actions/setup-android@b8c732b52573d0011e878e80c6f4b48b8c7c5c1b # v3.2.3
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # A Google APIs image, which has the ARM translation (the ATD images
+      # leave it out), on a phone-sized screen with SwiftShader standing in
+      # for the GPU. The emulator keeps its sound device, as a phone does:
+      # the engine opens an audio stream as it starts. The SDK pieces the
+      # action downloads are checked by sdkmanager against Google's own
+      # repository digests, not through scripts/ci/deps.lock.
+      - name: Start the APK on an emulator
+        timeout-minutes: 30
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api }}
+          target: google_apis
           arch: x86_64
-          ndk-version: r27c
-          emulator: true
-      - name: Install and start app
-        run: |
-          adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
-          adb install -r apk/Concat-*.apk
-          adb shell monkey -p org.standalones.concat -c android.intent.category.LAUNCHER 1
-          sleep 15
-          adb logcat -d -s concat > logcat.txt || true
-          if grep -q "Concat.*starting" logcat.txt; then
-            echo "App started successfully"
-          else
-            echo "App failed to start"
-            cat logcat.txt
-            exit 1
-          fi
-      - name: Smoke log to the summary (failure only)
-        if: failure()
-        run: |
-          if [ -f logcat.txt ]; then
-            {
-              echo "### Smoke failed: Android API ${{ matrix.api }}"
-              echo '```'
-              tail -n 150 logcat.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disk-size: 6G
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: scripts/ci/smoke-android.sh --out smoke-android --wait 60 apk/Concat-*.apk
 
-  # iOS simulator smoke test: builds the simulator slice, boots a simulator,
-  # installs the app and checks it launches. The device build is in the
-  # ios job below.
-  ios-simulator-smoke:
-    name: iOS simulator smoke
-    runs-on: macos-15
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The log, the screenshot and the rest, pass or fail.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        timeout-minutes: 10
         with:
-          sparse-checkout: scripts/ci
-      - uses: actions/download-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: smoke-ios
-          path: ios
-      - name: Read the version
-        id: version
-        run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Testing Concat $version on iOS Simulator"
-      - name: Start simulator and install app
-        run: |
-          xcrun simctl boot "iPhone 16"
-          xcrun simctl install booted ios/Concat-*.app
-          xcrun simctl launch booted org.standalones.concat
-          sleep 15
-          xcrun simctl spawn booted log show --predicate 'process == "Concat"' --style compact > log.txt 2>&1 || true
-          if grep -q "Concat.*starting" log.txt; then
-            echo "App started successfully"
-          else
-            echo "App failed to start"
-            cat log.txt
-            exit 1
-          fi
-      - name: Smoke log to the summary (failure only)
-        if: failure()
-        run: |
-          if [ -f log.txt ]; then
-            {
-              echo "### Smoke failed: iOS Simulator"
-              echo '```'
-              tail -n 150 log.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          name: smoke-android-api${{ matrix.api }}
+          path: smoke-android/
+          if-no-files-found: warn
 
   # iOS device build: produces an .ipa that can be sideloaded. Ad-hoc signed,
   # so the tester signs it with their own Apple ID on the way onto a phone.
   ios:
-    name: iOS ${{ matrix.abi }}
+    name: iOS arm64
     runs-on: macos-15
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-ios
-            abi: arm64
-            ship: true
-          - target: aarch64-apple-ios-sim
-            abi: arm64-sim
-            ship: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -434,66 +382,65 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Concat $version for ${{ matrix.target }}"
+          echo "Building Concat $version for aarch64-apple-ios"
       - name: The pinned toolchain
         id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
-          targets: ${{ matrix.target }}
-      - uses: taiki-e/cache-cargo-install-action@9ee83daaa7b96a6fab930949ecf1122bba04a389 # v3.0.8
-        with:
-          tool: cargo-apk
+          targets: aarch64-apple-ios
+
       - name: System libraries
         run: brew install cmake
+
+      # Restored and saved as two steps rather than one, so the FFmpeg
+      # build is kept the moment it finishes, whatever happens to the Rust
+      # build after it.
       - name: FFmpeg for iOS (cached)
         id: ffmpeg
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: src/vendor/ffmpeg/${{ matrix.target }}
-          key: ffmpeg-${{ matrix.target }}-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+          path: src/vendor/ffmpeg/aarch64-apple-ios
+          key: ffmpeg-aarch64-apple-ios-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for iOS
         if: steps.ffmpeg.outputs.cache-hit != 'true'
-        run: src/scripts/ffmpeg-mobile.sh ${{ matrix.target }}
+        run: src/scripts/ffmpeg-mobile.sh aarch64-apple-ios
       - name: FFmpeg for iOS (save)
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: src/vendor/ffmpeg/${{ matrix.target }}
+          path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
-          key: ${{ matrix.target }}
-      - name: Build the app
+          key: aarch64-apple-ios
+
+      - name: Build
         working-directory: src
         run: |
           set -o pipefail
-          eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
-          cargo build --release -p concat --target ${{ matrix.target }} 2>&1 | tee build.log
-      - name: Bundle
-        if: matrix.ship
-        run: |
-          set -euo pipefail
-          eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
-          scripts/ci/bundle-ios.sh ${{ matrix.target }} ${{ steps.version.outputs.version }}
+          eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
+          cargo build --release -p concat --target aarch64-apple-ios 2>&1 | tee build.log
+
       - name: Build log to the summary (failure only)
         if: failure()
         run: |
           python3 scripts/ci/annotate.py src/build.log || true
           if [ -f src/build.log ]; then
             {
-              echo "### Build failed: iOS ${{ matrix.abi }}"
+              echo "### Build failed: iOS arm64"
               echo '```'
               tail -n 150 src/build.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # The bundle: binary, Info.plist and icon, ad-hoc
-      # signed. A developer's identity and provisioning profile go on with
-      # codesign before it can be installed on a phone.
+      # The bundle: binary, Info.plist and icon, ad-hoc signed. A
+      # developer's identity and provisioning profile go on with codesign
+      # before it can be installed on a phone.
       - name: Bundle
         run: src/scripts/ios-app.sh aarch64-apple-ios release
 
