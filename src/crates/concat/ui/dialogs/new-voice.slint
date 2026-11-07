@@ -4,7 +4,7 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph } from "../icons.slint";
-import { Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
+import { ActionPair, Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
 import { Rail } from "../inspector/controls.slint";
 import { Fmt } from "../util.slint";
 
@@ -150,24 +150,14 @@ export component NewVoiceDialog inherits Modal {
             background: Theme.line;
         }
 
-        HorizontalLayout {
+        ActionPair {
             padding: 14px;
-            spacing: 8px;
-            alignment: end;
-
-            Button {
-                label: I18n.t("common.cancel");
-                enabled: !root.data.saving;
-                clicked => { root.closed(); }
-            }
-
-            Button {
-                primary: true;
-                glyph: Glyph.check;
-                label: I18n.t("speech.save");
-                enabled: root.data.name != "" && !root.data.listening && !root.data.saving;
-                clicked => { root.save(); }
-            }
+            cancel-enabled: !root.data.saving;
+            action-glyph: Glyph.check;
+            action-label: I18n.t("speech.save");
+            action-enabled: root.data.name != "" && !root.data.listening && !root.data.saving;
+            cancel => { root.closed(); }
+            act => { root.save(); }
         }
     }
 }

@@ -332,6 +332,49 @@ export component Button inherits Rectangle {
     }
 }
 
+/// A dialog's Cancel and its go-ahead, in the platform's order: the
+/// go-ahead first on Windows, last on macOS and Linux (`Theme.ok-first`).
+/// Right-aligned, as every desktop lays them.
+export component ActionPair inherits HorizontalLayout {
+    in property <string> cancel-label: I18n.t("common.cancel");
+    in property <bool> cancel-enabled: true;
+    in property <string> action-label;
+    in property <Glyph> action-glyph;
+    in property <bool> action-enabled: true;
+    /// The go-ahead destroys something: the danger tone, not the primary.
+    in property <bool> danger;
+
+    callback cancel();
+    callback act();
+
+    alignment: end;
+    spacing: 8px;
+
+    if Theme.ok-first: Button {
+        primary: !root.danger;
+        danger: root.danger;
+        glyph: root.action-glyph;
+        label: root.action-label;
+        enabled: root.action-enabled;
+        clicked => { root.act(); }
+    }
+
+    Button {
+        label: root.cancel-label;
+        enabled: root.cancel-enabled;
+        clicked => { root.cancel(); }
+    }
+
+    if !Theme.ok-first: Button {
+        primary: !root.danger;
+        danger: root.danger;
+        glyph: root.action-glyph;
+        label: root.action-label;
+        enabled: root.action-enabled;
+        clicked => { root.act(); }
+    }
+}
+
 // A chip that puts a line of text on the clipboard.
 //
 // For the notices that report a failure: a bug that can be pasted into a
