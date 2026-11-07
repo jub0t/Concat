@@ -1255,6 +1255,8 @@ export component Lanes inherits Rectangle {
     in property <float> frame-rate: 30;
     /// Seconds at the left edge of the lanes.
     in property <float> scroll-left;
+    /// Where the cut ends: how far a drag at the edge may scroll the view.
+    in property <float> duration-seconds;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in property <bool> pan-mode: false;
     /// The preview axis: a hairline follows the pointer across the lanes
@@ -1468,15 +1470,34 @@ export component Lanes inherits Rectangle {
     /// `scroll-left` when the clip was pressed; see the clip's `dragged`.
     property <float> press-scroll;
     property <length> edge-zone: 40px;
+    /// How far into the edge zone the pointer is, or past it, as 0..1: a
+    /// pointer just inside it creeps, one well past the lanes runs. At one
+    /// speed, a dozen pixels a tick from the zone's first pixel, the view
+    /// ran off with the clip before it could be aimed (#633).
+    property <float> edge-depth: Math.min(1, Math.max(0,
+        (root.pointer-x < root.edge-zone
+            ? root.edge-zone - root.pointer-x
+            : root.pointer-x - (root.width - root.edge-zone)) / (root.edge-zone * 2)));
+    /// The furthest the right edge may scroll: a quarter of a view past the
+    /// cut's end, room to drop a clip after it, and no further - the view
+    /// used to run on into nothing for as long as the button was held.
+    property <float> view-seconds: root.width / 1px * root.seconds-per-pixel;
+    property <float> last-left: Math.max(root.scroll-left,
+        root.duration-seconds - root.view-seconds * 0.75);
+    property <bool> edge-left: root.pointer-x < root.edge-zone && root.scroll-left > 0;
+    property <bool> edge-right: root.pointer-x > root.width - root.edge-zone
+        && root.scroll-left < root.duration-seconds - root.view-seconds * 0.75;
     property <bool> at-edge: (root.scrubbing || root.clip-dragging)
-        && (root.pointer-x < root.edge-zone || root.pointer-x > root.width - root.edge-zone);
+        && (root.edge-left || root.edge-right);
 
     edge-scroll := Timer {
         interval: 16ms;
         running: root.at-edge;
         triggered => {
-            root.scrolled(Math.max(0, root.scroll-left
-                + (root.pointer-x < root.edge-zone ? -12 : 12) * root.seconds-per-pixel));
+            // One pixel a tick at the zone's inner edge, up to two dozen.
+            root.scrolled(Math.min(root.last-left, Math.max(0, root.scroll-left
+                + (root.edge-left ? -1 : 1) * (1 + 23 * root.edge-depth * root.edge-depth)
+                    * root.seconds-per-pixel)));
             if (root.scrubbing) {
                 root.scrubbed(Math.max(0, root.seconds-at(root.pointer-x)));
             } else {
