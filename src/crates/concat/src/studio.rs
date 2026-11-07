@@ -1872,6 +1872,14 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
             stabilize: after.stabilize,
         });
     }
+    // Without this the inspector's Voice isolation wrote the echo and the
+    // commit dropped it: the way chosen sprang back to Everything.
+    if after.voice != before.voice {
+        commands.push(Command::SetClipVoice {
+            clip_id: id.to_owned(),
+            voice: after.voice,
+        });
+    }
     if after.speed_curve != before.speed_curve {
         // A curve, changed or new, is one command; a curve taken away is
         // the constant rate the echo left, which SetClipSpeed sets and
@@ -2881,6 +2889,35 @@ mod tests {
         colour_about, custom_frame, custom_rate, fps_of, grading_rows, has_hue, home_folder,
         key_commands, packed, place_in, shown, wheel_partners, write_keyable,
     };
+
+    /// The inspector writes its Voice isolation into the echo, and the
+    /// commit is the difference between the echo and the document: a
+    /// difference with no command dropped the choice, and the inspector's
+    /// Voice only and No voice sprang back to Everything.
+    #[test]
+    fn a_voice_set_in_the_inspector_is_committed() {
+        use concat_project::model::{Clip, ClipKind as Kind, VoiceMix};
+        let before = Clip::blank("c1", "t1", Kind::Audio, "m1", 0.0, 4.0);
+        for mix in [Some(VoiceMix::KEEP_VOICE), Some(VoiceMix::REMOVE_VOICE)] {
+            let mut after = before.clone();
+            after.voice = mix;
+            let commands = super::clip_commands("c1", &before, &after, false);
+            assert!(
+                commands.iter().any(|command| matches!(
+                    command,
+                    Command::SetClipVoice { voice, .. } if *voice == mix
+                )),
+                "no command carries {mix:?}: {commands:?}"
+            );
+        }
+        let mut on = before.clone();
+        on.voice = Some(VoiceMix::KEEP_VOICE);
+        assert!(
+            super::clip_commands("c1", &on, &before, false)
+                .iter()
+                .any(|command| matches!(command, Command::SetClipVoice { voice: None, .. }))
+        );
+    }
 
     /// A row rebuilt with fresh models of the same rows is the same row, so
     /// a publish leaves it - and the dropdown reading it - alone (#622);
