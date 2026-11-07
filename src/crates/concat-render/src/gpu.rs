@@ -320,6 +320,37 @@ pub const MEMORY_BUDGET: wgpu::MemoryBudgetThresholds = wgpu::MemoryBudgetThresh
     for_device_loss: Some(99),
 };
 
+/// The same gates, overridable: `CONCAT_GPU_BUDGET=off` lifts both, and a
+/// number 1-99 sets the creation gate to it, with the loss gate four points
+/// behind. The override exists because Linux NVIDIA drivers have been seen
+/// reporting a nearly idle card as spent - nvidia-smi showing the card
+/// mostly free while these gates refuse allocations of two hundred bytes and
+/// lose the device before an export draws its first frame. The gates are
+/// still right where the driver tells the truth; turning them off hands the
+/// decision back to the driver, where a real out-of-memory fails the
+/// allocation just the same and the device-loss recovery answers it.
+pub fn memory_budget() -> wgpu::MemoryBudgetThresholds {
+    let setting = std::env::var("CONCAT_GPU_BUDGET")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if setting == "off" || setting == "none" || setting == "0" {
+        return wgpu::MemoryBudgetThresholds {
+            for_resource_creation: None,
+            for_device_loss: None,
+        };
+    }
+    if let Ok(creation) = setting.parse::<u8>() {
+        if (1..=99).contains(&creation) {
+            return wgpu::MemoryBudgetThresholds {
+                for_resource_creation: Some(creation),
+                for_device_loss: Some(creation.saturating_add(4).min(99)),
+            };
+        }
+    }
+    MEMORY_BUDGET
+}
+
 /// A picture copied texel for texel into a target of the same size, through
 /// the colour conversion at each end of the working space: an uploaded
 /// frame into it (`fs_upload`), and a finished frame out of it into the
@@ -1006,7 +1037,7 @@ impl WgpuCompositor {
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
             flags: instance_flags(),
-            memory_budget_thresholds: MEMORY_BUDGET,
+            memory_budget_thresholds: memory_budget(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
         // FXC, never wgpu's default `Auto`: Concat ships no dxcompiler.dll,
