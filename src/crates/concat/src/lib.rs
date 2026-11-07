@@ -530,6 +530,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_font_families(ModelRc::from(models.font_families.clone()));
         app.global::<FontSearch>()
             .set_matches(ModelRc::from(models.font_matches.clone()));
+        app.global::<crate::ui::CaptionStyles>()
+            .set_matches(ModelRc::from(models.caption_styles.clone()));
     }
 
     // Settings > About's block, gathered once: nothing in it changes while
@@ -1521,6 +1523,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.global::<FontSearch>()
         .on_query_changed(on_window!(|state, text: SharedString| {
             state.font_query = text.to_string();
+        }));
+    app.global::<crate::ui::CaptionStyles>()
+        .on_query_changed(on_window!(|state, text: SharedString| {
+            state.captions.style_query = text.to_string();
+        }));
+    app.global::<crate::ui::CaptionStyles>()
+        .on_picked(on_window!(|state, id: SharedString| {
+            state.prefs.caption_style = Some(id.to_string());
+            state.prefs.save(&state.host.dirs);
         }));
     app.global::<Meters>().on_clip_cleared({
         let weak = app.as_weak();

@@ -827,6 +827,8 @@ pub struct Models {
     pub font_families: Rc<VecModel<SharedString>>,
     /// Those of them the font picker's search lets through.
     pub font_matches: Rc<VecModel<SharedString>>,
+    /// The text presets the captions' style search lets through.
+    pub caption_styles: Rc<VecModel<TextPresetData>>,
 }
 
 impl Models {
@@ -901,6 +903,7 @@ impl Models {
             language_presets: Rc::new(VecModel::default()),
             font_families: Rc::new(VecModel::default()),
             font_matches: Rc::new(VecModel::default()),
+            caption_styles: Rc::new(VecModel::default()),
         }
     }
 }

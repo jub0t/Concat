@@ -9,6 +9,8 @@ import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { TextAlignment } from "../timeline/model.slint";
 import { CatalogueEntryData, Library } from "../inspector/clip-inspector.slint";
 import { SearchField } from "../inspector/controls.slint";
+import { TextPresetData } from "../inspector/style-picker.slint";
+export { TextPresetData }
 import { Select } from "../primitives/select.slint";
 import { Wave } from "../primitives/wave.slint";
 import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
@@ -32,29 +34,6 @@ export enum MediaKind { video, audio, image }
 /// value here and not the absence of one. `speech` is the Generated group's
 /// shelf: what the editor read aloud, which the Media rows leave out.
 export enum MediaFilter { all, video, audio, images, speech, processed }
-
-/// One look a title can be given, as the Text page's Presets shelf shows
-/// it: enough of the style to draw the name in it. Published by Rust from
-/// the preset list; the id is what is placed, and ids are stable for ever
-/// because project files store them.
-export struct TextPresetData {
-    id: string,
-    name: string,
-    /// The writing its face is made for: "Latin", "Japanese", "Hebrew".
-    language: string,
-    /// What the card draws in the look: "Aa", or a word of its own writing.
-    sample: string,
-    family: string,
-    weight: int,
-    italic: bool,
-    fill: color,
-    plate: color,
-    plated: bool,
-    stroke: color,
-    /// as a fraction of the frame; zero for none
-    stroke-width: float,
-    align: TextAlignment,
-}
 
 export struct MediaItemData {
     id: int,

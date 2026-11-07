@@ -1669,28 +1669,7 @@ impl Studio {
         // The Text page's presets: the look each card draws its name in.
         // All of them for the phone's one shelf; on the desktop, Styles
         // has the Latin ones and Languages, under it, the rest.
-        let cards: Vec<TextPresetData> = self
-            .text_presets
-            .iter()
-            .map(|preset| {
-                let plate = colour_of(&preset.style.background);
-                TextPresetData {
-                    id: preset.id.as_str().into(),
-                    name: preset.name.as_str().into(),
-                    language: preset.language.as_str().into(),
-                    sample: preset.sample.as_str().into(),
-                    family: preset.style.font_family.trim_matches('"').into(),
-                    weight: preset.style.font_weight.round() as i32,
-                    italic: preset.style.italic,
-                    fill: colour_of(&preset.style.color),
-                    plate,
-                    plated: plate.alpha() > 0,
-                    stroke: colour_of(&preset.style.stroke_color),
-                    stroke_width: preset.style.stroke_width as f32,
-                    align: align_of(preset.style.align),
-                }
-            })
-            .collect();
+        let cards: Vec<TextPresetData> = self.text_presets.iter().map(preset_card).collect();
         let latin = |card: &TextPresetData| card.language.eq_ignore_ascii_case("latin");
         sync(
             &models.style_presets,
@@ -1807,6 +1786,28 @@ impl Studio {
         );
         sync(&models.caption_languages, self.captions.language_rows(self));
         let captions = self.captions.data(self);
+        // The captions' style picker: the presets its search lets through,
+        // by name or by the writing they are for, and the one picked.
+        let query = self.captions.style_query.trim().to_lowercase();
+        sync(
+            &models.caption_styles,
+            self.text_presets
+                .iter()
+                .filter(|preset| {
+                    query.is_empty()
+                        || preset.name.to_lowercase().contains(&query)
+                        || preset.language.to_lowercase().contains(&query)
+                })
+                .map(preset_card)
+                .collect(),
+        );
+        let picked = crate::panes::captions::caption_style_id(self);
+        if let Some(preset) = self.text_presets.iter().find(|preset| preset.id == picked) {
+            let styles = app.global::<crate::ui::CaptionStyles>();
+            if styles.get_current().id != preset.id.as_str() {
+                styles.set_current(preset_card(preset));
+            }
+        }
         let editor = app.global::<Editor>();
         set_changed(
             editor.get_captions_sheet(),
@@ -2692,5 +2693,26 @@ impl Studio {
         let timeline_id = self.project().active_timeline_id.clone();
         self.apply(Command::SetTimelineVideo { timeline_id, video });
         self.request_preview();
+    }
+}
+
+/// A text preset as its card draws it: enough of the look to set its
+/// sample in. The Text page's shelves and the captions' style picker.
+pub(crate) fn preset_card(preset: &TextPreset) -> TextPresetData {
+    let plate = colour_of(&preset.style.background);
+    TextPresetData {
+        id: preset.id.as_str().into(),
+        name: preset.name.as_str().into(),
+        language: preset.language.as_str().into(),
+        sample: preset.sample.as_str().into(),
+        family: preset.style.font_family.trim_matches('"').into(),
+        weight: preset.style.font_weight.round() as i32,
+        italic: preset.style.italic,
+        fill: colour_of(&preset.style.color),
+        plate,
+        plated: plate.alpha() > 0,
+        stroke: colour_of(&preset.style.stroke_color),
+        stroke_width: preset.style.stroke_width as f32,
+        align: align_of(preset.style.align),
     }
 }
