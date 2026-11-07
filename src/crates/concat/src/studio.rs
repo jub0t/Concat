@@ -2883,6 +2883,10 @@ fn edit_point(spans: &[(f64, f64)], playhead: f32, rate: f32, forward: bool) -> 
 }
 
 #[cfg(test)]
+#[path = "processor_tests.rs"]
+mod processor_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_choices, chain_colours, chain_rows,
