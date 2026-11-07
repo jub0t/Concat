@@ -818,6 +818,11 @@ impl Transcriber {
             return Err("nothing to transcribe: the clip covers no time".to_owned());
         }
         let asked = asked_language(request.language.as_deref())?;
+        // Before anything of ggml's runs - Silero's context below included.
+        // On the shared x86_64 Windows and Linux builds ggml has no devices
+        // until this loads them, and whisper_vad_init asserts on the CPU
+        // device it cannot find: an abort, not an error (#667, #668, #673).
+        cpu_backend()?;
 
         // The window, as whisper wants it: 16 kHz mono floats.
         progress(JobStage::Reading);
