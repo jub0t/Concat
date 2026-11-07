@@ -961,9 +961,14 @@ component Clip inherits Rectangle {
 
         // A press anywhere on the wash picks the transition, not the clip
         // under it: the wash is the transition, drawn. Under the handles
-        // and the seam button, which are declared after it.
+        // and the seam button, which are declared after it. Not when the
+        // clip is already selected: then the press takes hold of the
+        // selection, as one on the clip's body does, and a marquee around a
+        // cut moves as a group (#635) - the seam button and the handles
+        // still pick the transition. Turned off, the wash lets the press
+        // through to the clip under it, which carries the selection.
         TouchArea {
-            enabled: !root.locked;
+            enabled: !root.locked && !root.item.selected;
             mouse-cursor: MouseCursor.pointer;
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
