@@ -2610,289 +2610,6 @@ export component TransitionPanel inherits VerticalLayout {
     }
 }
 
-/// Voice isolation splitting the clip's file: what it is doing and how far,
-/// over a bar that fills as it goes.
-component VoiceRow inherits VerticalLayout {
-    in property <float> progress;
-    in property <bool> fetching;
-
-    padding-left: Theme.pad;
-    padding-right: Theme.pad;
-    padding-top: 4px;
-    padding-bottom: 4px;
-    spacing: 6px;
-
-    Text {
-        text: I18n.t1(root.fetching ? "voice.downloading" : "voice.isolating",
-            "\{Math.round(root.progress * 100)}");
-        color: Theme.fg-muted;
-        font-size: Theme.fs;
-    }
-    Progress {
-        value: root.progress;
-        live: true;
-    }
-}
-
-/// Audio: the level, the fades, and whether the pitch follows the speed.
-/// The voice and room chain sits under it in the same tab; see config-pane.
-///
-/// The fader for level works in decibels, not linear gain. Linear puts every
-/// useful setting in the bottom sixth of the travel; decibels is both how the
-/// ear works and how anyone mixing thinks.
-export component AudioPanel inherits VerticalLayout {
-    in property <SelectedClipData> selected;
-    /// The media's audio tracks, one label each. A recording that kept the
-    /// desktop and the microphone apart has two, and gets a row to choose
-    /// which one this clip plays; a file with one has nothing to choose and
-    /// shows no row.
-    in property <[string]> audio-tracks;
-    /// The Source section has something to offer: a choice of audio track.
-    /// A file's colour range used to sit here too and is the media's now,
-    /// in the bin card's menu: it is a fact about the file, not the cut.
-    property <bool> choosing: !root.selected.batch-volume && root.audio-tracks.length > 1;
-
-    callback set(field: ClipField, value: float);
-    callback commit();
-
-    /// A fade longer than half the clip would overlap the other one.
-    property <float> fade-limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
-
-    property <float> level;
-    property <float> fade-in;
-    property <float> fade-out;
-    property <float> voice-level;
-    property <float> background-level;
-
-    function seed() {
-        root.voice-level = root.selected.voice-level * 100;
-        root.background-level = root.selected.background-level * 100;
-        root.level = InspectorFmt.to-decibels(root.selected.volume);
-        root.fade-in = root.selected.fade-in;
-        root.fade-out = root.selected.fade-out;
-    }
-
-    init => { root.seed(); }
-    changed selected => { root.seed(); }
-
-    if root.choosing: Section {
-        first: true;
-        source := SectionHeader {
-            title: I18n.t("clipInspector.source");
-            collapsible: true;
-            summary: (root.selected.audio-track >= 0
-                && root.selected.audio-track < root.audio-tracks.length)
-                ? root.audio-tracks[root.selected.audio-track] : "";
-        }
-        if source.open: SectionBody {
-        if root.audio-tracks.length > 1: Row {
-            label: I18n.t("clipInspector.audioTrack");
-            Select {
-                options: root.audio-tracks;
-                current: root.selected.audio-track;
-                changed(index) => {
-                    root.set(ClipField.audio-track, index);
-                    root.commit();
-                }
-            }
-        }
-        }
-    }
-
-    Section {
-        first: !root.choosing;
-        volume := SectionHeader {
-            title: I18n.t("clipInspector.volume");
-            collapsible: true;
-            summary: InspectorFmt.format(ParamFormat.gain, root.level);
-
-            ResetButton {
-                dirty: root.level != 0 || Keyframes.row(ClipField.volume).keyed;
-                reset => {
-                    Keyframes.clear(ClipField.volume);
-                    root.set(ClipField.volume, 1);
-                    root.commit();
-                }
-            }
-        }
-
-        if volume.open: SectionBody {
-            Param {
-                label: I18n.t("common.level");
-                keyable: !root.selected.batch-volume;
-                field: ClipField.volume;
-                rail: true;
-                value <=> root.level;
-            // The bottom is silence, not -60. +24 at the top because quiet
-            // material genuinely needs it — a distant lavalier is routinely
-            // 15-20 dB under, and a limit that cannot fix that is in the
-            // wrong place.
-            minimum: -60;
-                maximum: 24;
-                step: 0.5;
-                default-value: 0;
-                fmt: ParamFormat.gain;
-                changed(v) => {
-                    root.set(ClipField.volume, InspectorFmt.from-decibels(v));
-                    root.commit();
-                }
-            }
-        }
-    }
-
-    // Voice isolation (#120): the voice in the sound set apart from
-    // everything else, kept alone or taken out, each part at a level of
-    // its own - the music under a talk brought down rather than off.
-    if !root.selected.batch-volume: Section {
-        voice := SectionHeader {
-            title: I18n.t("voice.title");
-            collapsible: true;
-            summary: root.selected.voice-progress >= 0
-                ? I18n.t1(root.selected.voice-fetching ? "voice.downloading" : "voice.isolating",
-                    "\{Math.round(root.selected.voice-progress * 100)}")
-                : root.selected.voice-mode == 1 ? I18n.t("voice.keep")
-                : root.selected.voice-mode == 2 ? I18n.t("voice.removeShort")
-                : root.selected.voice-mode == 3 ? I18n.t("voice.custom")
-                : I18n.t("common.off");
-
-            ResetButton {
-                dirty: root.selected.voice-mode != 0;
-                reset => {
-                    root.set(ClipField.voice-mode, 0);
-                    root.commit();
-                }
-            }
-        }
-
-        if voice.open: SectionBody {
-            Row {
-                label: I18n.t("voice.mode");
-                SegmentedControl {
-                    options: [I18n.t("voice.off"), I18n.t("voice.keep"), I18n.t("voice.removeShort")];
-                    // Levels of one's own are neither way: nothing lit.
-                    property <int> shown: root.selected.voice-mode == 3 ? -1 : root.selected.voice-mode;
-                    current: self.shown;
-                    changed shown => { self.current = self.shown; }
-                    changed(index) => {
-                        root.set(ClipField.voice-mode, index);
-                        root.commit();
-                    }
-                }
-            }
-
-            // A song's singing apart from its music, or speech apart from
-            // the noise behind it: two models, each good at its own.
-            if root.selected.voice-mode != 0: Row {
-                label: I18n.t("voice.kind");
-                SegmentedControl {
-                    options: [I18n.t("voice.kindSong"), I18n.t("voice.kindSpeech")];
-                    property <int> shown: root.selected.voice-kind;
-                    current: self.shown;
-                    changed shown => { self.current = self.shown; }
-                    changed(index) => {
-                        root.set(ClipField.voice-kind, index);
-                        root.commit();
-                    }
-                }
-            }
-
-            if root.selected.voice-mode != 0: Param {
-                label: I18n.t("voice.voiceLevel");
-                rail: true;
-                value <=> root.voice-level;
-                minimum: 0;
-                maximum: 200;
-                step: 1;
-                default-value: 100;
-                fmt: ParamFormat.percent;
-                changed(v) => { root.set(ClipField.voice-level, v / 100); root.commit(); }
-            }
-
-            if root.selected.voice-mode != 0: Param {
-                label: I18n.t("voice.backgroundLevel");
-                rail: true;
-                value <=> root.background-level;
-                minimum: 0;
-                maximum: 200;
-                step: 1;
-                default-value: 100;
-                fmt: ParamFormat.percent;
-                changed(v) => { root.set(ClipField.background-level, v / 100); root.commit(); }
-            }
-
-            if root.selected.voice-progress >= 0: VoiceRow {
-                progress: root.selected.voice-progress;
-                fetching: root.selected.voice-fetching;
-            }
-        }
-    }
-
-    if !root.selected.batch-volume: Section {
-        fades := SectionHeader {
-            title: I18n.t("clipInspector.fades");
-            collapsible: true;
-            summary: (root.fade-in == 0 && root.fade-out == 0) ? I18n.t("common.none")
-                : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
-                + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
-
-            ResetButton {
-                dirty: root.fade-in != 0 || root.fade-out != 0;
-                reset => {
-                    root.set(ClipField.fade-in, 0);
-                    root.set(ClipField.fade-out, 0);
-                    root.commit();
-                }
-            }
-        }
-
-        if fades.open: SectionBody {
-            Param {
-                label: I18n.t("clipInspector.fadeIn");
-                rail: true;
-                value <=> root.fade-in;
-                minimum: 0;
-                maximum: root.fade-limit;
-                step: 0.05;
-                fmt: ParamFormat.seconds2;
-                unit: "s";
-                changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
-            }
-
-            Param {
-                label: I18n.t("clipInspector.fadeOut");
-                rail: true;
-                value <=> root.fade-out;
-                minimum: 0;
-                maximum: root.fade-limit;
-                step: 0.05;
-                fmt: ParamFormat.seconds2;
-                unit: "s";
-                changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
-            }
-        }
-    }
-
-    // Whether the voice keeps its pitch when the rate is not 1. Here and
-    // not on the Speed tab: the rate is the clip's, but what it does to the
-    // sound is the sound's business, beside the level it is mixed at.
-    if !root.selected.batch-volume: Section {
-        SectionHeader {
-            title: I18n.t("clipInspector.pitch");
-        }
-
-        SectionBody {
-            SwitchRow {
-                label: I18n.t("clipInspector.changePitchWithSpeed");
-                checked: !root.selected.preserve-pitch;
-                toggled(on) => {
-                    root.set(ClipField.preserve-pitch, on ? 0 : 1);
-                    root.commit();
-                }
-            }
-        }
-    }
-}
-
 /// Speed: one rate for the whole clip, or a curve - speed that changes over
 /// the clip, shaped on a graph or picked from a preset (see
 /// speed-ramp.slint). Whether the sound's pitch follows is the Audio tab's.
@@ -2901,10 +2618,14 @@ export component SpeedPanel inherits VerticalLayout {
     /// The panel's first section, with no hairline above it; false where
     /// it follows another, as it does under Basic.
     in property <bool> first: true;
+    /// Inside another section - a sound clip's Playback, with its fades and
+    /// pitch - with no header or hairline of its own, always open.
+    in property <bool> bare;
 
     callback set(field: ClipField, value: float);
     callback commit();
 
+    property <bool> speed-open: true;
     property <float> speed;
     function seed() {
         root.speed = root.selected.speed;
@@ -2928,10 +2649,12 @@ export component SpeedPanel inherits VerticalLayout {
     changed slowest-truth => { root.slowest = root.slowest-truth; }
 
     Section {
-        first: root.first;
-        speed := SectionHeader {
+        first: root.first || root.bare;
+        padding-bottom: root.bare ? 0 : 8px;
+        if !root.bare: SectionHeader {
             title: I18n.t("common.speed");
             collapsible: true;
+            open <=> root.speed-open;
             summary: root.curved
                 ? I18n.t("speedRamp.curve")
                 : InspectorFmt.format(ParamFormat.rate, root.speed);
@@ -2940,14 +2663,15 @@ export component SpeedPanel inherits VerticalLayout {
             }
         }
 
-        if speed.open: SectionBody {
+        if root.bare || root.speed-open: SectionBody {
+            padding-top: root.bare ? 0 : 4px;
             if root.selected.reverse-progress >= 0: ReverseRow {
                 progress: root.selected.reverse-progress;
             }
 
-            HorizontalLayout {
-                padding-left: Theme.pad;
-                padding-right: Theme.pad;
+            Row {
+                // Under another section's header the mode names itself.
+                label: root.bare ? I18n.t("common.speed") : "";
 
                 SegmentedControl {
                     // A press assigns `current` inside the control, which
@@ -3051,6 +2775,259 @@ export component SpeedPanel inherits VerticalLayout {
                 fmt: ParamFormat.rate;
                 unit: "x";
                 changed(v) => { root.set(ClipField.speed, v); root.commit(); }
+            }
+        }
+    }
+}
+
+/// Voice isolation splitting the clip's file: what it is doing and how far,
+/// over a bar that fills as it goes.
+component VoiceRow inherits VerticalLayout {
+    in property <float> progress;
+    in property <bool> fetching;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    spacing: 6px;
+
+    Text {
+        text: I18n.t1(root.fetching ? "voice.downloading" : "voice.isolating",
+            "\{Math.round(root.progress * 100)}");
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+    }
+    Progress {
+        value: root.progress;
+        live: true;
+    }
+}
+
+/// Audio: the level, the fades, and whether the pitch follows the speed.
+/// The voice and room chain sits under it in the same tab; see config-pane.
+///
+/// The fader for level works in decibels, not linear gain. Linear puts every
+/// useful setting in the bottom sixth of the travel; decibels is both how the
+/// ear works and how anyone mixing thinks.
+export component AudioPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+    /// The media's audio tracks, one label each. A recording that kept the
+    /// desktop and the microphone apart has two, and gets a row to choose
+    /// which one this clip plays; a file with one has nothing to choose and
+    /// shows no row.
+    in property <[string]> audio-tracks;
+    /// The Source section has something to offer: a choice of audio track.
+    /// A file's colour range used to sit here too and is the media's now,
+    /// in the bin card's menu: it is a fact about the file, not the cut.
+    property <bool> choosing: !root.selected.batch-volume && root.audio-tracks.length > 1;
+    /// The rate goes in Playback beside the fades: a sound clip's, whose
+    /// rate has no other home. A picture's sound rides its picture's.
+    in property <bool> with-speed;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    /// A fade longer than half the clip would overlap the other one.
+    property <float> fade-limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
+
+    property <float> level;
+    property <float> fade-in;
+    property <float> fade-out;
+    property <float> voice-level;
+    property <float> background-level;
+
+    function seed() {
+        root.voice-level = root.selected.voice-level * 100;
+        root.background-level = root.selected.background-level * 100;
+        root.level = InspectorFmt.to-decibels(root.selected.volume);
+        root.fade-in = root.selected.fade-in;
+        root.fade-out = root.selected.fade-out;
+    }
+
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    if root.choosing: Section {
+        first: true;
+        source := SectionHeader {
+            title: I18n.t("clipInspector.source");
+            collapsible: true;
+            summary: (root.selected.audio-track >= 0
+                && root.selected.audio-track < root.audio-tracks.length)
+                ? root.audio-tracks[root.selected.audio-track] : "";
+        }
+        if source.open: SectionBody {
+        if root.audio-tracks.length > 1: Row {
+            label: I18n.t("clipInspector.audioTrack");
+            Select {
+                options: root.audio-tracks;
+                current: root.selected.audio-track;
+                changed(index) => {
+                    root.set(ClipField.audio-track, index);
+                    root.commit();
+                }
+            }
+        }
+        }
+    }
+
+    // The level and the voice, straight under the tab: each is a row or
+    // two, not a section to open.
+    Section {
+        first: !root.choosing;
+
+        SectionBody {
+            Param {
+                label: I18n.t("clipInspector.volumeLevel");
+                keyable: !root.selected.batch-volume;
+                field: ClipField.volume;
+                rail: true;
+                value <=> root.level;
+                // The bottom is silence, not -60. +24 at the top because
+                // quiet material genuinely needs it - a distant lavalier is
+                // routinely 15-20 dB under, and a limit that cannot fix that
+                // is in the wrong place.
+                minimum: -60;
+                maximum: 24;
+                step: 0.5;
+                default-value: 0;
+                fmt: ParamFormat.gain;
+                changed(v) => {
+                    root.set(ClipField.volume, InspectorFmt.from-decibels(v));
+                    root.commit();
+                }
+            }
+
+            // Voice isolation (#120): the voice in the sound set apart from
+            // everything else, kept alone or taken out, each part at a
+            // level of its own - the music under a talk brought down rather
+            // than off.
+            if !root.selected.batch-volume: Row {
+                label: I18n.t("voice.title");
+                label-width: Theme.label-w * 1.4;
+                SegmentedControl {
+                    options: [I18n.t("voice.off"), I18n.t("voice.keep"), I18n.t("voice.removeShort")];
+                    // Levels of one's own are neither way: nothing lit.
+                    property <int> shown: root.selected.voice-mode == 3 ? -1 : root.selected.voice-mode;
+                    current: self.shown;
+                    changed shown => { self.current = self.shown; }
+                    changed(index) => {
+                        root.set(ClipField.voice-mode, index);
+                        root.commit();
+                    }
+                }
+            }
+
+            // A song's singing apart from its music, or speech apart from
+            // the noise behind it: two models, each good at its own.
+            if !root.selected.batch-volume && root.selected.voice-mode != 0: Row {
+                label: I18n.t("voice.kind");
+                label-width: Theme.label-w * 1.4;
+                SegmentedControl {
+                    options: [I18n.t("voice.kindSong"), I18n.t("voice.kindSpeech")];
+                    property <int> shown: root.selected.voice-kind;
+                    current: self.shown;
+                    changed shown => { self.current = self.shown; }
+                    changed(index) => {
+                        root.set(ClipField.voice-kind, index);
+                        root.commit();
+                    }
+                }
+            }
+
+            if !root.selected.batch-volume && root.selected.voice-mode != 0: Param {
+                label: I18n.t("voice.voiceLevel");
+                rail: true;
+                value <=> root.voice-level;
+                minimum: 0;
+                maximum: 200;
+                step: 1;
+                default-value: 100;
+                fmt: ParamFormat.percent;
+                changed(v) => { root.set(ClipField.voice-level, v / 100); root.commit(); }
+            }
+
+            if !root.selected.batch-volume && root.selected.voice-mode != 0: Param {
+                label: I18n.t("voice.backgroundLevel");
+                rail: true;
+                value <=> root.background-level;
+                minimum: 0;
+                maximum: 200;
+                step: 1;
+                default-value: 100;
+                fmt: ParamFormat.percent;
+                changed(v) => { root.set(ClipField.background-level, v / 100); root.commit(); }
+            }
+
+            if !root.selected.batch-volume && root.selected.voice-progress >= 0: VoiceRow {
+                progress: root.selected.voice-progress;
+                fetching: root.selected.voice-fetching;
+            }
+        }
+    }
+
+    // How the sound runs: its fades, whether its pitch follows the rate,
+    // and - for a sound clip - the rate itself, one section rather than
+    // three. A picture's sound rides the picture's rate, set under Video.
+    if !root.selected.batch-volume: Section {
+        playback := SectionHeader {
+            title: I18n.t("clipInspector.playback");
+            collapsible: true;
+            summary: (root.fade-in == 0 && root.fade-out == 0) ? ""
+                : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
+                + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
+
+            ResetButton {
+                dirty: root.fade-in != 0 || root.fade-out != 0;
+                reset => {
+                    root.set(ClipField.fade-in, 0);
+                    root.set(ClipField.fade-out, 0);
+                    root.commit();
+                }
+            }
+        }
+
+        if playback.open: SectionBody {
+            Param {
+                label: I18n.t("clipInspector.fadeIn");
+                rail: true;
+                value <=> root.fade-in;
+                minimum: 0;
+                maximum: root.fade-limit;
+                step: 0.05;
+                fmt: ParamFormat.seconds2;
+                unit: "s";
+                changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
+            }
+
+            Param {
+                label: I18n.t("clipInspector.fadeOut");
+                rail: true;
+                value <=> root.fade-out;
+                minimum: 0;
+                maximum: root.fade-limit;
+                step: 0.05;
+                fmt: ParamFormat.seconds2;
+                unit: "s";
+                changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
+            }
+
+            // Whether the voice keeps its pitch when the rate is not 1.
+            SwitchRow {
+                label: I18n.t("clipInspector.changePitchWithSpeed");
+                checked: !root.selected.preserve-pitch;
+                toggled(on) => {
+                    root.set(ClipField.preserve-pitch, on ? 0 : 1);
+                    root.commit();
+                }
+            }
+
+            if root.with-speed: SpeedPanel {
+                bare: true;
+                selected: root.selected;
+                set(field, value) => { root.set(field, value); }
+                commit => { root.commit(); }
             }
         }
     }
