@@ -19,6 +19,8 @@
 
 #[cfg(feature = "chatterbox")]
 pub mod chatterbox;
+#[cfg(feature = "isolate")]
+pub mod isolate;
 pub mod transcribe;
 pub mod tts;
 
