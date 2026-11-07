@@ -1185,6 +1185,7 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "tokio",
  "toml",
  "wayland-backend",
  "wayland-client",
@@ -1303,12 +1304,18 @@ dependencies = [
 name = "concat-mcp"
 version = "0.2.8"
 dependencies = [
+ "bytes",
  "concat-api",
  "concat-server",
+ "futures-util",
+ "hyper",
+ "hyper-util",
  "libc",
  "serde_json",
  "socket2 0.5.10",
  "tempfile",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

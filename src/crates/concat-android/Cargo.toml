@@ -46,7 +46,6 @@ libc = "0.2"
 # there is one JNI in the binary.
 jni = "0.22"
 # For LocalSocket support on Android
-# For LocalSocket support on Android
 socket2 = { version = "0.5" }
 
 [build-dependencies]
@@ -54,14 +53,13 @@ socket2 = { version = "0.5" }
 # helper.
 android-build = "0.1"
 
-# `cargo apk build -p concat-android` packages the shared object, the
-# sherpa-onnx runtime libraries and the manifest below into an APK. The
-# runtime libraries come from scripts/sherpa-mobile.sh.
+# `cargo apk build -p concat-android` packages the shared object and the
+# manifest below into an APK. ONNX Runtime comes prebuilt from ort's own
+# downloads for the target, which concat-vision's manifest asks for.
 [package.metadata.android]
 package = "org.standalones.concat"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
-runtime_libs = "../../vendor/sherpa-onnx/jniLibs"
 # The launcher icon, at every density Android asks for (48, 72, 96, 144,
 # 192px); rendered from assets/new_concat_logo_512_rounded_light_theme.svg.
 resources = "res"

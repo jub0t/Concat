@@ -16,20 +16,20 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::stream::StreamExt;
 use hyper::{
+    Request, Response, StatusCode,
     header::{CONTENT_TYPE, HeaderValue},
     service::service_fn,
-    Request, Response, StatusCode,
 };
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, broadcast, Mutex as TokioMutex};
+use tokio::sync::{Mutex as TokioMutex, broadcast, mpsc};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::backend::{Backend, Mode};
@@ -103,9 +103,9 @@ struct ChannelWriter {
 impl Write for ChannelWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let line = String::from_utf8_lossy(buf).to_string();
-        self.tx.send(line).map_err(|_| {
-            io::Error::new(io::ErrorKind::BrokenPipe, "broadcast channel closed")
-        })?;
+        self.tx
+            .send(line)
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "broadcast channel closed"))?;
         Ok(buf.len())
     }
 
@@ -148,7 +148,7 @@ fn run_protocol(
                     eprintln!("concat mcp http: no backend available: {why}");
                     return;
                 }
-            }
+            },
         },
         #[cfg(target_os = "android")]
         Mode::WindowLocal => match crate::backend::WindowLocal::find() {
@@ -239,15 +239,12 @@ async fn handle_post(
         })?;
     let text = String::from_utf8_lossy(&body).to_string();
 
-    session
-        .inbound_tx
-        .send(text)
-        .map_err(|_| {
-            hyper::Error::from(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "session inbound channel closed",
-            ))
-        })?;
+    session.inbound_tx.send(text).map_err(|_| {
+        hyper::Error::from(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "session inbound channel closed",
+        ))
+    })?;
 
     let mut response = Response::builder()
         .status(StatusCode::ACCEPTED)
@@ -281,22 +278,18 @@ async fn handle_get(
         .get(&session_id)
         .cloned()
         .ok_or_else(|| {
-            hyper::Error::from(io::Error::new(
-                io::ErrorKind::NotFound,
-                "session not found",
-            ))
+            hyper::Error::from(io::Error::new(io::ErrorKind::NotFound, "session not found"))
         })?;
 
     let mut rx = session.outbound_tx.subscribe();
 
-    let stream = BroadcastStream::new(rx)
-        .map(|result| match result {
-            Ok(line) => {
-                let payload = format!("data: {}\n\n", line);
-                Ok::<_, hyper::Error>(Bytes::from(payload))
-            }
-            Err(_) => Ok::<_, hyper::Error>(Bytes::new()),
-        });
+    let stream = BroadcastStream::new(rx).map(|result| match result {
+        Ok(line) => {
+            let payload = format!("data: {}\n\n", line);
+            Ok::<_, hyper::Error>(Bytes::from(payload))
+        }
+        Err(_) => Ok::<_, hyper::Error>(Bytes::new()),
+    });
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -308,13 +301,9 @@ async fn handle_get(
 }
 
 /// Serves MCP over HTTP/SSE on `addr`, through the backend `mode` picks.
-pub async fn run_http(
-    addr: std::net::SocketAddr,
-    mode: Mode,
-) -> Result<(), String> {
-    let sessions: std::sync::Arc<
-        TokioMutex<HashMap<String, std::sync::Arc<Session>>>,
-    > = std::sync::Arc::default();
+pub async fn run_http(addr: std::net::SocketAddr, mode: Mode) -> Result<(), String> {
+    let sessions: std::sync::Arc<TokioMutex<HashMap<String, std::sync::Arc<Session>>>> =
+        std::sync::Arc::default();
 
     let service = service_fn(move |req| {
         let sessions = sessions.clone();

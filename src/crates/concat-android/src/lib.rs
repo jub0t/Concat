@@ -525,7 +525,10 @@ fn start_api_server_if_enabled(app: &slint::android::AndroidApp) {
     let address: Option<SocketAddr> = env::var("CONCAT_API_ADDRESS")
         .ok()
         .filter(|s| !s.is_empty())
-        .map(|s| s.parse().expect("CONCAT_API_ADDRESS must be a valid socket address like 0.0.0.0:7420"));
+        .map(|s| {
+            s.parse()
+                .expect("CONCAT_API_ADDRESS must be a valid socket address like 0.0.0.0:7420")
+        });
 
     // Android LocalSocket name (abstract namespace like @concat-api or filesystem path)
     let local_socket: Option<String> = env::var("CONCAT_API_LOCAL_SOCKET")
@@ -534,7 +537,9 @@ fn start_api_server_if_enabled(app: &slint::android::AndroidApp) {
 
     // Require at least one transport
     if address.is_none() && local_socket.is_none() {
-        log::warn!("CONCAT_API_ENABLE=1 but no CONCAT_API_ADDRESS or CONCAT_API_LOCAL_SOCKET set; defaulting to 0.0.0.0:7420");
+        log::warn!(
+            "CONCAT_API_ENABLE=1 but no CONCAT_API_ADDRESS or CONCAT_API_LOCAL_SOCKET set; defaulting to 0.0.0.0:7420"
+        );
     }
 
     let token = env::var("CONCAT_API_TOKEN")
@@ -547,13 +552,18 @@ fn start_api_server_if_enabled(app: &slint::android::AndroidApp) {
                 use std::hash::{Hash, Hasher};
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let mut hasher = DefaultHasher::new();
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos().hash(&mut hasher);
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+                    .hash(&mut hasher);
                 format!("{:x}", hasher.finish())
             })
         });
 
     // Get config directory for automation.json discovery file
-    let config_dir = app.internal_data_path()
+    let config_dir = app
+        .internal_data_path()
         .map(|p| p.join("config"))
         .expect("internal_data_path not available");
 
@@ -566,8 +576,10 @@ fn start_api_server_if_enabled(app: &slint::android::AndroidApp) {
         token: Some(token.clone()),
         discovery: Some(concat_server::discovery::path_in(&config_dir)),
         roots: Some(vec![
-            app.internal_data_path().unwrap_or_else(|| config_dir.clone()),
-            app.external_data_path().unwrap_or_else(|| config_dir.clone()),
+            app.internal_data_path()
+                .unwrap_or_else(|| config_dir.clone()),
+            app.external_data_path()
+                .unwrap_or_else(|| config_dir.clone()),
         ]),
         ..Default::default()
     };
@@ -578,8 +590,14 @@ fn start_api_server_if_enabled(app: &slint::android::AndroidApp) {
     std::thread::Builder::new()
         .name("concat-api-server".into())
         .spawn(move || {
-            let addr_str = address.map(|a| a.to_string()).unwrap_or_else(|| "local-socket".to_string());
-            log::info!("Starting Concat API server on {} (token: {})", addr_str, token);
+            let addr_str = address
+                .map(|a| a.to_string())
+                .unwrap_or_else(|| "local-socket".to_string());
+            log::info!(
+                "Starting Concat API server on {} (token: {})",
+                addr_str,
+                token
+            );
             let _ = concat_server::Server::start(config, move |events| {
                 let mut api = concat_api::Api::new(events).unwrap();
                 api.share_exporter(exporter.clone());

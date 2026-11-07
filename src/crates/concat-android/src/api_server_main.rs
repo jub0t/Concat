@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_max_level(log::LevelFilter::Info)
             .with_tag("concat-api"),
     );
-    
+
     log::info!("Concat API server starting (Android headless)");
 
     // Set up directories for the host crate
@@ -43,12 +43,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 use std::hash::{Hash, Hasher};
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let mut hasher = DefaultHasher::new();
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos().hash(&mut hasher);
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+                    .hash(&mut hasher);
                 format!("{:x}", hasher.finish())
             })
         });
 
-    let config_dir = app.internal_data_path()
+    let config_dir = app
+        .internal_data_path()
         .map(|p| p.join("config"))
         .expect("internal_data_path not available");
 
@@ -59,8 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         token: Some(token.clone()),
         discovery: Some(concat_server::discovery::path_in(&config_dir)),
         roots: Some(vec![
-            app.internal_data_path().unwrap_or_else(|| config_dir.clone()),
-            app.external_data_path().unwrap_or_else(|| config_dir.clone()),
+            app.internal_data_path()
+                .unwrap_or_else(|| config_dir.clone()),
+            app.external_data_path()
+                .unwrap_or_else(|| config_dir.clone()),
         ]),
         ..Default::default()
     };
@@ -68,8 +75,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exporter = concat_host::Exporter::new();
     let open_projects = concat_api::OpenProjects::default();
 
-    log::info!("Starting Concat API server on {} (token: {})", address, token);
-    
+    log::info!(
+        "Starting Concat API server on {} (token: {})",
+        address,
+        token
+    );
+
     // Run server (blocks forever)
     let _ = concat_server::Server::start(config, move |events| {
         let mut api = concat_api::Api::new(events).unwrap();
@@ -83,12 +94,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn setup_android_directories(app: &slint::android::AndroidApp) {
     use std::env;
-    
+
     let Some(internal) = app.internal_data_path() else {
         log::error!("internal_data_path not available");
         return;
     };
-    
+
     unsafe {
         env::set_var("XDG_CONFIG_HOME", &internal);
         env::set_var("XDG_DATA_HOME", &internal);

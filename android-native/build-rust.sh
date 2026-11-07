@@ -7,10 +7,10 @@
 # runtime libraries the engine links (libc++_shared, ONNX Runtime), and
 # the UniFFI Kotlin into app/src/main/java/uniffi.
 #
-# FFmpeg and sherpa-onnx come from the main checkout's vendor/ (built by
-# src/scripts/ffmpeg-mobile.sh and sherpa-mobile.sh) when this checkout
-# has none, and CARGO_TARGET_DIR defaults to the main checkout's target/,
-# so a worktree never starts a second one.
+# FFmpeg comes from the main checkout's vendor/ (built by
+# src/scripts/ffmpeg-mobile.sh) when this checkout has none, and
+# CARGO_TARGET_DIR defaults to the main checkout's target/, so a worktree
+# never starts a second one.
 set -euo pipefail
 
 profile=${1:-release}
@@ -42,9 +42,6 @@ cp "$so" "$libs/"
 # them: ask the linker's own record.
 needed=$("$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-readelf -d "$so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
 echo "libconcat_mobile.so needs: $(echo $needed)"
-for lib in $needed; do
-  if [ -f "$SHERPA_ONNX_LIB_DIR/$lib" ]; then cp "$SHERPA_ONNX_LIB_DIR/$lib" "$libs/"; fi
-done
 if echo "$needed" | grep -q 'libc++_shared.so' && [ ! -f "$libs/libc++_shared.so" ]; then
   cp "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so "$libs/"
 fi

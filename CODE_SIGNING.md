@@ -9,7 +9,7 @@ signing certificate, every Windows release is signed under this policy.
 
 The Windows program (`concat.exe`) and its installers (the setup `.exe` and the
 `.msi`), built from this repository. Libraries Concat ships but does not build
-from its own source, such as FFmpeg's and sherpa-onnx's DLLs and Microsoft's
+from its own source, such as FFmpeg's DLLs and Microsoft's
 ONNX Runtime and Visual C++ runtime, are not signed with this certificate; they
 carry their own maintainers' signatures where they have them.
 

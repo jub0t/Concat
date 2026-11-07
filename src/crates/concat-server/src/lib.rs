@@ -293,7 +293,7 @@ impl Server {
             use std::os::fd::AsRawFd;
             let socket = Socket::new(Domain::UNIX, Type::STREAM, Some(Protocol::from(0)))
                 .map_err(|error| could_not("LocalSocket", &error))?;
-            
+
             // Abstract namespace: name starts with '@' or use filesystem path
             if name.starts_with('@') {
                 // Abstract namespace socket
@@ -310,9 +310,11 @@ impl Server {
                 }
                 // Length is sizeof(sa_family_t) + 1 + len for abstract
                 let addr_len = std::mem::size_of::<libc::sa_family_t>() + 1 + len;
-                socket.bind(&socket2::SockAddr::from(addr))
+                socket
+                    .bind(&socket2::SockAddr::from(addr))
                     .map_err(|error| could_not(&name, &error))?;
-                socket.listen(128)
+                socket
+                    .listen(128)
                     .map_err(|error| could_not(&name, &error))?;
             } else {
                 // Filesystem path
@@ -323,14 +325,19 @@ impl Server {
                 }
                 let listener = std::os::unix::net::UnixListener::bind(path)
                     .map_err(|error| could_not(&name, &error))?;
-                let addr = socket2::SockAddr::from(listener.local_addr()
-                    .map_err(|error| could_not(&name, &error))?);
-                socket.bind(&addr)
+                let addr = socket2::SockAddr::from(
+                    listener
+                        .local_addr()
+                        .map_err(|error| could_not(&name, &error))?,
+                );
+                socket
+                    .bind(&addr)
                     .map_err(|error| could_not(&name, &error))?;
-                socket.listen(128)
+                socket
+                    .listen(128)
                     .map_err(|error| could_not(&name, &error))?;
             }
-            
+
             server.local_socket = Some(name.clone());
             server.listeners.push(
                 json::serve_local(socket, door.clone())
@@ -356,7 +363,8 @@ impl Server {
         // that cannot be written costs the agent a way in, not the server.
         #[cfg(target_os = "android")]
         if let (Some(path), Some(name)) = (config.discovery.clone(), server.local_socket.clone()) {
-            if discovery::write(&path, &discovery::Listing::new_local(name, &server.token)).is_ok() {
+            if discovery::write(&path, &discovery::Listing::new_local(name, &server.token)).is_ok()
+            {
                 server.listing = Some(path);
             }
         } else if let (Some(path), Some(address)) = (config.discovery, server.json) {

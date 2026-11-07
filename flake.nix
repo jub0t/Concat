@@ -16,12 +16,10 @@
   #   libclang.
   # - whisper.cpp is compiled in by cmake from the source vendored inside
   #   whisper-rs-sys, so it needs cmake and a C++ toolchain and nothing else.
-  # - sherpa-onnx (text to speech) links prebuilt static libraries that its
-  #   sys crate would download at build time. They are fetched here as fixed-
-  #   output derivations instead and handed over with SHERPA_ONNX_ARCHIVE_DIR.
-  # - ONNX Runtime (the cutout models) is likewise downloaded by its sys
-  #   crate. nixpkgs' onnxruntime is linked instead, through ORT_LIB_LOCATION,
-  #   dynamically, so the wrapper's rpath finds it.
+  # - ONNX Runtime (the cutout models and Chatterbox text to speech) is
+  #   downloaded by its sys crate at build time. nixpkgs' onnxruntime is
+  #   linked instead, through ORT_LIB_LOCATION, dynamically, so the
+  #   wrapper's rpath finds it.
   # - Skia, the window's renderer as on every other platform, links prebuilt
   #   binaries that skia-bindings would download at build time. They are
   #   fetched here too and handed over as a file:// SKIA_BINARIES_URL; with
@@ -41,34 +39,6 @@
         "aarch64-linux"
       ];
       eachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-
-      # Must match the sherpa-onnx-sys version in src/Cargo.lock: the sys
-      # crate names the archive after its own version and refuses any other.
-      sherpaVersion = "1.13.7";
-      sherpaArchives = {
-        x86_64-linux = {
-          name = "sherpa-onnx-v${sherpaVersion}-linux-x64-static-lib.tar.bz2";
-          hash = "sha256-0b56aawrMBIAWNgwLmJCOaMGQIU4PPpHmUoU/cRMMtY=";
-        };
-        aarch64-linux = {
-          name = "sherpa-onnx-v${sherpaVersion}-linux-aarch64-static-lib.tar.bz2";
-          hash = "sha256-dDtN66urLp9lTjk9pyY72Xlaq+1groDIMCMFQINBXRQ=";
-        };
-      };
-      sherpaArchiveDir =
-        pkgs:
-        let
-          archive = sherpaArchives.${pkgs.stdenv.hostPlatform.system};
-        in
-        pkgs.linkFarm "sherpa-onnx-archives" [
-          {
-            name = archive.name;
-            path = pkgs.fetchurl {
-              url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpaVersion}/${archive.name}";
-              inherit (archive) hash;
-            };
-          }
-        ];
 
       # Must match skia-bindings in src/Cargo.lock: the archive is named
       # after the crate version (the tag) and a key of rust-skia's commit,
@@ -165,7 +135,6 @@
           # minutes; `cargo test` in `nix develop` is where they belong.
           doCheck = false;
 
-          env.SHERPA_ONNX_ARCHIVE_DIR = sherpaArchiveDir pkgs;
           env.SKIA_BINARIES_URL = skiaBinariesUrl pkgs;
           env.ORT_LIB_LOCATION = "${pkgs.onnxruntime}/lib";
           env.ORT_PREFER_DYNAMIC_LINK = "1";
@@ -233,7 +202,6 @@
               rust-analyzer
             ]);
 
-          env.SHERPA_ONNX_ARCHIVE_DIR = sherpaArchiveDir pkgs;
           env.SKIA_BINARIES_URL = skiaBinariesUrl pkgs;
           env.ORT_LIB_LOCATION = "${pkgs.onnxruntime}/lib";
           env.ORT_PREFER_DYNAMIC_LINK = "1";

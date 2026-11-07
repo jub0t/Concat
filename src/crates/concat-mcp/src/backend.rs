@@ -21,6 +21,11 @@
 //!   shared with a window: a project open in the window can be opened here
 //!   too, which is why the window's server is preferred when it is there.
 
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
 use concat_api::{Api, ApiError, AppDirs, Request, Response, Stopper};
 use concat_server::client::Client;
 use concat_server::discovery;
@@ -228,17 +233,18 @@ impl ClientLocal {
         use socket2::{Domain, Protocol, Socket, Type};
         use std::os::fd::AsRawFd;
         use std::time::Instant;
-        
+
         let deadline = Instant::now() + patience;
-        
+
         let socket = Socket::new(Domain::UNIX, Type::STREAM, Some(Protocol::from(0)))
             .map_err(|e| format!("failed to create socket: {e}"))?;
-        
+
         // Set connect timeout
         let timeout = deadline.saturating_duration_since(Instant::now());
-        socket.set_write_timeout(Some(timeout))
+        socket
+            .set_write_timeout(Some(timeout))
             .map_err(|e| format!("failed to set write timeout: {e}"))?;
-        
+
         // Connect to abstract namespace or filesystem socket
         if name.starts_with('@') {
             let mut addr = libc::sockaddr_un::default();
@@ -253,18 +259,22 @@ impl ClientLocal {
                 );
             }
             let addr_len = std::mem::size_of::<libc::sa_family_t>() + 1 + len;
-            socket.connect(&socket2::SockAddr::from(addr))
+            socket
+                .connect(&socket2::SockAddr::from(addr))
                 .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
         } else {
             let path = std::path::Path::new(name);
-            let addr = socket2::SockAddr::from(std::os::unix::net::UnixStream::connect(path)
-                .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?
-                .local_addr()
-                .map_err(|e| format!("failed to get local addr: {e}"))?);
-            socket.connect(&addr)
+            let addr = socket2::SockAddr::from(
+                std::os::unix::net::UnixStream::connect(path)
+                    .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?
+                    .local_addr()
+                    .map_err(|e| format!("failed to get local addr: {e}"))?,
+            );
+            socket
+                .connect(&addr)
                 .map_err(|e| format!("failed to connect to LocalSocket {name}: {e}"))?;
         }
-        
+
         // Handshake: send auth token
         let auth_msg = serde_json::json!({
             "jsonrpc": "2.0",
@@ -273,29 +283,40 @@ impl ClientLocal {
             "params": { "token": token }
         });
         let auth_line = auth_msg.to_string() + "\n";
-        socket.write_all(auth_line.as_bytes())
+        socket
+            .write_all(auth_line.as_bytes())
             .map_err(|e| format!("failed to send auth: {e}"))?;
-        socket.flush()
+        socket
+            .flush()
             .map_err(|e| format!("failed to flush auth: {e}"))?;
-        
+
         // Read response
-        let mut reader = std::io::BufReader::new(socket.try_clone()
-            .map_err(|e| format!("failed to clone socket: {e}"))?);
+        let mut reader = std::io::BufReader::new(
+            socket
+                .try_clone()
+                .map_err(|e| format!("failed to clone socket: {e}"))?,
+        );
         let mut response = String::new();
-        reader.read_line(&mut response)
+        reader
+            .read_line(&mut response)
             .map_err(|e| format!("failed to read auth response: {e}"))?;
-        
-        let response: serde_json::Value = serde_json::from_str(&response)
-            .map_err(|e| format!("invalid auth response: {e}"))?;
-        
+
+        let response: serde_json::Value =
+            serde_json::from_str(&response).map_err(|e| format!("invalid auth response: {e}"))?;
+
         if response.get("error").is_some() {
-            let msg = response["error"]["message"].as_str().unwrap_or("auth failed");
+            let msg = response["error"]["message"]
+                .as_str()
+                .unwrap_or("auth failed");
             return Err(format!("auth failed: {msg}"));
         }
-        
+
         Ok(ClientLocal {
-            reader: std::io::BufReader::new(socket.try_clone()
-                .map_err(|e| format!("failed to clone socket: {e}"))?),
+            reader: std::io::BufReader::new(
+                socket
+                    .try_clone()
+                    .map_err(|e| format!("failed to clone socket: {e}"))?,
+            ),
             writer: socket,
             next_id: 2,
             socket_name: name.to_string(),
@@ -310,35 +331,39 @@ impl ClientLocal {
     pub fn call(&mut self, request: &Request) -> Result<Value, ApiError> {
         use concat_api::{ErrorCode, Request as ApiRequest};
         use serde_json::{Value, json};
-        
+
         let id = self.next_id;
         self.next_id += 1;
-        
+
         let params = match serde_json::to_value(&request.params) {
             Ok(v) => v,
             Err(e) => return Err(ApiError::new(ErrorCode::InvalidParams, e.to_string())),
         };
-        
+
         let msg = json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": request.method,
             "params": params,
         });
-        
+
         let line = msg.to_string() + "\n";
-        self.writer.write_all(line.as_bytes())
+        self.writer
+            .write_all(line.as_bytes())
             .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("write failed: {e}")))?;
-        self.writer.flush()
+        self.writer
+            .flush()
             .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("flush failed: {e}")))?;
-        
+
         let mut response = String::new();
-        self.reader.read_line(&mut response)
+        self.reader
+            .read_line(&mut response)
             .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("read failed: {e}")))?;
-        
-        let response: Value = serde_json::from_str(&response)
-            .map_err(|e| ApiError::new(ErrorCode::InternalError, format!("invalid response: {e}")))?;
-        
+
+        let response: Value = serde_json::from_str(&response).map_err(|e| {
+            ApiError::new(ErrorCode::InternalError, format!("invalid response: {e}"))
+        })?;
+
         if let Some(error) = response.get("error") {
             let code = error["code"].as_i64().unwrap_or(-32603);
             let message = error["message"].as_str().unwrap_or("unknown error");
@@ -347,10 +372,13 @@ impl ClientLocal {
                 message.to_string(),
             ));
         }
-        
-        response.get("result")
-            .cloned()
-            .ok_or_else(|| ApiError::new(ErrorCode::InternalError, "no result in response".to_string()))
+
+        response.get("result").cloned().ok_or_else(|| {
+            ApiError::new(
+                ErrorCode::InternalError,
+                "no result in response".to_string(),
+            )
+        })
     }
 }
 
@@ -363,15 +391,15 @@ fn locate_local() -> Result<(String, String), String> {
     let token = std::env::var("CONCAT_API_TOKEN")
         .ok()
         .filter(|text| !text.is_empty());
-    
+
     if let (Some(name), Some(token)) = (&name, &token) {
         return Ok((name.clone(), token.clone()));
     }
-    
+
     if name.is_some() != token.is_some() {
         return Err("CONCAT_API_LOCAL_SOCKET and CONCAT_API_TOKEN go together".to_owned());
     }
-    
+
     // Fall back to discovery file
     let dirs = AppDirs::locate()?;
     let path = discovery::path_in(&dirs.config);

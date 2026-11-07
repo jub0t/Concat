@@ -238,7 +238,11 @@ pub(crate) fn serve_local(
                     let mut addr = libc::sockaddr_un::default();
                     let mut addr_len = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
                     let conn_fd = unsafe {
-                        libc::accept(fd, &mut addr as *mut _ as *mut libc::sockaddr, &mut addr_len)
+                        libc::accept(
+                            fd,
+                            &mut addr as *mut _ as *mut libc::sockaddr,
+                            &mut addr_len,
+                        )
                     };
                     if conn_fd < 0 {
                         return Err(std::io::Error::last_os_error());

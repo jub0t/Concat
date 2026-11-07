@@ -29,15 +29,6 @@ onnxruntime-win-x64         https://github.com/microsoft/onnxruntime/releases/do
 onnxruntime-win-arm64       https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-win-arm64-1.28.0.zip       cbe4547463ece092b505c3581376ed5896d22b5429f39d5e645e425ecdd369ad
 onnxruntime-osx-x86_64      https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-x86_64-1.23.2.tgz      d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6
 
-# sherpa-onnx's prebuilt libraries. The version is the one src/Cargo.lock
-# resolves for sherpa-onnx-sys; the workflows check the two agree.
-sherpa-onnx-linux-x64-static-lib            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-linux-x64-static-lib.tar.bz2            d1be7a69ac2b30120058d8302e624239a3064085383cfa47994a14fdc44c32d6
-sherpa-onnx-linux-aarch64-static-lib        https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-linux-aarch64-static-lib.tar.bz2        743b4debabab2e9f654e393da7263bd9795aabed60ae80c83023054083415d14
-sherpa-onnx-osx-arm64-static-lib            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-osx-arm64-static-lib.tar.bz2            126daa2e8c09a4c5d54dc985722c43bd22f598adc56445905b377454b1b27e38
-sherpa-onnx-osx-x64-static-lib              https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-osx-x64-static-lib.tar.bz2              8d8db6199af0119b16f6e2b01c5548b90c4392a462388dd59491e8c471283cca
-sherpa-onnx-win-x64-shared-MT-Release-lib   https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-win-x64-shared-MT-Release-lib.tar.bz2   7a362a9f339a2937e7f8806e904f3e8a031a7774982eea08bca8336b2c257529
-sherpa-onnx-win-arm64-shared-MT-Release-lib https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-win-arm64-shared-MT-Release-lib.tar.bz2 2afa23a479fe15729e1ea9a9ed242454b1d9fccf749103742071684baa91a232
-
 # The Linux packagers: nfpm (NFPM_VERSION in build-app.yml) for the .deb
 # and .rpm, and appimagetool with the AppImage runtime it embeds, both a
 # named release rather than `continuous`. The runtime is handed to

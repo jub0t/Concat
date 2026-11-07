@@ -2,7 +2,7 @@ name: Mirror models
 
 # Fills Concat's model mirror from upstream and publishes it as a release.
 #
-# Concat fetches its cutout networks, its Kokoro voice bank and its whisper
+# Concat fetches its cutout networks, its Chatterbox voices and its whisper
 # models on demand, and it fetches them from a release of this repository
 # rather than from whoever published them. models/manifest.toml is the table
 # of what those are; this workflow is what turns that table into the release
@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: A family (cutout, tts, chatterbox, whisper) or one model id; blank for all
+        description: A family (cutout, chatterbox, whisper) or one model id; blank for all
         required: false
         default: ""
       publish:

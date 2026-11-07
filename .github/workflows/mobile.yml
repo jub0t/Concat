@@ -15,8 +15,9 @@ name: Build for phones
 # cannot be fetched prebuilt for a phone are built from source here and
 # cached: FFmpeg by src/scripts/ffmpeg-mobile.sh, with the platform's
 # hardware codecs, and whisper.cpp by its crate. ONNX Runtime comes from
-# ort's own downloads, and on Android the C++ runtime it links (and the
-# emulator's ONNX Runtime) from src/scripts/android-libs.sh.
+# ort's own downloads - except on the x86_64 emulator APK, whose target
+# it publishes no prebuilt for and src/scripts/android-libs.sh stages
+# Microsoft's own Android build instead.
 #
 # src/scripts/mobile-env.sh is the one description of the build
 # environment, here and on a developer's machine.
@@ -173,7 +174,7 @@ jobs:
           workspaces: src
           key: ${{ matrix.target }}
 
-      # Set up build environment before fetching sherpa-onnx so NDK paths are known
+      # Set up the build environment so the NDK paths are known below.
       - name: Set up mobile build env
         working-directory: src
         run: |
@@ -181,6 +182,9 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" >> "$GITHUB_ENV"
 
+      # The ONNX Runtime the x86_64 APK links, with the two variables that
+      # point the build at it. A no-op for arm64, whose runtime ort
+      # downloads itself.
       - name: Android libraries
         run: scripts/android-libs.sh ${{ matrix.target }}
 

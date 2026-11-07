@@ -76,21 +76,14 @@ cd "$REPO_DIR/src"
 
 # 9. Compilar FFmpeg para Android (usa script del repo)
 echo "--- Compilando FFmpeg para Android ---"
-bash ../scripts/mobile-env.sh
-bash ../scripts/ffmpeg-mobile.sh
-export FFMPEG_DIR="$(pwd)/ffmpeg-android"  # ajusta según salida del script
+bash ../scripts/ffmpeg-mobile.sh aarch64-linux-android
+export FFMPEG_DIR="$(pwd)/vendor/ffmpeg/aarch64-linux-android"
 
-# 10. Compilar sherpa-onnx para Android
-echo "--- Compilando sherpa-onnx para Android ---"
-bash ../scripts/sherpa-mobile.sh
-export SHERPA_ONNX_LIB_DIR="$(pwd)/sherpa-onnx-android"  # ajusta según salida del script
-
-# 11. Exportar variables permanentes
+# 10. Exportar variables permanentes
 cat >> ~/.bashrc <<EOF
 
 # Concat Android build
 export FFMPEG_DIR=$FFMPEG_DIR
-export SHERPA_ONNX_LIB_DIR=$SHERPA_ONNX_LIB_DIR
 export ANDROID_NDK_HOME=$ANDROID_NDK_HOME
 export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
 export JAVA_HOME=$JAVA_HOME

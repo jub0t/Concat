@@ -447,7 +447,11 @@ impl Speech {
                 .collect(),
             voices: CHATTERBOX_VOICES
                 .iter()
-                .filter(|_| KNOWN_MODELS.iter().any(|model| family_of(model.id) == Family::Chatterbox))
+                .filter(|_| {
+                    KNOWN_MODELS
+                        .iter()
+                        .any(|model| family_of(model.id) == Family::Chatterbox)
+                })
                 .map(|(id, name, _)| VoiceInfo {
                     id: *id,
                     name: (*name).to_owned(),
@@ -657,7 +661,10 @@ impl Speech {
                         dir.display(),
                         if accelerated { "accelerator" } else { "CPU" }
                     );
-                    Ok(Box::new(crate::chatterbox::Engine::load(&dir, accelerated)?))
+                    Ok(Box::new(crate::chatterbox::Engine::load(
+                        &dir,
+                        accelerated,
+                    )?))
                 };
                 // The accelerator where there is one, and the CPU when a
                 // model will not load for it: slower is better than not at
@@ -972,13 +979,22 @@ mod tests {
             pieces("One two. Three four. Five six.", 20),
             ["One two. Three four.", "Five six."]
         );
-        assert_eq!(pieces("alpha beta gamma delta", 11), ["alpha beta", "gamma delta"]);
-        assert_eq!(pieces("你好。再见！你好。", 4), ["你好。", "再见！", "你好。"]);
+        assert_eq!(
+            pieces("alpha beta gamma delta", 11),
+            ["alpha beta", "gamma delta"]
+        );
+        assert_eq!(
+            pieces("你好。再见！你好。", 4),
+            ["你好。", "再见！", "你好。"]
+        );
         assert_eq!(pieces("abcdefghij", 4), ["abcd", "efgh", "ij"]);
         assert!(pieces("   ", 10).is_empty());
         let long = "Word. ".repeat(2_000);
         let cut = pieces(&long, SYSTEM_PIECE);
-        assert!(cut.iter().all(|piece| piece.chars().count() <= SYSTEM_PIECE));
+        assert!(
+            cut.iter()
+                .all(|piece| piece.chars().count() <= SYSTEM_PIECE)
+        );
         assert_eq!(cut.concat().matches("Word.").count(), 2_000);
     }
 
@@ -1076,7 +1092,10 @@ mod tests {
     /// and is never Concat's to download or remove.
     #[test]
     fn the_phones_voice_is_offered_only_with_a_phone() {
-        assert!(!offered(SYSTEM_ID), "no phone has handed a voice over in a test");
+        assert!(
+            !offered(SYSTEM_ID),
+            "no phone has handed a voice over in a test"
+        );
         assert!(offered("chatterbox-turbo-q8"));
         let speech = Speech::new();
         let dirs = AppDirs {
@@ -1100,8 +1119,7 @@ mod tests {
             speed: 1.0,
             project: String::new(),
         };
-        let error =
-            reference_samples(&dir, &request(CHATTERBOX_CLONE, None)).expect_err("no clip");
+        let error = reference_samples(&dir, &request(CHATTERBOX_CLONE, None)).expect_err("no clip");
         assert!(error.contains("pick a sample"), "{error}");
         // A recording that is not there names itself.
         let error = reference_samples(&dir, &request(2000, None)).expect_err("no file");
@@ -1145,7 +1163,10 @@ mod tests {
         let samples = reference_samples(&dir, &request).expect("reads");
         let seconds = samples.len() as f64 / f64::from(REFERENCE_RATE);
         assert!((seconds - REFERENCE_SECONDS).abs() < 0.1, "{seconds}");
-        assert!(samples.iter().any(|sample| sample.abs() > 0.1), "someone is talking");
+        assert!(
+            samples.iter().any(|sample| sample.abs() > 0.1),
+            "someone is talking"
+        );
         let _ = std::fs::remove_dir_all(&dirs.data);
     }
 

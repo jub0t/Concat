@@ -272,7 +272,14 @@ pub(super) fn apply(
             } else {
                 name
             };
-            let mut clip = Clip::blank(id.clone(), track_id, ClipKind::Transition, name, start, duration);
+            let mut clip = Clip::blank(
+                id.clone(),
+                track_id,
+                ClipKind::Transition,
+                name,
+                start,
+                duration,
+            );
             clip.video_effects = vec![AppliedFilter::new(transition_id)];
             timeline.clips.push(Arc::new(clip));
             Ok(Outcome {

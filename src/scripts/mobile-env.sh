@@ -7,11 +7,10 @@
 #   eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
 #   cargo build -p concat --target aarch64-apple-ios
 #
-# It names what the two fetch scripts left in vendor/ - FFmpeg through
-# FFMPEG_DIR, sherpa-onnx through SHERPA_ONNX_LIB_DIR - and on Android the
-# SDK pieces the build scripts of Slint's backend and whisper.cpp read.
-# Run scripts/ffmpeg-mobile.sh and scripts/sherpa-mobile.sh for the target
-# first.
+# It names what scripts/ffmpeg-mobile.sh left in vendor/ - FFmpeg through
+# FFMPEG_DIR - and on Android the SDK pieces the build scripts of Slint's
+# backend and whisper.cpp read. Run scripts/ffmpeg-mobile.sh for the
+# target first.
 set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android, x86_64-linux-android or aarch64-apple-ios}
@@ -22,18 +21,9 @@ echo "export FFMPEG_DIR='$ffmpeg'"
 
 case "$target" in
   aarch64-linux-android|x86_64-linux-android)
-    abi=arm64-v8a
-    [ "$target" = x86_64-linux-android ] && abi=x86_64
-    sherpa=$workspace/vendor/sherpa-onnx/jniLibs/$abi
-    [ -d "$sherpa" ] || { echo "no sherpa-onnx for $target: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
-    echo "export SHERPA_ONNX_LIB_DIR='$sherpa'"
-    # The emulator's x86_64 build: ort publishes no ONNX Runtime for it,
-    # and sherpa-onnx's own (1.27, which serves the API ort asks for) is
-    # beside it, so ort links that one, and the APK carries it with the
-    # rest of the folder.
-    if [ "$target" = x86_64-linux-android ]; then
-      echo "export ORT_LIB_LOCATION='$sherpa' ORT_PREFER_DYNAMIC_LINK=1"
-    fi
+    # The NDK API the clang wrappers are named for: the same floor the
+    # APK's manifest declares (Android 8.0), overridable.
+    android_api=${ANDROID_API:-26}
 
     sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
     ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -1 || true)}}
@@ -105,9 +95,6 @@ case "$target" in
     echo "export FFMPEG_SYS_BINDINGS_DIR='$workspace/vendor/ffmpeg-bindings/$target'"
     ;;
   aarch64-apple-ios)
-    sherpa=$workspace/vendor/sherpa-onnx/ios/lib
-    [ -d "$sherpa" ] || { echo "no sherpa-onnx for $target: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
-    echo "export SHERPA_ONNX_LIB_DIR='$sherpa'"
     echo "export IPHONEOS_DEPLOYMENT_TARGET='${IPHONEOS_DEPLOYMENT_TARGET:-15.0}'"
     ;;
   *)

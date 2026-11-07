@@ -39,7 +39,7 @@ concat-cli → concat-server → concat-api → concat-host
 | `concat-server` | API on socket: JSON-RPC (TCP/Unix) + gRPC (feature `grpc`). | `concat-api`, `tonic`, `tokio` |
 | `concat-cli` | `probe`, `render`, `api`, `serve` (socket), `preview`, `check`. `--features grpc` for `serve --grpc`. | `concat-server`, `concat-api`, engine crates |
 | `concat-host` | Sessions, project folders, previews, playback, templates, job slots, model downloads. | `concat-media`, `concat-project`, `concat-export`, `cpal` |
-| `concat-speech` | Transcription (whisper.cpp) + TTS (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, `whisper-rs`, `sherpa-onnx` |
+| `concat-speech` | Transcription (whisper.cpp) + TTS (Chatterbox Turbo or the system voice, over ONNX Runtime). | `concat-host`, `concat-media`, `whisper-rs`, `ort` |
 | `concat` | Editor window (Slint). Every pane, dialog, primitive. `concat --mcp` serves MCP to AI agents. | `slint`, `concat-host`, `concat-speech`, `concat-mcp`, `concat-server` |
 | `concat-mcp` | MCP server over stdio. Tools are concat-api methods, schemas generated from request types. | `concat-api`, `concat-server`, `serde_json` |
 | `concat-android` | Android activity hosting the window. Also ships `concat-mcp-android` and `concat-api-server-android` binaries. | `concat`, `slint`, `concat-mcp` |
@@ -65,7 +65,7 @@ src/
 │   ├── concat-cli/           # probe, render, api, serve commands
 │   ├── concat-host/          # Session, preview, playback, templates, jobs, models, logs, memory
 │   │   └── tests/export.rs   # End-to-end export scenario (every_edit_still_exports)
-│   ├── concat-speech/        # Whisper (in-process), Kokoro TTS, download/verify models
+│   ├── concat-speech/        # Whisper (in-process), Chatterbox TTS, download/verify models
 │   ├── concat-text/          # Fonts, presets, text layout, titles as pictures
 │   ├── concat-vision/        # Cutout (ONNX), masks, inference
 │   ├── concat/               # Slint UI: panes, studio, lib.rs (huge), main.rs, platform, fonts, i18n
@@ -91,7 +91,7 @@ src/
 ├── Cargo.toml                # Workspace root
 ├── Cargo.lock
 ├── rustfmt.toml
-└── scripts/                  # locales.py, models.py, ffmpeg-mobile.sh, sherpa-mobile.sh, mobile-env.sh, ios-app.sh
+└── scripts/                  # locales.py, models.py, ffmpeg-mobile.sh, mobile-env.sh, ios-app.sh
 ```
 
 ---
@@ -265,7 +265,7 @@ Every source file must have this exact header. No personal copyright lines.
 - **GPU**: wgpu 30, pollster. Single device shared with Slint.
 - **FFmpeg**: `ffmpeg-the-third` 6, linked (not spawned). Features: codec, filter, format, software-resampling, software-scaling.
 - **ONNX Runtime**: ort 2.0.0-rc.13, dynamic link, CoreML/DirectML/NNAPI backends.
-- **Mobile**: NDK (Android), Xcode (iOS). Cross-compile FFmpeg + sherpa-onnx via scripts.
+- **Mobile**: NDK (Android), Xcode (iOS). Cross-compile FFmpeg via scripts; ONNX Runtime is fetched prebuilt for the target by the `ort` crate.
 
 ---
 
@@ -304,7 +304,6 @@ python3 ../scripts/models.py --check
 - `CONCAT_REQUIRE_GPU=1` — GPU tests fail rather than skip when no adapter is usable
 - `FFMPEG_DIR` — path to unpacked FFmpeg dev build
 - `ORT_LIB_LOCATION`, `ORT_PREFER_DYNAMIC_LINK=1`, `LD_LIBRARY_PATH` — ONNX Runtime shared lib
-- `SHERPA_ONNX_LIB_DIR` — prebuilt sherpa-onnx library dir
 - `CONCAT_LOG=debug` — raise log level
 - `CARGO_PROFILE_DEV_DEBUG=0` — no debug info in test binaries (smaller, faster link)
 

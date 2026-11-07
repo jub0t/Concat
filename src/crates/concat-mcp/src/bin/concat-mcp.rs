@@ -14,18 +14,24 @@ fn main() -> ExitCode {
         .nth(1)
         .or_else(|| std::env::var("CONCAT_MCP_MODE").ok())
         .unwrap_or_default();
+    // The mode only picks a backend for the Android HTTP transport; on
+    // every other target the parse still rejects a bad argument before the
+    // message below, but the value goes unused.
+    #[cfg_attr(
+        not(all(target_os = "android", feature = "http")),
+        allow(unused_variables)
+    )]
     let Some(mode) = concat_mcp::Mode::parse(&word) else {
         eprintln!("usage: concat-mcp [auto|window|headless]");
         return ExitCode::from(2);
     };
 
-    let address = std::env::var("CONCAT_MCP_ADDRESS")
-        .ok()
-        .and_then(|text| text.parse().ok())
-        .unwrap_or_else(|| "127.0.0.1:7420".parse().expect("default address parses"));
-
     #[cfg(all(target_os = "android", feature = "http"))]
     {
+        let address: std::net::SocketAddr = std::env::var("CONCAT_MCP_ADDRESS")
+            .ok()
+            .and_then(|text| text.parse().ok())
+            .unwrap_or_else(|| "127.0.0.1:7420".parse().expect("default address parses"));
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

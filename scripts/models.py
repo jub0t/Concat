@@ -7,7 +7,7 @@
         --version 0.2.1 --tag v0.2.1 \\
         --bundles dir --out manifest.json     # what a release describes
 
-Concat fetches its cutout networks, its Kokoro voice bank and its whisper
+Concat fetches its cutout networks, its Chatterbox voice bank and its whisper
 models on demand rather than carrying them in the bundle. models/manifest.toml
 says what they are and where they come from; this script is what fills the
 mirror from upstream, and what turns the table into the manifest.json every
@@ -42,7 +42,6 @@ HOST_MODELS = CRATES / "concat-host" / "src" / "models.rs"
 # Where each family's table lives in the engine, for --check.
 TABLES = {
     "cutout": CRATES / "concat-vision" / "src" / "models.rs",
-    "tts": CRATES / "concat-speech" / "src" / "tts.rs",
     "chatterbox": CRATES / "concat-speech" / "src" / "chatterbox.rs",
     "whisper": CRATES / "concat-speech" / "src" / "transcribe.rs",
 }
@@ -118,13 +117,11 @@ def engine_id(model: dict) -> str:
     """What the engine calls this model.
 
     The engine's own tables are keyed the way each family's upstream names
-    things - a cutout model by its file, a Kokoro bundle and a whisper model
-    by the id their archive name is built from - so the id is read back out
-    of the file rather than stored twice.
+    things - a cutout model and a Chatterbox file by their file name, a
+    whisper model by the id its archive name is built from - so the id is
+    read back out of the file rather than stored twice.
     """
     file = model["file"]
-    if model["family"] == "tts":
-        return file.removesuffix(".tar.bz2")
     if model["family"] == "whisper":
         return file.removeprefix("ggml-").removesuffix(".bin")
     return file

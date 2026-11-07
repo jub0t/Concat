@@ -16,7 +16,7 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 | `concat-server` | The API on a socket: JSON-RPC lines over TCP or a Unix socket, and gRPC behind the `grpc` feature. One dispatcher, many callers. | `concat-api`; tonic and tokio with `grpc` |
 | `concat-cli` | A binary to drive the above: `probe`, `render`, `api` (the API over stdin and stdout) and `serve` (the API on a socket). | `concat-server`, `concat-api`, the engine crates |
 | `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-project`, `concat-export`, cpal |
-| `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, whisper-rs, sherpa-onnx |
+| `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Chatterbox Turbo or the system voice, over ONNX Runtime). | `concat-host`, `concat-media`, whisper-rs, `ort` |
 | `concat` | The editor window: every pane, dialog and primitive, in Slint. The app a user launches. | slint, `concat-host`, `concat-speech` |
 | `concat-android` | The Android activity: the entry point that hosts the window on a phone. | `concat`, slint |
 
@@ -52,8 +52,8 @@ cargo run --profile quick -p concat    # optimised, rebuilds in seconds: for try
 cargo build --profile app -p concat    # the shipping binary: fat LTO, panic=abort, stripped
 ```
 
-Nothing is spawned at run time: FFmpeg is linked, whisper.cpp and sherpa-onnx
-are compiled in. A build needs the FFmpeg 7+ development libraries (headers
+Nothing is spawned at run time: FFmpeg is linked and whisper.cpp is compiled
+in. A build needs the FFmpeg 7+ development libraries (headers
 and import libraries) - `brew install ffmpeg` on macOS, a BtbN `shared` build
 unpacked and pointed at with `FFMPEG_DIR` on Windows and on Linux
 distributions whose packaged FFmpeg is older than 7 - plus cmake and a C++
@@ -70,20 +70,18 @@ x86_64 and aarch64.
 ### Phones
 
 The whole engine and the window build for Android (arm64) and iOS
-(arm64). Two native libraries come from source for a phone, because no
-prebuilt covers them: FFmpeg, which `scripts/ffmpeg-mobile.sh` cross-builds
-as static archives with the platform's hardware codecs turned on -
-MediaCodec on Android, VideoToolbox on iOS - and whisper.cpp, which its
-crate builds with cmake for the target. sherpa-onnx ships as the shared
-library k2-fsa publishes, fetched by `scripts/sherpa-mobile.sh`; on Android
-the app carries it in `jniLibs`, on iOS as an embedded framework. Both
-scripts leave their output under `vendor/`, outside `target/`, and
-`scripts/mobile-env.sh` turns that into the build environment:
+(arm64). The two native libraries that cannot be fetched prebuilt for a
+phone are built from source: FFmpeg, which `scripts/ffmpeg-mobile.sh`
+cross-builds as static archives with the platform's hardware codecs turned
+on - MediaCodec on Android, VideoToolbox on iOS - and whisper.cpp, which
+its crate builds with cmake for the target. ONNX Runtime is fetched
+prebuilt for the target by the `ort` crate. The FFmpeg script leaves its
+output under `vendor/`, outside `target/`, and `scripts/mobile-env.sh`
+turns that into the build environment:
 
 ```sh
 # Android: the NDK under the SDK, a JDK, and cargo-ndk or cargo-apk.
 scripts/ffmpeg-mobile.sh aarch64-linux-android
-scripts/sherpa-mobile.sh aarch64-linux-android
 eval "$(scripts/mobile-env.sh aarch64-linux-android)"
 cargo ndk -t arm64-v8a --platform 26 build -p concat-android   # the activity's .so
 cargo apk build --release -p concat-android                     # the APK, signed with
@@ -91,7 +89,6 @@ cargo apk build --release -p concat-android                     # the APK, signe
 
 # iOS: Xcode.
 scripts/ffmpeg-mobile.sh aarch64-apple-ios
-scripts/sherpa-mobile.sh aarch64-apple-ios
 eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
 cargo build --release -p concat --target aarch64-apple-ios
 scripts/ios-app.sh aarch64-apple-ios release                    # Concat.app

@@ -57,12 +57,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn setup_android_directories(app: &slint::android::AndroidApp) {
     use std::env;
-    
+
     let Some(internal) = app.internal_data_path() else {
         log::error!("internal_data_path not available");
         return;
     };
-    
+
     // SAFETY: Called before any other thread starts
     unsafe {
         env::set_var("XDG_CONFIG_HOME", &internal);
@@ -70,9 +70,10 @@ fn setup_android_directories(app: &slint::android::AndroidApp) {
         let home = app.external_data_path().unwrap_or(internal);
         env::set_var("HOME", home);
     }
-    
-    log::info!("Android directories configured: config={}, data={}", 
-        internal.display(), 
+
+    log::info!(
+        "Android directories configured: config={}, data={}",
+        internal.display(),
         app.external_data_path().unwrap_or(internal).display()
     );
 }

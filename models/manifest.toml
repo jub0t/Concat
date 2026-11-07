@@ -1,6 +1,6 @@
 # The models Concat downloads, and where they come from.
 #
-# Concat ships no weights inside its bundles - a cutout network, a Kokoro
+# Concat ships no weights inside its bundles - a cutout network, a Chatterbox
 # voice bank and a whisper model together outweigh the editor many times
 # over, and most people never ask for all three. They are fetched the first
 # time a feature needs one.
@@ -83,40 +83,6 @@ bytes = 4866417
 sha256 = "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112"
 licence = "BSD-3-Clause"
 upstream = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/c6a971706797c7502945a2b4c4274fce4900d4ab/realesr-general-x4v3.onnx"
-
-# ── Text to speech ───────────────────────────────────────────────────────
-# src/crates/concat-speech/src/tts.rs. Kokoro v1.0 multi-language, the
-# official sherpa-onnx conversions; the two differ only in quantisation.
-
-[[model]]
-id = "kokoro-int8-multi-lang-v1_0"
-family = "tts"
-file = "kokoro-int8-multi-lang-v1_0.tar.bz2"
-bytes = 132353410
-sha256 = "72c347230107ef8a31098ec4d468a605244beef5f1ed00db97efa13518800653"
-licence = "Apache-2.0"
-upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2"
-
-[[model]]
-id = "kokoro-multi-lang-v1_0"
-family = "tts"
-file = "kokoro-multi-lang-v1_0.tar.bz2"
-bytes = 349886476
-sha256 = "60703707bc05ccd48d60e1eb723f38b07d6e474795a0b6a588d7220400e0f7a4"
-licence = "Apache-2.0"
-upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
-
-# Kyutai's Pocket TTS, the sherpa-onnx int8 conversion: English, and any
-# voice it is given a few seconds of. The weights are CC-BY-4.0 (Kyutai);
-# the ONNX export is KevinAHM/pocket-tts-onnx under the same terms.
-[[model]]
-id = "pocket-tts-int8-2026-01-26"
-family = "tts"
-file = "sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2"
-bytes = 98336520
-sha256 = "2f3b88823cbbb9bf0b2477ec8ae7b3fec417b3a87b6bb5f256dba66f2ad967cb"
-licence = "CC-BY-4.0"
-upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2"
 
 # ── Chatterbox ───────────────────────────────────────────────────────────
 # src/crates/concat-speech/src/chatterbox.rs. Resemble AI's Chatterbox
