@@ -419,6 +419,12 @@ export struct SelectedClipData {
     mask-feather: float,
     fade-in: float,
     fade-out: float,
+    /// The clip's first and last seconds of sound - as far as a fade
+    /// can reach, half the clip and ten seconds at most - as bars in a 1x1
+    /// box, for the Audio tab's fade panes; empty while the peaks are not
+    /// in, and for what has no sound.
+    wave-head: string,
+    wave-tail: string,
 
     // the cutout: 0 none, 1 automatic, 2 custom; what it keeps, 0 auto,
     // 1 person, 2 object; how soft its edge is; how many strokes it

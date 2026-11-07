@@ -1,0 +1,500 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+// The Audio tab's own controls: things a sound is set by that a row of
+// sliders says badly.
+//
+// GainFader: the level on a fader with a mixer's taper and its scale
+// written under it - unity three quarters along, the travel spent where
+// the ear is fine-grained (the last 12 dB under unity) and not on the
+// bottom 30, which is all "quiet". Boost past unity shows in the meters'
+// amber. The speaker beside it mutes and gives back the level it had.
+//
+// StemMixer's strips: the voice and the rest of the sound side by side,
+// each a level of its own and a mute, the way a mixer lays two channels
+// out rather than as two more rows down the page.
+//
+// FadeEnds: a fade drawn where it happens - the clip's first and last
+// seconds, the sound's own waveform in each, the ramp over it - and set
+// by dragging the ramp's corner. Each end is shown at its own scale, so a
+// half-second fade on a ten-minute clip is as easy to take hold of as one
+// on a ten-second clip.
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { NumberField } from "../primitives/number-field.slint";
+import { Wave } from "../primitives/wave.slint";
+import { Tip } from "../primitives/tooltip.slint";
+import { ClipField } from "../timeline/model.slint";
+import { KeyCluster, Rail } from "controls.slint";
+
+/// A square mark that is pressed: the mute beside a level.
+component MuteButton inherits Rectangle {
+    in property <bool> muted;
+    /// The mark while sounding; muted, it is the crossed-out speaker.
+    in property <Glyph> glyph: Glyph.volume;
+    callback clicked();
+
+    width: 24px;
+    height: 24px;
+    border-radius: Theme.r-sm;
+    background: root.muted ? Theme.danger-wash
+        : touch.has-hover ? Theme.field-hover : Colors.transparent;
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.muted ? Glyph.volume-off : root.glyph;
+        size: 15px;
+        tint: root.muted ? Theme.danger : touch.has-hover ? Theme.fg : Theme.fg-muted;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    Tip {
+        text: I18n.t("studio.mute");
+        active: touch.has-hover;
+    }
+}
+
+export component GainFader inherits VerticalLayout {
+    in property <string> label;
+    /// Decibels, -60 (silence) to +24.
+    in-out property <float> value;
+    in property <bool> keyable;
+    in property <ClipField> field;
+    callback changed(decibels: float);
+
+    /// What a mute gives back.
+    property <float> unmuted: 0;
+    property <bool> muted: root.value <= -60;
+
+    /// Where on the travel a level sits: unity at three quarters, the
+    /// boost linear above it, and the cut on a square law below, so a
+    /// decibel near unity is a longer stroke than one near silence.
+    pure function place(decibels: float) -> float {
+        return decibels >= 0
+            ? 0.75 + 0.25 * Math.min(decibels, 24) / 24
+            : 0.75 * Math.pow(Math.max(decibels + 60, 0) / 60, 2);
+    }
+    /// And the level at a place on the travel.
+    pure function level-at(at: float) -> float {
+        return at >= 0.75
+            ? (at - 0.75) / 0.25 * 24
+            : 60 * Math.sqrt(Math.max(at, 0) / 0.75) - 60;
+    }
+    function settle(decibels: float) {
+        root.value = Fmt.clamp(Math.round(decibels * 2) / 2, -60, 24);
+        root.changed(root.value);
+    }
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 2px;
+
+    HorizontalLayout {
+        spacing: 8px;
+
+        VerticalLayout {
+            alignment: center;
+            MuteButton {
+                muted: root.muted;
+                clicked => {
+                    if (root.muted) {
+                        root.settle(root.unmuted <= -60 ? 0 : root.unmuted);
+                    } else {
+                        root.unmuted = root.value;
+                        root.settle(-60);
+                    }
+                }
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        NumberField {
+            width: 84px;
+            value <=> root.value;
+            minimum: -60;
+            maximum: 24;
+            step: 0.5;
+            precision: 1;
+            unit: "dB";
+            changed(v) => { root.changed(v); }
+        }
+
+        if root.keyable: VerticalLayout {
+            alignment: center;
+            KeyCluster { field: root.field; }
+        }
+    }
+
+    fader := Rectangle {
+        height: 28px;
+
+        property <length> inset: 7px;
+        property <length> usable: Math.max(1px, self.width - 2 * self.inset);
+        property <float> at: root.place(root.value);
+        property <length> unity-x: self.inset + self.usable * 0.75;
+        property <length> grip-x: self.inset + self.usable * self.at;
+
+        function apply-at(x: length) {
+            root.settle(root.level-at(Fmt.clamp((x - self.inset) / self.usable, 0, 1)));
+        }
+
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: parent.width;
+            height: 6px;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: Theme.line;
+            background: Theme.well;
+            clip: true;
+
+            Rectangle {
+                x: 0;
+                width: Math.min(fader.grip-x, fader.unity-x);
+                height: parent.height;
+                background: root.muted ? Theme.fg-dim : Theme.accent;
+            }
+            // Past unity is boost: the meters' amber, not the accent.
+            if fader.at > 0.75: Rectangle {
+                x: fader.unity-x;
+                width: fader.grip-x - fader.unity-x;
+                height: parent.height;
+                background: Theme.meter-mid;
+            }
+        }
+
+        // Unity, marked across the groove: where double-click returns.
+        Rectangle {
+            x: fader.unity-x - 0.5px;
+            y: (parent.height - self.height) / 2;
+            width: 1px;
+            height: 14px;
+            background: Theme.fg-muted;
+        }
+
+        Rectangle {
+            x: fader.grip-x - self.width / 2;
+            y: (parent.height - self.height) / 2;
+            width: 13px;
+            height: touch.pressed ? 24px : touch.has-hover ? 22px : 20px;
+            border-radius: Theme.r-xs;
+            border-width: 1px;
+            border-color: Theme.grip-edge;
+            background: touch.pressed ? Theme.grip-active : Theme.grip;
+            drop-shadow-blur: 3px;
+            drop-shadow-offset-y: 1px;
+            drop-shadow-color: Theme.grip-edge;
+
+            animate height, background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+            // A centre line on the cap, as a fader's has.
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 4px;
+                width: 1px;
+                height: parent.height - 8px;
+                background: Theme.grip-edge;
+            }
+        }
+
+        touch := TouchArea {
+            mouse-cursor: ew-resize;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down
+                    && event.button == PointerEventButton.left) {
+                    fader.apply-at(self.mouse-x);
+                }
+            }
+            moved => { fader.apply-at(self.mouse-x); }
+            double-clicked => { root.settle(0); }
+        }
+    }
+
+    // The scale, under the travel it measures.
+    Rectangle {
+        height: 12px;
+
+        for mark in [
+            { at: -60, text: "-∞" }, { at: -24, text: "-24" }, { at: -12, text: "-12" },
+            { at: -6, text: "-6" }, { at: 0, text: "0" }, { at: 6, text: "+6" },
+            { at: 12, text: "+12" }, { at: 24, text: "+24" },
+        ]: Text {
+            x: Fmt.clamp(fader.inset / 1px + fader.usable / 1px * root.place(mark.at)
+                - self.preferred-width / 1px / 2, 0, (parent.width - self.preferred-width) / 1px) * 1px;
+            y: 0;
+            text: mark.text;
+            color: mark.at == 0 ? Theme.fg-muted : Theme.fg-dim;
+            font-family: Theme.font-technical;
+            font-size: 10px;
+        }
+    }
+}
+
+/// One channel of the stem mixer: a mark that mutes, a name, a level.
+export component StemStrip inherits Rectangle {
+    in property <string> name;
+    in property <Glyph> glyph;
+    /// Percent, 0 to 200.
+    in-out property <float> value;
+    callback changed(percent: float);
+
+    property <float> unmuted: 100;
+    property <bool> muted: root.value <= 0;
+
+    horizontal-stretch: 1;
+    border-radius: Theme.r;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: Theme.line;
+
+    VerticalLayout {
+        padding: 8px;
+        padding-left: 6px;
+        spacing: 4px;
+
+        HorizontalLayout {
+            spacing: 4px;
+
+            MuteButton {
+                muted: root.muted;
+                glyph: root.glyph;
+                clicked => {
+                    if (root.muted) {
+                        root.value = root.unmuted <= 0 ? 100 : root.unmuted;
+                    } else {
+                        root.unmuted = root.value;
+                        root.value = 0;
+                    }
+                    root.changed(root.value);
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.name;
+                color: root.muted ? Theme.fg-dim : Theme.fg;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                text: "\{Math.round(root.value)}%";
+                color: root.muted ? Theme.fg-dim : Theme.fg;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+            }
+        }
+
+        Rail {
+            value <=> root.value;
+            minimum: 0;
+            maximum: 200;
+            step: 1;
+            default-value: 100;
+            changed(v) => { root.changed(v); }
+        }
+    }
+}
+
+/// One end of the clip: its sound over the seconds a fade can reach, and
+/// the ramp over it with a corner to drag.
+component FadePane inherits Rectangle {
+    /// The sound's bars over the window, in a 1x1 box.
+    in property <string> wave;
+    /// Seconds the pane spans.
+    in property <float> window;
+    in-out property <float> seconds;
+    /// The fade out: the clip's last seconds, the ramp falling to the right.
+    in property <bool> tail;
+    callback changed(seconds: float);
+
+    property <length> top: 9px;
+    property <float> share: root.window > 0 ? Fmt.clamp(root.seconds / root.window, 0, 1) : 0;
+    /// The ramp's corner: where full level starts, or where it ends.
+    property <length> corner: root.tail ? root.width * (1 - root.share) : root.width * root.share;
+    property <float> w: root.width / 1px;
+    property <float> h: root.height / 1px;
+    property <float> c: root.corner / 1px;
+    property <float> t: root.top / 1px;
+
+    function settle(x: length) {
+        let at = Fmt.clamp(x / root.width, 0, 1);
+        let raw = (root.tail ? 1 - at : at) * root.window;
+        root.seconds = Fmt.clamp(Math.round(raw * 20) / 20, 0, root.window);
+        root.changed(root.seconds);
+    }
+
+    height: 60px;
+    border-radius: Theme.r;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+    clip: true;
+
+    Wave {
+        x: 0;
+        y: root.top;
+        width: root.width;
+        height: root.height - root.top;
+        commands: root.wave;
+        tint: Theme.wave;
+    }
+
+    // What the fade takes away, shaded over the sound it takes it from.
+    Path {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        viewbox-width: root.w;
+        viewbox-height: root.h;
+        fill: Theme.fade-shade;
+        commands: root.tail
+            ? "M \{root.c} \{root.t} L \{root.w} \{root.h} L \{root.w} 0 L \{root.c} 0 Z"
+            : "M 0 0 L \{root.c} 0 L \{root.c} \{root.t} L 0 \{root.h} Z";
+    }
+
+    // The level: flat at the top where the clip plays in full, the ramp
+    // where it fades.
+    Path {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        viewbox-width: root.w;
+        viewbox-height: root.h;
+        stroke: Theme.accent;
+        stroke-width: 1.5px;
+        commands: root.tail
+            ? "M 0 \{root.t} L \{root.c} \{root.t} L \{root.w} \{root.h}"
+            : "M 0 \{root.h} L \{root.c} \{root.t} L \{root.w} \{root.t}";
+    }
+
+    Rectangle {
+        x: Fmt.clamp(root.corner / 1px, 6, root.w - 6) * 1px - self.width / 2;
+        y: root.top - self.height / 2;
+        width: touch.pressed ? 13px : 11px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.accent;
+        border-width: 2px;
+        border-color: Theme.well;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: ew-resize;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                root.settle(self.mouse-x);
+            }
+        }
+        moved => { root.settle(self.mouse-x); }
+        double-clicked => {
+            root.seconds = 0;
+            root.changed(0);
+        }
+    }
+}
+
+/// A fade's name and its seconds, under its pane.
+component FadeFigure inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <float> seconds;
+    in property <float> maximum;
+    callback changed(seconds: float);
+
+    spacing: 6px;
+
+    Text {
+        horizontal-stretch: 1;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    NumberField {
+        width: 76px;
+        value <=> root.seconds;
+        minimum: 0;
+        maximum: root.maximum;
+        step: 0.05;
+        precision: 2;
+        unit: "s";
+        changed(v) => { root.changed(v); }
+    }
+}
+
+export component FadeEnds inherits HorizontalLayout {
+    /// The clip's first and last `window` seconds of sound, as bars.
+    in property <string> head-wave;
+    in property <string> tail-wave;
+    /// The longest a fade may be: half the clip, ten seconds at most.
+    in property <float> window;
+    in-out property <float> fade-in;
+    in-out property <float> fade-out;
+    callback in-changed(seconds: float);
+    callback out-changed(seconds: float);
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 10px;
+
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 6px;
+
+        FadePane {
+            wave: root.head-wave;
+            window: root.window;
+            seconds <=> root.fade-in;
+            changed(v) => { root.in-changed(v); }
+        }
+        FadeFigure {
+            label: I18n.t("clipInspector.fadeIn");
+            seconds <=> root.fade-in;
+            maximum: root.window;
+            changed(v) => { root.in-changed(v); }
+        }
+    }
+
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 6px;
+
+        FadePane {
+            wave: root.tail-wave;
+            window: root.window;
+            tail: true;
+            seconds <=> root.fade-out;
+            changed(v) => { root.out-changed(v); }
+        }
+        FadeFigure {
+            label: I18n.t("clipInspector.fadeOut");
+            seconds <=> root.fade-out;
+            maximum: root.window;
+            changed(v) => { root.out-changed(v); }
+        }
+    }
+}

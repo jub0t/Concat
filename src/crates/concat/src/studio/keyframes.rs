@@ -1122,6 +1122,8 @@ impl Studio {
             mask_roundness: shown(clip, model::KeyProperty::MaskRoundness, at) as f32,
             mask_feather: shown(clip, model::KeyProperty::MaskFeather, at) as f32,
             fade_in: clip.fade_in as f32,
+            wave_head: self.wave_end(clip, false),
+            wave_tail: self.wave_end(clip, true),
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),
             font_family: text.font_family.trim_matches('"').into(),
