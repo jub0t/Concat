@@ -641,17 +641,6 @@ export component ConfigPane inherits Rectangle {
 
                 if root.single: Rectangle { horizontal-stretch: 1; }
 
-                // The clip's own name on the trailing edge, so a panel of
-                // numbers says which clip it is describing. The strip below
-                // has no room for it, which is why it only appears here.
-                if root.single: Text {
-                    text: root.selected.name;
-                    color: Theme.fg-dim;
-                    font-size: Theme.fs-sm;
-                    vertical-alignment: center;
-                    overflow: elide;
-                }
-
                 if !root.single: VerticalLayout {
                     alignment: center;
                     SegmentedControl {
