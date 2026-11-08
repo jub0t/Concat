@@ -2682,6 +2682,7 @@ export component SpeedPanel inherits VerticalLayout {
                     changed truth => { self.current = self.truth ? 1 : 0; }
 
                     options: [I18n.t("speedRamp.constant"), I18n.t("speedRamp.curve")];
+                    icons: [Glyph.speed-constant, Glyph.speed-curve];
                     current: root.curved ? 1 : 0;
                     changed(index) => {
                         SpeedRamp.curve(index == 1);
@@ -2729,6 +2730,7 @@ export component SpeedPanel inherits VerticalLayout {
                     changed truth => { self.current = self.truth ? 0 : 1; }
 
                     options: [I18n.t("speedRamp.smooth"), I18n.t("speedRamp.straight")];
+                    icons: [Glyph.bend-smooth, Glyph.bend-straight];
                     current: SpeedRamp.smooth ? 0 : 1;
                     changed(index) => {
                         SpeedRamp.smoothness(index == 0);

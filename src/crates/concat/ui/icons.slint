@@ -67,6 +67,13 @@ export enum Glyph {
     line-solid,
     line-dashed,
     line-dotted,
+    /// a clip's speed: one rate the whole way, or a curve over it
+    speed-constant,
+    speed-curve,
+    /// a curve's joins: bent smoothly through its points, or straight
+    /// lines meeting at them
+    bend-smooth,
+    bend-straight,
     mask-circle,
     mask-rectangle,
     mask-heart,
@@ -425,6 +432,26 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.line-dotted: Stroked {
         size: root.size; tint: root.tint; weight: 3.2;
         commands: "M3.5 12h.01 M7.75 12h.01 M12 12h.01 M16.25 12h.01 M20.5 12h.01";
+    }
+    // One rate: a level line, the clip's ends marked.
+    if root.glyph == Glyph.speed-constant: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M4 12H20 M4 8v8 M20 8v8";
+    }
+    // A rate that changes: slow, a rise, then fast.
+    if root.glyph == Glyph.speed-curve: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 18C9 18 9 6 15 6H21";
+    }
+    // A hump through three points, bent round its top...
+    if root.glyph == Glyph.bend-smooth: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 18C8 18 8 6 12 6S16 18 21 18";
+    }
+    // ...and the same three points met by straight lines.
+    if root.glyph == Glyph.bend-straight: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 18L12 6L21 18";
     }
     if root.glyph == Glyph.mask-linear: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
