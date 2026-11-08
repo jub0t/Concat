@@ -691,7 +691,6 @@
   "speedRamp.fastest": "最速",
   "speedRamp.flashIn": "フラッシュイン",
   "speedRamp.flashOut": "フラッシュアウト",
-  "speedRamp.help": "クリックで点を追加し、ドラッグでランプを形づくります。Shift+クリックまたはグラフ上をドラッグすると複数選択でき、1つをドラッグするとまとめて動きます。Deleteで選択した点を削除、ダブルクリックで1つを削除します。",
   "speedRamp.hero": "ヒーロー",
   "speedRamp.jumpCut": "ジャンプカット",
   "speedRamp.montage": "モンタージュ",

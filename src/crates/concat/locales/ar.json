@@ -691,7 +691,6 @@
   "speedRamp.fastest": "الأسرع",
   "speedRamp.flashIn": "وميض للداخل",
   "speedRamp.flashOut": "وميض للخارج",
-  "speedRamp.help": "انقر لإضافة نقطة واسحبها لتشكيل المنحنى. انقر مع Shift أو اسحب عبر الرسم لاختيار عدة نقاط، ثم اسحب إحداها لتحريكها معًا. يحذف Delete النقاط المختارة، والنقر المزدوج يحذف نقطة واحدة.",
   "speedRamp.hero": "بطل",
   "speedRamp.jumpCut": "قفزة",
   "speedRamp.montage": "مونتاج",

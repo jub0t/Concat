@@ -691,7 +691,6 @@
   "speedRamp.fastest": "Fastest",
   "speedRamp.flashIn": "Flash in",
   "speedRamp.flashOut": "Flash out",
-  "speedRamp.help": "Click to add a point and drag it to shape the ramp. Shift-click, or drag across the graph, to pick several; drag one to move them together. Delete removes the picked points, a double-click removes one.",
   "speedRamp.hero": "Hero",
   "speedRamp.jumpCut": "Jump cut",
   "speedRamp.montage": "Montage",

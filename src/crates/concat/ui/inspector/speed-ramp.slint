@@ -164,7 +164,7 @@ component SpeedHandle inherits TouchArea {
 }
 
 /// The graph: the curve over the clip with its points live, on a grid of
-/// small squares - a row a half doubling of speed, a column a thirty-second
+/// small squares - a row a half doubling of speed, a column a twentieth
 /// of the clip - with every doubling written up the left, 1x the strongest
 /// line, and the clip's quarters along the foot.
 ///
@@ -186,9 +186,9 @@ export component SpeedGraph inherits VerticalLayout {
     /// Room inside the frame around the plot, for an end's ring.
     property <length> inset: 9px;
     property <length> plot-w: Math.max(1px, frame.width - 2 * root.inset);
-    /// Two to one: sixteen rows of a half doubling and thirty-two columns,
-    /// each a square.
-    property <length> plot-h: root.plot-w / 2;
+    /// Sixteen rows of a half doubling and twenty columns, each a square:
+    /// tall enough to shape a ramp by.
+    property <length> plot-h: root.plot-w * 16 / 20;
     property <length> cell: root.plot-h / 16;
 
     // The box being dragged out, on the plot, in pixels.
@@ -200,13 +200,6 @@ export component SpeedGraph inherits VerticalLayout {
 
     spacing: 4px;
     opacity: root.enabled ? 1.0 : 0.45;
-
-    // The scale's name over its labels.
-    Text {
-        text: I18n.t("common.speed");
-        color: Theme.fg-muted;
-        font-size: Theme.fs-sm;
-    }
 
     HorizontalLayout {
         spacing: 6px;
@@ -270,12 +263,12 @@ export component SpeedGraph inherits VerticalLayout {
                     background: row == 8 ? Theme.line-strong : Theme.line;
                     opacity: row == 8 ? 1 : Math.mod(row, 2) == 0 ? 0.75 : 0.3;
                 }
-                for column in 33: Rectangle {
+                for column in 21: Rectangle {
                     x: column * root.cell;
                     width: 1px;
                     height: parent.height;
                     background: Theme.line;
-                    opacity: Math.mod(column, 8) == 0 ? 0.75 : 0.3;
+                    opacity: Math.mod(column, 5) == 0 ? 0.75 : 0.3;
                 }
 
                 // A press on the graph away from every point: let go where
@@ -388,7 +381,7 @@ export component SpeedGraph inherits VerticalLayout {
         height: 14px;
         for label[i] in ["0%", "25%", "50%", "75%", "100%"]: Text {
             // The ends' labels inside the graph's edges, the rest centred.
-            x: root.gutter + 6px + root.inset + i * 8 * root.cell
+            x: root.gutter + 6px + root.inset + i * 5 * root.cell
                 - (i == 0 ? 0px : i == 4 ? self.width : self.width / 2);
             text: label;
             color: Theme.fg-dim;
@@ -401,12 +394,5 @@ export component SpeedGraph inherits VerticalLayout {
         color: Theme.fg-muted;
         font-size: Theme.fs-sm;
         horizontal-alignment: center;
-    }
-
-    Text {
-        text: I18n.t("speedRamp.help");
-        color: Theme.fg-dim;
-        font-size: Theme.fs-sm;
-        wrap: word-wrap;
     }
 }

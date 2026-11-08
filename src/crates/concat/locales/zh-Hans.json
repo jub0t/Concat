@@ -691,7 +691,6 @@
   "speedRamp.fastest": "最快",
   "speedRamp.flashIn": "闪入",
   "speedRamp.flashOut": "闪出",
-  "speedRamp.help": "点击添加点，拖动它来塑造变速曲线。按住 Shift 点击，或在图上拖出一个框，可选择多个点；拖动其中一个即可一起移动。Delete 删除所选的点，双击删除单个点。",
   "speedRamp.hero": "英雄",
   "speedRamp.jumpCut": "跳切",
   "speedRamp.montage": "蒙太奇",
