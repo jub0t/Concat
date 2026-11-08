@@ -30,7 +30,7 @@ import {
     Switch,
     SwitchRow,
 } from "controls.slint";
-import { FadeEnds, GainFader, StemStrip } from "audio-controls.slint";
+import { FadeEnds, GainFader, StemRow } from "audio-controls.slint";
 import {
     ColorWheel,
     CurveData,
@@ -2894,10 +2894,28 @@ export component AudioPanel inherits VerticalLayout {
         }
     }
 
-    // Voice isolation (#120): the voice in the sound set apart from
-    // everything else, each part on a strip of its own - the music under
-    // a talk brought down rather than off. Its switch is its header; on,
-    // what it is pulled from, the two ways most wanted, and the strips.
+    // The fades, drawn where they happen: the clip's first and last
+    // seconds of sound with the ramp over each, its corner dragged.
+    if !root.selected.batch-volume: Section {
+        SectionBody {
+            padding-top: 10px;
+            FadeEnds {
+                head-wave: root.selected.wave-head;
+                tail-wave: root.selected.wave-tail;
+                window: root.fade-limit;
+                fade-in <=> root.fade-in;
+                fade-out <=> root.fade-out;
+                in-changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
+                out-changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
+            }
+        }
+    }
+
+    // Voice isolation (#120): the clip's sound split once, in the
+    // background, into the voice and everything else, and played back as
+    // the two at levels of their own - the music under a talk brought down
+    // rather than off, the hiss taken out from under a voice. Its switch
+    // is its header; on, what the sound is, then the two parts.
     if !root.selected.batch-volume: Section {
         SectionBody {
             HorizontalLayout {
@@ -2929,77 +2947,45 @@ export component AudioPanel inherits VerticalLayout {
                 }
             }
 
-            // A song's singing apart from its music, or speech apart from
-            // the noise behind it: two models, each good at its own.
+            // What the clip's sound is, which picks the model that splits
+            // it: speech apart from the noise, the room and any music bed
+            // behind it, or a song's singing apart from its music. Each
+            // names the two parts below in its own words.
             if root.selected.voice-mode != 0: Row {
-                label: I18n.t("voice.kind");
+                label: I18n.t("voice.sound");
+                label-width: 108px;
                 SegmentedControl {
-                    options: [I18n.t("voice.kindSong"), I18n.t("voice.kindSpeech")];
-                    property <int> shown: root.selected.voice-kind;
+                    // Speech first: what most clips in an edit are, and
+                    // its model ships with the app; the song's downloads.
+                    options: [I18n.t("voice.speech"), I18n.t("voice.song")];
+                    property <int> shown: root.selected.voice-kind == 1 ? 0 : 1;
                     current: self.shown;
                     changed shown => { self.current = self.shown; }
                     changed(index) => {
-                        root.set(ClipField.voice-kind, index);
+                        root.set(ClipField.voice-kind, index == 0 ? 1 : 0);
                         root.commit();
                     }
                 }
             }
 
-            // The two mixes most wanted, one press each. Levels of one's
-            // own are neither: nothing lit.
-            if root.selected.voice-mode != 0: Row {
-                SegmentedControl {
-                    options: [I18n.t("voice.keep"), I18n.t("voice.removeShort")];
-                    property <int> shown: root.selected.voice-mode == 1 ? 0
-                        : root.selected.voice-mode == 2 ? 1 : -1;
-                    current: self.shown;
-                    changed shown => { self.current = self.shown; }
-                    changed(index) => {
-                        root.set(ClipField.voice-mode, index + 1);
-                        root.commit();
-                    }
-                }
+            // The two parts, one row each. The voice alone is the other
+            // row's mark pressed; the voice gone is its own.
+            if root.selected.voice-mode != 0: StemRow {
+                name: root.selected.voice-kind == 0 ? I18n.t("voice.vocals") : I18n.t("voice.voiceLevel");
+                glyph: Glyph.mic;
+                value <=> root.voice-level;
+                changed(v) => { root.set(ClipField.voice-level, v / 100); root.commit(); }
             }
-
-            if root.selected.voice-mode != 0: HorizontalLayout {
-                padding-left: Theme.pad;
-                padding-right: Theme.pad;
-                spacing: 8px;
-
-                StemStrip {
-                    name: I18n.t("voice.voiceLevel");
-                    glyph: Glyph.mic;
-                    value <=> root.voice-level;
-                    changed(v) => { root.set(ClipField.voice-level, v / 100); root.commit(); }
-                }
-                StemStrip {
-                    name: I18n.t("voice.backgroundLevel");
-                    glyph: root.selected.voice-kind == 0 ? Glyph.music : Glyph.waveform;
-                    value <=> root.background-level;
-                    changed(v) => { root.set(ClipField.background-level, v / 100); root.commit(); }
-                }
+            if root.selected.voice-mode != 0: StemRow {
+                name: root.selected.voice-kind == 0 ? I18n.t("voice.music") : I18n.t("voice.backgroundLevel");
+                glyph: root.selected.voice-kind == 0 ? Glyph.music : Glyph.waveform;
+                value <=> root.background-level;
+                changed(v) => { root.set(ClipField.background-level, v / 100); root.commit(); }
             }
 
             if root.selected.voice-progress >= 0: VoiceRow {
                 progress: root.selected.voice-progress;
                 fetching: root.selected.voice-fetching;
-            }
-        }
-    }
-
-    // The fades, drawn where they happen: the clip's first and last
-    // seconds of sound with the ramp over each, its corner dragged.
-    if !root.selected.batch-volume: Section {
-        SectionBody {
-            padding-top: 10px;
-            FadeEnds {
-                head-wave: root.selected.wave-head;
-                tail-wave: root.selected.wave-tail;
-                window: root.fade-limit;
-                fade-in <=> root.fade-in;
-                fade-out <=> root.fade-out;
-                in-changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
-                out-changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
             }
         }
     }

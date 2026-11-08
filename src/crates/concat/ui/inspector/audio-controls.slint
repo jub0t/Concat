@@ -10,9 +10,8 @@
 // bottom 30, which is all "quiet". Boost past unity shows in the meters'
 // amber. The speaker beside it mutes and gives back the level it had.
 //
-// StemMixer's strips: the voice and the rest of the sound side by side,
-// each a level of its own and a mute, the way a mixer lays two channels
-// out rather than as two more rows down the page.
+// StemRow: one part of a sound split by voice isolation - the voice, or
+// everything else - with a mute in its mark and a level of its own.
 //
 // FadeEnds: a fade drawn where it happens - the clip's first and last
 // seconds, the sound's own waveform in each, the ramp over it - and set
@@ -247,31 +246,35 @@ export component GainFader inherits VerticalLayout {
     }
 }
 
-/// One channel of the stem mixer: a mark that mutes, a name, a level.
-export component StemStrip inherits Rectangle {
+/// One part of a split sound on a row of its own: its mark, which mutes
+/// it, its name, its level and the level read out. Two of them, one under
+/// the other, are the whole mixer: the voice alone is the other row muted,
+/// the voice gone is this one muted - one press each, no third control
+/// saying the same thing again.
+export component StemRow inherits HorizontalLayout {
     in property <string> name;
     in property <Glyph> glyph;
-    /// Percent, 0 to 200.
+    /// The name's column: the same in both rows, and in the row above
+    /// them, so the rails start under one another.
+    in property <length> label-width: 108px;
+    /// Percent of the part as recorded, 0 to 200.
     in-out property <float> value;
     callback changed(percent: float);
 
     property <float> unmuted: 100;
     property <bool> muted: root.value <= 0;
 
-    horizontal-stretch: 1;
-    border-radius: Theme.r;
-    background: Theme.well;
-    border-width: 1px;
-    border-color: Theme.line;
+    padding-left: Theme.pad - 4px;
+    padding-right: Theme.pad;
+    spacing: 8px;
+    min-height: Theme.h;
 
-    VerticalLayout {
-        padding: 8px;
-        padding-left: 6px;
+    HorizontalLayout {
+        width: root.label-width + 4px;
         spacing: 4px;
 
-        HorizontalLayout {
-            spacing: 4px;
-
+        VerticalLayout {
+            alignment: center;
             MuteButton {
                 muted: root.muted;
                 glyph: root.glyph;
@@ -285,33 +288,36 @@ export component StemStrip inherits Rectangle {
                     root.changed(root.value);
                 }
             }
-
-            Text {
-                horizontal-stretch: 1;
-                text: root.name;
-                color: root.muted ? Theme.fg-dim : Theme.fg;
-                font-size: Theme.fs;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-
-            Text {
-                text: "\{Math.round(root.value)}%";
-                color: root.muted ? Theme.fg-dim : Theme.fg;
-                font-family: Theme.font-technical;
-                font-size: Theme.fs;
-                vertical-alignment: center;
-            }
         }
 
-        Rail {
-            value <=> root.value;
-            minimum: 0;
-            maximum: 200;
-            step: 1;
-            default-value: 100;
-            changed(v) => { root.changed(v); }
+        Text {
+            horizontal-stretch: 1;
+            text: root.name;
+            color: root.muted ? Theme.fg-dim : Theme.fg-muted;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
         }
+    }
+
+    Rail {
+        horizontal-stretch: 1;
+        value <=> root.value;
+        minimum: 0;
+        maximum: 200;
+        step: 1;
+        default-value: 100;
+        changed(v) => { root.changed(v); }
+    }
+
+    Text {
+        width: 40px;
+        text: "\{Math.round(root.value)}%";
+        color: root.muted ? Theme.fg-dim : Theme.fg;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs;
+        horizontal-alignment: right;
+        vertical-alignment: center;
     }
 }
 
