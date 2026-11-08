@@ -2065,6 +2065,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_captions_intensity_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Captions(CaptionsMsg::IntensityChanged(index)));
     }));
+    app.on_captions_category_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::CategoryChanged(index)));
+    }));
+    app.on_captions_sample_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Captions(CaptionsMsg::SampleEdited(text.to_string())));
+    }));
     app.on_captions_style_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Captions(CaptionsMsg::StyleChanged(index)));
     }));

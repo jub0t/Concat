@@ -58,9 +58,10 @@ const STRENGTHS: [f64; 3] = [0.5, 1.0, 2.0];
 /// The faces the sheet offers, Persian and then Latin: the family as the
 /// text engine knows it, the weight it is set in, and the name shown. All
 /// are bundled with the app. A style never changes the face; this row does.
-const FONTS: [(&str, f64, &str); 34] = [
+const FONTS: [(&str, f64, &str); 35] = [
     ("Noto Sans Arabic UI", 700.0, "Noto Sans Arabic UI"),
     ("Vazirmatn", 700.0, "وزیرمتن"),
+    ("Estedad", 700.0, "استعداد"),
     ("Vazirmatn", 900.0, "وزیرمتن سیاه"),
     ("Lalezar", 400.0, "لاله‌زار"),
     ("Shabnam", 700.0, "شبنم"),
@@ -154,6 +155,8 @@ pub enum CaptionsMsg {
     IntensityChanged(i32),
     /// The style row of the sheet.
     StyleChanged(i32),
+    CategoryChanged(i32),
+    SampleEdited(String),
     /// Dress the captions lane in that style.
     ApplyStyle,
     /// The highlight row of the sheet.
@@ -242,6 +245,10 @@ pub struct CaptionsPane {
     pub intensity: usize,
     /// Row of the style list: the kept look, then the Text page's presets.
     pub style: usize,
+    /// Row of the category list: all, Persian, then the library's shelves.
+    pub category: usize,
+    /// The words the preview shows; empty means the style's own sample.
+    pub sample: String,
     /// Row of the highlight list: none, then `HIGHLIGHTS`.
     pub highlight: usize,
     /// Row of the font list: automatic, then `FONTS`.
@@ -377,8 +384,14 @@ impl CaptionsPane {
                 self.intensity = (index.max(0) as usize).min(STRENGTHS.len() - 1);
             }
             CaptionsMsg::StyleChanged(index) => {
-                self.style = (index.max(0) as usize).min(style_ids(studio).len());
+                self.style = (index.max(0) as usize).min(style_ids(studio, self.category).len());
             }
+            CaptionsMsg::CategoryChanged(index) => {
+                self.category = (index.max(0) as usize).min(CATEGORIES.len() - 1);
+                // The list under it is another list now.
+                self.style = 0;
+            }
+            CaptionsMsg::SampleEdited(text) => self.sample = text,
             CaptionsMsg::ApplyStyle => self.apply_style(studio),
             CaptionsMsg::HighlightChanged(index) => {
                 self.highlight = (index.max(0) as usize).min(HIGHLIGHTS.len());
@@ -746,7 +759,7 @@ impl CaptionsPane {
     /// The motion and word lighting of the style the sheet names, if it is
     /// a caption style.
     fn style_fx(&self, studio: &Studio) -> Option<crate::presets::CaptionFx> {
-        let ids = style_ids(studio);
+        let ids = style_ids(studio, self.category);
         let id = self.style.checked_sub(1).and_then(|row| ids.get(row))?;
         studio
             .text_presets
@@ -776,7 +789,7 @@ impl CaptionsPane {
     /// face is the sheet's font row, or else the kept look's, or else the
     /// Persian default.
     fn base_style(&self, studio: &mut Studio) -> Option<TextStyle> {
-        let ids = style_ids(studio);
+        let ids = style_ids(studio, self.category);
         let kept = studio.prefs.title_style.clone();
         let mut style = match self
             .style
@@ -1340,6 +1353,89 @@ impl CaptionsPane {
     }
 
     /// The sheet as Slint shows it.
+    /// What the sheet's preview card is told: the chosen style as the card
+    /// can draw it, and the motion it plays. The card is Slint text, a
+    /// close picture of the result; the export is the text engine's.
+    fn preview(&self, studio: &Studio) -> crate::ui::CaptionsPreview {
+        let ids = style_ids(studio, self.category);
+        let preset = self
+            .style
+            .checked_sub(1)
+            .and_then(|row| ids.get(row))
+            .and_then(|id| studio.text_presets.iter().find(|held| &held.id == id));
+        let kept = studio.prefs.title_style.clone();
+        let mut style = preset
+            .map(|held| held.style.clone())
+            .or_else(|| kept.clone())
+            .unwrap_or_default();
+        // A style never changes the face: the font row, else the kept look.
+        let (family, weight) = match (
+            self.font.checked_sub(1).and_then(|row| FONTS.get(row)),
+            &kept,
+        ) {
+            (Some((family, weight, _)), _) => ((*family).to_owned(), *weight),
+            (None, Some(kept)) => (kept.font_family.clone(), kept.font_weight),
+            (None, None) => (FONTS[0].0.to_owned(), FONTS[0].1),
+        };
+        style.font_family = family;
+        style.font_weight = weight;
+        let fx = preset.and_then(|held| held.caption.clone());
+        let text = if self.sample.trim().is_empty() {
+            "Hello · سلام دنیا".to_owned()
+        } else {
+            self.sample.clone()
+        };
+        let rtl = caption_fx::is_rtl(&text);
+        let mut words: Vec<slint::SharedString> = text
+            .split_whitespace()
+            .map(slint::SharedString::from)
+            .collect();
+        if rtl {
+            words.reverse();
+        }
+        let motion_name = fx
+            .as_ref()
+            .map_or(MOTION_NAMES[self.motion], |fx| fx.motion.as_str());
+        let motion = MOTION_NAMES
+            .iter()
+            .position(|name| *name == motion_name || motion_name.starts_with(&format!("{name}-")))
+            .unwrap_or(0);
+        let lit = fx.as_ref().and_then(|fx| fx.active.clone()).or_else(|| {
+            self.highlight
+                .checked_sub(1)
+                .map(|row| HIGHLIGHTS[row].to_owned())
+        });
+        crate::ui::CaptionsPreview {
+            words: std::rc::Rc::new(slint::VecModel::from(words)).into(),
+            sample: self.sample.as_str().into(),
+            font: style.font_family.as_str().into(),
+            weight: style.font_weight as i32,
+            colour: crate::format::colour_of(&style.color),
+            lit: lit.is_some(),
+            lit_colour: lit.as_deref().map_or(
+                slint::Color::from_argb_u8(0, 0, 0, 0),
+                crate::format::colour_of,
+            ),
+            rainbow: fx.as_ref().is_some_and(|fx| fx.rainbow),
+            stroke_colour: crate::format::colour_of(&style.stroke_color),
+            stroke: style.stroke_width as f32,
+            background: if style.background.is_empty() {
+                slint::Color::from_argb_u8(0, 0, 0, 0)
+            } else {
+                crate::format::colour_of(&style.background)
+            },
+            motion: motion as i32,
+            seconds: fx.as_ref().map_or(SPEEDS[self.speed], |fx| fx.seconds) as f32,
+            intensity: fx
+                .as_ref()
+                .map_or(STRENGTHS[self.intensity], |fx| fx.intensity) as f32,
+            rtl,
+            name: preset
+                .map_or(String::new(), |held| held.name.clone())
+                .into(),
+        }
+    }
+
     pub fn data(&self, studio: &Studio) -> CaptionsSheetData {
         let sources = if self.open {
             sources(studio)
@@ -1437,6 +1533,19 @@ impl CaptionsPane {
             ]))
             .into(),
             style: self.style as i32,
+            categories: std::rc::Rc::new(slint::VecModel::from(vec![
+                slint::SharedString::from(t("captions.catAll")),
+                slint::SharedString::from(t("captions.catPersian")),
+                slint::SharedString::from(t("captions.catSocial")),
+                slint::SharedString::from(t("captions.catWord")),
+                slint::SharedString::from(t("captions.catModern")),
+                slint::SharedString::from(t("captions.catMotion")),
+                slint::SharedString::from(t("captions.catCinematic")),
+                slint::SharedString::from(t("captions.catEducational")),
+            ]))
+            .into(),
+            category: self.category as i32,
+            preview: self.preview(studio),
             highlight: self.highlight as i32,
             font: self.font as i32,
             fonts: std::rc::Rc::new(slint::VecModel::from({
@@ -1457,7 +1566,7 @@ impl CaptionsPane {
             styles: std::rc::Rc::new(slint::VecModel::from({
                 let mut names = vec![slint::SharedString::from(t("captions.styleKept"))];
                 names.extend(
-                    style_names(studio)
+                    style_names(studio, self.category)
                         .into_iter()
                         .map(slint::SharedString::from),
                 );
@@ -1677,13 +1786,39 @@ fn caption_clip(
     }
 }
 
+/// The shelves the style list can be narrowed to: row 0 is everything,
+/// row 1 the Persian looks, the rest the caption library's own shelves.
+const CATEGORIES: [&str; 8] = [
+    "",
+    "Persian",
+    "Social",
+    "Word",
+    "Modern",
+    "Motion",
+    "Cinematic",
+    "Educational",
+];
+
 /// The ids of the presets the sheet offers as styles, Persian ones first:
-/// that is the writing the subtitle tool is for.
-fn style_ids(studio: &Studio) -> Vec<String> {
+/// that is the writing the subtitle tool is for. `category` is a row of
+/// [`CATEGORIES`].
+fn style_ids(studio: &Studio, category: usize) -> Vec<String> {
+    let shelf = CATEGORIES.get(category).copied().unwrap_or("");
     let mut persian: Vec<String> = Vec::new();
     let mut rest: Vec<String> = Vec::new();
     for preset in &studio.text_presets {
         if preset.id == "default" {
+            continue;
+        }
+        let fits = match shelf {
+            "" => true,
+            "Persian" => preset.language == "Persian",
+            other => preset
+                .caption
+                .as_ref()
+                .is_some_and(|fx| fx.category == other),
+        };
+        if !fits {
             continue;
         }
         if preset.language == "Persian" {
@@ -1697,8 +1832,8 @@ fn style_ids(studio: &Studio) -> Vec<String> {
 }
 
 /// Their names, in the same order.
-fn style_names(studio: &Studio) -> Vec<String> {
-    style_ids(studio)
+fn style_names(studio: &Studio, category: usize) -> Vec<String> {
+    style_ids(studio, category)
         .iter()
         .filter_map(|id| studio.text_presets.iter().find(|held| &held.id == id))
         .map(|preset| preset.name.clone())

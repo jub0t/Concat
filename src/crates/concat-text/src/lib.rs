@@ -266,7 +266,7 @@ const BUNDLED: [&[u8]; 5] = [
 /// (regular) weight: fontdb sets no variation axes. Kosugi Maru carries
 /// Japanese, Secular One and Rubik Scribble Hebrew. The window registers the
 /// same bytes for its preset cards (concat's fonts.rs).
-pub const BASE_FONTS: [&[u8]; 57] = [
+pub const BASE_FONTS: [&[u8]; 58] = [
     include_bytes!("../fonts/Inter-Regular.ttf"),
     include_bytes!("../fonts/Inter-SemiBold.ttf"),
     include_bytes!("../fonts/Inter-Bold.ttf"),
@@ -298,6 +298,7 @@ pub const BASE_FONTS: [&[u8]; 57] = [
     include_bytes!("../fonts/SecularOne-Regular.ttf"),
     include_bytes!("../fonts/LondrinaSolid-Regular.ttf"),
     include_bytes!("../fonts/LondrinaSolid-Black.ttf"),
+    include_bytes!("../fonts/Estedad-Bold.ttf"),
     include_bytes!("../fonts/Vazirmatn-Regular.ttf"),
     include_bytes!("../fonts/Vazirmatn-Bold.ttf"),
     include_bytes!("../fonts/Vazirmatn-Black.ttf"),
@@ -2357,6 +2358,7 @@ mod tests {
             ("Katibeh", 400.0),
             ("Mirza", 700.0),
             ("Changa ExtraBold", 800.0),
+            ("Estedad", 700.0),
         ];
         let mut seen: Vec<Vec<u8>> = Vec::new();
         for (family, weight) in faces {

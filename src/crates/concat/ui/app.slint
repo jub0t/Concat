@@ -27,7 +27,7 @@ import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs
 import { ProjectDialog, ProjectSheetData } from "dialogs/project.slint";
 import { RelinkDialog, RelinkData, MissingMediaItem } from "dialogs/relink.slint";
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
-import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
+import { CaptionsDialog, CaptionsPreview, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { AvatarData } from "primitives/avatar.slint";
 import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
@@ -65,7 +65,7 @@ export {
     SelectedClipData, SelectedTransitionData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
     TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     ChipOption, RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
-    CaptionsSheetData, SpeechSheetData, VoiceoverData, SoundCardData, Sounds, VoiceCardData,
+    CaptionsPreview, CaptionsSheetData, SpeechSheetData, VoiceoverData, SoundCardData, Sounds, VoiceCardData,
 }
 
 export component App inherits Window {
@@ -329,6 +329,8 @@ export component App inherits Window {
     callback captions-speed-changed(index: int);
     callback captions-intensity-changed(index: int);
     callback captions-style-changed(index: int);
+    callback captions-category-changed(index: int);
+    callback captions-sample-edited(text: string);
     callback captions-apply-style();
     callback captions-highlight-changed(index: int);
     callback captions-apply-highlight();
@@ -726,6 +728,8 @@ export component App inherits Window {
             speed-changed(index) => { root.captions-speed-changed(index); }
             intensity-changed(index) => { root.captions-intensity-changed(index); }
             style-changed(index) => { root.captions-style-changed(index); }
+            category-changed(index) => { root.captions-category-changed(index); }
+            sample-edited(text) => { root.captions-sample-edited(text); }
             apply-style => { root.captions-apply-style(); }
             highlight-changed(index) => { root.captions-highlight-changed(index); }
             apply-highlight => { root.captions-apply-highlight(); }

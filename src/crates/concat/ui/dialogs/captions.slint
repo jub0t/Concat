@@ -30,6 +30,118 @@ import { Switch } from "../inspector/controls.slint";
 // a transcription goes on, and opened again the card shows it. On a phone
 // it is a sheet.
 
+/// What the preview card is told about the chosen style.
+export struct CaptionsPreview {
+    words: [string],
+    sample: string,
+    font: string,
+    weight: int,
+    colour: color,
+    lit: bool,
+    lit-colour: color,
+    rainbow: bool,
+    stroke-colour: color,
+    stroke: float,
+    background: color,
+    motion: int,
+    seconds: float,
+    intensity: float,
+    rtl: bool,
+    name: string,
+}
+
+/// The chosen style, played: the words arrive with its motion, then are
+/// lit one by one in its colour, over and over. It is Slint text, a close
+/// picture of the result; the export is drawn by the text engine.
+component CaptionPreviewCard inherits Rectangle {
+    in property <CaptionsPreview> p;
+    in-out property <float> t: 0;
+    callback replay();
+    height: 120px;
+    border-radius: Theme.r;
+    background: #17171c;
+    clip: true;
+
+    property <int> n: max(1, root.p.words.length);
+    property <float> cycle: 0.6 + root.n * 0.5 + 1.0;
+    property <float> prog: min(1.0, root.t / max(0.05, root.p.seconds));
+    property <float> k: root.p.intensity;
+    // The spoken word now lit: the words wait for the motion first.
+    property <int> spoken: root.t < root.p.seconds ? -1 : min(root.n - 1, floor((root.t - root.p.seconds) / 0.5));
+    property <float> fade: root.p.motion == 0 ? 1.0 : min(1.0, root.prog * (root.p.motion >= 5 ? 4.0 : 1.0));
+    property <float> grow: root.p.motion == 2 ? 1 - (1 - root.prog) * 0.4 * root.k + 0.12 * root.k * Math.sin(root.prog * 180deg)
+        : root.p.motion == 4 ? 1 - (1 - root.prog) * 0.4 * root.k
+        : root.p.motion == 6 ? 1 + (1 - root.prog) * 0.35 * root.k * Math.cos(root.prog * 1080deg)
+        : 1.0;
+    property <length> dy: root.p.motion == 3 ? (1 - root.prog) * 24px * root.k
+        : root.p.motion == 5 ? -Math.abs(Math.sin(root.prog * 540deg)) * (1 - root.prog) * 30px * root.k
+        : 0px;
+    property <length> dx: root.p.motion == 7 && root.prog < 1 ? Math.sin(root.t * 3600deg) * 8px * (1 - root.prog) * root.k : 0px;
+
+    Timer {
+        interval: 33ms;
+        running: root.p.words.length > 0;
+        triggered => {
+            root.t += 0.033;
+            if root.t > root.cycle {
+                root.t = 0;
+            }
+        }
+    }
+
+    plate := Rectangle {
+        x: (parent.width - self.width) / 2 + root.dx;
+        y: (parent.height - self.height) / 2 + root.dy;
+        width: row.preferred-width + 24px;
+        height: row.preferred-height + 14px;
+        background: root.p.background;
+        border-radius: 6px;
+        opacity: root.fade;
+        transform-scale: root.grow;
+
+        row := HorizontalLayout {
+            alignment: center;
+            spacing: 7px;
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-top: 7px;
+            padding-bottom: 7px;
+
+            for word[i] in root.p.words: Text {
+                property <int> order: root.p.rtl ? root.n - 1 - i : i;
+                text: word;
+                font-family: root.p.font;
+                font-weight: root.p.weight;
+                font-size: 26px;
+                color: root.p.lit && order == root.spoken
+                    ? (root.p.rainbow
+                        ? [#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #5856d6, #ff2d92][Math.mod(order, 7)]
+                        : root.p.lit-colour)
+                    : root.p.colour;
+                stroke: root.p.stroke-colour;
+                stroke-width: root.p.stroke * 52px;
+            }
+        }
+    }
+
+    Rectangle {
+        x: 8px;
+        y: 8px;
+        width: replay-label.preferred-width + 16px;
+        height: 24px;
+        border-radius: 12px;
+        background: #ffffff22;
+        replay-label := Text {
+            text: I18n.t("captions.replay");
+            color: #ffffffcc;
+            font-size: Theme.fs-sm;
+        }
+        TouchArea {
+            clicked => { root.t = 0; root.replay(); }
+        }
+    }
+}
+
 export struct CaptionsSheetData {
     open: bool,
     /// "Use Sample Voice": the words come from a clip's sound.
@@ -74,6 +186,11 @@ export struct CaptionsSheetData {
     /// The styles captions can be made in: the kept look, then the presets.
     styles: [string],
     style: int,
+    /// The shelves the style list can be narrowed to, and the row.
+    categories: [string],
+    category: int,
+    /// The chosen style, as the preview card plays it.
+    preview: CaptionsPreview,
     /// The colours the spoken word can be lit in, and the row.
     highlights: [string],
     highlight: int,
@@ -123,6 +240,8 @@ export component CaptionsDialog inherits Modal {
     callback speed-changed(index: int);
     callback intensity-changed(index: int);
     callback style-changed(index: int);
+    callback category-changed(index: int);
+    callback sample-edited(text: string);
     callback apply-style();
     callback highlight-changed(index: int);
     callback apply-highlight();
@@ -343,15 +462,6 @@ export component CaptionsDialog inherits Modal {
                 }
             }
 
-            DialogRow {
-                label: I18n.t("captions.reveal");
-                Select {
-                    options: root.data.gemini-reveals;
-                    current: root.data.gemini-reveal;
-                    changed(index) => { root.gemini-reveal-changed(index); }
-                }
-            }
-
             HorizontalLayout {
                 spacing: 8px;
                 Button {
@@ -469,6 +579,28 @@ export component CaptionsDialog inherits Modal {
                         ghost: true;
                         clicked => { root.apply-highlight(); }
                     }
+                }
+            }
+
+            CaptionPreviewCard {
+                p: root.data.preview;
+            }
+
+            DialogRow {
+                label: I18n.t("captions.sample");
+                Field {
+                    value: root.data.preview.sample;
+                    placeholder: I18n.t("captions.samplePlaceholder");
+                    edited(text) => { root.sample-edited(text); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.category");
+                Select {
+                    options: root.data.categories;
+                    current: root.data.category;
+                    changed(index) => { root.category-changed(index); }
                 }
             }
 
