@@ -631,11 +631,12 @@ pub struct VoiceMix {
 #[serde(rename_all = "camelCase")]
 pub enum VoiceKind {
     /// Singing apart from the music under it: a song's vocals and its
-    /// instrumental. Deezer's Spleeter.
-    #[default]
+    /// instrumental. Deezer's Spleeter, downloaded the first time.
     Vocals,
     /// Speech apart from the noise, the room and the music bed behind it:
-    /// dialogue cleaned. DeepFilterNet 3.
+    /// dialogue cleaned. DeepFilterNet 3, shipped with the app. The
+    /// default: most of an edit's sound is people talking.
+    #[default]
     Speech,
 }
 
@@ -653,13 +654,13 @@ impl VoiceMix {
     pub const KEEP_VOICE: VoiceMix = VoiceMix {
         voice: 1.0,
         background: 0.0,
-        kind: VoiceKind::Vocals,
+        kind: VoiceKind::Speech,
     };
     /// Everything but the voice.
     pub const REMOVE_VOICE: VoiceMix = VoiceMix {
         voice: 0.0,
         background: 1.0,
-        kind: VoiceKind::Vocals,
+        kind: VoiceKind::Speech,
     };
 
     /// Both gains in range; a gain that is not a number is as recorded.
