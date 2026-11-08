@@ -775,10 +775,15 @@ export component SettingsDialog inherits Sheet {
     // The whole window, as Export is. The pages and the page are held to
     // a column a person can read across, centred in whatever width is
     // left over, rather than stretched to the edges of a wide screen.
+    // Centred by padding, not by `alignment: center`: that gives every
+    // child only its preferred width, and the body, placed by hand, has
+    // none - the page vanished and the pages' names went to "…".
+    property <length> column: 1080px;
     HorizontalLayout {
         vertical-stretch: 1;
-        alignment: center;
         padding-top: root.compact ? 0px : 12px;
+        padding-left: Math.max(0px, (root.width - root.column) / 2);
+        padding-right: Math.max(0px, (root.width - root.column) / 2);
         // The clipboard takes text, so there has to be a TextInput holding
         // the report: Slint copies from a text element's own selection and
         // has no other way in. It is never read — it is zero wide and clipped
@@ -812,7 +817,6 @@ export component SettingsDialog inherits Sheet {
         // shorter than a layout and the stretch factors that would express it.
         body := Rectangle {
             horizontal-stretch: 1;
-            max-width: 1080px;
 
             /// The column as it is drawn: never past two fifths of the
             /// sheet, whatever it was dragged to on a wider one, so a phone
