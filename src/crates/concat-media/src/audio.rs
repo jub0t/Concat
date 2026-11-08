@@ -100,7 +100,10 @@ impl AudioClip {
             if at <= from {
                 break;
             }
-            let until = self.tempo.get(index + 1).map_or(f64::INFINITY, |next| next.0);
+            let until = self
+                .tempo
+                .get(index + 1)
+                .map_or(f64::INFINITY, |next| next.0);
             total += (at.min(until) - from) * clamp_speed(speed);
         }
         total
@@ -992,8 +995,7 @@ fn run_mix(
         // below, so it counts towards the total.
         let span = clip.source_at(heard[index].to) - clip.source_at(heard[index].from);
         mix_input.samples_sent = first.samples() as i64;
-        mix_input.clip_samples =
-            ((span + lead).max(0.0) * f64::from(first.rate())).round() as i64;
+        mix_input.clip_samples = ((span + lead).max(0.0) * f64::from(first.rate())).round() as i64;
         // One sample per time-base tick: the PTS we stamp is a plain
         // running sample count, so the graph's clock is the sample clock.
         let args = format!(

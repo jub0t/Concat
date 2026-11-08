@@ -352,17 +352,22 @@ pub fn memory_budget() -> wgpu::MemoryBudgetThresholds {
 /// `CONCAT_GPU_BUDGET`'s value as gates, or `None` for one that is not.
 fn parse_budget(raw: &str) -> Option<wgpu::MemoryBudgetThresholds> {
     let raw = raw.trim();
-    if ["off", "none", "0"].iter().any(|off| raw.eq_ignore_ascii_case(off)) {
+    if ["off", "none", "0"]
+        .iter()
+        .any(|off| raw.eq_ignore_ascii_case(off))
+    {
         return Some(wgpu::MemoryBudgetThresholds {
             for_resource_creation: None,
             for_device_loss: None,
         });
     }
     let percent: u8 = raw.trim_end_matches('%').parse().ok()?;
-    (1..=99).contains(&percent).then(|| wgpu::MemoryBudgetThresholds {
-        for_resource_creation: Some(percent),
-        for_device_loss: Some(percent.saturating_add(4).min(99)),
-    })
+    (1..=99)
+        .contains(&percent)
+        .then(|| wgpu::MemoryBudgetThresholds {
+            for_resource_creation: Some(percent),
+            for_device_loss: Some(percent.saturating_add(4).min(99)),
+        })
 }
 
 /// A picture copied texel for texel into a target of the same size, through

@@ -187,15 +187,25 @@ pub fn move_chosen(
         // The nearest points that stay, either side, and how many moving
         // ones stand between: each needs its gap.
         let before = (0..index).rev().find(|&held| !moves(held)).unwrap_or(0);
-        let after = (index + 1..=last).find(|&held| !moves(held)).unwrap_or(last);
+        let after = (index + 1..=last)
+            .find(|&held| !moves(held))
+            .unwrap_or(last);
         low = low.max(from[before].at + GAP * (index - before) as f64 - from[index].at);
         high = high.min(from[after].at - GAP * (after - index) as f64 - from[index].at);
     }
-    let dx = if low <= high { dx.clamp(low, high) } else { 0.0 };
+    let dx = if low <= high {
+        dx.clamp(low, high)
+    } else {
+        0.0
+    };
     for &index in chosen.iter().filter(|&&index| index <= last) {
         let point = from[index];
         points[index] = SpeedPoint {
-            at: if moves(index) { point.at + dx } else { point.at },
+            at: if moves(index) {
+                point.at + dx
+            } else {
+                point.at
+            },
             speed: speed_at_height(height_of(point.speed) + dy),
             slope: point.slope,
         };

@@ -506,7 +506,9 @@ fn gain_at(clip: &ActiveClip, local: f64) -> f32 {
         gain *= (local / clip.fade_in).clamp(0.0, 1.0).powi(2);
     }
     if clip.fade_out > 0.0 {
-        gain *= ((clip.duration - local) / clip.fade_out).clamp(0.0, 1.0).powi(2);
+        gain *= ((clip.duration - local) / clip.fade_out)
+            .clamp(0.0, 1.0)
+            .powi(2);
     }
     gain.max(0.0) as f32
 }

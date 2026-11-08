@@ -1375,7 +1375,10 @@ fn audio_pieces_of(
             let speed = audio::clamp_speed(mean);
             // A step that changes nothing is no step: a flat stretch is
             // one rate, and a curve flat throughout needs no filter at all.
-            if tempo.last().is_none_or(|&(_, held)| (held - speed).abs() > 1e-6) {
+            if tempo
+                .last()
+                .is_none_or(|&(_, held)| (held - speed).abs() > 1e-6)
+            {
                 tempo.push((x0 * clip.duration, speed));
             }
         }

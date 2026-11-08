@@ -307,7 +307,11 @@ impl Studio {
 
     /// Every point chosen, or none.
     pub fn speed_choose_all(&mut self, all: bool) {
-        let count = if all { self.speed_points_now().len() } else { 0 };
+        let count = if all {
+            self.speed_points_now().len()
+        } else {
+            0
+        };
         self.set_speed_chosen((0..count).collect());
     }
 
