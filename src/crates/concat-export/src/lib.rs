@@ -1353,6 +1353,7 @@ fn audio_pieces_of(
             duration: clip.duration,
             source_start: clip.source_start,
             speed: audio::clamp_speed(clip.speed),
+            tempo: Vec::new(),
             preserve_pitch: clip.preserve_pitch,
             volume: clip.volume * gain,
             volume_curve: track,
@@ -1361,9 +1362,47 @@ fn audio_pieces_of(
             filter_chain: chain,
         }];
     };
-    // Pieces a tenth of a second long, or eight at least: fine enough that
+    // Steps a tenth of a second long, or eight at least: fine enough that
     // a tempo step is not heard, coarse enough that the graph stays small.
     let count = ((clip.duration / 0.1).ceil() as usize).clamp(8, 400);
+    // Pitch held: one clip, its rate stepped inside one tempo filter that
+    // runs from end to end (see `AudioClip::tempo`). Pieces each with a
+    // filter of their own start it afresh at every seam, and a ramp was
+    // heard as a stutter ten times a second.
+    if clip.preserve_pitch {
+        let mut tempo: Vec<(f64, f64)> = Vec::new();
+        for (x0, _, _, mean) in curve.pieces(count) {
+            let speed = audio::clamp_speed(mean);
+            // A step that changes nothing is no step: a flat stretch is
+            // one rate, and a curve flat throughout needs no filter at all.
+            if tempo.last().is_none_or(|&(_, held)| (held - speed).abs() > 1e-6) {
+                tempo.push((x0 * clip.duration, speed));
+            }
+        }
+        let speed = audio::clamp_speed(curve.mean());
+        let constant = tempo.len() <= 1;
+        return vec![AudioClip {
+            path: PathBuf::from(path),
+            stream: stream.map(|index| index as usize),
+            start: clip.start,
+            duration: clip.duration,
+            source_start: clip.source_start,
+            speed: if constant {
+                tempo.first().map_or(speed, |&(_, held)| held)
+            } else {
+                speed
+            },
+            tempo: if constant { Vec::new() } else { tempo },
+            preserve_pitch: true,
+            volume: clip.volume * gain,
+            volume_curve: track,
+            fade_in: clip.fade_in,
+            fade_out: clip.fade_out,
+            filter_chain: chain,
+        }];
+    }
+    // Pitch let go - the tape effect - is a resample, which has no state
+    // to start afresh: that stays in pieces of a constant rate.
     curve
         .pieces(count)
         .into_iter()
@@ -1384,6 +1423,7 @@ fn audio_pieces_of(
                 duration: piece_duration,
                 source_start,
                 speed: audio::clamp_speed(mean),
+                tempo: Vec::new(),
                 preserve_pitch: clip.preserve_pitch,
                 volume: clip.volume * gain,
                 volume_curve: track_slice(&track, x0, x1),

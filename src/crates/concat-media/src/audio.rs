@@ -56,8 +56,17 @@ pub struct AudioClip {
     pub duration: f64,
     /// Seconds into the source file where the clip begins.
     pub source_start: f64,
-    /// Source seconds consumed per timeline second. One is normal.
+    /// Source seconds consumed per timeline second. One is normal. With
+    /// `tempo`, the mean of it.
     pub speed: f64,
+    /// A rate that changes over the clip, as steps `(at, speed)`: from
+    /// `at` seconds into the clip's span it plays at `speed`, until the
+    /// next step. Empty is `speed` throughout. Played through one tempo
+    /// filter whose rate is changed as the source passes each step - see
+    /// [`AudioClip::retime_filters`] - never as pieces each with a tempo
+    /// filter of its own, which starts afresh at every seam and is heard
+    /// as a stutter ten times a second.
+    pub tempo: Vec<(f64, f64)>,
     /// True holds pitch while the rate changes; false is the tape effect.
     pub preserve_pitch: bool,
     /// Linear gain, one being unity. The whole clip's, unless
@@ -77,6 +86,80 @@ pub struct AudioClip {
     pub fade_out: f64,
     /// Extra FFmpeg audio filters, or empty. Validated, not trusted.
     pub filter_chain: String,
+}
+
+impl AudioClip {
+    /// Source seconds from the clip's in-point to `at` seconds into its
+    /// span: `at` times the speed, or the steps' sum.
+    pub fn source_at(&self, at: f64) -> f64 {
+        if self.tempo.is_empty() {
+            return at * clamp_speed(self.speed);
+        }
+        let mut total = 0.0;
+        for (index, &(from, speed)) in self.tempo.iter().enumerate() {
+            if at <= from {
+                break;
+            }
+            let until = self.tempo.get(index + 1).map_or(f64::INFINITY, |next| next.0);
+            total += (at.min(until) - from) * clamp_speed(speed);
+        }
+        total
+    }
+
+    /// The filters that retime the clip's sound as heard from `from`
+    /// seconds into its span, the stream starting at that point of the
+    /// source with its stamps at zero. `tag` names this clip's filters
+    /// apart from every other's in the same graph.
+    ///
+    /// A changing rate is one `atempo` chain from end to end, its rate set
+    /// again by an `asendcmd` as the source reaches each step, so the stretch
+    /// runs on unbroken. Below a half or above twice, the rate is split
+    /// over as many equal stages as the clip's extreme needs, since one
+    /// `atempo` holds to that range.
+    pub fn retime_filters(&self, from: f64, tag: &str) -> Vec<String> {
+        if self.tempo.is_empty() || !self.preserve_pitch {
+            return speed_filters(self.speed, self.preserve_pitch);
+        }
+        let stages = self
+            .tempo
+            .iter()
+            .map(|&(_, speed)| {
+                let doublings = clamp_speed(speed).log2().abs();
+                (doublings - 1e-9).ceil().max(1.0) as i32
+            })
+            .max()
+            .unwrap_or(1);
+        let factor = |speed: f64| clamp_speed(speed).powf(1.0 / f64::from(stages));
+        let at_from = self
+            .tempo
+            .iter()
+            .rev()
+            .find(|(at, _)| *at <= from)
+            .or(self.tempo.first())
+            .map_or(self.speed, |&(_, speed)| speed);
+        let origin = self.source_at(from);
+        let commands: Vec<String> = self
+            .tempo
+            .iter()
+            .filter(|(at, _)| *at > from)
+            .map(|&(at, speed)| {
+                let f = factor(speed);
+                let each: Vec<String> = (0..stages)
+                    .map(|stage| format!("atempo@{tag}r{stage} tempo {f:.6}"))
+                    .collect();
+                format!("{:.6} {}", self.source_at(at) - origin, each.join(", "))
+            })
+            .collect();
+        // One `asendcmd` a step: a list of them in one would be joined by
+        // `;`, which `validate_chain` keeps out of every chain, and rightly.
+        let mut filters: Vec<String> = commands
+            .iter()
+            .map(|command| format!("asendcmd=c='{command}'"))
+            .collect();
+        let f = factor(at_from);
+        filters.extend((0..stages).map(|stage| format!("atempo@{tag}r{stage}=tempo={f:.6}")));
+        filters
+    }
 }
 
 /// A treatment of the whole mix over a stretch of the timeline: a sound
@@ -205,7 +288,10 @@ pub fn validate_chain(chain: &str) -> Result<()> {
 /// exact whatever the source's rate was, then shifts, then lands back.
 pub fn speed_filters(speed: f64, preserve_pitch: bool) -> Vec<String> {
     let speed = clamp_speed(speed);
-    if (speed - 1.0).abs() < f64::EPSILON {
+    // A millionth off is 1x: a curve's area worked out in floating point
+    // lands a hair from it, and a tempo filter for nothing is work and a
+    // filter's delay for nothing.
+    if (speed - 1.0).abs() < 1e-6 {
         return Vec::new();
     }
     if preserve_pitch {
@@ -367,8 +453,6 @@ fn mix_graph_from(
         let delay_ms = ((clip.start + heard.from - origin) * 1000.0)
             .round()
             .max(0.0) as i64;
-        let speed = clamp_speed(clip.speed);
-
         // Each input is cut to its in-point, restamped from zero, then delayed
         // to where it sits on the timeline. `all=1` applies the delay to
         // every channel; without it only the left channel moves, which is a
@@ -389,7 +473,7 @@ fn mix_graph_from(
             format!("[{index}:a]anull")
         };
 
-        for filter in speed_filters(speed, clip.preserve_pitch) {
+        for filter in clip.retime_filters(heard.from, &format!("c{index}")) {
             stage.push(',');
             stage.push_str(&filter);
         }
@@ -848,9 +932,8 @@ fn run_mix(
     let mut graph = filter::Graph::new();
     for (index, clip) in members.iter().enumerate() {
         let path = clip.path.as_path();
-        let speed = clamp_speed(clip.speed);
         // Where in the source what is heard of the clip begins.
-        let in_point = clip.source_start + heard[index].from * speed;
+        let in_point = clip.source_start + clip.source_at(heard[index].from);
         let mut input =
             ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
         let stream_index =
@@ -907,10 +990,10 @@ fn run_mix(
         // sped-up clip covers more source than its timeline length, hence
         // the speed factor. The first frame goes into the graph separately
         // below, so it counts towards the total.
-        let span = heard[index].to - heard[index].from;
+        let span = clip.source_at(heard[index].to) - clip.source_at(heard[index].from);
         mix_input.samples_sent = first.samples() as i64;
         mix_input.clip_samples =
-            ((span * speed + lead).max(0.0) * f64::from(first.rate())).round() as i64;
+            ((span + lead).max(0.0) * f64::from(first.rate())).round() as i64;
         // One sample per time-base tick: the PTS we stamp is a plain
         // running sample count, so the graph's clock is the sample clock.
         let args = format!(
@@ -1278,6 +1361,7 @@ mod tests {
             duration: 2.0,
             source_start: 0.0,
             speed: 1.0,
+            tempo: Vec::new(),
             preserve_pitch: true,
             volume: 1.0,
             volume_curve: Track::default(),
@@ -1308,6 +1392,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A changing rate is one tempo chain, its rate stepped by commands
+    /// at the source time each step is reached - not a filter per piece -
+    /// and split into equal stages when it goes past atempo's range.
+    #[test]
+    fn a_changing_rate_is_one_tempo_chain_stepped_by_commands() {
+        let mut clip = AudioClip {
+            path: "a.wav".into(),
+            stream: None,
+            start: 0.0,
+            duration: 3.0,
+            source_start: 0.0,
+            speed: 1.5,
+            tempo: vec![(0.0, 1.0), (1.0, 2.0), (2.0, 0.25)],
+            preserve_pitch: true,
+            volume: 1.0,
+            volume_curve: Track::default(),
+            fade_in: 0.0,
+            fade_out: 0.0,
+            filter_chain: String::new(),
+        };
+        // 1 s at 1x, 1 s at 2x, then a quarter.
+        assert!((clip.source_at(1.0) - 1.0).abs() < 1e-12);
+        assert!((clip.source_at(2.0) - 3.0).abs() < 1e-12);
+        assert!((clip.source_at(3.0) - 3.25).abs() < 1e-12);
+        let filters = clip.retime_filters(0.0, "c0");
+        // A quarter is two doublings: two stages of a half. Each step its
+        // own command filter, every one a chain `validate_chain` allows.
+        assert_eq!(filters.len(), 4, "{filters:?}");
+        assert!(filters[0].starts_with("asendcmd=c='1.000000 atempo@c0r0 tempo 1.414214"));
+        assert!(filters[1].starts_with("asendcmd=c='3.000000 atempo@c0r0 tempo 0.500000"));
+        assert_eq!(filters[2], "atempo@c0r0=tempo=1.000000");
+        assert!(filters.iter().all(|filter| validate_chain(filter).is_ok()));
+        // Heard from inside the 2x step: it starts at 2x, and the next
+        // step comes a source second later.
+        let from = clip.retime_filters(1.5, "c0");
+        assert!(from[0].starts_with("asendcmd=c='1.000000 atempo@c0r0 tempo 0.500000"));
+        assert_eq!(from[1], "atempo@c0r0=tempo=1.414214");
+        // The tape effect has no stretch to keep running: the mean rate.
+        clip.preserve_pitch = false;
+        assert_eq!(clip.retime_filters(0.0, "c0"), speed_filters(1.5, false));
     }
 
     #[test]
@@ -1612,6 +1738,7 @@ mod tests {
             duration,
             source_start,
             speed: 1.0,
+            tempo: Vec::new(),
             preserve_pitch: true,
             volume: 1.0,
             volume_curve: Track::default(),

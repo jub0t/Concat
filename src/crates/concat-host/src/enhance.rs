@@ -525,6 +525,7 @@ fn footage(
                     duration,
                     source_start: start,
                     speed: 1.0,
+                    tempo: Vec::new(),
                     preserve_pitch: true,
                     volume: 1.0,
                     volume_curve: concat_core::animate::Track::new(Vec::new()),

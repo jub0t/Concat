@@ -131,8 +131,12 @@ pub struct ClipSpec {
     pub fade_in: f64,
     /// Fade-out length in seconds.
     pub fade_out: f64,
-    /// Playback speed; 1.0 is the source's own.
+    /// Playback speed; 1.0 is the source's own. With `tempo`, its mean.
     pub speed: f64,
+    /// A rate that changes over the clip, as `(at, speed)` steps; see
+    /// `concat_media::audio::AudioClip::tempo`. Empty is `speed` throughout.
+    #[serde(default)]
+    pub tempo: Vec<(f64, f64)>,
     /// Whether a speed change keeps the pitch.
     pub preserve_pitch: bool,
     /// FFmpeg audio filter chain, or empty.
@@ -198,6 +202,7 @@ impl ClipSpec {
             duration: self.duration,
             source_start: self.source_start,
             speed: self.speed,
+            tempo: self.tempo.clone(),
             preserve_pitch: self.preserve_pitch,
             volume: f64::from(self.volume),
             volume_curve: track_of(&self.volume_curve),
@@ -243,6 +248,7 @@ pub fn audible(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> {
             fade_in: piece.fade_in,
             fade_out: piece.fade_out,
             speed: piece.speed,
+            tempo: piece.tempo,
             preserve_pitch: piece.preserve_pitch,
             chain: piece.filter_chain,
             bus: None,
@@ -317,6 +323,7 @@ pub fn with_sound_layers(
                 fade_in: 0.0,
                 fade_out: 0.0,
                 speed: 1.0,
+                tempo: Vec::new(),
                 preserve_pitch: true,
                 chain: String::new(),
                 bus: Some(BusMix {
@@ -646,7 +653,9 @@ struct Reach {
 impl Reach {
     /// The reach of the span `spec` decodes to, or none for a mixed span.
     fn of(spec: &ClipSpec) -> Option<Reach> {
-        if spec.bus.is_some() {
+        // A changing rate is a decode of its own: a stretch of it is not a
+        // stretch of another's samples at one rate.
+        if spec.bus.is_some() || !spec.tempo.is_empty() {
             return None;
         }
         let speed = concat_media::audio::clamp_speed(spec.speed);
@@ -1204,6 +1213,15 @@ fn decode_key(spec: &ClipSpec) -> String {
     eat(&spec.source_start.to_bits().to_le_bytes());
     eat(&spec.duration.to_bits().to_le_bytes());
     eat(&spec.speed.to_bits().to_le_bytes());
+    // Only when the rate changes, so every key from before still finds its
+    // file.
+    if !spec.tempo.is_empty() {
+        eat(b"tempo");
+        for (at, speed) in &spec.tempo {
+            eat(&at.to_bits().to_le_bytes());
+            eat(&speed.to_bits().to_le_bytes());
+        }
+    }
     eat(&[u8::from(spec.preserve_pitch)]);
     eat(spec.chain.as_bytes());
     // Only when a stream is named, so every key from before streams were
@@ -1268,8 +1286,15 @@ fn decode(
     // Speed first, then the clip's own filters - the same order the export
     // graph applies, because these are one definition, not two. The engine
     // owns what speed *means*; this function only decodes.
-    let mut filters: Vec<String> =
-        concat_media::audio::speed_filters(spec.speed, spec.preserve_pitch);
+    // A changing rate is told by the source's own clock, so the stamps
+    // start at zero where the span does.
+    let engine = spec.engine();
+    let mut filters: Vec<String> = if engine.tempo.is_empty() {
+        Vec::new()
+    } else {
+        vec!["asetpts=PTS-STARTPTS".to_owned()]
+    };
+    filters.extend(engine.retime_filters(0.0, "p"));
     if !spec.chain.is_empty() {
         filters.push(spec.chain.clone());
     }
@@ -1277,7 +1302,7 @@ fn decode(
     // A sped-up clip reads further into the file than it occupies on the
     // timeline: the source window is `duration * speed`, exactly the window
     // the exporter trims.
-    let window = spec.duration * concat_media::audio::clamp_speed(spec.speed);
+    let window = engine.source_at(spec.duration);
 
     let mut decoder = AudioDecoder::open(
         &spec.path,
@@ -1775,6 +1800,7 @@ mod tests {
             fade_in: 0.0,
             fade_out: 0.0,
             speed: 1.0,
+            tempo: Vec::new(),
             preserve_pitch: true,
             chain: String::new(),
             bus: None,
