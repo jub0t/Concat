@@ -173,7 +173,23 @@ fn api(single: Option<String>) -> Result<(), Box<dyn Error>> {
         Some(line) => serve(&line),
         None => {
             for line in std::io::stdin().lock().lines() {
-                let line = line?;
+                let line = match line {
+                    Ok(line) => line,
+                    // One line that is not UTF-8 is a parse error like any
+                    // other bad line, not the end of the transport: the
+                    // jobs still running owe their events.
+                    Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                        emit(&Message::Reply {
+                            id: None,
+                            response: concat_api::Response::Error(concat_api::ApiError::new(
+                                concat_api::ErrorCode::Parse,
+                                "a line that is not UTF-8",
+                            )),
+                        });
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
                 if line.trim().is_empty() {
                     continue;
                 }

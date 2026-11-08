@@ -90,7 +90,7 @@ host() {
     echo "no strace: the start-up is run but its file opens are not checked"
   fi
   HOME=$(fresh_home) expect_ok "concat --smoke" 180 \
-    xvfb-run -a -s "-screen 0 1920x1080x24" "${tracer[@]}" "$bin" --smoke
+    xvfb-run -a -s "-screen 0 1920x1080x24" ${tracer[@]+"${tracer[@]}"} "$bin" --smoke
   if [ ${#tracer[@]} -gt 0 ]; then
     local cuda
     cuda=$(grep -E 'lib(cuda|nvcuvid|nvidia-encode)\.so' "$trace" || true)

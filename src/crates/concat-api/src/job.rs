@@ -119,16 +119,21 @@ impl Book {
     }
 
     /// A job's thread ended without saying how - a panic in the render.
-    /// Recorded as failed so a caller asking is not told "running" forever.
-    pub(crate) fn abandon(&self, job: &str) {
-        let running = self.inner().states.contains_key(job);
-        if running {
-            self.record(&Event::ExportFailed {
-                job: job.to_owned(),
-                path: String::new(),
-                error: ApiError::failed("the job ended without a result"),
-            });
+    /// The failure is recorded and returned for the transport to send: the
+    /// book and the event stream are fed by the same events, so a caller
+    /// asking and a caller listening learn of it together. `None` when the
+    /// job already said how it ended.
+    pub(crate) fn abandon(&self, job: &str) -> Option<Event> {
+        if !self.inner().states.contains_key(job) {
+            return None;
         }
+        let event = Event::ExportFailed {
+            job: job.to_owned(),
+            path: String::new(),
+            error: ApiError::failed("the job ended without a result"),
+        };
+        self.record(&event);
+        Some(event)
     }
 
     /// The state of `job`, running or finished.
@@ -211,12 +216,14 @@ mod tests {
     fn a_job_that_vanished_is_failed_and_old_ones_are_forgotten() {
         let book = Book::default();
         begun(&book, "j0");
-        book.abandon("j0");
+        let failure = book.abandon("j0").expect("the failure to send");
+        assert_eq!(failure.job(), "j0");
+        assert!(book.abandon("j0").is_none(), "a job ends once");
         assert_eq!(book.status("j0").expect("known").state, JobState::Failed);
         for index in 1..=FINISHED_KEPT {
             let job = format!("j{index}");
             begun(&book, &job);
-            book.abandon(&job);
+            assert!(book.abandon(&job).is_some());
         }
         assert!(book.status("j0").is_none(), "the oldest is forgotten");
         assert!(book.status(&format!("j{FINISHED_KEPT}")).is_some());

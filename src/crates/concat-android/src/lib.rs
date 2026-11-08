@@ -279,32 +279,40 @@ mod picker {
     }
 
     /// `ConcatFiles.filesPicked`, on whichever thread the Java copied on.
+    /// A panic unwinding into Java aborts the process, so the whole answer
+    /// is caught here: the window's callback is arbitrary code, and a pick
+    /// that dies in it is logged, not fatal.
     pub(super) unsafe extern "system" fn files_picked(
         _env: *mut sys::JNIEnv,
         _class: sys::jclass,
         paths: sys::jobjectArray,
     ) {
-        let read = JavaVM::singleton().and_then(|vm| {
-            vm.attach_current_thread(|env| {
-                // SAFETY: `paths` is the argument Java handed this frame.
-                let array = unsafe { JObjectArray::<JString>::from_raw(env, paths) };
-                let mut out = Vec::new();
-                for index in 0..array.len(env)? {
-                    let item = array.get_element(env, index)?;
-                    out.push(PathBuf::from(item.mutf8_chars(env)?.to_string()));
+        let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let read = JavaVM::singleton().and_then(|vm| {
+                vm.attach_current_thread(|env| {
+                    // SAFETY: `paths` is the argument Java handed this frame.
+                    let array = unsafe { JObjectArray::<JString>::from_raw(env, paths) };
+                    let mut out = Vec::new();
+                    for index in 0..array.len(env)? {
+                        let item = array.get_element(env, index)?;
+                        out.push(PathBuf::from(item.mutf8_chars(env)?.to_string()));
+                    }
+                    Ok::<_, jni::errors::Error>(out)
+                })
+            });
+            let paths = match read {
+                Ok(paths) => paths,
+                Err(error) => {
+                    log::error!("could not read the picked files: {error}");
+                    Vec::new()
                 }
-                Ok::<_, jni::errors::Error>(out)
-            })
-        });
-        let paths = match read {
-            Ok(paths) => paths,
-            Err(error) => {
-                log::error!("could not read the picked files: {error}");
-                Vec::new()
+            };
+            if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
+                pending(paths);
             }
-        };
-        if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
-            pending(paths);
+        }));
+        if answered.is_err() {
+            log::error!("the picked-files callback panicked");
         }
     }
 }

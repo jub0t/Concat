@@ -6,6 +6,7 @@ package app.concat.editor;
 import android.Manifest;
 import android.app.Activity;
 import android.app.Fragment;
+import android.app.FragmentManager;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -59,6 +60,13 @@ public class ConcatFiles extends Fragment {
     private static final int REQUEST_PICK = 0xC0C4;
     private static final int REQUEST_MICROPHONE = 0xC0C5;
     private static final String TAG = "concat-files";
+
+    /**
+     * The pick the native side waits for. A copy still running for an
+     * older pick must not deliver into the new one's callback, so only
+     * this fragment's answer is sent.
+     */
+    private static volatile ConcatFiles current;
 
     /**
      * Where a finished export goes, under the phone's storage: Movies/Concat.
@@ -218,12 +226,20 @@ public class ConcatFiles extends Fragment {
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                FragmentManager manager = activity.getFragmentManager();
+                Fragment previous = manager.findFragmentByTag(TAG);
+                if (previous != null) {
+                    // A pick already up is replaced, not stacked: its late
+                    // answer must not reach the new pick's callback.
+                    manager.beginTransaction().remove(previous).commitAllowingStateLoss();
+                    manager.executePendingTransactions();
+                }
                 ConcatFiles fragment = new ConcatFiles();
-                activity.getFragmentManager()
-                        .beginTransaction()
+                current = fragment;
+                manager.beginTransaction()
                         .add(fragment, TAG)
                         .commitAllowingStateLoss();
-                activity.getFragmentManager().executePendingTransactions();
+                manager.executePendingTransactions();
 
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -271,25 +287,43 @@ public class ConcatFiles extends Fragment {
         } catch (Exception ignored) {
         }
         if (activity == null || uris.isEmpty()) {
-            filesPicked(new String[0]);
+            answer(new String[0]);
             return;
         }
         // Off the UI thread: a video is big and the copy takes a while.
         new Thread(new Runnable() {
             @Override
             public void run() {
+                // With no external storage mounted the private folder
+                // stands in; a folder that cannot be made fails the pick
+                // out loud rather than as an empty answer.
+                File base = activity.getExternalFilesDir(null);
+                if (base == null) {
+                    base = activity.getFilesDir();
+                }
+                File dir = new File(base, "Imported");
+                if (!dir.isDirectory() && !dir.mkdirs()) {
+                    Log.w(TAG, "could not make " + dir);
+                    answer(new String[0]);
+                    return;
+                }
                 List<String> paths = new ArrayList<String>();
-                File dir = new File(activity.getExternalFilesDir(null), "Imported");
-                dir.mkdirs();
                 for (Uri uri : uris) {
                     File out = unique(dir, displayName(activity, uri));
                     if (copy(activity, uri, out)) {
                         paths.add(out.getAbsolutePath());
                     }
                 }
-                filesPicked(paths.toArray(new String[0]));
+                answer(paths.toArray(new String[0]));
             }
         }, TAG).start();
+    }
+
+    /** Reports to the native side, unless a newer pick took the slot. */
+    private void answer(String[] paths) {
+        if (current == this) {
+            filesPicked(paths);
+        }
     }
 
     /** The name the picker showed for the file, or one made from the URI. */

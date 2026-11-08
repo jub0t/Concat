@@ -156,10 +156,14 @@ def check() -> int:
     if not models:
         bad("the table has no models")
 
-    for field in ("id", "family", "file", "bytes", "sha256", "licence", "upstream"):
+    required = ("id", "family", "file", "bytes", "sha256", "licence", "upstream")
+    for field in required:
         for model in models:
             if field not in model:
                 bad(f"{model.get('id', '?')!r} has no {field}")
+    # The checks below read these fields directly; a row missing one has
+    # been named above and is left out of them.
+    whole = [model for model in models if all(field in model for field in required)]
 
     for key in ("id", "file"):
         seen: dict[str, int] = {}
@@ -169,7 +173,7 @@ def check() -> int:
             if count > 1:
                 bad(f"{value!r} is the {key} of {count} models; a mirror is one flat release")
 
-    for model in models:
+    for model in whole:
         if model.get("family") not in TABLES:
             bad(f"{model['id']!r} is in family {model.get('family')!r}, which no engine table owns")
         if not str(model.get("upstream", "")).startswith("https://"):
@@ -193,7 +197,10 @@ def check() -> int:
     # constant is what a download is checked against, and a download checked
     # against a digest nothing was mirrored under can never pass.
     for family, path in TABLES.items():
-        rows = [model for model in models if model.get("family") == family]
+        if not path.exists():
+            bad(f"{path.relative_to(ROOT)} is not here to check against")
+            continue
+        rows = [model for model in whole if model.get("family") == family]
         text = re.split(r'\n(?:#\[cfg\(test\)\]\s*)?mod tests?\s*\{', path.read_text(encoding="utf-8"))[0]
         # An id may be a string constant rather than a literal, as the
         # Pocket row's is: resolve `const NAME: &str = "..."` first.
@@ -212,7 +219,7 @@ def check() -> int:
             if sha and f'sha256: "{sha}"' not in text:
                 bad(f"{path.relative_to(ROOT)} does not carry the digest of {model['id']!r}")
 
-    empty = [model["id"] for model in models if not model.get("sha256")]
+    empty = [model["id"] for model in whole if not model.get("sha256")]
     total = sum(model.get("bytes", 0) for model in models)
     print(f"{len(models)} models, {total / 1e9:.2f} GB, mirrored on {release}")
     if empty:
