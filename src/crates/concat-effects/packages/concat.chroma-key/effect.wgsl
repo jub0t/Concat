@@ -155,18 +155,23 @@ fn backing(uv: vec2<f32>) -> vec4<f32> {
     var greens = vec4<f32>(0.0);
     var blues = vec4<f32>(0.0);
     var seen = 0.0;
+    // No `continue`: naga writes a loop that has one for Direct3D as a
+    // `while` with a first-time flag, and this pass - the one shader here
+    // with a `continue` - left the device lost on Windows CI's WARP under
+    // FXC, Windows' pinned compiler, and every effect drawn after it went
+    // black (#673). The `screenish` tests already ask for alpha, so the
+    // guard is only for the count.
     for (var j = 0; j < LOOK_DOWN; j++) {
         for (var i = 0; i < LOOK_ACROSS; i++) {
             let c = cells_at((vec2<f32>(f32(i), f32(j)) + 0.5) / grid);
-            if (c.a < 0.5) {
-                continue;
-            }
-            seen += 1.0;
-            if (screenish(c, true)) {
-                greens += vec4<f32>(c.rgb, 1.0);
-            }
-            if (screenish(c, false)) {
-                blues += vec4<f32>(c.rgb, 1.0);
+            if (c.a >= 0.5) {
+                seen += 1.0;
+                if (screenish(c, true)) {
+                    greens += vec4<f32>(c.rgb, 1.0);
+                }
+                if (screenish(c, false)) {
+                    blues += vec4<f32>(c.rgb, 1.0);
+                }
             }
         }
     }
