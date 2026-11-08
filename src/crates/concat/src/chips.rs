@@ -46,9 +46,7 @@ pub fn chip_glyph(kind: ClipKind) -> &'static str {
             "M8 9a7 7 0 1 0 14 0a7 7 0 1 0 -14 0 M2 15a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"
         }
         // lucide/audio-lines
-        ClipKind::SoundLayer => {
-            "M2 10v3 M6 6v11 M10 3v18 M14 8v7 M18 5v13 M22 10v3"
-        }
+        ClipKind::SoundLayer => "M2 10v3 M6 6v11 M10 3v18 M14 8v7 M18 5v13 M22 10v3",
         // lucide/shapes
         ClipKind::Shape => {
             "M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z \
