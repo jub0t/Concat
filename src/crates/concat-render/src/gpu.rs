@@ -320,6 +320,51 @@ pub const MEMORY_BUDGET: wgpu::MemoryBudgetThresholds = wgpu::MemoryBudgetThresh
     for_device_loss: Some(99),
 };
 
+/// The budget every device is opened with: [`MEMORY_BUDGET`], unless
+/// `CONCAT_GPU_BUDGET` says otherwise. Some drivers report the budget
+/// wrong - NVIDIA's on Linux has read a nearly idle card as spent, so a
+/// buffer of a few hundred bytes was refused as out of memory, the device
+/// was lost, the next would not open and an export sat at 0% - and the
+/// gates then do harm with nothing to protect. `off` (or `none`, `0`)
+/// lifts both and leaves out-of-memory to the driver, which the device-loss
+/// recovery answers as before; a number from 1 to 99 moves the creation
+/// gate there, the loss gate four points above it. Read once, and said in
+/// the log when it changes anything.
+pub fn memory_budget() -> wgpu::MemoryBudgetThresholds {
+    static BUDGET: std::sync::OnceLock<wgpu::MemoryBudgetThresholds> = std::sync::OnceLock::new();
+    *BUDGET.get_or_init(|| {
+        let Ok(raw) = std::env::var("CONCAT_GPU_BUDGET") else {
+            return MEMORY_BUDGET;
+        };
+        let budget = parse_budget(&raw);
+        match budget {
+            Some(budget) => log::warn!(
+                "CONCAT_GPU_BUDGET={raw}: creation gate {:?}, loss gate {:?}",
+                budget.for_resource_creation,
+                budget.for_device_loss
+            ),
+            None => log::warn!("CONCAT_GPU_BUDGET={raw} is neither off nor 1-99; ignored"),
+        }
+        budget.unwrap_or(MEMORY_BUDGET)
+    })
+}
+
+/// `CONCAT_GPU_BUDGET`'s value as gates, or `None` for one that is not.
+fn parse_budget(raw: &str) -> Option<wgpu::MemoryBudgetThresholds> {
+    let raw = raw.trim();
+    if ["off", "none", "0"].iter().any(|off| raw.eq_ignore_ascii_case(off)) {
+        return Some(wgpu::MemoryBudgetThresholds {
+            for_resource_creation: None,
+            for_device_loss: None,
+        });
+    }
+    let percent: u8 = raw.trim_end_matches('%').parse().ok()?;
+    (1..=99).contains(&percent).then(|| wgpu::MemoryBudgetThresholds {
+        for_resource_creation: Some(percent),
+        for_device_loss: Some(percent.saturating_add(4).min(99)),
+    })
+}
+
 /// A picture copied texel for texel into a target of the same size, through
 /// the colour conversion at each end of the working space: an uploaded
 /// frame into it (`fs_upload`), and a finished frame out of it into the
@@ -1006,7 +1051,7 @@ impl WgpuCompositor {
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
             flags: instance_flags(),
-            memory_budget_thresholds: MEMORY_BUDGET,
+            memory_budget_thresholds: memory_budget(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
         // FXC, never wgpu's default `Auto`: Concat ships no dxcompiler.dll,

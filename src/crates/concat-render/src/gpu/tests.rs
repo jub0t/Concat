@@ -2489,3 +2489,17 @@ fn a_background_is_wiped_with_its_picture() {
         "the edge is the picture's"
     );
 }
+
+/// `CONCAT_GPU_BUDGET` lifts the gates for a driver that misreads its
+/// budget, moves them to a percent, and leaves anything else alone.
+#[test]
+fn the_budget_override_reads_off_and_a_percent_and_refuses_the_rest() {
+    let off = super::parse_budget(" OFF ").expect("off");
+    assert_eq!((off.for_resource_creation, off.for_device_loss), (None, None));
+    let at = super::parse_budget("90").expect("90");
+    assert_eq!((at.for_resource_creation, at.for_device_loss), (Some(90), Some(94)));
+    let top = super::parse_budget("98%").expect("98%");
+    assert_eq!((top.for_resource_creation, top.for_device_loss), (Some(98), Some(99)));
+    assert!(super::parse_budget("100").is_none());
+    assert!(super::parse_budget("lots").is_none());
+}
