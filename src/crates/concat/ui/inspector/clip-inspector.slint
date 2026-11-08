@@ -2718,6 +2718,7 @@ export component SpeedPanel inherits VerticalLayout {
                     SpeedRamp.remove(index);
                     root.commit();
                 }
+                changed => { root.commit(); }
             }
 
             if root.curved: Row {

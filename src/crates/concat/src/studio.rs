@@ -776,6 +776,8 @@ pub struct Models {
     /// The Speed tab's curve: its points and the presets' names, kept like
     /// the colour curves' so a point being dragged is not dropped.
     pub speed_points: Rc<VecModel<CurvePointData>>,
+    /// Which of them are chosen, one flag a point.
+    pub speed_chosen: Rc<VecModel<bool>>,
     pub speed_presets: Rc<VecModel<SharedString>>,
     /// The keyframe cluster's rows and the libraries' views: synced like
     /// the rest, since a model handed over fresh is unequal to the last by
@@ -868,6 +870,7 @@ impl Models {
             link_curves: RefCell::new(HashMap::new()),
             curve_points: RefCell::new(HashMap::new()),
             speed_points: Rc::new(VecModel::default()),
+            speed_chosen: Rc::new(VecModel::default()),
             speed_presets: Rc::new(VecModel::default()),
             key_rows: Rc::new(VecModel::default()),
             key_editor_rows: Rc::new(VecModel::default()),
@@ -1278,6 +1281,12 @@ pub struct Studio {
     /// Files whose split failed this session: not tried again by itself,
     /// only when a clip is asked anew.
     voice_failed: HashSet<std::path::PathBuf>,
+    /// The Speed graph's chosen points, by index, and the clip they are
+    /// on: another clip selected chooses none.
+    speed_chosen: (String, Vec<usize>),
+    /// The curve as it was when a drag of the chosen points began: each
+    /// move is measured from it, so a point held at a limit does not drift.
+    speed_grabbed: Option<Vec<model::SpeedPoint>>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
@@ -2789,6 +2798,8 @@ impl Studio {
             voice_jobs: HashMap::new(),
             voice_cancel: None,
             voice_failed: HashSet::new(),
+            speed_chosen: (String::new(), Vec::new()),
+            speed_grabbed: None,
             stabilize_retry: HashSet::new(),
             enhance_jobs: HashMap::new(),
             enhance_scale: 0.0,

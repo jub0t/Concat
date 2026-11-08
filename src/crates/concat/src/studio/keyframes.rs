@@ -63,6 +63,11 @@ impl Studio {
                 })
                 .collect(),
         );
+        let chosen = self.speed_chosen_now();
+        sync(
+            &models.speed_chosen,
+            (0..points.len()).map(|index| chosen.contains(&index)).collect(),
+        );
         ramp.set_curved(curve.is_some());
         ramp.set_smooth(curve.is_none_or(concat_project::speed::is_smooth));
         ramp.set_path(speed_ramp::path(points).into());

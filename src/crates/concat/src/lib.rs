@@ -488,6 +488,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             .set_rows(ModelRc::from(models.key_editor_rows.clone()));
         let ramp = app.global::<SpeedRamp>();
         ramp.set_points(ModelRc::from(models.speed_points.clone()));
+        ramp.set_chosen(ModelRc::from(models.speed_chosen.clone()));
         ramp.set_presets(ModelRc::from(models.speed_presets.clone()));
         editor.set_key_marks(ModelRc::from(models.key_marks.clone()));
         app.global::<Library>()
@@ -1343,6 +1344,24 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }));
         ramp.on_remove(on_lanes!(|state, index: i32| {
             state.speed_curve_remove(index);
+        }));
+        ramp.on_choose(on_lanes!(|state, index: i32, add: bool| {
+            state.speed_choose(index, add);
+        }));
+        ramp.on_choose_box(on_lanes!(|state, x0: f32, y0: f32, x1: f32, y1: f32, add: bool| {
+            state.speed_choose_box([x0, y0, x1, y1], add);
+        }));
+        ramp.on_choose_all(on_lanes!(|state, all: bool| {
+            state.speed_choose_all(all);
+        }));
+        ramp.on_grab(on_lanes!(|state| {
+            state.speed_grab();
+        }));
+        ramp.on_drag_chosen(on_lanes!(|state, dx: f32, dy: f32| {
+            state.speed_drag_chosen(dx, dy);
+        }));
+        ramp.on_remove_chosen(on_lanes!(|state| {
+            state.speed_remove_chosen();
         }));
         ramp.on_preset_chosen(on_lanes!(|state, index: i32| {
             state.speed_curve_preset(index);
