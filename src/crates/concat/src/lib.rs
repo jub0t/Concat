@@ -46,6 +46,10 @@ mod ios;
 mod keymap;
 mod meters;
 mod platform;
+/// How a phone keeps its screen on while a job runs; see
+/// `concat_host::awake`.
+#[cfg(target_os = "android")]
+pub use concat_host::awake::install as install_awake;
 /// What a phone's own crate installs before the window runs: the way to
 /// the system's file picker, and where a finished export is put so the
 /// phone shows it. See `platform::pick_files_async` and

@@ -68,6 +68,9 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_SystemInformation",
   # memory.rs: the process heap compacted when the app goes quiet.
   "Win32_System_Memory",
+  # awake.rs: the power request that keeps the system awake under a job
+  # (and Win32_System_Threading below, for its reason).
+  "Win32_System_Power",
   # crash.rs: the unhandled-exception filter and what it reads and writes.
   "Win32_Foundation",
   "Win32_Storage_FileSystem",
