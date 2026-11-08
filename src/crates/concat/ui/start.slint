@@ -1771,6 +1771,7 @@ component WideHome inherits Rectangle {
                     if root.searchable: VerticalLayout {
                         alignment: center;
                         SegmentedControl {
+                            tabs: true;
                             width: 156px;
                             options: [I18n.t("start.sortRecent"), I18n.t("start.sortName")];
                             current: root.sort;

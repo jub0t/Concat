@@ -655,6 +655,7 @@ export component ConfigPane inherits Rectangle {
                 if !root.single: VerticalLayout {
                     alignment: center;
                     SegmentedControl {
+                        tabs: true;
                         options: root.tabs-shown;
                         current <=> root.tab;
                     }

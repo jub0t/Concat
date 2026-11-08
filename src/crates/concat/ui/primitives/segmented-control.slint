@@ -5,10 +5,19 @@ import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
 
-// Single-select tab row with a thumb that slides to the active segment.
+// A single choice among a few, as one row of segments.
+//
+// Two looks. In a panel's body it is a field like the others there - the
+// field's ground and hairline, the segments split by hairlines, the one
+// chosen outlined and washed in the accent - so a choice reads as a value
+// set, not as a set of pages. `tabs` is the header's look instead, a well
+// with a raised thumb, for the strips that do switch what a panel shows;
+// it belongs nowhere else.
 //
 // The segments share the width equally, so the thumb's geometry is computed
-// from the count rather than measured from the buttons.
+// from the count rather than measured from the buttons. A `current` out of
+// range - none of them, as a mix of one's own is neither preset - lights
+// nothing.
 export component SegmentedControl inherits Rectangle {
     in property <[string]> options;
     /// A glyph per option, in the same order. A segment with one wears it
@@ -23,20 +32,24 @@ export component SegmentedControl inherits Rectangle {
     /// segment past the end can be picked.
     in property <[bool]> disabled;
 
+    /// The header's look, for a strip that switches pages; see above.
+    in property <bool> tabs: false;
+
     callback changed(index: int);
 
     property <bool> ring;
+    property <bool> lit: root.current >= 0 && root.current < root.options.length;
 
     // 1px border + 2px padding, so the track insets by 3px on every side. A
     // Slint border is drawn inside the bounds but children still measure from
     // the outer edge, so the border has to be added in by hand.
-    property <length> inset: 3px;
+    property <length> inset: root.tabs ? 3px : 0px;
     property <length> seg-w: (root.width - 2 * root.inset) / Math.max(root.options.length, 1);
 
     height: Theme.h;
     min-width: 120px;
     horizontal-stretch: 1;
-    background: Theme.well;
+    background: root.tabs ? Theme.well : Theme.field;
     border-width: 1px;
     border-color: Theme.line;
     border-radius: Theme.r;
@@ -72,12 +85,15 @@ export component SegmentedControl inherits Rectangle {
     }
 
     thumb := Rectangle {
+        visible: root.lit;
         x: root.inset + root.current * root.seg-w;
         y: root.inset;
         width: root.seg-w;
         height: root.height - 2 * root.inset;
-        border-radius: Theme.r-sm;
-        background: Theme.field-hover;
+        border-radius: root.tabs ? Theme.r-sm : Theme.r;
+        background: root.tabs ? Theme.field-hover : Theme.accent-soft;
+        border-width: root.tabs ? 0px : 1px;
+        border-color: Theme.accent;
 
         animate x, width { duration: 180ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
     }
@@ -87,6 +103,17 @@ export component SegmentedControl inherits Rectangle {
         y: root.inset;
         width: root.seg-w;
         height: root.height - 2 * root.inset;
+
+        // A hairline between two segments, in the body's look; none
+        // beside the one chosen, whose outline is its edge.
+        if index > 0 && !root.tabs: Rectangle {
+            x: 0;
+            y: 6px;
+            width: 1px;
+            height: parent.height - 12px;
+            background: Theme.line;
+            visible: !root.lit || (index != root.current && index != root.current + 1);
+        }
 
         // The segment's whole box, so the label can centre in it; see the
         // note on IconButton's text in panel.slint for why a Text needs to
@@ -98,7 +125,8 @@ export component SegmentedControl inherits Rectangle {
             height: parent.height;
             text: option;
             color: root.disabled[index] ? Theme.fg-dim
-                : (index == root.current || segment.has-hover) ? Theme.fg : Theme.fg-muted;
+                : index == root.current ? (root.tabs ? Theme.fg : Theme.accent)
+                : segment.has-hover ? Theme.fg : Theme.fg-muted;
             font-size: Theme.fs;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -111,7 +139,8 @@ export component SegmentedControl inherits Rectangle {
             y: (parent.height - self.height) / 2;
             glyph: root.icons[index];
             size: 14px;
-            tint: (index == root.current || segment.has-hover) ? Theme.fg : Theme.fg-muted;
+            tint: index == root.current ? (root.tabs ? Theme.fg : Theme.accent)
+                : segment.has-hover ? Theme.fg : Theme.fg-muted;
         }
 
         segment := TouchArea {
