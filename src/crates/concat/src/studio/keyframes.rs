@@ -1067,6 +1067,7 @@ impl Studio {
             present: true,
             batch: targets.len() as i32,
             batch_volume,
+            has_sound: self.clip_has_sound(clip),
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),

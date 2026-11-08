@@ -26,8 +26,27 @@ pub fn chip_glyph(kind: ClipKind) -> &'static str {
         }
         // lucide/type
         ClipKind::Text => "M12 4v16 M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2 M9 20h6",
+        // The marks the lanes give each bar (icons.slint), so the chip
+        // being dragged is the clip it will land as.
+        // lucide/blend
+        ClipKind::Filter => {
+            "M16 9a7 7 0 1 1-14 0a7 7 0 1 1 14 0 M22 15a7 7 0 1 1-14 0a7 7 0 1 1 14 0"
+        }
+        // lucide/sparkles
+        ClipKind::Effect => {
+            "M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z \
+                            M20 2v4 M22 4h-4 M2 20a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"
+        }
+        // lucide/sliders-horizontal
+        ClipKind::Adjustment => {
+            "M21 4H14 M10 4H3 M21 12H12 M8 12H3 M21 20H16 M12 20H3 M14 2V6 M8 10V14 M16 18V22"
+        }
+        // the transitions' two discs
+        ClipKind::Transition => {
+            "M8 9a7 7 0 1 0 14 0a7 7 0 1 0 -14 0 M2 15a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"
+        }
         // lucide/audio-lines
-        ClipKind::Filter | ClipKind::SoundLayer => {
+        ClipKind::SoundLayer => {
             "M2 10v3 M6 6v11 M10 3v18 M14 8v7 M18 5v13 M22 10v3"
         }
         // lucide/shapes

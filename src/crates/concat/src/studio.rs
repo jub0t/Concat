@@ -1382,12 +1382,33 @@ fn kind_of(clip: &Clip) -> ClipKind {
         model::ClipKind::Audio => ClipKind::Audio,
         model::ClipKind::Image => ClipKind::Image,
         model::ClipKind::Text => ClipKind::Text,
-        model::ClipKind::Layer => ClipKind::Filter,
+        model::ClipKind::Layer => {
+            layer_kind(clip.video_effects.first().map(|link| link.id.as_str()))
+        }
         model::ClipKind::SoundLayer => ClipKind::SoundLayer,
         model::ClipKind::Shape => ClipKind::Shape,
-        // Drawn as a layer is: a span over the lanes beneath it, named for
-        // its package, with no picture of its own.
-        model::ClipKind::Transition => ClipKind::Filter,
+        // Drawn as a layer is - a span over the lanes beneath it, named for
+        // its package, with no picture of its own - in a colour of its own.
+        model::ClipKind::Transition => ClipKind::Transition,
+    }
+}
+
+/// What a picture layer is to the eye, by the package its chain starts
+/// with: the colour panel's own makes an adjustment layer, an effect
+/// package an effect layer, and anything else - a look, a LUT, a chain
+/// emptied - a filter layer. The lanes, the drop ghost and the drag chip
+/// each paint the three in their own colour.
+fn layer_kind(package: Option<&str>) -> ClipKind {
+    match package {
+        Some(ADJUST_ID) => ClipKind::Adjustment,
+        Some(id)
+            if Catalogue::builtin()
+                .get(id)
+                .is_some_and(|package| package.kind() == PackageKind::Effect) =>
+        {
+            ClipKind::Effect
+        }
+        _ => ClipKind::Filter,
     }
 }
 

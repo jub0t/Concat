@@ -73,7 +73,7 @@ impl Studio {
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
             "filter" => Some(DropPlan {
-                kind: ClipKind::Filter,
+                kind: super::layer_kind(Some(id)),
                 label: label.to_owned(),
                 media: id.to_owned(),
                 start: 0.0,
@@ -85,7 +85,7 @@ impl Studio {
             // package id rides in `media` behind `transition:`, which
             // `place` reads.
             "transition" => Some(DropPlan {
-                kind: ClipKind::Filter,
+                kind: ClipKind::Transition,
                 label: label.to_owned(),
                 media: format!("transition:{id}"),
                 start: 0.0,
@@ -189,7 +189,10 @@ impl Studio {
                 &plan.media,
                 &plan.label,
             )
-        } else if matches!(plan.kind, ClipKind::Filter | ClipKind::SoundLayer) {
+        } else if matches!(
+            plan.kind,
+            ClipKind::Filter | ClipKind::Effect | ClipKind::Adjustment | ClipKind::SoundLayer
+        ) {
             self.apply(Command::AddLayerClip {
                 track_id: Some(track_id),
                 start: f64::from(plan.start),
@@ -255,7 +258,10 @@ impl Studio {
                 &plan.media,
                 &plan.label,
             )
-        } else if matches!(plan.kind, ClipKind::Filter | ClipKind::SoundLayer) {
+        } else if matches!(
+            plan.kind,
+            ClipKind::Filter | ClipKind::Effect | ClipKind::Adjustment | ClipKind::SoundLayer
+        ) {
             self.apply(Command::AddLayerClip {
                 track_id: None,
                 start,

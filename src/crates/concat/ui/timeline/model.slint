@@ -16,7 +16,12 @@
 /// from the Stickers page, drawn over the picture like a title is. A sound
 /// layer is a filter's sibling for the ear: an audio effect dragged from
 /// the Effects page's sound shelf, treating everything heard under its span.
-export enum ClipKind { video, audio, image, text, filter, shape, sound-layer }
+///
+/// A picture layer is one of three, by what its chain starts with, and a
+/// transition placed as a clip is a fourth bar of the same build: each wears
+/// its own colour, so a look, an effect, a grade and a transition are told
+/// apart on the lanes without opening one.
+export enum ClipKind { video, audio, image, text, filter, effect, adjustment, transition, shape, sound-layer }
 
 /// What a press on a clip means. One tool since the razor went - a cut
 /// is made at the playhead, by B or the tray - and the type stays for the
@@ -362,6 +367,9 @@ export struct SelectedClipData {
     batch: int,
     /// Only the volume control is available for this selection.
     batch-volume: bool,
+    /// The clip makes sound: a sound clip, or a video whose file carries
+    /// an audio stream. A silent video has no Audio tab.
+    has-sound: bool,
     id: string,
     /// the output frame's size, so a fraction can be shown in pixels
     frame-width: int,

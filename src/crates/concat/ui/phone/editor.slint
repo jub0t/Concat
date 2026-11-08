@@ -395,7 +395,8 @@ export component PhoneEditor inherits Rectangle {
     property <bool> is-audio: Editor.selected-clip.batch-volume || root.kind == ClipKind.audio;
     property <bool> is-image: root.kind == ClipKind.image;
     property <bool> is-text: root.kind == ClipKind.text;
-    property <bool> is-layer: root.kind == ClipKind.filter;
+    property <bool> is-layer: root.kind == ClipKind.filter || root.kind == ClipKind.effect
+        || root.kind == ClipKind.adjustment || root.kind == ClipKind.transition;
     /// A shape has a placement and nothing else a picture has: no colour
     /// to adjust, no chain, no transition, no frame to freeze.
     property <bool> is-shape: root.kind == ClipKind.shape;

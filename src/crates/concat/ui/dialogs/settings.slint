@@ -177,8 +177,11 @@ component ModelMeta inherits HorizontalLayout {
 
     if root.spread: Rectangle { horizontal-stretch: 1; }
 
+    // As wide as its button and no wider: the row's stretch belongs to
+    // the name and its note, not to an action.
     VerticalLayout {
         alignment: center;
+        horizontal-stretch: 0;
 
         if root.model.downloading: Button {
             label: I18n.t("common.cancel");
@@ -187,9 +190,12 @@ component ModelMeta inherits HorizontalLayout {
             clicked => { root.cancel(); }
         }
 
+        // The bin alone, as a file list's delete is: the row already
+        // says which model, and the word made the button the row's loudest.
         if !root.model.downloading && root.model.installed: Button {
-            label: I18n.t("common.remove");
+            label: I18n.t("common.delete");
             glyph: Glyph.trash;
+            square: true;
             danger: true;
             clicked => { root.remove(); }
         }
@@ -308,6 +314,7 @@ component ModelRow inherits Rectangle {
             }
 
             if !root.compact: ModelMeta {
+                horizontal-stretch: 0;
                 model: root.model;
                 download => { root.download(); }
                 cancel => { root.cancel(); }
@@ -1034,6 +1041,7 @@ export component SettingsDialog inherits Sheet {
                 // it off by itself. Read when Concat starts. Only where
                 // there is a software rasteriser: WARP, lavapipe.
                 if root.data.gpu-switchable: DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.gpu");
                     hint: I18n.t("settings.gpuHint");
                     switchable: true;

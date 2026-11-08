@@ -1348,7 +1348,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         ramp.on_choose(on_lanes!(|state, index: i32, add: bool| {
             state.speed_choose(index, add);
         }));
-        ramp.on_choose_box(on_lanes!(|state, x0: f32, y0: f32, x1: f32, y1: f32, add: bool| {
+        ramp.on_choose_box(on_lanes!(|state,
+                                      x0: f32,
+                                      y0: f32,
+                                      x1: f32,
+                                      y1: f32,
+                                      add: bool| {
             state.speed_choose_box([x0, y0, x1, y1], add);
         }));
         ramp.on_choose_all(on_lanes!(|state, all: bool| {
@@ -2651,6 +2656,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     ClipKind::Image => (theme.get_kind_image(), theme.get_kind_image_well()),
                     ClipKind::Text => (theme.get_kind_text(), theme.get_kind_text_well()),
                     ClipKind::Filter => (theme.get_kind_filter(), theme.get_kind_filter_well()),
+                    ClipKind::Effect => (theme.get_kind_effect(), theme.get_kind_effect_well()),
+                    ClipKind::Adjustment => (
+                        theme.get_kind_adjustment(),
+                        theme.get_kind_adjustment_well(),
+                    ),
+                    ClipKind::Transition => (
+                        theme.get_kind_transition(),
+                        theme.get_kind_transition_well(),
+                    ),
                     ClipKind::Shape => (theme.get_kind_shape(), theme.get_kind_shape_well()),
                     ClipKind::SoundLayer => (
                         theme.get_kind_sound_layer(),

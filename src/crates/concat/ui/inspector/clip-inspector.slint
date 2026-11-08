@@ -1285,6 +1285,178 @@ export component BackgroundRows inherits VerticalLayout {
     }
 }
 
+/// Speed: one rate for the whole clip, or a curve - speed that changes over
+/// the clip, shaped on a graph or picked from a preset (see
+/// speed-ramp.slint). Whether the sound's pitch follows is the Audio tab's.
+export component SpeedPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+    /// The panel's first section, with no hairline above it; false where
+    /// it follows another, as it does under Basic.
+    in property <bool> first: true;
+    /// Inside another section - a sound clip's Playback, with its fades and
+    /// pitch - with no header or hairline of its own, always open.
+    in property <bool> bare;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    property <bool> speed-open: true;
+    property <float> speed;
+    function seed() {
+        root.speed = root.selected.speed;
+        root.fastest = SpeedRamp.fastest;
+        root.slowest = SpeedRamp.slowest;
+    }
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    // Rust's word on the mode and the preset.
+    property <bool> curved: SpeedRamp.curved;
+    property <int> preset: SpeedRamp.preset;
+    // The two sliders' values, seeded from Rust's like the rate's: a
+    // slider writes its own value as it is dragged, which would end a
+    // binding.
+    property <float> fastest;
+    property <float> slowest;
+    property <float> fastest-truth: SpeedRamp.fastest;
+    property <float> slowest-truth: SpeedRamp.slowest;
+    changed fastest-truth => { root.fastest = root.fastest-truth; }
+    changed slowest-truth => { root.slowest = root.slowest-truth; }
+
+    Section {
+        first: root.first || root.bare;
+        padding-bottom: root.bare ? 0 : 8px;
+        if !root.bare: SectionHeader {
+            title: I18n.t("common.speed");
+            collapsible: true;
+            open <=> root.speed-open;
+            summary: root.curved
+                ? I18n.t("speedRamp.curve")
+                : InspectorFmt.format(ParamFormat.rate, root.speed);
+            HelpButton {
+                text: I18n.t("clipInspector.rateReTimesClip");
+            }
+        }
+
+        if root.bare || root.speed-open: SectionBody {
+            padding-top: root.bare ? 0 : 4px;
+            if root.selected.reverse-progress >= 0: ReverseRow {
+                progress: root.selected.reverse-progress;
+            }
+
+            Row {
+                label: I18n.t("common.speed");
+
+                SegmentedControl {
+                    // A press assigns `current` inside the control, which
+                    // ends a plain binding: so it is set again from Rust's
+                    // word whenever the selection or an undo changes it.
+                    property <bool> truth: root.curved;
+                    changed truth => { self.current = self.truth ? 1 : 0; }
+
+                    options: [I18n.t("speedRamp.constant"), I18n.t("speedRamp.curve")];
+                    icons: [Glyph.speed-constant, Glyph.speed-curve];
+                    current: root.curved ? 1 : 0;
+                    changed(index) => {
+                        SpeedRamp.curve(index == 1);
+                        root.commit();
+                    }
+                }
+            }
+
+            if root.curved: Row {
+                label: I18n.t("speedRamp.shape");
+                Select {
+                    // As the mode's: a pick ends the binding, Rust restores it.
+                    property <int> truth: root.preset;
+                    changed truth => { self.current = self.truth; }
+
+                    options: SpeedRamp.presets;
+                    current: root.preset;
+                    placeholder: I18n.t("speedRamp.custom");
+                    changed(index) => {
+                        SpeedRamp.preset-chosen(index);
+                        root.commit();
+                    }
+                }
+            }
+
+            if root.curved: SpeedGraph {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                point(index, x, y) => {
+                    SpeedRamp.point(index, x, y);
+                    root.commit();
+                }
+                remove(index) => {
+                    SpeedRamp.remove(index);
+                    root.commit();
+                }
+                changed => { root.commit(); }
+            }
+
+            if root.curved: Row {
+                label: I18n.t("speedRamp.bends");
+                SegmentedControl {
+                    // As the mode's: set again from Rust's word.
+                    property <bool> truth: SpeedRamp.smooth;
+                    changed truth => { self.current = self.truth ? 0 : 1; }
+
+                    options: [I18n.t("speedRamp.smooth"), I18n.t("speedRamp.straight")];
+                    icons: [Glyph.bend-smooth, Glyph.bend-straight];
+                    current: SpeedRamp.smooth ? 0 : 1;
+                    changed(index) => {
+                        SpeedRamp.smoothness(index == 0);
+                        root.commit();
+                    }
+                }
+            }
+
+            // The two extremes, for a ramp that is right in shape and too
+            // much or too little in strength: the fastest stretch brought
+            // down to 4x brings the rest of it along.
+            if root.curved && root.fastest > 0: Param {
+                label: I18n.t("speedRamp.fastest");
+                value <=> root.fastest;
+                minimum: 1.1;
+                maximum: 16;
+                step: 0.05;
+                default-value: 2;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { SpeedRamp.extreme(true, v); root.commit(); }
+            }
+            if root.curved && root.slowest > 0: Param {
+                label: I18n.t("speedRamp.slowest");
+                value <=> root.slowest;
+                minimum: 0.0625;
+                maximum: 0.9;
+                step: 0.01;
+                default-value: 0.5;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { SpeedRamp.extreme(false, v); root.commit(); }
+            }
+
+            if !root.curved: Param {
+                label: I18n.t("common.rate");
+                value <=> root.speed;
+                // The engine's full range. The track is linear, so the
+                // useful 0.25-4x band sits left of centre and the number
+                // field beside it is how the extremes are actually dialled
+                // in.
+                minimum: 0.0625;
+                maximum: 16;
+                step: 0.05;
+                default-value: 1;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { root.set(ClipField.speed, v); root.commit(); }
+            }
+        }
+    }
+}
+
 /// Video: how the picture sits in the frame, how solid it is, and whether
 /// its background is keyed out.
 export component VideoPanel inherits VerticalLayout {
@@ -1308,6 +1480,10 @@ export component VideoPanel inherits VerticalLayout {
     /// Whether the Mask section is here: the phone gives the mask a tool
     /// and a sheet of its own instead.
     in property <bool> mask-section: true;
+    /// Speed at the foot of Transform, a section with it rather than one
+    /// at the bottom of the tab: where a clip sits, how big and how fast
+    /// are what a cut is set up with first. A still has no rate.
+    in property <bool> with-speed;
 
     callback set(field: ClipField, value: float);
     /// A control gesture finished: the accumulated change becomes one command.
@@ -1556,6 +1732,13 @@ export component VideoPanel inherits VerticalLayout {
                     clicked => { Backdrop.frame(true); }
                 }
             }
+
+            if root.with-speed: SpeedPanel {
+                bare: true;
+                selected: root.selected;
+                set(field, value) => { root.set(field, value); }
+                commit => { root.commit(); }
+            }
         }
     }
 
@@ -1651,7 +1834,9 @@ export component VideoPanel inherits VerticalLayout {
             }
         }
 
-        if stabilize.open && root.selected.stabilize: SectionBody {
+        // Open shows the knobs whether it is on or off, as Remove
+        // background does: they can be set before it is turned on.
+        if stabilize.open: SectionBody {
             Param {
                 label: I18n.t("clipInspector.smoothness");
                 value <=> root.smoothness;
@@ -1684,10 +1869,10 @@ export component VideoPanel inherits VerticalLayout {
                 toggled(on) => { root.set(ClipField.stabilize-tripod, on ? 1 : 0); root.commit(); }
             }
 
-            if root.selected.stabilize-progress >= 0: StabilizeRow {
+            if root.selected.stabilize && root.selected.stabilize-progress >= 0: StabilizeRow {
                 progress: root.selected.stabilize-progress;
             }
-            if root.selected.stabilize-progress < 0 && root.selected.stabilize-zoom > 0: Note {
+            if root.selected.stabilize && root.selected.stabilize-progress < 0 && root.selected.stabilize-zoom > 0: Note {
                 text: root.selected.stabilize-needed > root.selected.stabilize-zoom + 0.005
                     ? I18n.t2("clipInspector.stabilizeEased",
                         "\{Math.round(root.selected.stabilize-zoom * 100)}",
@@ -2606,179 +2791,6 @@ export component TransitionPanel inherits VerticalLayout {
                     fmt: p.fmt;
                     changed(v) => { root.param-set(p.key, v); }
                 }
-            }
-        }
-    }
-}
-
-/// Speed: one rate for the whole clip, or a curve - speed that changes over
-/// the clip, shaped on a graph or picked from a preset (see
-/// speed-ramp.slint). Whether the sound's pitch follows is the Audio tab's.
-export component SpeedPanel inherits VerticalLayout {
-    in property <SelectedClipData> selected;
-    /// The panel's first section, with no hairline above it; false where
-    /// it follows another, as it does under Basic.
-    in property <bool> first: true;
-    /// Inside another section - a sound clip's Playback, with its fades and
-    /// pitch - with no header or hairline of its own, always open.
-    in property <bool> bare;
-
-    callback set(field: ClipField, value: float);
-    callback commit();
-
-    property <bool> speed-open: true;
-    property <float> speed;
-    function seed() {
-        root.speed = root.selected.speed;
-        root.fastest = SpeedRamp.fastest;
-        root.slowest = SpeedRamp.slowest;
-    }
-    init => { root.seed(); }
-    changed selected => { root.seed(); }
-
-    // Rust's word on the mode and the preset.
-    property <bool> curved: SpeedRamp.curved;
-    property <int> preset: SpeedRamp.preset;
-    // The two sliders' values, seeded from Rust's like the rate's: a
-    // slider writes its own value as it is dragged, which would end a
-    // binding.
-    property <float> fastest;
-    property <float> slowest;
-    property <float> fastest-truth: SpeedRamp.fastest;
-    property <float> slowest-truth: SpeedRamp.slowest;
-    changed fastest-truth => { root.fastest = root.fastest-truth; }
-    changed slowest-truth => { root.slowest = root.slowest-truth; }
-
-    Section {
-        first: root.first || root.bare;
-        padding-bottom: root.bare ? 0 : 8px;
-        if !root.bare: SectionHeader {
-            title: I18n.t("common.speed");
-            collapsible: true;
-            open <=> root.speed-open;
-            summary: root.curved
-                ? I18n.t("speedRamp.curve")
-                : InspectorFmt.format(ParamFormat.rate, root.speed);
-            HelpButton {
-                text: I18n.t("clipInspector.rateReTimesClip");
-            }
-        }
-
-        if root.bare || root.speed-open: SectionBody {
-            padding-top: root.bare ? 0 : 4px;
-            if root.selected.reverse-progress >= 0: ReverseRow {
-                progress: root.selected.reverse-progress;
-            }
-
-            Row {
-                // Under another section's header the mode names itself.
-                label: root.bare ? I18n.t("common.speed") : "";
-
-                SegmentedControl {
-                    // A press assigns `current` inside the control, which
-                    // ends a plain binding: so it is set again from Rust's
-                    // word whenever the selection or an undo changes it.
-                    property <bool> truth: root.curved;
-                    changed truth => { self.current = self.truth ? 1 : 0; }
-
-                    options: [I18n.t("speedRamp.constant"), I18n.t("speedRamp.curve")];
-                    icons: [Glyph.speed-constant, Glyph.speed-curve];
-                    current: root.curved ? 1 : 0;
-                    changed(index) => {
-                        SpeedRamp.curve(index == 1);
-                        root.commit();
-                    }
-                }
-            }
-
-            if root.curved: Row {
-                label: I18n.t("speedRamp.shape");
-                Select {
-                    // As the mode's: a pick ends the binding, Rust restores it.
-                    property <int> truth: root.preset;
-                    changed truth => { self.current = self.truth; }
-
-                    options: SpeedRamp.presets;
-                    current: root.preset;
-                    placeholder: I18n.t("speedRamp.custom");
-                    changed(index) => {
-                        SpeedRamp.preset-chosen(index);
-                        root.commit();
-                    }
-                }
-            }
-
-            if root.curved: SpeedGraph {
-                padding-left: Theme.pad;
-                padding-right: Theme.pad;
-                point(index, x, y) => {
-                    SpeedRamp.point(index, x, y);
-                    root.commit();
-                }
-                remove(index) => {
-                    SpeedRamp.remove(index);
-                    root.commit();
-                }
-                changed => { root.commit(); }
-            }
-
-            if root.curved: Row {
-                label: I18n.t("speedRamp.bends");
-                SegmentedControl {
-                    // As the mode's: set again from Rust's word.
-                    property <bool> truth: SpeedRamp.smooth;
-                    changed truth => { self.current = self.truth ? 0 : 1; }
-
-                    options: [I18n.t("speedRamp.smooth"), I18n.t("speedRamp.straight")];
-                    icons: [Glyph.bend-smooth, Glyph.bend-straight];
-                    current: SpeedRamp.smooth ? 0 : 1;
-                    changed(index) => {
-                        SpeedRamp.smoothness(index == 0);
-                        root.commit();
-                    }
-                }
-            }
-
-            // The two extremes, for a ramp that is right in shape and too
-            // much or too little in strength: the fastest stretch brought
-            // down to 4x brings the rest of it along.
-            if root.curved && root.fastest > 0: Param {
-                label: I18n.t("speedRamp.fastest");
-                value <=> root.fastest;
-                minimum: 1.1;
-                maximum: 16;
-                step: 0.05;
-                default-value: 2;
-                fmt: ParamFormat.rate;
-                unit: "x";
-                changed(v) => { SpeedRamp.extreme(true, v); root.commit(); }
-            }
-            if root.curved && root.slowest > 0: Param {
-                label: I18n.t("speedRamp.slowest");
-                value <=> root.slowest;
-                minimum: 0.0625;
-                maximum: 0.9;
-                step: 0.01;
-                default-value: 0.5;
-                fmt: ParamFormat.rate;
-                unit: "x";
-                changed(v) => { SpeedRamp.extreme(false, v); root.commit(); }
-            }
-
-            if !root.curved: Param {
-                label: I18n.t("common.rate");
-                value <=> root.speed;
-                // The engine's full range. The track is linear, so the
-                // useful 0.25-4x band sits left of centre and the number
-                // field beside it is how the extremes are actually dialled
-                // in.
-                minimum: 0.0625;
-                maximum: 16;
-                step: 0.05;
-                default-value: 1;
-                fmt: ParamFormat.rate;
-                unit: "x";
-                changed(v) => { root.set(ClipField.speed, v); root.commit(); }
             }
         }
     }

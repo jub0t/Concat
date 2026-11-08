@@ -376,7 +376,7 @@ export component Button inherits Rectangle {
     in property <bool> large;
     /// A glyph alone on a square the height of the row, for a toggle that
     /// sits beside a field and says what it does with its mark: the eye
-    /// that shows a token. The label, if one is given, is not drawn.
+    /// that shows a token. The label is not drawn; it is the tooltip.
     in property <bool> square;
 
     callback clicked();
@@ -443,6 +443,13 @@ export component Button inherits Rectangle {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
+    }
+
+    // A mark alone says what it does once it has been learnt; the name
+    // under the pointer is how it is learnt.
+    if root.square: Tip {
+        text: root.label;
+        active: touch.has-hover;
     }
 }
 
