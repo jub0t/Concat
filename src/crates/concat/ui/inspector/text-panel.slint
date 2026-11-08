@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
+import { ResizeBox } from "../primitives/resize-box.slint";
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph } from "../icons.slint";
@@ -189,19 +190,21 @@ export component TextPanel inherits VerticalLayout {
             padding-right: Theme.pad;
             padding-bottom: 4px;
 
-            Rectangle {
-                height: 64px;
-                border-radius: Theme.r;
-                background: Theme.field;
-                border-width: 1px;
-                border-color: body.has-focus ? Theme.accent : Theme.line;
-                clip: true;
+            // Scrolls past its bottom and is drawn taller by its corner.
+            body-box := ResizeBox {
+                box-height: 64px;
+                min-box: 40px;
+                ground: Theme.field;
+                pad-x: 8px;
+                pad-y: 6px;
+                content-height: body.preferred-height;
+                focused: body.has-focus;
 
                 body := TextInput {
-                    x: 8px;
-                    y: 6px;
-                    width: parent.width - 16px;
-                    height: parent.height - 12px;
+                    y: body-box.pad-y;
+                    width: parent.width;
+                    height: Math.max(self.preferred-height, body-box.view-height);
+                    cursor-position-changed(at) => { body-box.reveal(at.y, self.font-size * 1.4); }
                     text: root.selected.content;
                     color: Theme.fg;
                     font-size: Theme.fs;

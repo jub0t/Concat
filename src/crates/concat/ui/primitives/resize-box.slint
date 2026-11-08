@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+
+// The frame a block of typed words sits in: it scrolls the words a line
+// at a time past its bottom, keeps the caret in sight as it moves, and
+// is made taller or shorter by its corner, dragged, as a web page's text
+// box is - a script of a page is written in a box of a page, not read
+// through a five-line slot.
+//
+// The words themselves are the child, a TextInput, placed inside the
+// scrolling part: a frame cannot read its child's properties, so the
+// child tells it two things. Its height as `content-height`, and where
+// its caret went, from `cursor-position-changed`, as `reveal`:
+//
+//     box := ResizeBox {
+//         content-height: words.preferred-height;
+//         focused: words.has-focus;
+//         words := TextInput {
+//             y: box.pad-y;
+//             width: parent.width;
+//             height: Math.max(self.preferred-height, box.view-height);
+//             cursor-position-changed(at) => { box.reveal(at.y, self.font-size * 1.4); }
+//         }
+//     }
+export component ResizeBox inherits Rectangle {
+    /// The height the corner was left at.
+    in-out property <length> box-height: 104px;
+    in property <length> min-box: 56px;
+    in property <length> max-box: 520px;
+    /// The words' own height.
+    in property <length> content-height;
+    /// The words have the keyboard: the edge goes the accent.
+    in property <bool> focused;
+    in property <brush> ground: Theme.well;
+    in property <length> pad-x: 10px;
+    in property <length> pad-y: 8px;
+    /// The words' room inside the padding, for the child's own height.
+    out property <length> view-height: root.height - 2 * root.pad-y;
+
+    /// Scrolls the least that puts `h` of words from `y` - the caret's
+    /// line, in the words' own coordinates - inside the frame.
+    public function reveal(y: length, h: length) {
+        // The caret's top in the frame; the words start a padding down.
+        if (root.pad-y + y + flick.content-y < 0) {
+            flick.content-y = Math.min(0px, -y);
+        } else if (root.pad-y + y + h + flick.content-y > flick.height) {
+            flick.content-y = Math.max(flick.height - flick.content-height,
+                flick.height - 2 * root.pad-y - y - h);
+        }
+    }
+
+    height: root.box-height;
+    border-radius: Theme.r;
+    background: root.ground;
+    border-width: 1px;
+    border-color: root.focused ? Theme.accent : Theme.line;
+    clip: true;
+
+    flick := Flickable {
+        x: root.pad-x;
+        y: 0;
+        width: root.width - 2 * root.pad-x;
+        height: root.height;
+        content-height: Math.max(self.height, root.content-height + 2 * root.pad-y);
+        // Scrolled by the wheel and by the caret, never by a drag: a drag
+        // over words is a selection.
+        interactive: false;
+
+        @children
+    }
+
+    // The words run past the bottom: a thumb on the trailing edge says
+    // how far, and where in them the frame is.
+    if flick.content-height > flick.height + 1px: Rectangle {
+        x: root.width - 5px;
+        y: 3px + (root.height - 6px - self.height) * Math.clamp(
+            -flick.content-y / Math.max(1px, flick.content-height - flick.height), 0, 1);
+        width: 3px;
+        height: Math.max(16px, (root.height - 6px) * flick.height / flick.content-height);
+        border-radius: 1.5px;
+        background: Theme.fg-dim;
+        opacity: 0.6;
+    }
+
+    // The corner: two short strokes, as a browser draws it. Down makes
+    // the frame taller; a double-click fits it to the words.
+    grip := Rectangle {
+        x: root.width - self.width;
+        y: root.height - self.height;
+        width: 16px;
+        height: 16px;
+
+        Path {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            stroke: drag.has-hover || drag.pressed ? Theme.fg-muted : Theme.fg-dim;
+            stroke-width: 1.2px;
+            commands: "M 13 7 L 7 13 M 13 10.5 L 10.5 13";
+        }
+
+        drag := TouchArea {
+            mouse-cursor: ns-resize;
+            // The area rides the corner it moves, so each move is the
+            // distance from where the press was within it.
+            moved => {
+                root.box-height = Math.clamp(root.box-height + (self.mouse-y - self.pressed-y),
+                    root.min-box, root.max-box);
+            }
+            double-clicked => {
+                root.box-height = Math.clamp(root.content-height + 2 * root.pad-y,
+                    root.min-box, root.max-box);
+            }
+        }
+    }
+}

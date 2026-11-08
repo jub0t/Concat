@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
+import { ResizeBox } from "../primitives/resize-box.slint";
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
@@ -177,19 +178,16 @@ export component CaptionsForm inherits VerticalLayout {
         if !root.data.running && !root.from-voice: DialogSection {
             title: I18n.t("common.script");
 
-            Rectangle {
-                height: 104px;
-                border-radius: Theme.r;
-                background: Theme.well;
-                border-width: 1px;
-                border-color: script.has-focus ? Theme.accent : Theme.line;
-                clip: true;
+            // Scrolls past its bottom and is drawn taller by its corner.
+            script-box := ResizeBox {
+                content-height: script.preferred-height;
+                focused: script.has-focus;
 
                 script := TextInput {
-                    x: 10px;
-                    y: 8px;
-                    width: parent.width - 20px;
-                    height: parent.height - 16px;
+                    y: script-box.pad-y;
+                    width: parent.width;
+                    height: Math.max(self.preferred-height, script-box.view-height);
+                    cursor-position-changed(at) => { script-box.reveal(at.y, self.font-size * 1.4); }
                     text <=> root.draft;
                     color: Theme.fg;
                     font-size: Theme.fs-lg;
@@ -215,8 +213,8 @@ export component CaptionsForm inherits VerticalLayout {
                 }
 
                 if root.draft == "" && !script.has-focus: Text {
-                    x: 10px;
-                    y: 8px;
+                    x: 0;
+                    y: script-box.pad-y;
                     text: I18n.t("captions.typeWordsPutScreen");
                     color: Theme.fg-dim;
                     font-size: Theme.fs-lg;
