@@ -266,6 +266,11 @@ export global Theme {
     /// `wave-hot`. -6 dBFS: a mix that keeps its peaks under it has
     /// headroom, one that crosses it often is on its way to clipping.
     out property <float> wave-hot-line: 0.5012;
+    out property <color> wave-clip: dark ? Dark.wave-clip : Light.wave-clip;
+    /// Where a bar goes red: -1 dBFS, the last decibel under full scale.
+    /// A peak over it is clipping, or one encoder's rounding away from it;
+    /// a bar pushed past the top by the clip's volume is red to the top.
+    out property <float> wave-clip-line: 0.8913;
 
     // clip ink
     out property <color> clip-ink: dark ? Dark.clip-ink : Light.clip-ink;

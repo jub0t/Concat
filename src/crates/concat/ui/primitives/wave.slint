@@ -4,8 +4,10 @@
 import { Theme } from "../theme/theme.slint";
 
 // A waveform drawn: the bars in `tint`, scaled by `gain` from the floor
-// up, and the part of them over the hot line drawn again in the hot colour
-// - the same path, clipped to the band above the line. The path is at
+// up, the part of them over the hot line (-6 dBFS) drawn again in the hot
+// amber and the part over the clip line (-1 dBFS) again in red - the same
+// path each time, clipped to the band above its line. A meter's three
+// zones, laid along the sound. The path is at
 // unity (see `format::wave_path`), so the gain is a layout property here
 // and a volume drag costs no rebuild; a gain over one pushes the bars past
 // the top and the box clips them, which is what full scale looks like.
@@ -18,6 +20,8 @@ export component Wave inherits Rectangle {
     property <length> bars-y: root.height - root.bars-h;
     /// The band over the hot line, from the top down.
     property <length> hot-h: root.height * (1 - Theme.wave-hot-line);
+    /// The band over the clip line.
+    property <length> clip-h: root.height * (1 - Theme.wave-clip-line);
 
     clip: true;
 
@@ -50,6 +54,26 @@ export component Wave inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.wave-hot;
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.clip-h;
+        clip: true;
+
+        Path {
+            x: 0;
+            y: root.bars-y;
+            width: root.width;
+            height: root.bars-h;
+            commands: root.commands;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            fill: Theme.wave-clip;
         }
     }
 }

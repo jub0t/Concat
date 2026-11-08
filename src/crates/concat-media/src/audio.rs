@@ -421,13 +421,22 @@ fn mix_graph_from(
             }
             None => {}
         }
+        // A clip's fades are curved: the gain is the square of how far
+        // through the fade it is (`qua`), not a straight line. Loudness
+        // goes as about the 0.6 power of the sound's amplitude (Stevens),
+        // so a straight line in gain is heard as a fade-out that hangs on
+        // and then drops off a cliff at the very end, and a fade-in that
+        // leaps up at once and then barely moves; amplitude as the square
+        // of the time is loudness as nearly a straight line in time - an
+        // even fade. The preview's mixer (`concat_host::playback`) uses
+        // the same square, and the inspector and timeline draw it.
         if clip.fade_in > 0.0 {
-            stage.push_str(&format!(",afade=t=in:st=0:d={:.4}", clip.fade_in));
+            stage.push_str(&format!(",afade=t=in:st=0:d={:.4}:curve=qua", clip.fade_in));
         }
         if clip.fade_out > 0.0 {
             let start = (clip.duration - clip.fade_out).max(0.0);
             stage.push_str(&format!(
-                ",afade=t=out:st={start:.4}:d={:.4}",
+                ",afade=t=out:st={start:.4}:d={:.4}:curve=qua",
                 clip.fade_out
             ));
         }
@@ -1701,7 +1710,7 @@ mod tests {
         assert_eq!((heard.from, heard.to), (0.25, 2.0));
         let graph = mix_graph_from(&[shaped], &[heard], 1.25, &[]).expect("valid");
         assert!(
-            graph.contains("asetpts=PTS-STARTPTS+0.250000/TB,afade=t=in:st=0:d=0.5000,asetpts=PTS-STARTPTS,adelay=0:all=1"),
+            graph.contains("asetpts=PTS-STARTPTS+0.250000/TB,afade=t=in:st=0:d=0.5000:curve=qua,asetpts=PTS-STARTPTS,adelay=0:all=1"),
             "graph was: {graph}"
         );
         assert!(Heard::inside(&clip("a.mp4"), 2.0, 3.0).is_none());

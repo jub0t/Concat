@@ -68,6 +68,10 @@ component Ramps inherits Rectangle {
     in property <length> px-per-second;
     /// The wedges' height; they sit at the foot of this element.
     in property <length> ramp-h: root.height;
+    /// A clip's sound fades on a curve - the gain the square of the way
+    /// through, as the mixer plays it - where a layer's strength ramps on a
+    /// line.
+    in property <bool> curved;
 
     if root.fade-in > 0: Rectangle {
         x: 0;
@@ -82,7 +86,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 0 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 Q 0.5 1 0 1 Z" : "M 0 0 L 1 0 L 0 1 Z";
         }
         Path {
             width: parent.width;
@@ -92,7 +96,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 1 L 1 0";
+            commands: root.curved ? "M 0 1 Q 0.5 1 1 0" : "M 0 1 L 1 0";
         }
     }
 
@@ -109,7 +113,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 1 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 L 1 1 Q 0.5 1 0 0 Z" : "M 0 0 L 1 0 L 1 1 Z";
         }
         Path {
             width: parent.width;
@@ -119,7 +123,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 0 L 1 1";
+            commands: root.curved ? "M 0 0 Q 0.5 1 1 1" : "M 0 0 L 1 1";
         }
     }
 }
@@ -432,6 +436,7 @@ component Clip inherits Rectangle {
             height: parent.height;
             fade-in: root.shown-fade-in;
             fade-out: root.shown-fade-out;
+            curved: true;
             px-per-second: root.px-per-second;
             ramp-h: root.fade-h;
         }

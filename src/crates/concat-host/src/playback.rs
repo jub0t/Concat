@@ -492,11 +492,14 @@ fn gain_at(clip: &ActiveClip, local: f64) -> f32 {
         };
         clip.volume_curve.value_at(x, f64::from(clip.volume))
     };
+    // A fade's gain is the square of how far through it is - `afade`'s
+    // `qua`, which the export uses - so window and file agree. See
+    // `concat_media::audio` for why a square and not a straight line.
     if clip.fade_in > 0.0 {
-        gain *= (local / clip.fade_in).min(1.0);
+        gain *= (local / clip.fade_in).clamp(0.0, 1.0).powi(2);
     }
     if clip.fade_out > 0.0 {
-        gain *= ((clip.duration - local) / clip.fade_out).min(1.0);
+        gain *= ((clip.duration - local) / clip.fade_out).clamp(0.0, 1.0).powi(2);
     }
     gain.max(0.0) as f32
 }

@@ -148,6 +148,8 @@ export component GainFader inherits VerticalLayout {
         property <length> usable: Math.max(1px, self.width - 2 * self.inset);
         property <float> at: root.place(root.value);
         property <length> unity-x: self.inset + self.usable * 0.75;
+        /// +12 dB, where the boost turns red.
+        property <length> loud-x: self.inset + self.usable * root.place(12);
         property <length> grip-x: self.inset + self.usable * self.at;
 
         function apply-at(x: length) {
@@ -170,12 +172,20 @@ export component GainFader inherits VerticalLayout {
                 height: parent.height;
                 background: root.muted ? Theme.fg-dim : Theme.accent;
             }
-            // Past unity is boost: the meters' amber, not the accent.
+            // Past unity is boost: the meters' amber, not the accent; past
+            // +12 dB, the meters' red - a boost most sound cannot take
+            // without clipping, and a level a person should know is extreme.
             if fader.at > 0.75: Rectangle {
                 x: fader.unity-x;
-                width: fader.grip-x - fader.unity-x;
+                width: Math.min(fader.grip-x, fader.loud-x) - fader.unity-x;
                 height: parent.height;
                 background: Theme.meter-mid;
+            }
+            if fader.grip-x > fader.loud-x: Rectangle {
+                x: fader.loud-x;
+                width: fader.grip-x - fader.loud-x;
+                height: parent.height;
+                background: Theme.meter-high;
             }
         }
 
@@ -375,12 +385,14 @@ component FadePane inherits Rectangle {
         viewbox-height: root.h;
         fill: Theme.fade-shade;
         commands: root.tail
-            ? "M \{root.c} \{root.t} L \{root.w} \{root.h} L \{root.w} 0 L \{root.c} 0 Z"
-            : "M 0 0 L \{root.c} 0 L \{root.c} \{root.t} L 0 \{root.h} Z";
+            ? "M \{root.c} \{root.t} Q \{(root.c + root.w) / 2} \{root.h} \{root.w} \{root.h} L \{root.w} 0 L \{root.c} 0 Z"
+            : "M 0 0 L \{root.c} 0 L \{root.c} \{root.t} Q \{root.c / 2} \{root.h} 0 \{root.h} Z";
     }
 
-    // The level: flat at the top where the clip plays in full, the ramp
-    // where it fades.
+    // The level: flat at the top where the clip plays in full, the curve
+    // where it fades - the gain as the square of the way through, as the
+    // mixer plays it (see concat_media::audio). A quadratic Bézier with
+    // its handle at the silent end over the middle is that square exactly.
     Path {
         x: 0;
         y: 0;
@@ -391,8 +403,8 @@ component FadePane inherits Rectangle {
         stroke: Theme.accent;
         stroke-width: 1.5px;
         commands: root.tail
-            ? "M 0 \{root.t} L \{root.c} \{root.t} L \{root.w} \{root.h}"
-            : "M 0 \{root.h} L \{root.c} \{root.t} L \{root.w} \{root.t}";
+            ? "M 0 \{root.t} L \{root.c} \{root.t} Q \{(root.c + root.w) / 2} \{root.h} \{root.w} \{root.h}"
+            : "M 0 \{root.h} Q \{root.c / 2} \{root.h} \{root.c} \{root.t} L \{root.w} \{root.t}";
     }
 
     Rectangle {
