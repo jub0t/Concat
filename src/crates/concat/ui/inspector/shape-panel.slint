@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 import { I18n } from "../i18n.slint";
+import { Glyph } from "../icons.slint";
 import { Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
@@ -242,6 +243,7 @@ export component ShapePanel inherits VerticalLayout {
                 label: I18n.t("shapePanel.position");
                 SegmentedControl {
                     options: [I18n.t("shapePanel.centre"), I18n.t("shapePanel.inside"), I18n.t("shapePanel.outside")];
+                    icons: [Glyph.stroke-centre, Glyph.stroke-inside, Glyph.stroke-outside];
                     current: root.selected.shape-stroke-align;
                     changed(index) => { root.put(ClipField.shape-stroke-align, index); }
                 }
@@ -250,6 +252,7 @@ export component ShapePanel inherits VerticalLayout {
                 label: I18n.t("shapePanel.style");
                 SegmentedControl {
                     options: [I18n.t("shapePanel.solid"), I18n.t("shapePanel.dashed"), I18n.t("shapePanel.dotted")];
+                    icons: [Glyph.line-solid, Glyph.line-dashed, Glyph.line-dotted];
                     current: root.selected.shape-dash;
                     changed(index) => { root.put(ClipField.shape-dash, index); }
                 }

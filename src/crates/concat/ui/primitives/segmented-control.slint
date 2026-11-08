@@ -4,6 +4,7 @@
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
+import { Tip } from "tooltip.slint";
 
 // A single choice among a few, as one row of segments.
 //
@@ -46,9 +47,15 @@ export component SegmentedControl inherits Rectangle {
     property <length> inset: root.tabs ? 3px : 0px;
     property <length> seg-w: (root.width - 2 * root.inset) / Math.max(root.options.length, 1);
 
+    /// Every segment wears a mark: the control is only as wide as the
+    /// marks need, not the row - icons say it in less room than words.
+    property <bool> marks-only: root.options.length > 0 && root.icons.length >= root.options.length;
+    property <length> marks-w: root.options.length * 36px + 2 * root.inset;
+
     height: Theme.h;
-    min-width: 120px;
-    horizontal-stretch: 1;
+    min-width: root.marks-only ? root.marks-w : 120px;
+    max-width: root.marks-only ? root.marks-w : 100000px;
+    horizontal-stretch: root.marks-only ? 0 : 1;
     background: root.tabs ? Theme.well : Theme.field;
     border-width: 1px;
     border-color: Theme.line;
@@ -141,6 +148,12 @@ export component SegmentedControl inherits Rectangle {
             size: 14px;
             tint: index == root.current ? (root.tabs ? Theme.fg : Theme.accent)
                 : segment.has-hover ? Theme.fg : Theme.fg-muted;
+        }
+
+        // A mark's name, on hover: the word it stands in for.
+        if index < root.icons.length: Tip {
+            text: option;
+            active: segment.has-hover;
         }
 
         segment := TouchArea {

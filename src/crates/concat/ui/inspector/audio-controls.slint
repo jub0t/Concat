@@ -170,7 +170,9 @@ export component GainFader inherits VerticalLayout {
                 x: 0;
                 width: Math.min(fader.grip-x, fader.unity-x);
                 height: parent.height;
-                background: root.muted ? Theme.fg-dim : Theme.accent;
+                // The meters' green, whatever the accent: below unity is
+                // the safe zone of the three, as a meter colours it.
+                background: root.muted ? Theme.fg-dim : Theme.meter-low;
             }
             // Past unity is boost: the meters' amber, not the accent; past
             // +12 dB, the meters' red - a boost most sound cannot take
@@ -400,9 +402,13 @@ component FadePane inherits Rectangle {
         height: root.height;
         viewbox-width: root.w;
         viewbox-height: root.h;
-        stroke: Theme.accent;
+        // The level in the meters' green, as the sound under it is drawn,
+        // not the accent: it is the sound's level, not a choice made.
+        stroke: Theme.meter-low;
         stroke-width: 1.5px;
-        commands: root.tail
+        // No fade is a level flat to the edge, not a drop down it.
+        commands: root.share <= 0 ? "M 0 \{root.t} L \{root.w} \{root.t}"
+            : root.tail
             ? "M 0 \{root.t} L \{root.c} \{root.t} Q \{(root.c + root.w) / 2} \{root.h} \{root.w} \{root.h}"
             : "M 0 \{root.h} Q \{root.c / 2} \{root.h} \{root.c} \{root.t} L \{root.w} \{root.t}";
     }
@@ -413,7 +419,7 @@ component FadePane inherits Rectangle {
         width: touch.pressed ? 13px : 11px;
         height: self.width;
         border-radius: self.width / 2;
-        background: Theme.accent;
+        background: Theme.meter-low;
         border-width: 2px;
         border-color: Theme.well;
     }

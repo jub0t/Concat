@@ -58,6 +58,15 @@ export enum Glyph {
     /// heart and a star
     mask-linear,
     mask-mirror,
+    /// an outline's place on a shape's edge: the edge drawn thin, the
+    /// outline as a band across it, inside it or outside it
+    stroke-centre,
+    stroke-inside,
+    stroke-outside,
+    /// an outline's line: unbroken, dashes, dots
+    line-solid,
+    line-dashed,
+    line-dotted,
     mask-circle,
     mask-rectangle,
     mask-heart,
@@ -219,6 +228,20 @@ component Filled inherits Path {
     fill: root.tint;
 }
 
+// An outline's band in a stroke-position glyph: a square ring, filled
+// part-way so the edge drawn over it reads as the shape's own.
+component Band inherits Path {
+    in property <length> size: 14px;
+    in property <brush> tint: Theme.fg-muted;
+    width: root.size;
+    height: root.size;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: root.tint;
+    fill-rule: evenodd;
+    opacity: 0.45;
+}
+
 export component Icon inherits Rectangle {
     in property <Glyph> glyph;
     in property <length> size: 14px;
@@ -376,6 +399,33 @@ export component Icon inherits Rectangle {
     // The mask shapes. A line with the side it keeps marked above it;
     // two lines, the band a mirror keeps; then lucide's circle, a wide
     // lucide-style rounded rectangle, lucide/heart and lucide/star.
+    // The outline's place: the shape's edge is the square 6-18; the band
+    // is the outline, three units wide, centred on the edge, inside it or
+    // outside it.
+    if root.glyph == Glyph.stroke-centre: Rectangle {
+        Band { size: root.size; tint: root.tint; commands: "M4.5 4.5H19.5V19.5H4.5Z M7.5 7.5H16.5V16.5H7.5Z"; }
+        Stroked { size: root.size; tint: root.tint; weight: 1.4; commands: "M6 6H18V18H6Z"; }
+    }
+    if root.glyph == Glyph.stroke-inside: Rectangle {
+        Band { size: root.size; tint: root.tint; commands: "M6 6H18V18H6Z M9 9H15V15H9Z"; }
+        Stroked { size: root.size; tint: root.tint; weight: 1.4; commands: "M6 6H18V18H6Z"; }
+    }
+    if root.glyph == Glyph.stroke-outside: Rectangle {
+        Band { size: root.size; tint: root.tint; commands: "M3 3H21V21H3Z M6 6H18V18H6Z"; }
+        Stroked { size: root.size; tint: root.tint; weight: 1.4; commands: "M6 6H18V18H6Z"; }
+    }
+    if root.glyph == Glyph.line-solid: Stroked {
+        size: root.size; tint: root.tint; weight: 2.6;
+        commands: "M3 12H21";
+    }
+    if root.glyph == Glyph.line-dashed: Stroked {
+        size: root.size; tint: root.tint; weight: 2.6;
+        commands: "M3 12H7 M10 12H14 M17 12H21";
+    }
+    if root.glyph == Glyph.line-dotted: Stroked {
+        size: root.size; tint: root.tint; weight: 3.2;
+        commands: "M3.5 12h.01 M7.75 12h.01 M12 12h.01 M16.25 12h.01 M20.5 12h.01";
+    }
     if root.glyph == Glyph.mask-linear: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M3 14h18 M8 9l4-4l4 4 M12 5v6";
