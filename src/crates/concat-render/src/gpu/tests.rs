@@ -2512,3 +2512,101 @@ fn the_budget_override_reads_off_and_a_percent_and_refuses_the_rest() {
     assert!(super::parse_budget("100").is_none());
     assert!(super::parse_budget("lots").is_none());
 }
+
+/// Chroma Key, the one package of more than two passes, leaves Windows
+/// CI's WARP device lost after it (#673), and taking out its finder's
+/// `continue` did not change that. This trial names the part that does
+/// it: the package with each stage's function stubbed out, with every one
+/// stubbed but one, and with all of them stubbed - the last a trial of the
+/// seven-picture plumbing alone. Each runs on a fresh device. Diagnostic:
+/// it goes once the cause is fixed.
+#[test]
+fn chroma_key_bisected_on_this_adapter() {
+    const MANIFEST: &str =
+        include_str!("../../../concat-effects/packages/concat.chroma-key/effect.toml");
+    const BODY: &str =
+        include_str!("../../../concat-effects/packages/concat.chroma-key/effect.wgsl");
+    const STAGES: [&str; 8] = [
+        "cells",
+        "backing",
+        "plate",
+        "matte",
+        "grow_across",
+        "grow_down",
+        "soften_across",
+        "effect",
+    ];
+    // `name`'s function renamed out of the way and a constant in its place;
+    // `effect` passes the layer through.
+    let stub = |body: &str, name: &str| {
+        let head = format!("fn {name}(uv: vec2<f32>) -> vec4<f32> {{");
+        assert!(body.contains(&head), "{name} is in the shader");
+        // A stub still reads every picture drawn before it, at no weight:
+        // the compiler refuses a pass whose picture no later pass reads.
+        let earlier: String = STAGES
+            .iter()
+            .take_while(|stage| **stage != name)
+            .map(|stage| format!(" + 0.0 * {stage}_at(uv)"))
+            .collect();
+        let value = if name == "effect" {
+            format!("sample(uv){earlier}")
+        } else {
+            format!("vec4<f32>(0.5){earlier}")
+        };
+        body.replace(
+            &head,
+            &format!(
+                "fn {name}(uv: vec2<f32>) -> vec4<f32> {{ return {value}; }}\nfn {name}_whole(uv: vec2<f32>) -> vec4<f32> {{"
+            ),
+        )
+    };
+    let mut variants: Vec<(String, String)> = vec![("whole".to_owned(), BODY.to_owned())];
+    for name in STAGES {
+        variants.push((format!("without {name}"), stub(BODY, name)));
+        let only = STAGES
+            .iter()
+            .filter(|other| **other != name)
+            .fold(BODY.to_owned(), |body, other| stub(&body, other));
+        variants.push((format!("only {name}"), only));
+    }
+    variants.push((
+        "all stubbed".to_owned(),
+        STAGES
+            .iter()
+            .fold(BODY.to_owned(), |body, name| stub(&body, name)),
+    ));
+
+    let canary = package("test.canary", INVERT, "", &[], 1.0);
+    let mut verdicts = Vec::new();
+    let mut deaths = 0;
+    for (index, (label, body)) in variants.iter().enumerate() {
+        let manifest = MANIFEST.replace(
+            "id = \"concat.chroma-key\"",
+            &format!("id = \"test.chroma-key-{index}\""),
+        );
+        let package = concat_effects::Package::from_sources(&manifest, None, Some(body))
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        let shader = package.shader().expect("a shader");
+        let values = package.resolve(&Default::default());
+        let pass = shader.pass(&values, &package.manifest.params, 1.0, None, None);
+        let Some(mut gpu) = WgpuCompositor::new() else {
+            eprintln!("no usable GPU adapter; skipping");
+            return;
+        };
+        let drawn = gpu.trial(&pass, std::time::Duration::from_secs(60));
+        let after = gpu.trial(&canary, std::time::Duration::from_secs(60));
+        if after.is_err() {
+            deaths += 1;
+        }
+        verdicts.push(format!(
+            "{label}: {} / {}",
+            drawn.map_or_else(|e| format!("refused ({e})"), |()| "drew".to_owned()),
+            after.map_or_else(
+                |e| format!("DEVICE LOST ({e})"),
+                |()| "device fine".to_owned()
+            ),
+        ));
+    }
+    eprintln!("chroma key, bisected:\n{}", verdicts.join("\n"));
+    assert_eq!(deaths, 0, "chroma key, bisected:\n{}", verdicts.join("\n"));
+}
