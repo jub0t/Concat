@@ -5,7 +5,7 @@ Every outside contribution still present on `main`, as `git blame -w --minimal` 
 ## Rules
 
 1. **Write a spec first, from the behaviour, never from the code.** Sources: the commit subject below, the linked issue, the running app, and the tests' expectations stated in words. Do not open the commit's diff or the PR.
-2. **Delete, then write.** Remove the contributor's lines, then implement the spec in a fresh change. If the old code has to be read to find where something plugs in, only read the call sites, which are ours.
+2. **Delete, then write, and give the feature back.** Remove the contributor's lines and implement the spec in the same commit: nothing a user had is lost. The spec is a checklist of every behaviour the feature has, and the rewrite meets each one, or does better, before it lands. Where the old design was weak, the new one is ours and improved; it is never smaller. If the old code has to be read to find where something plugs in, only read the call sites, which are ours.
 3. **Translations are re-translated from `en.json`**, not edited from the old file. The same goes for translated READMEs.
 4. **Tick an item only once `git blame -w --minimal` shows none of that commit's lines left** (`git blame -w --minimal <file> | grep <hash>` is empty). Always pass `--minimal`: git's default diff gives up being exact on a large file, and on 2026-11-04's split of `studio.rs` it credited most moved lines to the split itself.
 5. Commits are `refactor(<area>): ... (clean room)`, authored by Jareer, and list the hashes they replace in the body (`Replaces <hash>`).
