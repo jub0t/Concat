@@ -85,9 +85,7 @@ mod system {
     static REQUEST: Mutex<Option<usize>> = Mutex::new(None);
 
     pub fn stay_awake(on: bool) {
-        let mut request = REQUEST
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut request = REQUEST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if request.is_none() {
             if !on {
                 return;
@@ -167,9 +165,7 @@ mod system {
     static ASSERTION: Mutex<Option<IOPMAssertionID>> = Mutex::new(None);
 
     pub fn stay_awake(on: bool) {
-        let mut assertion = ASSERTION
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut assertion = ASSERTION.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         match (on, *assertion) {
             (true, None) => {
                 // SAFETY: both strings are NUL-terminated literals; the
