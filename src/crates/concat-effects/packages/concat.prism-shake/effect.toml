@@ -1,0 +1,40 @@
+format = 2
+
+[effect]
+id = "concat.prism-shake"
+name = "Prism Shake"
+kind = "effect"
+category = "Shake"
+order = 7
+intensity = "amount"
+description = "Red, green and blue each shake on their own, so every edge fringes with colour as the frame trembles."
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[[param]]
+key = "speed"
+label = "Speed"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[[param]]
+key = "split"
+label = "Split"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[wgsl]
+entry = "effect.wgsl"
