@@ -1,8 +1,6 @@
 # Clean-room rewrite
 
-Every outside contribution still present on `main`, as `git blame -w` found it on 2026-11-02: **141 commits, 19274 lines in 327 files.** When this list is done, the Owner holds the copyright in every line of Concat that is not third-party code, and can license all of it on any terms.
-
-`src/crates/concat/src/studio.rs` was split into `src/crates/concat/src/studio/*.rs` on 2026-11-04, after this list was made. An item below that names `studio.rs` may now be in one of those files. The split was merged so that blame follows each file back through `studio.rs` (`git blame -w --minimal` attributes 1 203 of the 1 207 outside lines exactly as before; the other 4 are signatures rustfmt re-wrapped).
+Every outside contribution still present on `main`, as `git blame -w --minimal` finds it on 2026-11-09: **138 commits, 18919 lines in 342 files.** (On 2026-11-02 it was 141 commits and 19274 lines; later work by the Owner removed 3 commits outright and shrank others, and no outside commit has landed since.) When this list is done, the Owner holds the copyright in every line of Concat that is not third-party code, and can license all of it on any terms.
 
 ## Rules
 
@@ -14,18 +12,18 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 6. Re-run the inventory at the end, with the command in the last section. Anything new it finds goes on this list.
 7. When a file's last outside line is gone, its SPDX line drops "and Concat contributors" and says `2026 Jareer Abdullah` alone. Until then it keeps it: those lines are still their authors' copyright.
 
-## Code (118 commits, 18051 lines)
+## Code (116 commits, 17733 lines)
 
-- [ ] `6f2e3ae7` 2026-09-20 · maubrickastuto · **3068 lines** · feat(effects): CapCut-parity transitions, effects, filters, animations, and text-effects engine
+- [ ] `6f2e3ae7` 2026-09-20 · maubrickastuto · **3058 lines** · feat(effects): CapCut-parity transitions, effects, filters, animations, and text-effects engine
   - `src/crates/concat/ui/timeline/lanes.slint` (339)
   - `src/crates/concat-render/src/gpu.rs` (246)
-  - `src/crates/concat/src/studio.rs` (189)
   - `src/crates/concat-effects/src/shader.rs` (178)
-  - `src/crates/concat/ui/workspace/media-pane.slint` (149)
+  - `src/crates/concat/ui/workspace/media-pane.slint` (148)
   - `src/crates/concat-core/src/shader.rs` (116)
   - `src/crates/concat-effects/src/catalogue.rs` (102)
   - `src/crates/concat-effects/src/manifest.rs` (101)
-  - `src/crates/concat-text/src/lib.rs` (67)
+  - `src/crates/concat/src/studio/placing.rs` (89)
+  - `src/crates/concat-text/src/lib.rs` (68)
   - `.claude/skills/run-concat/SKILL.md` (62)
   - `src/crates/concat-host/src/titles.rs` (59)
   - `src/crates/concat-media/src/encode.rs` (52)
@@ -34,8 +32,10 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-effects/packages/concat.blur-dissolve/effect.wgsl` (30)
   - `src/crates/concat-effects/packages/concat.linear-wipe/effect.toml` (30)
   - `src/crates/concat-effects/packages/concat.shape-wipe/effect.toml` (30)
-  - `src/crates/concat-export/src/lib.rs` (29)
   - `src/crates/concat-effects/packages/concat.bloom-pulse/effect.toml` (28)
+  - `src/crates/concat-export/src/lib.rs` (28)
+  - `src/crates/concat/src/studio.rs` (28)
+  - `src/crates/concat/src/studio/gestures.rs` (28)
   - `src/crates/concat-export/src/resolve.rs` (26)
   - `src/crates/concat-effects/packages/concat.push/effect.wgsl` (25)
   - `src/crates/concat-effects/packages/concat.slide/effect.wgsl` (23)
@@ -62,6 +62,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-effects/packages/concat.underwater/effect.toml` (20)
   - `src/crates/concat-effects/packages/concat.vinyl/effect.toml` (20)
   - `src/crates/concat-effects/packages/concat.whisper/effect.toml` (20)
+  - `src/crates/concat/src/studio/keyframes.rs` (20)
   - `src/crates/concat-effects/packages/concat.spin/effect.toml` (19)
   - `src/crates/concat-effects/packages/concat.linear-wipe/effect.wgsl` (18)
   - `src/crates/concat-effects/packages/concat.rgb-split-wipe/effect.wgsl` (18)
@@ -100,6 +101,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-effects/packages/concat.tropical/effect.toml` (10)
   - `src/crates/concat-effects/packages/concat.vaporwave/effect.toml` (10)
   - `src/crates/concat-effects/packages/concat.winter-cool/effect.toml` (10)
+  - `src/crates/concat/src/studio/chains.rs` (10)
   - `src/crates/concat-effects/packages/concat.iris/effect.wgsl` (9)
   - `src/crates/concat/ui/timeline/model.slint` (9)
   - `src/crates/concat-effects/packages/concat.clock-wipe/effect.wgsl` (7)
@@ -117,6 +119,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-effects/packages/concat.retro-70s/effect.wgsl` (5)
   - `src/crates/concat-effects/packages/concat.sci-fi/effect.wgsl` (5)
   - `src/crates/concat-effects/packages/concat.winter-cool/effect.wgsl` (5)
+  - `src/crates/concat/src/studio/publish.rs` (5)
   - `src/crates/concat/ui/editor.slint` (5)
   - `src/crates/concat-effects/packages/concat.autumn/effect.wgsl` (4)
   - `src/crates/concat-effects/packages/concat.bloom-pulse/fixtures.toml` (4)
@@ -149,57 +152,63 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-effects/packages/concat.vaporwave/fixtures.toml` (1)
   - `src/crates/concat-effects/packages/concat.winter-cool/fixtures.toml` (1)
   - `src/crates/concat-effects/src/lib.rs` (1)
-- [ ] `80561bd2` 2026-10-14 · Eric Benz · **2156 lines** · feat(speed): a speed curve on the Speed tab, drawn, from a preset, smooth or straight (#322)
+- [ ] `80561bd2` 2026-10-14 · Eric Benz · **1957 lines** · feat(speed): a speed curve on the Speed tab, drawn, from a preset, smooth or straight (#322)
   - `src/crates/concat/src/speed_ramp.rs` (330)
   - `src/crates/concat-project/src/speed.rs` (316)
   - `src/crates/concat-core/src/retime.rs` (245)
   - `src/crates/concat-project/src/lib.rs` (227)
-  - `src/crates/concat/ui/inspector/speed-ramp.slint` (212)
-  - `src/crates/concat/src/studio.rs` (159)
-  - `src/crates/concat/ui/inspector/clip-inspector.slint` (118)
+  - `src/crates/concat/ui/inspector/speed-ramp.slint` (156)
+  - `src/crates/concat/src/studio/chains.rs` (86)
   - `src/crates/concat-project/src/commands/properties.rs` (37)
+  - `src/crates/concat/src/studio/keyframes.rs` (37)
   - `src/crates/concat-project/src/commands/clips.rs` (33)
+  - `src/crates/concat/src/studio.rs` (30)
   - `src/crates/concat/src/lib.rs` (28)
-  - `src/crates/concat/locales/ar.json` (16)
-  - `src/crates/concat/locales/bn.json` (16)
-  - `src/crates/concat/locales/de.json` (16)
-  - `src/crates/concat/locales/en.json` (16)
-  - `src/crates/concat/locales/es.json` (16)
-  - `src/crates/concat/locales/fa.json` (16)
-  - `src/crates/concat/locales/fr.json` (16)
-  - `src/crates/concat/locales/he.json` (16)
-  - `src/crates/concat/locales/hi.json` (16)
-  - `src/crates/concat/locales/hr.json` (16)
-  - `src/crates/concat/locales/id.json` (16)
-  - `src/crates/concat/locales/it.json` (16)
-  - `src/crates/concat/locales/ja.json` (16)
-  - `src/crates/concat/locales/ko.json` (16)
-  - `src/crates/concat/locales/nl.json` (16)
-  - `src/crates/concat/locales/pl.json` (16)
-  - `src/crates/concat/locales/pt-BR.json` (16)
-  - `src/crates/concat/locales/ru.json` (16)
-  - `src/crates/concat/locales/th.json` (16)
-  - `src/crates/concat/locales/tr.json` (16)
-  - `src/crates/concat/locales/uk.json` (16)
-  - `src/crates/concat/locales/ur.json` (16)
-  - `src/crates/concat/locales/vi.json` (16)
-  - `src/crates/concat/locales/zh-Hans.json` (16)
-  - `src/crates/concat/locales/zh-TW.json` (16)
+  - `src/crates/concat/locales/ar.json` (15)
+  - `src/crates/concat/locales/bn.json` (15)
+  - `src/crates/concat/locales/de.json` (15)
+  - `src/crates/concat/locales/en.json` (15)
+  - `src/crates/concat/locales/es.json` (15)
+  - `src/crates/concat/locales/fa.json` (15)
+  - `src/crates/concat/locales/fr.json` (15)
+  - `src/crates/concat/locales/he.json` (15)
+  - `src/crates/concat/locales/hi.json` (15)
+  - `src/crates/concat/locales/hr.json` (15)
+  - `src/crates/concat/locales/id.json` (15)
+  - `src/crates/concat/locales/it.json` (15)
+  - `src/crates/concat/locales/ja.json` (15)
+  - `src/crates/concat/locales/ko.json` (15)
+  - `src/crates/concat/locales/nl.json` (15)
+  - `src/crates/concat/locales/pl.json` (15)
+  - `src/crates/concat/locales/pt-BR.json` (15)
+  - `src/crates/concat/locales/ru.json` (15)
+  - `src/crates/concat/locales/th.json` (15)
+  - `src/crates/concat/locales/tr.json` (15)
+  - `src/crates/concat/locales/uk.json` (15)
+  - `src/crates/concat/locales/ur.json` (15)
+  - `src/crates/concat/locales/vi.json` (15)
+  - `src/crates/concat/locales/zh-Hans.json` (15)
+  - `src/crates/concat/locales/zh-TW.json` (15)
   - `src/crates/concat-project/src/commands/mod.rs` (14)
   - `src/crates/concat-export/src/lib.rs` (13)
   - `src/crates/concat-export/src/flatten.rs` (8)
   - `src/crates/concat-host/tests/export.rs` (7)
   - `src/crates/concat-project/src/model.rs` (7)
+  - `src/crates/concat/src/studio/inspector.rs` (3)
   - `src/crates/concat-export/src/resolve.rs` (1)
+  - `src/crates/concat/src/studio/publish.rs` (1)
+  - `src/crates/concat/src/studio/text.rs` (1)
   - `src/crates/concat/ui/app.slint` (1)
+  - `src/crates/concat/ui/inspector/clip-inspector.slint` (1)
 - [ ] `b12e5279` 2026-10-09 · minecart551-prog · **1535 lines** · feat(settings): a Shortcuts tab that lists every keybind and lets you set one (#400)
   - `src/crates/concat/src/keymap.rs` (745)
   - `src/crates/concat/ui/dialogs/settings.slint` (205)
   - `src/crates/concat/src/lib.rs` (126)
   - `src/crates/concat/src/panes/settings.rs` (59)
-  - `src/crates/concat/src/studio.rs` (58)
+  - `src/crates/concat/src/studio/keyframes.rs` (37)
   - `src/crates/concat/ui/app.slint` (37)
   - `src/crates/concat/src/prefs.rs` (26)
+  - `src/crates/concat/src/studio/publish.rs` (20)
   - `src/crates/concat/ui/editor.slint` (19)
   - `src/crates/concat/locales/en.json` (16)
   - `src/crates/concat/locales/fa.json` (16)
@@ -228,14 +237,14 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/uk.json` (3)
   - `src/crates/concat/locales/ur.json` (3)
   - `src/crates/concat/locales/vi.json` (3)
-- [ ] `fc7e6a91` 2026-10-15 · Konstantin Chuykov · **1430 lines** · feat: consolidate selected video clips through rendered media
+  - `src/crates/concat/src/studio.rs` (1)
+- [ ] `fc7e6a91` 2026-10-15 · Konstantin Chuykov · **1418 lines** · feat: consolidate selected video clips through rendered media
   - `src/crates/concat-host/tests/export.rs` (284)
   - `src/crates/concat-project/src/lib.rs` (239)
   - `src/crates/concat-host/src/consolidate.rs` (218)
   - `src/crates/concat/src/studio/consolidate.rs` (211)
   - `src/crates/concat-project/src/commands/clips.rs` (150)
-  - `src/crates/concat-export/src/lib.rs` (74)
-  - `src/crates/concat/src/studio.rs` (16)
+  - `src/crates/concat-export/src/lib.rs` (63)
   - `src/crates/concat-project/src/commands/mod.rs` (13)
   - `src/crates/concat/locales/ar.json` (10)
   - `src/crates/concat/locales/bn.json` (10)
@@ -259,14 +268,19 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/vi.json` (10)
   - `src/crates/concat/locales/zh-TW.json` (10)
   - `src/crates/concat-export/src/resolve.rs` (7)
-  - `src/crates/concat/ui/timeline/tray.slint` (2)
+  - `src/crates/concat/src/studio/keyframes.rs` (7)
+  - `src/crates/concat/src/studio.rs` (6)
   - `src/crates/concat/ui/workspace/timeline-pane.slint` (2)
   - `src/crates/concat-host/src/export.rs` (1)
   - `src/crates/concat-host/src/lib.rs` (1)
+  - `src/crates/concat/src/studio/keyboard.rs` (1)
+  - `src/crates/concat/src/studio/project_files.rs` (1)
+  - `src/crates/concat/src/studio/publish.rs` (1)
   - `src/crates/concat/ui/editor.slint` (1)
+  - `src/crates/concat/ui/timeline/tray.slint` (1)
   - `src/crates/concat/ui/workspace/seat.slint` (1)
-- [ ] `b4517d26` 2026-10-18 · abdullaabdullazade · **949 lines** · i18n: add Azerbaijani (az) locale
-  - `src/crates/concat/locales/az.json` (870)
+- [ ] `b4517d26` 2026-10-18 · abdullaabdullazade · **921 lines** · i18n: add Azerbaijani (az) locale
+  - `src/crates/concat/locales/az.json` (842)
   - `README.md` (2)
   - `docs/README.ar.md` (2)
   - `docs/README.bn.md` (2)
@@ -320,16 +334,17 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `scripts/readme/lang_vi.py` (1)
   - `scripts/readme/lang_zh-Hans.py` (1)
   - `scripts/readme/lang_zh-TW.py` (1)
-- [ ] `e75af9b8` 2026-10-16 · Rafael Fernandes · **689 lines** · fix: preserve project saves across concurrent writes and failed closes
+- [ ] `e75af9b8` 2026-10-16 · Rafael Fernandes · **688 lines** · fix: preserve project saves across concurrent writes and failed closes
   - `src/crates/concat-host/src/projects.rs` (360)
   - `src/crates/concat/src/lib.rs` (271)
   - `src/crates/concat/src/panes/settings.rs` (30)
-  - `src/crates/concat/src/studio.rs` (28)
-- [ ] `c0c88275` 2026-10-11 · linhmieu-max · **616 lines** · i18n: add the Vietnamese locale (#304)
-  - `src/crates/concat/locales/vi.json` (615)
+  - `src/crates/concat/src/studio/project_files.rs` (21)
+  - `src/crates/concat/src/studio/edit.rs` (6)
+- [ ] `c0c88275` 2026-10-11 · linhmieu-max · **594 lines** · i18n: add the Vietnamese locale (#304)
+  - `src/crates/concat/locales/vi.json` (593)
   - `src/crates/concat/src/i18n.rs` (1)
-- [ ] `a03e4169` 2026-10-09 · minecart551-prog · **576 lines** · feat(text): colour emoji render in their own colours, not the words'
-  - `src/crates/concat-text/src/lib.rs` (576)
+- [ ] `a03e4169` 2026-10-09 · minecart551-prog · **575 lines** · feat(text): colour emoji render in their own colours, not the words'
+  - `src/crates/concat-text/src/lib.rs` (575)
 - [ ] `13f5adb7` 2026-10-16 · robbertcalliso-code · **402 lines** · feat: add Corona and Halation custom effects
   - `src/crates/concat-effects/packages/concat.halation/effect.wgsl` (108)
   - `src/crates/concat-effects/packages/concat.corona/effect.wgsl` (72)
@@ -349,7 +364,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `f4b3527e` 2026-09-09 · Domica · **277 lines** · cache media artwork as project JPEGs
   - `src/crates/concat/src/host.rs` (162)
   - `src/crates/concat-vision/src/brush.rs` (28)
-  - `src/crates/concat/src/studio.rs` (16)
+  - `src/crates/concat/src/studio/bin.rs` (14)
   - `src/crates/concat-effects/src/cube.rs` (11)
   - `src/crates/concat-host/src/brush.rs` (9)
   - `src/crates/concat-host/src/preview.rs` (8)
@@ -362,6 +377,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-host/src/cutout.rs` (2)
   - `src/crates/concat-vision/src/apply.rs` (2)
   - `src/crates/concat/Cargo.toml` (2)
+  - `src/crates/concat/src/studio.rs` (2)
 - [ ] `27c064f9` 2026-09-18 · Domica · **225 lines** · fix: captions land above the video, not under it
   - `src/crates/concat-project/src/lib.rs` (187)
   - `src/crates/concat-project/src/commands/clips.rs` (28)
@@ -370,13 +386,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-export/src/flatten.rs` (1)
   - `src/crates/concat-host/src/titles.rs` (1)
   - `src/crates/concat-host/tests/export.rs` (1)
-  - `src/crates/concat/src/studio.rs` (1)
-- [ ] `87fd6781` 2026-10-18 · PanSHIgg · **213 lines** · fix(studio): a file that goes missing while a project is open is noticed when the window comes back - the relink dialog opens on it, a dismissal keeps it quiet until the file returns and is lost again, and a dialog about a project that closed does not linger (#409)
-  - `src/crates/concat/src/panes/relink.rs` (131)
-  - `src/crates/concat/src/studio.rs` (46)
-  - `src/crates/concat/src/platform.rs` (21)
-  - `src/crates/concat/src/lib.rs` (11)
-  - `src/crates/concat/src/panes/mod.rs` (4)
+  - `src/crates/concat/src/studio/menus.rs` (1)
 - [ ] `72ba60a2` 2026-10-18 · CassioDalla · **212 lines** · fix(i18n): every string the interface draws goes through the lookup
   - `src/crates/concat/src/panes/start.rs` (19)
   - `src/crates/concat/locales/ar.json` (8)
@@ -402,9 +412,17 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/uk.json` (8)
   - `src/crates/concat/locales/vi.json` (8)
   - `src/crates/concat/locales/zh-TW.json` (8)
-  - `src/crates/concat/src/studio.rs` (7)
+  - `src/crates/concat/src/studio/keyframes.rs` (4)
+  - `src/crates/concat/src/studio.rs` (2)
   - `src/crates/concat/src/ios.rs` (1)
+  - `src/crates/concat/src/studio/menus.rs` (1)
   - `src/crates/concat/ui/workspace/media-pane.slint` (1)
+- [ ] `87fd6781` 2026-10-18 · PanSHIgg · **210 lines** · fix(studio): a file that goes missing while a project is open is noticed when the window comes back - the relink dialog opens on it, a dismissal keeps it quiet until the file returns and is lost again, and a dialog about a project that closed does not linger (#409)
+  - `src/crates/concat/src/panes/relink.rs` (128)
+  - `src/crates/concat/src/studio/project_files.rs` (46)
+  - `src/crates/concat/src/platform.rs` (21)
+  - `src/crates/concat/src/lib.rs` (11)
+  - `src/crates/concat/src/panes/mod.rs` (4)
 - [ ] `331eccc5` 2026-09-20 · maubrickastuto · **210 lines** · Merge branch 'main' of github.com:maubrickastuto/Concat
   - `src/crates/concat-render/src/gpu/tests.rs` (100)
   - `src/crates/concat-effects/src/shader.rs` (73)
@@ -418,8 +436,9 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-text/src/lib.rs` (43)
   - `src/crates/concat-project/src/lib.rs` (41)
   - `src/crates/concat-project/src/model.rs` (25)
-  - `src/crates/concat/src/studio.rs` (16)
+  - `src/crates/concat/src/studio/inspector.rs` (10)
   - `src/crates/concat/src/presets.rs` (6)
+  - `src/crates/concat/src/studio/keyframes.rs` (6)
   - `src/crates/concat/ui/primitives/panel.slint` (4)
   - `src/crates/concat/ui/timeline/model.slint` (4)
   - `src/crates/concat-host/src/cards.rs` (2)
@@ -451,8 +470,8 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/vi.json` (3)
   - `src/crates/concat/locales/zh-TW.json` (3)
   - `src/crates/concat/ui/app.slint` (2)
-- [ ] `13892e8d` 2026-10-17 · chiarorosa · **154 lines** · feat(captions): the captions sheet imports and exports SubRip files
-  - `src/crates/concat/src/panes/captions.rs` (107)
+- [ ] `13892e8d` 2026-10-17 · chiarorosa · **152 lines** · feat(captions): the captions sheet imports and exports SubRip files
+  - `src/crates/concat/src/panes/captions.rs` (105)
   - `src/crates/concat/ui/dialogs/captions.slint` (25)
   - `src/crates/concat/locales/en.json` (7)
   - `src/crates/concat/locales/pt-BR.json` (7)
@@ -464,27 +483,33 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-server/src/lib.rs` (38)
 - [ ] `6aaaf8fe` 2026-10-05 · marcinx98x · **145 lines** · perf(prefetch): keep the queue while playback runs on
   - `src/crates/concat-media/src/prefetch.rs` (145)
-- [ ] `8f2e2924` 2026-10-17 · chiarorosa · **145 lines** · feat(audio): adjust volume for selected sound clips together
+- [ ] `8f2e2924` 2026-10-17 · chiarorosa · **141 lines** · feat(audio): adjust volume for selected sound clips together
   - `src/crates/concat/src/batch_volume.rs` (110)
-  - `src/crates/concat/src/studio.rs` (20)
+  - `src/crates/concat/src/studio/keyframes.rs` (8)
+  - `src/crates/concat/src/studio.rs` (5)
   - `src/crates/concat/ui/phone/editor.slint` (5)
-  - `src/crates/concat/ui/inspector/clip-inspector.slint` (4)
-  - `src/crates/concat/ui/workspace/config-pane.slint` (3)
+  - `src/crates/concat/src/studio/inspector.rs` (3)
+  - `src/crates/concat/src/studio/placing.rs` (3)
+  - `src/crates/concat/ui/inspector/clip-inspector.slint` (2)
   - `src/crates/concat/ui/timeline/model.slint` (2)
+  - `src/crates/concat/ui/workspace/config-pane.slint` (2)
   - `src/crates/concat/src/lib.rs` (1)
 - [ ] `e4781f7f` 2026-09-03 · ActArtech · **138 lines** · Add CapCut-style freeze frame at the playhead.
-  - `src/crates/concat/src/studio.rs` (90)
+  - `src/crates/concat/src/studio/menus.rs` (82)
   - `src/crates/concat-project/src/lib.rs` (48)
+  - `src/crates/concat/src/studio/keyframes.rs` (7)
+  - `src/crates/concat/src/studio/keyboard.rs` (1)
 - [ ] `e0429579` 2026-10-14 · Bart van de Lint · **136 lines** · fix(timeline): a copy of a split clip shows the frames it was copied from (#335)
-  - `src/crates/concat/src/studio.rs` (136)
+  - `src/crates/concat/src/studio.rs` (125)
+  - `src/crates/concat/src/studio/menus.rs` (11)
+- [ ] `76988c49` 2026-10-23 · Alex Juma · **131 lines** · fix(export): a clip after two transitions in a row no longer vanishes under the track above
+  - `src/crates/concat-export/src/lib.rs` (131)
 - [ ] `4e1eb116` 2026-10-28 · Peter Stavropoulos · **128 lines** · fix(timeline): scroll the tab strip instead of running it off the pane (#567)
   - `src/crates/concat/ui/timeline/tabs.slint` (128)
-- [ ] `76988c49` 2026-10-23 · Alex Juma · **127 lines** · fix(export): a clip after two transitions in a row no longer vanishes under the track above
-  - `src/crates/concat-export/src/lib.rs` (127)
-- [ ] `638b0432` 2026-10-25 · MD · **126 lines** · fix(audio): Save Audio As writes a WAV as PCM, so Concat can open it again (#544)
-  - `src/crates/concat-media/src/audio.rs` (126)
-- [ ] `e8c546ac` 2026-10-22 · Michael Halstead · **124 lines** · fix(media): a transition within one file keeps a reader per side
-  - `src/crates/concat-media/src/pool.rs` (124)
+- [ ] `638b0432` 2026-10-25 · MD · **125 lines** · fix(audio): Save Audio As writes a WAV as PCM, so Concat can open it again (#544)
+  - `src/crates/concat-media/src/audio.rs` (125)
+- [ ] `e8c546ac` 2026-10-22 · Michael Halstead · **122 lines** · fix(media): a transition within one file keeps a reader per side
+  - `src/crates/concat-media/src/pool.rs` (122)
 - [ ] `91d72ff7` 2026-10-05 · marcinx98x · **109 lines** · perf(playback): carry the clock between the device's buffers
   - `src/crates/concat-host/src/playback.rs` (109)
 - [ ] `1ec267a5` 2026-09-22 · maubrickastuto · **104 lines** · fix: resolve GitHub issues #177, #111/#99, #156, #102 and shader singularities
@@ -493,9 +518,6 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/ui/title-bar.slint` (19)
   - `src/crates/concat/ui/timeline/lanes.slint` (16)
   - `src/crates/concat-speech/src/chatterbox.rs` (1)
-- [ ] `5e28b5bb` 2026-09-14 · Domica · **99 lines** · feat(ui): add MissingMedia dialog component
-  - `src/crates/concat/ui/dialogs/relink.slint` (89)
-  - `src/crates/concat/ui/app.slint` (10)
 - [ ] `6b7005ec` 2026-10-15 · eduardorfreitas93 · **94 lines** · feat: add Fade to Black and Fade to White transitions
   - `src/crates/concat-effects/packages/concat.fade-black/fixtures.toml` (23)
   - `src/crates/concat-effects/packages/concat.fade-white/fixtures.toml` (23)
@@ -517,6 +539,10 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-api/src/lib.rs` (2)
   - `src/crates/concat-media/src/lib.rs` (1)
   - `src/crates/concat/src/lib.rs` (1)
+- [ ] `72a08b04` 2026-10-21 · PanSHIgg · **86 lines** · fix(media): a WebM alpha layer is decoded instead of dropped (#429)
+  - `src/crates/concat-media/src/decode.rs` (71)
+  - `src/crates/concat-media/fixtures/alpha-vp8.webm` (8)
+  - `src/crates/concat-media/fixtures/alpha-vp9.webm` (7)
 - [ ] `55a17268` 2026-09-27 · theworker02 · **82 lines** · Read .cube tables with a byte-order mark or Resolve's LUT_3D_INPUT_RANGE
   - `src/crates/concat-effects/src/cube.rs` (58)
   - `src/crates/concat-effects/src/looks.rs` (24)
@@ -536,8 +562,6 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/src/lib.rs` (13)
 - [ ] `1a2c71ff` 2026-10-18 · chiarorosa · **72 lines** · fix(mcp): export_wait's progress follows the stages the exporter names (#337)
   - `src/crates/concat-mcp/src/tools.rs` (72)
-- [ ] `72a08b04` 2026-10-21 · PanSHIgg · **71 lines** · fix(media): a WebM alpha layer is decoded instead of dropped (#429)
-  - `src/crates/concat-media/src/decode.rs` (71)
 - [ ] `e9f09dff` 2026-10-05 · marcinx98x · **69 lines** · fix(export): a frame rate no video has is an error, not a panic
   - `src/crates/concat-core/src/time.rs` (22)
   - `src/crates/concat-project/src/lib.rs` (22)
@@ -546,8 +570,11 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `d7bcb3de` 2026-09-18 · leoca · **66 lines** · fix(project): has_non_finite catches transition_in and text in UpdateClip
   - `src/crates/concat-project/src/lib.rs` (34)
   - `src/crates/concat-project/src/commands/mod.rs` (32)
+- [ ] `5e28b5bb` 2026-09-14 · Domica · **65 lines** · feat(ui): add MissingMedia dialog component
+  - `src/crates/concat/ui/dialogs/relink.slint` (55)
+  - `src/crates/concat/ui/app.slint` (10)
 - [ ] `8c580f9a` 2026-09-24 · Raphael Bernardo · **64 lines** · feat(timeline): the playhead can follow a trimmed edge, so the monitor shows the frame the cut lands on
-  - `src/crates/concat/src/studio.rs` (22)
+  - `src/crates/concat/src/studio/gestures.rs` (21)
   - `src/crates/concat/ui/timeline/tray.slint` (11)
   - `src/crates/concat/ui/icons.slint` (9)
   - `src/crates/concat/src/panes/timeline.rs` (5)
@@ -556,6 +583,7 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/ui/workspace/timeline-pane.slint` (4)
   - `src/crates/concat/src/lib.rs` (3)
   - `src/crates/concat/ui/workspace/seat.slint` (2)
+  - `src/crates/concat/src/studio/publish.rs` (1)
 - [ ] `593aaf16` 2026-09-14 · Domica · **62 lines** · test(project): add unit tests for missing_media() detection
   - `src/crates/concat-project/src/lib.rs` (62)
 - [ ] `e7060e42` 2026-09-17 · Domica · **59 lines** · feat: pan tool for the timeline
@@ -569,12 +597,12 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `90b186c7` 2026-09-15 · Gareth-Rouse · **56 lines** · fix(timeline): a long clip asked the GPU for a texture it refuses
   - `src/crates/concat/ui/timeline/lanes.slint` (55)
   - `src/crates/concat/src/gpu.rs` (1)
-- [ ] `56e94bb1` 2026-10-05 · marcinx98x · **55 lines** · fix(encode): let AMF make ten-bit HEVC, as Main 10
-  - `src/crates/concat-media/src/encode.rs` (55)
 - [ ] `eda00ecb` 2026-09-17 · Jeff Evertse · **53 lines** · fix(host): a single JPEG is a still, not a one-frame video
   - `src/crates/concat-host/src/media.rs` (53)
 - [ ] `179f5b3f` 2026-10-17 · chiarorosa · **53 lines** · fix(captions): preserve short imported subtitle timings
   - `src/crates/concat/src/panes/captions.rs` (53)
+- [ ] `56e94bb1` 2026-10-05 · marcinx98x · **52 lines** · fix(encode): let AMF make ten-bit HEVC, as Main 10
+  - `src/crates/concat-media/src/encode.rs` (52)
 - [ ] `11e51614` 2026-09-20 · maubrickastuto · **52 lines** · feat(effects): clip-relative time in the shader frame uniform
   - `src/crates/concat-render/src/gpu.rs` (18)
   - `src/crates/concat-render/src/gpu/tests.rs` (17)
@@ -609,14 +637,14 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/vi.json` (2)
   - `src/crates/concat/locales/zh-TW.json` (2)
   - `src/crates/concat/src/panes/export.rs` (2)
-- [ ] `4f755b47` 2026-10-15 · eduardorfreitas93 · **50 lines** · fix: centre overlap transitions on the cut
-  - `src/crates/concat-export/src/lib.rs` (45)
-  - `src/crates/concat-host/tests/export.rs` (4)
-  - `src/crates/concat-export/src/flatten.rs` (1)
 - [ ] `422f7302` 2026-09-17 · Jeff Evertse · **50 lines** · fix(media): decode on every core
   - `src/crates/concat-media/src/decode.rs` (50)
 - [ ] `1ac27607` 2026-09-17 · leoca · **50 lines** · fix(project): a freeze leaves reversed and curved pieces the way a split does
   - `src/crates/concat-project/src/lib.rs` (50)
+- [ ] `4f755b47` 2026-10-15 · eduardorfreitas93 · **44 lines** · fix: centre overlap transitions on the cut
+  - `src/crates/concat-export/src/lib.rs` (42)
+  - `src/crates/concat-export/src/flatten.rs` (1)
+  - `src/crates/concat-host/tests/export.rs` (1)
 - [ ] `cea124a7` 2026-09-17 · Jeff Evertse · **43 lines** · fix(project): a null crop in a patch takes the crop off
   - `src/crates/concat-project/src/lib.rs` (36)
   - `src/crates/concat-project/src/commands/mod.rs` (7)
@@ -639,13 +667,14 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `0db2669c` 2026-10-16 · chiarorosa · **36 lines** · fix(platform): a folder dialog opens on a folder that exists (#331)
   - `src/crates/concat/src/platform.rs` (36)
 - [ ] `6097594e` 2026-09-03 · ActArtech · **34 lines** · Duplicate every selected clip from the context menu.
-  - `src/crates/concat/src/studio.rs` (34)
+  - `src/crates/concat/src/studio/menus.rs` (33)
+  - `src/crates/concat/src/studio/keyboard.rs` (1)
 - [ ] `c495a8ea` 2026-10-21 · Michael Halstead · **33 lines** · fix(macos): save the project when ⌘Q ends the app (#437)
   - `src/crates/concat/src/lib.rs` (24)
   - `src/crates/concat/src/platform.rs` (9)
 - [ ] `ee28f253` 2026-10-05 · marcinx98x · **31 lines** · perf(monitor): publish only the picture for a frame during playback
   - `src/crates/concat/src/host.rs` (26)
-  - `src/crates/concat/src/studio.rs` (4)
+  - `src/crates/concat/src/studio/publish.rs` (4)
   - `src/crates/concat/src/panes/monitor.rs` (1)
 - [ ] `653ebc03` 2026-09-14 · Domica · **29 lines** · fix(host): move clear_cache and count_files before test module
   - `src/crates/concat-host/src/projects.rs` (29)
@@ -656,27 +685,31 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat-project/src/commands/mod.rs` (6)
   - `src/crates/concat-project/src/lib.rs` (4)
   - `src/crates/concat-host/tests/export.rs` (2)
-  - `src/crates/concat/src/studio.rs` (2)
   - `src/crates/concat-api/src/lib.rs` (1)
   - `src/crates/concat-export/src/flatten.rs` (1)
-- [ ] `448341da` 2026-10-05 · marcinx98x · **27 lines** · perf(studio): leave the font list alone when no font changed
-  - `src/crates/concat/src/studio.rs` (27)
-- [ ] `167a7331` 2026-10-24 · meraxes89 · **24 lines** · perf(export): every frame is drawn from the plan where it lies, and only a treated one is copied
-  - `src/crates/concat-export/src/lib.rs` (24)
+  - `src/crates/concat/src/studio/menus.rs` (1)
+  - `src/crates/concat/src/studio/placing.rs` (1)
+- [ ] `448341da` 2026-10-05 · marcinx98x · **26 lines** · perf(studio): leave the font list alone when no font changed
+  - `src/crates/concat/src/studio/text.rs` (19)
+  - `src/crates/concat/src/studio.rs` (4)
+  - `src/crates/concat/src/studio/publish.rs` (3)
 - [ ] `7641f00f` 2026-10-05 · marcinx98x · **24 lines** · fix(projects): a folder named with either slash is one entry in the recents
   - `src/crates/concat-host/src/projects.rs` (24)
 - [ ] `4296aa3d` 2026-09-14 · Domica · **24 lines** · feat(project): add missing_media() detection method
   - `src/crates/concat-project/src/model.rs` (24)
+- [ ] `7e45ae83` 2026-09-14 · Domica · **24 lines** · feat: Clear project cache command in the File menu
+  - `src/crates/concat/src/studio/project_files.rs` (17)
+  - `src/crates/concat/src/studio/keyframes.rs` (6)
+  - `src/crates/concat/src/lib.rs` (1)
 - [ ] `3156ddbb` 2026-10-05 · marcinx98x · **22 lines** · test(api): Windows paths are joined and sent as JSON, not pasted into it
   - `src/crates/concat-server/src/json.rs` (21)
   - `src/crates/concat-api/src/lib.rs` (1)
 - [ ] `61ff4ab8` 2026-09-16 · Domica · **22 lines** · feat: add flip/reverse keyboard shortcuts and Settings context menu toggle
-  - `src/crates/concat/src/studio.rs` (22)
+  - `src/crates/concat/src/studio/keyframes.rs` (22)
 - [ ] `a72e8eca` 2026-10-17 · Victor Santos Oliveira · **20 lines** · fix(core): Rational::parse refuses a value past i64 instead of panicking
   - `src/crates/concat-core/src/time.rs` (20)
-- [ ] `7e45ae83` 2026-09-14 · Domica · **19 lines** · feat: Clear project cache command in the File menu
-  - `src/crates/concat/src/studio.rs` (18)
-  - `src/crates/concat/src/lib.rs` (1)
+- [ ] `167a7331` 2026-10-24 · meraxes89 · **19 lines** · perf(export): every frame is drawn from the plan where it lies, and only a treated one is copied
+  - `src/crates/concat-export/src/lib.rs` (19)
 - [ ] `cec1964f` 2026-09-09 · Domica · **18 lines** · fix: treat filtergraph EOF as graceful input end in audio mix
   - `src/crates/concat-media/src/audio.rs` (18)
 - [ ] `67e4f9d7` 2026-10-05 · marcinx98x · **18 lines** · fix(server): a method that panics fails that call, not the API
@@ -684,15 +717,15 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `9f465da4` 2026-10-20 · Kevin-Christian Giraldo-Barbosa · **17 lines** · fix(mcp): include caching hints on server/discover and tools/list results (#463)
   - `src/crates/concat-mcp/src/protocol.rs` (13)
   - `src/crates/concat-mcp/tests/e2e.rs` (4)
-- [ ] `80fe0e67` 2026-09-14 · Domica · **16 lines** · feat(studio): log missing media when opening project
-  - `src/crates/concat/src/studio.rs` (16)
+- [ ] `80fe0e67` 2026-09-14 · Domica · **15 lines** · feat(studio): log missing media when opening project
+  - `src/crates/concat/src/studio/project_files.rs` (15)
 - [ ] `0875d8c1` 2026-10-05 · marcinx98x · **15 lines** · perf(studio): ask for each frame on time during playback
-  - `src/crates/concat/src/studio.rs` (15)
+  - `src/crates/concat/src/studio/monitor.rs` (15)
 - [ ] `d3e2fe0c` 2026-09-16 · Domica · **14 lines** · fix: terminate process on window close (orphan concat.exe leak)
   - `src/crates/concat/src/lib.rs` (14)
 - [ ] `816a8f0e` 2026-10-20 · Michael Halstead · **14 lines** · fix: keep the saved interface scale at startup and the Basic tab on audio toggles (#462) (#466)
   - `src/crates/concat/src/platform.rs` (11)
-  - `src/crates/concat/src/studio.rs` (3)
+  - `src/crates/concat/src/studio/chains.rs` (3)
 - [ ] `ec61ac56` 2026-09-10 · Domica · **13 lines** · fix: trim audio in Rust by sample count, not by PTS in the graph
   - `src/crates/concat-media/src/audio.rs` (13)
 - [ ] `f4a98b61` 2026-09-10 · Domica · **13 lines** · feat: Sort and Filter dropdowns beside Import Media button
@@ -705,11 +738,11 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `140c4706` 2026-09-14 · Domica · **12 lines** · fix(ui): widen sort popup and complete i18n coverage
   - `src/crates/concat/ui/primitives/select.slint` (12)
 - [ ] `b3c3f47d` 2026-10-09 · minecart551-prog · **11 lines** · feat(timeline): Q and E cut the selected clip at the playhead
-  - `src/crates/concat/src/studio.rs` (11)
+  - `src/crates/concat/src/studio/menus.rs` (11)
 - [ ] `5b68f22f` 2026-09-09 · Domica · **11 lines** · fix: add check closure for sort menu items
-  - `src/crates/concat/src/studio.rs` (11)
+  - `src/crates/concat/src/studio/keyframes.rs` (11)
 - [ ] `5eaf6631` 2026-09-17 · Gareth Gwyn · **10 lines** · fix(ui): a title's words reach the monitor as they are typed
-  - `src/crates/concat/src/studio.rs` (5)
+  - `src/crates/concat/src/studio/inspector.rs` (5)
   - `src/crates/concat/ui/inspector/text-panel.slint` (5)
 - [ ] `29bd5fa7` 2026-10-21 · igorgbr · **9 lines** · fix(studio): a card or thumbnail not drawn yet no longer prints "Error loading image"
   - `src/crates/concat/src/host.rs` (7)
@@ -720,7 +753,8 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `77f9457d` 2026-10-19 · chiarorosa · **8 lines** · fix(window): a handler's early return no longer skips the republish (#433)
   - `src/crates/concat/src/lib.rs` (8)
 - [ ] `44a1493a` 2026-09-14 · Domica · **8 lines** · fix(studio): allow upstream clippy lints blocking CI
-  - `src/crates/concat/src/studio.rs` (8)
+  - `src/crates/concat/src/studio.rs` (7)
+  - `src/crates/concat/src/studio/menus.rs` (1)
 - [ ] `327e479b` 2026-10-05 · marcinx98x · **7 lines** · fix(treat): a layer's filter graph runs on one thread
   - `src/crates/concat-media/src/treat.rs` (7)
 - [ ] `b3463cff` 2026-09-16 · Jeff Evertse · **6 lines** · fix(effects): watch only package files that exist
@@ -740,15 +774,11 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/src/i18n.rs` (1)
 - [ ] `1fe6a7c2` 2026-09-14 · Domica · **5 lines** · feat(studio): wire MissingMedia dialog to open on project load
   - `src/crates/concat/src/lib.rs` (5)
-- [ ] `e7d77760` 2026-09-14 · Domica · **5 lines** · feat(studio): implement relink_all with recursive folder search
-  - `src/crates/concat/src/studio.rs` (5)
 - [ ] `3f0bb545` 2026-09-18 · leoca · **4 lines** · style(test): use struct init syntax to satisfy clippy
   - `src/crates/concat-project/src/lib.rs` (4)
-- [ ] `64eb9b6d` 2026-09-14 · Domica · **3 lines** · fix(ui): correct Button property names and Glyph enum in relink dialog
-  - `src/crates/concat/ui/dialogs/relink.slint` (3)
+- [ ] `d591ddf1` 2026-09-10 · Domica · **3 lines** · fix: compare mux PTS in a common unit, not raw ticks
+  - `src/crates/concat-media/src/audio.rs` (3)
 - [ ] `89cb56cd` 2026-09-10 · Domica · **2 lines** · fix: mux video and audio by timestamp, not one packet each
-  - `src/crates/concat-media/src/audio.rs` (2)
-- [ ] `d591ddf1` 2026-09-10 · Domica · **2 lines** · fix: compare mux PTS in a common unit, not raw ticks
   - `src/crates/concat-media/src/audio.rs` (2)
 - [ ] `41b8241e` 2026-09-14 · Domica · **1 lines** · fix(api): allow large_enum_variant lint on Response enum
   - `src/crates/concat-api/src/message.rs` (1)
@@ -761,26 +791,28 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `f8260a13` 2026-10-21 · Michael Halstead · **1 lines** · style: rustfmt media_kind in platform.rs
   - `src/crates/concat/src/platform.rs` (1)
 - [ ] `8f8d0950` 2026-09-14 · Domica · **1 lines** · feat(studio): add RelinkState and wire dialog to open on project load
-  - `src/crates/concat/src/studio.rs` (1)
+  - `src/crates/concat/src/studio/project_files.rs` (1)
 - [ ] `568be62c` 2026-09-09 · Domica · **1 lines** · feat: add sort options (Added/Name/Type) to View menu
-  - `src/crates/concat/src/studio.rs` (1)
+  - `src/crates/concat/src/studio/keyframes.rs` (1)
 - [ ] `b4d4062a` 2026-09-14 · Domica · **1 lines** · fix(ui): use Theme.fs instead of non-existent Theme.fs-base
   - `src/crates/concat/ui/dialogs/relink.slint` (1)
+- [x] `e7d77760` 2026-09-14 · Domica · **0 lines** · feat(studio): implement relink_all with recursive folder search
+- [x] `64eb9b6d` 2026-09-14 · Domica · **0 lines** · fix(ui): correct Button property names and Glyph enum in relink dialog
 
-## Scripts, CI and packaging (10 commits, 294 lines)
+## Scripts, CI and packaging (9 commits, 283 lines)
 
-- [ ] `79bb0dcf` 2026-10-18 · abdullaabdullazade · **85 lines** · docs: add Azerbaijani README
-  - `docs/README.az.md` (77)
+- [ ] `79bb0dcf` 2026-10-18 · abdullaabdullazade · **84 lines** · docs: add Azerbaijani README
+  - `docs/README.az.md` (76)
   - `scripts/readme/lang_az.py` (7)
   - `scripts/readme/gen.py` (1)
-- [ ] `af794c7f` 2026-10-18 · abdullaabdullazade · **78 lines** · docs(az): make the Azerbaijani README read naturally
-  - `docs/README.az.md` (39)
-  - `scripts/readme/lang_az.py` (38)
-  - `src/crates/concat/locales/az.json` (1)
 - [ ] `8aa810bd` 2026-09-21 · Noxy · **70 lines** · add: arch linux pacman build
   - `.github/workflows/build-app.yml` (39)
   - `assets/arch/PKGBUILD` (29)
   - `scripts/models.py` (2)
+- [ ] `af794c7f` 2026-10-18 · abdullaabdullazade · **69 lines** · docs(az): make the Azerbaijani README read naturally
+  - `docs/README.az.md` (34)
+  - `scripts/readme/lang_az.py` (34)
+  - `src/crates/concat/locales/az.json` (1)
 - [ ] `f1a5f4d3` 2026-10-18 · MD · **32 lines** · fix(captions): backport upstream whisper timestamp gap correction
   - `src/patches/README.md` (25)
   - `src/patches/whisper-rs-sys/whisper.cpp/src/whisper.cpp` (7)
@@ -793,25 +825,24 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `flake.nix` (4)
 - [ ] `730311f4` 2026-09-16 · Domica · **2 lines** · ci: run cargo test serially to avoid SIGTERM at concat link
   - `.github/workflows/ci.yml` (2)
-- [ ] `53cc4909` 2026-09-17 · Domica · **1 lines** · ci: point build-app.yml at src/ after the workspace move
-  - `.github/workflows/build-app.yml` (1)
 - [ ] `98aed2ba` 2026-09-15 · Dibbli · **1 lines** · flake: add openssl to buildInputs to fix openssl-sys build
   - `flake.nix` (1)
+- [x] `53cc4909` 2026-09-17 · Domica · **0 lines** · ci: point build-app.yml at src/ after the workspace move
 
-## Translations (11 commits, 861 lines)
+## Translations (11 commits, 835 lines)
 
-- [ ] `c65295b7` 2026-10-11 · MAHFUZ AHMED · **615 lines** · i18n: add Bengali (bn) translation (1016 strings)
-  - `src/crates/concat/locales/bn.json` (615)
-- [ ] `3aa6e5cc` 2026-10-09 · coolvitto · **60 lines** · Update Japanese translations
-  - `src/crates/concat/locales/ja.json` (60)
+- [ ] `c65295b7` 2026-10-11 · MAHFUZ AHMED · **593 lines** · i18n: add Bengali (bn) translation (1016 strings)
+  - `src/crates/concat/locales/bn.json` (593)
+- [ ] `3aa6e5cc` 2026-10-09 · coolvitto · **58 lines** · Update Japanese translations
+  - `src/crates/concat/locales/ja.json` (58)
 - [ ] `5ffb3fef` 2026-10-16 · chiarorosa · **39 lines** · i18n(pt-BR): translate the 41 lines still in English
   - `src/crates/concat/locales/pt-BR.json` (39)
 - [ ] `e03ae41d` 2026-10-27 · Rehman Ahmad · **32 lines** · fix(locales): translate the remaining English strings in Urdu (#562)
   - `src/crates/concat/locales/ur.json` (32)
 - [ ] `f0c01696` 2026-10-28 · 罗鹏飞 · **32 lines** · fix(locales): translate the remaining English strings in Simplified Chinese (#576)
   - `src/crates/concat/locales/zh-Hans.json` (32)
-- [ ] `fc9195a5` 2026-10-20 · abdullaabdullazade · **25 lines** · i18n(az): follow en.json after the sounds move and the speed curve
-  - `src/crates/concat/locales/az.json` (25)
+- [ ] `fc9195a5` 2026-10-20 · abdullaabdullazade · **24 lines** · i18n(az): follow en.json after the sounds move and the speed curve
+  - `src/crates/concat/locales/az.json` (24)
 - [ ] `83e16b3d` 2026-10-15 · sunfoto · **24 lines** · docs: add Build from source section to README
   - `README.md` (24)
 - [ ] `b6390836` 2026-09-27 · Peter Dave Hello · **14 lines** · Update and improve zh-TW locale
@@ -820,8 +851,8 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/id.json` (13)
 - [ ] `33d15075` 2026-09-19 · Hamid Kholghi · **5 lines** · feat: add Persian (fa) locale
   - `src/crates/concat/locales/fa.json` (5)
-- [ ] `5e807fb6` 2026-10-20 · abdullaabdullazade · **2 lines** · docs(az): regenerate README.az.md with the Trendshift badge
-  - `docs/README.az.md` (2)
+- [ ] `5e807fb6` 2026-10-20 · abdullaabdullazade · **1 lines** · docs(az): regenerate README.az.md with the Trendshift badge
+  - `docs/README.az.md` (1)
 
 ## Docs (2 commits, 68 lines)
 
@@ -830,7 +861,6 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
 - [ ] `2775dc3c` 2026-10-15 · sunfoto · **31 lines** · docs: add feature request and PR templates, fix version badge
   - `.github/ISSUE_TEMPLATE/feature_request.md` (20)
   - `.github/PULL_REQUEST_TEMPLATE.md` (11)
-
 ## Re-running the inventory
 
 ```sh
