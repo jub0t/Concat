@@ -206,11 +206,16 @@ fn screen_colour() -> vec4<f32> {
 fn plate(uv: vec2<f32>) -> vec4<f32> {
     let s = screen_colour();
     let p = dominant(s.rgb);
-    let pitch = cells_texel();
+    // One cell, as a fraction of the picture: the cells pass is the
+    // layer's size over 16, rounded up, as the host sizes it. Worked out
+    // rather than asked of the texture, and counted from nought: this pass
+    // alone, asking `textureDimensions` and looping from -1, left Windows
+    // CI's WARP device lost under FXC (#673, bisected on CI).
+    let pitch = vec2<f32>(1.0) / max(ceil(frame.size / 16.0), vec2<f32>(1.0));
     var most = -1.0;
-    for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-            let c = cells_at(uv + vec2<f32>(f32(i), f32(j)) * pitch);
+    for (var j = 0; j < 3; j++) {
+        for (var i = 0; i < 3; i++) {
+            let c = cells_at(uv + vec2<f32>(f32(i - 1), f32(j - 1)) * pitch);
             if (c.a >= 0.5) {
                 most = max(most, excess(c.rgb, p));
             }
@@ -244,10 +249,11 @@ fn matte(uv: vec2<f32>) -> vec4<f32> {
     let p = dominant(s.rgb);
     let pitch = texel() * 1.2;
     var sum = vec4<f32>(0.0);
-    for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-            let w = select(5.0, 6.0, i == 0) * select(5.0, 6.0, j == 0);
-            sum += sample_premultiplied(uv + vec2<f32>(f32(i), f32(j)) * pitch) * w;
+    // Counted from nought, as `plate` is (#673).
+    for (var j = 0; j < 3; j++) {
+        for (var i = 0; i < 3; i++) {
+            let w = select(5.0, 6.0, i == 1) * select(5.0, 6.0, j == 1);
+            sum += sample_premultiplied(uv + vec2<f32>(f32(i - 1), f32(j - 1)) * pitch) * w;
         }
     }
     let smooth_colour = sum.rgb / max(sum.a, 1e-6);
