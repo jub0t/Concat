@@ -13,6 +13,7 @@ import {
 } from "../primitives/panel.slint";
 import { Button, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { MotionPicker, MotionTiles } from "motion-picker.slint";
 import { Select } from "../primitives/select.slint";
 import { SpeedGraph, SpeedRamp } from "speed-ramp.slint";
 import {
@@ -3161,8 +3162,9 @@ export component AdjustPanel inherits VerticalLayout {
 // dissolves with, which is exactly what it means here — how much of the
 // treated signal is heard — and one field that means one thing on every kind
 // beats a second that means it only on this one.
-/// How the clip comes on, goes off and moves in between: an entrance, an
-/// exit and a loop, each a pick from its list. They move the whole picture
+/// How the clip comes on, goes off and moves in between: In, Out and Loop
+/// as pages of cards, each card playing its move; the picked one's length
+/// (and a loop's lap and amount) under them. They move the whole picture
 /// where it is placed, over its keys.
 export component AnimatePanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
@@ -3170,23 +3172,26 @@ export component AnimatePanel inherits VerticalLayout {
     callback set(field: ClipField, value: float);
     callback commit();
 
-    /// None, then the moves in concat_core::motion::Move::ALL's order.
+    /// The moves' names in concat_core::motion::Move::ALL's order.
     property <[string]> moves: [
-        I18n.t("common.none"), I18n.t("motion.fade"), I18n.t("motion.slideLeft"),
-        I18n.t("motion.slideRight"), I18n.t("motion.slideUp"), I18n.t("motion.slideDown"),
-        I18n.t("motion.zoomIn"), I18n.t("motion.zoomOut"), I18n.t("motion.pop"),
-        I18n.t("motion.drop"), I18n.t("motion.rise"), I18n.t("motion.spin"),
-        I18n.t("motion.flip"), I18n.t("motion.swing"), I18n.t("motion.squash"),
+        I18n.t("motion.fade"), I18n.t("motion.slideLeft"), I18n.t("motion.slideRight"),
+        I18n.t("motion.slideUp"), I18n.t("motion.slideDown"), I18n.t("motion.zoomIn"),
+        I18n.t("motion.zoomOut"), I18n.t("motion.pop"), I18n.t("motion.drop"),
+        I18n.t("motion.rise"), I18n.t("motion.spin"), I18n.t("motion.flip"),
+        I18n.t("motion.swing"), I18n.t("motion.squash"),
     ];
-    /// None, then the loops in Cycle::ALL's order.
+    /// The loops' names in Cycle::ALL's order.
     property <[string]> loops: [
-        I18n.t("common.none"), I18n.t("motion.pulse"), I18n.t("motion.heartbeat"),
-        I18n.t("motion.float"), I18n.t("motion.wiggle"), I18n.t("motion.sway"),
-        I18n.t("motion.jitter"), I18n.t("motion.spinLoop"), I18n.t("motion.flicker"),
-        I18n.t("motion.breathe"),
+        I18n.t("motion.pulse"), I18n.t("motion.heartbeat"), I18n.t("motion.float"),
+        I18n.t("motion.wiggle"), I18n.t("motion.sway"), I18n.t("motion.jitter"),
+        I18n.t("motion.spinLoop"), I18n.t("motion.flicker"), I18n.t("motion.breathe"),
     ];
     /// An entrance or an exit longer than the clip would never finish.
     property <float> limit: Math.max(0.1, Math.min(10, root.selected.duration));
+
+    // The page - In, Out or Loop - is the control's to write, so it is
+    // assigned, never bound.
+    property <int> page;
 
     // Seeded, not bound, for the reason FilterPanel's are.
     property <float> in-seconds;
@@ -3204,108 +3209,85 @@ export component AnimatePanel inherits VerticalLayout {
     init => { root.seed(); }
     changed selected => { root.seed(); }
 
-    Section {
-        first: true;
-        enter := SectionHeader {
-            title: I18n.t("motion.in");
-            collapsible: true;
-            summary: root.moves[root.selected.motion-in + 1];
-        }
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-top: 12px;
+    padding-bottom: 14px;
+    spacing: 12px;
 
-        if enter.open: SectionBody {
-            Row {
-                label: I18n.t("motion.move");
-                Select {
-                    options: root.moves;
-                    current: root.selected.motion-in + 1;
-                    changed(index) => { root.set(ClipField.motion-in, index - 1); root.commit(); }
-                }
-            }
-
-            if root.selected.motion-in >= 0: Param {
-                label: I18n.t("motion.length");
-                value <=> root.in-seconds;
-                minimum: 0.05;
-                maximum: root.limit;
-                step: 0.05;
-                default-value: 0.5;
-                fmt: ParamFormat.seconds2;
-                changed(v) => { root.set(ClipField.motion-in-seconds, v); root.commit(); }
-            }
-        }
+    SegmentedControl {
+        options: [I18n.t("motion.in"), I18n.t("motion.out"), I18n.t("motion.loop")];
+        current <=> root.page;
     }
 
-    Section {
-        exit := SectionHeader {
-            title: I18n.t("motion.out");
-            collapsible: true;
-            summary: root.moves[root.selected.motion-out + 1];
-        }
-
-        if exit.open: SectionBody {
-            Row {
-                label: I18n.t("motion.move");
-                Select {
-                    options: root.moves;
-                    current: root.selected.motion-out + 1;
-                    changed(index) => { root.set(ClipField.motion-out, index - 1); root.commit(); }
-                }
-            }
-
-            if root.selected.motion-out >= 0: Param {
-                label: I18n.t("motion.length");
-                value <=> root.out-seconds;
-                minimum: 0.05;
-                maximum: root.limit;
-                step: 0.05;
-                default-value: 0.5;
-                fmt: ParamFormat.seconds2;
-                changed(v) => { root.set(ClipField.motion-out-seconds, v); root.commit(); }
-            }
-        }
+    if root.page == 0: MotionPicker {
+        tiles: MotionTiles.enter;
+        labels: root.moves;
+        none-label: I18n.t("common.none");
+        current: root.selected.motion-in;
+        picked(index) => { root.set(ClipField.motion-in, index); root.commit(); }
     }
 
-    Section {
-        cycle := SectionHeader {
-            title: I18n.t("motion.loop");
-            collapsible: true;
-            summary: root.loops[root.selected.motion-loop + 1];
-        }
+    if root.page == 1: MotionPicker {
+        tiles: MotionTiles.exit;
+        labels: root.moves;
+        none-label: I18n.t("common.none");
+        current: root.selected.motion-out;
+        picked(index) => { root.set(ClipField.motion-out, index); root.commit(); }
+    }
 
-        if cycle.open: SectionBody {
-            Row {
-                label: I18n.t("motion.move");
-                Select {
-                    options: root.loops;
-                    current: root.selected.motion-loop + 1;
-                    changed(index) => { root.set(ClipField.motion-loop, index - 1); root.commit(); }
-                }
-            }
+    if root.page == 2: MotionPicker {
+        tiles: MotionTiles.cycle;
+        labels: root.loops;
+        none-label: I18n.t("common.none");
+        current: root.selected.motion-loop;
+        picked(index) => { root.set(ClipField.motion-loop, index); root.commit(); }
+    }
 
-            if root.selected.motion-loop >= 0: Param {
-                label: I18n.t("motion.lap");
-                value <=> root.loop-seconds;
-                minimum: 0.1;
-                maximum: 20;
-                step: 0.05;
-                default-value: 1;
-                fmt: ParamFormat.seconds2;
-                changed(v) => { root.set(ClipField.motion-loop-seconds, v); root.commit(); }
-            }
+    if root.page == 0 && root.selected.motion-in >= 0: Param {
+        label: I18n.t("motion.length");
+        value <=> root.in-seconds;
+        minimum: 0.05;
+        maximum: root.limit;
+        step: 0.05;
+        default-value: 0.5;
+        fmt: ParamFormat.seconds2;
+        changed(v) => { root.set(ClipField.motion-in-seconds, v); root.commit(); }
+    }
 
-            if root.selected.motion-loop >= 0: Param {
-                label: I18n.t("motion.amount");
-                value <=> root.loop-amount;
-                minimum: 0;
-                maximum: 2;
-                step: 0.01;
-                default-value: 1;
-                fmt: ParamFormat.fraction;
-                unit: "%";
-                unit-scale: 100;
-                changed(v) => { root.set(ClipField.motion-loop-amount, v); root.commit(); }
-            }
-        }
+    if root.page == 1 && root.selected.motion-out >= 0: Param {
+        label: I18n.t("motion.length");
+        value <=> root.out-seconds;
+        minimum: 0.05;
+        maximum: root.limit;
+        step: 0.05;
+        default-value: 0.5;
+        fmt: ParamFormat.seconds2;
+        changed(v) => { root.set(ClipField.motion-out-seconds, v); root.commit(); }
+    }
+
+    if root.page == 2 && root.selected.motion-loop >= 0: Param {
+        label: I18n.t("motion.lap");
+        value <=> root.loop-seconds;
+        minimum: 0.1;
+        maximum: 20;
+        step: 0.05;
+        default-value: 1;
+        fmt: ParamFormat.seconds2;
+        changed(v) => { root.set(ClipField.motion-loop-seconds, v); root.commit(); }
+    }
+
+    if root.page == 2 && root.selected.motion-loop >= 0: Param {
+        label: I18n.t("motion.amount");
+        value <=> root.loop-amount;
+        minimum: 0;
+        maximum: 2;
+        step: 0.01;
+        default-value: 1;
+        fmt: ParamFormat.fraction;
+        unit: "%";
+        unit-scale: 100;
+        changed(v) => { root.set(ClipField.motion-loop-amount, v); root.commit(); }
     }
 }
 

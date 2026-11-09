@@ -45,6 +45,7 @@ mod i18n;
 mod ios;
 mod keymap;
 mod meters;
+mod motion_tiles;
 mod platform;
 /// How a phone keeps its screen on while a job runs; see
 /// `concat_host::awake`.
@@ -355,6 +356,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     studio.watch_packages();
     let dark = studio.prefs.dark.unwrap_or(true);
     app.global::<Theme>().set_dark(dark);
+    motion_tiles::install(&app);
     // Windows puts a dialog's OK before its Cancel; macOS and Linux after.
     app.global::<Theme>().set_ok_first(cfg!(windows));
     // The accent is remembered by name and the names live on the Theme
