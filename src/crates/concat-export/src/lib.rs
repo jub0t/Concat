@@ -2471,6 +2471,7 @@ fn live_treatments(treatments: &[Treatment], time: Rational) -> Vec<PlannedTreat
             track: treatment.track,
             effects: treatment.passes_at(time),
             strength: treatment.strength_at(time),
+            start: treatment.start.as_f64(),
         })
         .collect()
 }
@@ -3034,6 +3035,7 @@ pub fn preview_sources_of(
             track: treatment.track,
             effects: treatment.passes_at(time),
             strength: treatment.strength_at(time),
+            start: treatment.start.as_f64(),
         })
         .collect();
     frame_plan

@@ -389,6 +389,7 @@ fn a_treatment_treats_the_stack_beneath_its_track_only() {
             track: 1,
             effects: vec![package("concat.invert", INVERT, "", &[], 1.0)],
             strength,
+            start: 0.0,
         }],
         ..plan(8, 8, vec![ground.clone(), blue.clone()])
     };
@@ -878,6 +879,28 @@ fn a_pass_reads_its_layers_clip_relative_time() {
         &[0, 255, 0],
         "clip_time should read 3.0"
     );
+}
+
+/// An effect layer is a clip too: what it runs reads `clip_time` from the
+/// layer's own start, so a one-shot effect dropped on a beat fires there.
+/// A layer from 2s, at 5s, has run for three.
+#[test]
+fn an_effect_layer_times_its_effects_from_its_own_start() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(0.0, select(0.0, 1.0, abs(frame.clip_time - 3.0) < 0.001), select(1.0, 0.0, abs(frame.clip_time - 3.0) < 0.001), 1.0); }";
+    let ground = layer(solid(4, 4, [0, 0, 0, 255]));
+    let mut p = FramePlan {
+        treatments: vec![PlannedTreatment {
+            track: 1,
+            effects: vec![package("test.layertime", body, "", &[], 1.0)],
+            strength: 1.0,
+            start: 2.0,
+        }],
+        ..plan(4, 4, vec![ground])
+    };
+    p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
+    let out = gpu.render(&p);
+    assert_eq!(&out.pixels()[..3], &[0, 255, 0], "the layer's clip_time should read 3.0");
 }
 
 /// Every packaged transition's pipeline actually creates and runs on the

@@ -738,6 +738,10 @@ pub struct PlannedTreatment {
     pub effects: Vec<ShaderPass>,
     /// How much of the treated stack to keep over the untreated, `0..=1`.
     pub strength: f32,
+    /// When the layer begins, in the timeline's seconds: its effects'
+    /// `clip_time` counts from here, so a one-shot effect on a layer - a
+    /// hit of shake on the beat it is dropped on - starts with the layer.
+    pub start: f64,
 }
 
 /// Everything needed to draw one output frame.
