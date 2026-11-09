@@ -109,6 +109,10 @@ enum Command {
         /// Card height in pixels.
         #[arg(long, default_value_t = concat_host::cards::HEIGHT)]
         height: u32,
+        /// For a transition: how far through the cut to draw, `0..=1`, in
+        /// place of the card's own moment - to look at a cut frame by frame.
+        #[arg(long)]
+        progress: Option<f64>,
     },
 
     /// Check effect packages before sharing them: load each folder the way
@@ -148,7 +152,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             effect,
             width,
             height,
-        } => preview(&input, &output, &effect, width, height),
+            progress,
+        } => preview(&input, &output, &effect, width, height, progress),
         Command::Check { path } => check(&path),
     }
 }
@@ -267,12 +272,24 @@ fn preview(
     effect: &str,
     width: u32,
     height: u32,
+    progress: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let catalogue = concat_effects::Catalogue::builtin();
-    let package = catalogue
+    let mut package = catalogue
         .get(effect)
-        .ok_or_else(|| format!("no package answers to {effect}"))?;
-    let card = concat_host::cards::Card::of(catalogue, package, Path::new(""))
+        .ok_or_else(|| format!("no package answers to {effect}"))?
+        .clone();
+    if let Some(progress) = progress {
+        if package.transition().is_none() {
+            return Err(
+                format!("{effect} is not a transition; --progress is a point in a cut").into(),
+            );
+        }
+        let mut card = package.manifest.card.clone().unwrap_or_default();
+        card.progress = Some(progress.clamp(0.0, 1.0));
+        package.manifest.card = Some(card);
+    }
+    let card = concat_host::cards::Card::of(catalogue, &package, Path::new(""))
         .ok_or_else(|| format!("{effect} draws no picture to make a card of"))?;
     let compositor =
         WgpuCompositor::new().ok_or("no GPU or software renderer is available to draw with")?;
