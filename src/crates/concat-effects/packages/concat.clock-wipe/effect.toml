@@ -6,9 +6,9 @@ name = "Clock Wipe"
 kind = "transition"
 category = "Wipe"
 order = 15
-description = "A hand sweeps around the centre, revealing the incoming shot as it turns."
+description = "A hand sweeps once round the face of the frame from twelve, leaving the next shot behind it."
 
 [transition]
-entry = "effect.wgsl"
-xfade = "radial"
 fallback = "cross-fade"
+xfade = "radial"
+entry = "effect.wgsl"

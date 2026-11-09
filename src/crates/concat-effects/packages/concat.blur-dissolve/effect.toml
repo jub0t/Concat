@@ -6,18 +6,18 @@ name = "Blur Dissolve"
 kind = "transition"
 category = "Dissolve"
 order = 1
-description = "A cross-dissolve that blurs into the cut and sharpens back out of it."
+description = "Both shots go soft towards the cut and the swap happens inside the blur, then the next one comes back into focus."
 
 [[param]]
 key = "strength"
 label = "Strength"
+unit = "%"
 min = 0
 max = 100
-default = 60
 step = 1
-unit = "%"
+default = 60
 
 [transition]
-entry = "effect.wgsl"
-xfade = "dissolve"
 fallback = "cross-fade"
+xfade = "dissolve"
+entry = "effect.wgsl"

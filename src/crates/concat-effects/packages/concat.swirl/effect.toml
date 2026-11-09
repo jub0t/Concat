@@ -5,19 +5,19 @@ id = "concat.swirl"
 name = "Swirl"
 kind = "transition"
 category = "Spin"
-shelves = ["Distortion & Glitch"]
 order = 7
-description = "The cut twists both pictures around its centre and untwists into the next shot."
+shelves = ["Distortion & Glitch"]
+description = "Both shots twist round the centre like water down a drain, and the next one untwists out of the whirl."
 
 [[param]]
 key = "twist"
 label = "Twist"
+unit = "%"
 min = 0
 max = 100
-default = 70
 step = 1
-unit = "%"
+default = 70
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"
