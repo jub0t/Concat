@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.daydream"
-name = "Daydream"
+id = "concat.window-seat"
+name = "Window Seat"
 kind = "filter"
 category = "Cinematic"
 order = 35

@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.marquee"
-name = "Marquee"
+id = "concat.city-lights"
+name = "City Lights"
 kind = "filter"
 category = "Stylised"
 order = 52

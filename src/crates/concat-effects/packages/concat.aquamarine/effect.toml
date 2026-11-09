@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.lagoon"
-name = "Lagoon"
+id = "concat.aquamarine"
+name = "Aquamarine"
 kind = "filter"
 category = "Everyday"
 order = 16

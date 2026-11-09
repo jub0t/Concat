@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.sage"
-name = "Sage"
+id = "concat.indie"
+name = "Indie"
 kind = "filter"
 category = "Cinematic"
 order = 36

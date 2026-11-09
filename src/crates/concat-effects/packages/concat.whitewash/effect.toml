@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.milk"
-name = "Milk"
+id = "concat.whitewash"
+name = "Whitewash"
 kind = "filter"
 category = "Everyday"
 order = 17
