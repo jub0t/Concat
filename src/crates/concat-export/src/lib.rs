@@ -291,6 +291,10 @@ pub struct ExportClip {
     /// it; its keyed numbers ride in `animation` as `maskX` and on.
     #[serde(default)]
     pub mask: Option<ClipMask>,
+    /// The clip's entrance, exit and loop; see the document's
+    /// `Clip::motion`.
+    #[serde(default)]
+    pub motion: Option<concat_project::model::ClipMotion>,
     /// Draw the cutout tinted over the whole picture instead of cutting
     /// it: the view while the clip's brushes are in use. Preview only.
     #[serde(default)]
@@ -427,6 +431,7 @@ impl ExportClip {
             media_duration: None,
             has_audio: None,
             cutout: None,
+            motion: None,
             mask: None,
             mask_dir: String::new(),
             stabilize: None,

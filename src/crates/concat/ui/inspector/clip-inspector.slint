@@ -3161,6 +3161,154 @@ export component AdjustPanel inherits VerticalLayout {
 // dissolves with, which is exactly what it means here — how much of the
 // treated signal is heard — and one field that means one thing on every kind
 // beats a second that means it only on this one.
+/// How the clip comes on, goes off and moves in between: an entrance, an
+/// exit and a loop, each a pick from its list. They move the whole picture
+/// where it is placed, over its keys.
+export component AnimatePanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    /// None, then the moves in concat_core::motion::Move::ALL's order.
+    property <[string]> moves: [
+        I18n.t("common.none"), I18n.t("motion.fade"), I18n.t("motion.slideLeft"),
+        I18n.t("motion.slideRight"), I18n.t("motion.slideUp"), I18n.t("motion.slideDown"),
+        I18n.t("motion.zoomIn"), I18n.t("motion.zoomOut"), I18n.t("motion.pop"),
+        I18n.t("motion.drop"), I18n.t("motion.rise"), I18n.t("motion.spin"),
+        I18n.t("motion.flip"), I18n.t("motion.swing"), I18n.t("motion.squash"),
+    ];
+    /// None, then the loops in Cycle::ALL's order.
+    property <[string]> loops: [
+        I18n.t("common.none"), I18n.t("motion.pulse"), I18n.t("motion.heartbeat"),
+        I18n.t("motion.float"), I18n.t("motion.wiggle"), I18n.t("motion.sway"),
+        I18n.t("motion.jitter"), I18n.t("motion.spinLoop"), I18n.t("motion.flicker"),
+        I18n.t("motion.breathe"),
+    ];
+    /// An entrance or an exit longer than the clip would never finish.
+    property <float> limit: Math.max(0.1, Math.min(10, root.selected.duration));
+
+    // Seeded, not bound, for the reason FilterPanel's are.
+    property <float> in-seconds;
+    property <float> out-seconds;
+    property <float> loop-seconds;
+    property <float> loop-amount;
+
+    function seed() {
+        root.in-seconds = root.selected.motion-in-seconds;
+        root.out-seconds = root.selected.motion-out-seconds;
+        root.loop-seconds = root.selected.motion-loop-seconds;
+        root.loop-amount = root.selected.motion-loop-amount;
+    }
+
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    Section {
+        first: true;
+        enter := SectionHeader {
+            title: I18n.t("motion.in");
+            collapsible: true;
+            summary: root.moves[root.selected.motion-in + 1];
+        }
+
+        if enter.open: SectionBody {
+            Row {
+                label: I18n.t("motion.move");
+                Select {
+                    options: root.moves;
+                    current: root.selected.motion-in + 1;
+                    changed(index) => { root.set(ClipField.motion-in, index - 1); root.commit(); }
+                }
+            }
+
+            if root.selected.motion-in >= 0: Param {
+                label: I18n.t("motion.length");
+                value <=> root.in-seconds;
+                minimum: 0.05;
+                maximum: root.limit;
+                step: 0.05;
+                default-value: 0.5;
+                fmt: ParamFormat.seconds2;
+                changed(v) => { root.set(ClipField.motion-in-seconds, v); root.commit(); }
+            }
+        }
+    }
+
+    Section {
+        exit := SectionHeader {
+            title: I18n.t("motion.out");
+            collapsible: true;
+            summary: root.moves[root.selected.motion-out + 1];
+        }
+
+        if exit.open: SectionBody {
+            Row {
+                label: I18n.t("motion.move");
+                Select {
+                    options: root.moves;
+                    current: root.selected.motion-out + 1;
+                    changed(index) => { root.set(ClipField.motion-out, index - 1); root.commit(); }
+                }
+            }
+
+            if root.selected.motion-out >= 0: Param {
+                label: I18n.t("motion.length");
+                value <=> root.out-seconds;
+                minimum: 0.05;
+                maximum: root.limit;
+                step: 0.05;
+                default-value: 0.5;
+                fmt: ParamFormat.seconds2;
+                changed(v) => { root.set(ClipField.motion-out-seconds, v); root.commit(); }
+            }
+        }
+    }
+
+    Section {
+        cycle := SectionHeader {
+            title: I18n.t("motion.loop");
+            collapsible: true;
+            summary: root.loops[root.selected.motion-loop + 1];
+        }
+
+        if cycle.open: SectionBody {
+            Row {
+                label: I18n.t("motion.move");
+                Select {
+                    options: root.loops;
+                    current: root.selected.motion-loop + 1;
+                    changed(index) => { root.set(ClipField.motion-loop, index - 1); root.commit(); }
+                }
+            }
+
+            if root.selected.motion-loop >= 0: Param {
+                label: I18n.t("motion.lap");
+                value <=> root.loop-seconds;
+                minimum: 0.1;
+                maximum: 20;
+                step: 0.05;
+                default-value: 1;
+                fmt: ParamFormat.seconds2;
+                changed(v) => { root.set(ClipField.motion-loop-seconds, v); root.commit(); }
+            }
+
+            if root.selected.motion-loop >= 0: Param {
+                label: I18n.t("motion.amount");
+                value <=> root.loop-amount;
+                minimum: 0;
+                maximum: 2;
+                step: 0.01;
+                default-value: 1;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.motion-loop-amount, v); root.commit(); }
+            }
+        }
+    }
+}
+
 export component FilterPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
     /// What the help says the layer does: a picture layer's or a sound

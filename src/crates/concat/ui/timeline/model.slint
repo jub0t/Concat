@@ -201,6 +201,10 @@ export enum ClipField {
     /// picture's shorter side, the turn in degrees, the corners' roundness
     /// and the edge's softness 0..1
     mask-shape, mask-invert,
+    /// the moves: an entrance, an exit and a loop as places in their lists,
+    /// below zero for none, and their seconds; the loop's amount 0..2
+    motion-in, motion-in-seconds, motion-out, motion-out-seconds,
+    motion-loop, motion-loop-seconds, motion-loop-amount,
     mask-x, mask-y, mask-width, mask-height, mask-rotation, mask-roundness, mask-feather,
     /// a shape: its figure as a place in ShapeKind::ALL, its box as
     /// fractions of frame height, corners 0..1, a polygon's sides and a
@@ -418,6 +422,18 @@ export struct SelectedClipData {
     /// inverted; and its numbers at the playhead - see ClipField.mask-x
     mask: int,
     mask-invert: bool,
+    /// the moves: the entrance's and the exit's place in the move list
+    /// (fade, slide left, slide right, slide up, slide down, zoom in, zoom
+    /// out, pop, drop, rise, spin, flip, swing, squash) and the loop's in
+    /// the loop list (pulse, heartbeat, float, wiggle, sway, jitter, spin,
+    /// flicker, breathe), -1 for none; their seconds, and the loop's amount
+    motion-in: int,
+    motion-in-seconds: float,
+    motion-out: int,
+    motion-out-seconds: float,
+    motion-loop: int,
+    motion-loop-seconds: float,
+    motion-loop-amount: float,
     mask-x: float,
     mask-y: float,
     mask-width: float,

@@ -15,7 +15,7 @@ import {
     CategoryPillBar, GroupPillBar, MediaCard, MediaItemData, PresetGrid, ShelfGrid, ShelfSearch,
 } from "../workspace/media-pane.slint";
 import {
-    AdjustPanel, AudioPanel, EnhancePanel, FilterPanel, Library, PresetStack, ProcessorRows,
+    AdjustPanel, AnimatePanel, AudioPanel, EnhancePanel, FilterPanel, Library, PresetStack, ProcessorRows,
     SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
@@ -446,6 +446,7 @@ export component PhoneEditor inherits Rectangle {
             : name == "clip-enhance" ? I18n.t("common.enhance")
             : name == "clip-layer" ? I18n.t("configPane.filter")
             : name == "clip-mask" ? I18n.t("mask.title")
+            : name == "clip-animate" ? I18n.t("motion.animate")
             : "";
     }
 
@@ -1113,6 +1114,13 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "clip-audio-effects";
                 clicked => { root.show("clip-audio-effects", true); }
             }
+            // In, Out and Loop: the moves a clip, a title or a shape makes.
+            if root.is-picture || root.is-text || root.is-shape: ToolItem {
+                glyph: Glyph.circle-play;
+                label: I18n.t("motion.animate");
+                current: root.sheet == "clip-animate";
+                clicked => { root.show("clip-animate", true); }
+            }
             // The Mask, on a sheet of its own.
             if root.is-picture: ToolItem {
                 glyph: Glyph.mask-circle;
@@ -1542,6 +1550,12 @@ export component PhoneEditor inherits Rectangle {
             cutout-painting(on) => { Editor.cutout-painting(on); }
             cutout-subject(index) => { Editor.cutout-subject(index); }
             cutout-clear => { Editor.cutout-clear(); }
+        }
+
+        if root.sheet == "clip-animate": AnimatePanel {
+            selected: Editor.selected-clip;
+            set(field, value) => { Editor.clip-set(field, value); }
+            commit => { Editor.clip-commit(); }
         }
 
         if root.sheet == "clip-speed": SpeedPanel {

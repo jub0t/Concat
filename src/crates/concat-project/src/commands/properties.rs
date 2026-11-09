@@ -65,6 +65,9 @@ pub(super) fn apply(
             if let Some(mask) = patch.mask {
                 applied |= assign(&mut clip.mask, mask.map(ClipMask::tidy));
             }
+            if let Some(motion) = patch.motion {
+                applied |= assign(&mut clip.motion, motion.and_then(ClipMotion::tidy));
+            }
             if let Some(filters) = patch.filters {
                 applied |= assign(&mut clip.filters, filters);
             }

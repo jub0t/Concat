@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::animate::Animation;
 use crate::arena::{Arena, Id};
 use crate::mask::ShapeMask;
+use crate::motion::{Motion, Pose};
 use crate::retime::SpeedCurve;
 use crate::time::{FrameRate, Rational, TimeRange};
 
@@ -93,6 +94,9 @@ pub struct Clip {
     /// Keys over the clip's placement and opacity, when it has any. See
     /// [`Animation`].
     pub animation: Option<Animation>,
+    /// How it comes on, goes off and moves in between, over its keys; see
+    /// [`Motion`]. None for none.
+    pub motion: Option<Motion>,
     /// How the clip's colour meets what is beneath it.
     pub blend: Blend,
     /// One frame, held: every instant of the clip maps to `source_start`,
@@ -230,6 +234,7 @@ impl Clip {
             transform: Transform::IDENTITY,
             retime: None,
             animation: None,
+            motion: None,
             blend: Blend::Normal,
             hold: false,
             mask: None,
@@ -249,10 +254,28 @@ impl Clip {
 
     /// The placement at `time`: the clip's own, moved by its animation.
     pub fn transform_at(&self, time: Rational) -> Transform {
-        match &self.animation {
+        let keyed = match &self.animation {
             Some(animation) => animation.transform_at(self.transform, self.fraction_at(time)),
             None => self.transform,
+        };
+        match self.pose_at(time) {
+            Some(pose) => Transform {
+                scale: (keyed.scale * pose.scale).max(0.001),
+                offset_x: keyed.offset_x + pose.dx,
+                offset_y: keyed.offset_y + pose.dy,
+                rotation: keyed.rotation + pose.rotation,
+                stretch_x: keyed.stretch_x * pose.stretch_x.max(0.001),
+                stretch_y: keyed.stretch_y * pose.stretch_y.max(0.001),
+            },
+            None => keyed,
         }
+    }
+
+    /// Where the clip's moves have it at `time`; None for a clip with none.
+    pub fn pose_at(&self, time: Rational) -> Option<Pose> {
+        let motion = self.motion.as_ref().filter(|motion| !motion.is_empty())?;
+        let local = (time - self.start).as_f64();
+        Some(motion.pose_at(local, self.duration.as_f64()))
     }
 
     /// The mask at `time`: the clip's own, its keyed numbers at their
@@ -268,9 +291,13 @@ impl Clip {
     /// The opacity at `time`, before the fade ramps: the clip's own, scaled
     /// by its animation.
     pub fn opacity_at(&self, time: Rational) -> f32 {
-        match &self.animation {
+        let keyed = match &self.animation {
             Some(animation) => animation.opacity_at(self.opacity, self.fraction_at(time)),
             None => self.opacity,
+        };
+        match self.pose_at(time) {
+            Some(pose) => (f64::from(keyed) * pose.opacity).clamp(0.0, 1.0) as f32,
+            None => keyed,
         }
     }
 

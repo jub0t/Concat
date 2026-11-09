@@ -330,6 +330,7 @@ pub(crate) fn build_timeline(
             engine_clip.retime = clip.retime();
         }
         engine_clip.animation = animation_of(&clip.animation);
+        engine_clip.motion = clip.motion.as_ref().and_then(|motion| motion.engine());
         engine_clip.blend = concat_core::timeline::Blend::parse(&clip.blend);
         engine_clip.mask = clip.mask.map(|mask| mask.engine());
         engine_clip.overscan = overscan_of(clip);

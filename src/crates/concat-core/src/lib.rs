@@ -20,6 +20,7 @@ pub mod animate;
 pub mod arena;
 pub mod frame;
 pub mod mask;
+pub mod motion;
 pub mod retime;
 pub mod shader;
 pub mod time;

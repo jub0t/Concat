@@ -1122,6 +1122,47 @@ impl Studio {
                 .and_then(|mask| model::MaskShape::ALL.iter().position(|s| *s == mask.shape))
                 .map_or(-1, |index| index as i32),
             mask_invert: clip.mask.is_some_and(|mask| mask.invert),
+            motion_in: motion_place(
+                clip.motion
+                    .as_ref()
+                    .and_then(|m| m.enter.as_ref())
+                    .map(|m| m.kind.as_str()),
+                false,
+            ),
+            motion_in_seconds: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.enter.as_ref())
+                .map_or(0.5, |m| m.seconds) as f32,
+            motion_out: motion_place(
+                clip.motion
+                    .as_ref()
+                    .and_then(|m| m.exit.as_ref())
+                    .map(|m| m.kind.as_str()),
+                false,
+            ),
+            motion_out_seconds: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.exit.as_ref())
+                .map_or(0.5, |m| m.seconds) as f32,
+            motion_loop: motion_place(
+                clip.motion
+                    .as_ref()
+                    .and_then(|m| m.cycle.as_ref())
+                    .map(|m| m.kind.as_str()),
+                true,
+            ),
+            motion_loop_seconds: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.cycle.as_ref())
+                .map_or(1.0, |m| m.seconds) as f32,
+            motion_loop_amount: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.cycle.as_ref())
+                .map_or(1.0, |m| m.amount) as f32,
             mask_x: shown(clip, model::KeyProperty::MaskX, at) as f32,
             mask_y: shown(clip, model::KeyProperty::MaskY, at) as f32,
             mask_width: shown(clip, model::KeyProperty::MaskWidth, at) as f32,
@@ -2725,4 +2766,24 @@ pub(crate) fn preset_card(preset: &TextPreset) -> TextPresetData {
         stroke_width: preset.style.stroke_width as f32,
         align: align_of(preset.style.align),
     }
+}
+
+/// Where a move or a loop named `kind` sits in its picker's list; -1 for
+/// none or a name the app does not know.
+fn motion_place(kind: Option<&str>, looping: bool) -> i32 {
+    let Some(kind) = kind else { return -1 };
+    let place = if looping {
+        concat_core::motion::Cycle::parse(kind).and_then(|found| {
+            concat_core::motion::Cycle::ALL
+                .iter()
+                .position(|c| *c == found)
+        })
+    } else {
+        concat_core::motion::Move::parse(kind).and_then(|found| {
+            concat_core::motion::Move::ALL
+                .iter()
+                .position(|m| *m == found)
+        })
+    };
+    place.map_or(-1, |place| place as i32)
 }

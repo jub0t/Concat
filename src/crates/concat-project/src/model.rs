@@ -987,6 +987,116 @@ impl MaskShape {
 /// placement - so it moves, scales and turns with the clip, and multiplies
 /// with the cutout's matte and everything else that weighs the picture.
 ///
+/// How a clip comes on, goes off and moves in between: an entrance, an
+/// exit and a loop, any of them. Each is applied where the clip is placed,
+/// over its keys, so the whole picture moves - a picture-in-picture slides
+/// as a card, a title pops as a title. See `concat_core::motion` for what
+/// each move does; a name the app does not know is kept and ignored.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClipMotion {
+    /// How it comes on.
+    #[serde(rename = "in", skip_serializing_if = "Option::is_none")]
+    pub enter: Option<ClipMove>,
+    /// How it goes off.
+    #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
+    pub exit: Option<ClipMove>,
+    /// What it does all along.
+    #[serde(rename = "loop", skip_serializing_if = "Option::is_none")]
+    pub cycle: Option<ClipLoop>,
+}
+
+/// An entrance or an exit: a move by name - `fade`, `slide-left`,
+/// `slide-right`, `slide-up`, `slide-down`, `zoom-in`, `zoom-out`, `pop`,
+/// `drop`, `rise`, `spin`, `flip`, `swing`, `squash` - over `seconds`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipMove {
+    /// The move's name.
+    pub kind: String,
+    /// Seconds it takes; half a second when left out.
+    #[serde(default = "half")]
+    pub seconds: f64,
+}
+
+/// A loop by name - `pulse`, `heartbeat`, `float`, `wiggle`, `sway`,
+/// `jitter`, `spin`, `flicker`, `breathe` - a lap every `seconds`, at
+/// `amount` (1 as designed).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipLoop {
+    /// The loop's name.
+    pub kind: String,
+    /// Seconds a lap takes; one when left out.
+    #[serde(default = "unity")]
+    pub seconds: f64,
+    /// How much of it, 0 to 2; one when left out.
+    #[serde(default = "unity")]
+    pub amount: f64,
+}
+
+fn half() -> f64 {
+    0.5
+}
+
+impl ClipMotion {
+    /// Bounds every number: a move from a twentieth of a second to ten,
+    /// a lap from a tenth to twenty, an amount from nought to two. None
+    /// when nothing is left.
+    pub fn tidy(mut self) -> Option<ClipMotion> {
+        for moving in [self.enter.as_mut(), self.exit.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            moving.seconds = if moving.seconds.is_finite() {
+                moving.seconds.clamp(0.05, 10.0)
+            } else {
+                0.5
+            };
+        }
+        if let Some(cycle) = self.cycle.as_mut() {
+            cycle.seconds = if cycle.seconds.is_finite() {
+                cycle.seconds.clamp(0.1, 20.0)
+            } else {
+                1.0
+            };
+            cycle.amount = if cycle.amount.is_finite() {
+                cycle.amount.clamp(0.0, 2.0)
+            } else {
+                1.0
+            };
+        }
+        (self.enter.is_some() || self.exit.is_some() || self.cycle.is_some()).then_some(self)
+    }
+
+    /// The engine's motion, the names it knows read and the rest left out;
+    /// None when nothing it knows is left.
+    pub fn engine(&self) -> Option<concat_core::motion::Motion> {
+        use concat_core::motion::{Cycle, Looping, Motion, Move, Moving};
+        let moving = |m: &ClipMove| {
+            Move::parse(&m.kind).map(|kind| Moving {
+                kind,
+                seconds: m.seconds.max(0.0),
+            })
+        };
+        let motion = Motion {
+            enter: self.enter.as_ref().and_then(moving),
+            exit: self.exit.as_ref().and_then(moving),
+            cycle: self.cycle.as_ref().and_then(|c| {
+                Cycle::parse(&c.kind).map(|kind| Looping {
+                    kind,
+                    seconds: c.seconds,
+                    amount: c.amount,
+                })
+            }),
+        };
+        (!motion.is_empty()).then_some(motion)
+    }
+}
+
 /// Its numbers other than the shape and the invert can be keyed, as the
 /// placement's can (`KeyProperty::MaskX` and on); a keyed number's keys
 /// replace the constant here.
@@ -2395,6 +2505,10 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub mask: Option<ClipMask>,
+    /// How it comes on, goes off and moves in between; see [`ClipMotion`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub motion: Option<ClipMotion>,
     /// The camera's shake taken out; see [`Stabilize`]. None is off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
@@ -2543,6 +2657,7 @@ impl Clip {
             crop: None,
             cutout: None,
             mask: None,
+            motion: None,
             stabilize: None,
             voice: None,
             filters: Vec::new(),

@@ -204,6 +204,69 @@ impl Studio {
                         None => model::ClipMask::of(shape),
                     });
                 }
+                ClipField::MotionIn
+                | ClipField::MotionInSeconds
+                | ClipField::MotionOut
+                | ClipField::MotionOutSeconds
+                | ClipField::MotionLoop
+                | ClipField::MotionLoopSeconds
+                | ClipField::MotionLoopAmount => {
+                    let mut motion = clip.motion.clone().unwrap_or_default();
+                    let place = value.round() as i64;
+                    let moving = |place: i64| {
+                        usize::try_from(place)
+                            .ok()
+                            .and_then(|place| concat_core::motion::Move::ALL.get(place))
+                            .map(|kind| kind.name().to_owned())
+                    };
+                    match field {
+                        ClipField::MotionIn => {
+                            let seconds = motion.enter.as_ref().map_or(0.5, |m| m.seconds);
+                            motion.enter =
+                                moving(place).map(|kind| model::ClipMove { kind, seconds });
+                        }
+                        ClipField::MotionOut => {
+                            let seconds = motion.exit.as_ref().map_or(0.5, |m| m.seconds);
+                            motion.exit =
+                                moving(place).map(|kind| model::ClipMove { kind, seconds });
+                        }
+                        ClipField::MotionLoop => {
+                            let (seconds, amount) = motion
+                                .cycle
+                                .as_ref()
+                                .map_or((1.0, 1.0), |m| (m.seconds, m.amount));
+                            motion.cycle = usize::try_from(place)
+                                .ok()
+                                .and_then(|place| concat_core::motion::Cycle::ALL.get(place))
+                                .map(|kind| model::ClipLoop {
+                                    kind: kind.name().to_owned(),
+                                    seconds,
+                                    amount,
+                                });
+                        }
+                        ClipField::MotionInSeconds => {
+                            if let Some(m) = motion.enter.as_mut() {
+                                m.seconds = value;
+                            }
+                        }
+                        ClipField::MotionOutSeconds => {
+                            if let Some(m) = motion.exit.as_mut() {
+                                m.seconds = value;
+                            }
+                        }
+                        ClipField::MotionLoopSeconds => {
+                            if let Some(m) = motion.cycle.as_mut() {
+                                m.seconds = value;
+                            }
+                        }
+                        _ => {
+                            if let Some(m) = motion.cycle.as_mut() {
+                                m.amount = value;
+                            }
+                        }
+                    }
+                    clip.motion = motion.tidy();
+                }
                 ClipField::MaskInvert => {
                     if let Some(mask) = clip.mask.as_mut() {
                         mask.invert = value != 0.0;
