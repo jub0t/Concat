@@ -236,7 +236,24 @@ export component Modal inherits Rectangle {
                 }
             }
 
-            @children
+            // The sheet's body, scrolled where the window is shorter than
+            // it: the Welcome window at its smallest cut the New Project
+            // sheet off at Background with no way down to Create (#689).
+            // Where it fits, it fills the surface and does not move.
+            scroller := Flickable {
+                preferred-height: content.preferred-height;
+                min-height: 0px;
+                vertical-stretch: 1;
+                interactive: content.preferred-height > self.height;
+                viewport-height: Math.max(self.height, content.preferred-height);
+
+                content := VerticalLayout {
+                    width: scroller.width;
+                    height: scroller.viewport-height;
+
+                    @children
+                }
+            }
         }
     }
 }

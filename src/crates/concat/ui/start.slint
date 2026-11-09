@@ -866,6 +866,8 @@ component DropTile inherits Rectangle {
 component PosterAction inherits Rectangle {
     in property <Glyph> glyph;
     in property <string> label;
+    /// The pointer is on the button, which takes it off the card under it.
+    out property <bool> hovered: touch.has-hover;
 
     callback clicked();
 
@@ -916,7 +918,14 @@ component PosterCard inherits Pressable {
     callback revealed();
 
     property <length> inset: 6px;
-    property <bool> actions: root.touchy || root.lit || root.ring || root.project.missing;
+    // A button over the poster takes the pointer off the card's own touch
+    // area, so the card stops being lit while one is hovered. Counted in,
+    // or the buttons hid as the pointer reached them, the card lit again
+    // and they came back, over and over (#693).
+    property <bool> over-reveal;
+    property <bool> over-forget;
+    property <bool> actions: root.touchy || root.lit || root.ring || root.project.missing
+        || root.over-reveal || root.over-forget;
 
     label: root.project.name;
     clicked => { root.opened(); }
@@ -1007,12 +1016,14 @@ component PosterCard inherits Pressable {
                 glyph: Glyph.folder;
                 label: I18n.t("start.showInFolder");
                 clicked => { root.revealed(); }
+                changed hovered => { root.over-reveal = self.hovered; }
             }
 
             PosterAction {
                 glyph: Glyph.close;
                 label: I18n.t("start.removeFromList");
                 clicked => { root.forgotten(); }
+                changed hovered => { root.over-forget = self.hovered; }
             }
         }
     }
@@ -2354,8 +2365,11 @@ export component NewProjectDialog inherits Modal {
                     enabled: !root.data.busy && root.data.size < root.sizes.length;
                     block: root.narrow;
                     // Seven shapes are past a phone's width; four to a
-                    // row there, as the sizes wrap three.
-                    per-row: root.narrow ? 4 : 0;
+                    // row there, as the sizes wrap three. On a desk too
+                    // when the sheet is too narrow for the seven on one
+                    // line: they ran on under the frame drawn at the
+                    // row's end (#688).
+                    per-row: root.narrow || self.width < 540px ? 4 : 0;
                     changed(index) => { root.aspect-changed(index); }
                 }
 
