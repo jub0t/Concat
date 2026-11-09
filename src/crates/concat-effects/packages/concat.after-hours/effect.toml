@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.midnight"
-name = "Midnight"
+id = "concat.after-hours"
+name = "After Hours"
 kind = "filter"
 category = "Cinematic"
 order = 37

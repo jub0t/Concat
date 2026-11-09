@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.peach"
-name = "Peach"
+id = "concat.blush"
+name = "Blush"
 kind = "filter"
 category = "Portrait"
 order = 20

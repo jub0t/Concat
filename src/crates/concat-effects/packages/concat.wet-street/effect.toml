@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.rain"
-name = "Rain"
+id = "concat.wet-street"
+name = "Wet Street"
 kind = "filter"
 category = "Cinematic"
 order = 38

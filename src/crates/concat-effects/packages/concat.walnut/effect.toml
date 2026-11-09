@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.umber"
-name = "Umber"
+id = "concat.walnut"
+name = "Walnut"
 kind = "filter"
 category = "Everyday"
 order = 19

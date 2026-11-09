@@ -1,8 +1,8 @@
 format = 2
 
 [effect]
-id = "concat.matcha"
-name = "Matcha"
+id = "concat.mint-haze"
+name = "Mint Haze"
 kind = "filter"
 category = "Stylised"
 order = 53
