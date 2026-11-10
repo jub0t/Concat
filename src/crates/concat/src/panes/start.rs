@@ -110,6 +110,12 @@ pub fn link(name: &str) -> Option<String> {
         "first-edit" => format!("{SITE}/guides/first-edit/"),
         "report" => format!("{SITE}/guides/report-a-problem/"),
         "github" => REPOSITORY.to_owned(),
+        // The gradient card: this version's "What's new" post on the
+        // website's blog, the polished telling of its release notes.
+        "news" => format!(
+            "{SITE}/blog/whats-new-in-{}/",
+            env!("CARGO_PKG_VERSION").replace('.', "-")
+        ),
         // The invite the README carries.
         "discord" => "https://discord.gg/DVuPfpXfqP".to_owned(),
         // The notes for the release this build is, under the tag the
@@ -692,6 +698,7 @@ mod tests {
             "report",
             "github",
             "discord",
+            "news",
             "release-notes",
         ] {
             assert!(

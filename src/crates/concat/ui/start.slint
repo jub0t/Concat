@@ -753,17 +753,19 @@ component CreateTile inherits Pressable {
     in property <string> note;
     in property <bool> primary;
 
-    property <color> ink: root.primary ? Theme.on-accent : Theme.fg;
+    // The main action is the light card - the page's ink turned into a
+    // surface, the way the website's one light pill is - and the rest are
+    // flat cards, no outline, lifting a step under the pointer.
+    property <color> ink: root.primary ? Theme.launch-page : Theme.fg;
 
     label: root.title;
+    radius: 22px;
     background: root.primary
-        ? (root.lit && !root.down ? Theme.accent-hover : Theme.accent)
+        ? (root.down ? Theme.fg.with-alpha(0.82) : root.lit ? Theme.fg.with-alpha(0.9) : Theme.fg)
         : (root.lit ? Theme.launch-raised : Theme.launch-panel);
-    border-width: root.primary ? 0px : 1px;
-    border-color: root.lit ? Theme.line-strong : Theme.line;
     opacity: root.enabled ? 1.0 : 0.45;
 
-    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
     HorizontalLayout {
         padding-left: 20px;
@@ -776,7 +778,7 @@ component CreateTile inherits Pressable {
                 width: 42px;
                 height: 42px;
                 border-radius: self.width / 2;
-                background: root.primary ? root.ink.with-alpha(0.14) : Theme.launch-field;
+                background: root.primary ? root.ink.with-alpha(0.1) : Theme.launch-field;
 
                 Icon {
                     x: (parent.width - self.width) / 2;
@@ -806,54 +808,6 @@ component CreateTile inherits Pressable {
                 text: root.note;
                 color: root.primary ? root.ink.with-alpha(0.72) : Theme.fg-dim;
                 font-size: Theme.fs;
-                overflow: elide;
-            }
-        }
-    }
-}
-
-// Where a drag from the file manager can land, said where the verbs are.
-// It takes no press: the whole window takes the drop, and this only says
-// so - so it is drawn as a hole in the page, a ring with nothing on it,
-// rather than as one more card to click.
-component DropTile inherits Rectangle {
-    border-radius: Theme.r-lg;
-    border-width: 1px;
-    border-color: Theme.line-strong;
-
-    HorizontalLayout {
-        padding-left: 20px;
-        padding-right: 18px;
-        spacing: 14px;
-
-        VerticalLayout {
-            alignment: center;
-            Icon {
-                glyph: Glyph.import;
-                size: 19px;
-                tint: Theme.fg-dim;
-            }
-        }
-
-        VerticalLayout {
-            alignment: center;
-            horizontal-stretch: 1;
-            spacing: 3px;
-
-            Text {
-                text: I18n.t("start.dropToStart");
-                color: Theme.fg-muted;
-                font-size: 16px;
-                font-weight: Theme.weight-title;
-                overflow: elide;
-            }
-
-            Text {
-                text: I18n.t("start.dropToStartNote");
-                color: Theme.fg-dim;
-                font-size: Theme.fs;
-                wrap: word-wrap;
-                max-height: 2 * Theme.fs * 1.4;
                 overflow: elide;
             }
         }
@@ -917,7 +871,7 @@ component PosterCard inherits Pressable {
     callback forgotten();
     callback revealed();
 
-    property <length> inset: 6px;
+    property <length> inset: 8px;
     // A button over the poster takes the pointer off the card's own touch
     // area, so the card stops being lit while one is hovered. Counted in,
     // or the buttons hid as the pointer reached them, the card lit again
@@ -930,11 +884,10 @@ component PosterCard inherits Pressable {
     label: root.project.name;
     clicked => { root.opened(); }
     deleted => { root.forgotten(); }
+    radius: 22px;
     background: root.lit ? Theme.launch-raised : Theme.launch-panel;
-    border-width: 1px;
-    border-color: root.lit ? Theme.line-strong : Theme.line;
 
-    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
     poster := Rectangle {
         x: root.inset;
@@ -943,7 +896,7 @@ component PosterCard inherits Pressable {
         // The frame is always this shape, poster or not, so a poster that
         // arrives late moves nothing on the page.
         height: self.width * 9 / 16;
-        border-radius: Theme.r;
+        border-radius: 15px;
         background: Theme.launch-well;
         clip: true;
 
@@ -1522,43 +1475,6 @@ component EmptyProjects inherits Rectangle {
     }
 }
 
-// The line at the foot of the page: which Concat this is, and what changed
-// in it.
-component VersionLine inherits HorizontalLayout {
-    in property <string> version;
-
-    callback notes();
-
-    spacing: 10px;
-
-    VerticalLayout {
-        alignment: center;
-        Text {
-            text: "Concat " + root.version;
-            color: Theme.fg-dim;
-            font-family: Theme.font-technical;
-            font-size: Theme.fs-sm;
-        }
-    }
-
-    VerticalLayout {
-        alignment: center;
-        Rectangle {
-            width: 3px;
-            height: 3px;
-            border-radius: 1.5px;
-            background: Theme.fg-dim;
-        }
-    }
-
-    TextLink {
-        text: I18n.t1("start.whatsNew", root.version);
-        clicked => { root.notes(); }
-    }
-
-    Rectangle { horizontal-stretch: 1; }
-}
-
 // The cards, and the words on them, in one place: the wide page lays them
 // as a column beside the projects or a grid under them, the narrow one as
 // a list. The phone has no Shortcuts page in its Settings, so it has no
@@ -1567,10 +1483,6 @@ global Learn {
     out property <LearnItem> docs: {
         name: "guides", glyph: Glyph.book, external: true,
         title: I18n.t("start.documentation"), note: I18n.t("start.documentationNote"),
-    };
-    out property <LearnItem> guide: {
-        name: "first-edit", glyph: Glyph.circle-play, external: true,
-        title: I18n.t("start.firstEdit"), note: I18n.t("start.firstEditNote"),
     };
     out property <LearnItem> keys: {
         name: "shortcuts", glyph: Glyph.keyboard, external: false,
@@ -1588,8 +1500,8 @@ global Learn {
         name: "report", glyph: Glyph.bug, external: true,
         title: I18n.t("start.reportProblem"), note: I18n.t("start.reportProblemNote"),
     };
-    out property <[LearnItem]> desk: [docs, guide, keys, code, chat, report];
-    out property <[LearnItem]> phone: [docs, guide, code, chat, report];
+    out property <[LearnItem]> desk: [docs, keys, code, chat, report];
+    out property <[LearnItem]> phone: [docs, code, chat, report];
 }
 
 // The learn cards as a grid of rows, for the wide page under the projects
@@ -1614,6 +1526,83 @@ component LearnGrid inherits Rectangle {
         height: root.card-h;
         item: item;
         clicked => { root.link(item.name); }
+    }
+}
+
+// A soft light of colour behind the news card: a radial fade from `tint`
+// to nothing, sized and placed by its parent, so several overlap into one
+// glow the way paint runs together.
+component Glow inherits Rectangle {
+    in property <color> tint;
+    border-radius: self.width / 2;
+    background: @radial-gradient(circle, root.tint 0%, root.tint.with-alpha(0.55) 34%, root.tint.with-alpha(0) 70%);
+}
+
+// What is new in Concat, as a card of warm light: orange running into
+// rose, magenta and a deep violet, with the line in large white type over
+// it. Its own colours in either theme - it is a picture, not a surface -
+// and a press opens the post that tells the rest.
+component NewsCard inherits Pressable {
+    in property <string> title;
+    in property <string> note;
+    /// The type steps down on a short card.
+    in property <bool> compact;
+
+    label: root.title;
+    radius: root.compact ? 22px : 28px;
+    background: #e5475f;
+    clip: true;
+
+    Glow { x: -root.width * 0.55; y: root.height * 0.05; width: root.width * 1.25; height: self.width; tint: #f8b640; }
+    Glow { x: root.width * 0.35; y: -root.height * 0.9; width: root.width * 1.0; height: self.width; tint: #f06a3c; }
+    Glow { x: root.width * 0.25; y: root.height * 0.05; width: root.width * 0.95; height: self.width; tint: #e43fd6; }
+    Glow { x: root.width * 0.5; y: root.height * 0.25; width: root.width * 1.0; height: self.width; tint: #4a12d9; }
+    Glow { x: root.width * 0.72; y: root.height * 0.55; width: root.width * 0.7; height: self.width; tint: #3a0bc2; }
+    Glow { x: -root.width * 0.3; y: root.height * 0.72; width: root.width * 0.55; height: self.width; tint: #5c0f3c; }
+
+    // A wash of light under the pointer, the card's own hover.
+    Rectangle {
+        background: #ffffff;
+        opacity: root.lit ? 0.07 : 0.0;
+        animate opacity { duration: 160ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+    }
+
+    VerticalLayout {
+        padding: root.compact ? 22px : 30px;
+        spacing: 10px;
+
+        Text {
+            text: root.title;
+            color: #ffffff;
+            font-size: root.compact ? 24px : 31px;
+            font-weight: 500;
+            letter-spacing: -0.6px;
+            wrap: word-wrap;
+            vertical-stretch: 1;
+            vertical-alignment: top;
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            Text {
+                text: root.note;
+                color: #ffffff;
+                opacity: 0.9;
+                font-size: Theme.fs-lg;
+                font-weight: 500;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+            VerticalLayout {
+                alignment: end;
+                Icon {
+                    glyph: Glyph.arrow-up-right;
+                    size: 14px;
+                    weight: 2.2;
+                    tint: #ffffff;
+                }
+            }
+        }
     }
 }
 
@@ -1656,12 +1645,10 @@ component WideHome inherits Rectangle {
     property <length> aside-gap: 40px;
     property <length> main-w: root.aside ? root.content-w - root.aside-w - root.aside-gap
         : root.content-w;
-    /// The drop tile, beside New and Open, where they still have room.
-    property <bool> drop-tile: root.can-drop && root.main-w >= 940px;
     /// The create row shares its width by weight - New a third again as
     /// wide as the others - and not by what its words would like, so a
     /// longer line on one tile does not shoulder the others aside.
-    property <int> extra-tiles: (root.drop-tile ? 1 : 0) + (root.capcut ? 1 : 0);
+    property <int> extra-tiles: root.capcut ? 1 : 0;
     property <length> tile-unit: (root.main-w - (1 + root.extra-tiles) * 14px)
         / (2.3 + root.extra-tiles);
     property <bool> searchable: root.recents-total > 8;
@@ -1686,21 +1673,27 @@ component WideHome inherits Rectangle {
                 alignment: start;
 
                 // ── the greeting ─────────────────────────────────────
-                Text {
-                    text: root.recents-total == 0
-                        ? I18n.t("start.welcome")
-                        : I18n.t("start.welcomeBack");
-                    color: Theme.fg;
-                    // The one display-sized line in the app. The tree
-                    // bundles no display face, so the interface face
-                    // carries it at its heaviest weight and tight tracking.
-                    font-size: Theme.fs-display;
-                    font-weight: Theme.weight-display;
-                    letter-spacing: -1px;
-                    wrap: word-wrap;
+                // Its own width, not the column's, so the gradient runs
+                // across the words and not across empty space after them.
+                HorizontalLayout {
+                    alignment: start;
+                    Text {
+                        text: root.recents-total == 0
+                            ? I18n.t("start.welcome")
+                            : I18n.t("start.welcomeBack");
+                        // The one display-sized line in the app, set the
+                        // way the website sets its headline: medium weight,
+                        // tight tracking, the ink running into the accent.
+                        color: @linear-gradient(90deg, Theme.fg 0%, Theme.fg 25%, Theme.accent.mix(Theme.fg, 0.6) 100%);
+                        font-size: Math.max(40px, Math.min(60px, root.main-w / 16));
+                        font-weight: 500;
+                        letter-spacing: -1.6px;
+                        max-width: root.main-w;
+                        wrap: word-wrap;
+                    }
                 }
 
-                Rectangle { height: 8px; }
+                Rectangle { height: 12px; }
 
                 Text {
                     text: root.recents-total == 0
@@ -1744,21 +1737,6 @@ component WideHome inherits Rectangle {
                         note: I18n.t("start.importCapcutNote");
                         enabled: !root.busy;
                         clicked => { root.import-capcut(); }
-                    }
-
-                    if root.drop-tile: DropTile {
-                        width: root.tile-unit;
-                    }
-                }
-
-                // Where the tile does not fit, a line says what it would.
-                if root.can-drop && !root.drop-tile: VerticalLayout {
-                    padding-top: 12px;
-                    Text {
-                        text: I18n.t("start.dropHint");
-                        color: Theme.fg-dim;
-                        font-size: Theme.fs;
-                        wrap: word-wrap;
                     }
                 }
 
@@ -1818,6 +1796,14 @@ component WideHome inherits Rectangle {
                     padding-top: 48px;
                     spacing: 16px;
 
+                    NewsCard {
+                        height: 176px;
+                        compact: true;
+                        title: I18n.t1("start.whatsNew", root.version);
+                        note: I18n.t("start.newsNote");
+                        clicked => { root.link("news"); }
+                    }
+
                     SectionHead {
                         height: 34px;
                         text: I18n.t("start.learnAndCommunity");
@@ -1828,27 +1814,32 @@ component WideHome inherits Rectangle {
                         link(name) => { root.link(name); }
                     }
 
-                    VersionLine {
-                        padding-top: 8px;
-                        version: root.version;
-                        notes => { root.link("release-notes"); }
-                    }
                 }
             }
 
             // ── learn, beside the projects ───────────────────────────
             // From the create row down, so its top lines up with the
             // first thing that can be pressed.
-            side := Rectangle {
+            news := NewsCard {
                 x: root.main-w + root.aside-gap;
                 y: create-row.y;
                 width: root.aside-w;
+                height: self.width * 0.62;
+                visible: root.aside;
+                enabled: root.aside;
+                title: I18n.t1("start.whatsNew", root.version);
+                note: I18n.t("start.newsNote");
+                clicked => { root.link("news"); }
+            }
+
+            side := Rectangle {
+                x: root.main-w + root.aside-gap;
+                y: news.y + news.height + 16px;
+                width: root.aside-w;
                 height: side-body.preferred-height;
                 visible: root.aside;
-                border-radius: Theme.r-lg;
+                border-radius: 28px;
                 background: Theme.launch-panel;
-                border-width: 1px;
-                border-color: Theme.line;
 
                 side-body := VerticalLayout {
                     padding: 8px;
@@ -1873,19 +1864,6 @@ component WideHome inherits Rectangle {
                         item: item;
                         enabled: root.aside;
                         clicked => { root.link(item.name); }
-                    }
-
-                    Rectangle {
-                        height: 1px;
-                        background: Theme.line;
-                    }
-
-                    VersionLine {
-                        padding-left: 10px;
-                        padding-top: 8px;
-                        padding-bottom: 4px;
-                        version: root.version;
-                        notes => { root.link("release-notes"); }
                     }
                 }
             }
@@ -2095,9 +2073,12 @@ component NarrowHome inherits Rectangle {
 
             Rectangle { height: 16px; }
 
-            VersionLine {
-                version: root.version;
-                notes => { root.link("release-notes"); }
+            NewsCard {
+                height: 150px;
+                compact: true;
+                title: I18n.t1("start.whatsNew", root.version);
+                note: I18n.t("start.newsNote");
+                clicked => { root.link("news"); }
             }
         }
     }
