@@ -315,18 +315,24 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "clip_update",
             "Change a clip",
-            "Changes only the fields given in `patch`: volume (gain, 1 is unchanged, may exceed 1), fadeIn/fadeOut (seconds), opacity (0-1), muted, flipH/flipV, blend, crop (fractions off each edge, null to remove), videoEffects and filters (the whole chain: a list of {id, params}; ids from `effects_list`), transitionIn ({id, duration} on the cut into the clip, null to remove), text (a title's style, null to remove), mask (see `clip_mask`), background (the clip's own background, null to follow the timeline's) and audioStream.",
+            "Changes only the fields given in `patch`: volume (gain, 1 is unchanged, may exceed 1), fadeIn/fadeOut (seconds), opacity (0-1), muted, flipH/flipV, blend, crop (fractions off each edge, null to remove), videoEffects and filters (the whole chain: a list of {id, params}; ids from `effects_list`), transitionIn ({id, duration} on the cut into the clip, null to remove), text (a title's style, null to remove), masks (see `clip_masks`), background (the clip's own background, null to follow the timeline's) and audioStream.",
             "updateClip",
         ),
         Tool {
-            name: "clip_mask",
+            name: "clip_masks",
             title: "Mask a clip",
-            description: "Keeps part of a clip's picture with a shape, or with `mask: null` takes the mask off. `shape` is linear, mirror, circle, rectangle, heart or star; `x`/`y` move its centre as fractions of the picture's width/height (positive right/down); `width`/`height` are fractions of the picture's shorter side; `rotation` in degrees; `roundness` (rectangle corners) and `feather` (edge softness) 0-1; `invert` keeps the outside. Fields left out take the default circle's. Animate it with `keyframe_set` on maskX, maskY, maskWidth, maskHeight, maskRotation, maskRoundness or maskFeather.",
+            description: "Sets a clip's masks, top first; an empty list takes them all off. Each is {source: {kind: \"shape\", shape, width, height, roundness}, mode, x, y, rotation, scale, feather, expand, opacity, invert}. `shape` is linear, mirror, circle, rectangle, heart or star; `mode` (add, subtract, intersect, none) is how it joins the masks above it; `x`/`y` move its centre as fractions of the picture's width/height (positive right/down); `width`/`height` and `expand` are fractions of the picture's shorter side; `rotation` in degrees; `feather`, `opacity` and `roundness` 0-1; `invert` keeps the outside. Fields left out take a new circle's. Give an `id` to key it later with `mask_key_set`.",
             read_only: false,
             destructive: false,
             idempotent: true,
             action: Action::Mask,
         },
+        command(
+            "mask_key_set",
+            "Key a mask",
+            "Animates one of a clip's masks: puts a key on `number` (x, y, rotation, scale, feather, expand, opacity, width, height, roundness) of the mask `maskId` at `at`, a fraction of the clip's length from 0 to 1, holding `value`. A key already within a hair of `at` is replaced. `ease` as `keyframe_set`'s.",
+            "setMaskKey",
+        ),
         command(
             "clip_stabilize",
             "Stabilize a clip",
@@ -393,7 +399,7 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "keyframe_set",
             "Set a keyframe",
-            "Animates a clip: puts a key on `property` (scale, offsetX, offsetY, rotation, opacity, volume, or a mask's maskX, maskY, maskWidth, maskHeight, maskRotation, maskRoundness, maskFeather) at `at`, a fraction of the clip's length from 0 (its start) to 1 (its end), holding `value` in the property's own units - the number the inspector shows. A key already within a hair of `at` is replaced. `ease` is how the value is approached: [x1, y1, x2, y2] like a CSS cubic-bezier, linear when absent.",
+            "Animates a clip: puts a key on `property` (scale, offsetX, offsetY, rotation, opacity, volume; a mask's numbers are `mask_key_set`'s) at `at`, a fraction of the clip's length from 0 (its start) to 1 (its end), holding `value` in the property's own units - the number the inspector shows. A key already within a hair of `at` is replaced. `ease` is how the value is approached: [x1, y1, x2, y2] like a CSS cubic-bezier, linear when absent.",
             "setClipKey",
         ),
         command(
@@ -634,17 +640,18 @@ fn input_schema(schemas: &Schemas, tool: &Tool) -> Option<Value> {
         Action::PreviewFrame => schemas.method("preview.frame"),
         Action::Mask => {
             let update = schemas.command("updateClip")?;
-            let mut mask = schemas.def("ClipMask")?;
-            mask["type"] = json!(["object", "null"]);
-            mask["description"] = json!("The shape and its numbers, or null to take the mask off.");
+            let mut masks = update
+                .pointer("/properties/patch/properties/masks")?
+                .clone();
+            masks["description"] = json!("The masks, top first; empty takes them all off.");
             Some(json!({
                 "type": "object",
                 "properties": {
                     "path": update.pointer("/properties/path")?.clone(),
                     "clipId": update.pointer("/properties/clipId")?.clone(),
-                    "mask": mask,
+                    "masks": masks,
                 },
-                "required": ["path", "clipId", "mask"],
+                "required": ["path", "clipId", "masks"],
             }))
         }
         Action::Captions => {
@@ -748,7 +755,7 @@ fn run(tool: &Tool, arguments: Value, context: Context<'_>) -> Result<Outcome, A
     }
 }
 
-/// `clip_mask`: a clip patch with only its mask.
+/// `clip_masks`: a clip patch with only its masks.
 fn mask(mut arguments: Value) -> Result<Request, ApiError> {
     let invalid = |why: &str| ApiError::invalid(format!("invalid arguments: {why}"));
     let fields = arguments
@@ -760,15 +767,15 @@ fn mask(mut arguments: Value) -> Result<Request, ApiError> {
     let clip = fields
         .remove("clipId")
         .ok_or_else(|| invalid("missing field `clipId`"))?;
-    let mask = fields
-        .remove("mask")
-        .ok_or_else(|| invalid("missing field `mask`"))?;
+    let masks = fields
+        .remove("masks")
+        .ok_or_else(|| invalid("missing field `masks`"))?;
     if let Some(unknown) = fields.keys().next() {
         return Err(invalid(&format!("unknown field `{unknown}`")));
     }
     edit(
         "updateClip",
-        json!({ "path": path, "clipId": clip, "patch": { "mask": mask } }),
+        json!({ "path": path, "clipId": clip, "patch": { "masks": masks } }),
     )
 }
 
@@ -1068,8 +1075,12 @@ mod tests {
                 json!({ "path": "/tmp/Cut", "mediaIds": ["m1", "m2"], "start": 0.0 }),
             ),
             (
-                "clip_mask",
-                json!({ "path": "/tmp/Cut", "clipId": "c1", "mask": { "shape": "heart", "width": 0.5, "feather": 0.1, "invert": true } }),
+                "clip_masks",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "masks": [{ "id": "heart", "source": { "kind": "shape", "shape": "heart", "width": 0.5, "height": 0.5 }, "mode": "add", "feather": 0.1, "invert": true }] }),
+            ),
+            (
+                "mask_key_set",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "maskId": "heart", "number": "feather", "at": 0.5, "value": 0.3 }),
             ),
             (
                 "clip_stabilize",
