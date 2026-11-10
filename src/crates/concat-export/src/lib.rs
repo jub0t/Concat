@@ -42,9 +42,7 @@ use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
-use concat_media::{
-    DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
-};
+use concat_media::{DecodeOptions, EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
 use concat_project::model::{AppliedFilter, ColorSpace, Cutout, Mask};
 use concat_render::{
     Compositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor,
@@ -3514,6 +3512,7 @@ mod tests {
     }
 
     use super::*;
+    use concat_media::{Decoder, FrameSource};
 
     fn clip(kind: &str, track: usize, start: f64, duration: f64, source_start: f64) -> ExportClip {
         let kind_of = match kind {
