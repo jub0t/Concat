@@ -2105,7 +2105,10 @@ export component MediaPane inherits Rectangle {
                 }
             }
 
-            Rectangle {
+            // Scrolled, like the grid beside it: Effects alone lists more
+            // shelves than a short pane is tall, and a clipped column hid
+            // Audio Effects below the fold with no way down to it.
+            PaneScroll {
                 // Pinned: an element with an explicit width but no x is
                 // CENTRED in its parent by Slint's default geometry, and this
                 // column spent two rounds of debugging drifting into the card
@@ -2113,7 +2116,7 @@ export component MediaPane inherits Rectangle {
                 // that sets one dimension must pin the other axis too.
                 x: 0;
                 width: root.sidebar;
-                clip: true;
+                height: parent.height;
 
                 // One group per page, each behind its own `if`.
                 //
@@ -2127,9 +2130,6 @@ export component MediaPane inherits Rectangle {
                 // rebuild on a tab switch — which the pages themselves already
                 // pay, a few lines down — and cannot drift.
                 VerticalLayout {
-                    x: 0;
-                    y: 0;
-                    width: parent.width;
                     alignment: start;
                     padding: 4px;
 
