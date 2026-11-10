@@ -155,18 +155,23 @@ fn backing(uv: vec2<f32>) -> vec4<f32> {
     var greens = vec4<f32>(0.0);
     var blues = vec4<f32>(0.0);
     var seen = 0.0;
+    // No `continue`: naga writes a loop that has one for Direct3D as a
+    // `while` with a first-time flag, and this pass - the one shader here
+    // with a `continue` - left the device lost on Windows CI's WARP under
+    // FXC, Windows' pinned compiler, and every effect drawn after it went
+    // black (#673). The `screenish` tests already ask for alpha, so the
+    // guard is only for the count.
     for (var j = 0; j < LOOK_DOWN; j++) {
         for (var i = 0; i < LOOK_ACROSS; i++) {
             let c = cells_at((vec2<f32>(f32(i), f32(j)) + 0.5) / grid);
-            if (c.a < 0.5) {
-                continue;
-            }
-            seen += 1.0;
-            if (screenish(c, true)) {
-                greens += vec4<f32>(c.rgb, 1.0);
-            }
-            if (screenish(c, false)) {
-                blues += vec4<f32>(c.rgb, 1.0);
+            if (c.a >= 0.5) {
+                seen += 1.0;
+                if (screenish(c, true)) {
+                    greens += vec4<f32>(c.rgb, 1.0);
+                }
+                if (screenish(c, false)) {
+                    blues += vec4<f32>(c.rgb, 1.0);
+                }
             }
         }
     }
@@ -201,17 +206,29 @@ fn screen_colour() -> vec4<f32> {
 fn plate(uv: vec2<f32>) -> vec4<f32> {
     let s = screen_colour();
     let p = dominant(s.rgb);
-    let pitch = cells_texel();
-    var most = -1.0;
-    for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-            let c = cells_at(uv + vec2<f32>(f32(i), f32(j)) * pitch);
-            if (c.a >= 0.5) {
-                most = max(most, excess(c.rgb, p));
-            }
-        }
-    }
+    // One cell, as a fraction of the picture: the cells pass is the
+    // layer's size over 16, rounded up, as the host sizes it.
+    let pitch = vec2<f32>(1.0) / max(ceil(frame.size / 16.0), vec2<f32>(1.0));
+    // The nine written out, no loop: as a nested loop with a test in it,
+    // this pass alone left Windows CI's WARP device lost under FXC (#673,
+    // bisected on CI), however the loop was counted.
+    var most = plate_cell(uv, -1.0, -1.0, pitch, p);
+    most = max(most, plate_cell(uv, 0.0, -1.0, pitch, p));
+    most = max(most, plate_cell(uv, 1.0, -1.0, pitch, p));
+    most = max(most, plate_cell(uv, -1.0, 0.0, pitch, p));
+    most = max(most, plate_cell(uv, 0.0, 0.0, pitch, p));
+    most = max(most, plate_cell(uv, 1.0, 0.0, pitch, p));
+    most = max(most, plate_cell(uv, -1.0, 1.0, pitch, p));
+    most = max(most, plate_cell(uv, 0.0, 1.0, pitch, p));
+    most = max(most, plate_cell(uv, 1.0, 1.0, pitch, p));
     return vec4<f32>(most, 0.0, 0.0, 1.0);
+}
+
+/// How far one cell about `uv` stands above its limit, or -1 where too
+/// little of it is there to say.
+fn plate_cell(uv: vec2<f32>, x: f32, y: f32, pitch: vec2<f32>, p: i32) -> f32 {
+    let c = cells_at(uv + vec2<f32>(x, y) * pitch);
+    return select(-1.0, max(excess(c.rgb, p), -1.0), c.a >= 0.5);
 }
 
 /// What the screen's excess is measured against at `uv`: the screen about
@@ -238,13 +255,17 @@ fn matte(uv: vec2<f32>) -> vec4<f32> {
     }
     let p = dominant(s.rgb);
     let pitch = texel() * 1.2;
-    var sum = vec4<f32>(0.0);
-    for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-            let w = select(5.0, 6.0, i == 0) * select(5.0, 6.0, j == 0);
-            sum += sample_premultiplied(uv + vec2<f32>(f32(i), f32(j)) * pitch) * w;
-        }
-    }
+    // Written out, no loop, as `plate` is (#673): corners 25, edges 30,
+    // the middle 36.
+    var sum = sample_premultiplied(uv) * 36.0;
+    sum += (sample_premultiplied(uv + vec2<f32>(-pitch.x, 0.0))
+        + sample_premultiplied(uv + vec2<f32>(pitch.x, 0.0))
+        + sample_premultiplied(uv + vec2<f32>(0.0, -pitch.y))
+        + sample_premultiplied(uv + vec2<f32>(0.0, pitch.y))) * 30.0;
+    sum += (sample_premultiplied(uv - pitch)
+        + sample_premultiplied(uv + pitch)
+        + sample_premultiplied(uv + vec2<f32>(-pitch.x, pitch.y))
+        + sample_premultiplied(uv + vec2<f32>(pitch.x, -pitch.y))) * 25.0;
     let smooth_colour = sum.rgb / max(sum.a, 1e-6);
     let raw = 1.0 - params.strength / 100.0 * excess(smooth_colour, p) / reach(uv, s.rgb, p);
     let black = params.clip_black / 100.0;

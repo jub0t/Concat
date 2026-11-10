@@ -48,6 +48,7 @@ mod backdrop;
 mod consolidate;
 use consolidate::MergeJob;
 mod masking;
+mod masks;
 use masking::{MaskFrame, MaskGrip};
 mod bin;
 mod chains;
@@ -776,6 +777,8 @@ pub struct Models {
     /// The Speed tab's curve: its points and the presets' names, kept like
     /// the colour curves' so a point being dragged is not dropped.
     pub speed_points: Rc<VecModel<CurvePointData>>,
+    /// Which of them are chosen, one flag a point.
+    pub speed_chosen: Rc<VecModel<bool>>,
     pub speed_presets: Rc<VecModel<SharedString>>,
     /// The keyframe cluster's rows and the libraries' views: synced like
     /// the rest, since a model handed over fresh is unequal to the last by
@@ -827,6 +830,8 @@ pub struct Models {
     pub font_families: Rc<VecModel<SharedString>>,
     /// Those of them the font picker's search lets through.
     pub font_matches: Rc<VecModel<SharedString>>,
+    /// The text presets the captions' style search lets through.
+    pub caption_styles: Rc<VecModel<TextPresetData>>,
 }
 
 impl Models {
@@ -866,6 +871,7 @@ impl Models {
             link_curves: RefCell::new(HashMap::new()),
             curve_points: RefCell::new(HashMap::new()),
             speed_points: Rc::new(VecModel::default()),
+            speed_chosen: Rc::new(VecModel::default()),
             speed_presets: Rc::new(VecModel::default()),
             key_rows: Rc::new(VecModel::default()),
             key_editor_rows: Rc::new(VecModel::default()),
@@ -901,6 +907,7 @@ impl Models {
             language_presets: Rc::new(VecModel::default()),
             font_families: Rc::new(VecModel::default()),
             font_matches: Rc::new(VecModel::default()),
+            caption_styles: Rc::new(VecModel::default()),
         }
     }
 }
@@ -1143,6 +1150,11 @@ pub struct Studio {
         u32,
         std::sync::Arc<Vec<concat_export::ExportClip>>,
     )>,
+    /// A run painting the titles the monitor is missing is under way; see
+    /// `Studio::paint_titles`.
+    titles_painting: bool,
+    /// The revision and size the painter last ran for.
+    titles_tried: Option<(u64, u32, u32)>,
     /// An inspector commit waiting to land: a knob being dragged commits
     /// on every move, and each commit was a command, an undo of the last,
     /// a rebuild of the mix and a full publish. The commit is held until
@@ -1266,6 +1278,10 @@ pub struct Studio {
     /// Media whose stabilization was turned on anew, so an analysis the
     /// app died in last time is tried again rather than skipped.
     stabilize_retry: HashSet<String>,
+    /// The mask the Mask section and the monitor work on, by id: see
+    /// `masks`. None, or an id the selected clip does not have, is its
+    /// first.
+    mask_focus: Option<String>,
     /// Voice isolation splitting a file, by the parts' folder: whether its
     /// model is still downloading, and how far it has got. One at a time,
     /// like the analyses.
@@ -1275,6 +1291,12 @@ pub struct Studio {
     /// Files whose split failed this session: not tried again by itself,
     /// only when a clip is asked anew.
     voice_failed: HashSet<std::path::PathBuf>,
+    /// The Speed graph's chosen points, by index, and the clip they are
+    /// on: another clip selected chooses none.
+    speed_chosen: (String, Vec<usize>),
+    /// The curve as it was when a drag of the chosen points began: each
+    /// move is measured from it, so a point held at a limit does not drift.
+    speed_grabbed: Option<Vec<model::SpeedPoint>>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
@@ -1370,12 +1392,33 @@ fn kind_of(clip: &Clip) -> ClipKind {
         model::ClipKind::Audio => ClipKind::Audio,
         model::ClipKind::Image => ClipKind::Image,
         model::ClipKind::Text => ClipKind::Text,
-        model::ClipKind::Layer => ClipKind::Filter,
+        model::ClipKind::Layer => {
+            layer_kind(clip.video_effects.first().map(|link| link.id.as_str()))
+        }
         model::ClipKind::SoundLayer => ClipKind::SoundLayer,
         model::ClipKind::Shape => ClipKind::Shape,
-        // Drawn as a layer is: a span over the lanes beneath it, named for
-        // its package, with no picture of its own.
-        model::ClipKind::Transition => ClipKind::Filter,
+        // Drawn as a layer is - a span over the lanes beneath it, named for
+        // its package, with no picture of its own - in a colour of its own.
+        model::ClipKind::Transition => ClipKind::Transition,
+    }
+}
+
+/// What a picture layer is to the eye, by the package its chain starts
+/// with: the colour panel's own makes an adjustment layer, an effect
+/// package an effect layer, and anything else - a look, a LUT, a chain
+/// emptied - a filter layer. The lanes, the drop ghost and the drag chip
+/// each paint the three in their own colour.
+fn layer_kind(package: Option<&str>) -> ClipKind {
+    match package {
+        Some(ADJUST_ID) => ClipKind::Adjustment,
+        Some(id)
+            if Catalogue::builtin()
+                .get(id)
+                .is_some_and(|package| package.kind() == PackageKind::Effect) =>
+        {
+            ClipKind::Effect
+        }
+        _ => ClipKind::Filter,
     }
 }
 
@@ -1628,13 +1671,6 @@ fn key_field_of(property: model::KeyProperty) -> ClipField {
         model::KeyProperty::Rotation => ClipField::Rotation,
         model::KeyProperty::Opacity => ClipField::Opacity,
         model::KeyProperty::Volume => ClipField::Volume,
-        model::KeyProperty::MaskX => ClipField::MaskX,
-        model::KeyProperty::MaskY => ClipField::MaskY,
-        model::KeyProperty::MaskWidth => ClipField::MaskWidth,
-        model::KeyProperty::MaskHeight => ClipField::MaskHeight,
-        model::KeyProperty::MaskRotation => ClipField::MaskRotation,
-        model::KeyProperty::MaskRoundness => ClipField::MaskRoundness,
-        model::KeyProperty::MaskFeather => ClipField::MaskFeather,
     }
 }
 
@@ -1758,10 +1794,6 @@ fn knob_range(property: model::KeyProperty) -> (f64, f64) {
         model::KeyProperty::Rotation => (-180.0, 180.0),
         model::KeyProperty::Opacity => (0.0, 1.0),
         model::KeyProperty::Volume => (-60.0, 24.0),
-        model::KeyProperty::MaskX | model::KeyProperty::MaskY => (-1.0, 1.0),
-        model::KeyProperty::MaskWidth | model::KeyProperty::MaskHeight => (0.01, 4.0),
-        model::KeyProperty::MaskRotation => (-180.0, 180.0),
-        model::KeyProperty::MaskRoundness | model::KeyProperty::MaskFeather => (0.0, 1.0),
     }
 }
 
@@ -1813,12 +1845,6 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
         model::KeyProperty::Rotation => clip.rotation = value,
         model::KeyProperty::Opacity => clip.opacity = value,
         model::KeyProperty::Volume => clip.volume = value,
-        // The mask's numbers are the mask's; a number turned on a clip
-        // with none puts one on, the shape a new one starts as.
-        mask => clip
-            .mask
-            .get_or_insert_with(model::ClipMask::default)
-            .set(mask, value),
     }
 }
 
@@ -1941,8 +1967,11 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
     if after.crop != before.crop {
         patch.crop = Some(after.crop);
     }
-    if after.mask != before.mask {
-        patch.mask = Some(after.mask);
+    if after.masks != before.masks {
+        patch.masks = Some(after.masks.clone());
+    }
+    if after.motion != before.motion {
+        patch.motion = Some(after.motion.clone());
     }
     if after.shape != before.shape
         && let Some(shape) = after.shape.clone()
@@ -2746,6 +2775,8 @@ impl Studio {
             audition: None,
             revision: 0,
             flat: None,
+            titles_painting: false,
+            titles_tried: None,
             commit_pending: false,
             commit_targets: Vec::new(),
             words: None,
@@ -2786,7 +2817,10 @@ impl Studio {
             voice_jobs: HashMap::new(),
             voice_cancel: None,
             voice_failed: HashSet::new(),
+            speed_chosen: (String::new(), Vec::new()),
+            speed_grabbed: None,
             stabilize_retry: HashSet::new(),
+            mask_focus: None,
             enhance_jobs: HashMap::new(),
             enhance_scale: 0.0,
             enhance_strength: concat_host::enhance::DEFAULT_STRENGTH,
@@ -2916,6 +2950,37 @@ mod tests {
             super::clip_commands("c1", &on, &before, false)
                 .iter()
                 .any(|command| matches!(command, Command::SetClipVoice { voice: None, .. }))
+        );
+    }
+
+    /// The Animate cards write the clip's motion into the echo; a commit
+    /// that had no command for motion dropped the pick, and the card sprang
+    /// back to None. Picked, changed and taken off, each lands.
+    #[test]
+    fn a_motion_picked_in_the_inspector_is_committed() {
+        use concat_project::model::{Clip, ClipKind as Kind, ClipMotion, ClipMove};
+        let before = Clip::blank("c1", "t1", Kind::Video, "m1", 0.0, 4.0);
+        let mut after = before.clone();
+        after.motion = Some(ClipMotion {
+            enter: Some(ClipMove {
+                kind: "pop".to_owned(),
+                seconds: 0.5,
+            }),
+            ..ClipMotion::default()
+        });
+        let patched = |commands: Vec<Command>| {
+            commands.into_iter().find_map(|command| match command {
+                Command::UpdateClip { patch, .. } => patch.motion,
+                _ => None,
+            })
+        };
+        assert_eq!(
+            patched(super::clip_commands("c1", &before, &after, false)),
+            Some(after.motion.clone())
+        );
+        assert_eq!(
+            patched(super::clip_commands("c1", &after, &before, false)),
+            Some(None)
         );
     }
 

@@ -6,31 +6,30 @@ name = "Shape Wipe"
 kind = "transition"
 category = "Wipe"
 order = 12
-description = "The incoming shot grows through a shape from the centre of the cut."
+description = "The next shot shows through a circle, heart or star that grows from the centre until it covers the frame."
 
 [[param]]
 key = "shape"
 label = "Shape"
 type = "enum"
-min = 0
-max = 2
-default = 0
 values = [0, 1, 2]
 labels = ["Circle", "Heart", "Star"]
+default = 0
+min = 0
+max = 2
 
 [[param]]
 key = "softness"
 label = "Softness"
+unit = "%"
 min = 0
 max = 100
-default = 15
 step = 1
-unit = "%"
+default = 15
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"
 
-# The shape has barely opened at the usual point of the cut.
 [card]
 progress = 0.55

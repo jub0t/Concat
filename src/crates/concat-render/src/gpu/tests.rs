@@ -389,6 +389,7 @@ fn a_treatment_treats_the_stack_beneath_its_track_only() {
             track: 1,
             effects: vec![package("concat.invert", INVERT, "", &[], 1.0)],
             strength,
+            start: 0.0,
         }],
         ..plan(8, 8, vec![ground.clone(), blue.clone()])
     };
@@ -502,7 +503,7 @@ fn every_kind_of_layer_matches_the_cpu_reference() {
 /// the CPU's definition gives at each pixel's centre.
 #[test]
 fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
-    use concat_core::mask::{MaskShape, ShapeMask};
+    use concat_core::mask::{MaskShape, MaskStack, ShapeMask, StackedMask};
     let Some(mut gpu) = gpu() else { return };
     let mut circle = layer(solid(100, 100, [255, 255, 255, 255]));
     let shape = ShapeMask {
@@ -512,7 +513,9 @@ fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
         feather: 0.4,
         ..ShapeMask::default()
     };
-    circle.shape = Some(shape);
+    circle.masks = MaskStack {
+        masks: vec![StackedMask::adding(shape)],
+    };
     let drawn = working(&mut gpu, &plan(100, 100, vec![circle]));
     let at = |x: usize, y: usize| drawn[y * 100 + x][0];
     let expected = |x: usize, y: usize| {
@@ -549,7 +552,7 @@ fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
 /// cutout's matte - the masks multiply.
 #[test]
 fn shape_masks_match_the_cpu_reference() {
-    use concat_core::mask::{MaskShape, ShapeMask};
+    use concat_core::mask::{MaskShape, MaskStack, ShapeMask, StackedMask};
     for shape in MaskShape::ALL {
         for invert in [false, true] {
             let mut masked = layer(gradient(64, 48));
@@ -568,17 +571,19 @@ fn shape_masks_match_the_cpu_reference() {
                 tx: 0.02,
                 ty: -0.01,
             };
-            masked.shape = Some(ShapeMask {
-                shape,
-                x: 0.05,
-                y: -0.04,
-                width: 0.7,
-                height: 0.5,
-                rotation: 20.0,
-                roundness: 0.5,
-                feather: 0.15,
-                invert,
-            });
+            masked.masks = MaskStack {
+                masks: vec![StackedMask::adding(ShapeMask {
+                    shape,
+                    x: 0.05,
+                    y: -0.04,
+                    width: 0.7,
+                    height: 0.5,
+                    rotation: 20.0,
+                    roundness: 0.5,
+                    feather: 0.15,
+                    invert,
+                })],
+            };
             let mut matte = Frame::transparent(16, 16);
             for y in 0..16u32 {
                 for x in 0..16u32 {
@@ -596,20 +601,103 @@ fn shape_masks_match_the_cpu_reference() {
     }
 }
 
+/// A stack - a ring cut from a circle, a band intersected with it, a
+/// half-strength subtraction and a grown edge - drawn by the mask pass
+/// matches the CPU's per-pixel definition, over a placed picture carrying
+/// a cutout's matte.
+#[test]
+fn a_mask_stack_matches_the_cpu_reference() {
+    use concat_core::mask::{MaskMode, MaskShape, MaskStack, ShapeMask, StackedMask};
+    let circle = |width: f64, feather: f64| ShapeMask {
+        width,
+        height: width,
+        feather,
+        ..ShapeMask::default()
+    };
+    let stacks = [
+        (
+            "ring",
+            vec![
+                StackedMask::adding(circle(0.8, 0.1)),
+                StackedMask {
+                    mode: MaskMode::Subtract,
+                    ..StackedMask::adding(circle(0.4, 0.05))
+                },
+            ],
+        ),
+        (
+            "band through a circle",
+            vec![
+                StackedMask::adding(circle(0.8, 0.0)),
+                StackedMask {
+                    mode: MaskMode::Intersect,
+                    ..StackedMask::adding(ShapeMask {
+                        shape: MaskShape::Mirror,
+                        rotation: 30.0,
+                        height: 0.3,
+                        feather: 0.2,
+                        ..ShapeMask::default()
+                    })
+                },
+            ],
+        ),
+        (
+            "half a hole, grown",
+            vec![
+                StackedMask {
+                    expand: 0.08,
+                    ..StackedMask::adding(circle(0.5, 0.2))
+                },
+                StackedMask {
+                    mode: MaskMode::Subtract,
+                    opacity: 0.5,
+                    ..StackedMask::adding(ShapeMask {
+                        x: 0.1,
+                        ..circle(0.3, 0.0)
+                    })
+                },
+            ],
+        ),
+    ];
+    for (name, masks) in stacks {
+        let mut masked = layer(gradient(64, 48));
+        masked.transform = Transform {
+            scale: 0.9,
+            rotation: 12.0,
+            ..Transform::default()
+        };
+        masked.masks = MaskStack { masks };
+        let mut matte = Frame::transparent(16, 16);
+        for y in 0..16u32 {
+            for x in 0..16u32 {
+                matte.set_pixel(x, y, [255, 255, 255, if x < 3 { 0 } else { 255 }]);
+            }
+        }
+        masked.mask = Some(Arc::new(matte));
+        assert_parity(
+            name,
+            &plan(64, 48, vec![layer(solid(64, 48, [0, 60, 0, 255])), masked]),
+            0.98,
+        );
+    }
+}
+
 /// A masked picture never counts as covering the frame, and its canvas
 /// background is drawn whole behind it - the mask cuts the picture, not
 /// what stands behind it.
 #[test]
 fn a_masked_pictures_background_is_whole() {
-    use concat_core::mask::ShapeMask;
+    use concat_core::mask::{MaskStack, ShapeMask, StackedMask};
     let mut masked = layer(solid(64, 48, [200, 0, 0, 255]));
     assert!(masked.covers(64, 48, true));
-    masked.shape = Some(ShapeMask::default());
+    masked.masks = MaskStack {
+        masks: vec![StackedMask::adding(ShapeMask::default())],
+    };
     assert!(!masked.covers(64, 48, true));
     let behind = masked
         .backdrop(&Backdrop::Colour([0, 0, 255]), 64, 48, |_| None)
         .expect("a colour always draws");
-    assert!(behind.shape.is_none());
+    assert!(!behind.masks.cuts());
     let Some(mut gpu) = gpu() else { return };
     let frame = gpu.render(&plan(64, 48, vec![behind, masked]));
     let corner = frame.pixel(1, 1).expect("a pixel");
@@ -877,6 +965,32 @@ fn a_pass_reads_its_layers_clip_relative_time() {
         &out.pixels()[..3],
         &[0, 255, 0],
         "clip_time should read 3.0"
+    );
+}
+
+/// An effect layer is a clip too: what it runs reads `clip_time` from the
+/// layer's own start, so a one-shot effect dropped on a beat fires there.
+/// A layer from 2s, at 5s, has run for three.
+#[test]
+fn an_effect_layer_times_its_effects_from_its_own_start() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(0.0, select(0.0, 1.0, abs(frame.clip_time - 3.0) < 0.001), select(1.0, 0.0, abs(frame.clip_time - 3.0) < 0.001), 1.0); }";
+    let ground = layer(solid(4, 4, [0, 0, 0, 255]));
+    let mut p = FramePlan {
+        treatments: vec![PlannedTreatment {
+            track: 1,
+            effects: vec![package("test.layertime", body, "", &[], 1.0)],
+            strength: 1.0,
+            start: 2.0,
+        }],
+        ..plan(4, 4, vec![ground])
+    };
+    p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
+    let out = gpu.render(&p);
+    assert_eq!(
+        &out.pixels()[..3],
+        &[0, 255, 0],
+        "the layer's clip_time should read 3.0"
     );
 }
 
@@ -2488,4 +2602,164 @@ fn a_background_is_wiped_with_its_picture() {
         Some([0, 0, 0, 255]),
         "the edge is the picture's"
     );
+}
+
+/// `CONCAT_GPU_BUDGET` lifts the gates for a driver that misreads its
+/// budget, moves them to a percent, and leaves anything else alone.
+#[test]
+fn the_budget_override_reads_off_and_a_percent_and_refuses_the_rest() {
+    let off = super::parse_budget(" OFF ").expect("off");
+    assert_eq!(
+        (off.for_resource_creation, off.for_device_loss),
+        (None, None)
+    );
+    let at = super::parse_budget("90").expect("90");
+    assert_eq!(
+        (at.for_resource_creation, at.for_device_loss),
+        (Some(90), Some(94))
+    );
+    let top = super::parse_budget("98%").expect("98%");
+    assert_eq!(
+        (top.for_resource_creation, top.for_device_loss),
+        (Some(98), Some(99))
+    );
+    assert!(super::parse_budget("100").is_none());
+    assert!(super::parse_budget("lots").is_none());
+}
+
+/// Chroma Key, the one package of more than two passes, leaves Windows
+/// CI's WARP device lost after it (#673), and taking out its finder's
+/// `continue` did not change that. This trial names the part that does
+/// it: the package with each stage's function stubbed out, with every one
+/// stubbed but one, and with all of them stubbed - the last a trial of the
+/// seven-picture plumbing alone. Each runs on a fresh device. Diagnostic:
+/// it goes once the cause is fixed.
+#[test]
+fn chroma_key_bisected_on_this_adapter() {
+    const MANIFEST: &str =
+        include_str!("../../../concat-effects/packages/concat.chroma-key/effect.toml");
+    const BODY: &str =
+        include_str!("../../../concat-effects/packages/concat.chroma-key/effect.wgsl");
+    const STAGES: [&str; 8] = [
+        "cells",
+        "backing",
+        "plate",
+        "matte",
+        "grow_across",
+        "grow_down",
+        "soften_across",
+        "effect",
+    ];
+    // `name`'s function renamed out of the way and a constant in its place;
+    // `effect` passes the layer through.
+    let stub = |body: &str, name: &str| {
+        let head = format!("fn {name}(uv: vec2<f32>) -> vec4<f32> {{");
+        assert!(body.contains(&head), "{name} is in the shader");
+        // A stub still reads every picture drawn before it, at no weight:
+        // the compiler refuses a pass whose picture no later pass reads.
+        let earlier: String = STAGES
+            .iter()
+            .take_while(|stage| **stage != name)
+            .map(|stage| format!(" + 0.0 * {stage}_at(uv)"))
+            .collect();
+        let value = if name == "effect" {
+            format!("sample(uv){earlier}")
+        } else {
+            format!("vec4<f32>(0.5){earlier}")
+        };
+        body.replace(
+            &head,
+            &format!(
+                "fn {name}(uv: vec2<f32>) -> vec4<f32> {{ return {value}; }}\nfn {name}_whole(uv: vec2<f32>) -> vec4<f32> {{"
+            ),
+        )
+    };
+    let mut variants: Vec<(String, String)> = vec![("whole".to_owned(), BODY.to_owned())];
+    for name in STAGES {
+        variants.push((format!("without {name}"), stub(BODY, name)));
+        let only = STAGES
+            .iter()
+            .filter(|other| **other != name)
+            .fold(BODY.to_owned(), |body, other| stub(&body, other));
+        variants.push((format!("only {name}"), only));
+    }
+    variants.push((
+        "all stubbed".to_owned(),
+        STAGES
+            .iter()
+            .fold(BODY.to_owned(), |body, name| stub(&body, name)),
+    ));
+    // The matte alone loses WARP its device and the rest do not (CI,
+    // 2026-11-10): its parts taken out one at a time, in the matte alone
+    // and in the whole key, to name the one and to try the key without it.
+    let parts: [(&str, &str, &str); 3] = [
+        (
+            "early return",
+            "    if (!keyable(s)) {\n        return vec4<f32>(1.0);\n    }\n    let p = dominant(s.rgb);\n    let pitch",
+            "    let p = dominant(s.rgb);\n    let pitch",
+        ),
+        (
+            "plate read",
+            "excess(smooth_colour, p) / reach(uv, s.rgb, p)",
+            "excess(smooth_colour, p) / max(excess(s.rgb, p), 1e-4)",
+        ),
+        (
+            "smoothing",
+            "let smooth_colour = sum.rgb / max(sum.a, 1e-6);",
+            "let smooth_colour = sample_premultiplied(uv).rgb + 0.0 * sum.rgb;",
+        ),
+    ];
+    let only_matte = STAGES
+        .iter()
+        .filter(|other| **other != "matte")
+        .fold(BODY.to_owned(), |body, other| stub(&body, other));
+    let mut all_out = (only_matte.clone(), BODY.to_owned());
+    for (part, from, to) in parts {
+        assert!(BODY.contains(from), "the matte's {part} is where it was");
+        variants.push((
+            format!("only matte, without its {part}"),
+            only_matte.replace(from, to),
+        ));
+        variants.push((
+            format!("whole, matte without its {part}"),
+            BODY.replace(from, to),
+        ));
+        all_out = (all_out.0.replace(from, to), all_out.1.replace(from, to));
+    }
+    variants.push(("only matte, without all three".to_owned(), all_out.0));
+    variants.push(("whole, matte without all three".to_owned(), all_out.1));
+
+    let canary = package("test.canary", INVERT, "", &[], 1.0);
+    let mut verdicts = Vec::new();
+    let mut deaths = 0;
+    for (index, (label, body)) in variants.iter().enumerate() {
+        let manifest = MANIFEST.replace(
+            "id = \"concat.chroma-key\"",
+            &format!("id = \"test.chroma-key-{index}\""),
+        );
+        let package = concat_effects::Package::from_sources(&manifest, None, Some(body))
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        let shader = package.shader().expect("a shader");
+        let values = package.resolve(&Default::default());
+        let pass = shader.pass(&values, &package.manifest.params, 1.0, None, None);
+        let Some(mut gpu) = WgpuCompositor::new() else {
+            eprintln!("no usable GPU adapter; skipping");
+            return;
+        };
+        let drawn = gpu.trial(&pass, std::time::Duration::from_secs(60));
+        let after = gpu.trial(&canary, std::time::Duration::from_secs(60));
+        if after.is_err() {
+            deaths += 1;
+        }
+        verdicts.push(format!(
+            "{label}: {} / {}",
+            drawn.map_or_else(|e| format!("refused ({e})"), |()| "drew".to_owned()),
+            after.map_or_else(
+                |e| format!("DEVICE LOST ({e})"),
+                |()| "device fine".to_owned()
+            ),
+        ));
+    }
+    eprintln!("chroma key, bisected:\n{}", verdicts.join("\n"));
+    assert_eq!(deaths, 0, "chroma key, bisected:\n{}", verdicts.join("\n"));
 }

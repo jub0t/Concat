@@ -29,7 +29,7 @@ mod transitions;
 pub mod upscale;
 
 pub use compositor::{Compositor, Drawn};
-pub use gpu::WgpuCompositor;
+pub use gpu::{ForgedShader, ShaderForge, WgpuCompositor};
 pub use metrics::ssim;
 pub use plan::{
     Backdrop, Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition, Warp,

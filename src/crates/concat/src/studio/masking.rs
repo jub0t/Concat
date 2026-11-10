@@ -4,7 +4,7 @@
 //! A clip's mask on the monitor: its outline and its grips, and what a
 //! drag on one of them does to it.
 //!
-//! The mask lives on the picture as it is seen (see `model::ClipMask`): its
+//! The mask lives on the picture as it is seen (see `model::MaskAt`): its
 //! centre a fraction of the picture's width and height from the middle,
 //! its box in the picture's shorter side, its turn on top of the clip's.
 //! This is that arithmetic run forwards into the frame, for the outline and
@@ -16,9 +16,106 @@
 //! the grips are placed for the unpulled picture. Rare, and said here.
 
 use concat_core::mask::{self, MaskUniform};
-use concat_project::model::{ClipMask, MaskShape};
+use concat_project::model::{Mask, MaskShape};
 
 use super::Footprint;
+
+/// One mask's numbers at one instant, as the monitor draws and drags
+/// them: its keyed numbers at their rides' values and its box at its
+/// scale.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MaskAt {
+    /// The shape it is drawn as.
+    pub shape: MaskShape,
+    /// The centre across, in the picture's width from its centre.
+    pub x: f64,
+    /// The centre down, in the picture's height from its centre.
+    pub y: f64,
+    /// The box's width as drawn, in the picture's shorter side.
+    pub width: f64,
+    /// The box's height as drawn.
+    pub height: f64,
+    /// Clockwise degrees.
+    pub rotation: f64,
+    /// How round a box's corners are.
+    pub roundness: f64,
+    /// How soft the edge is.
+    pub feather: f64,
+    /// Keeps the outside instead.
+    pub invert: bool,
+    /// The factor the box is drawn at, which a drag of its size divides
+    /// back out before it writes the mask's own width and height.
+    pub scale: f64,
+}
+
+impl MaskAt {
+    /// `mask` at `at`, a fraction of its clip. None for a mask that is not
+    /// a shape.
+    pub fn of(mask: &Mask, at: f64) -> Option<MaskAt> {
+        let shape = mask.shape()?;
+        let scale = mask.value_at("scale", at);
+        Some(MaskAt {
+            shape,
+            x: mask.value_at("x", at),
+            y: mask.value_at("y", at),
+            width: mask.value_at("width", at) * scale,
+            height: mask.value_at("height", at) * scale,
+            rotation: mask.value_at("rotation", at),
+            roundness: mask.value_at("roundness", at),
+            feather: mask.value_at("feather", at),
+            invert: mask.invert,
+            scale,
+        })
+    }
+
+    /// A new mask of `shape`, as it starts.
+    #[cfg(test)]
+    pub fn of_shape(shape: MaskShape) -> MaskAt {
+        MaskAt::of(&Mask::of("", "", shape), 0.0).expect("a shape is a shape")
+    }
+
+    /// The numbers a drag can change, by the name the mask writes them
+    /// under, sizes back at a scale of one.
+    pub fn numbers(&self) -> [(&'static str, f64); 7] {
+        let scale = self.scale.max(1e-6);
+        [
+            ("x", self.x),
+            ("y", self.y),
+            ("width", self.width / scale),
+            ("height", self.height / scale),
+            ("rotation", self.rotation),
+            ("roundness", self.roundness),
+            ("feather", self.feather),
+        ]
+    }
+
+    /// Every number held to its range, sizes at the drawn scale.
+    pub fn tidy(mut self) -> MaskAt {
+        let scale = self.scale.max(1e-6);
+        self.x = Mask::clamp("x", self.x);
+        self.y = Mask::clamp("y", self.y);
+        self.width = Mask::clamp("width", self.width / scale) * scale;
+        self.height = Mask::clamp("height", self.height / scale) * scale;
+        self.roundness = Mask::clamp("roundness", self.roundness);
+        self.feather = Mask::clamp("feather", self.feather);
+        self
+    }
+
+    /// The engine's shape with these numbers.
+    pub fn engine(&self) -> concat_core::mask::ShapeMask {
+        concat_core::mask::ShapeMask {
+            shape: self.shape.engine(),
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+            rotation: self.rotation,
+            roundness: self.roundness,
+            feather: self.feather,
+            invert: self.invert,
+        }
+    }
+}
 
 /// Which grip a press landed on: what the overlay numbers them, from 20.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -61,7 +158,7 @@ impl MaskGrip {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MaskFrame {
     /// The mask's numbers, keyed ones at their ride's value.
-    pub mask: ClipMask,
+    pub mask: MaskAt,
     /// The picture's centre, in frame pixels.
     picture: (f64, f64),
     /// The picture's turn, radians.
@@ -80,7 +177,7 @@ impl MaskFrame {
     /// frame `frame` pixels; `stretch` is the picture's pull along each
     /// axis, which its shorter side is measured without.
     pub fn new(
-        mask: ClipMask,
+        mask: MaskAt,
         footprint: &Footprint,
         frame: (u32, u32),
         stretch: (f64, f64),
@@ -254,7 +351,7 @@ impl MaskFrame {
 
     /// The mask after `grip` is dragged from `from` to `to`, frame pixels;
     /// `self` is the mask as the press found it.
-    pub fn dragged(&self, grip: MaskGrip, from: (f64, f64), to: (f64, f64)) -> ClipMask {
+    pub fn dragged(&self, grip: MaskGrip, from: (f64, f64), to: (f64, f64)) -> MaskAt {
         let mut next = self.mask;
         match grip {
             MaskGrip::Move => {
@@ -320,17 +417,17 @@ mod tests {
         }
     }
 
-    fn placed(mask: ClipMask) -> MaskFrame {
+    fn placed(mask: MaskAt) -> MaskFrame {
         MaskFrame::new(mask, &whole(), (200, 100), (1.0, 1.0))
     }
 
     #[test]
     fn the_grips_sit_on_the_box_in_the_shorter_side() {
-        let frame = placed(ClipMask {
+        let frame = placed(MaskAt {
             x: 0.25,
             width: 0.5,
             height: 0.4,
-            ..ClipMask::of(MaskShape::Rectangle)
+            ..MaskAt::of_shape(MaskShape::Rectangle)
         });
         let grips = frame.grips();
         // A quarter of 200 right of the middle; the short side is 100.
@@ -342,10 +439,10 @@ mod tests {
 
     #[test]
     fn a_drag_on_each_grip_does_what_it_says() {
-        let frame = placed(ClipMask {
+        let frame = placed(MaskAt {
             width: 0.5,
             height: 0.5,
-            ..ClipMask::of(MaskShape::Circle)
+            ..MaskAt::of_shape(MaskShape::Circle)
         });
         let moved = frame.dragged(MaskGrip::Move, (100.0, 50.0), (120.0, 40.0));
         assert!((moved.x - 0.1).abs() < 1e-9 && (moved.y + 0.1).abs() < 1e-9);
@@ -367,9 +464,9 @@ mod tests {
             ..whole()
         };
         let frame = MaskFrame::new(
-            ClipMask {
+            MaskAt {
                 x: 0.25,
-                ..ClipMask::of(MaskShape::Circle)
+                ..MaskAt::of_shape(MaskShape::Circle)
             },
             &footprint,
             (200, 100),
@@ -386,20 +483,20 @@ mod tests {
 
     #[test]
     fn the_outline_traces_the_edge_the_compositor_keeps() {
-        let frame = placed(ClipMask {
+        let frame = placed(MaskAt {
             width: 0.6,
             height: 0.6,
-            ..ClipMask::of(MaskShape::Circle)
+            ..MaskAt::of_shape(MaskShape::Circle)
         });
         for (x, y) in frame.edge(16) {
             assert!((x.hypot(y) - 30.0).abs() < 0.01, "a circle of 30 pixels");
         }
-        let star = placed(ClipMask::of(MaskShape::Star)).outline();
+        let star = placed(MaskAt::of_shape(MaskShape::Star)).outline();
         assert!(star.starts_with("M ") && star.ends_with('Z'));
-        let line = placed(ClipMask::of(MaskShape::Linear)).outline();
+        let line = placed(MaskAt::of_shape(MaskShape::Linear)).outline();
         assert_eq!(line.matches('L').count(), 1);
         assert_eq!(
-            placed(ClipMask::of(MaskShape::Mirror))
+            placed(MaskAt::of_shape(MaskShape::Mirror))
                 .outline()
                 .matches('M')
                 .count(),

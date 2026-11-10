@@ -375,7 +375,7 @@ fn speech_spans(dirs: &AppDirs, samples: &[f32], threads: usize) -> Option<Vec<(
     let spans = vad_model(dirs).and_then(|path| {
         let path = path
             .to_str()
-            .ok_or_else(|| format!("{} is not a path whisper can open", path.display()))?
+            .ok_or_else(|| format!("{} is not a path Concat can open", path.display()))?
             .to_owned();
         let mut context_params = WhisperVadContextParams::new();
         context_params.set_n_threads(threads as i32);
@@ -907,7 +907,7 @@ impl Transcriber {
         let context = &loaded.as_ref().expect("model loaded above").context;
         let mut state = context
             .create_state()
-            .map_err(|error| format!("could not start whisper: {error}"))?;
+            .map_err(|error| format!("could not start transcribing: {error}"))?;
 
         // Whisper calls back as it starts each window, with how far into
         // the sound it is; the window it starts reads thirty seconds more.
@@ -1081,7 +1081,7 @@ fn asked_language(code: Option<&str>) -> Result<Option<&'static str>, String> {
         .iter()
         .find(|(known, _)| known.eq_ignore_ascii_case(code))
         .map(|(known, _)| Some(*known))
-        .ok_or_else(|| format!("whisper does not know the language {code:?}"))
+        .ok_or_else(|| format!("captions do not support the language {code:?}"))
 }
 
 /// How many thirty-second stretches of the speech its language is heard

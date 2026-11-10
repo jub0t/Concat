@@ -208,7 +208,7 @@ impl Studio {
                     self.transition_selected = None;
                 }
                 let wanted = concat_project::model::VoiceMix {
-                    // The kind the clip had; vocals apart from music else.
+                    // The kind the clip had; speech apart from noise else.
                     kind: clip.voice.unwrap_or_default().kind,
                     ..if action == "voice-keep" {
                         concat_project::model::VoiceMix::KEEP_VOICE

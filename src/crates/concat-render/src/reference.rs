@@ -15,7 +15,7 @@
 use std::borrow::Cow;
 
 use concat_core::frame::{BYTES_PER_PIXEL, Frame};
-use concat_core::mask::{self, MaskUniform};
+use concat_core::mask::{self, MaskUniform, StackUniform};
 use concat_core::shader::{ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
@@ -99,6 +99,7 @@ fn draw(output: &mut Frame, plan: &FramePlan, layer: &PlannedLayer) {
         shading: layer.shading(),
         mask: layer.mask.as_deref(),
         shape: layer.shape_uniform(&geometry),
+        stack: layer.stack_uniform(&geometry),
         opacity,
         blend: layer.blend,
     };
@@ -138,6 +139,8 @@ struct Weighing<'a> {
     shading: Shading,
     mask: Option<&'a Frame>,
     shape: MaskUniform,
+    /// The masks a mask pass draws on the GPU, evaluated per pixel here.
+    stack: Option<StackUniform>,
     opacity: f32,
     blend: Blend,
 }
@@ -159,6 +162,9 @@ impl Weighing<'_> {
             alpha *= sample_bilinear(mask, mx, my)[3] / 255.0;
         }
         alpha *= mask::coverage(&self.shape, u, v);
+        if let Some(stack) = &self.stack {
+            alpha *= mask::stack_coverage(stack, u, v);
+        }
         if alpha <= 0.0 {
             return;
         }
@@ -769,6 +775,7 @@ mod tests {
             track: 1,
             effects: vec![unknown],
             strength: 1.0,
+            start: 0.0,
         }];
         let out = CpuCompositor.render(&frame_plan);
         assert_eq!(out.pixel(7, 7), Some([255, 0, 0, 255]));

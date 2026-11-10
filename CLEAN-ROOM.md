@@ -1,206 +1,163 @@
 # Clean-room rewrite
 
-Every outside contribution still present on `main`, as `git blame -w` found it on 2026-11-02: **141 commits, 19274 lines in 327 files.** When this list is done, the Owner holds the copyright in every line of Concat that is not third-party code, and can license all of it on any terms.
-
-`src/crates/concat/src/studio.rs` was split into `src/crates/concat/src/studio/*.rs` on 2026-11-04, after this list was made. An item below that names `studio.rs` may now be in one of those files. The split was merged so that blame follows each file back through `studio.rs` (`git blame -w --minimal` attributes 1 203 of the 1 207 outside lines exactly as before; the other 4 are signatures rustfmt re-wrapped).
+Every outside contribution still present on `main`, as `git blame -w --minimal` finds it on 2026-11-09, fixed-form lines aside (rule 4): **135 commits, 14815 lines in 287 files.** (On 2026-11-02 it was 141 commits and 19274 lines; later work by the Owner removed 6 commits outright and shrank others, and no outside commit has landed since.) When this list is done, the Owner holds the copyright in every line of Concat that is not third-party code, and can license all of it on any terms.
 
 ## Rules
 
 1. **Write a spec first, from the behaviour, never from the code.** Sources: the commit subject below, the linked issue, the running app, and the tests' expectations stated in words. Do not open the commit's diff or the PR.
-2. **Delete, then write.** Remove the contributor's lines, then implement the spec in a fresh change. If the old code has to be read to find where something plugs in, only read the call sites, which are ours.
+2. **Delete, then write, and give the feature back.** Remove the contributor's lines and implement the spec in the same commit: nothing a user had is lost. The spec is a checklist of every behaviour the feature has, and the rewrite meets each one, or does better, before it lands. Where the old design was weak, the new one is ours and improved; it is never smaller. If the old code has to be read to find where something plugs in, only read the call sites, which are ours.
 3. **Translations are re-translated from `en.json`**, not edited from the old file. The same goes for translated READMEs.
-4. **Tick an item only once `git blame -w --minimal` shows none of that commit's lines left** (`git blame -w --minimal <file> | grep <hash>` is empty). Always pass `--minimal`: git's default diff gives up being exact on a large file, and on 2026-11-04's split of `studio.rs` it credited most moved lines to the split itself.
+4. **Tick an item only once `git blame -w --minimal` shows none of that commit's lines left, fixed-form lines aside.** Always pass `--minimal`: git's default diff gives up being exact on a large file, and on 2026-11-04's split of `studio.rs` it credited most moved lines to the split itself. A rewrite cannot help matching the old text where there is only one way to write a line, and blame keeps crediting such lines to the old commit. They are no one's expression, so they do not count: blank lines; lines of nothing but brackets, braces and semicolons; TOML table headers (`[effect]`, `[[param]]`); a manifest's schema facts (`id`, `name`, `kind`, `category`, `order`, `aliases`, `key`, `label`, `type`, `values`, `labels`, `default`, `min`, `max`, `step`, `unit`, `entry`, `fallback`, `xfade`, `progress`, `shelves`, `intensity`, `moment`); the entry points and `Params` struct the host's shader contract dictates (`fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {`, `fn effect(uv: vec2<f32>) -> vec4<f32> {`, `struct Params { ... }`); and a bare `return x;` or `let x;`. Every other line counts, however short: rename or rewrite it.
 5. Commits are `refactor(<area>): ... (clean room)`, authored by Jareer, and list the hashes they replace in the body (`Replaces <hash>`).
 6. Re-run the inventory at the end, with the command in the last section. Anything new it finds goes on this list.
 7. When a file's last outside line is gone, its SPDX line drops "and Concat contributors" and says `2026 Jareer Abdullah` alone. Until then it keeps it: those lines are still their authors' copyright.
 
-## Code (118 commits, 18051 lines)
+## Code (113 commits, 13711 lines)
 
-- [ ] `6f2e3ae7` 2026-09-20 · maubrickastuto · **3068 lines** · feat(effects): CapCut-parity transitions, effects, filters, animations, and text-effects engine
-  - `src/crates/concat/ui/timeline/lanes.slint` (339)
-  - `src/crates/concat-render/src/gpu.rs` (246)
-  - `src/crates/concat/src/studio.rs` (189)
-  - `src/crates/concat-effects/src/shader.rs` (178)
-  - `src/crates/concat/ui/workspace/media-pane.slint` (149)
-  - `src/crates/concat-core/src/shader.rs` (116)
-  - `src/crates/concat-effects/src/catalogue.rs` (102)
-  - `src/crates/concat-effects/src/manifest.rs` (101)
-  - `src/crates/concat-text/src/lib.rs` (67)
-  - `.claude/skills/run-concat/SKILL.md` (62)
-  - `src/crates/concat-host/src/titles.rs` (59)
-  - `src/crates/concat-media/src/encode.rs` (52)
-  - `src/crates/concat-effects/packages/concat.shape-wipe/effect.wgsl` (38)
-  - `src/crates/concat/ui/inspector/clip-inspector.slint` (35)
-  - `src/crates/concat-effects/packages/concat.blur-dissolve/effect.wgsl` (30)
-  - `src/crates/concat-effects/packages/concat.linear-wipe/effect.toml` (30)
-  - `src/crates/concat-effects/packages/concat.shape-wipe/effect.toml` (30)
-  - `src/crates/concat-export/src/lib.rs` (29)
-  - `src/crates/concat-effects/packages/concat.bloom-pulse/effect.toml` (28)
-  - `src/crates/concat-export/src/resolve.rs` (26)
-  - `src/crates/concat-effects/packages/concat.push/effect.wgsl` (25)
-  - `src/crates/concat-effects/packages/concat.slide/effect.wgsl` (23)
-  - `src/crates/concat-effects/packages/concat.zoom-transition/effect.wgsl` (23)
-  - `src/crates/concat-effects/packages/concat.spin/effect.wgsl` (22)
-  - `src/crates/concat-effects/packages/concat.zoom-transition/effect.toml` (22)
-  - `src/crates/concat-effects/packages/concat.blur-dissolve/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.film-burn/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.glitch-warp/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.iris/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.light-leak-flash/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.light-leak-transition/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.push/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.slide/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.whip-pan/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.zoom-blur-transition/effect.toml` (21)
-  - `src/crates/concat-effects/packages/concat.cube/effect.wgsl` (20)
-  - `src/crates/concat-effects/packages/concat.glitch-transition/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.halftone/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.megaphone/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.rgb-split-wipe/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.stadium/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.swirl/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.underwater/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.vinyl/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.whisper/effect.toml` (20)
-  - `src/crates/concat-effects/packages/concat.spin/effect.toml` (19)
-  - `src/crates/concat-effects/packages/concat.linear-wipe/effect.wgsl` (18)
-  - `src/crates/concat-effects/packages/concat.rgb-split-wipe/effect.wgsl` (18)
-  - `src/crates/concat-effects/packages/concat.glitch-transition/effect.wgsl` (17)
-  - `src/crates/concat-effects/packages/concat.glitch-warp/effect.wgsl` (16)
-  - `src/crates/concat-effects/packages/concat.swirl/effect.wgsl` (16)
-  - `src/crates/concat-effects/packages/concat.zoom-blur-transition/effect.wgsl` (16)
-  - `src/crates/concat-effects/packages/concat.light-leak-transition/effect.wgsl` (15)
-  - `src/crates/concat-effects/packages/concat.whip-pan/effect.wgsl` (14)
-  - `src/crates/concat-render/src/compositor.rs` (14)
-  - `src/crates/concat-effects/packages/concat.dissolve/effect.toml` (13)
-  - `src/crates/concat-effects/packages/concat.megaphone/fixtures.toml` (13)
-  - `src/crates/concat-effects/packages/concat.stadium/fixtures.toml` (13)
-  - `src/crates/concat-effects/packages/concat.underwater/fixtures.toml` (13)
-  - `src/crates/concat-effects/packages/concat.vinyl/fixtures.toml` (13)
-  - `src/crates/concat-effects/packages/concat.whisper/fixtures.toml` (13)
-  - `src/crates/concat-effects/packages/concat.clock-wipe/effect.toml` (12)
-  - `src/crates/concat-effects/packages/concat.cube/effect.toml` (11)
-  - `src/crates/concat/src/lib.rs` (11)
-  - `src/crates/concat-effects/packages/concat.autumn/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.bleach-bypass/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.classic-chrome/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.cyberpunk/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.delicious/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.dreamy/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.high-contrast-mono/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.landscape-pop/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.light-leak-flash/effect.wgsl` (10)
-  - `src/crates/concat-effects/packages/concat.natural/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.noir/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.retro-70s/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.rosy/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.sci-fi/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.silver/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.super-8/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.tropical/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.vaporwave/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.winter-cool/effect.toml` (10)
-  - `src/crates/concat-effects/packages/concat.iris/effect.wgsl` (9)
-  - `src/crates/concat/ui/timeline/model.slint` (9)
-  - `src/crates/concat-effects/packages/concat.clock-wipe/effect.wgsl` (7)
-  - `src/crates/concat-effects/packages/concat.film-burn/effect.wgsl` (7)
-  - `src/crates/concat-effects/packages/concat.bloom-pulse/effect.wgsl` (6)
-  - `src/crates/concat-effects/packages/concat.dissolve/effect.wgsl` (6)
-  - `src/crates/concat-effects/packages/concat.noir/effect.wgsl` (6)
-  - `src/crates/concat-effects/packages/concat.silver/effect.wgsl` (6)
-  - `src/crates/concat-effects/packages/concat.super-8/effect.wgsl` (6)
-  - `src/crates/concat-effects/packages/concat.bleach-bypass/effect.wgsl` (5)
-  - `src/crates/concat-effects/packages/concat.delicious/effect.wgsl` (5)
-  - `src/crates/concat-effects/packages/concat.dreamy/effect.wgsl` (5)
-  - `src/crates/concat-effects/packages/concat.halftone/effect.wgsl` (5)
-  - `src/crates/concat-effects/packages/concat.landscape-pop/effect.wgsl` (5)
-  - `src/crates/concat-effects/packages/concat.retro-70s/effect.wgsl` (5)
-  - `src/crates/concat-effects/packages/concat.sci-fi/effect.wgsl` (5)
-  - `src/crates/concat-effects/packages/concat.winter-cool/effect.wgsl` (5)
-  - `src/crates/concat/ui/editor.slint` (5)
-  - `src/crates/concat-effects/packages/concat.autumn/effect.wgsl` (4)
-  - `src/crates/concat-effects/packages/concat.bloom-pulse/fixtures.toml` (4)
-  - `src/crates/concat-effects/packages/concat.classic-chrome/effect.wgsl` (4)
-  - `src/crates/concat-effects/packages/concat.cyberpunk/effect.wgsl` (4)
-  - `src/crates/concat-effects/packages/concat.halftone/fixtures.toml` (4)
-  - `src/crates/concat-effects/packages/concat.high-contrast-mono/effect.wgsl` (4)
-  - `src/crates/concat-effects/packages/concat.natural/effect.wgsl` (4)
-  - `src/crates/concat-effects/packages/concat.rosy/effect.wgsl` (4)
-  - `src/crates/concat-effects/packages/concat.tropical/effect.wgsl` (4)
-  - `src/crates/concat-effects/packages/concat.vaporwave/effect.wgsl` (4)
-  - `src/crates/concat/ui/workspace/seat.slint` (4)
-  - `src/crates/concat/ui/workspace/config-pane.slint` (2)
-  - `src/crates/concat-effects/packages/concat.autumn/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.bleach-bypass/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.classic-chrome/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.cyberpunk/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.delicious/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.dreamy/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.high-contrast-mono/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.landscape-pop/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.natural/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.noir/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.retro-70s/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.rosy/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.sci-fi/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.silver/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.super-8/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.tropical/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.vaporwave/fixtures.toml` (1)
-  - `src/crates/concat-effects/packages/concat.winter-cool/fixtures.toml` (1)
-  - `src/crates/concat-effects/src/lib.rs` (1)
-- [ ] `80561bd2` 2026-10-14 · Eric Benz · **2156 lines** · feat(speed): a speed curve on the Speed tab, drawn, from a preset, smooth or straight (#322)
-  - `src/crates/concat/src/speed_ramp.rs` (330)
-  - `src/crates/concat-project/src/speed.rs` (316)
-  - `src/crates/concat-core/src/retime.rs` (245)
-  - `src/crates/concat-project/src/lib.rs` (227)
-  - `src/crates/concat/ui/inspector/speed-ramp.slint` (212)
-  - `src/crates/concat/src/studio.rs` (159)
-  - `src/crates/concat/ui/inspector/clip-inspector.slint` (118)
-  - `src/crates/concat-project/src/commands/properties.rs` (37)
-  - `src/crates/concat-project/src/commands/clips.rs` (33)
-  - `src/crates/concat/src/lib.rs` (28)
-  - `src/crates/concat/locales/ar.json` (16)
-  - `src/crates/concat/locales/bn.json` (16)
-  - `src/crates/concat/locales/de.json` (16)
-  - `src/crates/concat/locales/en.json` (16)
-  - `src/crates/concat/locales/es.json` (16)
-  - `src/crates/concat/locales/fa.json` (16)
-  - `src/crates/concat/locales/fr.json` (16)
-  - `src/crates/concat/locales/he.json` (16)
-  - `src/crates/concat/locales/hi.json` (16)
-  - `src/crates/concat/locales/hr.json` (16)
-  - `src/crates/concat/locales/id.json` (16)
-  - `src/crates/concat/locales/it.json` (16)
-  - `src/crates/concat/locales/ja.json` (16)
-  - `src/crates/concat/locales/ko.json` (16)
-  - `src/crates/concat/locales/nl.json` (16)
-  - `src/crates/concat/locales/pl.json` (16)
-  - `src/crates/concat/locales/pt-BR.json` (16)
-  - `src/crates/concat/locales/ru.json` (16)
-  - `src/crates/concat/locales/th.json` (16)
-  - `src/crates/concat/locales/tr.json` (16)
-  - `src/crates/concat/locales/uk.json` (16)
-  - `src/crates/concat/locales/ur.json` (16)
-  - `src/crates/concat/locales/vi.json` (16)
-  - `src/crates/concat/locales/zh-Hans.json` (16)
-  - `src/crates/concat/locales/zh-TW.json` (16)
+- [ ] `80561bd2` 2026-10-14 · Eric Benz · **1640 lines** · feat(speed): a speed curve on the Speed tab, drawn, from a preset, smooth or straight (#322)
+  - `src/crates/concat/src/speed_ramp.rs` (257)
+  - `src/crates/concat-project/src/speed.rs` (250)
+  - `src/crates/concat-core/src/retime.rs` (201)
+  - `src/crates/concat-project/src/lib.rs` (187)
+  - `src/crates/concat/ui/inspector/speed-ramp.slint` (119)
+  - `src/crates/concat/src/studio/chains.rs` (57)
+  - `src/crates/concat-project/src/commands/properties.rs` (32)
+  - `src/crates/concat/src/studio/keyframes.rs` (31)
+  - `src/crates/concat-project/src/commands/clips.rs` (29)
+  - `src/crates/concat/src/studio.rs` (27)
+  - `src/crates/concat/src/lib.rs` (20)
+  - `src/crates/concat/locales/ar.json` (15)
+  - `src/crates/concat/locales/bn.json` (15)
+  - `src/crates/concat/locales/de.json` (15)
+  - `src/crates/concat/locales/en.json` (15)
+  - `src/crates/concat/locales/es.json` (15)
+  - `src/crates/concat/locales/fa.json` (15)
+  - `src/crates/concat/locales/fr.json` (15)
+  - `src/crates/concat/locales/he.json` (15)
+  - `src/crates/concat/locales/hi.json` (15)
+  - `src/crates/concat/locales/hr.json` (15)
+  - `src/crates/concat/locales/id.json` (15)
+  - `src/crates/concat/locales/it.json` (15)
+  - `src/crates/concat/locales/ja.json` (15)
+  - `src/crates/concat/locales/ko.json` (15)
+  - `src/crates/concat/locales/nl.json` (15)
+  - `src/crates/concat/locales/pl.json` (15)
+  - `src/crates/concat/locales/pt-BR.json` (15)
+  - `src/crates/concat/locales/ru.json` (15)
+  - `src/crates/concat/locales/th.json` (15)
+  - `src/crates/concat/locales/tr.json` (15)
+  - `src/crates/concat/locales/uk.json` (15)
+  - `src/crates/concat/locales/ur.json` (15)
+  - `src/crates/concat/locales/vi.json` (15)
+  - `src/crates/concat/locales/zh-Hans.json` (15)
+  - `src/crates/concat/locales/zh-TW.json` (15)
   - `src/crates/concat-project/src/commands/mod.rs` (14)
-  - `src/crates/concat-export/src/lib.rs` (13)
+  - `src/crates/concat-export/src/lib.rs` (11)
   - `src/crates/concat-export/src/flatten.rs` (8)
   - `src/crates/concat-host/tests/export.rs` (7)
   - `src/crates/concat-project/src/model.rs` (7)
+  - `src/crates/concat/src/studio/inspector.rs` (3)
   - `src/crates/concat-export/src/resolve.rs` (1)
+  - `src/crates/concat/src/studio/publish.rs` (1)
+  - `src/crates/concat/src/studio/text.rs` (1)
   - `src/crates/concat/ui/app.slint` (1)
-- [ ] `b12e5279` 2026-10-09 · minecart551-prog · **1535 lines** · feat(settings): a Shortcuts tab that lists every keybind and lets you set one (#400)
-  - `src/crates/concat/src/keymap.rs` (745)
-  - `src/crates/concat/ui/dialogs/settings.slint` (205)
-  - `src/crates/concat/src/lib.rs` (126)
-  - `src/crates/concat/src/panes/settings.rs` (59)
-  - `src/crates/concat/src/studio.rs` (58)
+  - `src/crates/concat/ui/inspector/clip-inspector.slint` (1)
+- [ ] `6f2e3ae7` 2026-09-20 · maubrickastuto · **1529 lines** · feat(effects): CapCut-parity transitions, effects, filters, animations, and text-effects engine
+  - `src/crates/concat/ui/timeline/lanes.slint` (266)
+  - `src/crates/concat-render/src/gpu.rs` (194)
+  - `src/crates/concat-effects/src/shader.rs` (131)
+  - `src/crates/concat/ui/workspace/media-pane.slint` (111)
+  - `src/crates/concat-core/src/shader.rs` (98)
+  - `src/crates/concat-effects/src/catalogue.rs` (80)
+  - `src/crates/concat-effects/src/manifest.rs` (76)
+  - `src/crates/concat/src/studio/placing.rs` (64)
+  - `src/crates/concat-text/src/lib.rs` (56)
+  - `src/crates/concat-host/src/titles.rs` (54)
+  - `src/crates/concat-media/src/encode.rs` (42)
+  - `.claude/skills/run-concat/SKILL.md` (41)
+  - `src/crates/concat/src/studio.rs` (26)
+  - `src/crates/concat-export/src/lib.rs` (23)
+  - `src/crates/concat/ui/inspector/clip-inspector.slint` (22)
+  - `src/crates/concat/src/studio/gestures.rs` (21)
+  - `src/crates/concat/src/studio/keyframes.rs` (20)
+  - `src/crates/concat-export/src/resolve.rs` (17)
+  - `src/crates/concat-effects/packages/concat.glitch-warp/effect.wgsl` (12)
+  - `src/crates/concat-render/src/compositor.rs` (12)
+  - `src/crates/concat/src/lib.rs` (8)
+  - `src/crates/concat/ui/timeline/model.slint` (8)
+  - `src/crates/concat/src/studio/chains.rs` (7)
+  - `src/crates/concat-effects/packages/concat.light-leak-flash/effect.wgsl` (6)
+  - `src/crates/concat-effects/packages/concat.megaphone/fixtures.toml` (5)
+  - `src/crates/concat-effects/packages/concat.stadium/fixtures.toml` (5)
+  - `src/crates/concat-effects/packages/concat.underwater/fixtures.toml` (5)
+  - `src/crates/concat-effects/packages/concat.vinyl/fixtures.toml` (5)
+  - `src/crates/concat-effects/packages/concat.whisper/fixtures.toml` (5)
+  - `src/crates/concat/src/studio/publish.rs` (5)
+  - `src/crates/concat/ui/editor.slint` (5)
+  - `src/crates/concat-effects/packages/concat.noir/effect.wgsl` (4)
+  - `src/crates/concat-effects/packages/concat.silver/effect.wgsl` (4)
+  - `src/crates/concat-effects/packages/concat.super-8/effect.wgsl` (4)
+  - `src/crates/concat/ui/workspace/seat.slint` (4)
+  - `src/crates/concat-effects/packages/concat.bleach-bypass/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.delicious/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.dreamy/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.film-burn/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.landscape-pop/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.retro-70s/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.sci-fi/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.winter-cool/effect.wgsl` (3)
+  - `src/crates/concat-effects/packages/concat.autumn/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.bloom-pulse/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.bloom-pulse/fixtures.toml` (2)
+  - `src/crates/concat-effects/packages/concat.classic-chrome/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.cyberpunk/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.halftone/fixtures.toml` (2)
+  - `src/crates/concat-effects/packages/concat.high-contrast-mono/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.megaphone/effect.toml` (2)
+  - `src/crates/concat-effects/packages/concat.natural/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.rosy/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.stadium/effect.toml` (2)
+  - `src/crates/concat-effects/packages/concat.tropical/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.underwater/effect.toml` (2)
+  - `src/crates/concat-effects/packages/concat.vaporwave/effect.wgsl` (2)
+  - `src/crates/concat-effects/packages/concat.vinyl/effect.toml` (2)
+  - `src/crates/concat-effects/packages/concat.whisper/effect.toml` (2)
+  - `src/crates/concat/ui/workspace/config-pane.slint` (2)
+  - `src/crates/concat-effects/packages/concat.autumn/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.bleach-bypass/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.bloom-pulse/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.classic-chrome/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.cyberpunk/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.delicious/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.dreamy/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.film-burn/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.glitch-warp/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.halftone/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.halftone/effect.wgsl` (1)
+  - `src/crates/concat-effects/packages/concat.high-contrast-mono/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.landscape-pop/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.light-leak-flash/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.natural/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.noir/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.retro-70s/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.rosy/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.sci-fi/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.silver/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.super-8/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.tropical/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.vaporwave/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.winter-cool/effect.toml` (1)
+  - `src/crates/concat-effects/src/lib.rs` (1)
+- [ ] `b12e5279` 2026-10-09 · minecart551-prog · **1289 lines** · feat(settings): a Shortcuts tab that lists every keybind and lets you set one (#400)
+  - `src/crates/concat/src/keymap.rs` (587)
+  - `src/crates/concat/ui/dialogs/settings.slint` (161)
+  - `src/crates/concat/src/lib.rs` (101)
+  - `src/crates/concat/src/panes/settings.rs` (53)
   - `src/crates/concat/ui/app.slint` (37)
-  - `src/crates/concat/src/prefs.rs` (26)
-  - `src/crates/concat/ui/editor.slint` (19)
+  - `src/crates/concat/src/studio/keyframes.rs` (34)
+  - `src/crates/concat/src/prefs.rs` (22)
+  - `src/crates/concat/src/studio/publish.rs` (18)
+  - `src/crates/concat/ui/editor.slint` (17)
   - `src/crates/concat/locales/en.json` (16)
   - `src/crates/concat/locales/fa.json` (16)
   - `src/crates/concat/locales/ru.json` (16)
@@ -215,8 +172,8 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/it.json` (14)
   - `src/crates/concat/locales/ko.json` (14)
   - `src/crates/concat/locales/tr.json` (14)
-  - `src/crates/concat/ui/icons.slint` (10)
   - `src/crates/concat/ui/timeline/tray.slint` (9)
+  - `src/crates/concat/ui/icons.slint` (8)
   - `src/crates/concat/locales/ar.json` (3)
   - `src/crates/concat/locales/bn.json` (3)
   - `src/crates/concat/locales/he.json` (3)
@@ -228,15 +185,15 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/uk.json` (3)
   - `src/crates/concat/locales/ur.json` (3)
   - `src/crates/concat/locales/vi.json` (3)
-- [ ] `fc7e6a91` 2026-10-15 · Konstantin Chuykov · **1430 lines** · feat: consolidate selected video clips through rendered media
-  - `src/crates/concat-host/tests/export.rs` (284)
-  - `src/crates/concat-project/src/lib.rs` (239)
-  - `src/crates/concat-host/src/consolidate.rs` (218)
-  - `src/crates/concat/src/studio/consolidate.rs` (211)
-  - `src/crates/concat-project/src/commands/clips.rs` (150)
-  - `src/crates/concat-export/src/lib.rs` (74)
-  - `src/crates/concat/src/studio.rs` (16)
-  - `src/crates/concat-project/src/commands/mod.rs` (13)
+  - `src/crates/concat/src/studio.rs` (1)
+- [ ] `fc7e6a91` 2026-10-15 · Konstantin Chuykov · **1184 lines** · feat: consolidate selected video clips through rendered media
+  - `src/crates/concat-host/tests/export.rs` (238)
+  - `src/crates/concat-project/src/lib.rs` (196)
+  - `src/crates/concat-host/src/consolidate.rs` (178)
+  - `src/crates/concat/src/studio/consolidate.rs` (153)
+  - `src/crates/concat-project/src/commands/clips.rs` (123)
+  - `src/crates/concat-export/src/lib.rs` (48)
+  - `src/crates/concat-project/src/commands/mod.rs` (12)
   - `src/crates/concat/locales/ar.json` (10)
   - `src/crates/concat/locales/bn.json` (10)
   - `src/crates/concat/locales/de.json` (10)
@@ -258,15 +215,20 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/uk.json` (10)
   - `src/crates/concat/locales/vi.json` (10)
   - `src/crates/concat/locales/zh-TW.json` (10)
-  - `src/crates/concat-export/src/resolve.rs` (7)
-  - `src/crates/concat/ui/timeline/tray.slint` (2)
+  - `src/crates/concat/src/studio/keyframes.rs` (6)
+  - `src/crates/concat-export/src/resolve.rs` (5)
+  - `src/crates/concat/src/studio.rs` (5)
   - `src/crates/concat/ui/workspace/timeline-pane.slint` (2)
   - `src/crates/concat-host/src/export.rs` (1)
   - `src/crates/concat-host/src/lib.rs` (1)
+  - `src/crates/concat/src/studio/keyboard.rs` (1)
+  - `src/crates/concat/src/studio/project_files.rs` (1)
+  - `src/crates/concat/src/studio/publish.rs` (1)
   - `src/crates/concat/ui/editor.slint` (1)
+  - `src/crates/concat/ui/timeline/tray.slint` (1)
   - `src/crates/concat/ui/workspace/seat.slint` (1)
-- [ ] `b4517d26` 2026-10-18 · abdullaabdullazade · **949 lines** · i18n: add Azerbaijani (az) locale
-  - `src/crates/concat/locales/az.json` (870)
+- [ ] `b4517d26` 2026-10-18 · abdullaabdullazade · **918 lines** · i18n: add Azerbaijani (az) locale
+  - `src/crates/concat/locales/az.json` (839)
   - `README.md` (2)
   - `docs/README.ar.md` (2)
   - `docs/README.bn.md` (2)
@@ -320,65 +282,52 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `scripts/readme/lang_vi.py` (1)
   - `scripts/readme/lang_zh-Hans.py` (1)
   - `scripts/readme/lang_zh-TW.py` (1)
-- [ ] `e75af9b8` 2026-10-16 · Rafael Fernandes · **689 lines** · fix: preserve project saves across concurrent writes and failed closes
-  - `src/crates/concat-host/src/projects.rs` (360)
-  - `src/crates/concat/src/lib.rs` (271)
-  - `src/crates/concat/src/panes/settings.rs` (30)
-  - `src/crates/concat/src/studio.rs` (28)
-- [ ] `c0c88275` 2026-10-11 · linhmieu-max · **616 lines** · i18n: add the Vietnamese locale (#304)
-  - `src/crates/concat/locales/vi.json` (615)
+- [ ] `c0c88275` 2026-10-11 · linhmieu-max · **591 lines** · i18n: add the Vietnamese locale (#304)
+  - `src/crates/concat/locales/vi.json` (590)
   - `src/crates/concat/src/i18n.rs` (1)
-- [ ] `a03e4169` 2026-10-09 · minecart551-prog · **576 lines** · feat(text): colour emoji render in their own colours, not the words'
-  - `src/crates/concat-text/src/lib.rs` (576)
-- [ ] `13f5adb7` 2026-10-16 · robbertcalliso-code · **402 lines** · feat: add Corona and Halation custom effects
-  - `src/crates/concat-effects/packages/concat.halation/effect.wgsl` (108)
-  - `src/crates/concat-effects/packages/concat.corona/effect.wgsl` (72)
-  - `src/crates/concat-effects/packages/concat.halation/effect.toml` (66)
-  - `src/crates/concat-effects/packages/concat.corona/effect.toml` (59)
-  - `src/crates/concat-effects/packages/concat.corona/fixtures.toml` (49)
-  - `src/crates/concat-effects/packages/concat.halation/fixtures.toml` (48)
-- [ ] `b5042b5c` 2026-10-25 · Sireen · **376 lines** · fix(media): a trimmed clip's sound starts where its cut is, not behind it (#535)
-  - `src/crates/concat-media/fixtures/sound-behind-the-picture.mpg` (179)
+- [ ] `e75af9b8` 2026-10-16 · Rafael Fernandes · **553 lines** · fix: preserve project saves across concurrent writes and failed closes
+  - `src/crates/concat-host/src/projects.rs` (287)
+  - `src/crates/concat/src/lib.rs` (215)
+  - `src/crates/concat/src/panes/settings.rs` (26)
+  - `src/crates/concat/src/studio/project_files.rs` (19)
+  - `src/crates/concat/src/studio/edit.rs` (6)
+- [ ] `a03e4169` 2026-10-09 · minecart551-prog · **461 lines** · feat(text): colour emoji render in their own colours, not the words'
+  - `src/crates/concat-text/src/lib.rs` (461)
+- [ ] `b5042b5c` 2026-10-25 · Sireen · **353 lines** · fix(media): a trimmed clip's sound starts where its cut is, not behind it (#535)
+  - `src/crates/concat-media/fixtures/sound-behind-the-picture.mpg` (169)
   - `src/crates/concat-media/fixtures/keyframes-3s-apart.ts` (92)
-  - `src/crates/concat-media/src/ffi.rs` (48)
-  - `src/crates/concat-media/src/audio.rs` (32)
-  - `src/crates/concat-media/src/samples.rs` (25)
-- [ ] `117155d0` 2026-10-17 · chiarorosa · **352 lines** · feat(captions): SubRip subtitles read into cues and written from a lane of titles
-  - `src/crates/concat-project/src/srt.rs` (351)
+  - `src/crates/concat-media/src/ffi.rs` (43)
+  - `src/crates/concat-media/src/audio.rs` (28)
+  - `src/crates/concat-media/src/samples.rs` (21)
+- [ ] `117155d0` 2026-10-17 · chiarorosa · **265 lines** · feat(captions): SubRip subtitles read into cues and written from a lane of titles
+  - `src/crates/concat-project/src/srt.rs` (264)
   - `src/crates/concat-project/src/lib.rs` (1)
-- [ ] `f4b3527e` 2026-09-09 · Domica · **277 lines** · cache media artwork as project JPEGs
-  - `src/crates/concat/src/host.rs` (162)
-  - `src/crates/concat-vision/src/brush.rs` (28)
-  - `src/crates/concat/src/studio.rs` (16)
-  - `src/crates/concat-effects/src/cube.rs` (11)
-  - `src/crates/concat-host/src/brush.rs` (9)
+- [ ] `13f5adb7` 2026-10-16 · robbertcalliso-code · **216 lines** · feat: add Corona and Halation custom effects
+  - `src/crates/concat-effects/packages/concat.halation/effect.wgsl` (85)
+  - `src/crates/concat-effects/packages/concat.corona/effect.wgsl` (56)
+  - `src/crates/concat-effects/packages/concat.corona/fixtures.toml` (28)
+  - `src/crates/concat-effects/packages/concat.halation/fixtures.toml` (27)
+  - `src/crates/concat-effects/packages/concat.halation/effect.toml` (13)
+  - `src/crates/concat-effects/packages/concat.corona/effect.toml` (7)
+- [ ] `f4b3527e` 2026-09-09 · Domica · **211 lines** · cache media artwork as project JPEGs
+  - `src/crates/concat/src/host.rs` (118)
+  - `src/crates/concat-vision/src/brush.rs` (25)
+  - `src/crates/concat-effects/src/cube.rs` (9)
   - `src/crates/concat-host/src/preview.rs` (8)
-  - `src/crates/concat-vision/src/mask.rs` (8)
-  - `src/crates/concat-vision/src/store.rs` (8)
+  - `src/crates/concat-host/src/brush.rs` (7)
+  - `src/crates/concat-vision/src/store.rs` (7)
+  - `src/crates/concat/src/studio/bin.rs` (7)
   - `src/crates/concat-core/src/shader.rs` (6)
-  - `src/crates/concat-effects/src/lib.rs` (6)
-  - `src/crates/concat-media/src/pool.rs` (5)
+  - `src/crates/concat-vision/src/mask.rs` (6)
+  - `src/crates/concat-effects/src/lib.rs` (5)
   - `src/crates/concat-vision/src/runtime.rs` (4)
+  - `src/crates/concat-media/src/pool.rs` (3)
   - `src/crates/concat-host/src/cutout.rs` (2)
   - `src/crates/concat-vision/src/apply.rs` (2)
-  - `src/crates/concat/Cargo.toml` (2)
-- [ ] `27c064f9` 2026-09-18 · Domica · **225 lines** · fix: captions land above the video, not under it
-  - `src/crates/concat-project/src/lib.rs` (187)
-  - `src/crates/concat-project/src/commands/clips.rs` (28)
-  - `src/crates/concat-project/src/commands/mod.rs` (4)
-  - `src/crates/concat-api/src/lib.rs` (2)
-  - `src/crates/concat-export/src/flatten.rs` (1)
-  - `src/crates/concat-host/src/titles.rs` (1)
-  - `src/crates/concat-host/tests/export.rs` (1)
+  - `src/crates/concat/Cargo.toml` (1)
   - `src/crates/concat/src/studio.rs` (1)
-- [ ] `87fd6781` 2026-10-18 · PanSHIgg · **213 lines** · fix(studio): a file that goes missing while a project is open is noticed when the window comes back - the relink dialog opens on it, a dismissal keeps it quiet until the file returns and is lost again, and a dialog about a project that closed does not linger (#409)
-  - `src/crates/concat/src/panes/relink.rs` (131)
-  - `src/crates/concat/src/studio.rs` (46)
-  - `src/crates/concat/src/platform.rs` (21)
-  - `src/crates/concat/src/lib.rs` (11)
-  - `src/crates/concat/src/panes/mod.rs` (4)
-- [ ] `72ba60a2` 2026-10-18 · CassioDalla · **212 lines** · fix(i18n): every string the interface draws goes through the lookup
-  - `src/crates/concat/src/panes/start.rs` (19)
+- [ ] `72ba60a2` 2026-10-18 · CassioDalla · **211 lines** · fix(i18n): every string the interface draws goes through the lookup
+  - `src/crates/concat/src/panes/start.rs` (18)
   - `src/crates/concat/locales/ar.json` (8)
   - `src/crates/concat/locales/bn.json` (8)
   - `src/crates/concat/locales/de.json` (8)
@@ -402,33 +351,38 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/uk.json` (8)
   - `src/crates/concat/locales/vi.json` (8)
   - `src/crates/concat/locales/zh-TW.json` (8)
-  - `src/crates/concat/src/studio.rs` (7)
+  - `src/crates/concat/src/studio/keyframes.rs` (4)
+  - `src/crates/concat/src/studio.rs` (2)
   - `src/crates/concat/src/ios.rs` (1)
+  - `src/crates/concat/src/studio/menus.rs` (1)
   - `src/crates/concat/ui/workspace/media-pane.slint` (1)
-- [ ] `331eccc5` 2026-09-20 · maubrickastuto · **210 lines** · Merge branch 'main' of github.com:maubrickastuto/Concat
-  - `src/crates/concat-render/src/gpu/tests.rs` (100)
-  - `src/crates/concat-effects/src/shader.rs` (73)
-  - `src/crates/concat-export/src/lib.rs` (19)
+- [ ] `27c064f9` 2026-09-18 · Domica · **189 lines** · fix: captions land above the video, not under it
+  - `src/crates/concat-project/src/lib.rs` (155)
+  - `src/crates/concat-project/src/commands/clips.rs` (24)
+  - `src/crates/concat-project/src/commands/mod.rs` (4)
+  - `src/crates/concat-api/src/lib.rs` (2)
+  - `src/crates/concat-export/src/flatten.rs` (1)
+  - `src/crates/concat-host/src/titles.rs` (1)
+  - `src/crates/concat-host/tests/export.rs` (1)
+  - `src/crates/concat/src/studio/menus.rs` (1)
+- [ ] `87fd6781` 2026-10-18 · PanSHIgg · **176 lines** · fix(studio): a file that goes missing while a project is open is noticed when the window comes back - the relink dialog opens on it, a dismissal keeps it quiet until the file returns and is lost again, and a dialog about a project that closed does not linger (#409)
+  - `src/crates/concat/src/panes/relink.rs` (103)
+  - `src/crates/concat/src/studio/project_files.rs` (41)
+  - `src/crates/concat/src/platform.rs` (20)
+  - `src/crates/concat/src/lib.rs` (8)
+  - `src/crates/concat/src/panes/mod.rs` (4)
+- [ ] `331eccc5` 2026-09-20 · maubrickastuto · **169 lines** · Merge branch 'main' of github.com:maubrickastuto/Concat
+  - `src/crates/concat-render/src/gpu/tests.rs` (81)
+  - `src/crates/concat-effects/src/shader.rs` (52)
+  - `src/crates/concat-export/src/lib.rs` (18)
   - `src/crates/concat-export/src/resolve.rs` (11)
   - `src/crates/concat-media/src/encode.rs` (3)
   - `src/crates/concat-host/src/media.rs` (2)
   - `src/crates/concat/src/studio.rs` (2)
-- [ ] `20dcd9aa` 2026-10-20 · MD · **193 lines** · feat: add text case and typography style controls
-  - `src/crates/concat/ui/inspector/text-panel.slint` (50)
-  - `src/crates/concat-text/src/lib.rs` (43)
-  - `src/crates/concat-project/src/lib.rs` (41)
-  - `src/crates/concat-project/src/model.rs` (25)
-  - `src/crates/concat/src/studio.rs` (16)
-  - `src/crates/concat/src/presets.rs` (6)
-  - `src/crates/concat/ui/primitives/panel.slint` (4)
-  - `src/crates/concat/ui/timeline/model.slint` (4)
-  - `src/crates/concat-host/src/cards.rs` (2)
-  - `src/crates/concat-host/src/titles.rs` (2)
-- [ ] `3479407c` 2026-10-14 · Tingler · **189 lines** · feat(settings): an interface scale, for a larger screen
-  - `src/crates/concat/src/prefs.rs` (86)
-  - `src/crates/concat/src/lib.rs` (25)
+- [ ] `3479407c` 2026-10-14 · Tingler · **163 lines** · feat(settings): an interface scale, for a larger screen
+  - `src/crates/concat/src/prefs.rs` (68)
+  - `src/crates/concat/src/lib.rs` (18)
   - `src/crates/concat/ui/theme/theme.slint` (9)
-  - `src/crates/concat/ui/dialogs/settings.slint` (4)
   - `src/crates/concat/locales/ar.json` (3)
   - `src/crates/concat/locales/bn.json` (3)
   - `src/crates/concat/locales/de.json` (3)
@@ -450,140 +404,125 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/uk.json` (3)
   - `src/crates/concat/locales/vi.json` (3)
   - `src/crates/concat/locales/zh-TW.json` (3)
+  - `src/crates/concat/ui/dialogs/settings.slint` (3)
   - `src/crates/concat/ui/app.slint` (2)
-- [ ] `13892e8d` 2026-10-17 · chiarorosa · **154 lines** · feat(captions): the captions sheet imports and exports SubRip files
-  - `src/crates/concat/src/panes/captions.rs` (107)
-  - `src/crates/concat/ui/dialogs/captions.slint` (25)
+- [ ] `20dcd9aa` 2026-10-20 · MD · **158 lines** · feat: add text case and typography style controls
+  - `src/crates/concat/ui/inspector/text-panel.slint` (41)
+  - `src/crates/concat-project/src/lib.rs` (34)
+  - `src/crates/concat-text/src/lib.rs` (31)
+  - `src/crates/concat-project/src/model.rs` (21)
+  - `src/crates/concat/src/studio/inspector.rs` (8)
+  - `src/crates/concat/src/presets.rs` (6)
+  - `src/crates/concat/src/studio/keyframes.rs` (5)
+  - `src/crates/concat/ui/primitives/panel.slint` (4)
+  - `src/crates/concat/ui/timeline/model.slint` (4)
+  - `src/crates/concat-host/src/cards.rs` (2)
+  - `src/crates/concat-host/src/titles.rs` (2)
+- [ ] `4ffa3212` 2026-10-19 · chiarorosa · **121 lines** · fix(server): quitting during an export cancels it, tells its caller, and leaves no temp file (#431)
+  - `src/crates/concat-server/src/json.rs` (53)
+  - `src/crates/concat/src/lib.rs` (36)
+  - `src/crates/concat-server/src/lib.rs` (32)
+- [ ] `13892e8d` 2026-10-17 · chiarorosa · **120 lines** · feat(captions): the captions sheet imports and exports SubRip files
+  - `src/crates/concat/src/panes/captions.rs` (81)
+  - `src/crates/concat/ui/dialogs/captions.slint` (19)
   - `src/crates/concat/locales/en.json` (7)
   - `src/crates/concat/locales/pt-BR.json` (7)
-  - `src/crates/concat/src/lib.rs` (6)
+  - `src/crates/concat/src/lib.rs` (4)
   - `src/crates/concat/ui/app.slint` (2)
-- [ ] `4ffa3212` 2026-10-19 · chiarorosa · **151 lines** · fix(server): quitting during an export cancels it, tells its caller, and leaves no temp file (#431)
-  - `src/crates/concat-server/src/json.rs` (67)
-  - `src/crates/concat/src/lib.rs` (46)
-  - `src/crates/concat-server/src/lib.rs` (38)
-- [ ] `6aaaf8fe` 2026-10-05 · marcinx98x · **145 lines** · perf(prefetch): keep the queue while playback runs on
-  - `src/crates/concat-media/src/prefetch.rs` (145)
-- [ ] `8f2e2924` 2026-10-17 · chiarorosa · **145 lines** · feat(audio): adjust volume for selected sound clips together
-  - `src/crates/concat/src/batch_volume.rs` (110)
-  - `src/crates/concat/src/studio.rs` (20)
+- [ ] `6aaaf8fe` 2026-10-05 · marcinx98x · **119 lines** · perf(prefetch): keep the queue while playback runs on
+  - `src/crates/concat-media/src/prefetch.rs` (119)
+- [ ] `e4781f7f` 2026-09-03 · ActArtech · **112 lines** · Add CapCut-style freeze frame at the playhead.
+  - `src/crates/concat/src/studio/menus.rs` (63)
+  - `src/crates/concat-project/src/lib.rs` (42)
+  - `src/crates/concat/src/studio/keyframes.rs` (6)
+  - `src/crates/concat/src/studio/keyboard.rs` (1)
+- [ ] `e0429579` 2026-10-14 · Bart van de Lint · **112 lines** · fix(timeline): a copy of a split clip shows the frames it was copied from (#335)
+  - `src/crates/concat/src/studio.rs` (101)
+  - `src/crates/concat/src/studio/menus.rs` (11)
+- [ ] `8f2e2924` 2026-10-17 · chiarorosa · **110 lines** · feat(audio): adjust volume for selected sound clips together
+  - `src/crates/concat/src/batch_volume.rs` (84)
+  - `src/crates/concat/src/studio/keyframes.rs` (7)
   - `src/crates/concat/ui/phone/editor.slint` (5)
-  - `src/crates/concat/ui/inspector/clip-inspector.slint` (4)
-  - `src/crates/concat/ui/workspace/config-pane.slint` (3)
+  - `src/crates/concat/src/studio.rs` (4)
+  - `src/crates/concat/src/studio/inspector.rs` (2)
+  - `src/crates/concat/ui/inspector/clip-inspector.slint` (2)
   - `src/crates/concat/ui/timeline/model.slint` (2)
+  - `src/crates/concat/ui/workspace/config-pane.slint` (2)
   - `src/crates/concat/src/lib.rs` (1)
-- [ ] `e4781f7f` 2026-09-03 · ActArtech · **138 lines** · Add CapCut-style freeze frame at the playhead.
-  - `src/crates/concat/src/studio.rs` (90)
-  - `src/crates/concat-project/src/lib.rs` (48)
-- [ ] `e0429579` 2026-10-14 · Bart van de Lint · **136 lines** · fix(timeline): a copy of a split clip shows the frames it was copied from (#335)
-  - `src/crates/concat/src/studio.rs` (136)
-- [ ] `4e1eb116` 2026-10-28 · Peter Stavropoulos · **128 lines** · fix(timeline): scroll the tab strip instead of running it off the pane (#567)
-  - `src/crates/concat/ui/timeline/tabs.slint` (128)
-- [ ] `76988c49` 2026-10-23 · Alex Juma · **127 lines** · fix(export): a clip after two transitions in a row no longer vanishes under the track above
-  - `src/crates/concat-export/src/lib.rs` (127)
-- [ ] `638b0432` 2026-10-25 · MD · **126 lines** · fix(audio): Save Audio As writes a WAV as PCM, so Concat can open it again (#544)
-  - `src/crates/concat-media/src/audio.rs` (126)
-- [ ] `e8c546ac` 2026-10-22 · Michael Halstead · **124 lines** · fix(media): a transition within one file keeps a reader per side
-  - `src/crates/concat-media/src/pool.rs` (124)
-- [ ] `91d72ff7` 2026-10-05 · marcinx98x · **109 lines** · perf(playback): carry the clock between the device's buffers
-  - `src/crates/concat-host/src/playback.rs` (109)
-- [ ] `1ec267a5` 2026-09-22 · maubrickastuto · **104 lines** · fix: resolve GitHub issues #177, #111/#99, #156, #102 and shader singularities
-  - `scripts/models.py` (37)
-  - `src/crates/concat/src/panes/timeline.rs` (31)
-  - `src/crates/concat/ui/title-bar.slint` (19)
-  - `src/crates/concat/ui/timeline/lanes.slint` (16)
-  - `src/crates/concat-speech/src/chatterbox.rs` (1)
-- [ ] `5e28b5bb` 2026-09-14 · Domica · **99 lines** · feat(ui): add MissingMedia dialog component
-  - `src/crates/concat/ui/dialogs/relink.slint` (89)
-  - `src/crates/concat/ui/app.slint` (10)
-- [ ] `6b7005ec` 2026-10-15 · eduardorfreitas93 · **94 lines** · feat: add Fade to Black and Fade to White transitions
-  - `src/crates/concat-effects/packages/concat.fade-black/fixtures.toml` (23)
-  - `src/crates/concat-effects/packages/concat.fade-white/fixtures.toml` (23)
-  - `src/crates/concat-effects/packages/concat.fade-black/effect.toml` (14)
-  - `src/crates/concat-effects/packages/concat.fade-white/effect.toml` (13)
-  - `src/crates/concat-effects/packages/concat.fade-white/effect.wgsl` (11)
-  - `src/crates/concat-effects/packages/concat.fade-black/effect.wgsl` (10)
-- [ ] `45c061f5` 2026-10-11 · Gilberto · **91 lines** · feat: open a GUI project with --project on launch
-  - `src/crates/concat/src/launch.rs` (57)
-  - `src/crates/concat/src/lib.rs` (29)
-  - `src/crates/concat/src/main.rs` (5)
-- [ ] `fefa6da1` 2026-09-18 · Domica · **90 lines** · feat: advanced export settings - VBR/CBR and target bitrate
-  - `src/crates/concat-media/src/encode.rs` (39)
-  - `src/crates/concat-export/src/lib.rs` (26)
+  - `src/crates/concat/src/studio/placing.rs` (1)
+- [ ] `e8c546ac` 2026-10-22 · Michael Halstead · **107 lines** · fix(media): a transition within one file keeps a reader per side
+  - `src/crates/concat-media/src/pool.rs` (107)
+- [ ] `4e1eb116` 2026-10-28 · Peter Stavropoulos · **105 lines** · fix(timeline): scroll the tab strip instead of running it off the pane (#567)
+  - `src/crates/concat/ui/timeline/tabs.slint` (105)
+- [ ] `76988c49` 2026-10-23 · Alex Juma · **104 lines** · fix(export): a clip after two transitions in a row no longer vanishes under the track above
+  - `src/crates/concat-export/src/lib.rs` (104)
+- [ ] `638b0432` 2026-10-25 · MD · **100 lines** · fix(audio): Save Audio As writes a WAV as PCM, so Concat can open it again (#544)
+  - `src/crates/concat-media/src/audio.rs` (100)
+- [ ] `1ec267a5` 2026-09-22 · maubrickastuto · **89 lines** · fix: resolve GitHub issues #177, #111/#99, #156, #102 and shader singularities
+  - `scripts/models.py` (35)
+  - `src/crates/concat/src/panes/timeline.rs` (24)
+  - `src/crates/concat/ui/timeline/lanes.slint` (15)
+  - `src/crates/concat/ui/title-bar.slint` (15)
+- [ ] `91d72ff7` 2026-10-05 · marcinx98x · **83 lines** · perf(playback): carry the clock between the device's buffers
+  - `src/crates/concat-host/src/playback.rs` (83)
+- [ ] `fefa6da1` 2026-09-18 · Domica · **77 lines** · feat: advanced export settings - VBR/CBR and target bitrate
+  - `src/crates/concat-media/src/encode.rs` (32)
+  - `src/crates/concat-export/src/lib.rs` (24)
   - `src/crates/concat-host/src/export.rs` (8)
   - `src/crates/concat-host/tests/export.rs` (5)
-  - `src/crates/concat/src/panes/export.rs` (5)
   - `src/crates/concat-media/src/decode.rs` (3)
   - `src/crates/concat-api/src/lib.rs` (2)
+  - `src/crates/concat/src/panes/export.rs` (2)
   - `src/crates/concat-media/src/lib.rs` (1)
-  - `src/crates/concat/src/lib.rs` (1)
-- [ ] `55a17268` 2026-09-27 · theworker02 · **82 lines** · Read .cube tables with a byte-order mark or Resolve's LUT_3D_INPUT_RANGE
-  - `src/crates/concat-effects/src/cube.rs` (58)
-  - `src/crates/concat-effects/src/looks.rs` (24)
-- [ ] `4f69340b` 2026-10-17 · 0xvoidworm · **81 lines** · fix(media): a variable-rate average too heavy to keep exactly is rounded, not dropped for the timestamp grid
-  - `src/crates/concat-core/src/time.rs` (50)
-  - `src/crates/concat-media/src/probe.rs` (31)
-- [ ] `82f7f813` 2026-10-05 · marcinx98x · **76 lines** · perf(monitor): count how smoothly playback's frames arrive
-  - `src/crates/concat/src/panes/monitor.rs` (76)
-- [ ] `0f00f74d` 2026-10-17 · chiarorosa · **75 lines** · fix(start): remember the last successful project location between launches
-  - `src/crates/concat/src/prefs.rs` (68)
-  - `src/crates/concat/src/studio.rs` (5)
+- [ ] `55a17268` 2026-09-27 · theworker02 · **67 lines** · Read .cube tables with a byte-order mark or Resolve's LUT_3D_INPUT_RANGE
+  - `src/crates/concat-effects/src/cube.rs` (46)
+  - `src/crates/concat-effects/src/looks.rs` (21)
+- [ ] `4f69340b` 2026-10-17 · 0xvoidworm · **67 lines** · fix(media): a variable-rate average too heavy to keep exactly is rounded, not dropped for the timestamp grid
+  - `src/crates/concat-core/src/time.rs` (40)
+  - `src/crates/concat-media/src/probe.rs` (27)
+- [ ] `45c061f5` 2026-10-11 · Gilberto · **63 lines** · feat: open a GUI project with --project on launch
+  - `src/crates/concat/src/launch.rs` (36)
+  - `src/crates/concat/src/lib.rs` (23)
+  - `src/crates/concat/src/main.rs` (4)
+- [ ] `0f00f74d` 2026-10-17 · chiarorosa · **63 lines** · fix(start): remember the last successful project location between launches
+  - `src/crates/concat/src/prefs.rs` (57)
+  - `src/crates/concat/src/studio.rs` (4)
   - `src/crates/concat/src/panes/start.rs` (2)
-- [ ] `3dd2ee95` 2026-10-18 · chiarorosa · **74 lines** · fix(mcp): a line that is not UTF-8 gets a parse error instead of ending the session (#337)
-  - `src/crates/concat-mcp/src/protocol.rs` (74)
-- [ ] `88dd187b` 2026-09-15 · maubrickastuto · **74 lines** · Add OS-level drag-and-drop media import
-  - `src/crates/concat/src/platform.rs` (61)
-  - `src/crates/concat/src/lib.rs` (13)
-- [ ] `1a2c71ff` 2026-10-18 · chiarorosa · **72 lines** · fix(mcp): export_wait's progress follows the stages the exporter names (#337)
-  - `src/crates/concat-mcp/src/tools.rs` (72)
-- [ ] `72a08b04` 2026-10-21 · PanSHIgg · **71 lines** · fix(media): a WebM alpha layer is decoded instead of dropped (#429)
-  - `src/crates/concat-media/src/decode.rs` (71)
-- [ ] `e9f09dff` 2026-10-05 · marcinx98x · **69 lines** · fix(export): a frame rate no video has is an error, not a panic
-  - `src/crates/concat-core/src/time.rs` (22)
-  - `src/crates/concat-project/src/lib.rs` (22)
-  - `src/crates/concat-project/src/model.rs` (16)
-  - `src/crates/concat-export/src/lib.rs` (9)
-- [ ] `d7bcb3de` 2026-09-18 · leoca · **66 lines** · fix(project): has_non_finite catches transition_in and text in UpdateClip
-  - `src/crates/concat-project/src/lib.rs` (34)
-  - `src/crates/concat-project/src/commands/mod.rs` (32)
-- [ ] `8c580f9a` 2026-09-24 · Raphael Bernardo · **64 lines** · feat(timeline): the playhead can follow a trimmed edge, so the monitor shows the frame the cut lands on
-  - `src/crates/concat/src/studio.rs` (22)
-  - `src/crates/concat/ui/timeline/tray.slint` (11)
-  - `src/crates/concat/ui/icons.slint` (9)
-  - `src/crates/concat/src/panes/timeline.rs` (5)
+- [ ] `82f7f813` 2026-10-05 · marcinx98x · **60 lines** · perf(monitor): count how smoothly playback's frames arrive
+  - `src/crates/concat/src/panes/monitor.rs` (60)
+- [ ] `72a08b04` 2026-10-21 · PanSHIgg · **59 lines** · fix(media): a WebM alpha layer is decoded instead of dropped (#429)
+  - `src/crates/concat-media/src/decode.rs` (59)
+- [ ] `88dd187b` 2026-09-15 · maubrickastuto · **58 lines** · Add OS-level drag-and-drop media import
+  - `src/crates/concat/src/platform.rs` (48)
+  - `src/crates/concat/src/lib.rs` (10)
+- [ ] `e9f09dff` 2026-10-05 · marcinx98x · **55 lines** · fix(export): a frame rate no video has is an error, not a panic
+  - `src/crates/concat-project/src/lib.rs` (18)
+  - `src/crates/concat-core/src/time.rs` (17)
+  - `src/crates/concat-project/src/model.rs` (12)
+  - `src/crates/concat-export/src/lib.rs` (8)
+- [ ] `8c580f9a` 2026-09-24 · Raphael Bernardo · **55 lines** · feat(timeline): the playhead can follow a trimmed edge, so the monitor shows the frame the cut lands on
+  - `src/crates/concat/src/studio/gestures.rs` (17)
+  - `src/crates/concat/ui/timeline/tray.slint` (10)
+  - `src/crates/concat/ui/icons.slint` (7)
+  - `src/crates/concat/src/panes/timeline.rs` (4)
   - `src/crates/concat/src/prefs.rs` (4)
   - `src/crates/concat/ui/editor.slint` (4)
   - `src/crates/concat/ui/workspace/timeline-pane.slint` (4)
-  - `src/crates/concat/src/lib.rs` (3)
-  - `src/crates/concat/ui/workspace/seat.slint` (2)
-- [ ] `593aaf16` 2026-09-14 · Domica · **62 lines** · test(project): add unit tests for missing_media() detection
-  - `src/crates/concat-project/src/lib.rs` (62)
-- [ ] `e7060e42` 2026-09-17 · Domica · **59 lines** · feat: pan tool for the timeline
-  - `src/crates/concat/ui/timeline/lanes.slint` (29)
-  - `src/crates/concat/ui/timeline/tray.slint` (10)
-  - `src/crates/concat/ui/icons.slint` (8)
-  - `src/crates/concat/ui/workspace/timeline-pane.slint` (5)
-  - `src/crates/concat/ui/editor.slint` (3)
   - `src/crates/concat/src/lib.rs` (2)
   - `src/crates/concat/ui/workspace/seat.slint` (2)
-- [ ] `90b186c7` 2026-09-15 · Gareth-Rouse · **56 lines** · fix(timeline): a long clip asked the GPU for a texture it refuses
-  - `src/crates/concat/ui/timeline/lanes.slint` (55)
+  - `src/crates/concat/src/studio/publish.rs` (1)
+- [ ] `3dd2ee95` 2026-10-18 · chiarorosa · **54 lines** · fix(mcp): a line that is not UTF-8 gets a parse error instead of ending the session (#337)
+  - `src/crates/concat-mcp/src/protocol.rs` (54)
+- [ ] `1a2c71ff` 2026-10-18 · chiarorosa · **54 lines** · fix(mcp): export_wait's progress follows the stages the exporter names (#337)
+  - `src/crates/concat-mcp/src/tools.rs` (54)
+- [ ] `d7bcb3de` 2026-09-18 · leoca · **52 lines** · fix(project): has_non_finite catches transition_in and text in UpdateClip
+  - `src/crates/concat-project/src/commands/mod.rs` (27)
+  - `src/crates/concat-project/src/lib.rs` (25)
+- [ ] `90b186c7` 2026-09-15 · Gareth-Rouse · **52 lines** · fix(timeline): a long clip asked the GPU for a texture it refuses
+  - `src/crates/concat/ui/timeline/lanes.slint` (51)
   - `src/crates/concat/src/gpu.rs` (1)
-- [ ] `56e94bb1` 2026-10-05 · marcinx98x · **55 lines** · fix(encode): let AMF make ten-bit HEVC, as Main 10
-  - `src/crates/concat-media/src/encode.rs` (55)
-- [ ] `eda00ecb` 2026-09-17 · Jeff Evertse · **53 lines** · fix(host): a single JPEG is a still, not a one-frame video
-  - `src/crates/concat-host/src/media.rs` (53)
-- [ ] `179f5b3f` 2026-10-17 · chiarorosa · **53 lines** · fix(captions): preserve short imported subtitle timings
-  - `src/crates/concat/src/panes/captions.rs` (53)
-- [ ] `11e51614` 2026-09-20 · maubrickastuto · **52 lines** · feat(effects): clip-relative time in the shader frame uniform
-  - `src/crates/concat-render/src/gpu.rs` (18)
-  - `src/crates/concat-render/src/gpu/tests.rs` (17)
-  - `src/crates/concat-effects/src/shader.rs` (9)
-  - `src/crates/concat-render/src/plan.rs` (8)
-- [ ] `73d8e9d4` 2026-10-19 · chiarorosa · **52 lines** · fix(media): a path spelled another way is not imported twice on Windows (#440)
-  - `src/crates/concat-project/src/commands/media.rs` (38)
-  - `src/crates/concat-project/src/lib.rs` (13)
-  - `src/crates/concat-project/src/commands/clips.rs` (1)
+- [ ] `593aaf16` 2026-09-14 · Domica · **51 lines** · test(project): add unit tests for missing_media() detection
+  - `src/crates/concat-project/src/lib.rs` (51)
 - [ ] `8afaa649` 2026-10-16 · Akash Bhat · **51 lines** · fix(i18n): Spanish captions sheet and export strings left in English
   - `src/crates/concat/locales/es.json` (5)
   - `src/crates/concat/locales/ar.json` (2)
@@ -609,147 +548,178 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/locales/vi.json` (2)
   - `src/crates/concat/locales/zh-TW.json` (2)
   - `src/crates/concat/src/panes/export.rs` (2)
-- [ ] `4f755b47` 2026-10-15 · eduardorfreitas93 · **50 lines** · fix: centre overlap transitions on the cut
-  - `src/crates/concat-export/src/lib.rs` (45)
-  - `src/crates/concat-host/tests/export.rs` (4)
-  - `src/crates/concat-export/src/flatten.rs` (1)
-- [ ] `422f7302` 2026-09-17 · Jeff Evertse · **50 lines** · fix(media): decode on every core
-  - `src/crates/concat-media/src/decode.rs` (50)
-- [ ] `1ac27607` 2026-09-17 · leoca · **50 lines** · fix(project): a freeze leaves reversed and curved pieces the way a split does
-  - `src/crates/concat-project/src/lib.rs` (50)
-- [ ] `cea124a7` 2026-09-17 · Jeff Evertse · **43 lines** · fix(project): a null crop in a patch takes the crop off
-  - `src/crates/concat-project/src/lib.rs` (36)
-  - `src/crates/concat-project/src/commands/mod.rs` (7)
-- [ ] `8ee4f93e` 2026-10-21 · igorgbr · **41 lines** · fix(decode): a seek short of the second keyframe of a VLC-written MP4 reads from the top instead of failing
+- [ ] `11e51614` 2026-09-20 · maubrickastuto · **49 lines** · feat(effects): clip-relative time in the shader frame uniform
+  - `src/crates/concat-render/src/gpu.rs` (17)
+  - `src/crates/concat-render/src/gpu/tests.rs` (15)
+  - `src/crates/concat-effects/src/shader.rs` (9)
+  - `src/crates/concat-render/src/plan.rs` (8)
+- [ ] `56e94bb1` 2026-10-05 · marcinx98x · **45 lines** · fix(encode): let AMF make ten-bit HEVC, as Main 10
+  - `src/crates/concat-media/src/encode.rs` (45)
+- [ ] `e7060e42` 2026-09-17 · Domica · **44 lines** · feat: pan tool for the timeline
+  - `src/crates/concat/ui/timeline/lanes.slint` (20)
+  - `src/crates/concat/ui/timeline/tray.slint` (7)
+  - `src/crates/concat/ui/icons.slint` (6)
+  - `src/crates/concat/ui/workspace/timeline-pane.slint` (5)
+  - `src/crates/concat/ui/editor.slint` (3)
+  - `src/crates/concat/ui/workspace/seat.slint` (2)
+  - `src/crates/concat/src/lib.rs` (1)
+- [ ] `eda00ecb` 2026-09-17 · Jeff Evertse · **43 lines** · fix(host): a single JPEG is a still, not a one-frame video
+  - `src/crates/concat-host/src/media.rs` (43)
+- [ ] `179f5b3f` 2026-10-17 · chiarorosa · **42 lines** · fix(captions): preserve short imported subtitle timings
+  - `src/crates/concat/src/panes/captions.rs` (42)
+- [ ] `6b7005ec` 2026-10-15 · eduardorfreitas93 · **41 lines** · feat: add Fade to Black and Fade to White transitions
+  - `src/crates/concat-effects/packages/concat.fade-black/fixtures.toml` (11)
+  - `src/crates/concat-effects/packages/concat.fade-white/fixtures.toml` (11)
+  - `src/crates/concat-effects/packages/concat.fade-white/effect.wgsl` (9)
+  - `src/crates/concat-effects/packages/concat.fade-black/effect.wgsl` (8)
+  - `src/crates/concat-effects/packages/concat.fade-black/effect.toml` (1)
+  - `src/crates/concat-effects/packages/concat.fade-white/effect.toml` (1)
+- [ ] `422f7302` 2026-09-17 · Jeff Evertse · **41 lines** · fix(media): decode on every core
   - `src/crates/concat-media/src/decode.rs` (41)
-- [ ] `bfb39ca4` 2026-10-27 · Sireen · **40 lines** · feat(timeline): a quick split rides the playhead, so a rough cut never reaches for ⌘B (#538)
-  - `src/crates/concat/ui/timeline/lanes.slint` (39)
+- [ ] `1ac27607` 2026-09-17 · leoca · **38 lines** · fix(project): a freeze leaves reversed and curved pieces the way a split does
+  - `src/crates/concat-project/src/lib.rs` (38)
+- [ ] `73d8e9d4` 2026-10-19 · chiarorosa · **37 lines** · fix(media): a path spelled another way is not imported twice on Windows (#440)
+  - `src/crates/concat-project/src/commands/media.rs` (25)
+  - `src/crates/concat-project/src/lib.rs` (11)
+  - `src/crates/concat-project/src/commands/clips.rs` (1)
+- [ ] `fe2be741` 2026-10-24 · meraxes89 · **35 lines** · fix(export): the export runs for the timeline's own frame count, so the last frame is drawn and no black one follows it
+  - `src/crates/concat-export/src/lib.rs` (35)
+- [ ] `cea124a7` 2026-09-17 · Jeff Evertse · **34 lines** · fix(project): a null crop in a patch takes the crop off
+  - `src/crates/concat-project/src/lib.rs` (28)
+  - `src/crates/concat-project/src/commands/mod.rs` (6)
+- [ ] `bfb39ca4` 2026-10-27 · Sireen · **34 lines** · feat(timeline): a quick split rides the playhead, so a rough cut never reaches for ⌘B (#538)
+  - `src/crates/concat/ui/timeline/lanes.slint` (33)
   - `src/crates/concat/ui/workspace/timeline-pane.slint` (1)
-- [ ] `fe2be741` 2026-10-24 · meraxes89 · **39 lines** · fix(export): the export runs for the timeline's own frame count, so the last frame is drawn and no black one follows it
-  - `src/crates/concat-export/src/lib.rs` (39)
-- [ ] `e5931a6e` 2026-10-05 · marcinx98x · **39 lines** · perf(monitor): decode the full window ahead and open the next cut early
-  - `src/crates/concat-host/src/preview.rs` (29)
-  - `src/crates/concat/src/panes/monitor.rs` (10)
-- [ ] `c5549fda` 2026-09-17 · Gareth Gwyn · **39 lines** · fix(ui): Home and End stay in the text field being typed into
-  - `src/crates/concat/ui/inspector/text-panel.slint` (16)
-  - `src/crates/concat/ui/dialogs/speech.slint` (13)
-  - `src/crates/concat/ui/primitives/number-field.slint` (10)
-- [ ] `e737cf89` 2026-10-21 · Andrew Barnes · **37 lines** · fix(projects): a project named NUL or CON gets a folder Windows can write in
-  - `src/crates/concat-host/src/projects.rs` (37)
-- [ ] `0db2669c` 2026-10-16 · chiarorosa · **36 lines** · fix(platform): a folder dialog opens on a folder that exists (#331)
-  - `src/crates/concat/src/platform.rs` (36)
-- [ ] `6097594e` 2026-09-03 · ActArtech · **34 lines** · Duplicate every selected clip from the context menu.
-  - `src/crates/concat/src/studio.rs` (34)
-- [ ] `c495a8ea` 2026-10-21 · Michael Halstead · **33 lines** · fix(macos): save the project when ⌘Q ends the app (#437)
-  - `src/crates/concat/src/lib.rs` (24)
+- [ ] `8ee4f93e` 2026-10-21 · igorgbr · **33 lines** · fix(decode): a seek short of the second keyframe of a VLC-written MP4 reads from the top instead of failing
+  - `src/crates/concat-media/src/decode.rs` (33)
+- [ ] `5e28b5bb` 2026-09-14 · Domica · **32 lines** · feat(ui): add MissingMedia dialog component
+  - `src/crates/concat/ui/dialogs/relink.slint` (25)
+  - `src/crates/concat/ui/app.slint` (7)
+- [ ] `4f755b47` 2026-10-15 · eduardorfreitas93 · **31 lines** · fix: centre overlap transitions on the cut
+  - `src/crates/concat-export/src/lib.rs` (29)
+  - `src/crates/concat-export/src/flatten.rs` (1)
+  - `src/crates/concat-host/tests/export.rs` (1)
+- [ ] `e5931a6e` 2026-10-05 · marcinx98x · **31 lines** · perf(monitor): decode the full window ahead and open the next cut early
+  - `src/crates/concat-host/src/preview.rs` (22)
+  - `src/crates/concat/src/panes/monitor.rs` (9)
+- [ ] `0db2669c` 2026-10-16 · chiarorosa · **30 lines** · fix(platform): a folder dialog opens on a folder that exists (#331)
+  - `src/crates/concat/src/platform.rs` (30)
+- [ ] `e737cf89` 2026-10-21 · Andrew Barnes · **28 lines** · fix(projects): a project named NUL or CON gets a folder Windows can write in
+  - `src/crates/concat-host/src/projects.rs` (28)
+- [ ] `c495a8ea` 2026-10-21 · Michael Halstead · **27 lines** · fix(macos): save the project when ⌘Q ends the app (#437)
+  - `src/crates/concat/src/lib.rs` (18)
   - `src/crates/concat/src/platform.rs` (9)
-- [ ] `ee28f253` 2026-10-05 · marcinx98x · **31 lines** · perf(monitor): publish only the picture for a frame during playback
-  - `src/crates/concat/src/host.rs` (26)
-  - `src/crates/concat/src/studio.rs` (4)
+- [ ] `6097594e` 2026-09-03 · ActArtech · **25 lines** · Duplicate every selected clip from the context menu.
+  - `src/crates/concat/src/studio/menus.rs` (24)
+  - `src/crates/concat/src/studio/keyboard.rs` (1)
+- [ ] `ee28f253` 2026-10-05 · marcinx98x · **23 lines** · perf(monitor): publish only the picture for a frame during playback
+  - `src/crates/concat/src/host.rs` (20)
+  - `src/crates/concat/src/studio/publish.rs` (2)
   - `src/crates/concat/src/panes/monitor.rs` (1)
-- [ ] `653ebc03` 2026-09-14 · Domica · **29 lines** · fix(host): move clear_cache and count_files before test module
-  - `src/crates/concat-host/src/projects.rs` (29)
-- [ ] `4b9df658` 2026-09-16 · leoca · **28 lines** · fix(effects): clamp with crossed bounds is an error, not a panic
-  - `src/crates/concat-effects/src/expr.rs` (28)
-- [ ] `964e800d` 2026-09-18 · Domica · **27 lines** · feat: ripple existing clips right when a drop would overlap them
-  - `src/crates/concat-project/src/commands/clips.rs` (11)
+- [ ] `c5549fda` 2026-09-17 · Gareth Gwyn · **22 lines** · fix(ui): Home and End stay in the text field being typed into
+  - `src/crates/concat/ui/inspector/text-panel.slint` (9)
+  - `src/crates/concat/ui/dialogs/speech.slint` (7)
+  - `src/crates/concat/ui/primitives/number-field.slint` (6)
+- [ ] `653ebc03` 2026-09-14 · Domica · **22 lines** · fix(host): move clear_cache and count_files before test module
+  - `src/crates/concat-host/src/projects.rs` (22)
+- [ ] `964e800d` 2026-09-18 · Domica · **22 lines** · feat: ripple existing clips right when a drop would overlap them
+  - `src/crates/concat-project/src/commands/clips.rs` (6)
   - `src/crates/concat-project/src/commands/mod.rs` (6)
   - `src/crates/concat-project/src/lib.rs` (4)
   - `src/crates/concat-host/tests/export.rs` (2)
-  - `src/crates/concat/src/studio.rs` (2)
   - `src/crates/concat-api/src/lib.rs` (1)
   - `src/crates/concat-export/src/flatten.rs` (1)
-- [ ] `448341da` 2026-10-05 · marcinx98x · **27 lines** · perf(studio): leave the font list alone when no font changed
-  - `src/crates/concat/src/studio.rs` (27)
-- [ ] `167a7331` 2026-10-24 · meraxes89 · **24 lines** · perf(export): every frame is drawn from the plan where it lies, and only a treated one is copied
-  - `src/crates/concat-export/src/lib.rs` (24)
-- [ ] `7641f00f` 2026-10-05 · marcinx98x · **24 lines** · fix(projects): a folder named with either slash is one entry in the recents
-  - `src/crates/concat-host/src/projects.rs` (24)
-- [ ] `4296aa3d` 2026-09-14 · Domica · **24 lines** · feat(project): add missing_media() detection method
-  - `src/crates/concat-project/src/model.rs` (24)
-- [ ] `3156ddbb` 2026-10-05 · marcinx98x · **22 lines** · test(api): Windows paths are joined and sent as JSON, not pasted into it
-  - `src/crates/concat-server/src/json.rs` (21)
-  - `src/crates/concat-api/src/lib.rs` (1)
-- [ ] `61ff4ab8` 2026-09-16 · Domica · **22 lines** · feat: add flip/reverse keyboard shortcuts and Settings context menu toggle
-  - `src/crates/concat/src/studio.rs` (22)
-- [ ] `a72e8eca` 2026-10-17 · Victor Santos Oliveira · **20 lines** · fix(core): Rational::parse refuses a value past i64 instead of panicking
-  - `src/crates/concat-core/src/time.rs` (20)
+  - `src/crates/concat/src/studio/menus.rs` (1)
+  - `src/crates/concat/src/studio/placing.rs` (1)
+- [ ] `4b9df658` 2026-09-16 · leoca · **21 lines** · fix(effects): clamp with crossed bounds is an error, not a panic
+  - `src/crates/concat-effects/src/expr.rs` (21)
+- [ ] `448341da` 2026-10-05 · marcinx98x · **21 lines** · perf(studio): leave the font list alone when no font changed
+  - `src/crates/concat/src/studio/text.rs` (15)
+  - `src/crates/concat/src/studio.rs` (4)
+  - `src/crates/concat/src/studio/publish.rs` (2)
+- [ ] `7641f00f` 2026-10-05 · marcinx98x · **19 lines** · fix(projects): a folder named with either slash is one entry in the recents
+  - `src/crates/concat-host/src/projects.rs` (19)
+- [ ] `4296aa3d` 2026-09-14 · Domica · **19 lines** · feat(project): add missing_media() detection method
+  - `src/crates/concat-project/src/model.rs` (19)
 - [ ] `7e45ae83` 2026-09-14 · Domica · **19 lines** · feat: Clear project cache command in the File menu
-  - `src/crates/concat/src/studio.rs` (18)
+  - `src/crates/concat/src/studio/project_files.rs` (13)
+  - `src/crates/concat/src/studio/keyframes.rs` (5)
   - `src/crates/concat/src/lib.rs` (1)
-- [ ] `cec1964f` 2026-09-09 · Domica · **18 lines** · fix: treat filtergraph EOF as graceful input end in audio mix
-  - `src/crates/concat-media/src/audio.rs` (18)
-- [ ] `67e4f9d7` 2026-10-05 · marcinx98x · **18 lines** · fix(server): a method that panics fails that call, not the API
-  - `src/crates/concat-server/src/hub.rs` (18)
-- [ ] `9f465da4` 2026-10-20 · Kevin-Christian Giraldo-Barbosa · **17 lines** · fix(mcp): include caching hints on server/discover and tools/list results (#463)
-  - `src/crates/concat-mcp/src/protocol.rs` (13)
+- [ ] `3156ddbb` 2026-10-05 · marcinx98x · **18 lines** · test(api): Windows paths are joined and sent as JSON, not pasted into it
+  - `src/crates/concat-server/src/json.rs` (17)
+  - `src/crates/concat-api/src/lib.rs` (1)
+- [ ] `a72e8eca` 2026-10-17 · Victor Santos Oliveira · **17 lines** · fix(core): Rational::parse refuses a value past i64 instead of panicking
+  - `src/crates/concat-core/src/time.rs` (17)
+- [ ] `167a7331` 2026-10-24 · meraxes89 · **17 lines** · perf(export): every frame is drawn from the plan where it lies, and only a treated one is copied
+  - `src/crates/concat-export/src/lib.rs` (17)
+- [ ] `cec1964f` 2026-09-09 · Domica · **17 lines** · fix: treat filtergraph EOF as graceful input end in audio mix
+  - `src/crates/concat-media/src/audio.rs` (17)
+- [ ] `61ff4ab8` 2026-09-16 · Domica · **15 lines** · feat: add flip/reverse keyboard shortcuts and Settings context menu toggle
+  - `src/crates/concat/src/studio/keyframes.rs` (15)
+- [ ] `67e4f9d7` 2026-10-05 · marcinx98x · **15 lines** · fix(server): a method that panics fails that call, not the API
+  - `src/crates/concat-server/src/hub.rs` (15)
+- [ ] `0875d8c1` 2026-10-05 · marcinx98x · **14 lines** · perf(studio): ask for each frame on time during playback
+  - `src/crates/concat/src/studio/monitor.rs` (14)
+- [ ] `9f465da4` 2026-10-20 · Kevin-Christian Giraldo-Barbosa · **13 lines** · fix(mcp): include caching hints on server/discover and tools/list results (#463)
+  - `src/crates/concat-mcp/src/protocol.rs` (9)
   - `src/crates/concat-mcp/tests/e2e.rs` (4)
-- [ ] `80fe0e67` 2026-09-14 · Domica · **16 lines** · feat(studio): log missing media when opening project
-  - `src/crates/concat/src/studio.rs` (16)
-- [ ] `0875d8c1` 2026-10-05 · marcinx98x · **15 lines** · perf(studio): ask for each frame on time during playback
-  - `src/crates/concat/src/studio.rs` (15)
-- [ ] `d3e2fe0c` 2026-09-16 · Domica · **14 lines** · fix: terminate process on window close (orphan concat.exe leak)
-  - `src/crates/concat/src/lib.rs` (14)
-- [ ] `816a8f0e` 2026-10-20 · Michael Halstead · **14 lines** · fix: keep the saved interface scale at startup and the Basic tab on audio toggles (#462) (#466)
-  - `src/crates/concat/src/platform.rs` (11)
-  - `src/crates/concat/src/studio.rs` (3)
-- [ ] `ec61ac56` 2026-09-10 · Domica · **13 lines** · fix: trim audio in Rust by sample count, not by PTS in the graph
-  - `src/crates/concat-media/src/audio.rs` (13)
-- [ ] `f4a98b61` 2026-09-10 · Domica · **13 lines** · feat: Sort and Filter dropdowns beside Import Media button
-  - `src/crates/concat/ui/workspace/media-pane.slint` (9)
-  - `src/crates/concat/src/lib.rs` (2)
-  - `src/crates/concat/ui/editor.slint` (1)
-  - `src/crates/concat/ui/workspace/seat.slint` (1)
+- [ ] `d3e2fe0c` 2026-09-16 · Domica · **13 lines** · fix: terminate process on window close (orphan concat.exe leak)
+  - `src/crates/concat/src/lib.rs` (13)
+- [ ] `816a8f0e` 2026-10-20 · Michael Halstead · **13 lines** · fix: keep the saved interface scale at startup and the Basic tab on audio toggles (#462) (#466)
+  - `src/crates/concat/src/platform.rs` (10)
+  - `src/crates/concat/src/studio/chains.rs` (3)
+- [ ] `80fe0e67` 2026-09-14 · Domica · **12 lines** · feat(studio): log missing media when opening project
+  - `src/crates/concat/src/studio/project_files.rs` (12)
+- [ ] `ec61ac56` 2026-09-10 · Domica · **12 lines** · fix: trim audio in Rust by sample count, not by PTS in the graph
+  - `src/crates/concat-media/src/audio.rs` (12)
 - [ ] `6d127414` 2026-09-10 · Domica · **12 lines** · fix: stamp mix input PTS from sample count, ignore source timestamps
   - `src/crates/concat-media/src/audio.rs` (12)
-- [ ] `140c4706` 2026-09-14 · Domica · **12 lines** · fix(ui): widen sort popup and complete i18n coverage
-  - `src/crates/concat/ui/primitives/select.slint` (12)
-- [ ] `b3c3f47d` 2026-10-09 · minecart551-prog · **11 lines** · feat(timeline): Q and E cut the selected clip at the playhead
-  - `src/crates/concat/src/studio.rs` (11)
-- [ ] `5b68f22f` 2026-09-09 · Domica · **11 lines** · fix: add check closure for sort menu items
-  - `src/crates/concat/src/studio.rs` (11)
-- [ ] `5eaf6631` 2026-09-17 · Gareth Gwyn · **10 lines** · fix(ui): a title's words reach the monitor as they are typed
-  - `src/crates/concat/src/studio.rs` (5)
-  - `src/crates/concat/ui/inspector/text-panel.slint` (5)
-- [ ] `29bd5fa7` 2026-10-21 · igorgbr · **9 lines** · fix(studio): a card or thumbnail not drawn yet no longer prints "Error loading image"
-  - `src/crates/concat/src/host.rs` (7)
-  - `src/crates/concat/src/studio.rs` (2)
+- [ ] `f4a98b61` 2026-09-10 · Domica · **11 lines** · feat: Sort and Filter dropdowns beside Import Media button
+  - `src/crates/concat/ui/workspace/media-pane.slint` (8)
+  - `src/crates/concat/src/lib.rs` (1)
+  - `src/crates/concat/ui/editor.slint` (1)
+  - `src/crates/concat/ui/workspace/seat.slint` (1)
+- [ ] `140c4706` 2026-09-14 · Domica · **11 lines** · fix(ui): widen sort popup and complete i18n coverage
+  - `src/crates/concat/ui/primitives/select.slint` (11)
+- [ ] `5b68f22f` 2026-09-09 · Domica · **10 lines** · fix: add check closure for sort menu items
+  - `src/crates/concat/src/studio/keyframes.rs` (10)
+- [ ] `5eaf6631` 2026-09-17 · Gareth Gwyn · **9 lines** · fix(ui): a title's words reach the monitor as they are typed
+  - `src/crates/concat/src/studio/inspector.rs` (5)
+  - `src/crates/concat/ui/inspector/text-panel.slint` (4)
 - [ ] `543443a8` 2026-10-05 · marcinx98x · **8 lines** · fix(proxy): the encoder lets go of its file before the copy is moved into place
   - `src/crates/concat-host/src/enhance.rs` (4)
   - `src/crates/concat-host/src/proxy.rs` (4)
 - [ ] `77f9457d` 2026-10-19 · chiarorosa · **8 lines** · fix(window): a handler's early return no longer skips the republish (#433)
   - `src/crates/concat/src/lib.rs` (8)
-- [ ] `44a1493a` 2026-09-14 · Domica · **8 lines** · fix(studio): allow upstream clippy lints blocking CI
-  - `src/crates/concat/src/studio.rs` (8)
-- [ ] `327e479b` 2026-10-05 · marcinx98x · **7 lines** · fix(treat): a layer's filter graph runs on one thread
-  - `src/crates/concat-media/src/treat.rs` (7)
+- [ ] `29bd5fa7` 2026-10-21 · igorgbr · **7 lines** · fix(studio): a card or thumbnail not drawn yet no longer prints "Error loading image"
+  - `src/crates/concat/src/host.rs` (5)
+  - `src/crates/concat/src/studio.rs` (2)
+- [ ] `44a1493a` 2026-09-14 · Domica · **6 lines** · fix(studio): allow upstream clippy lints blocking CI
+  - `src/crates/concat/src/studio.rs` (5)
+  - `src/crates/concat/src/studio/menus.rs` (1)
+- [ ] `327e479b` 2026-10-05 · marcinx98x · **6 lines** · fix(treat): a layer's filter graph runs on one thread
+  - `src/crates/concat-media/src/treat.rs` (6)
 - [ ] `b3463cff` 2026-09-16 · Jeff Evertse · **6 lines** · fix(effects): watch only package files that exist
   - `src/crates/concat-effects/build.rs` (6)
-- [ ] `36a8c82e` 2026-09-10 · Domica · **6 lines** · fix: keep in-point trim in graph, move out-point trim to Rust
-  - `src/crates/concat-media/src/audio.rs` (6)
-- [ ] `64ba18f8` 2026-09-10 · Domica · **6 lines** · feat: add Croatian (hr) locale
-  - `src/crates/concat/locales/hr.json` (5)
-  - `src/crates/concat/src/i18n.rs` (1)
 - [ ] `441544ec` 2026-10-09 · minecart551-prog · **6 lines** · fix(timeline): the add-track menu's rows take their clicks
   - `src/crates/concat/ui/timeline/tray.slint` (6)
+- [ ] `36a8c82e` 2026-09-10 · Domica · **5 lines** · fix: keep in-point trim in graph, move out-point trim to Rust
+  - `src/crates/concat-media/src/audio.rs` (5)
 - [ ] `bc05ea3c` 2026-10-23 · MD · **5 lines** · docs: describe public typography case and decoration options
   - `src/crates/concat-project/src/model.rs` (4)
   - `src/crates/concat-text/src/lib.rs` (1)
-- [ ] `50919a86` 2026-09-05 · Peter Dave Hello · **5 lines** · Add zh-TW Traditional Chinese localization
-  - `src/crates/concat/locales/zh-TW.json` (4)
+- [ ] `b3c3f47d` 2026-10-09 · minecart551-prog · **4 lines** · feat(timeline): Q and E cut the selected clip at the playhead
+  - `src/crates/concat/src/studio/menus.rs` (4)
+- [ ] `64ba18f8` 2026-09-10 · Domica · **3 lines** · feat: add Croatian (hr) locale
+  - `src/crates/concat/locales/hr.json` (2)
   - `src/crates/concat/src/i18n.rs` (1)
-- [ ] `1fe6a7c2` 2026-09-14 · Domica · **5 lines** · feat(studio): wire MissingMedia dialog to open on project load
-  - `src/crates/concat/src/lib.rs` (5)
-- [ ] `e7d77760` 2026-09-14 · Domica · **5 lines** · feat(studio): implement relink_all with recursive folder search
-  - `src/crates/concat/src/studio.rs` (5)
-- [ ] `3f0bb545` 2026-09-18 · leoca · **4 lines** · style(test): use struct init syntax to satisfy clippy
-  - `src/crates/concat-project/src/lib.rs` (4)
-- [ ] `64eb9b6d` 2026-09-14 · Domica · **3 lines** · fix(ui): correct Button property names and Glyph enum in relink dialog
-  - `src/crates/concat/ui/dialogs/relink.slint` (3)
-- [ ] `89cb56cd` 2026-09-10 · Domica · **2 lines** · fix: mux video and audio by timestamp, not one packet each
-  - `src/crates/concat-media/src/audio.rs` (2)
-- [ ] `d591ddf1` 2026-09-10 · Domica · **2 lines** · fix: compare mux PTS in a common unit, not raw ticks
-  - `src/crates/concat-media/src/audio.rs` (2)
+- [ ] `3f0bb545` 2026-09-18 · leoca · **3 lines** · style(test): use struct init syntax to satisfy clippy
+  - `src/crates/concat-project/src/lib.rs` (3)
+- [ ] `50919a86` 2026-09-05 · Peter Dave Hello · **2 lines** · Add zh-TW Traditional Chinese localization
+  - `src/crates/concat/locales/zh-TW.json` (1)
+  - `src/crates/concat/src/i18n.rs` (1)
+- [ ] `1fe6a7c2` 2026-09-14 · Domica · **2 lines** · feat(studio): wire MissingMedia dialog to open on project load
+  - `src/crates/concat/src/lib.rs` (2)
 - [ ] `41b8241e` 2026-09-14 · Domica · **1 lines** · fix(api): allow large_enum_variant lint on Response enum
   - `src/crates/concat-api/src/message.rs` (1)
 - [ ] `d1257b74` 2026-09-11 · Domica · **1 lines** · chore: remove debug logging from audio mix
@@ -760,30 +730,33 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `src/crates/concat/src/i18n.rs` (1)
 - [ ] `f8260a13` 2026-10-21 · Michael Halstead · **1 lines** · style: rustfmt media_kind in platform.rs
   - `src/crates/concat/src/platform.rs` (1)
-- [ ] `8f8d0950` 2026-09-14 · Domica · **1 lines** · feat(studio): add RelinkState and wire dialog to open on project load
-  - `src/crates/concat/src/studio.rs` (1)
 - [ ] `568be62c` 2026-09-09 · Domica · **1 lines** · feat: add sort options (Added/Name/Type) to View menu
-  - `src/crates/concat/src/studio.rs` (1)
+  - `src/crates/concat/src/studio/keyframes.rs` (1)
 - [ ] `b4d4062a` 2026-09-14 · Domica · **1 lines** · fix(ui): use Theme.fs instead of non-existent Theme.fs-base
   - `src/crates/concat/ui/dialogs/relink.slint` (1)
+- [x] `d591ddf1` 2026-09-10 · Domica · **0 lines** · fix: compare mux PTS in a common unit, not raw ticks
+- [x] `89cb56cd` 2026-09-10 · Domica · **0 lines** · fix: mux video and audio by timestamp, not one packet each
+- [x] `8f8d0950` 2026-09-14 · Domica · **0 lines** · feat(studio): add RelinkState and wire dialog to open on project load
+- [x] `e7d77760` 2026-09-14 · Domica · **0 lines** · feat(studio): implement relink_all with recursive folder search
+- [x] `64eb9b6d` 2026-09-14 · Domica · **0 lines** · fix(ui): correct Button property names and Glyph enum in relink dialog
 
-## Scripts, CI and packaging (10 commits, 294 lines)
+## Scripts, CI and packaging (9 commits, 231 lines)
 
-- [ ] `79bb0dcf` 2026-10-18 · abdullaabdullazade · **85 lines** · docs: add Azerbaijani README
-  - `docs/README.az.md` (77)
-  - `scripts/readme/lang_az.py` (7)
-  - `scripts/readme/gen.py` (1)
-- [ ] `af794c7f` 2026-10-18 · abdullaabdullazade · **78 lines** · docs(az): make the Azerbaijani README read naturally
-  - `docs/README.az.md` (39)
-  - `scripts/readme/lang_az.py` (38)
+- [ ] `af794c7f` 2026-10-18 · abdullaabdullazade · **69 lines** · docs(az): make the Azerbaijani README read naturally
+  - `docs/README.az.md` (34)
+  - `scripts/readme/lang_az.py` (34)
   - `src/crates/concat/locales/az.json` (1)
-- [ ] `8aa810bd` 2026-09-21 · Noxy · **70 lines** · add: arch linux pacman build
-  - `.github/workflows/build-app.yml` (39)
-  - `assets/arch/PKGBUILD` (29)
+- [ ] `8aa810bd` 2026-09-21 · Noxy · **60 lines** · add: arch linux pacman build
+  - `.github/workflows/build-app.yml` (34)
+  - `assets/arch/PKGBUILD` (24)
   - `scripts/models.py` (2)
-- [ ] `f1a5f4d3` 2026-10-18 · MD · **32 lines** · fix(captions): backport upstream whisper timestamp gap correction
-  - `src/patches/README.md` (25)
-  - `src/patches/whisper-rs-sys/whisper.cpp/src/whisper.cpp` (7)
+- [ ] `79bb0dcf` 2026-10-18 · abdullaabdullazade · **47 lines** · docs: add Azerbaijani README
+  - `docs/README.az.md` (41)
+  - `scripts/readme/lang_az.py` (5)
+  - `scripts/readme/gen.py` (1)
+- [ ] `f1a5f4d3` 2026-10-18 · MD · **27 lines** · fix(captions): backport upstream whisper timestamp gap correction
+  - `src/patches/README.md` (21)
+  - `src/patches/whisper-rs-sys/whisper.cpp/src/whisper.cpp` (6)
 - [ ] `92f1c63d` 2026-10-17 · 0xvoidworm · **13 lines** · fix(appimage): the xkbcommon core library ships beside the module that drives it, so X11 opens
   - `.github/workflows/build-app.yml` (13)
 - [ ] `14806044` 2026-10-28 · Rehman Ahmad · **8 lines** · docs(readme): refresh the Urdu README translation (#573)
@@ -793,50 +766,50 @@ Every outside contribution still present on `main`, as `git blame -w` found it o
   - `flake.nix` (4)
 - [ ] `730311f4` 2026-09-16 · Domica · **2 lines** · ci: run cargo test serially to avoid SIGTERM at concat link
   - `.github/workflows/ci.yml` (2)
-- [ ] `53cc4909` 2026-09-17 · Domica · **1 lines** · ci: point build-app.yml at src/ after the workspace move
-  - `.github/workflows/build-app.yml` (1)
 - [ ] `98aed2ba` 2026-09-15 · Dibbli · **1 lines** · flake: add openssl to buildInputs to fix openssl-sys build
   - `flake.nix` (1)
+- [x] `53cc4909` 2026-09-17 · Domica · **0 lines** · ci: point build-app.yml at src/ after the workspace move
 
-## Translations (11 commits, 861 lines)
+## Translations (11 commits, 821 lines)
 
-- [ ] `c65295b7` 2026-10-11 · MAHFUZ AHMED · **615 lines** · i18n: add Bengali (bn) translation (1016 strings)
-  - `src/crates/concat/locales/bn.json` (615)
-- [ ] `3aa6e5cc` 2026-10-09 · coolvitto · **60 lines** · Update Japanese translations
-  - `src/crates/concat/locales/ja.json` (60)
+- [ ] `c65295b7` 2026-10-11 · MAHFUZ AHMED · **590 lines** · i18n: add Bengali (bn) translation (1016 strings)
+  - `src/crates/concat/locales/bn.json` (590)
+- [ ] `3aa6e5cc` 2026-10-09 · coolvitto · **58 lines** · Update Japanese translations
+  - `src/crates/concat/locales/ja.json` (58)
 - [ ] `5ffb3fef` 2026-10-16 · chiarorosa · **39 lines** · i18n(pt-BR): translate the 41 lines still in English
   - `src/crates/concat/locales/pt-BR.json` (39)
 - [ ] `e03ae41d` 2026-10-27 · Rehman Ahmad · **32 lines** · fix(locales): translate the remaining English strings in Urdu (#562)
   - `src/crates/concat/locales/ur.json` (32)
 - [ ] `f0c01696` 2026-10-28 · 罗鹏飞 · **32 lines** · fix(locales): translate the remaining English strings in Simplified Chinese (#576)
   - `src/crates/concat/locales/zh-Hans.json` (32)
-- [ ] `fc9195a5` 2026-10-20 · abdullaabdullazade · **25 lines** · i18n(az): follow en.json after the sounds move and the speed curve
-  - `src/crates/concat/locales/az.json` (25)
-- [ ] `83e16b3d` 2026-10-15 · sunfoto · **24 lines** · docs: add Build from source section to README
-  - `README.md` (24)
+- [ ] `fc9195a5` 2026-10-20 · abdullaabdullazade · **24 lines** · i18n(az): follow en.json after the sounds move and the speed curve
+  - `src/crates/concat/locales/az.json` (24)
+- [ ] `83e16b3d` 2026-10-15 · sunfoto · **16 lines** · docs: add Build from source section to README
+  - `README.md` (16)
 - [ ] `b6390836` 2026-09-27 · Peter Dave Hello · **14 lines** · Update and improve zh-TW locale
   - `src/crates/concat/locales/zh-TW.json` (14)
 - [ ] `00d696d8` 2026-10-18 · 0xvoidworm · **13 lines** · i18n(id): the merge strings and the interface scale in Indonesian
   - `src/crates/concat/locales/id.json` (13)
-- [ ] `33d15075` 2026-09-19 · Hamid Kholghi · **5 lines** · feat: add Persian (fa) locale
-  - `src/crates/concat/locales/fa.json` (5)
-- [ ] `5e807fb6` 2026-10-20 · abdullaabdullazade · **2 lines** · docs(az): regenerate README.az.md with the Trendshift badge
-  - `docs/README.az.md` (2)
+- [ ] `33d15075` 2026-09-19 · Hamid Kholghi · **2 lines** · feat: add Persian (fa) locale
+  - `src/crates/concat/locales/fa.json` (2)
+- [ ] `5e807fb6` 2026-10-20 · abdullaabdullazade · **1 lines** · docs(az): regenerate README.az.md with the Trendshift badge
+  - `docs/README.az.md` (1)
 
-## Docs (2 commits, 68 lines)
+## Docs (2 commits, 52 lines)
 
-- [ ] `7cb4494b` 2026-10-15 · sunfoto · **37 lines** · docs: add keyboard shortcuts cheat sheet
-  - `docs/KEYBOARD_SHORTCUTS.md` (37)
-- [ ] `2775dc3c` 2026-10-15 · sunfoto · **31 lines** · docs: add feature request and PR templates, fix version badge
-  - `.github/ISSUE_TEMPLATE/feature_request.md` (20)
-  - `.github/PULL_REQUEST_TEMPLATE.md` (11)
-
+- [ ] `7cb4494b` 2026-10-15 · sunfoto · **29 lines** · docs: add keyboard shortcuts cheat sheet
+  - `docs/KEYBOARD_SHORTCUTS.md` (29)
+- [ ] `2775dc3c` 2026-10-15 · sunfoto · **23 lines** · docs: add feature request and PR templates, fix version badge
+  - `.github/ISSUE_TEMPLATE/feature_request.md` (15)
+  - `.github/PULL_REQUEST_TEMPLATE.md` (8)
 ## Re-running the inventory
 
+Every outside line, with its text, so the fixed-form ones (rule 4) can be set aside:
+
 ```sh
-git ls-files | grep -vE '\.(png|jpg|jpeg|gif|webp|ttf|otf|ico|icns|wav|mp4|mp3|bin|onnx|lock|gguf)$' \
-  | while read -r f; do git blame -w --minimal --line-porcelain -- "$f" 2>/dev/null | sed -n 's/^author //p'; done \
-  | grep -vE 'Jareer|bot\]|Not Committed' | sort | uniq -c | sort -rn
+git ls-files | grep -vE '\.(png|jpg|jpeg|gif|webp|ttf|otf|ico|icns|wav|mp4|mp3|bin|onnx|lock|gguf|webm|mkv|mov)$' \
+  | while read -r f; do git blame -w --minimal --line-porcelain -- "$f" 2>/dev/null \
+      | awk -v f="$f" '/^[0-9a-f]{40} /{h=substr($1,1,8)} /^author /{a=substr($0,8)} /^\t/{ if (a !~ /Jareer|bot\]|Not Committed/) print h"\t"a"\t"f"\t"substr($0,2)}'; done
 ```
 
-Empty output means the rewrite is finished.
+Drop the rows whose text is fixed-form; what is left is the list. Empty means the rewrite is finished. (A parallel version of this, and the script that rewrites this file's counts from it, are kept in the untracked `audit/` folder.)

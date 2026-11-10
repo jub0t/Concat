@@ -165,6 +165,53 @@ pub fn set_point(points: &mut Vec<SpeedPoint>, index: i32, x: f64, y: f64) {
     };
 }
 
+/// The `chosen` points of `from` moved together into `points`: `dx` across
+/// the clip and `dy` up the graph. The ends move in speed alone, and the
+/// shift in time is held to what keeps every moved point between the
+/// points that stay, so the group keeps its shape and its order; each
+/// height is held to the graph on its own.
+pub fn move_chosen(
+    points: &mut [SpeedPoint],
+    from: &[SpeedPoint],
+    chosen: &[usize],
+    dx: f64,
+    dy: f64,
+) {
+    if points.len() != from.len() || from.is_empty() || !dx.is_finite() || !dy.is_finite() {
+        return;
+    }
+    let last = from.len() - 1;
+    let moves = |index: usize| index > 0 && index < last && chosen.contains(&index);
+    let (mut low, mut high) = (f64::NEG_INFINITY, f64::INFINITY);
+    for index in (1..last).filter(|&index| moves(index)) {
+        // The nearest points that stay, either side, and how many moving
+        // ones stand between: each needs its gap.
+        let before = (0..index).rev().find(|&held| !moves(held)).unwrap_or(0);
+        let after = (index + 1..=last)
+            .find(|&held| !moves(held))
+            .unwrap_or(last);
+        low = low.max(from[before].at + GAP * (index - before) as f64 - from[index].at);
+        high = high.min(from[after].at - GAP * (after - index) as f64 - from[index].at);
+    }
+    let dx = if low <= high {
+        dx.clamp(low, high)
+    } else {
+        0.0
+    };
+    for &index in chosen.iter().filter(|&&index| index <= last) {
+        let point = from[index];
+        points[index] = SpeedPoint {
+            at: if moves(index) {
+                point.at + dx
+            } else {
+                point.at
+            },
+            speed: speed_at_height(height_of(point.speed) + dy),
+            slope: point.slope,
+        };
+    }
+}
+
 /// Point `index` taken off. The two ends stay: a curve spans the clip.
 pub fn remove_point(points: &mut Vec<SpeedPoint>, index: i32) {
     match usize::try_from(index) {
@@ -246,6 +293,29 @@ mod tests {
         for speed in [0.1, 0.5, 1.0, 3.0, 12.0] {
             assert!((speed_at_height(height_of(speed)) - speed).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn chosen_points_move_together_and_stop_at_the_points_that_stay() {
+        let mut from = flat(1.0);
+        for at in [0.2, 0.4, 0.6] {
+            set_point(&mut from, -1, at, 0.5);
+        }
+        // 0 · 0.2 · 0.4 · 0.6 · 1, the middle two chosen.
+        let mut points = from.clone();
+        move_chosen(&mut points, &from, &[2, 3], 0.1, 0.125);
+        assert!((points[2].at - 0.5).abs() < 1e-9 && (points[3].at - 0.7).abs() < 1e-9);
+        assert!((points[2].speed - 2.0).abs() < 1e-9 && (points[3].speed - 2.0).abs() < 1e-9);
+        assert_eq!(points[1], from[1]);
+        // Pushed far right, the last moved point stops a gap short of the end,
+        // and the one before keeps its distance.
+        move_chosen(&mut points, &from, &[2, 3], 5.0, 0.0);
+        assert!((points[3].at - (1.0 - GAP)).abs() < 1e-9);
+        assert!((points[3].at - points[2].at - 0.2).abs() < 1e-9);
+        // An end chosen moves in speed only.
+        move_chosen(&mut points, &from, &[0], 0.3, -0.125);
+        assert_eq!(points[0].at, 0.0);
+        assert!((points[0].speed - 0.5).abs() < 1e-9);
     }
 
     #[test]

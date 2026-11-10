@@ -62,8 +62,11 @@ pub(super) fn apply(
                 let crop = crop.map(Crop::tidy).filter(|crop| !crop.is_none());
                 applied |= assign(&mut clip.crop, crop);
             }
-            if let Some(mask) = patch.mask {
-                applied |= assign(&mut clip.mask, mask.map(ClipMask::tidy));
+            if let Some(masks) = patch.masks {
+                applied |= assign(&mut clip.masks, Mask::tidy_all(masks));
+            }
+            if let Some(motion) = patch.motion {
+                applied |= assign(&mut clip.motion, motion.and_then(ClipMotion::tidy));
             }
             if let Some(filters) = patch.filters {
                 applied |= assign(&mut clip.filters, filters);
@@ -263,7 +266,6 @@ pub(super) fn apply(
                 // same value at a different instant.
                 KeyProperty::Volume => value.max(0.0),
                 KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => value,
-                mask => ClipMask::clamp(mask, value),
             };
             let before = clip.keys.clone();
             clip.set_key(property, at, value, ease);
@@ -360,6 +362,68 @@ pub(super) fn apply(
                 return Ok(Outcome::default());
             };
             let applied = link.clear_keys(&key);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetMaskKey {
+            clip_id,
+            mask_id,
+            number,
+            at,
+            value,
+            ease,
+        } => {
+            let timeline = project.active_mut();
+            let Some(mask) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.masks.iter_mut().find(|mask| mask.id == mask_id))
+            else {
+                return Ok(Outcome::default());
+            };
+            let before = mask.keys.clone();
+            mask.set_key(&number, at, value, ease);
+            Ok(Outcome {
+                created_id: None,
+                applied: mask.keys != before,
+            })
+        }
+
+        Command::ClearMaskKey {
+            clip_id,
+            mask_id,
+            number,
+            at,
+        } => {
+            let timeline = project.active_mut();
+            let Some(mask) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.masks.iter_mut().find(|mask| mask.id == mask_id))
+            else {
+                return Ok(Outcome::default());
+            };
+            let applied = mask.clear_key(&number, at);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::ClearMaskKeys {
+            clip_id,
+            mask_id,
+            number,
+        } => {
+            let timeline = project.active_mut();
+            let Some(mask) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.masks.iter_mut().find(|mask| mask.id == mask_id))
+            else {
+                return Ok(Outcome::default());
+            };
+            let applied = mask.clear_keys(&number);
             Ok(Outcome {
                 created_id: None,
                 applied,

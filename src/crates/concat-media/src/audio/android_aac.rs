@@ -340,6 +340,7 @@ mod tests {
             duration: 6.0,
             source_start: 0.0,
             speed: 1.0,
+            tempo: Vec::new(),
             preserve_pitch: true,
             volume: 1.0,
             volume_curve: Default::default(),

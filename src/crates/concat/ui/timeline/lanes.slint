@@ -33,6 +33,9 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image
             : kind == ClipKind.text ? Theme.kind-text
             : kind == ClipKind.filter ? Theme.kind-filter
+            : kind == ClipKind.effect ? Theme.kind-effect
+            : kind == ClipKind.adjustment ? Theme.kind-adjustment
+            : kind == ClipKind.transition ? Theme.kind-transition
             : kind == ClipKind.shape ? Theme.kind-shape
             : kind == ClipKind.sound-layer ? Theme.kind-sound-layer
             : Theme.kind-video;
@@ -42,15 +45,27 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image-well
             : kind == ClipKind.text ? Theme.kind-text-well
             : kind == ClipKind.filter ? Theme.kind-filter-well
+            : kind == ClipKind.effect ? Theme.kind-effect-well
+            : kind == ClipKind.adjustment ? Theme.kind-adjustment-well
+            : kind == ClipKind.transition ? Theme.kind-transition-well
             : kind == ClipKind.shape ? Theme.kind-shape-well
             : kind == ClipKind.sound-layer ? Theme.kind-sound-layer-well
             : Theme.kind-video-well;
+    }
+    /// The bars laid over the picture - a look, an effect, a grade, a
+    /// transition - each all bar, with no picture of their own.
+    public pure function over-picture(kind: ClipKind) -> bool {
+        return kind == ClipKind.filter || kind == ClipKind.effect
+            || kind == ClipKind.adjustment || kind == ClipKind.transition;
     }
     public pure function badge(kind: ClipKind) -> Glyph {
         return kind == ClipKind.audio ? Glyph.music
             : kind == ClipKind.image ? Glyph.image
             : kind == ClipKind.text ? Glyph.text-mark
             : kind == ClipKind.filter ? Glyph.filter
+            : kind == ClipKind.effect ? Glyph.sparkle
+            : kind == ClipKind.adjustment ? Glyph.sliders
+            : kind == ClipKind.transition ? Glyph.transition
             : kind == ClipKind.shape ? Glyph.shapes
             : kind == ClipKind.sound-layer ? Glyph.waveform
             : Glyph.film;
@@ -68,6 +83,10 @@ component Ramps inherits Rectangle {
     in property <length> px-per-second;
     /// The wedges' height; they sit at the foot of this element.
     in property <length> ramp-h: root.height;
+    /// A clip's sound fades on a curve - the gain the square of the way
+    /// through, as the mixer plays it - where a layer's strength ramps on a
+    /// line.
+    in property <bool> curved;
 
     if root.fade-in > 0: Rectangle {
         x: 0;
@@ -82,7 +101,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 0 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 Q 0.5 1 0 1 Z" : "M 0 0 L 1 0 L 0 1 Z";
         }
         Path {
             width: parent.width;
@@ -92,7 +111,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 1 L 1 0";
+            commands: root.curved ? "M 0 1 Q 0.5 1 1 0" : "M 0 1 L 1 0";
         }
     }
 
@@ -109,7 +128,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 1 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 L 1 1 Q 0.5 1 0 0 Z" : "M 0 0 L 1 0 L 1 1 Z";
         }
         Path {
             width: parent.width;
@@ -119,7 +138,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 0 L 1 1";
+            commands: root.curved ? "M 0 0 Q 0.5 1 1 1" : "M 0 0 L 1 1";
         }
     }
 }
@@ -185,7 +204,7 @@ component Clip inherits Rectangle {
     /// a filter layer's bar, for the same reason: no sound of its own to
     /// draw a wave of.
     property <bool> all-strip: root.item.kind == ClipKind.text
-        || root.item.kind == ClipKind.filter
+        || Paint.over-picture(root.item.kind)
         || root.item.kind == ClipKind.sound-layer
         || root.item.kind == ClipKind.shape;
     property <length> header-h: root.all-strip ? root.height : 17px;
@@ -460,6 +479,7 @@ component Clip inherits Rectangle {
             height: parent.height;
             fade-in: root.shown-fade-in;
             fade-out: root.shown-fade-out;
+            curved: true;
             px-per-second: root.px-per-second;
             ramp-h: root.fade-h;
         }
@@ -504,7 +524,7 @@ component Clip inherits Rectangle {
 
         // A filter layer's ramps run over its whole bar, and a sound
         // layer's; see Ramps.
-        if root.item.kind == ClipKind.filter || root.item.kind == ClipKind.sound-layer: Ramps {
+        if Paint.over-picture(root.item.kind) || root.item.kind == ClipKind.sound-layer: Ramps {
             x: 0;
             y: 0;
             width: parent.width;

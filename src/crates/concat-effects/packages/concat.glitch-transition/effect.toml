@@ -6,17 +6,17 @@ name = "Glitch"
 kind = "transition"
 category = "Glitch"
 order = 8
-description = "Digital tearing and channel splitting rip through the cut."
+description = "The picture breaks into torn bands that jump sideways and flicker between the two shots until the next one holds."
 
 [[param]]
 key = "amount"
 label = "Amount"
+unit = "%"
 min = 0
 max = 100
-default = 70
 step = 1
-unit = "%"
+default = 70
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"

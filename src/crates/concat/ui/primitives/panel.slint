@@ -66,7 +66,9 @@ export component Section inherits VerticalLayout {
     /// suppress the leading hairline, for the first section in a panel
     in property <bool> first;
 
-    padding-bottom: 8px;
+    // No air of its own under it: that is its body's, so a section folded
+    // to its header, or switched off, meets the next one's hairline with
+    // nothing between, as a stack of closed drawers does.
 
     if !root.first: Rectangle {
         height: 1px;
@@ -186,7 +188,9 @@ export component SectionBody inherits VerticalLayout {
     // of the gap between rows: a section reads as a header and a block, not
     // a header with rows jammed against it.
     padding-top: 4px;
-    padding-bottom: 4px;
+    // Its own 4 and the 8 its section used to leave under every section,
+    // open or folded; see Section.
+    padding-bottom: 12px;
     spacing: Theme.gap;
     @children
 }

@@ -143,6 +143,12 @@ pub struct DecodeOptions {
     /// decoded frame. Never for anything a person will watch or export: the
     /// frame is near the instant, not at it.
     pub keyframes_only: bool,
+    /// A picture for a glance - a filmstrip tile a few dozen pixels high -
+    /// where being a frame or two away from the instant and a little
+    /// blocky are invisible: the codec skips its deblocking and the frames
+    /// no other frame is built from. A 4K H.264 strip read through took
+    /// half the CPU so (11.4 s against 22.5) and a fifth less time.
+    pub glance: bool,
     /// Threads the codec may use, or zero to let it count the cores.
     ///
     /// Zero for anything a person is waiting on: a scrub wants its frame
@@ -220,6 +226,12 @@ impl DecodeOptions {
     /// Decodes keyframes only. See [`DecodeOptions::keyframes_only`].
     pub fn nearest_keyframes(mut self) -> Self {
         self.keyframes_only = true;
+        self
+    }
+
+    /// Decodes for a glance. See [`DecodeOptions::glance`].
+    pub fn at_a_glance(mut self) -> Self {
+        self.glance = true;
         self
     }
 
@@ -914,6 +926,10 @@ impl Decoder {
                 ffmpeg::sys::FF_THREAD_FRAME | ffmpeg::sys::FF_THREAD_SLICE
             };
             (*raw).thread_count = i32::from(options.threads);
+            if options.glance {
+                (*raw).skip_loop_filter = ffmpeg::sys::AVDiscard::ALL;
+                (*raw).skip_frame = ffmpeg::sys::AVDiscard::NONREF;
+            }
         }
         let (accelerated, named) = match codec {
             Codec::Software => (None, None),

@@ -20,6 +20,7 @@
 //! always-correct fallback. Sound is planned by the engine as one FFmpeg
 //! filtergraph and mixed in a single pass.
 
+mod ahead;
 pub mod chains;
 pub mod flatten;
 mod resolve;
@@ -41,10 +42,8 @@ use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
-use concat_media::{
-    DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
-};
-use concat_project::model::{AppliedFilter, ClipMask, ColorSpace, Cutout};
+use concat_media::{DecodeOptions, EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
+use concat_project::model::{AppliedFilter, ColorSpace, Cutout, Mask};
 use concat_render::{
     Compositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor,
     plan_frame,
@@ -287,10 +286,14 @@ pub struct ExportClip {
     /// leaves the picture whole.
     #[serde(default)]
     pub cutout: Option<Cutout>,
-    /// The shape that keeps part of the picture, as the document holds
-    /// it; its keyed numbers ride in `animation` as `maskX` and on.
+    /// The shapes that keep part of the picture, top first, as the
+    /// document holds them, each with its own keys.
     #[serde(default)]
-    pub mask: Option<ClipMask>,
+    pub masks: Vec<Mask>,
+    /// The clip's entrance, exit and loop; see the document's
+    /// `Clip::motion`.
+    #[serde(default)]
+    pub motion: Option<concat_project::model::ClipMotion>,
     /// Draw the cutout tinted over the whole picture instead of cutting
     /// it: the view while the clip's brushes are in use. Preview only.
     #[serde(default)]
@@ -427,7 +430,8 @@ impl ExportClip {
             media_duration: None,
             has_audio: None,
             cutout: None,
-            mask: None,
+            motion: None,
+            masks: Vec::new(),
             mask_dir: String::new(),
             stabilize: None,
             motion_dir: String::new(),
@@ -443,9 +447,8 @@ impl ExportClip {
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportKey {
-    /// "scale", "offsetX", "offsetY", "rotation", "opacity" or "volume",
-    /// or one of the mask's numbers: "maskX", "maskY", "maskWidth",
-    /// "maskHeight", "maskRotation", "maskRoundness", "maskFeather".
+    /// "scale", "offsetX", "offsetY", "rotation", "opacity" or "volume".
+    /// A mask's keys are the mask's, in `ExportClip::masks`.
     pub property: String,
     /// Where in the clip, `0..=1`.
     pub at: f64,
@@ -1353,6 +1356,7 @@ fn audio_pieces_of(
             duration: clip.duration,
             source_start: clip.source_start,
             speed: audio::clamp_speed(clip.speed),
+            tempo: Vec::new(),
             preserve_pitch: clip.preserve_pitch,
             volume: clip.volume * gain,
             volume_curve: track,
@@ -1361,9 +1365,50 @@ fn audio_pieces_of(
             filter_chain: chain,
         }];
     };
-    // Pieces a tenth of a second long, or eight at least: fine enough that
+    // Steps a tenth of a second long, or eight at least: fine enough that
     // a tempo step is not heard, coarse enough that the graph stays small.
     let count = ((clip.duration / 0.1).ceil() as usize).clamp(8, 400);
+    // Pitch held: one clip, its rate stepped inside one tempo filter that
+    // runs from end to end (see `AudioClip::tempo`). Pieces each with a
+    // filter of their own start it afresh at every seam, and a ramp was
+    // heard as a stutter ten times a second.
+    if clip.preserve_pitch {
+        let mut tempo: Vec<(f64, f64)> = Vec::new();
+        for (x0, _, _, mean) in curve.pieces(count) {
+            let speed = audio::clamp_speed(mean);
+            // A step that changes nothing is no step: a flat stretch is
+            // one rate, and a curve flat throughout needs no filter at all.
+            if tempo
+                .last()
+                .is_none_or(|&(_, held)| (held - speed).abs() > 1e-6)
+            {
+                tempo.push((x0 * clip.duration, speed));
+            }
+        }
+        let speed = audio::clamp_speed(curve.mean());
+        let constant = tempo.len() <= 1;
+        return vec![AudioClip {
+            path: PathBuf::from(path),
+            stream: stream.map(|index| index as usize),
+            start: clip.start,
+            duration: clip.duration,
+            source_start: clip.source_start,
+            speed: if constant {
+                tempo.first().map_or(speed, |&(_, held)| held)
+            } else {
+                speed
+            },
+            tempo: if constant { Vec::new() } else { tempo },
+            preserve_pitch: true,
+            volume: clip.volume * gain,
+            volume_curve: track,
+            fade_in: clip.fade_in,
+            fade_out: clip.fade_out,
+            filter_chain: chain,
+        }];
+    }
+    // Pitch let go - the tape effect - is a resample, which has no state
+    // to start afresh: that stays in pieces of a constant rate.
     curve
         .pieces(count)
         .into_iter()
@@ -1384,6 +1429,7 @@ fn audio_pieces_of(
                 duration: piece_duration,
                 source_start,
                 speed: audio::clamp_speed(mean),
+                tempo: Vec::new(),
                 preserve_pitch: clip.preserve_pitch,
                 volume: clip.volume * gain,
                 volume_curve: track_slice(&track, x0, x1),
@@ -1799,12 +1845,53 @@ fn render_picture(
         // When progress was last said; see `progress_due`.
         let mut said = std::time::Instant::now();
 
-        // One decoder per clip, opened at its in-point the first time the clip is
-        // needed and dropped the moment it leaves the playhead. Every decoder is
-        // opened at `output rate / clip speed`, so pulling exactly one frame per
-        // output frame keeps each of them in step with the plan's source times
-        // without any seeking - including retimed clips.
-        let mut decoders: HashMap<ClipId, Decoder> = HashMap::new();
+        // One decoder per run of a clip, opened at the run's in-point and
+        // dropped the moment it leaves the playhead. Every decoder is opened
+        // at `output rate / clip speed`, so pulling exactly one frame per
+        // output frame keeps each of them in step with the plan's source
+        // times without any seeking - including retimed clips. Each reads on
+        // a thread of its own, ahead of the drawing, and is opened a moment
+        // before its run begins; see `ahead`.
+        let mut feeds = ahead::Feeds::new(read_lead(rate));
+        let paced = |layer: &PlannedLayer| {
+            // Aspect-correct: decode at the source's fitted size and let
+            // the compositor place it, rather than stretching to the frame
+            // and losing the picture's shape.
+            let (decode_width, decode_height) = decode_sizes
+                .get(&layer.clip)
+                .copied()
+                .unwrap_or((request.width, request.height));
+
+            // A retimed clip advances the source by `speed / fps` seconds
+            // per output frame, so the decoder must emit frames exactly that
+            // far apart: a rate of `fps / speed`. (At 2x, 300 output frames
+            // cover 20s of source - the decoder emits 15 frames per source
+            // second, not 60.)
+            let decode_rate = if layer.speed == Rational::ONE {
+                rate
+            } else {
+                FrameRate::new(rate.fps() / layer.speed)
+            };
+
+            // Deep - an HDR clip in its own signal, converted on the GPU -
+            // unless a cutout has to cut it in eight bits; the decoder keeps
+            // eight bits for a chain itself.
+            let deep = !cutouts.contains_key(&layer.clip);
+            let mut options = DecodeOptions::default()
+                .starting_at(layer.source_time)
+                .scaled_to(decode_width, decode_height)
+                .at_rate(decode_rate)
+                .in_range(ranges.get(&layer.clip).copied())
+                .deep(deep);
+
+            // A still is a one-frame stream. Without looping it would
+            // contribute a single frame and then disappear.
+            if stills.contains(&layer.clip) {
+                options = options.repeating().starting_at(Rational::ZERO);
+            }
+            let bytes = decode_width as usize * decode_height as usize * if deep { 8 } else { 4 };
+            (options, bytes)
+        };
 
         // Where the pass's time went, said at its end: reading the footage,
         // drawing the frame, and handing it to the encoder.
@@ -1825,6 +1912,12 @@ fn render_picture(
             let reading = std::time::Instant::now();
             let time = rate.time_of_frame(index);
             let plan = plan_frame(&timeline, time);
+            feeds.look_ahead(
+                index,
+                total_frames,
+                |ahead| plan_frame(&timeline, rate.time_of_frame(ahead)),
+                paced,
+            )?;
 
             let mut layers: Vec<PlannedLayer> = Vec::with_capacity(plan.layers.len());
             for layer in &plan.layers {
@@ -1869,55 +1962,10 @@ fn render_picture(
                     ));
                     continue;
                 }
-                let decoder = match decoders.entry(layer.clip) {
-                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        // Aspect-correct: decode at the source's fitted size and
-                        // let the compositor place it, rather than stretching to
-                        // the frame and losing the picture's shape.
-                        let (decode_width, decode_height) = decode_sizes
-                            .get(&layer.clip)
-                            .copied()
-                            .unwrap_or((request.width, request.height));
-
-                        // A retimed clip advances the source by `speed / fps`
-                        // seconds per output frame, so the decoder must emit
-                        // frames exactly that far apart: a rate of `fps / speed`.
-                        // (At 2x, 300 output frames cover 20s of source - the
-                        // decoder emits 15 frames per source second, not 60.)
-                        let decode_rate = if layer.speed == Rational::ONE {
-                            rate
-                        } else {
-                            FrameRate::new(rate.fps() / layer.speed)
-                        };
-
-                        // Deep - an HDR clip in its own signal, converted on
-                        // the GPU - unless a cutout has to cut it in eight bits;
-                        // the decoder keeps eight bits for a chain itself.
-                        let mut options = DecodeOptions::default()
-                            .starting_at(layer.source_time)
-                            .scaled_to(decode_width, decode_height)
-                            .at_rate(decode_rate)
-                            .in_range(ranges.get(&layer.clip).copied())
-                            .deep(!cutouts.contains_key(&layer.clip));
-
-                        // A still is a one-frame stream. Without looping it would
-                        // contribute a single frame and then disappear.
-                        if stills.contains(&layer.clip) {
-                            options = options.repeating().starting_at(Rational::ZERO);
-                        }
-
-                        entry.insert(
-                            Decoder::open(&layer.media, &options)
-                                .map_err(|error| error.to_string())?,
-                        )
-                    }
-                };
-
                 // A source that has run out contributes nothing rather than
                 // aborting the export - a clip trimmed past its media's end is a
                 // mistake in the edit, not a failure of the renderer.
-                if let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
+                if let Some(frame) = feeds.next(index, layer, paced)? {
                     // The cutout, on the decoded picture before it is placed:
                     // the same frame both compositors then draw.
                     let frame = match cutouts
@@ -2013,10 +2061,9 @@ fn render_picture(
                 continue 'pass;
             }
 
-            // Retire decoders whose clip has finished, so a long timeline does not
-            // hold an ffmpeg process open for every clip it has ever passed.
-            let live: Vec<ClipId> = plan.layers.iter().map(|layer| layer.clip).collect();
-            decoders.retain(|clip, _| live.contains(clip));
+            // Retire decoders whose run has finished, so a long timeline does
+            // not hold a decoder open for every clip it has ever passed.
+            feeds.retire(index, &plan);
 
             if progress_due(index, said.elapsed()) {
                 reporter.emit(index, total_frames, stage);
@@ -2063,6 +2110,22 @@ fn render_picture(
                 reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
             }
         }
+    }
+}
+
+/// How many frames before a paced clip's run its decoder is opened: half
+/// a second, so the file is open and sought by the cut.
+///
+/// None on a phone. Its chip has [`concat_media::hardware::MEDIACODEC_READERS`]
+/// decoders to give, and a run opened ahead holds one across the cut
+/// beside the run it follows: two tracks cutting together would want four,
+/// and the fourth clip would decode in software from start to end. Its
+/// runs still read on their own threads, opened at the cut.
+fn read_lead(rate: FrameRate) -> i64 {
+    if cfg!(target_os = "android") {
+        0
+    } else {
+        rate.frame_at(Rational::new(1, 2)).max(1)
     }
 }
 
@@ -2428,6 +2491,7 @@ fn live_treatments(treatments: &[Treatment], time: Rational) -> Vec<PlannedTreat
             track: treatment.track,
             effects: treatment.passes_at(time),
             strength: treatment.strength_at(time),
+            start: treatment.start.as_f64(),
         })
         .collect()
 }
@@ -2991,6 +3055,7 @@ pub fn preview_sources_of(
             track: treatment.track,
             effects: treatment.passes_at(time),
             strength: treatment.strength_at(time),
+            start: treatment.start.as_f64(),
         })
         .collect();
     frame_plan
@@ -3159,6 +3224,99 @@ pub fn preview_moments(
 
 #[cfg(test)]
 mod tests {
+    /// An Animate pick reaches the frame: a clip from the document with a
+    /// Slide Left in and a Fade out is off to the side at its start, at
+    /// rest in the middle and faded at its end, on the path the monitor
+    /// and the export both plan through.
+    #[test]
+    fn an_animate_pick_moves_the_planned_picture() {
+        use concat_project::commands::{ClipPatch, NewMedia};
+        use concat_project::model::{ClipMotion, ClipMove, MediaKind};
+        use concat_project::{Command, Editor};
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(Command::AddMedia {
+                item: NewMedia {
+                    path: "/nowhere/clip.mp4".into(),
+                    name: "clip.mp4".into(),
+                    duration: Some(4.0),
+                    kind: MediaKind::Video,
+                    width: Some(64),
+                    height: Some(36),
+                    frame_rate: None,
+                    frame_rate_fraction: None,
+                    video_codec: None,
+                    audio_codec: None,
+                    has_audio: false,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                    color_space: Default::default(),
+                },
+            })
+            .expect("adds media")
+            .created_id
+            .expect("an id");
+        let track_id = editor.project().timelines[0].tracks[0].id.clone();
+        let clip_id = editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id,
+                start: 0.0,
+                ripple: false,
+            })
+            .expect("adds the clip")
+            .created_id
+            .expect("an id");
+        editor
+            .apply(Command::UpdateClip {
+                clip_id,
+                patch: ClipPatch {
+                    motion: Some(Some(ClipMotion {
+                        enter: Some(ClipMove {
+                            kind: "slide-left".into(),
+                            seconds: 1.0,
+                        }),
+                        exit: Some(ClipMove {
+                            kind: "fade".into(),
+                            seconds: 1.0,
+                        }),
+                        ..ClipMotion::default()
+                    })),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("animates the clip");
+        let clips = flatten::flatten_timeline(editor.project(), None);
+        assert!(
+            clips[0].motion.is_some(),
+            "the motion reaches the flattened clip"
+        );
+        let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+        let at = |seconds: f64| {
+            let time = Rational::approximate(seconds).expect("a time");
+            concat_render::plan::plan_frame(&plan.built.timeline, time).layers[0].clone()
+        };
+        let (start, middle, end) = (at(0.1), at(2.0), at(3.9));
+        eprintln!(
+            "x {} / {} / {}, opacity {} / {} / {}",
+            start.transform.offset_x,
+            middle.transform.offset_x,
+            end.transform.offset_x,
+            start.opacity,
+            middle.opacity,
+            end.opacity
+        );
+        assert!(
+            (start.transform.offset_x - middle.transform.offset_x).abs() > 0.1,
+            "Slide Left has the picture off to the side at the start"
+        );
+        assert!(
+            end.opacity < 0.5,
+            "Fade out has the picture faded at the end"
+        );
+        assert!((middle.opacity - 1.0).abs() < 1e-3, "at rest in the middle");
+    }
+
     /// A treatment on track 1 runs over what track 0 drew and not over what
     /// track 2 draws on top of it, and its strength blends the result back.
     #[test]
@@ -3354,6 +3512,7 @@ mod tests {
     }
 
     use super::*;
+    use concat_media::{Decoder, FrameSource};
 
     fn clip(kind: &str, track: usize, start: f64, duration: f64, source_start: f64) -> ExportClip {
         let kind_of = match kind {
@@ -4745,13 +4904,44 @@ mod tests {
             .ok()
             .and_then(|name| VideoCodec::parse(&name))
             .unwrap_or(VideoCodec::H264);
-        let mut picture = clip("video", 0, 0.0, 10.0, 0.0);
-        picture.path = footage_path.to_string_lossy().into_owned();
-        picture.media_width = Some(stream.width);
-        picture.media_height = Some(stream.height);
-        picture.media_duration = Some(10.0);
-        picture.has_audio = Some(false);
-        let mut sound = clip("audio", 1, 0.0, 10.0, 0.0);
+        // `CONCAT_SPEED_CUTS` cuts the ten seconds into that many clips,
+        // each from another place in the footage, so every cut is a seek;
+        // `CONCAT_SPEED_LAYERS` stacks that many copies, each smaller and
+        // off to the side, so none hides the one under it.
+        let count = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .and_then(|count| count.parse::<usize>().ok())
+                .unwrap_or(1)
+                .max(1)
+        };
+        let (cuts, stacked) = (count("CONCAT_SPEED_CUTS"), count("CONCAT_SPEED_LAYERS"));
+        let length = footage
+            .duration
+            .map_or(10.0, |duration| duration.as_f64())
+            .max(1.0);
+        let piece = 10.0 / cuts as f64;
+        let mut pictures = Vec::new();
+        for layer in 0..stacked {
+            for cut in 0..cuts {
+                // A stride through the file that never runs on from the
+                // last clip's out-point.
+                let from = ((cut * 7 + layer * 3) % cuts) as f64 * (length - piece).max(0.0)
+                    / cuts.max(2) as f64;
+                let mut picture = clip("video", layer + 1, cut as f64 * piece, piece, from);
+                picture.path = footage_path.to_string_lossy().into_owned();
+                picture.media_width = Some(stream.width);
+                picture.media_height = Some(stream.height);
+                picture.media_duration = Some(length);
+                picture.has_audio = Some(false);
+                if layer > 0 {
+                    picture.scale = 0.9_f64.powi(layer as i32);
+                    picture.offset_x = 0.05 * layer as f64;
+                }
+                pictures.push(picture);
+            }
+        }
+        let mut sound = clip("audio", 0, 0.0, 10.0, 0.0);
         sound.path = sound_path.to_string_lossy().into_owned();
         sound.media_duration = Some(10.0);
         sound.has_audio = Some(true);
@@ -4772,7 +4962,7 @@ mod tests {
             color_space: ColorSpace::Sdr,
             hdr: false,
             effect_time_offset: 0.0,
-            clips: vec![picture, sound],
+            clips: pictures.into_iter().chain([sound]).collect(),
         };
         let cancel = AtomicBool::new(false);
         let mut progress = |_: i64, _: i64, _: &'static str| {};

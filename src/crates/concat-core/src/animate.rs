@@ -14,7 +14,7 @@
 //! This is the one place the per-frame arithmetic lives; the plan asks the
 //! clip, and the clip asks here.
 
-use crate::mask::ShapeMask;
+use crate::mask::{ShapeMask, StackedMask};
 use crate::timeline::Transform;
 
 /// How a key is approached from the one before it: a CSS timing function,
@@ -245,11 +245,6 @@ pub struct Animation {
     /// clip - so it is a track here and not a second mechanism somewhere
     /// else. Nothing in the compositor reads it; the mixer does.
     pub volume: Track,
-    /// The mask's numbers, when they ride. Unlike the placement's these
-    /// are absolute - a key is the value itself, not a factor or an
-    /// addition - since a mask is the clip's own and has no preset to be
-    /// relative for.
-    pub mask: MaskTracks,
 }
 
 /// The keys of a mask's numbers; see [`ShapeMask`] for what each is.
@@ -269,6 +264,12 @@ pub struct MaskTracks {
     pub roundness: Track,
     /// The edge's softness.
     pub feather: Track,
+    /// A factor on the box, both ways.
+    pub scale: Track,
+    /// How much the mask counts.
+    pub opacity: Track,
+    /// How far its edge is moved out.
+    pub expand: Track,
 }
 
 impl MaskTracks {
@@ -281,6 +282,9 @@ impl MaskTracks {
             && self.rotation.is_empty()
             && self.roundness.is_empty()
             && self.feather.is_empty()
+            && self.scale.is_empty()
+            && self.opacity.is_empty()
+            && self.expand.is_empty()
     }
 
     /// `base` at `x`, a fraction of the clip: each keyed number its ride's
@@ -299,6 +303,56 @@ impl MaskTracks {
     }
 }
 
+/// One of a clip's masks as the engine plays it: how it stands, its box's
+/// scale, and the keys its numbers ride. Unlike the placement's, its keys
+/// are absolute - a key is the value itself, not a factor or an addition
+/// - since a mask has no preset to be relative to.
+#[derive(Clone, PartialEq, Debug)]
+pub struct RidingMask {
+    /// The mask as it stands, its box at a scale of one.
+    pub base: StackedMask,
+    /// A factor on the box, both ways.
+    pub scale: f64,
+    /// Its numbers' keys, by a fraction of the clip.
+    pub tracks: MaskTracks,
+}
+
+impl RidingMask {
+    /// A mask with no keys, at a scale of one.
+    pub fn still(base: StackedMask) -> RidingMask {
+        RidingMask {
+            base,
+            scale: 1.0,
+            tracks: MaskTracks::default(),
+        }
+    }
+
+    /// The mask at `x`, a fraction of the clip: its keyed numbers at their
+    /// rides' values and its box scaled.
+    pub fn at(&self, x: f64) -> StackedMask {
+        let shape = self.tracks.mask_at(self.base.shape, x);
+        let scale = self.tracks.scale.value_at(x, self.scale).max(0.001);
+        StackedMask {
+            shape: ShapeMask {
+                width: shape.width * scale,
+                height: shape.height * scale,
+                ..shape
+            },
+            opacity: self
+                .tracks
+                .opacity
+                .value_at(x, self.base.opacity)
+                .clamp(0.0, 1.0),
+            expand: self
+                .tracks
+                .expand
+                .value_at(x, self.base.expand)
+                .clamp(-0.5, 0.5),
+            ..self.base
+        }
+    }
+}
+
 impl Animation {
     /// True when no property has a key.
     pub fn is_empty(&self) -> bool {
@@ -308,7 +362,6 @@ impl Animation {
             && self.rotation.is_empty()
             && self.opacity.is_empty()
             && self.volume.is_empty()
-            && self.mask.is_empty()
     }
 
     /// The clip's transform at `x`, a fraction of its length.
@@ -399,29 +452,40 @@ mod tests {
 
     #[test]
     fn a_mask_rides_its_keys_absolutely() {
-        let mut animation = Animation::default();
-        animation.mask.width = Track::new(vec![
-            key(0.0, 0.2, Ease::LINEAR),
-            key(1.0, 0.6, Ease::LINEAR),
-        ]);
-        animation.mask.feather = Track::new(vec![
-            key(0.0, 0.0, Ease::LINEAR),
-            key(0.5, 2.0, Ease::LINEAR),
-        ]);
-        assert!(!animation.is_empty());
-        let base = ShapeMask {
-            width: 5.0,
-            x: 0.1,
-            ..ShapeMask::default()
+        let tracks = MaskTracks {
+            width: Track::new(vec![
+                key(0.0, 0.2, Ease::LINEAR),
+                key(1.0, 0.6, Ease::LINEAR),
+            ]),
+            feather: Track::new(vec![
+                key(0.0, 0.0, Ease::LINEAR),
+                key(0.5, 2.0, Ease::LINEAR),
+            ]),
+            opacity: Track::new(vec![
+                key(0.0, 1.0, Ease::LINEAR),
+                key(1.0, 0.0, Ease::LINEAR),
+            ]),
+            ..MaskTracks::default()
         };
-        let mid = animation.mask.mask_at(base, 0.5);
+        assert!(!tracks.is_empty());
+        let riding = RidingMask {
+            base: StackedMask::adding(ShapeMask {
+                width: 5.0,
+                x: 0.1,
+                ..ShapeMask::default()
+            }),
+            scale: 2.0,
+            tracks,
+        };
+        let mid = riding.at(0.5);
         assert!(
-            (mid.width - 0.4).abs() < 1e-12,
-            "the key, not a factor on 5"
+            (mid.shape.width - 0.8).abs() < 1e-12,
+            "the key, not a factor on 5, then the scale"
         );
-        assert_eq!(mid.x, 0.1, "an unkeyed number is the base's");
-        assert_eq!(mid.feather, 1.0, "held to its range");
-        assert!((animation.mask.mask_at(base, 0.25).feather - 1.0).abs() < 1e-12);
+        assert_eq!(mid.shape.x, 0.1, "an unkeyed number is the base's");
+        assert_eq!(mid.shape.feather, 1.0, "held to its range");
+        assert!((mid.opacity - 0.5).abs() < 1e-12);
+        assert!((riding.at(0.25).shape.feather - 1.0).abs() < 1e-12);
     }
 
     #[test]

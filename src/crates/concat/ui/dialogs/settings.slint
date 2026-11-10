@@ -5,7 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, DialogSection, Field, Progress, Sheet } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
@@ -177,8 +177,11 @@ component ModelMeta inherits HorizontalLayout {
 
     if root.spread: Rectangle { horizontal-stretch: 1; }
 
+    // As wide as its button and no wider: the row's stretch belongs to
+    // the name and its note, not to an action.
     VerticalLayout {
         alignment: center;
+        horizontal-stretch: 0;
 
         if root.model.downloading: Button {
             label: I18n.t("common.cancel");
@@ -187,9 +190,12 @@ component ModelMeta inherits HorizontalLayout {
             clicked => { root.cancel(); }
         }
 
+        // The bin alone, as a file list's delete is: the row already
+        // says which model, and the word made the button the row's loudest.
         if !root.model.downloading && root.model.installed: Button {
-            label: I18n.t("common.remove");
+            label: I18n.t("common.delete");
             glyph: Glyph.trash;
+            square: true;
             danger: true;
             clicked => { root.remove(); }
         }
@@ -308,6 +314,7 @@ component ModelRow inherits Rectangle {
             }
 
             if !root.compact: ModelMeta {
+                horizontal-stretch: 0;
                 model: root.model;
                 download => { root.download(); }
                 cancel => { root.cancel(); }
@@ -629,7 +636,7 @@ component ShortcutRow inherits Rectangle {
     }
 }
 
-export component SettingsDialog inherits Modal {
+export component SettingsDialog inherits Sheet {
     in property <SettingsData> data;
     in property <[ModelData]> transcribers;
     in property <[ModelData]> voices;
@@ -747,7 +754,7 @@ export component SettingsDialog inherits Modal {
     /// The column of pages' width, as the hairline beside it was last left.
     /// In-out because it is dragged; what is drawn is `pages` below, which
     /// keeps it inside the room the sheet has.
-    in-out property <length> pages-w: root.phone ? 112px : 164px;
+    in-out property <length> pages-w: root.phone ? 112px : 200px;
     /// Narrow enough to be a real squeeze, wide enough for a mark and the
     /// start of a word.
     property <length> min-pages: 64px;
@@ -771,12 +778,19 @@ export component SettingsDialog inherits Modal {
     open: root.data.open;
     title: I18n.t("common.settings");
     glyph: Glyph.settings;
-    surface-width: 640px;
-    // Fixed rather than fitted: the pages are different lengths and a sheet
-    // that resized as you moved between them would be its own distraction.
-    surface-height: 460px;
 
+    // The whole window, as Export is. The pages and the page are held to
+    // a column a person can read across, centred in whatever width is
+    // left over, rather than stretched to the edges of a wide screen.
+    // Centred by padding, not by `alignment: center`: that gives every
+    // child only its preferred width, and the body, placed by hand, has
+    // none - the page vanished and the pages' names went to "…".
+    property <length> column: 1080px;
     HorizontalLayout {
+        vertical-stretch: 1;
+        padding-top: root.compact ? 0px : 12px;
+        padding-left: Math.max(0px, (root.width - root.column) / 2);
+        padding-right: Math.max(0px, (root.width - root.column) / 2);
         // The clipboard takes text, so there has to be a TextInput holding
         // the report: Slint copies from a text element's own selection and
         // has no other way in. It is never read — it is zero wide and clipped
@@ -1027,6 +1041,7 @@ export component SettingsDialog inherits Modal {
                 // it off by itself. Read when Concat starts. Only where
                 // there is a software rasteriser: WARP, lavapipe.
                 if root.data.gpu-switchable: DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.gpu");
                     hint: I18n.t("settings.gpuHint");
                     switchable: true;

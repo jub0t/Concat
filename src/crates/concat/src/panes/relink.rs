@@ -5,13 +5,13 @@
 //! to look for it in.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use concat_project::Command;
-use concat_project::model::MissingMedia;
+use concat_project::model::{MediaKind, MissingMedia};
 use slint::VecModel;
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use crate::platform;
 use crate::studio::Studio;
 use crate::ui::{MissingMediaItem, RelinkData};
@@ -28,6 +28,11 @@ pub enum RelinkMsg {
     RelinkAll,
     /// The folder the picker answered with: look inside it.
     RelinkIn(PathBuf),
+    /// Pick one missing file by hand.
+    Locate(String),
+    /// The file the picker answered with for that one: it, whatever it
+    /// is called now, and its folder searched for the rest.
+    Located(String, PathBuf),
     /// Take one missing file out of the project, with the clips that use
     /// it, so it is never asked after again. One undo brings both back.
     Remove(String),
@@ -66,6 +71,18 @@ impl RelinkPane {
                 );
             }
             RelinkMsg::RelinkIn(folder) => self.relink_in(studio, folder),
+            RelinkMsg::Locate(id) => {
+                let Some(item) = self.items.iter().find(|item| item.id == id) else {
+                    return;
+                };
+                let title = tf("relink.locateFile", &[&item.name]);
+                crate::host::pick_files_then(title, None, move |studio, _, _, paths| {
+                    if let Some(path) = paths.into_iter().next() {
+                        studio.handle(crate::panes::Msg::Relink(RelinkMsg::Located(id, path)));
+                    }
+                });
+            }
+            RelinkMsg::Located(id, path) => self.located(studio, &id, path),
             RelinkMsg::Remove(id) => self.remove(studio, &id),
             RelinkMsg::Dismiss => self.dismiss(),
         }
@@ -134,87 +151,79 @@ impl RelinkPane {
     /// inside it. Successful relinks go through the editor as
     /// `UpdateMediaPath`, so undo covers the whole batch.
     fn relink_in(&mut self, studio: &mut Studio, folder: PathBuf) {
-        // Snapshot the missing list now: as relinks land the list shrinks,
-        // and we want a stable target for the toast count.
-        let items: Vec<(String, String)> = self
-            .items
-            .iter()
-            .map(|m| (m.id.clone(), m.path.clone()))
-            .collect();
-        let total = items.len();
+        let total = self.items.len();
         if total == 0 {
             self.open = false;
             return;
         }
-
-        // Build a basename -> full path index of every file under the folder
-        // so the per-item lookup is O(1) rather than a walk each time.
-        let mut index: HashMap<String, PathBuf> = HashMap::new();
-        let mut stack = vec![folder.clone()];
-        while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    // First match wins: if the user has duplicates, the one
-                    // closest to the root is the most likely correct copy.
-                    index.entry(name.to_owned()).or_insert(path);
-                }
-            }
+        let index = index_folder(&folder, true);
+        let commands = self.matches(&index, None);
+        let found = commands.len();
+        self.apply(studio, commands);
+        if found == 0 {
+            let shown = shorten(&folder.to_string_lossy());
+            studio.notify(&tf("relink.notInFolder", &[&shown]), false);
+        } else {
+            studio.notify(&tf("relink.found", &[&found, &total]), false);
         }
+    }
 
+    /// One file picked by hand for `id`, whatever it is called now. Missing
+    /// files are usually missing together - a folder moved, a drive
+    /// renamed - so the folder it was found in is looked in, at its own
+    /// level, for the rest, as the folder search would.
+    fn located(&mut self, studio: &mut Studio, id: &str, path: PathBuf) {
+        if !self.items.iter().any(|item| item.id == id) {
+            return;
+        }
+        let total = self.items.len();
+        let mut commands = vec![Command::UpdateMediaPath {
+            media_id: id.to_owned(),
+            new_path: path.to_string_lossy().to_string(),
+        }];
+        if let Some(folder) = path.parent() {
+            commands.extend(self.matches(&index_folder(folder, false), Some(id)));
+        }
+        let found = commands.len();
+        self.apply(studio, commands);
+        if found > 1 {
+            studio.notify(&tf("relink.found", &[&found, &total]), false);
+        }
+    }
+
+    /// An `UpdateMediaPath` for every missing file but `skip` whose name
+    /// is in `index`.
+    fn matches(&self, index: &HashMap<String, PathBuf>, skip: Option<&str>) -> Vec<Command> {
+        self.items
+            .iter()
+            .filter(|item| Some(item.id.as_str()) != skip)
+            .filter_map(|item| {
+                let name = Path::new(&item.path).file_name()?.to_str()?;
+                let found = index.get(name)?;
+                Some(Command::UpdateMediaPath {
+                    media_id: item.id.clone(),
+                    new_path: found.to_string_lossy().to_string(),
+                })
+            })
+            .collect()
+    }
+
+    /// Applies relinks as one undo, then shows what is still missing: often
+    /// nothing, and the dialog closes. A dismissal only outlives its file
+    /// while that file is missing - one relinked here and lost again is
+    /// news.
+    fn apply(&mut self, studio: &mut Studio, commands: Vec<Command>) {
         if studio.session.is_none() {
             return;
         }
-
-        let mut relinked = 0usize;
-        let mut commands: Vec<Command> = Vec::new();
-        for (id, path) in items {
-            let Some(basename) = std::path::Path::new(&path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(|s| s.to_owned())
-            else {
-                continue;
-            };
-            if let Some(found) = index.get(&basename) {
-                commands.push(Command::UpdateMediaPath {
-                    media_id: id,
-                    new_path: found.to_string_lossy().to_string(),
-                });
-                relinked += 1;
-            }
-        }
-
         if !commands.is_empty() {
             studio.apply(Command::Batch { commands });
         }
-
-        // Re-check what is still missing: the dialog updates to the
-        // remainder (often empty, in which case it closes). A dismissal
-        // only outlives its file while that file is missing - one that is
-        // relinked here and lost again is news.
         let remaining = studio.project().missing_media();
         let still: HashSet<&str> = remaining.iter().map(|item| item.id.as_str()).collect();
         self.dismissed.retain(|id| still.contains(id.as_str()));
-        if remaining.is_empty() {
-            self.open = false;
-            self.items.clear();
-        } else {
-            self.items = remaining;
-        }
-
-        studio.notify(
-            &format!(
-                "Relinked {relinked} of {total} file{}",
-                if total == 1 { "" } else { "s" }
-            ),
-            false,
-        );
+        self.open = !remaining.is_empty();
+        self.items = remaining;
         studio.request_media_art();
         studio.request_preview();
     }
@@ -239,6 +248,21 @@ impl RelinkPane {
                     .sum::<usize>() as i32
             })
         };
+        let kind_of = |id: &str| -> i32 {
+            let kind = studio.session.as_ref().and_then(|session| {
+                session
+                    .project()
+                    .media
+                    .iter()
+                    .find(|media| media.id == id)
+                    .map(|media| media.kind)
+            });
+            match kind {
+                Some(MediaKind::Audio) => 1,
+                Some(MediaKind::Image) => 2,
+                _ => 0,
+            }
+        };
         RelinkData {
             open: self.open,
             items: slint::ModelRc::new(VecModel::from(
@@ -247,12 +271,56 @@ impl RelinkPane {
                     .map(|item| MissingMediaItem {
                         id: item.id.clone().into(),
                         name: item.name.clone().into(),
-                        path: item.path.clone().into(),
+                        folder: Path::new(&item.path)
+                            .parent()
+                            .map(|folder| shorten(&folder.to_string_lossy()))
+                            .unwrap_or_default()
+                            .into(),
+                        kind: kind_of(&item.id),
                         clips: clips_of(&item.id),
                     })
                     .collect::<Vec<_>>(),
             )),
         }
+    }
+}
+
+/// Every file under `folder` by name, the one nearest the top first when
+/// a name is there twice: the likeliest right copy. `deep` goes into the
+/// folders inside it; a folder found from one picked file is only looked
+/// at itself, since it may be the home folder.
+fn index_folder(folder: &Path, deep: bool) -> HashMap<String, PathBuf> {
+    let mut index: HashMap<String, PathBuf> = HashMap::new();
+    let mut queue = std::collections::VecDeque::from([folder.to_path_buf()]);
+    while let Some(dir) = queue.pop_front() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                if deep {
+                    queue.push_back(path);
+                }
+            } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                index.entry(name.to_owned()).or_insert(path);
+            }
+        }
+    }
+    index
+}
+
+/// A path as a row shows it: the home folder as ~.
+fn shorten(path: &str) -> String {
+    let Some(home) = std::env::home_dir() else {
+        return path.to_owned();
+    };
+    let home = home.to_string_lossy();
+    match path.strip_prefix(home.as_ref()) {
+        Some(rest) if rest.is_empty() || rest.starts_with(std::path::MAIN_SEPARATOR) => {
+            format!("~{rest}")
+        }
+        _ => path.to_owned(),
     }
 }
 

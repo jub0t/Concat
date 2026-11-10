@@ -7,27 +7,27 @@ kind = "transition"
 category = "Wipe"
 order = 10
 aliases = ["wipe-left", "wipe-right"]
-description = "A straight edge wipes the incoming shot across the outgoing one."
+description = "A straight line crosses the frame and leaves the next shot behind it."
 
 [[param]]
 key = "direction"
 label = "Direction"
 type = "enum"
-min = 0
-max = 3
-default = 0
 values = [0, 1, 2, 3]
 labels = ["Left to Right", "Right to Left", "Top to Bottom", "Bottom to Top"]
+default = 0
+min = 0
+max = 3
 
 [[param]]
 key = "softness"
 label = "Softness"
+unit = "%"
 min = 0
 max = 100
-default = 20
 step = 1
-unit = "%"
+default = 20
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"

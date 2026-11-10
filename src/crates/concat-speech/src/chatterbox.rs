@@ -363,7 +363,7 @@ impl Engine {
     /// Loads the bundle in `dir`, for the accelerator or the CPU.
     pub fn load(dir: &Path, accelerated: bool) -> Result<Engine, String> {
         if !installed(dir) {
-            return Err("the Chatterbox bundle is incomplete - re-download it".to_owned());
+            return Err("the studio voice download is incomplete - download it again".to_owned());
         }
         let started = std::time::Instant::now();
         log::info!(

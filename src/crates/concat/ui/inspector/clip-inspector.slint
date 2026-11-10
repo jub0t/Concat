@@ -13,6 +13,7 @@ import {
 } from "../primitives/panel.slint";
 import { Button, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { MotionPicker, MotionTiles } from "motion-picker.slint";
 import { Select } from "../primitives/select.slint";
 import { SpeedGraph, SpeedRamp } from "speed-ramp.slint";
 import {
@@ -30,6 +31,7 @@ import {
     Switch,
     SwitchRow,
 } from "controls.slint";
+import { FadeEnds, GainFader, StemRow } from "audio-controls.slint";
 import {
     ColorWheel,
     CurveData,
@@ -1284,6 +1286,178 @@ export component BackgroundRows inherits VerticalLayout {
     }
 }
 
+/// Speed: one rate for the whole clip, or a curve - speed that changes over
+/// the clip, shaped on a graph or picked from a preset (see
+/// speed-ramp.slint). Whether the sound's pitch follows is the Audio tab's.
+export component SpeedPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+    /// The panel's first section, with no hairline above it; false where
+    /// it follows another, as it does under Basic.
+    in property <bool> first: true;
+    /// Inside another section - a sound clip's Playback, with its fades and
+    /// pitch - with no header or hairline of its own, always open.
+    in property <bool> bare;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    property <bool> speed-open: true;
+    property <float> speed;
+    function seed() {
+        root.speed = root.selected.speed;
+        root.fastest = SpeedRamp.fastest;
+        root.slowest = SpeedRamp.slowest;
+    }
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    // Rust's word on the mode and the preset.
+    property <bool> curved: SpeedRamp.curved;
+    property <int> preset: SpeedRamp.preset;
+    // The two sliders' values, seeded from Rust's like the rate's: a
+    // slider writes its own value as it is dragged, which would end a
+    // binding.
+    property <float> fastest;
+    property <float> slowest;
+    property <float> fastest-truth: SpeedRamp.fastest;
+    property <float> slowest-truth: SpeedRamp.slowest;
+    changed fastest-truth => { root.fastest = root.fastest-truth; }
+    changed slowest-truth => { root.slowest = root.slowest-truth; }
+
+    Section {
+        first: root.first || root.bare;
+        padding-bottom: root.bare ? 0 : 8px;
+        if !root.bare: SectionHeader {
+            title: I18n.t("common.speed");
+            collapsible: true;
+            open <=> root.speed-open;
+            summary: root.curved
+                ? I18n.t("speedRamp.curve")
+                : InspectorFmt.format(ParamFormat.rate, root.speed);
+            HelpButton {
+                text: I18n.t("clipInspector.rateReTimesClip");
+            }
+        }
+
+        if root.bare || root.speed-open: SectionBody {
+            padding-top: root.bare ? 0 : 4px;
+            if root.selected.reverse-progress >= 0: ReverseRow {
+                progress: root.selected.reverse-progress;
+            }
+
+            Row {
+                label: I18n.t("common.speed");
+
+                SegmentedControl {
+                    // A press assigns `current` inside the control, which
+                    // ends a plain binding: so it is set again from Rust's
+                    // word whenever the selection or an undo changes it.
+                    property <bool> truth: root.curved;
+                    changed truth => { self.current = self.truth ? 1 : 0; }
+
+                    options: [I18n.t("speedRamp.constant"), I18n.t("speedRamp.curve")];
+                    icons: [Glyph.speed-constant, Glyph.speed-curve];
+                    current: root.curved ? 1 : 0;
+                    changed(index) => {
+                        SpeedRamp.curve(index == 1);
+                        root.commit();
+                    }
+                }
+            }
+
+            if root.curved: Row {
+                label: I18n.t("speedRamp.shape");
+                Select {
+                    // As the mode's: a pick ends the binding, Rust restores it.
+                    property <int> truth: root.preset;
+                    changed truth => { self.current = self.truth; }
+
+                    options: SpeedRamp.presets;
+                    current: root.preset;
+                    placeholder: I18n.t("speedRamp.custom");
+                    changed(index) => {
+                        SpeedRamp.preset-chosen(index);
+                        root.commit();
+                    }
+                }
+            }
+
+            if root.curved: SpeedGraph {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                point(index, x, y) => {
+                    SpeedRamp.point(index, x, y);
+                    root.commit();
+                }
+                remove(index) => {
+                    SpeedRamp.remove(index);
+                    root.commit();
+                }
+                changed => { root.commit(); }
+            }
+
+            if root.curved: Row {
+                label: I18n.t("speedRamp.bends");
+                SegmentedControl {
+                    // As the mode's: set again from Rust's word.
+                    property <bool> truth: SpeedRamp.smooth;
+                    changed truth => { self.current = self.truth ? 0 : 1; }
+
+                    options: [I18n.t("speedRamp.smooth"), I18n.t("speedRamp.straight")];
+                    icons: [Glyph.bend-smooth, Glyph.bend-straight];
+                    current: SpeedRamp.smooth ? 0 : 1;
+                    changed(index) => {
+                        SpeedRamp.smoothness(index == 0);
+                        root.commit();
+                    }
+                }
+            }
+
+            // The two extremes, for a ramp that is right in shape and too
+            // much or too little in strength: the fastest stretch brought
+            // down to 4x brings the rest of it along.
+            if root.curved && root.fastest > 0: Param {
+                label: I18n.t("speedRamp.fastest");
+                value <=> root.fastest;
+                minimum: 1.1;
+                maximum: 16;
+                step: 0.05;
+                default-value: 2;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { SpeedRamp.extreme(true, v); root.commit(); }
+            }
+            if root.curved && root.slowest > 0: Param {
+                label: I18n.t("speedRamp.slowest");
+                value <=> root.slowest;
+                minimum: 0.0625;
+                maximum: 0.9;
+                step: 0.01;
+                default-value: 0.5;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { SpeedRamp.extreme(false, v); root.commit(); }
+            }
+
+            if !root.curved: Param {
+                label: I18n.t("common.rate");
+                value <=> root.speed;
+                // The engine's full range. The track is linear, so the
+                // useful 0.25-4x band sits left of centre and the number
+                // field beside it is how the extremes are actually dialled
+                // in.
+                minimum: 0.0625;
+                maximum: 16;
+                step: 0.05;
+                default-value: 1;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { root.set(ClipField.speed, v); root.commit(); }
+            }
+        }
+    }
+}
+
 /// Video: how the picture sits in the frame, how solid it is, and whether
 /// its background is keyed out.
 export component VideoPanel inherits VerticalLayout {
@@ -1307,6 +1481,10 @@ export component VideoPanel inherits VerticalLayout {
     /// Whether the Mask section is here: the phone gives the mask a tool
     /// and a sheet of its own instead.
     in property <bool> mask-section: true;
+    /// Speed at the foot of Transform, a section with it rather than one
+    /// at the bottom of the tab: where a clip sits, how big and how fast
+    /// are what a cut is set up with first. A still has no rate.
+    in property <bool> with-speed;
 
     callback set(field: ClipField, value: float);
     /// A control gesture finished: the accumulated change becomes one command.
@@ -1390,10 +1568,27 @@ export component VideoPanel inherits VerticalLayout {
     property <float> mask-rotation;
     property <float> mask-roundness;
     property <float> mask-feather;
+    property <float> mask-expand;
+    property <float> mask-opacity;
     property <float> smoothness;
     property <float> max-zoom;
-    /// The mask's shape, as the picker orders them: -1 for none.
+    /// The current mask's shape, as the picker orders them: -1 for none.
     property <int> mask: root.selected.mask;
+    property <[Glyph]> mask-glyphs: [
+        Glyph.mask-linear,
+        Glyph.mask-mirror,
+        Glyph.mask-circle,
+        Glyph.mask-rectangle,
+        Glyph.mask-heart,
+        Glyph.mask-star
+    ];
+    /// How a mask joins the ones above it, as the model orders them.
+    property <[string]> mask-modes: [
+        I18n.t("mask.add"),
+        I18n.t("mask.subtract"),
+        I18n.t("mask.intersect"),
+        I18n.t("common.none")
+    ];
     property <[string]> mask-names: [
         I18n.t("mask.linear"),
         I18n.t("mask.mirror"),
@@ -1414,6 +1609,8 @@ export component VideoPanel inherits VerticalLayout {
         root.mask-rotation = root.selected.mask-rotation;
         root.mask-roundness = root.selected.mask-roundness;
         root.mask-feather = root.selected.mask-feather;
+        root.mask-expand = root.selected.mask-expand;
+        root.mask-opacity = root.selected.mask-opacity;
         root.scale = root.selected.scale;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
@@ -1555,6 +1752,13 @@ export component VideoPanel inherits VerticalLayout {
                     clicked => { Backdrop.frame(true); }
                 }
             }
+
+            if root.with-speed: SpeedPanel {
+                bare: true;
+                selected: root.selected;
+                set(field, value) => { root.set(field, value); }
+                commit => { root.commit(); }
+            }
         }
     }
 
@@ -1650,7 +1854,9 @@ export component VideoPanel inherits VerticalLayout {
             }
         }
 
-        if stabilize.open && root.selected.stabilize: SectionBody {
+        // Open shows the knobs whether it is on or off, as Remove
+        // background does: they can be set before it is turned on.
+        if stabilize.open: SectionBody {
             Param {
                 label: I18n.t("clipInspector.smoothness");
                 value <=> root.smoothness;
@@ -1683,10 +1889,10 @@ export component VideoPanel inherits VerticalLayout {
                 toggled(on) => { root.set(ClipField.stabilize-tripod, on ? 1 : 0); root.commit(); }
             }
 
-            if root.selected.stabilize-progress >= 0: StabilizeRow {
+            if root.selected.stabilize && root.selected.stabilize-progress >= 0: StabilizeRow {
                 progress: root.selected.stabilize-progress;
             }
-            if root.selected.stabilize-progress < 0 && root.selected.stabilize-zoom > 0: Note {
+            if root.selected.stabilize && root.selected.stabilize-progress < 0 && root.selected.stabilize-zoom > 0: Note {
                 text: root.selected.stabilize-needed > root.selected.stabilize-zoom + 0.005
                     ? I18n.t2("clipInspector.stabilizeEased",
                         "\{Math.round(root.selected.stabilize-zoom * 100)}",
@@ -1933,67 +2139,128 @@ export component VideoPanel inherits VerticalLayout {
         }
     }
 
-    // The mask: a shape that keeps part of the picture.
-    // The row of shapes picks one - the first, None, takes it off - and
-    // the numbers below place, size, turn and soften it, each keyable.
-    // Drawn on the picture as it is seen, so it moves with the clip; the
-    // monitor shows its outline with grips to drag while this is open.
+    // The masks: shapes that keep part of the picture, or take part of it
+    // away, top first. The row of shapes adds one; the list picks the one
+    // the numbers below and the monitor's grips work on, its order and its
+    // mode - add, subtract, intersect, or cut nothing and wait for a layer
+    // or an effect. Each number keys on the mask itself. Drawn on the
+    // picture as it is seen, so they move with the clip.
     if root.mask-section
         && (root.selected.kind == ClipKind.video || root.selected.kind == ClipKind.image): Section {
         mask-header := SectionHeader {
             title: I18n.t("mask.title");
             collapsible: true;
-            summary: root.mask < 0 ? I18n.t("common.none")
+            summary: root.selected.masks.length == 0 ? I18n.t("common.none")
+                : root.selected.masks.length > 1 ? I18n.t1("mask.count", root.selected.masks.length)
+                : root.mask < 0 ? I18n.t("mask.title")
                 : root.mask-names[Math.min(root.mask, root.mask-names.length - 1)]
                     + (root.selected.mask-invert ? " · " + I18n.t("mask.invert") : "");
         }
 
         if mask-header.open: SectionBody {
+            // A new mask of each shape, put at the end and picked.
             HorizontalLayout {
                 padding-left: Theme.pad;
                 padding-right: Theme.pad;
                 spacing: 4px;
-                ToolButton {
-                    glyph: Glyph.close;
-                    label: I18n.t("common.none");
-                    checked: root.mask < 0;
-                    clicked => { root.set(ClipField.mask-shape, -1); root.commit(); }
+                for glyph[index] in root.mask-glyphs: ToolButton {
+                    glyph: glyph;
+                    label: I18n.t1("mask.addShape", root.mask-names[index]);
+                    clicked => { root.set(ClipField.mask-add, index); root.commit(); }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-linear;
-                    label: root.mask-names[0];
-                    checked: root.mask == 0;
-                    clicked => { root.set(ClipField.mask-shape, 0); root.commit(); }
+            }
+
+            // The list, top first; the current one is lit and carries its
+            // order and removal, the way an effect's card does.
+            for row[index] in root.selected.masks: Rectangle {
+                height: 30px;
+                property <bool> current: index == root.selected.mask-index;
+                background: self.current ? Theme.field-active : row-touch.has-hover ? Theme.field-hover : transparent;
+                border-radius: Theme.r;
+
+                row-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.set(ClipField.mask-select, index); root.commit(); }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-mirror;
-                    label: root.mask-names[1];
-                    checked: root.mask == 1;
-                    clicked => { root.set(ClipField.mask-shape, 1); root.commit(); }
+
+                HorizontalLayout {
+                    padding-left: Theme.pad;
+                    padding-right: 4px;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: row.shape >= 0 ? root.mask-glyphs[Math.min(row.shape, root.mask-glyphs.length - 1)] : Glyph.mask-circle;
+                            size: 14px;
+                            tint: current ? Theme.accent : Theme.fg-muted;
+                        }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1);
+                        color: current ? Theme.fg : Theme.fg-muted;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: root.mask-modes[Math.min(row.mode, root.mask-modes.length - 1)]
+                            + (row.invert ? " · " + I18n.t("mask.invert") : "");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-xs;
+                        vertical-alignment: center;
+                    }
+
+                    if current && root.selected.masks.length > 1: IconButton {
+                        glyph: Glyph.chevron-up;
+                        label: I18n.t1("clipInspector.moveUp", row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1));
+                        enabled: index > 0;
+                        idle: Theme.fg-dim;
+                        clicked => { root.set(ClipField.mask-move, -1); root.commit(); }
+                    }
+
+                    if current && root.selected.masks.length > 1: IconButton {
+                        glyph: Glyph.chevron-down;
+                        label: I18n.t1("clipInspector.moveDown", row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1));
+                        enabled: index < root.selected.masks.length - 1;
+                        idle: Theme.fg-dim;
+                        clicked => { root.set(ClipField.mask-move, 1); root.commit(); }
+                    }
+
+                    if current: IconButton {
+                        glyph: Glyph.trash;
+                        label: I18n.t1("clipInspector.remove", row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1));
+                        idle: Theme.fg-dim;
+                        danger: true;
+                        clicked => { root.set(ClipField.mask-remove, 0); root.commit(); }
+                    }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-circle;
-                    label: root.mask-names[2];
-                    checked: root.mask == 2;
-                    clicked => { root.set(ClipField.mask-shape, 2); root.commit(); }
+            }
+
+            // The current mask: its shape, its mode, its invert.
+            if root.mask >= 0: HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 4px;
+                for glyph[index] in root.mask-glyphs: ToolButton {
+                    glyph: glyph;
+                    label: root.mask-names[index];
+                    checked: root.mask == index;
+                    clicked => { root.set(ClipField.mask-shape, index); root.commit(); }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-rectangle;
-                    label: root.mask-names[3];
-                    checked: root.mask == 3;
-                    clicked => { root.set(ClipField.mask-shape, 3); root.commit(); }
-                }
-                ToolButton {
-                    glyph: Glyph.mask-heart;
-                    label: root.mask-names[4];
-                    checked: root.mask == 4;
-                    clicked => { root.set(ClipField.mask-shape, 4); root.commit(); }
-                }
-                ToolButton {
-                    glyph: Glyph.mask-star;
-                    label: root.mask-names[5];
-                    checked: root.mask == 5;
-                    clicked => { root.set(ClipField.mask-shape, 5); root.commit(); }
+            }
+
+            if root.mask >= 0: Row {
+                label: I18n.t("common.mode");
+                Select {
+                    options: root.mask-modes;
+                    property <int> shown: root.selected.mask-mode;
+                    current: self.shown;
+                    changed shown => { self.current = self.shown; }
+                    changed(index) => { root.set(ClipField.mask-mode, index); root.commit(); }
                 }
             }
 
@@ -2106,6 +2373,38 @@ export component VideoPanel inherits VerticalLayout {
                 unit: "%";
                 unit-scale: 100;
                 changed(v) => { root.set(ClipField.mask-feather, v); root.commit(); }
+            }
+
+            // The edge moved out, or in below zero, the feather staying
+            // centred on it.
+            if root.mask >= 0: Param {
+                label: I18n.t("mask.expand");
+                keyable: true;
+                field: ClipField.mask-expand;
+                value <=> root.mask-expand;
+                minimum: -0.5;
+                maximum: 0.5;
+                step: 0.005;
+                default-value: 0;
+                fmt: ParamFormat.centred;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-expand, v); root.commit(); }
+            }
+
+            if root.mask >= 0: Param {
+                label: I18n.t("common.opacity");
+                keyable: true;
+                field: ClipField.mask-opacity;
+                value <=> root.mask-opacity;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 1;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-opacity, v); root.commit(); }
             }
         }
     }
@@ -2610,176 +2909,6 @@ export component TransitionPanel inherits VerticalLayout {
     }
 }
 
-/// Speed: one rate for the whole clip, or a curve - speed that changes over
-/// the clip, shaped on a graph or picked from a preset (see
-/// speed-ramp.slint). Whether the sound's pitch follows is the Audio tab's.
-export component SpeedPanel inherits VerticalLayout {
-    in property <SelectedClipData> selected;
-    /// The panel's first section, with no hairline above it; false where
-    /// it follows another, as it does under Basic.
-    in property <bool> first: true;
-    /// Inside another section - a sound clip's Playback, with its fades and
-    /// pitch - with no header or hairline of its own, always open.
-    in property <bool> bare;
-
-    callback set(field: ClipField, value: float);
-    callback commit();
-
-    property <bool> speed-open: true;
-    property <float> speed;
-    function seed() {
-        root.speed = root.selected.speed;
-        root.fastest = SpeedRamp.fastest;
-        root.slowest = SpeedRamp.slowest;
-    }
-    init => { root.seed(); }
-    changed selected => { root.seed(); }
-
-    // Rust's word on the mode and the preset.
-    property <bool> curved: SpeedRamp.curved;
-    property <int> preset: SpeedRamp.preset;
-    // The two sliders' values, seeded from Rust's like the rate's: a
-    // slider writes its own value as it is dragged, which would end a
-    // binding.
-    property <float> fastest;
-    property <float> slowest;
-    property <float> fastest-truth: SpeedRamp.fastest;
-    property <float> slowest-truth: SpeedRamp.slowest;
-    changed fastest-truth => { root.fastest = root.fastest-truth; }
-    changed slowest-truth => { root.slowest = root.slowest-truth; }
-
-    Section {
-        first: root.first || root.bare;
-        padding-bottom: root.bare ? 0 : 8px;
-        if !root.bare: SectionHeader {
-            title: I18n.t("common.speed");
-            collapsible: true;
-            open <=> root.speed-open;
-            summary: root.curved
-                ? I18n.t("speedRamp.curve")
-                : InspectorFmt.format(ParamFormat.rate, root.speed);
-            HelpButton {
-                text: I18n.t("clipInspector.rateReTimesClip");
-            }
-        }
-
-        if root.bare || root.speed-open: SectionBody {
-            padding-top: root.bare ? 0 : 4px;
-            if root.selected.reverse-progress >= 0: ReverseRow {
-                progress: root.selected.reverse-progress;
-            }
-
-            Row {
-                // Under another section's header the mode names itself.
-                label: root.bare ? I18n.t("common.speed") : "";
-
-                SegmentedControl {
-                    // A press assigns `current` inside the control, which
-                    // ends a plain binding: so it is set again from Rust's
-                    // word whenever the selection or an undo changes it.
-                    property <bool> truth: root.curved;
-                    changed truth => { self.current = self.truth ? 1 : 0; }
-
-                    options: [I18n.t("speedRamp.constant"), I18n.t("speedRamp.curve")];
-                    current: root.curved ? 1 : 0;
-                    changed(index) => {
-                        SpeedRamp.curve(index == 1);
-                        root.commit();
-                    }
-                }
-            }
-
-            if root.curved: Row {
-                label: I18n.t("speedRamp.shape");
-                Select {
-                    // As the mode's: a pick ends the binding, Rust restores it.
-                    property <int> truth: root.preset;
-                    changed truth => { self.current = self.truth; }
-
-                    options: SpeedRamp.presets;
-                    current: root.preset;
-                    placeholder: I18n.t("speedRamp.custom");
-                    changed(index) => {
-                        SpeedRamp.preset-chosen(index);
-                        root.commit();
-                    }
-                }
-            }
-
-            if root.curved: SpeedGraph {
-                padding-left: Theme.pad;
-                padding-right: Theme.pad;
-                point(index, x, y) => {
-                    SpeedRamp.point(index, x, y);
-                    root.commit();
-                }
-                remove(index) => {
-                    SpeedRamp.remove(index);
-                    root.commit();
-                }
-            }
-
-            if root.curved: Row {
-                label: I18n.t("speedRamp.bends");
-                SegmentedControl {
-                    // As the mode's: set again from Rust's word.
-                    property <bool> truth: SpeedRamp.smooth;
-                    changed truth => { self.current = self.truth ? 0 : 1; }
-
-                    options: [I18n.t("speedRamp.smooth"), I18n.t("speedRamp.straight")];
-                    current: SpeedRamp.smooth ? 0 : 1;
-                    changed(index) => {
-                        SpeedRamp.smoothness(index == 0);
-                        root.commit();
-                    }
-                }
-            }
-
-            // The two extremes, for a ramp that is right in shape and too
-            // much or too little in strength: the fastest stretch brought
-            // down to 4x brings the rest of it along.
-            if root.curved && root.fastest > 0: Param {
-                label: I18n.t("speedRamp.fastest");
-                value <=> root.fastest;
-                minimum: 1.1;
-                maximum: 16;
-                step: 0.05;
-                default-value: 2;
-                fmt: ParamFormat.rate;
-                unit: "x";
-                changed(v) => { SpeedRamp.extreme(true, v); root.commit(); }
-            }
-            if root.curved && root.slowest > 0: Param {
-                label: I18n.t("speedRamp.slowest");
-                value <=> root.slowest;
-                minimum: 0.0625;
-                maximum: 0.9;
-                step: 0.01;
-                default-value: 0.5;
-                fmt: ParamFormat.rate;
-                unit: "x";
-                changed(v) => { SpeedRamp.extreme(false, v); root.commit(); }
-            }
-
-            if !root.curved: Param {
-                label: I18n.t("common.rate");
-                value <=> root.speed;
-                // The engine's full range. The track is linear, so the
-                // useful 0.25-4x band sits left of centre and the number
-                // field beside it is how the extremes are actually dialled
-                // in.
-                minimum: 0.0625;
-                maximum: 16;
-                step: 0.05;
-                default-value: 1;
-                fmt: ParamFormat.rate;
-                unit: "x";
-                changed(v) => { root.set(ClipField.speed, v); root.commit(); }
-            }
-        }
-    }
-}
-
 /// Voice isolation splitting the clip's file: what it is doing and how far,
 /// over a bar that fills as it goes.
 component VoiceRow inherits VerticalLayout {
@@ -2793,8 +2922,10 @@ component VoiceRow inherits VerticalLayout {
     spacing: 6px;
 
     Text {
-        text: I18n.t1(root.fetching ? "voice.downloading" : "voice.isolating",
-            "\{Math.round(root.progress * 100)}");
+        // Each key called as itself, so the string inventory sees both.
+        text: root.fetching
+            ? I18n.t1("voice.downloading", "\{Math.round(root.progress * 100)}")
+            : I18n.t1("voice.isolating", "\{Math.round(root.progress * 100)}");
         color: Theme.fg-muted;
         font-size: Theme.fs;
     }
@@ -2872,148 +3003,126 @@ export component AudioPanel inherits VerticalLayout {
         }
     }
 
-    // The level and the voice, straight under the tab: each is a row or
-    // two, not a section to open.
+    // The level, on a fader with its scale.
     Section {
         first: !root.choosing;
 
         SectionBody {
-            Param {
+            padding-top: 8px;
+            GainFader {
                 label: I18n.t("clipInspector.volumeLevel");
                 keyable: !root.selected.batch-volume;
                 field: ClipField.volume;
-                rail: true;
                 value <=> root.level;
-                // The bottom is silence, not -60. +24 at the top because
-                // quiet material genuinely needs it - a distant lavalier is
-                // routinely 15-20 dB under, and a limit that cannot fix that
-                // is in the wrong place.
-                minimum: -60;
-                maximum: 24;
-                step: 0.5;
-                default-value: 0;
-                fmt: ParamFormat.gain;
                 changed(v) => {
                     root.set(ClipField.volume, InspectorFmt.from-decibels(v));
                     root.commit();
                 }
             }
+        }
+    }
 
-            // Voice isolation (#120): the voice in the sound set apart from
-            // everything else, kept alone or taken out, each part at a
-            // level of its own - the music under a talk brought down rather
-            // than off.
-            if !root.selected.batch-volume: Row {
-                label: I18n.t("voice.title");
-                label-width: Theme.label-w * 1.4;
+    // The fades, drawn where they happen: the clip's first and last
+    // seconds of sound with the ramp over each, its corner dragged.
+    if !root.selected.batch-volume: Section {
+        SectionBody {
+            padding-top: 10px;
+            FadeEnds {
+                head-wave: root.selected.wave-head;
+                tail-wave: root.selected.wave-tail;
+                window: root.fade-limit;
+                fade-in <=> root.fade-in;
+                fade-out <=> root.fade-out;
+                in-changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
+                out-changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
+            }
+        }
+    }
+
+    // Voice isolation (#120): the clip's sound split once, in the
+    // background, into the voice and everything else, and played back as
+    // the two at levels of their own - the music under a talk brought down
+    // rather than off, the hiss taken out from under a voice. Its switch
+    // is its header; on, what the sound is, then the two parts.
+    if !root.selected.batch-volume: Section {
+        SectionBody {
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 8px;
+                min-height: Theme.h;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: I18n.t("voice.title");
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    font-weight: Theme.weight-title;
+                    vertical-alignment: center;
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    Switch {
+                        property <bool> truth: root.selected.voice-mode != 0;
+                        changed truth => { self.checked = self.truth; }
+                        checked: self.truth;
+                        toggled(on) => {
+                            root.set(ClipField.voice-mode, on ? 1 : 0);
+                            root.commit();
+                        }
+                    }
+                }
+            }
+
+            // What the clip's sound is, which picks the model that splits
+            // it: speech apart from the noise, the room and any music bed
+            // behind it, or a song's singing apart from its music. Each
+            // names the two parts below in its own words.
+            if root.selected.voice-mode != 0: Row {
+                label: I18n.t("voice.sound");
+                label-width: 108px;
                 SegmentedControl {
-                    options: [I18n.t("voice.off"), I18n.t("voice.keep"), I18n.t("voice.removeShort")];
-                    // Levels of one's own are neither way: nothing lit.
-                    property <int> shown: root.selected.voice-mode == 3 ? -1 : root.selected.voice-mode;
+                    // Speech first: what most clips in an edit are, and
+                    // its model ships with the app; the song's downloads.
+                    options: [I18n.t("voice.speech"), I18n.t("voice.song")];
+                    property <int> shown: root.selected.voice-kind == 1 ? 0 : 1;
                     current: self.shown;
                     changed shown => { self.current = self.shown; }
                     changed(index) => {
-                        root.set(ClipField.voice-mode, index);
+                        root.set(ClipField.voice-kind, index == 0 ? 1 : 0);
                         root.commit();
                     }
                 }
             }
 
-            // A song's singing apart from its music, or speech apart from
-            // the noise behind it: two models, each good at its own.
-            if !root.selected.batch-volume && root.selected.voice-mode != 0: Row {
-                label: I18n.t("voice.kind");
-                label-width: Theme.label-w * 1.4;
-                SegmentedControl {
-                    options: [I18n.t("voice.kindSong"), I18n.t("voice.kindSpeech")];
-                    property <int> shown: root.selected.voice-kind;
-                    current: self.shown;
-                    changed shown => { self.current = self.shown; }
-                    changed(index) => {
-                        root.set(ClipField.voice-kind, index);
-                        root.commit();
-                    }
-                }
-            }
-
-            if !root.selected.batch-volume && root.selected.voice-mode != 0: Param {
-                label: I18n.t("voice.voiceLevel");
-                rail: true;
+            // The two parts, one row each. The voice alone is the other
+            // row's mark pressed; the voice gone is its own.
+            if root.selected.voice-mode != 0: StemRow {
+                name: root.selected.voice-kind == 0 ? I18n.t("voice.vocals") : I18n.t("voice.voiceLevel");
+                glyph: Glyph.mic;
                 value <=> root.voice-level;
-                minimum: 0;
-                maximum: 200;
-                step: 1;
-                default-value: 100;
-                fmt: ParamFormat.percent;
                 changed(v) => { root.set(ClipField.voice-level, v / 100); root.commit(); }
             }
-
-            if !root.selected.batch-volume && root.selected.voice-mode != 0: Param {
-                label: I18n.t("voice.backgroundLevel");
-                rail: true;
+            if root.selected.voice-mode != 0: StemRow {
+                name: root.selected.voice-kind == 0 ? I18n.t("voice.music") : I18n.t("voice.backgroundLevel");
+                glyph: root.selected.voice-kind == 0 ? Glyph.music : Glyph.waveform;
                 value <=> root.background-level;
-                minimum: 0;
-                maximum: 200;
-                step: 1;
-                default-value: 100;
-                fmt: ParamFormat.percent;
                 changed(v) => { root.set(ClipField.background-level, v / 100); root.commit(); }
             }
 
-            if !root.selected.batch-volume && root.selected.voice-progress >= 0: VoiceRow {
+            if root.selected.voice-progress >= 0: VoiceRow {
                 progress: root.selected.voice-progress;
                 fetching: root.selected.voice-fetching;
             }
         }
     }
 
-    // How the sound runs: its fades, whether its pitch follows the rate,
-    // and - for a sound clip - the rate itself, one section rather than
-    // three. A picture's sound rides the picture's rate, set under Video.
+    // The rate and the pitch, together: whether the voice keeps its pitch
+    // is a question about the rate. A sound clip's rate is set here; a
+    // picture's sound rides its picture's, set under Video.
     if !root.selected.batch-volume: Section {
-        playback := SectionHeader {
-            title: I18n.t("clipInspector.playback");
-            collapsible: true;
-            summary: (root.fade-in == 0 && root.fade-out == 0) ? ""
-                : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
-                + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
-
-            ResetButton {
-                dirty: root.fade-in != 0 || root.fade-out != 0;
-                reset => {
-                    root.set(ClipField.fade-in, 0);
-                    root.set(ClipField.fade-out, 0);
-                    root.commit();
-                }
-            }
-        }
-
-        if playback.open: SectionBody {
-            Param {
-                label: I18n.t("clipInspector.fadeIn");
-                rail: true;
-                value <=> root.fade-in;
-                minimum: 0;
-                maximum: root.fade-limit;
-                step: 0.05;
-                fmt: ParamFormat.seconds2;
-                unit: "s";
-                changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
-            }
-
-            Param {
-                label: I18n.t("clipInspector.fadeOut");
-                rail: true;
-                value <=> root.fade-out;
-                minimum: 0;
-                maximum: root.fade-limit;
-                step: 0.05;
-                fmt: ParamFormat.seconds2;
-                unit: "s";
-                changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
-            }
-
-            // Whether the voice keeps its pitch when the rate is not 1.
+        SectionBody {
             SwitchRow {
                 label: I18n.t("clipInspector.changePitchWithSpeed");
                 checked: !root.selected.preserve-pitch;
@@ -3165,6 +3274,135 @@ export component AdjustPanel inherits VerticalLayout {
 // dissolves with, which is exactly what it means here — how much of the
 // treated signal is heard — and one field that means one thing on every kind
 // beats a second that means it only on this one.
+/// How the clip comes on, goes off and moves in between: In, Out and Loop
+/// as pages of cards, each card playing its move; the picked one's length
+/// (and a loop's lap and amount) under them. They move the whole picture
+/// where it is placed, over its keys.
+export component AnimatePanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    /// The moves' names in concat_core::motion::Move::ALL's order.
+    property <[string]> moves: [
+        I18n.t("motion.fade"), I18n.t("motion.slideLeft"), I18n.t("motion.slideRight"),
+        I18n.t("motion.slideUp"), I18n.t("motion.slideDown"), I18n.t("motion.zoomIn"),
+        I18n.t("motion.zoomOut"), I18n.t("motion.pop"), I18n.t("motion.drop"),
+        I18n.t("motion.rise"), I18n.t("motion.spin"), I18n.t("motion.flip"),
+        I18n.t("motion.swing"), I18n.t("motion.squash"),
+    ];
+    /// The loops' names in Cycle::ALL's order.
+    property <[string]> loops: [
+        I18n.t("motion.pulse"), I18n.t("motion.heartbeat"), I18n.t("motion.float"),
+        I18n.t("motion.wiggle"), I18n.t("motion.sway"), I18n.t("motion.jitter"),
+        I18n.t("motion.spinLoop"), I18n.t("motion.flicker"), I18n.t("motion.breathe"),
+    ];
+    /// An entrance or an exit longer than the clip would never finish.
+    property <float> limit: Math.max(0.1, Math.min(10, root.selected.duration));
+
+    // The page - In, Out or Loop - is the control's to write, so it is
+    // assigned, never bound.
+    property <int> page;
+
+    // Seeded, not bound, for the reason FilterPanel's are.
+    property <float> in-seconds;
+    property <float> out-seconds;
+    property <float> loop-seconds;
+    property <float> loop-amount;
+
+    function seed() {
+        root.in-seconds = root.selected.motion-in-seconds;
+        root.out-seconds = root.selected.motion-out-seconds;
+        root.loop-seconds = root.selected.motion-loop-seconds;
+        root.loop-amount = root.selected.motion-loop-amount;
+    }
+
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-top: 12px;
+    padding-bottom: 14px;
+    spacing: 12px;
+
+    SegmentedControl {
+        options: [I18n.t("motion.in"), I18n.t("motion.out"), I18n.t("motion.loop")];
+        current <=> root.page;
+    }
+
+    if root.page == 0: MotionPicker {
+        tiles: MotionTiles.enter;
+        labels: root.moves;
+        none-label: I18n.t("common.none");
+        current: root.selected.motion-in;
+        picked(index) => { root.set(ClipField.motion-in, index); root.commit(); }
+    }
+
+    if root.page == 1: MotionPicker {
+        tiles: MotionTiles.exit;
+        labels: root.moves;
+        none-label: I18n.t("common.none");
+        current: root.selected.motion-out;
+        picked(index) => { root.set(ClipField.motion-out, index); root.commit(); }
+    }
+
+    if root.page == 2: MotionPicker {
+        tiles: MotionTiles.cycle;
+        labels: root.loops;
+        none-label: I18n.t("common.none");
+        current: root.selected.motion-loop;
+        picked(index) => { root.set(ClipField.motion-loop, index); root.commit(); }
+    }
+
+    if root.page == 0 && root.selected.motion-in >= 0: Param {
+        label: I18n.t("motion.length");
+        value <=> root.in-seconds;
+        minimum: 0.05;
+        maximum: root.limit;
+        step: 0.05;
+        default-value: 0.5;
+        fmt: ParamFormat.seconds2;
+        changed(v) => { root.set(ClipField.motion-in-seconds, v); root.commit(); }
+    }
+
+    if root.page == 1 && root.selected.motion-out >= 0: Param {
+        label: I18n.t("motion.length");
+        value <=> root.out-seconds;
+        minimum: 0.05;
+        maximum: root.limit;
+        step: 0.05;
+        default-value: 0.5;
+        fmt: ParamFormat.seconds2;
+        changed(v) => { root.set(ClipField.motion-out-seconds, v); root.commit(); }
+    }
+
+    if root.page == 2 && root.selected.motion-loop >= 0: Param {
+        label: I18n.t("motion.lap");
+        value <=> root.loop-seconds;
+        minimum: 0.1;
+        maximum: 20;
+        step: 0.05;
+        default-value: 1;
+        fmt: ParamFormat.seconds2;
+        changed(v) => { root.set(ClipField.motion-loop-seconds, v); root.commit(); }
+    }
+
+    if root.page == 2 && root.selected.motion-loop >= 0: Param {
+        label: I18n.t("motion.amount");
+        value <=> root.loop-amount;
+        minimum: 0;
+        maximum: 2;
+        step: 0.01;
+        default-value: 1;
+        fmt: ParamFormat.fraction;
+        unit: "%";
+        unit-scale: 100;
+        changed(v) => { root.set(ClipField.motion-loop-amount, v); root.commit(); }
+    }
+}
+
 export component FilterPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
     /// What the help says the layer does: a picture layer's or a sound

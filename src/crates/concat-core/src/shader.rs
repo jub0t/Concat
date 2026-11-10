@@ -262,7 +262,19 @@ impl RevealMap {
                 gray[start..start + (x1 - x0) as usize].fill(value);
             }
         }
-        let id = fnv64(&gray) ^ u64::from(width) ^ (u64::from(height) << 32);
+        // Named by what it is made of - the size and the boxes, which fix
+        // every byte - rather than by hashing the frame's worth of bytes.
+        let mut made_of = Vec::with_capacity(8 + rects.len() * 16);
+        for value in [width, height] {
+            made_of.extend_from_slice(&value.to_le_bytes());
+        }
+        for &(x, y, w, h) in rects {
+            made_of.extend_from_slice(&x.to_le_bytes());
+            made_of.extend_from_slice(&y.to_le_bytes());
+            made_of.extend_from_slice(&w.to_le_bytes());
+            made_of.extend_from_slice(&h.to_le_bytes());
+        }
+        let id = fnv64(&made_of) ^ u64::from(width) ^ (u64::from(height) << 32);
         RevealMap {
             id,
             width,

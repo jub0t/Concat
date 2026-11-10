@@ -142,6 +142,8 @@ pub struct CaptionsPane {
     subject: Option<Subject>,
     /// How long each model took this session, for the next run's bar.
     timings: Timings,
+    /// What the style picker's search holds.
+    pub style_query: String,
 }
 
 impl CaptionsPane {
@@ -242,7 +244,7 @@ impl CaptionsPane {
                             return;
                         };
                         let look = subject.look;
-                        let base = studio.prefs.title_style.clone();
+                        let (base, font) = caption_base(studio);
                         let commands: Vec<Command> = segments
                             .into_iter()
                             .filter_map(|segment| {
@@ -263,7 +265,9 @@ impl CaptionsPane {
                         if count == 0 {
                             studio.notify(&t("captions.nothingSaidClip"), true);
                         } else {
-                            studio.apply(Command::Batch { commands });
+                            studio.apply(Command::Batch {
+                                commands: font.into_iter().chain(commands).collect(),
+                            });
                             studio.notify(&tf("captions.addedCaptions", &[&count]), false);
                         }
                     }
@@ -314,7 +318,7 @@ impl CaptionsPane {
             }
         };
         let look = self.look();
-        let base = studio.prefs.title_style.clone();
+        let (base, font) = caption_base(studio);
         let commands = srt_commands(cues, look, base.as_ref());
         if commands.is_empty() {
             self.message = t("captions.noSubtitlesInFile");
@@ -322,7 +326,9 @@ impl CaptionsPane {
         }
         let count = commands.len();
         self.open = false;
-        studio.apply(Command::Batch { commands });
+        studio.apply(Command::Batch {
+            commands: font.into_iter().chain(commands).collect(),
+        });
         studio.notify(&tf("captions.addedCaptions", &[&count]), false);
     }
 
@@ -516,7 +522,7 @@ impl CaptionsPane {
         }
         let look = self.look();
         let mut at = f64::from(studio.playhead);
-        let base = studio.prefs.title_style.clone();
+        let (base, font) = caption_base(studio);
         let commands: Vec<Command> = lines
             .into_iter()
             .map(|(text, seconds)| {
@@ -527,7 +533,9 @@ impl CaptionsPane {
             .collect();
         let count = commands.len();
         self.open = false;
-        studio.apply(Command::Batch { commands });
+        studio.apply(Command::Batch {
+            commands: font.into_iter().chain(commands).collect(),
+        });
         studio.notify(&tf("captions.addedCaptions", &[&count]), false);
     }
 
@@ -900,6 +908,38 @@ fn caption_clip(
         duration: Some(duration),
         offset_y: Some(offset_y),
     }
+}
+
+/// The look captions are set in, before their own size and place: the
+/// text preset picked on the sheet (`Preferences::caption_style`), with
+/// the font it brings registered on the project in the same undo step;
+/// or, for the plain preset or none, the look a title was kept as.
+fn caption_base(studio: &Studio) -> (Option<TextStyle>, Option<Command>) {
+    let picked = studio
+        .prefs
+        .caption_style
+        .as_deref()
+        .filter(|id| *id != "default")
+        .and_then(|id| studio.text_presets.iter().find(|preset| preset.id == id));
+    match picked {
+        Some(preset) => (
+            Some(preset.style.clone()),
+            crate::presets::install_font(&studio.host.dirs, preset)
+                .map(|(family, path)| Command::AddFont { family, path }),
+        ),
+        None => (studio.prefs.title_style.clone(), None),
+    }
+}
+
+/// The preset the sheet shows as picked: the one remembered, while it is
+/// still on the list, else the plain one.
+pub fn caption_style_id(studio: &Studio) -> &str {
+    studio
+        .prefs
+        .caption_style
+        .as_deref()
+        .filter(|id| studio.text_presets.iter().any(|preset| preset.id == *id))
+        .unwrap_or("default")
 }
 
 /// Longest a caption line gets before it is wrapped: about what two lines

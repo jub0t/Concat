@@ -279,10 +279,28 @@ export component TimelineTray inherits Rectangle {
                     ? TimelineTool.select : TimelineTool.split);
             }
         }
-        // Delete left and Delete right, on the toolbar: the clip under
-        // the playhead loses what is left, or right, of it. The same action
-        // as their keys (Q and W unless rebound), so a button and its key
-        // cannot disagree. https://github.com/jub0t/Concat/issues/400
+        TrayButton {
+            glyph: Glyph.merge;
+            // The reason a blocked Merge is blocked rides on the button rather
+            // than being spelled out beside it. This tree has no tooltip yet,
+            // so `label` — the accessible name, and where a tooltip will read
+            // from — is the honest place to park it. A permanent caption in
+            // the tray would answer a question nobody had asked yet.
+            label: root.merge-blocked-because == "" ? root.merge-label
+                : root.merge-blocked-because;
+            enabled: root.merge-blocked-because == "";
+            icon-size: 16px;
+            clicked => { root.merge(); }
+        }
+
+        Divider { }
+
+        // The three deletes, a group of their own between rules. Delete
+        // left and Delete right: the clip under the playhead loses what is
+        // left, or right, of it - the same action as their keys (Q and W
+        // unless rebound), so a button and its key cannot disagree
+        // (https://github.com/jub0t/Concat/issues/400). Then the selection,
+        // whole.
         TrayButton {
             glyph: Glyph.delete-left;
             label: I18n.t("shortcuts.deleteLeft") + (Editor.keys-delete-left == "" ? ""
@@ -296,19 +314,6 @@ export component TimelineTray inherits Rectangle {
                 : " (" + Editor.keys-delete-right + ")");
             icon-size: 16px;
             clicked => { Editor.shortcut("delete-right"); }
-        }
-        TrayButton {
-            glyph: Glyph.merge;
-            // The reason a blocked Merge is blocked rides on the button rather
-            // than being spelled out beside it. This tree has no tooltip yet,
-            // so `label` — the accessible name, and where a tooltip will read
-            // from — is the honest place to park it. A permanent caption in
-            // the tray would answer a question nobody had asked yet.
-            label: root.merge-blocked-because == "" ? root.merge-label
-                : root.merge-blocked-because;
-            enabled: root.merge-blocked-because == "";
-            icon-size: 16px;
-            clicked => { root.merge(); }
         }
         TrayButton {
             glyph: Glyph.trash;
@@ -329,6 +334,8 @@ export component TimelineTray inherits Rectangle {
             horizontal-alignment: center;
             vertical-alignment: center;
         }
+
+        Divider { }
 
         // Freeze, mirror and rotate behind one mark: three verbs about the
         // selected clip's picture, and a tray has no room for three more

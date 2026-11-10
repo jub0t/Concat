@@ -3,14 +3,18 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
-import { Glyph } from "../icons.slint";
-import { Button, DialogSection, Modal } from "../primitives/modal.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { ActionPair, Button, Modal } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 
 export struct MissingMediaItem {
     id: string,
     name: string,
-    path: string,
+    /// the folder it was in, the home folder as ~: the name is on the
+    /// line above, so the whole path would only say it twice
+    folder: string,
+    /// 0 video, 1 audio, 2 image: which mark the row leads with
+    kind: int,
     /// how many clips use it, on every timeline: what Remove takes too
     clips: int,
 }
@@ -20,74 +24,139 @@ export struct RelinkData {
     items: [MissingMediaItem],
 }
 
+// The files a project cannot find, one row each.
+//
+// A row says what the file is, where it was and how much of the edit
+// hangs on it, and answers it one of two ways: Locate, a file picked by
+// hand (a renamed file, or one on a phone, whose picker has no folders),
+// or the bin, the file and its clips gone for good. The footer's Search
+// answers every row at once from one folder; Not now leaves them
+// offline, and the dialog quiet about them until they go missing anew.
 export component RelinkDialog inherits Modal {
     in property <RelinkData> data;
 
     callback relink-all();
+    /// Pick this one file by hand.
+    callback locate(id: string);
     /// Take this file out of the project, with its clips, for good.
     callback remove(id: string);
     callback dismiss();
 
     open: root.data.open;
     title: I18n.t("relink.missingMedia");
-    glyph: Glyph.info;
-    surface-width: 600px;
+    glyph: Glyph.link;
+    surface-width: 560px;
+
+    // The × and a click on the scrim are Not now, as Escape is.
+    closed => { root.dismiss(); }
+
+    /// One row's height; the list is as tall as its rows up to five of
+    /// them, and scrolls past that.
+    property <length> row-h: 52px;
 
     VerticalLayout {
-        DialogSection {
-            first: true;
-            title: I18n.t1("relink.mediaFilesNotFound", "" + data.items.length);
+        padding: 16px;
+        spacing: 14px;
 
-            Text {
-                text: I18n.t("relink.followingMediaFilesCould");
-                color: Theme.fg;
-                wrap: word-wrap;
-            }
+        Text {
+            text: I18n.t("relink.cantFind");
+            color: Theme.fg-muted;
+            font-size: Theme.fs;
+            wrap: word-wrap;
+        }
+
+        Rectangle {
+            height: Math.min(list.preferred-height, root.row-h * 5) + 2px;
+            border-width: 1px;
+            border-color: Theme.line;
+            border-radius: Theme.r;
+            clip: true;
 
             Flickable {
-                height: 200px;
-                content-height: items-layout.preferred-height;
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                content-height: list.preferred-height;
 
-                items-layout := VerticalLayout {
-                    spacing: 4px;
-                    
-                    for item in root.data.items : Rectangle {
-                        height: 40px;
-                        background: Theme.field;
-                        border-radius: 4px;
+                list := VerticalLayout {
+                    for item[index] in root.data.items: Rectangle {
+                        height: root.row-h;
+
+                        // A hairline between rows, none above the first.
+                        if index > 0: Rectangle {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: 1px;
+                            background: Theme.line;
+                        }
 
                         HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 4px;
-                            spacing: 8px;
+                            padding-left: 12px;
+                            padding-right: 8px;
+                            spacing: 10px;
 
                             VerticalLayout {
                                 alignment: center;
+                                Rectangle {
+                                    width: 30px;
+                                    height: 30px;
+                                    border-radius: Theme.r-sm;
+                                    background: Theme.field;
+
+                                    Icon {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        glyph: item.kind == 1 ? Glyph.music
+                                            : item.kind == 2 ? Glyph.image
+                                            : Glyph.film;
+                                        size: 15px;
+                                        tint: Theme.fg-muted;
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
                                 horizontal-stretch: 1;
 
+                                Text {
+                                    text: item.name;
+                                    color: Theme.fg;
+                                    font-size: Theme.fs;
+                                    font-weight: Theme.weight-title;
+                                    overflow: elide;
+                                }
+
                                 HorizontalLayout {
-                                    spacing: 8px;
+                                    spacing: 6px;
+
                                     Text {
-                                        text: item.name;
-                                        color: Theme.fg;
-                                        font-size: Theme.fs;
+                                        text: item.folder;
+                                        color: Theme.fg-dim;
+                                        font-size: Theme.fs-sm;
+                                        font-family: Theme.font-technical;
                                         overflow: elide;
                                         horizontal-stretch: 1;
                                     }
+
                                     if item.clips > 0: Text {
-                                        text: I18n.t1("relink.usedByClips", "" + item.clips);
+                                        text: item.clips == 1 ? I18n.t("relink.oneClip")
+                                            : I18n.t1("relink.clips", "" + item.clips);
                                         color: Theme.fg-dim;
                                         font-size: Theme.fs-sm;
                                         horizontal-stretch: 0;
                                     }
                                 }
+                            }
 
-                                Text {
-                                    text: item.path;
-                                    color: Theme.fg-dim;
-                                    font-size: Theme.fs-sm;
-                                    font-family: Theme.font-technical;
-                                    overflow: elide;
+                            VerticalLayout {
+                                alignment: center;
+                                Button {
+                                    label: I18n.t("relink.locate");
+                                    clicked => { root.locate(item.id); }
                                 }
                             }
 
@@ -109,21 +178,12 @@ export component RelinkDialog inherits Modal {
             }
         }
 
-        HorizontalLayout {
-            alignment: end;
-            spacing: 8px;
-
-            Button {
-                primary: false;
-                label: I18n.t("relink.dismiss");
-                clicked => { root.dismiss(); }
-            }
-
-            Button {
-                primary: true;
-                label: I18n.t("relink.relinkAll");
-                clicked => { root.relink-all(); }
-            }
+        ActionPair {
+            cancel-label: I18n.t("relink.notNow");
+            action-label: I18n.t("relink.searchFolder");
+            action-glyph: Glyph.folder;
+            cancel => { root.dismiss(); }
+            act => { root.relink-all(); }
         }
     }
 }

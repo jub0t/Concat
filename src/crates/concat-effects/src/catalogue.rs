@@ -452,6 +452,7 @@ impl Package {
             "Retro & Film" => &["Retro", "Film", "Cinematic"],
             "Optical & Lens" => &["Optical", "Lens", "Blur"],
             "Distortion & Glitch" => &["Distort", "Glitch"],
+            "Shake & Motion" => &["Shake", "Motion"],
             "Party & Club" => &["Party", "Club"],
             "Light & Shadow" => &["Light", "Shadow"],
             _ => &[],
@@ -1508,6 +1509,9 @@ mod tests {
             ("concat.gaussian-blur", "Optical & Lens"),
             ("concat.motion-blur", "Optical & Lens"),
             ("concat.swirl", "Distortion & Glitch"),
+            ("concat.shake", "Shake & Motion"),
+            ("concat.beat-shake", "Shake & Motion"),
+            ("concat.impact", "Featured"),
             ("concat.neon", "Party & Club"),
         ] {
             assert!(on(id, shelf), "{id} on {shelf}");

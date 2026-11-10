@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
+import { ResizeBox } from "../primitives/resize-box.slint";
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
@@ -537,19 +538,17 @@ export component VoiceoverPanel inherits Rectangle {
                     }
                 }
 
-                if root.show-prompt || root.data.prompt != "": Rectangle {
-                    height: root.phone ? 96px : 120px;
-                    border-radius: Theme.r;
-                    background: Theme.well;
-                    border-width: 1px;
-                    border-color: script.has-focus ? Theme.accent : Theme.line;
-                    clip: true;
+                // Scrolls past its bottom and is drawn taller by its corner.
+                if root.show-prompt || root.data.prompt != "": script-box := ResizeBox {
+                    box-height: root.phone ? 96px : 120px;
+                    content-height: root.taking ? 0px : script.preferred-height;
+                    focused: script.has-focus;
 
                     script := TextInput {
-                        x: 10px;
-                        y: 8px;
-                        width: parent.width - 20px;
-                        height: parent.height - 16px;
+                        y: script-box.pad-y;
+                        width: parent.width;
+                        height: Math.max(self.preferred-height, script-box.view-height);
+                        cursor-position-changed(at) => { script-box.reveal(at.y, self.font-size * 1.4); }
                         visible: !root.taking;
                         enabled: !root.taking;
                         text <=> root.draft;
@@ -564,9 +563,9 @@ export component VoiceoverPanel inherits Rectangle {
                     }
 
                     if !root.taking && root.draft == "" && !script.has-focus: Text {
-                        x: 10px;
-                        y: 8px;
-                        width: parent.width - 20px;
+                        x: 0;
+                        y: script-box.pad-y;
+                        width: parent.width;
                         text: I18n.t("voiceover.scriptPlaceholder");
                         color: Theme.fg-dim;
                         font-size: Theme.fs-input;
@@ -577,9 +576,9 @@ export component VoiceoverPanel inherits Rectangle {
                     // the way down to start with and climbing from there,
                     // larger, so it reads from arm's length.
                     if root.taking: Text {
-                        x: 10px;
-                        width: parent.width - 20px;
-                        y: parent.height / 3
+                        x: 0;
+                        width: parent.width;
+                        y: script-box.height / 3
                             - Math.min(root.seconds * root.prompt-rate * 1px, self.preferred-height);
                         text: root.data.prompt;
                         color: Theme.fg;

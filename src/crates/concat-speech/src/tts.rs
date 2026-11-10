@@ -97,7 +97,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
     #[cfg(feature = "chatterbox")]
     KnownModel {
         id: crate::chatterbox::BUNDLE_ID,
-        label: "Chatterbox Turbo (studio)",
+        label: "Studio voice",
         blurb: "The closest to a studio voice; reads in a stock voice or any sample of your own. English, slow, a gigabyte.",
         approx_bytes: crate::chatterbox::BUNDLE_BYTES,
     },
@@ -519,7 +519,7 @@ impl Speech {
             #[cfg(not(feature = "chatterbox"))]
             Family::Chatterbox => {
                 let _ = (destination, cancel, &mut progress);
-                Err("Chatterbox is not part of this build".to_owned())
+                Err("The studio voice is not part of this build".to_owned())
             }
         }
     }
@@ -665,7 +665,7 @@ impl Speech {
         #[cfg(not(feature = "chatterbox"))]
         {
             let _ = (dir, speed, cancel, &mut progress);
-            Err("Chatterbox is not part of this build".to_owned())
+            Err("The studio voice is not part of this build".to_owned())
         }
         #[cfg(feature = "chatterbox")]
         {

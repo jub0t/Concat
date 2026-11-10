@@ -109,6 +109,14 @@ enum Command {
         /// Card height in pixels.
         #[arg(long, default_value_t = concat_host::cards::HEIGHT)]
         height: u32,
+        /// For a transition: how far through the cut to draw, `0..=1`, in
+        /// place of the card's own moment - to look at a cut frame by frame.
+        #[arg(long)]
+        progress: Option<f64>,
+        /// For an effect: the seconds into its clip to draw, in place of the
+        /// card's own moment - to look at a moving effect instant by instant.
+        #[arg(long)]
+        moment: Option<f64>,
     },
 
     /// Check effect packages before sharing them: load each folder the way
@@ -148,7 +156,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             effect,
             width,
             height,
-        } => preview(&input, &output, &effect, width, height),
+            progress,
+            moment,
+        } => preview(&input, &output, &effect, (width, height), progress, moment),
         Command::Check { path } => check(&path),
     }
 }
@@ -265,14 +275,32 @@ fn preview(
     input: &Path,
     output: &Path,
     effect: &str,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
+    progress: Option<f64>,
+    moment: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let catalogue = concat_effects::Catalogue::builtin();
-    let package = catalogue
+    let mut package = catalogue
         .get(effect)
-        .ok_or_else(|| format!("no package answers to {effect}"))?;
-    let card = concat_host::cards::Card::of(catalogue, package, Path::new(""))
+        .ok_or_else(|| format!("no package answers to {effect}"))?
+        .clone();
+    let mut card = package.manifest.card.clone().unwrap_or_default();
+    if let Some(progress) = progress {
+        if package.transition().is_none() {
+            return Err(
+                format!("{effect} is not a transition; --progress is a point in a cut").into(),
+            );
+        }
+        card.progress = Some(progress.clamp(0.0, 1.0));
+    }
+    if let Some(moment) = moment {
+        if package.transition().is_some() {
+            return Err(format!("{effect} is a transition; give --progress, not --moment").into());
+        }
+        card.moment = Some(moment.max(0.0));
+    }
+    package.manifest.card = Some(card);
+    let card = concat_host::cards::Card::of(catalogue, &package, Path::new(""))
         .ok_or_else(|| format!("{effect} draws no picture to make a card of"))?;
     let compositor =
         WgpuCompositor::new().ok_or("no GPU or software renderer is available to draw with")?;
