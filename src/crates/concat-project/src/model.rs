@@ -982,11 +982,6 @@ impl MaskShape {
     }
 }
 
-/// A shape that keeps part of a clip's picture: the Mask. Drawn over
-/// the picture as it is seen - after the crop and the flips, before the
-/// placement - so it moves, scales and turns with the clip, and multiplies
-/// with the cutout's matte and everything else that weighs the picture.
-///
 /// How a clip comes on, goes off and moves in between: an entrance, an
 /// exit and a loop, any of them. Each is applied where the clip is placed,
 /// over its keys, so the whole picture moves - a picture-in-picture slides
@@ -1010,7 +1005,10 @@ pub struct ClipMotion {
 /// An entrance or an exit: a move by name - `fade`, `slide-left`,
 /// `slide-right`, `slide-up`, `slide-down`, `zoom-in`, `zoom-out`, `pop`,
 /// `drop`, `rise`, `spin`, `flip`, `swing`, `squash` - over `seconds`.
+// Named apart from `commands::ClipMove` (a clip moved in time) in the
+// API schema, which would otherwise call this one ClipMove2.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(rename = "MotionMove"))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipMove {
@@ -1097,6 +1095,11 @@ impl ClipMotion {
     }
 }
 
+/// A shape that keeps part of a clip's picture: the Mask. Drawn over
+/// the picture as it is seen - after the crop and the flips, before the
+/// placement - so it moves, scales and turns with the clip, and multiplies
+/// with the cutout's matte and everything else that weighs the picture.
+///
 /// Its numbers other than the shape and the invert can be keyed, as the
 /// placement's can (`KeyProperty::MaskX` and on); a keyed number's keys
 /// replace the constant here.
