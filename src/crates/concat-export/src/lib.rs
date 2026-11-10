@@ -3209,6 +3209,93 @@ pub fn preview_moments(
 
 #[cfg(test)]
 mod tests {
+    /// An Animate pick reaches the frame: a clip from the document with a
+    /// Slide Left in and a Fade out is off to the side at its start, at
+    /// rest in the middle and faded at its end, on the path the monitor
+    /// and the export both plan through.
+    #[test]
+    fn an_animate_pick_moves_the_planned_picture() {
+        use concat_project::commands::{ClipPatch, NewMedia};
+        use concat_project::model::{ClipMotion, ClipMove, MediaKind};
+        use concat_project::{Command, Editor};
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(Command::AddMedia {
+                item: NewMedia {
+                    path: "/nowhere/clip.mp4".into(),
+                    name: "clip.mp4".into(),
+                    duration: Some(4.0),
+                    kind: MediaKind::Video,
+                    width: Some(64),
+                    height: Some(36),
+                    frame_rate: None,
+                    frame_rate_fraction: None,
+                    video_codec: None,
+                    audio_codec: None,
+                    has_audio: false,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                    color_space: Default::default(),
+                },
+            })
+            .expect("adds media")
+            .created_id
+            .expect("an id");
+        let track_id = editor.project().timelines[0].tracks[0].id.clone();
+        let clip_id = editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id,
+                start: 0.0,
+                ripple: false,
+            })
+            .expect("adds the clip")
+            .created_id
+            .expect("an id");
+        editor
+            .apply(Command::UpdateClip {
+                clip_id,
+                patch: ClipPatch {
+                    motion: Some(Some(ClipMotion {
+                        enter: Some(ClipMove {
+                            kind: "slide-left".into(),
+                            seconds: 1.0,
+                        }),
+                        exit: Some(ClipMove {
+                            kind: "fade".into(),
+                            seconds: 1.0,
+                        }),
+                        ..ClipMotion::default()
+                    })),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("animates the clip");
+        let clips = flatten::flatten_timeline(editor.project(), None);
+        assert!(clips[0].motion.is_some(), "the motion reaches the flattened clip");
+        let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+        let at = |seconds: f64| {
+            let time = Rational::approximate(seconds).expect("a time");
+            concat_render::plan::plan_frame(&plan.built.timeline, time).layers[0].clone()
+        };
+        let (start, middle, end) = (at(0.1), at(2.0), at(3.9));
+        eprintln!(
+            "x {} / {} / {}, opacity {} / {} / {}",
+            start.transform.offset_x,
+            middle.transform.offset_x,
+            end.transform.offset_x,
+            start.opacity,
+            middle.opacity,
+            end.opacity
+        );
+        assert!(
+            (start.transform.offset_x - middle.transform.offset_x).abs() > 0.1,
+            "Slide Left has the picture off to the side at the start"
+        );
+        assert!(end.opacity < 0.5, "Fade out has the picture faded at the end");
+        assert!((middle.opacity - 1.0).abs() < 1e-3, "at rest in the middle");
+    }
+
     /// A treatment on track 1 runs over what track 0 drew and not over what
     /// track 2 draws on top of it, and its strength blends the result back.
     #[test]

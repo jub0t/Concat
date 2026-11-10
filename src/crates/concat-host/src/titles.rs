@@ -274,6 +274,15 @@ impl Titles {
                     muted: true,
                     volume: 0.0,
                     animation: concat_export::flatten::export_keys(clip),
+                    // What a media clip carries in the flattening and a
+                    // title or a shape would otherwise lose here, starting
+                    // from blank: the Animate moves, the mask and the
+                    // fades. Without them no In, Out or Loop played on any
+                    // title, caption or shape.
+                    motion: clip.motion.clone(),
+                    mask: clip.mask,
+                    fade_in: clip.fade_in,
+                    fade_out: clip.fade_out,
                     flip_h: clip.flip_h,
                     flip_v: clip.flip_v,
                     blend: clip.blend.clone(),
@@ -1147,5 +1156,53 @@ mod tests {
             Path::new(&out[0].clip.path).is_file(),
             "painted to disk like a title"
         );
+    }
+
+    /// A shape's Animate moves, mask and fades rejoin with it. The title
+    /// path builds its clip from blank, and left all three behind: no In,
+    /// Out or Loop ever played on a title, a caption or a shape.
+    #[test]
+    fn a_shape_rejoins_with_its_motion_mask_and_fades() {
+        use concat_project::commands::ClipPatch;
+        use concat_project::model::{ClipMask, ClipMotion, ClipMove, MaskShape};
+        let dirs = scratch("shape-motion");
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddShapeClip {
+                above: true,
+                track_id: None,
+                start: 0.0,
+                style: None,
+                duration: Some(3.0),
+                name: "Square".to_owned(),
+            })
+            .expect("a shape is added")
+            .created_id
+            .expect("with an id");
+        let motion = ClipMotion {
+            enter: Some(ClipMove {
+                kind: "pop".to_owned(),
+                seconds: 0.5,
+            }),
+            ..ClipMotion::default()
+        };
+        let mask = ClipMask::of(MaskShape::Circle);
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: id,
+                patch: ClipPatch {
+                    motion: Some(Some(motion.clone())),
+                    mask: Some(Some(mask)),
+                    fade_in: Some(0.25),
+                    fade_out: Some(0.75),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("animated, masked and faded");
+
+        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        assert_eq!(out[0].clip.motion, Some(motion));
+        assert_eq!(out[0].clip.mask, Some(mask));
+        assert_eq!((out[0].clip.fade_in, out[0].clip.fade_out), (0.25, 0.75));
     }
 }
