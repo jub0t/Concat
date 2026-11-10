@@ -195,7 +195,11 @@ pub fn flatten_timeline_in(
                 cutout: clip.cutout.clone(),
                 // Pictures only: a mask on a clip that is all sound would
                 // keep part of nothing.
-                mask: clip.mask.filter(|_| kind != ClipKind::Audio),
+                masks: if kind == ClipKind::Audio {
+                    Vec::new()
+                } else {
+                    clip.masks.clone()
+                },
                 mask_dir: match (&clip.cutout, project_dir) {
                     (Some(cutout), Some(dir)) => {
                         concat_vision::mask_dir(dir, &media.path, cutout.subject)
@@ -283,9 +287,6 @@ pub fn export_base(clip: &concat_project::model::Clip, property: KeyProperty) ->
         // A factor's neutral is one; an addition's is zero.
         KeyProperty::Scale | KeyProperty::Opacity | KeyProperty::Volume => 1.0,
         KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => 0.0,
-        // The mask travels whole, as `ExportClip::mask`, and its keys
-        // replace its numbers; it never asks for a base.
-        mask => clip.constant(mask),
     }
 }
 
@@ -421,31 +422,37 @@ mod tests {
         assert_eq!(flat[0].effects, vec![AppliedFilter::new("concat.mono")]);
     }
 
-    /// A clip's mask and its keys reach the engine's clip, which plans
+    /// A clip's masks and their keys reach the engine's clip, which plans
     /// the monitor's frames and the export's alike: one path, so the two
     /// cannot draw different masks.
     #[test]
-    fn a_mask_and_its_keys_reach_the_engine() {
+    fn masks_and_their_keys_reach_the_engine() {
         use concat_core::time::Rational;
-        use concat_project::model::{ClipMask, KeyEase, MaskShape};
+        use concat_project::model::{KeyEase, Mask, MaskMode, MaskShape};
         let (mut editor, _, clip_id) = project_with_clip();
+        let heart = Mask {
+            feather: 0.2,
+            ..Mask::of("mask-1", "", MaskShape::Heart)
+        };
+        let hole = Mask {
+            mode: MaskMode::Subtract,
+            ..Mask::of("mask-2", "", MaskShape::Circle)
+        };
         editor
             .apply(Command::UpdateClip {
                 clip_id: clip_id.clone(),
                 patch: ClipPatch {
-                    mask: Some(Some(ClipMask {
-                        feather: 0.2,
-                        ..ClipMask::of(MaskShape::Heart)
-                    })),
+                    masks: Some(vec![heart, hole]),
                     ..Default::default()
                 },
             })
             .expect("masks");
         for (at, value) in [(0.0, -0.2), (1.0, 0.2)] {
             editor
-                .apply(Command::SetClipKey {
+                .apply(Command::SetMaskKey {
                     clip_id: clip_id.clone(),
-                    property: KeyProperty::MaskX,
+                    mask_id: "mask-1".into(),
+                    number: "x".into(),
                     at,
                     value,
                     ease: KeyEase::LINEAR,
@@ -453,29 +460,22 @@ mod tests {
                 .expect("keys");
         }
         let flat = flatten_timeline(editor.project(), None);
-        let mask = flat[0].mask.expect("the mask rides along");
-        assert_eq!(mask.shape, MaskShape::Heart);
-        assert!(flat[0].animation.iter().any(|key| key.property == "maskX"));
+        assert_eq!(flat[0].masks.len(), 2, "the masks ride along");
+        assert!(flat[0].animation.is_empty(), "a mask's keys are the mask's");
 
         let mut clip = concat_core::timeline::Clip::new(
             concat_core::timeline::MediaRef::new("a.mp4"),
             Rational::ZERO,
             Rational::from_int(10),
         );
-        clip.mask = Some(mask.engine());
-        clip.animation = crate::resolve::animation_of(&flat[0].animation);
-        let start = clip.mask_at(Rational::ZERO).expect("a mask");
-        let middle = clip.mask_at(Rational::from_int(5)).expect("a mask");
-        assert!((start.x + 0.2).abs() < 1e-12);
-        assert!(middle.x.abs() < 1e-12);
-        assert_eq!(middle.shape, concat_core::mask::MaskShape::Heart);
-        assert!((middle.feather - 0.2).abs() < 1e-12);
-        // The placement is untouched by the mask's keys.
-        assert!(
-            clip.animation
-                .as_ref()
-                .is_some_and(|a| a.offset_x.is_empty())
-        );
+        clip.masks = flat[0].masks.iter().map(Mask::engine).collect();
+        let start = clip.masks_at(Rational::ZERO);
+        let middle = clip.masks_at(Rational::from_int(5));
+        assert!((start.masks[0].shape.x + 0.2).abs() < 1e-12);
+        assert!(middle.masks[0].shape.x.abs() < 1e-12);
+        assert_eq!(middle.masks[0].shape.shape, concat_core::mask::MaskShape::Heart);
+        assert!((middle.masks[0].shape.feather - 0.2).abs() < 1e-12);
+        assert_eq!(middle.masks[1].mode, concat_core::mask::MaskMode::Subtract);
     }
 
     #[test]

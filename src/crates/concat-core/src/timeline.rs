@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 
 use crate::animate::Animation;
 use crate::arena::{Arena, Id};
-use crate::mask::ShapeMask;
+use crate::animate::RidingMask;
+use crate::mask::MaskStack;
 use crate::motion::{Motion, Pose};
 use crate::retime::SpeedCurve;
 use crate::time::{FrameRate, Rational, TimeRange};
@@ -105,9 +106,9 @@ pub struct Clip {
     /// first frame shown for the length of the dissolve, where other
     /// editors show "repeated frames".
     pub hold: bool,
-    /// The shape that keeps part of the picture, when one does; its
-    /// numbers ride the animation's mask tracks.
-    pub mask: Option<ShapeMask>,
+    /// The masks that keep part of the picture, top first, each with the
+    /// keys its numbers ride. Empty keeps all of it.
+    pub masks: Vec<RidingMask>,
     /// How many times the frame the picture is drawn for, along the axis
     /// it is most: one - every picture but a title whose ink runs past the
     /// frame's edges, painted on a canvas grown to hold it. A picture past
@@ -237,7 +238,7 @@ impl Clip {
             motion: None,
             blend: Blend::Normal,
             hold: false,
-            mask: None,
+            masks: Vec::new(),
             overscan: 1.0,
         }
     }
@@ -278,14 +279,13 @@ impl Clip {
         Some(motion.pose_at(local, self.duration.as_f64()))
     }
 
-    /// The mask at `time`: the clip's own, its keyed numbers at their
-    /// ride's values. None for a clip with no mask.
-    pub fn mask_at(&self, time: Rational) -> Option<ShapeMask> {
-        let mask = self.mask?;
-        Some(match &self.animation {
-            Some(animation) => animation.mask.mask_at(mask, self.fraction_at(time)),
-            None => mask,
-        })
+    /// The masks at `time`, top first: each one's keyed numbers at their
+    /// rides' values.
+    pub fn masks_at(&self, time: Rational) -> MaskStack {
+        let x = self.fraction_at(time);
+        MaskStack {
+            masks: self.masks.iter().map(|mask| mask.at(x)).collect(),
+        }
     }
 
     /// The opacity at `time`, before the fade ramps: the clip's own, scaled

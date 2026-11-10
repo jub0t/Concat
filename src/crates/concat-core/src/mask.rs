@@ -199,9 +199,227 @@ impl ShapeMask {
     }
 }
 
+/// How a mask joins the masks above it in its clip's list, the way a
+/// compositor's masks always have: the first one that cuts starts from
+/// nothing kept when it adds and from everything kept otherwise.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+pub enum MaskMode {
+    /// Cuts nothing. The mask is kept - its shape, its keys, later its
+    /// tracking - for a layer or an effect to use, without cutting the
+    /// clip it is on.
+    None,
+    /// Keeps what it covers as well as what was kept: a union.
+    #[default]
+    Add,
+    /// Takes away what it covers.
+    Subtract,
+    /// Keeps only what it and everything kept so far share.
+    Intersect,
+}
+
+impl MaskMode {
+    /// Every mode, in the order a picker lists them.
+    pub const ALL: [MaskMode; 4] = [
+        MaskMode::Add,
+        MaskMode::Subtract,
+        MaskMode::Intersect,
+        MaskMode::None,
+    ];
+
+    /// The name a document writes. Stable for ever.
+    pub fn name(self) -> &'static str {
+        match self {
+            MaskMode::None => "none",
+            MaskMode::Add => "add",
+            MaskMode::Subtract => "subtract",
+            MaskMode::Intersect => "intersect",
+        }
+    }
+
+    /// The mode a document names, if this build knows it.
+    pub fn parse(name: &str) -> Option<MaskMode> {
+        MaskMode::ALL
+            .into_iter()
+            .find(|mode| mode.name() == name.trim())
+    }
+
+    /// The shader's number for this mode.
+    fn code(self) -> f32 {
+        match self {
+            MaskMode::None => 0.0,
+            MaskMode::Add => 1.0,
+            MaskMode::Subtract => 2.0,
+            MaskMode::Intersect => 3.0,
+        }
+    }
+}
+
+/// One mask of a clip's list at one instant: its shape and how it joins
+/// the ones above it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct StackedMask {
+    /// The shape, its feather and its invert.
+    pub shape: ShapeMask,
+    /// How it joins the masks above it.
+    pub mode: MaskMode,
+    /// How much it counts, `0..=1`: a subtracting mask at half takes away
+    /// half of what it covers.
+    pub opacity: f64,
+    /// How far its edge is moved out, in the picture's shorter side; in
+    /// when negative. The feather stays centred on the moved edge.
+    pub expand: f64,
+}
+
+impl StackedMask {
+    /// A shape that adds, at full strength, its edge where it is drawn.
+    pub fn adding(shape: ShapeMask) -> StackedMask {
+        StackedMask {
+            shape,
+            mode: MaskMode::Add,
+            opacity: 1.0,
+            expand: 0.0,
+        }
+    }
+}
+
+/// A clip's masks at one instant, top first: what keeps part of its
+/// picture. Empty, or with nothing that cuts, it keeps all of it.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct MaskStack {
+    /// The masks, top first.
+    pub masks: Vec<StackedMask>,
+}
+
+/// A stack packed as the mask pass takes it: a header and four
+/// four-vectors a mask, the first three a [`MaskUniform`] and the fourth
+/// the mode, the opacity and the expansion.
+#[derive(Clone, PartialEq, Debug)]
+pub struct StackUniform {
+    /// How many masks follow, then three spares.
+    pub header: [f32; 4],
+    /// Four four-vectors a mask.
+    pub masks: Vec<[[f32; 4]; 4]>,
+}
+
+impl MaskStack {
+    /// The most masks one picture is cut by. The mask pass's uniform has
+    /// room for this many; past it, the rest are left out.
+    pub const MAX: usize = 8;
+
+    /// Whether anything in the stack cuts the picture.
+    pub fn cuts(&self) -> bool {
+        self.masks.iter().any(|mask| mask.mode != MaskMode::None)
+    }
+
+    /// The one shape the stack amounts to when it is a single adding mask
+    /// at full strength with its edge where it is drawn: the case a layer
+    /// draws with no pass of its own, the shape riding on its vertices.
+    /// None for an empty stack and for anything more.
+    pub fn analytic(&self) -> Option<&ShapeMask> {
+        let mut cutting = self.masks.iter().filter(|mask| mask.mode != MaskMode::None);
+        let only = cutting.next()?;
+        (cutting.next().is_none()
+            && only.mode == MaskMode::Add
+            && only.opacity >= 1.0
+            && only.expand == 0.0)
+            .then_some(&only.shape)
+    }
+
+    /// What the mask pass takes for this stack over a picture `width` by
+    /// `height`, `pixel` as in [`ShapeMask::uniform`]. Only the masks that
+    /// cut, at most [`MaskStack::MAX`] of them.
+    pub fn uniform(&self, width: f32, height: f32, pixel: f32) -> StackUniform {
+        let finite = |value: f64, fallback: f32| {
+            if value.is_finite() {
+                value as f32
+            } else {
+                fallback
+            }
+        };
+        let masks: Vec<[[f32; 4]; 4]> = self
+            .masks
+            .iter()
+            .filter(|mask| mask.mode != MaskMode::None)
+            .take(Self::MAX)
+            .map(|mask| {
+                let packed = mask.shape.uniform(width, height, pixel);
+                let extra = [
+                    mask.mode.code(),
+                    finite(mask.opacity, 1.0).clamp(0.0, 1.0),
+                    finite(mask.expand, 0.0).clamp(-0.5, 0.5),
+                    0.0,
+                ];
+                [packed.a, packed.b, packed.c, extra]
+            })
+            .collect();
+        StackUniform {
+            header: [masks.len() as f32, 0.0, 0.0, 0.0],
+            masks,
+        }
+    }
+
+    /// The stack's uniform as the bytes the mask pass's `Params` holds:
+    /// the header, then [`MaskStack::MAX`] masks, unused ones zero.
+    pub fn params_bytes(uniform: &StackUniform) -> Vec<u8> {
+        let mut floats: Vec<f32> = uniform.header.to_vec();
+        for slot in 0..Self::MAX {
+            match uniform.masks.get(slot) {
+                Some(mask) => floats.extend(mask.iter().flatten()),
+                None => floats.extend([0.0; 16]),
+            }
+        }
+        floats.iter().flat_map(|value| value.to_le_bytes()).collect()
+    }
+
+    /// How much of the picture the stack keeps at `u`, `v`, `0..1` across
+    /// it as it is seen.
+    pub fn coverage(&self, u: f32, v: f32, width: f32, height: f32, pixel: f32) -> f32 {
+        stack_coverage(&self.uniform(width, height, pixel), u, v)
+    }
+}
+
+/// How much of the picture a packed stack keeps at `u`, `v`: the mask
+/// pass's `stack_coverage`, line for line.
+pub fn stack_coverage(stack: &StackUniform, u: f32, v: f32) -> f32 {
+    let count = stack.header[0].round() as usize;
+    if count == 0 || stack.masks.is_empty() {
+        return 1.0;
+    }
+    // The first mask that cuts sets where the stack starts: from nothing
+    // kept when it adds, from everything kept when it takes away or
+    // keeps only what it shares.
+    let mut kept = if stack.masks[0][3][0].round() as i32 == 1 {
+        0.0
+    } else {
+        1.0
+    };
+    for mask in stack.masks.iter().take(count) {
+        let shape = MaskUniform {
+            a: mask[0],
+            b: mask[1],
+            c: mask[2],
+        };
+        let [mode, opacity, grow, _] = mask[3];
+        let covered = coverage_grown(&shape, u, v, grow) * opacity;
+        kept = match mode.round() as i32 {
+            1 => kept + covered - kept * covered,
+            2 => kept * (1.0 - covered),
+            3 => kept * (1.0 - opacity + coverage_grown(&shape, u, v, grow) * opacity),
+            _ => kept,
+        };
+    }
+    kept
+}
+
 /// How much of the picture a packed mask keeps at `u`, `v`: the shader's
 /// `mask_coverage`, line for line.
 pub fn coverage(mask: &MaskUniform, u: f32, v: f32) -> f32 {
+    coverage_grown(mask, u, v, 0.0)
+}
+
+/// [`coverage`] with the edge moved out by `grow` short-side units, in by
+/// a negative one: the shader's `mask_coverage_grown`, line for line.
+pub fn coverage_grown(mask: &MaskUniform, u: f32, v: f32, grow: f32) -> f32 {
     let [code, invert, band, radius] = mask.a;
     if code < 0.5 {
         return 1.0;
@@ -213,7 +431,7 @@ pub fn coverage(mask: &MaskUniform, u: f32, v: f32) -> f32 {
     let dx = (u - 0.5 - x) * aspect_w;
     let dy = (v - 0.5 - y) * aspect_h;
     let p = [dx * cos + dy * sin, -dx * sin + dy * cos];
-    let d = distance(code, p, [half_w, half_h], radius);
+    let d = distance(code, p, [half_w, half_h], radius) - grow;
     let kept = 1.0 - smoothstep(-band * 0.5, band * 0.5, d);
     if invert > 0.5 { 1.0 - kept } else { kept }
 }
@@ -485,5 +703,119 @@ mod tests {
         let value = kept(&broken, 0.5, 0.5);
         assert!(value.is_finite());
         assert_eq!(coverage(&MaskUniform::NONE, 0.1, 0.9), 1.0);
+    }
+
+    fn circle(size: f64) -> ShapeMask {
+        ShapeMask {
+            width: size,
+            height: size,
+            ..ShapeMask::default()
+        }
+    }
+
+    fn stack(masks: Vec<StackedMask>) -> MaskStack {
+        MaskStack { masks }
+    }
+
+    fn stacked(stack: &MaskStack, u: f32, v: f32) -> f32 {
+        stack.coverage(u, v, 100.0, 100.0, PIXEL)
+    }
+
+    #[test]
+    fn a_circle_less_a_smaller_one_is_a_ring() {
+        let ring = stack(vec![
+            StackedMask::adding(circle(0.8)),
+            StackedMask {
+                mode: MaskMode::Subtract,
+                ..StackedMask::adding(circle(0.4))
+            },
+        ]);
+        assert!(stacked(&ring, 0.5, 0.5) < 1e-3, "the hole");
+        assert!(stacked(&ring, 0.5 + 0.3, 0.5) > 0.999, "the band");
+        assert!(stacked(&ring, 0.98, 0.98) < 1e-3, "outside");
+        assert!(ring.analytic().is_none(), "two masks take the pass");
+    }
+
+    #[test]
+    fn intersect_keeps_only_what_both_cover() {
+        let lens = stack(vec![
+            StackedMask::adding(ShapeMask {
+                x: -0.15,
+                ..circle(0.6)
+            }),
+            StackedMask {
+                mode: MaskMode::Intersect,
+                ..StackedMask::adding(ShapeMask {
+                    x: 0.15,
+                    ..circle(0.6)
+                })
+            },
+        ]);
+        assert!(stacked(&lens, 0.5, 0.5) > 0.999, "the overlap");
+        assert!(stacked(&lens, 0.5 - 0.4, 0.5) < 1e-3, "only the left one");
+        assert!(stacked(&lens, 0.5 + 0.4, 0.5) < 1e-3, "only the right one");
+    }
+
+    #[test]
+    fn a_mask_set_to_none_cuts_nothing() {
+        let kept = stack(vec![StackedMask {
+            mode: MaskMode::None,
+            ..StackedMask::adding(circle(0.2))
+        }]);
+        assert!(!kept.cuts());
+        assert_eq!(stacked(&kept, 0.98, 0.98), 1.0);
+        assert!(kept.uniform(100.0, 100.0, PIXEL).masks.is_empty());
+        // A first cutting mask that takes away starts from everything.
+        let hole = stack(vec![
+            StackedMask {
+                mode: MaskMode::None,
+                ..StackedMask::adding(circle(0.9))
+            },
+            StackedMask {
+                mode: MaskMode::Subtract,
+                ..StackedMask::adding(circle(0.4))
+            },
+        ]);
+        assert!(stacked(&hole, 0.5, 0.5) < 1e-3);
+        assert!(stacked(&hole, 0.98, 0.98) > 0.999);
+    }
+
+    #[test]
+    fn opacity_and_expansion_weigh_and_move_the_edge() {
+        let half = stack(vec![StackedMask {
+            opacity: 0.5,
+            ..StackedMask::adding(circle(0.4))
+        }]);
+        assert!((stacked(&half, 0.5, 0.5) - 0.5).abs() < 1e-4);
+        assert!(half.analytic().is_none(), "half strength takes the pass");
+        // Radius 0.2 grown by 0.1: kept at 0.25 from the centre, not 0.35.
+        let grown = stack(vec![StackedMask {
+            expand: 0.1,
+            ..StackedMask::adding(circle(0.4))
+        }]);
+        assert!(stacked(&grown, 0.5 + 0.25, 0.5) > 0.999);
+        assert!((stacked(&grown, 0.5 + 0.3, 0.5) - 0.5).abs() < 1e-3);
+        assert!(stacked(&grown, 0.5 + 0.35, 0.5) < 1e-3);
+    }
+
+    #[test]
+    fn one_plain_adding_mask_draws_without_a_pass() {
+        let one = stack(vec![StackedMask::adding(circle(0.4))]);
+        assert_eq!(one.analytic(), Some(&circle(0.4)));
+        // And the pass, run anyway, agrees with the shape alone.
+        for (u, v) in [(0.5, 0.5), (0.7, 0.5), (0.6, 0.62), (0.9, 0.9)] {
+            let shape = circle(0.4).coverage(u, v, 100.0, 100.0, PIXEL);
+            assert!((stacked(&one, u, v) - shape).abs() < 1e-6);
+        }
+        assert_eq!(MaskStack::default().analytic(), None);
+        assert_eq!(stacked(&MaskStack::default(), 0.1, 0.1), 1.0);
+    }
+
+    #[test]
+    fn the_params_hold_a_header_and_every_slot() {
+        let one = stack(vec![StackedMask::adding(circle(0.4))]);
+        let bytes = MaskStack::params_bytes(&one.uniform(100.0, 100.0, PIXEL));
+        assert_eq!(bytes.len(), 16 + MaskStack::MAX * 64);
+        assert_eq!(f32::from_le_bytes(bytes[0..4].try_into().unwrap()), 1.0);
     }
 }

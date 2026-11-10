@@ -1568,10 +1568,27 @@ export component VideoPanel inherits VerticalLayout {
     property <float> mask-rotation;
     property <float> mask-roundness;
     property <float> mask-feather;
+    property <float> mask-expand;
+    property <float> mask-opacity;
     property <float> smoothness;
     property <float> max-zoom;
-    /// The mask's shape, as the picker orders them: -1 for none.
+    /// The current mask's shape, as the picker orders them: -1 for none.
     property <int> mask: root.selected.mask;
+    property <[Glyph]> mask-glyphs: [
+        Glyph.mask-linear,
+        Glyph.mask-mirror,
+        Glyph.mask-circle,
+        Glyph.mask-rectangle,
+        Glyph.mask-heart,
+        Glyph.mask-star
+    ];
+    /// How a mask joins the ones above it, as the model orders them.
+    property <[string]> mask-modes: [
+        I18n.t("mask.add"),
+        I18n.t("mask.subtract"),
+        I18n.t("mask.intersect"),
+        I18n.t("common.none")
+    ];
     property <[string]> mask-names: [
         I18n.t("mask.linear"),
         I18n.t("mask.mirror"),
@@ -1592,6 +1609,8 @@ export component VideoPanel inherits VerticalLayout {
         root.mask-rotation = root.selected.mask-rotation;
         root.mask-roundness = root.selected.mask-roundness;
         root.mask-feather = root.selected.mask-feather;
+        root.mask-expand = root.selected.mask-expand;
+        root.mask-opacity = root.selected.mask-opacity;
         root.scale = root.selected.scale;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
@@ -2120,67 +2139,128 @@ export component VideoPanel inherits VerticalLayout {
         }
     }
 
-    // The mask: a shape that keeps part of the picture.
-    // The row of shapes picks one - the first, None, takes it off - and
-    // the numbers below place, size, turn and soften it, each keyable.
-    // Drawn on the picture as it is seen, so it moves with the clip; the
-    // monitor shows its outline with grips to drag while this is open.
+    // The masks: shapes that keep part of the picture, or take part of it
+    // away, top first. The row of shapes adds one; the list picks the one
+    // the numbers below and the monitor's grips work on, its order and its
+    // mode - add, subtract, intersect, or cut nothing and wait for a layer
+    // or an effect. Each number keys on the mask itself. Drawn on the
+    // picture as it is seen, so they move with the clip.
     if root.mask-section
         && (root.selected.kind == ClipKind.video || root.selected.kind == ClipKind.image): Section {
         mask-header := SectionHeader {
             title: I18n.t("mask.title");
             collapsible: true;
-            summary: root.mask < 0 ? I18n.t("common.none")
+            summary: root.selected.masks.length == 0 ? I18n.t("common.none")
+                : root.selected.masks.length > 1 ? I18n.t1("mask.count", root.selected.masks.length)
+                : root.mask < 0 ? I18n.t("mask.title")
                 : root.mask-names[Math.min(root.mask, root.mask-names.length - 1)]
                     + (root.selected.mask-invert ? " · " + I18n.t("mask.invert") : "");
         }
 
         if mask-header.open: SectionBody {
+            // A new mask of each shape, put at the end and picked.
             HorizontalLayout {
                 padding-left: Theme.pad;
                 padding-right: Theme.pad;
                 spacing: 4px;
-                ToolButton {
-                    glyph: Glyph.close;
-                    label: I18n.t("common.none");
-                    checked: root.mask < 0;
-                    clicked => { root.set(ClipField.mask-shape, -1); root.commit(); }
+                for glyph[index] in root.mask-glyphs: ToolButton {
+                    glyph: glyph;
+                    label: I18n.t1("mask.addShape", root.mask-names[index]);
+                    clicked => { root.set(ClipField.mask-add, index); root.commit(); }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-linear;
-                    label: root.mask-names[0];
-                    checked: root.mask == 0;
-                    clicked => { root.set(ClipField.mask-shape, 0); root.commit(); }
+            }
+
+            // The list, top first; the current one is lit and carries its
+            // order and removal, the way an effect's card does.
+            for row[index] in root.selected.masks: Rectangle {
+                height: 30px;
+                property <bool> current: index == root.selected.mask-index;
+                background: self.current ? Theme.field-active : row-touch.has-hover ? Theme.field-hover : transparent;
+                border-radius: Theme.r;
+
+                row-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.set(ClipField.mask-select, index); root.commit(); }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-mirror;
-                    label: root.mask-names[1];
-                    checked: root.mask == 1;
-                    clicked => { root.set(ClipField.mask-shape, 1); root.commit(); }
+
+                HorizontalLayout {
+                    padding-left: Theme.pad;
+                    padding-right: 4px;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: row.shape >= 0 ? root.mask-glyphs[Math.min(row.shape, root.mask-glyphs.length - 1)] : Glyph.mask-circle;
+                            size: 14px;
+                            tint: current ? Theme.accent : Theme.fg-muted;
+                        }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1);
+                        color: current ? Theme.fg : Theme.fg-muted;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: root.mask-modes[Math.min(row.mode, root.mask-modes.length - 1)]
+                            + (row.invert ? " · " + I18n.t("mask.invert") : "");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-xs;
+                        vertical-alignment: center;
+                    }
+
+                    if current && root.selected.masks.length > 1: IconButton {
+                        glyph: Glyph.chevron-up;
+                        label: I18n.t1("clipInspector.moveUp", row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1));
+                        enabled: index > 0;
+                        idle: Theme.fg-dim;
+                        clicked => { root.set(ClipField.mask-move, -1); root.commit(); }
+                    }
+
+                    if current && root.selected.masks.length > 1: IconButton {
+                        glyph: Glyph.chevron-down;
+                        label: I18n.t1("clipInspector.moveDown", row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1));
+                        enabled: index < root.selected.masks.length - 1;
+                        idle: Theme.fg-dim;
+                        clicked => { root.set(ClipField.mask-move, 1); root.commit(); }
+                    }
+
+                    if current: IconButton {
+                        glyph: Glyph.trash;
+                        label: I18n.t1("clipInspector.remove", row.name != "" ? row.name : I18n.t1("mask.numbered", index + 1));
+                        idle: Theme.fg-dim;
+                        danger: true;
+                        clicked => { root.set(ClipField.mask-remove, 0); root.commit(); }
+                    }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-circle;
-                    label: root.mask-names[2];
-                    checked: root.mask == 2;
-                    clicked => { root.set(ClipField.mask-shape, 2); root.commit(); }
+            }
+
+            // The current mask: its shape, its mode, its invert.
+            if root.mask >= 0: HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 4px;
+                for glyph[index] in root.mask-glyphs: ToolButton {
+                    glyph: glyph;
+                    label: root.mask-names[index];
+                    checked: root.mask == index;
+                    clicked => { root.set(ClipField.mask-shape, index); root.commit(); }
                 }
-                ToolButton {
-                    glyph: Glyph.mask-rectangle;
-                    label: root.mask-names[3];
-                    checked: root.mask == 3;
-                    clicked => { root.set(ClipField.mask-shape, 3); root.commit(); }
-                }
-                ToolButton {
-                    glyph: Glyph.mask-heart;
-                    label: root.mask-names[4];
-                    checked: root.mask == 4;
-                    clicked => { root.set(ClipField.mask-shape, 4); root.commit(); }
-                }
-                ToolButton {
-                    glyph: Glyph.mask-star;
-                    label: root.mask-names[5];
-                    checked: root.mask == 5;
-                    clicked => { root.set(ClipField.mask-shape, 5); root.commit(); }
+            }
+
+            if root.mask >= 0: Row {
+                label: I18n.t("common.mode");
+                Select {
+                    options: root.mask-modes;
+                    property <int> shown: root.selected.mask-mode;
+                    current: self.shown;
+                    changed shown => { self.current = self.shown; }
+                    changed(index) => { root.set(ClipField.mask-mode, index); root.commit(); }
                 }
             }
 
@@ -2293,6 +2373,38 @@ export component VideoPanel inherits VerticalLayout {
                 unit: "%";
                 unit-scale: 100;
                 changed(v) => { root.set(ClipField.mask-feather, v); root.commit(); }
+            }
+
+            // The edge moved out, or in below zero, the feather staying
+            // centred on it.
+            if root.mask >= 0: Param {
+                label: I18n.t("mask.expand");
+                keyable: true;
+                field: ClipField.mask-expand;
+                value <=> root.mask-expand;
+                minimum: -0.5;
+                maximum: 0.5;
+                step: 0.005;
+                default-value: 0;
+                fmt: ParamFormat.centred;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-expand, v); root.commit(); }
+            }
+
+            if root.mask >= 0: Param {
+                label: I18n.t("common.opacity");
+                keyable: true;
+                field: ClipField.mask-opacity;
+                value <=> root.mask-opacity;
+                minimum: 0;
+                maximum: 1;
+                step: 0.01;
+                default-value: 1;
+                fmt: ParamFormat.fraction;
+                unit: "%";
+                unit-scale: 100;
+                changed(v) => { root.set(ClipField.mask-opacity, v); root.commit(); }
             }
         }
     }

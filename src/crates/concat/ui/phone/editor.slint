@@ -185,8 +185,14 @@ component PhoneMaskPanel inherits VerticalLayout {
     property <float> turn: root.selected.mask-rotation;
     property <float> roundness: root.selected.mask-roundness;
 
+    // A shape reshapes the current mask, or puts one on; None takes the
+    // current one off.
     function pick(index: int) {
-        root.set(ClipField.mask-shape, index);
+        if (index < 0) {
+            root.set(ClipField.mask-remove, 0);
+        } else {
+            root.set(ClipField.mask-shape, index);
+        }
         root.commit();
     }
 

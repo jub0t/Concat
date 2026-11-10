@@ -503,7 +503,7 @@ fn every_kind_of_layer_matches_the_cpu_reference() {
 /// the CPU's definition gives at each pixel's centre.
 #[test]
 fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
-    use concat_core::mask::{MaskShape, ShapeMask};
+    use concat_core::mask::{MaskShape, MaskStack, ShapeMask, StackedMask};
     let Some(mut gpu) = gpu() else { return };
     let mut circle = layer(solid(100, 100, [255, 255, 255, 255]));
     let shape = ShapeMask {
@@ -513,7 +513,9 @@ fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
         feather: 0.4,
         ..ShapeMask::default()
     };
-    circle.shape = Some(shape);
+    circle.masks = MaskStack {
+        masks: vec![StackedMask::adding(shape)],
+    };
     let drawn = working(&mut gpu, &plan(100, 100, vec![circle]));
     let at = |x: usize, y: usize| drawn[y * 100 + x][0];
     let expected = |x: usize, y: usize| {
@@ -550,7 +552,7 @@ fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
 /// cutout's matte - the masks multiply.
 #[test]
 fn shape_masks_match_the_cpu_reference() {
-    use concat_core::mask::{MaskShape, ShapeMask};
+    use concat_core::mask::{MaskShape, MaskStack, ShapeMask, StackedMask};
     for shape in MaskShape::ALL {
         for invert in [false, true] {
             let mut masked = layer(gradient(64, 48));
@@ -569,17 +571,19 @@ fn shape_masks_match_the_cpu_reference() {
                 tx: 0.02,
                 ty: -0.01,
             };
-            masked.shape = Some(ShapeMask {
-                shape,
-                x: 0.05,
-                y: -0.04,
-                width: 0.7,
-                height: 0.5,
-                rotation: 20.0,
-                roundness: 0.5,
-                feather: 0.15,
-                invert,
-            });
+            masked.masks = MaskStack {
+                masks: vec![StackedMask::adding(ShapeMask {
+                    shape,
+                    x: 0.05,
+                    y: -0.04,
+                    width: 0.7,
+                    height: 0.5,
+                    rotation: 20.0,
+                    roundness: 0.5,
+                    feather: 0.15,
+                    invert,
+                })],
+            };
             let mut matte = Frame::transparent(16, 16);
             for y in 0..16u32 {
                 for x in 0..16u32 {
@@ -597,20 +601,103 @@ fn shape_masks_match_the_cpu_reference() {
     }
 }
 
+/// A stack - a ring cut from a circle, a band intersected with it, a
+/// half-strength subtraction and a grown edge - drawn by the mask pass
+/// matches the CPU's per-pixel definition, over a placed picture carrying
+/// a cutout's matte.
+#[test]
+fn a_mask_stack_matches_the_cpu_reference() {
+    use concat_core::mask::{MaskMode, MaskShape, MaskStack, ShapeMask, StackedMask};
+    let circle = |width: f64, feather: f64| ShapeMask {
+        width,
+        height: width,
+        feather,
+        ..ShapeMask::default()
+    };
+    let stacks = [
+        (
+            "ring",
+            vec![
+                StackedMask::adding(circle(0.8, 0.1)),
+                StackedMask {
+                    mode: MaskMode::Subtract,
+                    ..StackedMask::adding(circle(0.4, 0.05))
+                },
+            ],
+        ),
+        (
+            "band through a circle",
+            vec![
+                StackedMask::adding(circle(0.8, 0.0)),
+                StackedMask {
+                    mode: MaskMode::Intersect,
+                    ..StackedMask::adding(ShapeMask {
+                        shape: MaskShape::Mirror,
+                        rotation: 30.0,
+                        height: 0.3,
+                        feather: 0.2,
+                        ..ShapeMask::default()
+                    })
+                },
+            ],
+        ),
+        (
+            "half a hole, grown",
+            vec![
+                StackedMask {
+                    expand: 0.08,
+                    ..StackedMask::adding(circle(0.5, 0.2))
+                },
+                StackedMask {
+                    mode: MaskMode::Subtract,
+                    opacity: 0.5,
+                    ..StackedMask::adding(ShapeMask {
+                        x: 0.1,
+                        ..circle(0.3, 0.0)
+                    })
+                },
+            ],
+        ),
+    ];
+    for (name, masks) in stacks {
+        let mut masked = layer(gradient(64, 48));
+        masked.transform = Transform {
+            scale: 0.9,
+            rotation: 12.0,
+            ..Transform::default()
+        };
+        masked.masks = MaskStack { masks };
+        let mut matte = Frame::transparent(16, 16);
+        for y in 0..16u32 {
+            for x in 0..16u32 {
+                matte.set_pixel(x, y, [255, 255, 255, if x < 3 { 0 } else { 255 }]);
+            }
+        }
+        masked.mask = Some(Arc::new(matte));
+        assert_parity(
+            name,
+            &plan(64, 48, vec![layer(solid(64, 48, [0, 60, 0, 255])), masked]),
+            0.98,
+        );
+    }
+}
+
 /// A masked picture never counts as covering the frame, and its canvas
 /// background is drawn whole behind it - the mask cuts the picture, not
 /// what stands behind it.
 #[test]
 fn a_masked_pictures_background_is_whole() {
-    use concat_core::mask::ShapeMask;
+    use concat_core::mask::{MaskStack, ShapeMask, StackedMask};
     let mut masked = layer(solid(64, 48, [200, 0, 0, 255]));
     assert!(masked.covers(64, 48, true));
-    masked.shape = Some(ShapeMask::default());
+    masked.masks = MaskStack {
+        masks: vec![StackedMask::adding(ShapeMask::default())],
+    };
     assert!(!masked.covers(64, 48, true));
     let behind = masked
         .backdrop(&Backdrop::Colour([0, 0, 255]), 64, 48, |_| None)
         .expect("a colour always draws");
-    assert!(behind.shape.is_none());
+    assert!(!behind.masks.cuts());
     let Some(mut gpu) = gpu() else { return };
     let frame = gpu.render(&plan(64, 48, vec![behind, masked]));
     let corner = frame.pixel(1, 1).expect("a pixel");

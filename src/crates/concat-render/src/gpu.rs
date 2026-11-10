@@ -33,7 +33,10 @@
 use std::collections::HashMap;
 
 use concat_core::frame::Frame;
-use concat_core::mask::MaskUniform;
+use concat_core::mask::{MaskStack, MaskUniform, StackUniform};
+
+/// What the mask pass's pipeline is cached under.
+const MASK_STACK_KEY: &str = "concat.mask-stack/1";
 use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
@@ -156,15 +159,89 @@ fn mask_distance(code: f32, p: vec2<f32>, half: vec2<f32>, radius: f32) -> f32 {
 }
 
 fn mask_coverage(a: vec4<f32>, b: vec4<f32>, c: vec4<f32>, pic: vec2<f32>) -> f32 {
+    return mask_coverage_grown(a, b, c, pic, 0.0);
+}
+
+fn mask_coverage_grown(a: vec4<f32>, b: vec4<f32>, c: vec4<f32>, pic: vec2<f32>, grow: f32) -> f32 {
     if (a.x < 0.5) {
         return 1.0;
     }
     let dx = (pic.x - 0.5 - b.x) * c.z;
     let dy = (pic.y - 0.5 - b.y) * c.w;
     let p = vec2<f32>(dx * c.x + dy * c.y, -dx * c.y + dy * c.x);
-    let d = mask_distance(a.x, p, b.zw, a.w);
+    let d = mask_distance(a.x, p, b.zw, a.w) - grow;
     let kept = 1.0 - smoothstep(-a.z * 0.5, a.z * 0.5, d);
     return select(kept, 1.0 - kept, a.y > 0.5);
+}
+"#;
+
+/// A clip's masks drawn into its matte: `concat_core::mask::stack_coverage`
+/// line for line, multiplied with the matte it is given (a cutout's, or
+/// the one white pixel), its coverage in alpha. The layer's draw samples
+/// it as it samples any matte. Bound like an effect pass - the layer at
+/// group 0, the frame block and `Params` at group 1 - so it compiles and
+/// draws through the same pipeline cache.
+const MASK_STACK_WGSL: &str = r#"
+struct Frame {
+    @align(16) size: vec2<f32>,
+    time: f32,
+    intensity: f32,
+    clip_time: f32,
+}
+
+struct Params {
+    header: vec4<f32>,
+    masks: array<vec4<f32>, 32>,
+}
+
+@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(1) var source_sampler: sampler;
+@group(1) @binding(0) var<uniform> frame: Frame;
+@group(1) @binding(1) var<uniform> params: Params;
+
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
+    let x = f32(i32(index & 1u) * 4 - 1);
+    let y = f32(i32(index >> 1u) * 4 - 1);
+    var out: VsOut;
+    out.position = vec4<f32>(x, y, 0.0, 1.0);
+    out.uv = vec2<f32>((x + 1.0) * 0.5, 1.0 - (y + 1.0) * 0.5);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let matte = textureSampleLevel(source, source_sampler, in.uv, 0.0).a;
+    let count = i32(round(params.header.x));
+    var kept = 1.0;
+    if (count > 0 && i32(round(params.masks[3].x)) == 1) {
+        kept = 0.0;
+    }
+    for (var i = 0; i < 8; i = i + 1) {
+        if (i >= count) {
+            break;
+        }
+        let a = params.masks[i * 4];
+        let b = params.masks[i * 4 + 1];
+        let c = params.masks[i * 4 + 2];
+        let d = params.masks[i * 4 + 3];
+        let k = mask_coverage_grown(a, b, c, in.uv, d.z);
+        let covered = k * d.y;
+        let mode = i32(round(d.x));
+        if (mode == 1) {
+            kept = kept + covered - kept * covered;
+        } else if (mode == 2) {
+            kept = kept * (1.0 - covered);
+        } else if (mode == 3) {
+            kept = kept * (1.0 - d.y + k * d.y);
+        }
+    }
+    return vec4<f32>(1.0, 1.0, 1.0, matte * kept);
 }
 "#;
 
@@ -952,6 +1029,8 @@ pub struct WgpuCompositor {
     stages: Option<(u32, u32, [wgpu::Texture; 2])>,
     /// A one-pixel opaque white picture: the mask of a layer without one.
     white: std::sync::Arc<Frame>,
+    /// The mask pass's module: the shared mask arithmetic and the pass.
+    mask_stack_source: std::sync::Arc<str>,
     /// Set when a readback fails - a lost or reset device. The compositor
     /// then answers every composite from the CPU reference instead: slower,
     /// always correct, and never a panic in the middle of an export.
@@ -1639,6 +1718,7 @@ impl WgpuCompositor {
                 white.fill([255, 255, 255, 255]);
                 std::sync::Arc::new(white)
             },
+            mask_stack_source: format!("{MASK_WGSL}{MASK_STACK_WGSL}").into(),
             dead: false,
             gone: std::sync::Arc::default(),
             work,
@@ -1851,7 +1931,10 @@ impl WgpuCompositor {
                 (layer.flip_h, layer.flip_v),
             )
         };
-        let mask = self.mask_of(layer.mask.as_deref());
+        let mask = match layer.stack_uniform(&geometry) {
+            Some(stack) => self.mask_pass(layer.mask.as_deref(), &stack, &geometry),
+            None => self.mask_of(layer.mask.as_deref()),
+        };
         let ground = matches!(layer.blend, Blend::Lighten | Blend::Darken)
             .then(|| self.claim(plan.width, plan.height));
         draws.push(Draw {
@@ -1871,6 +1954,91 @@ impl WgpuCompositor {
             plan.width,
             plan.height,
         ));
+    }
+
+    /// The layer's masks drawn into a matte by one pass - at the size the
+    /// picture is shown, no larger than it is fitted, so an edge is sharp
+    /// on the output and no pixel is shaded twice - multiplied with the
+    /// cutout's matte when it has one. A driver that refuses the pass
+    /// leaves the matte alone, and the masks are not drawn.
+    fn mask_pass(
+        &mut self,
+        matte: Option<&Frame>,
+        stack: &StackUniform,
+        geometry: &Geometry,
+    ) -> (u32, u32, usize) {
+        let pass = ShaderPass {
+            package: "concat.mask-stack".to_owned(),
+            key: MASK_STACK_KEY.to_owned(),
+            source: self.mask_stack_source.clone(),
+            params: MaskStack::params_bytes(stack),
+            values: Default::default(),
+            intensity: 1.0,
+            lut: None,
+            reveal_map: None,
+            stages: Vec::new(),
+        };
+        self.shader(&pass);
+        if !self.shaders.contains_key(MASK_STACK_KEY) {
+            return self.mask_of(matte);
+        }
+        let (fitted_w, fitted_h) = geometry.fitted;
+        let (scale_x, scale_y) = geometry.scale;
+        let side = |fitted: u32, scale: f32| {
+            ((fitted as f32 * scale).round() as u32).clamp(1, fitted.max(1))
+        };
+        let (width, height) = (side(fitted_w, scale_x), side(fitted_h, scale_y));
+        let (source_size, source) = match matte {
+            Some(matte) => ((matte.width(), matte.height()), self.upload(matte)),
+            None => {
+                let white = std::sync::Arc::clone(&self.white);
+                ((1, 1), self.upload(&white))
+            }
+        };
+        let target = self.claim(width, height);
+        let lut_id = self.lut_group(None);
+        let reveal_id = self.reveal_group(None);
+        let shader = &self.shaders[MASK_STACK_KEY];
+        let frame_block: [f32; 8] = [width as f32, height as f32, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+        let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
+        self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
+        let mut params = pass.params;
+        params.resize(shader.params.size() as usize, 0);
+        self.queue.write_buffer(&shader.params, 0, &params);
+        let view = self.pool[&(width, height)][target]
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("concat mask pass"),
+            });
+        {
+            let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("concat mask pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            render.set_pipeline(&shader.pipeline);
+            render.set_bind_group(0, &self.pool[&source_size][source].bind_group, &[]);
+            render.set_bind_group(1, &shader.bind_group, &[]);
+            render.set_bind_group(2, &self.luts[&lut_id], &[]);
+            render.set_bind_group(3, &self.reveals[&reveal_id], &[]);
+            render.draw(0..3, 0..1);
+        }
+        self.queue.submit([encoder.finish()]);
+        (width, height, target)
     }
 
     /// The mask a draw binds: the layer's, uploaded, or the one white

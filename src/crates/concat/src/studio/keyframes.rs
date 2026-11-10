@@ -17,13 +17,6 @@ impl Studio {
             ClipField::Rotation => model::KeyProperty::Rotation,
             ClipField::Opacity => model::KeyProperty::Opacity,
             ClipField::Volume => model::KeyProperty::Volume,
-            ClipField::MaskX => model::KeyProperty::MaskX,
-            ClipField::MaskY => model::KeyProperty::MaskY,
-            ClipField::MaskWidth => model::KeyProperty::MaskWidth,
-            ClipField::MaskHeight => model::KeyProperty::MaskHeight,
-            ClipField::MaskRotation => model::KeyProperty::MaskRotation,
-            ClipField::MaskRoundness => model::KeyProperty::MaskRoundness,
-            ClipField::MaskFeather => model::KeyProperty::MaskFeather,
             _ => return None,
         })
     }
@@ -97,7 +90,7 @@ impl Studio {
         let Some((clip, at)) = self.key_point() else {
             return Vec::new();
         };
-        model::KeyProperty::ALL
+        let mut rows: Vec<ClipKeyData> = model::KeyProperty::ALL
             .iter()
             .map(|&property| {
                 let (prev, next) = clip.keys_around(property, at);
@@ -109,7 +102,9 @@ impl Studio {
                     next: next.is_some(),
                 }
             })
-            .collect()
+            .collect();
+        rows.extend(self.mask_key_rows(clip, at));
+        rows
     }
 
     /// The Keyframes pane's rows: the six properties of the selected clip,
@@ -181,11 +176,6 @@ impl Studio {
         };
         let mut rows = Vec::new();
         for property in model::KeyProperty::ALL {
-            // The mask's numbers are rows only while there is a mask, or
-            // keys left from one: seven rows of nothing otherwise.
-            if property.is_mask() && clip.mask.is_none() && !clip.is_keyed(property) {
-                continue;
-            }
             // The same ranges and units as the inspector's knobs. The level
             // knob speaks decibels, floored where silence is.
             let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
@@ -250,76 +240,6 @@ impl Studio {
                         "",
                         1.0,
                     ),
-                    model::KeyProperty::MaskX => (
-                        tf("mask.row", &[&t("common.positionX")]),
-                        -1.0,
-                        1.0,
-                        0.005,
-                        0.0,
-                        ParamFormat::Centred,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskY => (
-                        tf("mask.row", &[&t("common.positionY")]),
-                        -1.0,
-                        1.0,
-                        0.005,
-                        0.0,
-                        ParamFormat::Centred,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskWidth => (
-                        tf("mask.row", &[&t("common.width")]),
-                        0.01,
-                        4.0,
-                        0.01,
-                        0.66,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskHeight => (
-                        tf("mask.row", &[&t("common.height")]),
-                        0.01,
-                        4.0,
-                        0.01,
-                        0.66,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskRotation => (
-                        tf("mask.row", &[&t("common.rotation")]),
-                        -180.0,
-                        180.0,
-                        1.0,
-                        0.0,
-                        ParamFormat::Degrees,
-                        "°",
-                        1.0,
-                    ),
-                    model::KeyProperty::MaskRoundness => (
-                        tf("mask.row", &[&t("mask.roundness")]),
-                        0.0,
-                        1.0,
-                        0.01,
-                        0.0,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskFeather => (
-                        tf("mask.row", &[&t("clipInspector.feather")]),
-                        0.0,
-                        1.0,
-                        0.01,
-                        0.0,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
                 };
             let to_knob = |value: f64| knob_value(property, value);
             let keys: Vec<(f64, f64, model::KeyEase)> = clip
@@ -352,6 +272,53 @@ impl Studio {
                 curve: curve.into(),
                 ease_index,
             });
+        }
+        // Every mask's numbers: all of the current mask's, which the Mask
+        // section is showing, and the keyed ones of the rest. A row is the
+        // number's field with the mask's id beside it.
+        let current = self.current_mask(clip).map(|mask| mask.id.clone());
+        for (index, mask) in clip.masks.iter().enumerate() {
+            let is_current = current.as_deref() == Some(mask.id.as_str());
+            for field in masks::MASK_KEY_FIELDS {
+                let number = masks::mask_number_of(field).expect("a mask field");
+                let (Some(_), Some(knob)) = (mask.get(number), masks::mask_knob(number)) else {
+                    continue;
+                };
+                let held = mask.keys_on(number);
+                if !is_current && held.is_empty() {
+                    continue;
+                }
+                let keys: Vec<(f64, f64, model::KeyEase)> =
+                    held.iter().map(|key| (key.at, key.value, key.ease)).collect();
+                let span = knob.maximum - knob.minimum;
+                let (marks, curve, ease_index) =
+                    marks_and_curve(&keys, &|value| (value - knob.minimum) / span);
+                let before = |key: &&model::ParamKey| key.at < at - model::KEY_EPSILON;
+                let after = |key: &&model::ParamKey| key.at > at + model::KEY_EPSILON;
+                rows.push(KeyRowData {
+                    field,
+                    param: mask.id.as_str().into(),
+                    label: format!("{} · {}", masks::mask_label(mask, index), knob.label).into(),
+                    keys: marks,
+                    state: ClipKeyData {
+                        field,
+                        keyed: !held.is_empty(),
+                        here: held.iter().any(|key| near(key.at, at)),
+                        prev: held.iter().any(|key| before(&key)),
+                        next: held.iter().any(|key| after(&key)),
+                    },
+                    value: mask.value_at(number, at) as f32,
+                    minimum: knob.minimum as f32,
+                    maximum: knob.maximum as f32,
+                    step: knob.step,
+                    default_value: knob.default_value,
+                    fmt: knob.fmt,
+                    unit: knob.unit.into(),
+                    unit_scale: knob.unit_scale,
+                    curve: curve.into(),
+                    ease_index,
+                });
+            }
         }
         if let Some(link) = clip
             .video_effects
@@ -457,6 +424,41 @@ impl Studio {
         let clip_id = clip.id.clone();
         let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
         let fraction = f64::from(fraction).clamp(0.0, 1.0);
+        if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
+            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
+                return;
+            };
+            let Some(key) = mask
+                .keys_on(number)
+                .iter()
+                .find(|key| (key.at - from).abs() <= model::KEY_EPSILON)
+                .copied()
+            else {
+                return;
+            };
+            let Some(knob) = masks::mask_knob(number) else {
+                return;
+            };
+            let value = knob.minimum + fraction * (knob.maximum - knob.minimum);
+            let commands = vec![
+                Command::ClearMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: key.at,
+                },
+                Command::SetMaskKey {
+                    clip_id,
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: to,
+                    value,
+                    ease: key.ease,
+                },
+            ];
+            self.apply(Command::Batch { commands });
+            return;
+        }
         let commands = if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
                 return;
@@ -535,6 +537,11 @@ impl Studio {
             .iter()
             .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
             .collect();
+        ats.extend(
+            clip.masks
+                .iter()
+                .flat_map(|mask| mask.keys.values().flatten().map(|key| key.at)),
+        );
         if let Some(link) = clip
             .video_effects
             .iter()
@@ -580,6 +587,30 @@ impl Studio {
                 value: key.value,
                 ease: key.ease,
             });
+        }
+        for mask in &clip.masks {
+            for (number, run) in &mask.keys {
+                let Some(key) = run
+                    .iter()
+                    .find(|key| (key.at - from_at).abs() <= model::KEY_EPSILON)
+                else {
+                    continue;
+                };
+                commands.push(Command::ClearMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: mask.id.clone(),
+                    number: number.clone(),
+                    at: key.at,
+                });
+                commands.push(Command::SetMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: mask.id.clone(),
+                    number: number.clone(),
+                    at: to_at,
+                    value: key.value,
+                    ease: key.ease,
+                });
+            }
         }
         if let Some(entry) = clip
             .video_effects
@@ -631,6 +662,37 @@ impl Studio {
         };
         let clip_id = clip.id.clone();
         let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
+        if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
+            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
+                return;
+            };
+            let Some(key) = mask
+                .keys_on(number)
+                .iter()
+                .find(|key| (key.at - from).abs() <= model::KEY_EPSILON)
+                .copied()
+            else {
+                return;
+            };
+            let commands = vec![
+                Command::ClearMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: key.at,
+                },
+                Command::SetMaskKey {
+                    clip_id,
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: to,
+                    value: key.value,
+                    ease: key.ease,
+                },
+            ];
+            self.apply(Command::Batch { commands });
+            return;
+        }
         let commands = if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
                 return;
@@ -699,6 +761,31 @@ impl Studio {
         let clip_id = clip.id.clone();
         let at = f64::from(at);
         let ease = model::KeyEase(ease.map(f64::from)).sane();
+        if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
+            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
+                return;
+            };
+            let Some(key) = mask
+                .keys_on(number)
+                .iter()
+                .find(|key| (key.at - at).abs() <= model::KEY_EPSILON)
+                .copied()
+            else {
+                return;
+            };
+            self.apply_within(
+                "ease",
+                Command::SetMaskKey {
+                    clip_id,
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: key.at,
+                    value: key.value,
+                    ease,
+                },
+            );
+            return;
+        }
         let command = if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
                 return;
@@ -758,6 +845,11 @@ impl Studio {
             .iter()
             .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
             .collect();
+        candidates.extend(
+            clip.masks
+                .iter()
+                .flat_map(|mask| mask.keys.values().flatten().map(|key| key.at)),
+        );
         if let Some(link) = clip
             .video_effects
             .iter()
@@ -800,6 +892,15 @@ impl Studio {
                 property,
             })
             .collect();
+        for mask in &clip.masks {
+            for number in mask.keys.keys() {
+                commands.push(Command::ClearMaskKeys {
+                    clip_id: clip_id.clone(),
+                    mask_id: mask.id.clone(),
+                    number: number.clone(),
+                });
+            }
+        }
         if let Some(entry) = clip
             .video_effects
             .iter()
@@ -825,6 +926,13 @@ impl Studio {
     /// value on one that has them. That is what makes the diamond safe to
     /// press: it never moves the picture, it only says "hold this here".
     pub fn toggle_key(&mut self, field: ClipField) {
+        if masks::mask_number_of(field).is_some() {
+            let commands = self.mask_toggle_commands(field);
+            if !commands.is_empty() {
+                self.apply(Command::Batch { commands });
+            }
+            return;
+        }
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
@@ -861,6 +969,12 @@ impl Studio {
 
     /// Takes every key off a field, leaving it its constant.
     pub fn clear_keys_on(&mut self, field: ClipField) {
+        if masks::mask_number_of(field).is_some() {
+            if let Some(command) = self.mask_clear_command(field) {
+                self.apply(command);
+            }
+            return;
+        }
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
@@ -872,6 +986,22 @@ impl Studio {
 
     /// Moves the playhead to this field's previous (-1) or next (+1) key.
     pub fn step_key(&mut self, field: ClipField, delta: i32) {
+        if masks::mask_number_of(field).is_some() {
+            let Some((clip, at)) = self.key_point() else {
+                return;
+            };
+            let (start, duration) = (clip.start, clip.duration);
+            let times = self.mask_key_times(field);
+            let target = if delta < 0 {
+                times.into_iter().filter(|&key| key < at - model::KEY_EPSILON).reduce(f64::max)
+            } else {
+                times.into_iter().filter(|&key| key > at + model::KEY_EPSILON).reduce(f64::min)
+            };
+            if let Some(target) = target {
+                self.seek((start + target * duration) as f32);
+            }
+            return;
+        }
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
@@ -1063,6 +1193,15 @@ impl Studio {
         let enhance_preview = enhance.preview.is_some();
         let (enhance_before, enhance_after, (estimate_total, estimate_frames, estimate_per_frame)) =
             enhance.preview.take().unwrap_or_default();
+        let current_mask = self.current_mask(clip);
+        let fresh_mask = model::Mask::of("", "", model::MaskShape::Circle);
+        let mask_number = |number: &str| -> f32 {
+            match current_mask {
+                Some(mask) => mask.value_at(number, at) as f32,
+                None => fresh_mask.get(number).unwrap_or(0.0) as f32,
+            }
+        };
+        let (mask_rows, mask_index) = self.mask_rows(clip);
         SelectedClipData {
             present: true,
             batch: targets.len() as i32,
@@ -1117,11 +1256,16 @@ impl Studio {
             crop_top: clip.crop.map(|crop| crop.top as f32).unwrap_or(0.0),
             crop_right: clip.crop.map(|crop| crop.right as f32).unwrap_or(0.0),
             crop_bottom: clip.crop.map(|crop| crop.bottom as f32).unwrap_or(0.0),
-            mask: clip
-                .mask
-                .and_then(|mask| model::MaskShape::ALL.iter().position(|s| *s == mask.shape))
+            masks: ModelRc::new(VecModel::from(mask_rows)),
+            mask_index,
+            mask: current_mask
+                .and_then(|mask| mask.shape())
+                .and_then(|shape| model::MaskShape::ALL.iter().position(|s| *s == shape))
                 .map_or(-1, |index| index as i32),
-            mask_invert: clip.mask.is_some_and(|mask| mask.invert),
+            mask_invert: current_mask.is_some_and(|mask| mask.invert),
+            mask_mode: current_mask
+                .and_then(|mask| model::MaskMode::ALL.iter().position(|mode| *mode == mask.mode))
+                .map_or(0, |index| index as i32),
             motion_in: motion_place(
                 clip.motion
                     .as_ref()
@@ -1163,13 +1307,15 @@ impl Studio {
                 .as_ref()
                 .and_then(|m| m.cycle.as_ref())
                 .map_or(1.0, |m| m.amount) as f32,
-            mask_x: shown(clip, model::KeyProperty::MaskX, at) as f32,
-            mask_y: shown(clip, model::KeyProperty::MaskY, at) as f32,
-            mask_width: shown(clip, model::KeyProperty::MaskWidth, at) as f32,
-            mask_height: shown(clip, model::KeyProperty::MaskHeight, at) as f32,
-            mask_rotation: shown(clip, model::KeyProperty::MaskRotation, at) as f32,
-            mask_roundness: shown(clip, model::KeyProperty::MaskRoundness, at) as f32,
-            mask_feather: shown(clip, model::KeyProperty::MaskFeather, at) as f32,
+            mask_x: mask_number("x"),
+            mask_y: mask_number("y"),
+            mask_width: mask_number("width"),
+            mask_height: mask_number("height"),
+            mask_rotation: mask_number("rotation"),
+            mask_roundness: mask_number("roundness"),
+            mask_feather: mask_number("feather"),
+            mask_expand: mask_number("expand"),
+            mask_opacity: mask_number("opacity"),
             fade_in: clip.fade_in as f32,
             wave_head: self.wave_end(clip, false),
             wave_tail: self.wave_end(clip, true),

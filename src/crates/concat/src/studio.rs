@@ -48,6 +48,7 @@ mod backdrop;
 mod consolidate;
 use consolidate::MergeJob;
 mod masking;
+mod masks;
 use masking::{MaskFrame, MaskGrip};
 mod bin;
 mod chains;
@@ -1272,6 +1273,10 @@ pub struct Studio {
     /// Media whose stabilization was turned on anew, so an analysis the
     /// app died in last time is tried again rather than skipped.
     stabilize_retry: HashSet<String>,
+    /// The mask the Mask section and the monitor work on, by id: see
+    /// `masks`. None, or an id the selected clip does not have, is its
+    /// first.
+    mask_focus: Option<String>,
     /// Voice isolation splitting a file, by the parts' folder: whether its
     /// model is still downloading, and how far it has got. One at a time,
     /// like the analyses.
@@ -1661,13 +1666,6 @@ fn key_field_of(property: model::KeyProperty) -> ClipField {
         model::KeyProperty::Rotation => ClipField::Rotation,
         model::KeyProperty::Opacity => ClipField::Opacity,
         model::KeyProperty::Volume => ClipField::Volume,
-        model::KeyProperty::MaskX => ClipField::MaskX,
-        model::KeyProperty::MaskY => ClipField::MaskY,
-        model::KeyProperty::MaskWidth => ClipField::MaskWidth,
-        model::KeyProperty::MaskHeight => ClipField::MaskHeight,
-        model::KeyProperty::MaskRotation => ClipField::MaskRotation,
-        model::KeyProperty::MaskRoundness => ClipField::MaskRoundness,
-        model::KeyProperty::MaskFeather => ClipField::MaskFeather,
     }
 }
 
@@ -1791,10 +1789,6 @@ fn knob_range(property: model::KeyProperty) -> (f64, f64) {
         model::KeyProperty::Rotation => (-180.0, 180.0),
         model::KeyProperty::Opacity => (0.0, 1.0),
         model::KeyProperty::Volume => (-60.0, 24.0),
-        model::KeyProperty::MaskX | model::KeyProperty::MaskY => (-1.0, 1.0),
-        model::KeyProperty::MaskWidth | model::KeyProperty::MaskHeight => (0.01, 4.0),
-        model::KeyProperty::MaskRotation => (-180.0, 180.0),
-        model::KeyProperty::MaskRoundness | model::KeyProperty::MaskFeather => (0.0, 1.0),
     }
 }
 
@@ -1846,12 +1840,6 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
         model::KeyProperty::Rotation => clip.rotation = value,
         model::KeyProperty::Opacity => clip.opacity = value,
         model::KeyProperty::Volume => clip.volume = value,
-        // The mask's numbers are the mask's; a number turned on a clip
-        // with none puts one on, the shape a new one starts as.
-        mask => clip
-            .mask
-            .get_or_insert_with(model::ClipMask::default)
-            .set(mask, value),
     }
 }
 
@@ -1974,8 +1962,8 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
     if after.crop != before.crop {
         patch.crop = Some(after.crop);
     }
-    if after.mask != before.mask {
-        patch.mask = Some(after.mask);
+    if after.masks != before.masks {
+        patch.masks = Some(after.masks.clone());
     }
     if after.motion != before.motion {
         patch.motion = Some(after.motion.clone());
@@ -2825,6 +2813,7 @@ impl Studio {
             speed_chosen: (String::new(), Vec::new()),
             speed_grabbed: None,
             stabilize_retry: HashSet::new(),
+            mask_focus: None,
             enhance_jobs: HashMap::new(),
             enhance_scale: 0.0,
             enhance_strength: concat_host::enhance::DEFAULT_STRENGTH,

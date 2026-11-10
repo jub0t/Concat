@@ -44,7 +44,7 @@ use concat_media::audio::{self, AudioClip};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
 };
-use concat_project::model::{AppliedFilter, ClipMask, ColorSpace, Cutout};
+use concat_project::model::{AppliedFilter, ColorSpace, Cutout, Mask};
 use concat_render::{
     Compositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor,
     plan_frame,
@@ -287,10 +287,10 @@ pub struct ExportClip {
     /// leaves the picture whole.
     #[serde(default)]
     pub cutout: Option<Cutout>,
-    /// The shape that keeps part of the picture, as the document holds
-    /// it; its keyed numbers ride in `animation` as `maskX` and on.
+    /// The shapes that keep part of the picture, top first, as the
+    /// document holds them, each with its own keys.
     #[serde(default)]
-    pub mask: Option<ClipMask>,
+    pub masks: Vec<Mask>,
     /// The clip's entrance, exit and loop; see the document's
     /// `Clip::motion`.
     #[serde(default)]
@@ -432,7 +432,7 @@ impl ExportClip {
             has_audio: None,
             cutout: None,
             motion: None,
-            mask: None,
+            masks: Vec::new(),
             mask_dir: String::new(),
             stabilize: None,
             motion_dir: String::new(),
@@ -448,9 +448,8 @@ impl ExportClip {
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportKey {
-    /// "scale", "offsetX", "offsetY", "rotation", "opacity" or "volume",
-    /// or one of the mask's numbers: "maskX", "maskY", "maskWidth",
-    /// "maskHeight", "maskRotation", "maskRoundness", "maskFeather".
+    /// "scale", "offsetX", "offsetY", "rotation", "opacity" or "volume".
+    /// A mask's keys are the mask's, in `ExportClip::masks`.
     pub property: String,
     /// Where in the clip, `0..=1`.
     pub at: f64,

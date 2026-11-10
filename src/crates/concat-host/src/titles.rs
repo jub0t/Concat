@@ -280,7 +280,7 @@ impl Titles {
                     // fades. Without them no In, Out or Loop played on any
                     // title, caption or shape.
                     motion: clip.motion.clone(),
-                    mask: clip.mask,
+                    masks: clip.masks.clone(),
                     fade_in: clip.fade_in,
                     fade_out: clip.fade_out,
                     flip_h: clip.flip_h,
@@ -1164,7 +1164,7 @@ mod tests {
     #[test]
     fn a_shape_rejoins_with_its_motion_mask_and_fades() {
         use concat_project::commands::ClipPatch;
-        use concat_project::model::{ClipMask, ClipMotion, ClipMove, MaskShape};
+        use concat_project::model::{ClipMotion, ClipMove, Mask, MaskShape};
         let dirs = scratch("shape-motion");
         let mut editor = Editor::new();
         let id = editor
@@ -1186,13 +1186,13 @@ mod tests {
             }),
             ..ClipMotion::default()
         };
-        let mask = ClipMask::of(MaskShape::Circle);
+        let masks = vec![Mask::of("mask-1", "", MaskShape::Circle)];
         editor
             .apply(Command::UpdateClip {
                 clip_id: id,
                 patch: ClipPatch {
                     motion: Some(Some(motion.clone())),
-                    mask: Some(Some(mask)),
+                    masks: Some(masks.clone()),
                     fade_in: Some(0.25),
                     fade_out: Some(0.75),
                     ..ClipPatch::default()
@@ -1202,7 +1202,7 @@ mod tests {
 
         let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
         assert_eq!(out[0].clip.motion, Some(motion));
-        assert_eq!(out[0].clip.mask, Some(mask));
+        assert_eq!(out[0].clip.masks, masks);
         assert_eq!((out[0].clip.fade_in, out[0].clip.fade_out), (0.25, 0.75));
     }
 }

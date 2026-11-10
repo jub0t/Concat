@@ -195,17 +195,24 @@ export enum ClipField {
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
     audio-track,
-    /// the mask: its shape as a place in the picker, below zero for none;
-    /// whether it keeps the outside; and its numbers, each keyable - the
-    /// centre as fractions of the picture from its middle, the box in the
-    /// picture's shorter side, the turn in degrees, the corners' roundness
-    /// and the edge's softness 0..1
-    mask-shape, mask-invert,
+    /// the current mask - the one picked in the Mask section's list, or
+    /// the first: its shape as a place in the picker; whether it keeps the
+    /// outside; and its numbers, each keyable - the centre as fractions of
+    /// the picture from its middle, the box in the picture's shorter side,
+    /// the turn in degrees, the corners' roundness, the edge's softness
+    /// 0..1, how far the edge is moved out (-0.5..0.5) and how much it
+    /// counts 0..1; its mode as a place in Add, Subtract, Intersect, None
+    mask-shape, mask-invert, mask-mode,
+    /// the list: a new mask of the shape at this place in the picker,
+    /// picked; the mask at this row picked; the current mask taken off;
+    /// the current mask moved this many rows (negative is up)
+    mask-add, mask-select, mask-remove, mask-move,
     /// the moves: an entrance, an exit and a loop as places in their lists,
     /// below zero for none, and their seconds; the loop's amount 0..2
     motion-in, motion-in-seconds, motion-out, motion-out-seconds,
     motion-loop, motion-loop-seconds, motion-loop-amount,
     mask-x, mask-y, mask-width, mask-height, mask-rotation, mask-roundness, mask-feather,
+    mask-expand, mask-opacity,
     /// a shape: its figure as a place in ShapeKind::ALL, its box as
     /// fractions of frame height, corners 0..1, a polygon's sides and a
     /// star's points and inner radius; its fill on (1) or off, the blend
@@ -272,11 +279,12 @@ export global Keyframes {
         return { field: field, keyed: false, here: false, prev: false, next: false };
     }
 
-    /// This field's row. Slint has no lookup and the list is thirteen
+    /// This field's row. Slint has no lookup and the list is fifteen
     /// long, so the order Rust publishes them in *is* the index; `blank`
-    /// covers the moment before the first publish.
+    /// covers the moment before the first publish. The mask's rows are
+    /// the current mask's.
     pure public function row(field: ClipField) -> ClipKeyData {
-        if (Keyframes.rows.length < 13) {
+        if (Keyframes.rows.length < 15) {
             return Keyframes.blank(field);
         }
         return field == ClipField.scale ? Keyframes.rows[0]
@@ -292,6 +300,8 @@ export global Keyframes {
             : field == ClipField.mask-rotation ? Keyframes.rows[10]
             : field == ClipField.mask-roundness ? Keyframes.rows[11]
             : field == ClipField.mask-feather ? Keyframes.rows[12]
+            : field == ClipField.mask-expand ? Keyframes.rows[13]
+            : field == ClipField.mask-opacity ? Keyframes.rows[14]
             : Keyframes.blank(field);
     }
 }
@@ -364,6 +374,19 @@ export struct SelectedTransitionData {
     into: string,
 }
 
+/// One of the selected clip's masks, as the Mask section lists it.
+export struct MaskRowData {
+    /// what it is called; empty for the panel's own numbering
+    name: string,
+    /// its shape as a place in the picker, -1 for one that is not a shape
+    shape: int,
+    /// add, subtract, intersect or none, as a place in that list
+    mode: int,
+    invert: bool,
+    /// any of its numbers rides
+    keyed: bool,
+}
+
 export struct SelectedClipData {
     present: bool,
     /// how many clips the panel writes to: one, or every selected title
@@ -417,11 +440,16 @@ export struct SelectedClipData {
     crop-top: float,
     crop-right: float,
     crop-bottom: float,
-    /// the mask: its shape as a place in the picker (linear, mirror,
-    /// circle, rectangle, heart, star), -1 for none; whether it is
-    /// inverted; and its numbers at the playhead - see ClipField.mask-x
+    /// the masks, top first, and which row is the current one, -1 for
+    /// none; the current one's shape as a place in the picker (linear,
+    /// mirror, circle, rectangle, heart, star), -1 for none; whether it is
+    /// inverted, its mode (add, subtract, intersect, none) and its numbers
+    /// at the playhead - see ClipField.mask-x
+    masks: [MaskRowData],
+    mask-index: int,
     mask: int,
     mask-invert: bool,
+    mask-mode: int,
     /// the moves: the entrance's and the exit's place in the move list
     /// (fade, slide left, slide right, slide up, slide down, zoom in, zoom
     /// out, pop, drop, rise, spin, flip, swing, squash) and the loop's in
@@ -441,6 +469,8 @@ export struct SelectedClipData {
     mask-rotation: float,
     mask-roundness: float,
     mask-feather: float,
+    mask-expand: float,
+    mask-opacity: float,
     fade-in: float,
     fade-out: float,
     /// The clip's first and last seconds of sound - as far as a fade

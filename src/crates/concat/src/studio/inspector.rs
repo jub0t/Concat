@@ -18,6 +18,9 @@ impl Studio {
             self.style_words(&id, start, end, &patch);
             return;
         }
+        if self.mask_set(field, f64::from(value)) {
+            return;
+        }
         let mut ids = self.edit_targets();
         // A batch of sounds takes the level alone; see `batch_volume`.
         let batch_volume = ids.is_empty() && field == ClipField::Volume;
@@ -94,6 +97,24 @@ impl Studio {
             }
             let text = clip.text.get_or_insert_with(TextStyle::default);
             match field {
+                // The Mask section's, which `mask_set` took before the echo
+                // was borrowed here.
+                ClipField::MaskShape
+                | ClipField::MaskInvert
+                | ClipField::MaskMode
+                | ClipField::MaskAdd
+                | ClipField::MaskSelect
+                | ClipField::MaskRemove
+                | ClipField::MaskMove
+                | ClipField::MaskX
+                | ClipField::MaskY
+                | ClipField::MaskWidth
+                | ClipField::MaskHeight
+                | ClipField::MaskRotation
+                | ClipField::MaskRoundness
+                | ClipField::MaskFeather
+                | ClipField::MaskExpand
+                | ClipField::MaskOpacity => {}
                 ClipField::Scale => {
                     write_keyable(clip, model::KeyProperty::Scale, value.clamp(0.05, 8.0), at)
                 }
@@ -183,27 +204,6 @@ impl Studio {
                         stabilize.tripod = value != 0.0;
                     }
                 }
-                // The shape's place in the picker, or below zero for none.
-                // A new shape keeps where the mask was, its turn, softness
-                // and invert, and takes the new shape's own size.
-                ClipField::MaskShape => {
-                    let shape = (value >= 0.0)
-                        .then(|| model::MaskShape::ALL.get(value as usize).copied())
-                        .flatten();
-                    clip.mask = shape.map(|shape| match clip.mask {
-                        Some(held) if held.shape == shape => held,
-                        Some(held) => model::ClipMask {
-                            x: held.x,
-                            y: held.y,
-                            rotation: held.rotation,
-                            roundness: held.roundness,
-                            feather: held.feather,
-                            invert: held.invert,
-                            ..model::ClipMask::of(shape)
-                        },
-                        None => model::ClipMask::of(shape),
-                    });
-                }
                 ClipField::MotionIn
                 | ClipField::MotionInSeconds
                 | ClipField::MotionOut
@@ -266,22 +266,6 @@ impl Studio {
                         }
                     }
                     clip.motion = motion.tidy();
-                }
-                ClipField::MaskInvert => {
-                    if let Some(mask) = clip.mask.as_mut() {
-                        mask.invert = value != 0.0;
-                    }
-                }
-                ClipField::MaskX
-                | ClipField::MaskY
-                | ClipField::MaskWidth
-                | ClipField::MaskHeight
-                | ClipField::MaskRotation
-                | ClipField::MaskRoundness
-                | ClipField::MaskFeather => {
-                    if let Some(property) = Self::key_property_of(field) {
-                        write_keyable(clip, property, model::ClipMask::clamp(property, value), at);
-                    }
                 }
                 ClipField::Volume => {
                     write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
