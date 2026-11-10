@@ -777,6 +777,155 @@ struct CompiledShader {
     stages: Vec<wgpu::RenderPipeline>,
 }
 
+/// Everything a package's pipeline is compiled against, taken from a
+/// compositor by [`WgpuCompositor::forge`]: compiling with it needs no
+/// compositor, and any thread may - wgpu's error scopes are the calling
+/// thread's own, and nothing here touches a queue.
+pub struct ShaderForge {
+    device: wgpu::Device,
+    work: wgpu::TextureFormat,
+    bind_layout: wgpu::BindGroupLayout,
+    uniform_layout: wgpu::BindGroupLayout,
+    lut_layout: wgpu::BindGroupLayout,
+    reveal_layout: wgpu::BindGroupLayout,
+    pictures: HashMap<usize, wgpu::BindGroupLayout>,
+}
+
+/// One pass compiled by a [`ShaderForge`], for [`WgpuCompositor::adopt`]:
+/// its pipeline, or `None` where the driver refused it.
+pub struct ForgedShader {
+    key: String,
+    compiled: Option<CompiledShader>,
+}
+
+impl ShaderForge {
+    /// Compiles `pass`. The catalogue validated the module at load, so a
+    /// failure here is a driver disagreement: caught in an error scope,
+    /// logged, and kept as refused - the layer draws untreated from then
+    /// on - rather than reaching wgpu's uncaptured-error handler, which
+    /// ends the process (audit 2026-09-23, #7).
+    pub fn compile(&self, pass: &ShaderPass) -> ForgedShader {
+        let refused = || ForgedShader {
+            key: pass.key.clone(),
+            compiled: None,
+        };
+        // A package drawn in one pass binds its layer as the pool made it;
+        // one drawn in several binds its passes' pictures beside it.
+        let inputs = if pass.stages.is_empty() {
+            &self.bind_layout
+        } else {
+            match self.pictures.get(&pass.stages.len()) {
+                Some(layout) => layout,
+                None => {
+                    log::error!("pass {}: no layout for its stages", pass.key);
+                    return refused();
+                }
+            }
+        };
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(&pass.key),
+                source: wgpu::ShaderSource::Wgsl(pass.source.as_ref().into()),
+            });
+        let layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(&pass.key),
+                bind_group_layouts: &[
+                    Some(inputs),
+                    Some(&self.uniform_layout),
+                    Some(&self.lut_layout),
+                    Some(&self.reveal_layout),
+                ],
+                immediate_size: 0,
+            });
+        let pipeline_of = |entry: &str| {
+            self.device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&pass.key),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &module,
+                        entry_point: Some("vs_main"),
+                        compilation_options: Default::default(),
+                        buffers: &[],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &module,
+                        entry_point: Some(entry),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: self.work,
+                            // A pass replaces: mixing by intensity is the
+                            // shader's own last line.
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                })
+        };
+        let pipeline = pipeline_of("fs_main");
+        let stages = pass
+            .stages
+            .iter()
+            .map(|stage| pipeline_of(&stage.entry))
+            .collect();
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            log::error!(
+                "pass {}: the driver refused its pipeline: {error}",
+                pass.key
+            );
+            return refused();
+        }
+        let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("concat pass frame"),
+            // size(vec2), time, intensity, clip_time, padded to Frame's own
+            // 16-byte alignment (OpenGL ES's, see concat-effects' Frame):
+            // 20 bytes rounds to 32.
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let params = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("concat pass params"),
+            size: pass.params.len().max(ShaderPass::MIN_PARAMS) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat pass uniforms"),
+            layout: &self.uniform_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: frame.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: params.as_entire_binding(),
+                },
+            ],
+        });
+        ForgedShader {
+            key: pass.key.clone(),
+            compiled: Some(CompiledShader {
+                pipeline,
+                frame,
+                params,
+                bind_group,
+                stages,
+            }),
+        }
+    }
+}
+
 /// A 2D float texture a pass samples, at `binding` of its group.
 fn picture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -3031,115 +3180,56 @@ impl WgpuCompositor {
         if self.shaders.contains_key(&pass.key) || self.refused.contains(&pass.key) {
             return;
         }
-        // A package drawn in one pass binds its layer as the pool made it;
-        // one drawn in several binds its passes' pictures beside it.
-        let inputs = if pass.stages.is_empty() {
-            self.bind_layout.clone()
-        } else {
-            self.pictures_layout(pass.stages.len())
-        };
-        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(&pass.key),
-                source: wgpu::ShaderSource::Wgsl(pass.source.as_ref().into()),
-            });
-        let layout = self
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(&pass.key),
-                bind_group_layouts: &[
-                    Some(&inputs),
-                    Some(&self.uniform_layout),
-                    Some(&self.lut_layout),
-                    Some(&self.reveal_layout),
-                ],
-                immediate_size: 0,
-            });
-        let pipeline_of = |entry: &str| {
-            self.device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some(&pass.key),
-                    layout: Some(&layout),
-                    vertex: wgpu::VertexState {
-                        module: &module,
-                        entry_point: Some("vs_main"),
-                        compilation_options: Default::default(),
-                        buffers: &[],
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &module,
-                        entry_point: Some(entry),
-                        compilation_options: Default::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: self.work,
-                            // A pass replaces: mixing by intensity is the
-                            // shader's own last line.
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
-                    primitive: wgpu::PrimitiveState::default(),
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview_mask: None,
-                    cache: None,
-                })
-        };
-        let pipeline = pipeline_of("fs_main");
-        let stages = pass
-            .stages
+        let forge = self.forge(std::slice::from_ref(pass));
+        self.adopt(forge.compile(pass));
+    }
+
+    /// What compiling `passes` takes, apart from this compositor: its
+    /// device and the layouts their pipelines are built against, so they
+    /// can be compiled on another thread while this one draws, and handed
+    /// back with [`WgpuCompositor::adopt`]. A package compiles in 86 ms
+    /// on an M5 on average, and Chroma Key in 580: compiled at its first
+    /// drawing, every effect's first frame - a look previewed from the
+    /// Library under the pointer - waited that long.
+    pub fn forge(&mut self, passes: &[ShaderPass]) -> ShaderForge {
+        let pictures = passes
             .iter()
-            .map(|stage| pipeline_of(&stage.entry))
+            .map(|pass| pass.stages.len())
+            .filter(|count| *count > 0)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .map(|count| (count, self.pictures_layout(count)))
             .collect();
-        if let Some(error) = pollster::block_on(scope.pop()) {
-            log::error!(
-                "pass {}: the driver refused its pipeline: {error}",
-                pass.key
-            );
-            self.refused.insert(pass.key.clone());
+        ShaderForge {
+            device: self.device.clone(),
+            work: self.work,
+            bind_layout: self.bind_layout.clone(),
+            uniform_layout: self.uniform_layout.clone(),
+            lut_layout: self.lut_layout.clone(),
+            reveal_layout: self.reveal_layout.clone(),
+            pictures,
+        }
+    }
+
+    /// Keeps a pass [`ShaderForge::compile`] compiled, or that the driver
+    /// refused it, unless this compositor has its own already.
+    pub fn adopt(&mut self, forged: ForgedShader) {
+        if self.shaders.contains_key(&forged.key) || self.refused.contains(&forged.key) {
             return;
         }
-        let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("concat pass frame"),
-            // size(vec2), time, intensity, clip_time, padded to Frame's own
-            // 16-byte alignment (OpenGL ES's, see concat-effects' Frame):
-            // 20 bytes rounds to 32.
-            size: 32,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let params = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("concat pass params"),
-            size: pass.params.len().max(ShaderPass::MIN_PARAMS) as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("concat pass uniforms"),
-            layout: &self.uniform_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: frame.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: params.as_entire_binding(),
-                },
-            ],
-        });
-        self.shaders.insert(
-            pass.key.clone(),
-            CompiledShader {
-                pipeline,
-                frame,
-                params,
-                bind_group,
-                stages,
-            },
-        );
+        match forged.compiled {
+            Some(compiled) => {
+                self.shaders.insert(forged.key, compiled);
+            }
+            None => {
+                self.refused.insert(forged.key);
+            }
+        }
+    }
+
+    /// Whether this compositor holds `key`'s pipeline already.
+    pub fn has_shader(&self, key: &str) -> bool {
+        self.shaders.contains_key(key) || self.refused.contains(key)
     }
 
     /// Group 0 of a package whose passes draw `pictures` pictures: the

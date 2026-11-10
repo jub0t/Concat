@@ -69,7 +69,7 @@ impl Host {
     pub fn start(gpu: Option<Gpu>) -> Result<Host, String> {
         let dirs = AppDirs::locate()?;
         let _ = std::fs::create_dir_all(&dirs.config);
-        Ok(Host {
+        let host = Host {
             titles: concat_host::Titles::new(&dirs),
             cutouts: Arc::new(concat_host::Cutouts::new(&dirs.data)),
             stabilizers: Arc::new(concat_host::Stabilizers::new()),
@@ -87,7 +87,11 @@ impl Host {
             speech: Arc::new(Speech::new()),
             server: None,
             open_projects: concat_api::OpenProjects::default(),
-        })
+        };
+        // Every effect's pipeline, compiled while the window opens rather
+        // than at the first frame each effect draws.
+        host.monitor.warm_shaders();
+        Ok(host)
     }
 }
 
