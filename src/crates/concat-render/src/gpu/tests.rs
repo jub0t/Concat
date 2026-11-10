@@ -900,7 +900,11 @@ fn an_effect_layer_times_its_effects_from_its_own_start() {
     };
     p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
     let out = gpu.render(&p);
-    assert_eq!(&out.pixels()[..3], &[0, 255, 0], "the layer's clip_time should read 3.0");
+    assert_eq!(
+        &out.pixels()[..3],
+        &[0, 255, 0],
+        "the layer's clip_time should read 3.0"
+    );
 }
 
 /// Every packaged transition's pipeline actually creates and runs on the
