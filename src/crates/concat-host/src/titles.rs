@@ -102,6 +102,18 @@ const LIVE_BYTES: usize = 128 * 1024 * 1024;
 /// each time; see [`LivePaintings::keep`].
 const LIVE_CEILING: usize = 512 * 1024 * 1024;
 
+/// A `1 / part` share of a machine's `total` memory, never less than
+/// `floor`: what the live paintings may hold on a machine that has more
+/// to give. On 16 GB, half a gigabyte kept and two in all; on 64 GB, two
+/// and eight - several hundred captions at the monitor's size, held as a
+/// drag repaints the one being moved, where a fixed ceiling painted every
+/// caption past it again at each step.
+fn live_share(total: Option<u64>, part: u64, floor: usize) -> usize {
+    total
+        .and_then(|total| usize::try_from(total / part).ok())
+        .map_or(floor, |share| share.max(floor))
+}
+
 /// One live painting, and the pass that last asked for it.
 struct LivePainting {
     art: Art,
@@ -204,7 +216,10 @@ impl Titles {
             fonts: Mutex::new(None),
             loaded_files: Mutex::new(HashSet::new()),
             memo: Mutex::new(HashMap::new()),
-            live: Mutex::new(LivePaintings::new(LIVE_BYTES, LIVE_CEILING)),
+            live: Mutex::new(LivePaintings::new(
+                live_share(crate::memory::total(), 32, LIVE_BYTES),
+                live_share(crate::memory::total(), 8, LIVE_CEILING),
+            )),
         }
     }
 
@@ -229,20 +244,13 @@ impl Titles {
         if live {
             self.live.lock().unwrap_or_else(|e| e.into_inner()).begin();
         }
+        let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
+        let keys = self.paint_ahead(project, width, height, live, (&plain_text, &plain_shape));
         let timeline = project.active();
         let mut out = Vec::new();
-        for clip in &timeline.clips {
-            let (text, shape);
-            let painting = match clip.kind {
-                ModelClipKind::Text => {
-                    text = clip.text.clone().unwrap_or_default();
-                    Painting::Title(&text)
-                }
-                ModelClipKind::Shape => {
-                    shape = clip.shape.clone().unwrap_or_default();
-                    Painting::Shape(&shape)
-                }
-                _ => continue,
+        for (clip, key) in timeline.clips.iter().zip(keys) {
+            let Some((key, painting)) = key else {
+                continue;
             };
             let Some(index) = timeline
                 .tracks
@@ -253,10 +261,10 @@ impl Titles {
             };
             let track = &timeline.tracks[index];
             let painted = if live {
-                self.painted_live(project, painting, width, height)
+                self.painted_live(project, key, painting, width, height)
                     .map(|(path, art, frame)| (path, art, Some(frame)))
             } else {
-                self.painted(project, painting, width, height)
+                self.painted(project, key, painting, width, height)
                     .map(|(path, art)| (path, art, None))
             };
             let (path, art, frame) = match painted {
@@ -350,21 +358,43 @@ impl Titles {
     fn painted_live(
         &self,
         project: &Project,
+        key: u64,
         painting: Painting<'_>,
         width: u32,
         height: u32,
     ) -> Result<(PathBuf, Art, Arc<Frame>), String> {
-        let key = key_of(project, painting, width, height);
-        let path = PathBuf::from(format!("memory://titles/{key:016x}"));
-        if let Some((art, frame)) = self.live.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
-            return Ok((path, art, frame));
+        if let Some(found) = self.live_painting(key) {
+            return Ok(found);
         }
+        let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+        let fonts = self.fonts_for(project, &mut fonts);
+        self.paint_live(fonts, key, painting, width, height)
+    }
+
+    /// The live painting kept under `key`, if there is one.
+    fn live_painting(&self, key: u64) -> Option<(PathBuf, Art, Arc<Frame>)> {
+        let path = PathBuf::from(format!("memory://titles/{key:016x}"));
+        let (art, frame) = self
+            .live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)?;
+        Some((path, art, frame))
+    }
+
+    /// Paints one style in memory with `fonts`, and keeps it under `key`.
+    fn paint_live(
+        &self,
+        fonts: &Fonts,
+        key: u64,
+        painting: Painting<'_>,
+        width: u32,
+        height: u32,
+    ) -> Result<(PathBuf, Art, Arc<Frame>), String> {
+        let path = PathBuf::from(format!("memory://titles/{key:016x}"));
         let rendered = match painting {
             Painting::Title(style) => {
-                let title = title_style(style);
-                let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
-                let fonts = self.fonts_for(project, &mut fonts);
-                concat_text::render_frame(fonts, &title, width, height)
+                concat_text::render_frame(fonts, &title_style(style), width, height)
                     .map_err(|error| error.to_string())?
             }
             Painting::Shape(style) => {
@@ -395,14 +425,23 @@ impl Titles {
     fn painted(
         &self,
         project: &Project,
+        key: u64,
         painting: Painting<'_>,
         width: u32,
         height: u32,
     ) -> Result<(PathBuf, Art), String> {
-        let key = key_of(project, painting, width, height);
+        if let Some(found) = self.kept_painting(key, width, height) {
+            return Ok(found);
+        }
+        let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+        let fonts = self.fonts_for(project, &mut fonts);
+        self.paint_kept(fonts, key, painting, width, height)
+    }
+
+    /// The PNG kept under `key` and the block it holds, if it is on disk.
+    fn kept_painting(&self, key: u64, width: u32, height: u32) -> Option<(PathBuf, Art)> {
         let png = self.dir.join(format!("{key:016x}.png"));
         let side = self.dir.join(format!("{key:016x}.json"));
-
         if let Some(art) = self
             .memo
             .lock()
@@ -410,7 +449,7 @@ impl Titles {
             .get(&key)
             && png.is_file()
         {
-            return Ok((png, art.clone()));
+            return Some((png, art.clone()));
         }
         // On disk from an earlier session: the sidecar says how big the
         // block was and where, and which words it held, which the PNG
@@ -419,15 +458,25 @@ impl Titles {
             && let Some(art) = read_block(&side, width, height)
         {
             self.remember(key, art.clone());
-            return Ok((png, art));
+            return Some((png, art));
         }
+        None
+    }
 
+    /// Paints one style with `fonts` into a PNG kept under `key`.
+    fn paint_kept(
+        &self,
+        fonts: &Fonts,
+        key: u64,
+        painting: Painting<'_>,
+        width: u32,
+        height: u32,
+    ) -> Result<(PathBuf, Art), String> {
+        let png = self.dir.join(format!("{key:016x}.png"));
+        let side = self.dir.join(format!("{key:016x}.json"));
         let rendered = match painting {
             Painting::Title(style) => {
-                let title = title_style(style);
-                let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
-                let fonts = self.fonts_for(project, &mut fonts);
-                concat_text::render(fonts, &title, width, height)
+                concat_text::render(fonts, &title_style(style), width, height)
                     .map_err(|error| error.to_string())?
             }
             Painting::Shape(style) => concat_text::render_shape(&shape_style(style), width, height)
@@ -461,6 +510,95 @@ impl Titles {
         );
         self.remember(key, art.clone());
         Ok((png, art))
+    }
+
+    /// Paints every title and shape on the active timeline that is not
+    /// painted yet, on every core at once, so the pass over the timeline
+    /// after finds each one kept. A transcribed interview is hundreds of
+    /// captions, each painted on its own; one after another they were
+    /// seconds of a window that did not answer.
+    ///
+    /// The faces are shared by every thread: they are loaded first, with
+    /// the project's own, and only read while the titles paint.
+    ///
+    /// Gives back each clip's key and painting, in the timeline's order -
+    /// `None` for a clip that is neither - so the pass names each once.
+    /// A clip with no style of its own is painted in `plain`.
+    fn paint_ahead<'a>(
+        &self,
+        project: &'a Project,
+        width: u32,
+        height: u32,
+        live: bool,
+        plain: (&'a TextStyle, &'a ShapeStyle),
+    ) -> Vec<Option<(u64, Painting<'a>)>> {
+        let keys: Vec<Option<(u64, Painting<'a>)>> = project
+            .active()
+            .clips
+            .iter()
+            .map(|clip| {
+                let painting = match clip.kind {
+                    ModelClipKind::Text => Painting::Title(clip.text.as_ref().unwrap_or(plain.0)),
+                    ModelClipKind::Shape => Painting::Shape(clip.shape.as_ref().unwrap_or(plain.1)),
+                    _ => return None,
+                };
+                Some((key_of(project, painting, width, height), painting))
+            })
+            .collect();
+        let mut seen = HashSet::new();
+        let todo: Vec<(u64, Painting<'_>)> = keys
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|(key, _)| seen.insert(*key))
+            .filter(|(key, _)| {
+                if live {
+                    self.live_painting(*key).is_none()
+                } else {
+                    // Painted this session is enough to leave it to the
+                    // pass, which looks for its file anyway: one look on
+                    // the disk a title, not two.
+                    !self
+                        .memo
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .contains_key(key)
+                        && self.kept_painting(*key, width, height).is_none()
+                }
+            })
+            .collect();
+        // One alone paints on this thread, in the pass, as it always did.
+        if todo.len() < 2 {
+            return keys;
+        }
+        let threads = std::thread::available_parallelism()
+            .map_or(1, std::num::NonZero::get)
+            .min(todo.len());
+        let mut held = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+        let fonts: &Fonts = self.fonts_for(project, &mut held);
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| {
+                    loop {
+                        let at = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&(key, painting)) = todo.get(at) else {
+                            return;
+                        };
+                        // A failure is said by the pass, which paints that
+                        // one again and logs why.
+                        let _ = if live {
+                            self.paint_live(fonts, key, painting, width, height)
+                                .map(|_| ())
+                        } else {
+                            self.paint_kept(fonts, key, painting, width, height)
+                                .map(|_| ())
+                        };
+                    }
+                });
+            }
+        });
+        keys
     }
 
     /// The faces, loaded once, with the project's own files added - each
