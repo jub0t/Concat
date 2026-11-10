@@ -1407,6 +1407,7 @@ version = "0.2.10"
 dependencies = [
  "fontdb 0.23.0",
  "memmap2",
+ "png 0.18.1",
  "rustybuzz",
  "tiny-skia 0.12.0",
  "ttf-parser",

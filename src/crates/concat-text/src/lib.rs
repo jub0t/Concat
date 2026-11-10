@@ -1476,50 +1476,99 @@ fn words(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
 
 /// A separable box blur over premultiplied RGBA, run twice for a soft
 /// falloff. Radius in pixels; zero leaves the picture alone.
+#[cfg(test)]
 fn blur(pixmap: &mut Pixmap, radius: usize) {
-    if radius == 0 {
+    let whole = (0, 0, pixmap.width() as usize, pixmap.height() as usize);
+    blur_within(pixmap, radius, whole);
+}
+
+/// [`blur`] over the part of `pixmap` from `(x0, y0)` to `(x1, y1)`, its
+/// edges held the way the whole picture's are.
+///
+/// The same pixels as blurring everything, when the part reaches at least
+/// `2 * radius + 1` past anything that is not clear (or to the picture's
+/// edge): each of the two runs spreads a pixel `radius` along each axis,
+/// so whatever lies further out is clear before, during and after, and a
+/// clear edge held is the clear picture beyond it. A title's shadow covers
+/// a strip of the frame, and blurring the frame round it was three
+/// quarters of the time a title took to paint.
+fn blur_within(pixmap: &mut Pixmap, radius: usize, (x0, y0, x1, y1): (usize, usize, usize, usize)) {
+    let stride = pixmap.width() as usize;
+    let (x1, y1) = (x1.min(stride), y1.min(pixmap.height() as usize));
+    if radius == 0 || x0 >= x1 || y0 >= y1 {
         return;
     }
-    let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
+    let (width, height) = (x1 - x0, y1 - y0);
+    let window = (2 * radius + 1) as u32;
     let data = pixmap.data_mut();
-    let mut scratch = vec![0u8; data.len()];
+    // The part alone, row after row: what the horizontal run writes and
+    // the vertical one reads.
+    let mut scratch = vec![0u8; width * height * 4];
+    let mut sums = vec![[0u32; 4]; width];
     for _ in 0..2 {
         // Horizontal, into scratch.
         for y in 0..height {
-            let row = y * width * 4;
-            for channel in 0..4 {
-                let mut sum: u32 = 0;
-                let window = (2 * radius + 1) as u32;
-                let at = |x: isize| -> u32 {
-                    let x = x.clamp(0, width as isize - 1) as usize;
-                    u32::from(data[row + x * 4 + channel])
-                };
-                for x in -(radius as isize)..=(radius as isize) {
-                    sum += at(x);
+            let row = &data[((y0 + y) * stride + x0) * 4..((y0 + y) * stride + x1) * 4];
+            let at = |x: isize| -> &[u8] {
+                let x = x.clamp(0, width as isize - 1) as usize;
+                &row[x * 4..x * 4 + 4]
+            };
+            let mut sum = [0u32; 4];
+            for x in -(radius as isize)..=(radius as isize) {
+                for (total, value) in sum.iter_mut().zip(at(x)) {
+                    *total += u32::from(*value);
                 }
-                for x in 0..width {
-                    scratch[row + x * 4 + channel] = (sum / window) as u8;
-                    sum += at(x as isize + radius as isize + 1);
-                    sum -= at(x as isize - radius as isize);
+            }
+            let out = &mut scratch[y * width * 4..(y + 1) * width * 4];
+            for x in 0..width {
+                for channel in 0..4 {
+                    out[x * 4 + channel] = (sum[channel] / window) as u8;
+                }
+                let (incoming, outgoing) = (
+                    at(x as isize + radius as isize + 1),
+                    at(x as isize - radius as isize),
+                );
+                for channel in 0..4 {
+                    sum[channel] += u32::from(incoming[channel]);
+                    sum[channel] -= u32::from(outgoing[channel]);
                 }
             }
         }
-        // Vertical, back into data.
-        for x in 0..width {
-            for channel in 0..4 {
-                let mut sum: u32 = 0;
-                let window = (2 * radius + 1) as u32;
-                let at = |y: isize| -> u32 {
-                    let y = y.clamp(0, height as isize - 1) as usize;
-                    u32::from(scratch[(y * width + x) * 4 + channel])
-                };
-                for y in -(radius as isize)..=(radius as isize) {
-                    sum += at(y);
+        // Vertical, back into data: a running sum for every column at
+        // once, so the part is read a row at a time.
+        let line = |y: isize| -> &[u8] {
+            let y = y.clamp(0, height as isize - 1) as usize;
+            &scratch[y * width * 4..(y + 1) * width * 4]
+        };
+        for column in sums.iter_mut() {
+            *column = [0; 4];
+        }
+        for y in -(radius as isize)..=(radius as isize) {
+            for (column, pixel) in sums.iter_mut().zip(line(y).chunks_exact(4)) {
+                for channel in 0..4 {
+                    column[channel] += u32::from(pixel[channel]);
                 }
-                for y in 0..height {
-                    data[(y * width + x) * 4 + channel] = (sum / window) as u8;
-                    sum += at(y as isize + radius as isize + 1);
-                    sum -= at(y as isize - radius as isize);
+            }
+        }
+        for y in 0..height {
+            let out = &mut data[((y0 + y) * stride + x0) * 4..((y0 + y) * stride + x1) * 4];
+            for (pixel, column) in out.chunks_exact_mut(4).zip(&sums) {
+                for channel in 0..4 {
+                    pixel[channel] = (column[channel] / window) as u8;
+                }
+            }
+            let (incoming, outgoing) = (
+                line(y as isize + radius as isize + 1),
+                line(y as isize - radius as isize),
+            );
+            for ((column, add), take) in sums
+                .iter_mut()
+                .zip(incoming.chunks_exact(4))
+                .zip(outgoing.chunks_exact(4))
+            {
+                for channel in 0..4 {
+                    column[channel] += u32::from(add[channel]);
+                    column[channel] -= u32::from(take[channel]);
                 }
             }
         }
@@ -1536,9 +1585,7 @@ pub fn render(
     height: u32,
 ) -> Result<Rendered, Error> {
     let (canvas, block, words) = paint(fonts, style, width, height)?;
-    let png = canvas
-        .encode_png()
-        .map_err(|error| Error::Encode(error.to_string()))?;
+    let png = encode_png(&canvas)?;
     Ok(Rendered {
         png,
         width: canvas.width(),
@@ -1984,15 +2031,54 @@ fn paint(
         for (_, path) in &words {
             layer.fill_path(path, &shade, FillRule::Winding, offset, None);
         }
-        blur(&mut layer, shadow_blur);
-        canvas.draw_pixmap(
-            0,
-            0,
-            layer.as_ref(),
-            &PixmapPaint::default(),
-            Transform::identity(),
-            None,
+        // Only where the shadow can reach: the words' bounds, moved as the
+        // shadow is, and the blur's spread past them; see `blur_within`.
+        // A pixel more each way for the antialiasing's fringe.
+        let reach = 2.0 * shadow_blur as f32 + 2.0;
+        let (left, top, right, bottom) = words.iter().fold(
+            (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+            |(left, top, right, bottom), (_, path)| {
+                let bounds = path.bounds();
+                (
+                    left.min(bounds.left()),
+                    top.min(bounds.top()),
+                    right.max(bounds.right()),
+                    bottom.max(bounds.bottom()),
+                )
+            },
         );
+        let (dx, dy) = (shadow_offset.0 + shift_x, shadow_offset.1 + shift_y);
+        let clamp_x = |value: f32| value.clamp(0.0, layer.width() as f32) as usize;
+        let clamp_y = |value: f32| value.clamp(0.0, layer.height() as f32) as usize;
+        let part = (
+            clamp_x((left + dx - reach).floor()),
+            clamp_y((top + dy - reach).floor()),
+            clamp_x((right + dx + reach).ceil()),
+            clamp_y((bottom + dy + reach).ceil()),
+        );
+        #[cfg(test)]
+        let part = if tests::WHOLE_SHADOW.with(std::cell::Cell::get) {
+            (0, 0, layer.width() as usize, layer.height() as usize)
+        } else {
+            part
+        };
+        blur_within(&mut layer, shadow_blur, part);
+        // Laid down over that part alone: the rest of the layer is clear,
+        // and clear over the canvas leaves it as it was.
+        let (x0, y0, x1, y1) = part;
+        if let Some(rect) =
+            tiny_skia::IntRect::from_xywh(x0 as i32, y0 as i32, (x1 - x0) as u32, (y1 - y0) as u32)
+            && let Some(piece) = layer.clone_rect(rect)
+        {
+            canvas.draw_pixmap(
+                x0 as i32,
+                y0 as i32,
+                piece.as_ref(),
+                &PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+        }
     }
 
     // The outline, under the fill so only its outer half shows - which is
@@ -2116,6 +2202,26 @@ fn push_rounded_rect(builder: &mut PathBuilder, rect: Rect, radius: f32) {
 // ── shapes ───────────────────────────────────────────────────────────────────
 //
 /// tiny-skia keeps premultiplied pixels; a frame carries straight alpha.
+/// `canvas` as a PNG, straight alpha, compressed the fast way.
+///
+/// A title's canvas is a frame or more of mostly clear pixels, and
+/// tiny-skia's own encoder deflates it at the default level: measured on
+/// an M5, that was over half of the time a 1080p title took to paint.
+/// The PNG holds the same pixels either way; this one is a little larger.
+fn encode_png(canvas: &Pixmap) -> Result<Vec<u8>, Error> {
+    let rgba = straight_rgba(canvas);
+    let mut png = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png, canvas.width(), canvas.height());
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Fast);
+    encoder
+        .write_header()
+        .and_then(|mut writer| writer.write_image_data(&rgba))
+        .map_err(|error| Error::Encode(error.to_string()))?;
+    Ok(png)
+}
+
 fn straight_rgba(canvas: &Pixmap) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(canvas.pixels().len() * 4);
     for pixel in canvas.pixels() {
@@ -2133,6 +2239,131 @@ fn straight_rgba(canvas: &Pixmap) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    std::thread_local! {
+        /// Blur and lay the whole shadow layer, as titles were painted
+        /// before `blur_within`: the reference the bounded shadow is held to.
+        pub(super) static WHOLE_SHADOW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// The blur as it was first written, a channel and a column at a time.
+    fn blur_as_written(pixmap: &mut Pixmap, radius: usize) {
+        let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
+        let data = pixmap.data_mut();
+        let mut scratch = vec![0u8; data.len()];
+        let window = (2 * radius + 1) as u32;
+        for _ in 0..2 {
+            for y in 0..height {
+                let row = y * width * 4;
+                for channel in 0..4 {
+                    let at = |x: isize| -> u32 {
+                        u32::from(data[row + x.clamp(0, width as isize - 1) as usize * 4 + channel])
+                    };
+                    let mut sum: u32 = (-(radius as isize)..=radius as isize).map(at).sum();
+                    for x in 0..width {
+                        scratch[row + x * 4 + channel] = (sum / window) as u8;
+                        sum += at(x as isize + radius as isize + 1);
+                        sum -= at(x as isize - radius as isize);
+                    }
+                }
+            }
+            for x in 0..width {
+                for channel in 0..4 {
+                    let at = |y: isize| -> u32 {
+                        u32::from(
+                            scratch[(y.clamp(0, height as isize - 1) as usize * width + x) * 4
+                                + channel],
+                        )
+                    };
+                    let mut sum: u32 = (-(radius as isize)..=radius as isize).map(at).sum();
+                    for y in 0..height {
+                        data[(y * width + x) * 4 + channel] = (sum / window) as u8;
+                        sum += at(y as isize + radius as isize + 1);
+                        sum -= at(y as isize - radius as isize);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A title's PNG holds exactly the pixels painted for it.
+    #[test]
+    fn the_png_holds_the_painted_pixels() {
+        let fonts = Fonts::new();
+        let look = style("Kept on disk");
+        let painted = render_frame(&fonts, &look, 640, 360).unwrap();
+        let written = render(&fonts, &look, 640, 360).unwrap();
+        let mut reader = png::Decoder::new(std::io::Cursor::new(&written.png))
+            .read_info()
+            .expect("a PNG");
+        let mut pixels = vec![0; reader.output_buffer_size().expect("a size")];
+        let info = reader.next_frame(&mut pixels).expect("decodes");
+        assert_eq!((info.width, info.height), (written.width, written.height));
+        assert!(pixels[..info.buffer_size()] == painted.rgba[..]);
+    }
+
+    /// The blur reworked a row at a time is the blur as written, to the
+    /// byte, over noise at several radii.
+    #[test]
+    fn the_blur_is_the_blur_it_was() {
+        let mut seed = 0x2545_f491_u32;
+        let mut noise = Pixmap::new(97, 61).expect("a pixmap");
+        for byte in noise.data_mut() {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            *byte = seed as u8;
+        }
+        for radius in [1, 2, 5, 9, 40] {
+            let (mut ours, mut written) = (noise.clone(), noise.clone());
+            blur(&mut ours, radius);
+            blur_as_written(&mut written, radius);
+            assert!(ours.data() == written.data(), "radius {radius}");
+        }
+    }
+
+    /// A shadow blurred and laid over its own part of the frame paints the
+    /// same title, to the byte, as one blurred over the whole frame - in
+    /// every alignment, size and shape of block, at the frame's edges too.
+    #[test]
+    fn a_bounded_shadow_paints_the_same_title() {
+        let fonts = Fonts::new();
+        let mut looks = Vec::new();
+        for align in [Align::Left, Align::Center, Align::Right] {
+            for (content, size) in [
+                ("A caption on one line", 0.05),
+                ("Two lines\nof words", 0.09),
+                (
+                    "Wider than the whole frame, so it runs off both edges of it",
+                    0.2,
+                ),
+            ] {
+                looks.push(TitleStyle {
+                    align,
+                    font_size: size,
+                    ..style(content)
+                });
+            }
+        }
+        looks.push(TitleStyle {
+            stroke_width: 0.01,
+            background: "#202020".to_owned(),
+            ..style("Plated and outlined")
+        });
+        for look in &looks {
+            for (width, height) in [(640, 360), (1080, 1920)] {
+                WHOLE_SHADOW.with(|whole| whole.set(true));
+                let whole = render_frame(&fonts, look, width, height).unwrap();
+                WHOLE_SHADOW.with(|whole| whole.set(false));
+                let bounded = render_frame(&fonts, look, width, height).unwrap();
+                assert!(
+                    whole.rgba == bounded.rgba,
+                    "{:?} at {width}x{height}",
+                    look.content
+                );
+            }
+        }
+    }
 
     #[test]
     fn a_font_file_names_its_family_and_anything_else_names_none() {
