@@ -227,7 +227,16 @@ impl Titles {
     /// each, for a `width` × `height` frame. One that fails to paint is left
     /// out and said once on stderr; the rest of the edit still renders.
     pub fn clips(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
-        self.clips_with(project, width, height, false)
+        self.clips_with(project, width, height, false, true).0
+    }
+
+    /// [`Titles::clips`] without painting: the titles painted already, and
+    /// whether that is every one. For the window, which must never wait on
+    /// a painter (hundreds of captions are seconds of painting on a phone)
+    /// and paints what is missing on a thread of its own, drawing what is
+    /// there meanwhile.
+    pub fn ready(&self, project: &Project, width: u32, height: u32) -> (Vec<TitleClip>, bool) {
+        self.clips_with(project, width, height, false, false)
     }
 
     /// [`Titles::clips`] for a monitor showing a change as it is made:
@@ -237,21 +246,38 @@ impl Titles {
     /// touches the disk, which is what makes a drag smooth: a PNG per
     /// pointer step, encoded, written and decoded again, was the lag.
     pub fn clips_live(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
-        self.clips_with(project, width, height, true)
+        self.clips_with(project, width, height, true, true).0
     }
 
-    fn clips_with(&self, project: &Project, width: u32, height: u32, live: bool) -> Vec<TitleClip> {
+    /// The titles as image clips, and whether every one is there: `paint`
+    /// paints those that are not, and without it they are left out.
+    fn clips_with(
+        &self,
+        project: &Project,
+        width: u32,
+        height: u32,
+        live: bool,
+        paint: bool,
+    ) -> (Vec<TitleClip>, bool) {
         if live {
             self.live.lock().unwrap_or_else(|e| e.into_inner()).begin();
         }
         let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
-        let keys = self.paint_ahead(project, width, height, live, (&plain_text, &plain_shape));
+        let keys = keys_of(project, width, height, (&plain_text, &plain_shape));
+        if paint {
+            self.paint_ahead(project, width, height, live, &keys);
+        }
         let timeline = project.active();
         let mut out = Vec::new();
+        let mut complete = true;
         for (clip, key) in timeline.clips.iter().zip(keys) {
             let Some((key, painting)) = key else {
                 continue;
             };
+            if !paint && !live && self.kept_painting(key, width, height).is_none() {
+                complete = false;
+                continue;
+            }
             let Some(index) = timeline
                 .tracks
                 .iter()
@@ -350,7 +376,7 @@ impl Titles {
                 frame,
             });
         }
-        out
+        (out, complete)
     }
 
     /// One style at one size, painted in memory: the name the monitor is
@@ -521,30 +547,14 @@ impl Titles {
     /// The faces are shared by every thread: they are loaded first, with
     /// the project's own, and only read while the titles paint.
     ///
-    /// Gives back each clip's key and painting, in the timeline's order -
-    /// `None` for a clip that is neither - so the pass names each once.
-    /// A clip with no style of its own is painted in `plain`.
-    fn paint_ahead<'a>(
+    fn paint_ahead(
         &self,
-        project: &'a Project,
+        project: &Project,
         width: u32,
         height: u32,
         live: bool,
-        plain: (&'a TextStyle, &'a ShapeStyle),
-    ) -> Vec<Option<(u64, Painting<'a>)>> {
-        let keys: Vec<Option<(u64, Painting<'a>)>> = project
-            .active()
-            .clips
-            .iter()
-            .map(|clip| {
-                let painting = match clip.kind {
-                    ModelClipKind::Text => Painting::Title(clip.text.as_ref().unwrap_or(plain.0)),
-                    ModelClipKind::Shape => Painting::Shape(clip.shape.as_ref().unwrap_or(plain.1)),
-                    _ => return None,
-                };
-                Some((key_of(project, painting, width, height), painting))
-            })
-            .collect();
+        keys: &[Option<(u64, Painting<'_>)>],
+    ) {
         let mut seen = HashSet::new();
         let todo: Vec<(u64, Painting<'_>)> = keys
             .iter()
@@ -569,7 +579,7 @@ impl Titles {
             .collect();
         // One alone paints on this thread, in the pass, as it always did.
         if todo.len() < 2 {
-            return keys;
+            return;
         }
         let threads = std::thread::available_parallelism()
             .map_or(1, std::num::NonZero::get)
@@ -598,7 +608,6 @@ impl Titles {
                 });
             }
         });
-        keys
     }
 
     /// The faces, loaded once, with the project's own files added - each
@@ -628,6 +637,30 @@ impl Titles {
 /// FNV-1a over the bytes, as the other caches on disk are keyed, because a
 /// file's name has to mean the same thing after a toolchain upgrade and the
 /// standard hasher makes no such promise.
+/// Each clip's key and painting, in the timeline's order - `None` for a
+/// clip that is neither a title nor a shape - so a pass names each once.
+/// A clip with no style of its own is painted in `plain`.
+fn keys_of<'a>(
+    project: &'a Project,
+    width: u32,
+    height: u32,
+    plain: (&'a TextStyle, &'a ShapeStyle),
+) -> Vec<Option<(u64, Painting<'a>)>> {
+    project
+        .active()
+        .clips
+        .iter()
+        .map(|clip| {
+            let painting = match clip.kind {
+                ModelClipKind::Text => Painting::Title(clip.text.as_ref().unwrap_or(plain.0)),
+                ModelClipKind::Shape => Painting::Shape(clip.shape.as_ref().unwrap_or(plain.1)),
+                _ => return None,
+            };
+            Some((key_of(project, painting, width, height), painting))
+        })
+        .collect()
+}
+
 fn key_of(project: &Project, painting: Painting<'_>, width: u32, height: u32) -> u64 {
     let mut bytes = Vec::new();
     // The style as JSON: every field, in a stable order, with no need to
@@ -1027,6 +1060,38 @@ mod tests {
         assert_eq!(painted.content, "STRASSE ROT");
         assert_eq!((painted.runs[0].start, painted.runs[0].end), (8, 11));
         assert_eq!(painted.runs[0].color.as_deref(), Some("#ff0000"));
+        let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
+    }
+
+    /// The window's look paints nothing: titles not painted yet are left
+    /// out and said to be missing, and once a painter has been through,
+    /// every one is there and the look says so.
+    #[test]
+    fn ready_paints_nothing_and_says_what_is_missing() {
+        let dirs = scratch("ready_paints");
+        let mut editor = Editor::new();
+        for start in [0.0, 2.0, 4.0] {
+            editor
+                .apply(Command::AddTextClip {
+                    above: true,
+                    track_id: None,
+                    start,
+                    style: None,
+                    duration: Some(1.5),
+                    offset_y: None,
+                })
+                .expect("a title is added");
+        }
+        let titles = Titles::new(&dirs);
+        let (none, complete) = titles.ready(editor.project(), 640, 360);
+        assert!(
+            none.is_empty() && !complete,
+            "nothing painted, and it says so"
+        );
+        assert_eq!(titles.clips(editor.project(), 640, 360).len(), 3);
+        let (all, complete) = titles.ready(editor.project(), 640, 360);
+        assert_eq!(all.len(), 3);
+        assert!(complete);
         let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 

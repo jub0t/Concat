@@ -153,8 +153,16 @@ fn edit_scale() {
             Titles::new(&dirs).clips_live(&project, 960, 540);
             begun.elapsed().as_secs_f64() * 1000.0 / count as f64
         };
+        // What the window's thread pays on that open now: a look at what
+        // is painted, with nothing painted yet.
+        let fresh = Titles::new(&AppDirs::under(&dir.join(format!("ready-{count}"))));
+        let _ = std::fs::remove_dir_all(dir.join(format!("ready-{count}")));
+        let begun = Instant::now();
+        let _ = fresh.ready(&project, 1920, 1080);
+        let looked = begun.elapsed().as_secs_f64() * 1000.0;
         eprintln!(
-            "{count:>6} cold paint {cold:.2} ms a title (1080p, kept on disk), {cold_live:.2} ms live (540p)"
+            "{count:>6} cold paint {cold:.2} ms a title (1080p, kept on disk), \
+             {cold_live:.2} ms live (540p); the window's look with none painted {looked:.2} ms"
         );
         // Painted once into the cache, then timed warm: what an edit that
         // changed no title pays.

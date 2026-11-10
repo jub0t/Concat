@@ -1150,6 +1150,11 @@ pub struct Studio {
         u32,
         std::sync::Arc<Vec<concat_export::ExportClip>>,
     )>,
+    /// A run painting the titles the monitor is missing is under way; see
+    /// `Studio::paint_titles`.
+    titles_painting: bool,
+    /// The revision and size the painter last ran for.
+    titles_tried: Option<(u64, u32, u32)>,
     /// An inspector commit waiting to land: a knob being dragged commits
     /// on every move, and each commit was a command, an undo of the last,
     /// a rebuild of the mix and a full publish. The commit is held until
@@ -2770,6 +2775,8 @@ impl Studio {
             audition: None,
             revision: 0,
             flat: None,
+            titles_painting: false,
+            titles_tried: None,
             commit_pending: false,
             commit_targets: Vec::new(),
             words: None,
