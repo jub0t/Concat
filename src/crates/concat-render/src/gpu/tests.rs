@@ -2650,6 +2650,10 @@ fn chroma_key_bisected_on_this_adapter() {
         "soften_across",
         "effect",
     ];
+    // Windows checks the shader out with CRLF; the parts below are matched
+    // as written, in LF.
+    let source = BODY.replace("\r\n", "\n");
+    let source = source.as_str();
     // `name`'s function renamed out of the way and a constant in its place;
     // `effect` passes the layer through.
     let stub = |body: &str, name: &str| {
@@ -2674,20 +2678,20 @@ fn chroma_key_bisected_on_this_adapter() {
             ),
         )
     };
-    let mut variants: Vec<(String, String)> = vec![("whole".to_owned(), BODY.to_owned())];
+    let mut variants: Vec<(String, String)> = vec![("whole".to_owned(), source.to_owned())];
     for name in STAGES {
-        variants.push((format!("without {name}"), stub(BODY, name)));
+        variants.push((format!("without {name}"), stub(source, name)));
         let only = STAGES
             .iter()
             .filter(|other| **other != name)
-            .fold(BODY.to_owned(), |body, other| stub(&body, other));
+            .fold(source.to_owned(), |body, other| stub(&body, other));
         variants.push((format!("only {name}"), only));
     }
     variants.push((
         "all stubbed".to_owned(),
         STAGES
             .iter()
-            .fold(BODY.to_owned(), |body, name| stub(&body, name)),
+            .fold(source.to_owned(), |body, name| stub(&body, name)),
     ));
     // The matte alone loses WARP its device and the rest do not (CI,
     // 2026-11-10): its parts taken out one at a time, in the matte alone
@@ -2712,17 +2716,17 @@ fn chroma_key_bisected_on_this_adapter() {
     let only_matte = STAGES
         .iter()
         .filter(|other| **other != "matte")
-        .fold(BODY.to_owned(), |body, other| stub(&body, other));
-    let mut all_out = (only_matte.clone(), BODY.to_owned());
+        .fold(source.to_owned(), |body, other| stub(&body, other));
+    let mut all_out = (only_matte.clone(), source.to_owned());
     for (part, from, to) in parts {
-        assert!(BODY.contains(from), "the matte's {part} is where it was");
+        assert!(source.contains(from), "the matte's {part} is where it was");
         variants.push((
             format!("only matte, without its {part}"),
             only_matte.replace(from, to),
         ));
         variants.push((
             format!("whole, matte without its {part}"),
-            BODY.replace(from, to),
+            source.replace(from, to),
         ));
         all_out = (all_out.0.replace(from, to), all_out.1.replace(from, to));
     }
