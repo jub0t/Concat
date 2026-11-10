@@ -1977,6 +1977,9 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
     if after.mask != before.mask {
         patch.mask = Some(after.mask);
     }
+    if after.motion != before.motion {
+        patch.motion = Some(after.motion.clone());
+    }
     if after.shape != before.shape
         && let Some(shape) = after.shape.clone()
     {
@@ -2951,6 +2954,37 @@ mod tests {
             super::clip_commands("c1", &on, &before, false)
                 .iter()
                 .any(|command| matches!(command, Command::SetClipVoice { voice: None, .. }))
+        );
+    }
+
+    /// The Animate cards write the clip's motion into the echo; a commit
+    /// that had no command for motion dropped the pick, and the card sprang
+    /// back to None. Picked, changed and taken off, each lands.
+    #[test]
+    fn a_motion_picked_in_the_inspector_is_committed() {
+        use concat_project::model::{Clip, ClipKind as Kind, ClipMotion, ClipMove};
+        let before = Clip::blank("c1", "t1", Kind::Video, "m1", 0.0, 4.0);
+        let mut after = before.clone();
+        after.motion = Some(ClipMotion {
+            enter: Some(ClipMove {
+                kind: "pop".to_owned(),
+                seconds: 0.5,
+            }),
+            ..ClipMotion::default()
+        });
+        let patched = |commands: Vec<Command>| {
+            commands.into_iter().find_map(|command| match command {
+                Command::UpdateClip { patch, .. } => patch.motion,
+                _ => None,
+            })
+        };
+        assert_eq!(
+            patched(super::clip_commands("c1", &before, &after, false)),
+            Some(after.motion.clone())
+        );
+        assert_eq!(
+            patched(super::clip_commands("c1", &after, &before, false)),
+            Some(None)
         );
     }
 

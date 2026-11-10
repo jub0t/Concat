@@ -79,7 +79,7 @@ component MotionCard inherits Rectangle {
             height: parent.height * Math.max(0, root.pose.scale * root.pose.sy);
             x: (parent.width - self.width) / 2 + parent.width * root.pose.dx;
             y: (parent.height - self.height) / 2 + parent.height * root.pose.dy;
-            rotation-angle: root.pose.rotation * 1deg;
+            transform-rotation: root.pose.rotation * 1deg;
             opacity: Math.max(0, Math.min(1, root.pose.opacity));
         }
 
