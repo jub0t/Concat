@@ -12,6 +12,8 @@
 //! -p concat-host --release --test playback_feel -- --ignored --nocapture`;
 //! `CONCAT_PLAY_SIZE` the monitor's frame (960x540), `CONCAT_PLAY_LAYERS`
 //! clips stacked (1), `CONCAT_PLAY_SECONDS` how long it plays (8).
+//! The monitor's frame path is the GPU build's: `--features gpu`.
+#![cfg(feature = "gpu")]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
