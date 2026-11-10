@@ -3616,7 +3616,10 @@ mod tests {
             .expect("masks");
         let clip = editor.project().active().clip(&clip_id).expect("clip");
         assert_eq!(
-            clip.masks.iter().map(|mask| mask.id.as_str()).collect::<Vec<_>>(),
+            clip.masks
+                .iter()
+                .map(|mask| mask.id.as_str())
+                .collect::<Vec<_>>(),
             ["mask-1", "mask-2"],
             "a repeated id is minted anew"
         );

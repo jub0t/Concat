@@ -706,7 +706,9 @@ impl Studio {
                     };
                     // Only the numbers the grip moves: a keyed one the drag
                     // left alone must not gain a key here.
-                    for ((number, value), (_, was)) in next.numbers().into_iter().zip(start.numbers()) {
+                    for ((number, value), (_, was)) in
+                        next.numbers().into_iter().zip(start.numbers())
+                    {
                         if value != was {
                             clip.masks[index].write_at(number, value, at);
                         }

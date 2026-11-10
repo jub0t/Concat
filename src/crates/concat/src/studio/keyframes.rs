@@ -288,8 +288,10 @@ impl Studio {
                 if !is_current && held.is_empty() {
                     continue;
                 }
-                let keys: Vec<(f64, f64, model::KeyEase)> =
-                    held.iter().map(|key| (key.at, key.value, key.ease)).collect();
+                let keys: Vec<(f64, f64, model::KeyEase)> = held
+                    .iter()
+                    .map(|key| (key.at, key.value, key.ease))
+                    .collect();
                 let span = knob.maximum - knob.minimum;
                 let (marks, curve, ease_index) =
                     marks_and_curve(&keys, &|value| (value - knob.minimum) / span);
@@ -993,9 +995,15 @@ impl Studio {
             let (start, duration) = (clip.start, clip.duration);
             let times = self.mask_key_times(field);
             let target = if delta < 0 {
-                times.into_iter().filter(|&key| key < at - model::KEY_EPSILON).reduce(f64::max)
+                times
+                    .into_iter()
+                    .filter(|&key| key < at - model::KEY_EPSILON)
+                    .reduce(f64::max)
             } else {
-                times.into_iter().filter(|&key| key > at + model::KEY_EPSILON).reduce(f64::min)
+                times
+                    .into_iter()
+                    .filter(|&key| key > at + model::KEY_EPSILON)
+                    .reduce(f64::min)
             };
             if let Some(target) = target {
                 self.seek((start + target * duration) as f32);
@@ -1264,7 +1272,11 @@ impl Studio {
                 .map_or(-1, |index| index as i32),
             mask_invert: current_mask.is_some_and(|mask| mask.invert),
             mask_mode: current_mask
-                .and_then(|mask| model::MaskMode::ALL.iter().position(|mode| *mode == mask.mode))
+                .and_then(|mask| {
+                    model::MaskMode::ALL
+                        .iter()
+                        .position(|mode| *mode == mask.mode)
+                })
                 .map_or(0, |index| index as i32),
             motion_in: motion_place(
                 clip.motion

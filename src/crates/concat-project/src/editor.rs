@@ -369,4 +369,3 @@ pub struct RetiredFields {
     /// Clips an earlier version moved with a preset animation.
     pub animated: Vec<String>,
 }
-

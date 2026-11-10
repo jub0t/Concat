@@ -473,7 +473,10 @@ mod tests {
         let middle = clip.masks_at(Rational::from_int(5));
         assert!((start.masks[0].shape.x + 0.2).abs() < 1e-12);
         assert!(middle.masks[0].shape.x.abs() < 1e-12);
-        assert_eq!(middle.masks[0].shape.shape, concat_core::mask::MaskShape::Heart);
+        assert_eq!(
+            middle.masks[0].shape.shape,
+            concat_core::mask::MaskShape::Heart
+        );
         assert!((middle.masks[0].shape.feather - 0.2).abs() < 1e-12);
         assert_eq!(middle.masks[1].mode, concat_core::mask::MaskMode::Subtract);
     }

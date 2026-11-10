@@ -1355,7 +1355,9 @@ impl Mask {
     pub fn tidy(mut self) -> Mask {
         let fresh = Mask::of("", "", self.shape().unwrap_or_default());
         for number in Self::NUMBERS {
-            let Some(value) = self.get(number) else { continue };
+            let Some(value) = self.get(number) else {
+                continue;
+            };
             let value = Some(value)
                 .filter(|value| value.is_finite())
                 .or_else(|| fresh.get(number))
@@ -1501,7 +1503,10 @@ mod key_runs {
     }
 
     /// The run as the engine plays it.
-    pub fn track(runs: &BTreeMap<String, Vec<ParamKey>>, name: &str) -> concat_core::animate::Track {
+    pub fn track(
+        runs: &BTreeMap<String, Vec<ParamKey>>,
+        name: &str,
+    ) -> concat_core::animate::Track {
         concat_core::animate::Track::new(
             on(runs, name)
                 .iter()

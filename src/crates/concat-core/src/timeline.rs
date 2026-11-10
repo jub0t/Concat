@@ -13,8 +13,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::animate::Animation;
-use crate::arena::{Arena, Id};
 use crate::animate::RidingMask;
+use crate::arena::{Arena, Id};
 use crate::mask::MaskStack;
 use crate::motion::{Motion, Pose};
 use crate::retime::SpeedCurve;

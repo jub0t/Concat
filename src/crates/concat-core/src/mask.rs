@@ -368,7 +368,10 @@ impl MaskStack {
                 None => floats.extend([0.0; 16]),
             }
         }
-        floats.iter().flat_map(|value| value.to_le_bytes()).collect()
+        floats
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect()
     }
 
     /// How much of the picture the stack keeps at `u`, `v`, `0..1` across

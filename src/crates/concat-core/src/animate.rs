@@ -338,8 +338,16 @@ impl RidingMask {
                 height: shape.height * scale,
                 ..shape
             },
-            opacity: self.tracks.opacity.value_at(x, self.base.opacity).clamp(0.0, 1.0),
-            expand: self.tracks.expand.value_at(x, self.base.expand).clamp(-0.5, 0.5),
+            opacity: self
+                .tracks
+                .opacity
+                .value_at(x, self.base.opacity)
+                .clamp(0.0, 1.0),
+            expand: self
+                .tracks
+                .expand
+                .value_at(x, self.base.expand)
+                .clamp(-0.5, 0.5),
             ..self.base
         }
     }

@@ -62,7 +62,13 @@ pub(super) struct MaskKnob {
 
 /// See [`MaskKnob`]. None for a name that is not a mask's number.
 pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
-    let knob = |label: String, (minimum, maximum): (f64, f64), step, default_value, fmt, unit, unit_scale| MaskKnob {
+    let knob = |label: String,
+                (minimum, maximum): (f64, f64),
+                step,
+                default_value,
+                fmt,
+                unit,
+                unit_scale| MaskKnob {
         label,
         minimum,
         maximum,
@@ -73,15 +79,87 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
         unit_scale,
     };
     Some(match number {
-        "x" => knob(t("common.positionX"), (-1.0, 1.0), 0.005, 0.0, ParamFormat::Centred, "%", 100.0),
-        "y" => knob(t("common.positionY"), (-1.0, 1.0), 0.005, 0.0, ParamFormat::Centred, "%", 100.0),
-        "width" => knob(t("common.width"), (0.01, 4.0), 0.01, 0.66, ParamFormat::Fraction, "%", 100.0),
-        "height" => knob(t("common.height"), (0.01, 4.0), 0.01, 0.66, ParamFormat::Fraction, "%", 100.0),
-        "rotation" => knob(t("common.rotation"), (-180.0, 180.0), 1.0, 0.0, ParamFormat::Degrees, "°", 1.0),
-        "roundness" => knob(t("mask.roundness"), (0.0, 1.0), 0.01, 0.0, ParamFormat::Fraction, "%", 100.0),
-        "feather" => knob(t("clipInspector.feather"), (0.0, 1.0), 0.01, 0.0, ParamFormat::Fraction, "%", 100.0),
-        "expand" => knob(t("mask.expand"), (-0.5, 0.5), 0.005, 0.0, ParamFormat::Centred, "%", 100.0),
-        "opacity" => knob(t("common.opacity"), (0.0, 1.0), 0.01, 1.0, ParamFormat::Fraction, "%", 100.0),
+        "x" => knob(
+            t("common.positionX"),
+            (-1.0, 1.0),
+            0.005,
+            0.0,
+            ParamFormat::Centred,
+            "%",
+            100.0,
+        ),
+        "y" => knob(
+            t("common.positionY"),
+            (-1.0, 1.0),
+            0.005,
+            0.0,
+            ParamFormat::Centred,
+            "%",
+            100.0,
+        ),
+        "width" => knob(
+            t("common.width"),
+            (0.01, 4.0),
+            0.01,
+            0.66,
+            ParamFormat::Fraction,
+            "%",
+            100.0,
+        ),
+        "height" => knob(
+            t("common.height"),
+            (0.01, 4.0),
+            0.01,
+            0.66,
+            ParamFormat::Fraction,
+            "%",
+            100.0,
+        ),
+        "rotation" => knob(
+            t("common.rotation"),
+            (-180.0, 180.0),
+            1.0,
+            0.0,
+            ParamFormat::Degrees,
+            "°",
+            1.0,
+        ),
+        "roundness" => knob(
+            t("mask.roundness"),
+            (0.0, 1.0),
+            0.01,
+            0.0,
+            ParamFormat::Fraction,
+            "%",
+            100.0,
+        ),
+        "feather" => knob(
+            t("clipInspector.feather"),
+            (0.0, 1.0),
+            0.01,
+            0.0,
+            ParamFormat::Fraction,
+            "%",
+            100.0,
+        ),
+        "expand" => knob(
+            t("mask.expand"),
+            (-0.5, 0.5),
+            0.005,
+            0.0,
+            ParamFormat::Centred,
+            "%",
+            100.0,
+        ),
+        "opacity" => knob(
+            t("common.opacity"),
+            (0.0, 1.0),
+            0.01,
+            1.0,
+            ParamFormat::Fraction,
+            "%",
+            100.0,
+        ),
         _ => return None,
     })
 }
@@ -270,7 +348,10 @@ impl Studio {
         let Some((clip, at)) = self.key_point() else {
             return Vec::new();
         };
-        let Some(mask) = self.current_mask(clip).filter(|mask| mask.get(number).is_some()) else {
+        let Some(mask) = self
+            .current_mask(clip)
+            .filter(|mask| mask.get(number).is_some())
+        else {
             return Vec::new();
         };
         let (clip_id, mask_id, number) = (clip.id.clone(), mask.id.clone(), number.to_owned());
@@ -323,7 +404,9 @@ impl Studio {
     pub(super) fn mask_clear_command(&self, field: ClipField) -> Option<Command> {
         let number = mask_number_of(field)?;
         let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
-        let mask = self.current_mask(clip).filter(|mask| mask.is_keyed(number))?;
+        let mask = self
+            .current_mask(clip)
+            .filter(|mask| mask.is_keyed(number))?;
         Some(Command::ClearMaskKeys {
             clip_id: clip.id.clone(),
             mask_id: mask.id.clone(),
@@ -351,8 +434,8 @@ impl Studio {
                 keyed: !mask.keys.is_empty(),
             })
             .collect();
-        let current = current_index(&clip.masks, self.mask_focus.as_deref())
-            .map_or(-1, |index| index as i32);
+        let current =
+            current_index(&clip.masks, self.mask_focus.as_deref()).map_or(-1, |index| index as i32);
         (rows, current)
     }
 }
