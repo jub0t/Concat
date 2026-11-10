@@ -145,16 +145,24 @@ jobs:
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review. Lints
       # before tests: they finish in a fraction of the time and catch the
-      # most. Two jobs at a time: checking the window's crate takes about
-      # 5 GB in one rustc, and --all-targets checks it, its tests and the
-      # Android shell's alike, so four at once ran the 16 GB runner out
-      # of memory and the job died as a "shutdown signal" (from 2026-11-04).
+      # most. The window's crate is linted on its own, one rustc at a time:
+      # its generated UI (some 86 MB of Rust) takes 9 GB to check its
+      # library alone and about as much its tests, so two at once ran the
+      # 16 GB runner out of memory and Clippy died of SIGTERM (exit 143)
+      # four minutes in, on every run from 2026-11-04 to 11-10. The rest
+      # of the workspace keeps every core.
       - name: Clippy
         timeout-minutes: 25
         working-directory: src
         run: |
           set -o pipefail
-          cargo clippy --workspace --all-targets -j 2 -- -D warnings 2>&1 | tee clippy.log
+          cargo clippy --workspace --exclude concat --exclude concat-android --all-targets -- -D warnings 2>&1 | tee clippy.log
+      - name: Clippy (the window and the Android shell)
+        timeout-minutes: 35
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo clippy -p concat -p concat-android --all-targets -j 1 -- -D warnings 2>&1 | tee clippy-window.log
 
       # The tests are compiled in a step of their own, so a slow compile
       # and a slow test are told apart by which step ran out of time. One
@@ -214,7 +222,7 @@ jobs:
       # failures in it into annotations on the run (scripts/ci/annotate.py).
       - name: Failures to annotations (failure only)
         if: failure()
-        run: python3 scripts/ci/annotate.py src/clippy.log src/build-tests.log src/nextest-workspace.log src/clippy-grpc.log src/nextest-grpc.log
+        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/build-tests.log src/nextest-workspace.log src/clippy-grpc.log src/nextest-grpc.log
 
       - name: Keep the test report (failure only)
         if: failure()
