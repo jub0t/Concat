@@ -2689,6 +2689,45 @@ fn chroma_key_bisected_on_this_adapter() {
             .iter()
             .fold(BODY.to_owned(), |body, name| stub(&body, name)),
     ));
+    // The matte alone loses WARP its device and the rest do not (CI,
+    // 2026-11-10): its parts taken out one at a time, in the matte alone
+    // and in the whole key, to name the one and to try the key without it.
+    let parts: [(&str, &str, &str); 3] = [
+        (
+            "early return",
+            "    if (!keyable(s)) {\n        return vec4<f32>(1.0);\n    }\n    let p = dominant(s.rgb);\n    let pitch",
+            "    let p = dominant(s.rgb);\n    let pitch",
+        ),
+        (
+            "plate read",
+            "excess(smooth_colour, p) / reach(uv, s.rgb, p)",
+            "excess(smooth_colour, p) / max(excess(s.rgb, p), 1e-4)",
+        ),
+        (
+            "smoothing",
+            "let smooth_colour = sum.rgb / max(sum.a, 1e-6);",
+            "let smooth_colour = sample_premultiplied(uv).rgb + 0.0 * sum.rgb;",
+        ),
+    ];
+    let only_matte = STAGES
+        .iter()
+        .filter(|other| **other != "matte")
+        .fold(BODY.to_owned(), |body, other| stub(&body, other));
+    let mut all_out = (only_matte.clone(), BODY.to_owned());
+    for (part, from, to) in parts {
+        assert!(BODY.contains(from), "the matte's {part} is where it was");
+        variants.push((
+            format!("only matte, without its {part}"),
+            only_matte.replace(from, to),
+        ));
+        variants.push((
+            format!("whole, matte without its {part}"),
+            BODY.replace(from, to),
+        ));
+        all_out = (all_out.0.replace(from, to), all_out.1.replace(from, to));
+    }
+    variants.push(("only matte, without all three".to_owned(), all_out.0));
+    variants.push(("whole, matte without all three".to_owned(), all_out.1));
 
     let canary = package("test.canary", INVERT, "", &[], 1.0);
     let mut verdicts = Vec::new();
