@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Third-party crates carried with a patch (see src/patches/README.md):
+# upstream code, so GitHub's language bar counts Concat's own.
+src/patches/** linguist-vendored
