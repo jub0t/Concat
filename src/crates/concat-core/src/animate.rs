@@ -452,19 +452,21 @@ mod tests {
 
     #[test]
     fn a_mask_rides_its_keys_absolutely() {
-        let mut tracks = MaskTracks::default();
-        tracks.width = Track::new(vec![
-            key(0.0, 0.2, Ease::LINEAR),
-            key(1.0, 0.6, Ease::LINEAR),
-        ]);
-        tracks.feather = Track::new(vec![
-            key(0.0, 0.0, Ease::LINEAR),
-            key(0.5, 2.0, Ease::LINEAR),
-        ]);
-        tracks.opacity = Track::new(vec![
-            key(0.0, 1.0, Ease::LINEAR),
-            key(1.0, 0.0, Ease::LINEAR),
-        ]);
+        let tracks = MaskTracks {
+            width: Track::new(vec![
+                key(0.0, 0.2, Ease::LINEAR),
+                key(1.0, 0.6, Ease::LINEAR),
+            ]),
+            feather: Track::new(vec![
+                key(0.0, 0.0, Ease::LINEAR),
+                key(0.5, 2.0, Ease::LINEAR),
+            ]),
+            opacity: Track::new(vec![
+                key(0.0, 1.0, Ease::LINEAR),
+                key(1.0, 0.0, Ease::LINEAR),
+            ]),
+            ..MaskTracks::default()
+        };
         assert!(!tracks.is_empty());
         let riding = RidingMask {
             base: StackedMask::adding(ShapeMask {
