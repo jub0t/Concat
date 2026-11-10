@@ -250,9 +250,11 @@ fn reach(uv: vec2<f32>, s: vec3<f32>, p: i32) -> f32 {
 /// is added to a colour, so the smoothing is of its colour alone.
 fn matte(uv: vec2<f32>) -> vec4<f32> {
     let s = screen_colour();
-    if (!keyable(s)) {
-        return vec4<f32>(1.0);
-    }
+    // No early return for a screen there is no keying: with one ahead of
+    // the plate read, this pass alone left Windows CI's WARP device lost
+    // under FXC (#673, bisected on CI). The matte is worked out always and
+    // the subject kept whole at the end; the test is the same for every
+    // pixel, so nothing diverges.
     let p = dominant(s.rgb);
     let pitch = texel() * 1.2;
     // Written out, no loop, as `plate` is (#673): corners 25, edges 30,
@@ -270,7 +272,8 @@ fn matte(uv: vec2<f32>) -> vec4<f32> {
     let raw = 1.0 - params.strength / 100.0 * excess(smooth_colour, p) / reach(uv, s.rgb, p);
     let black = params.clip_black / 100.0;
     let white = max(params.clip_white / 100.0, black + 0.01);
-    return vec4<f32>(clamp((raw - black) / (white - black), 0.0, 1.0), 0.0, 0.0, 1.0);
+    let level = clamp((raw - black) / (white - black), 0.0, 1.0);
+    return vec4<f32>(select(1.0, level, keyable(s)), 0.0, 0.0, 1.0);
 }
 
 /// How many pixels the matte is drawn in or let out by.
