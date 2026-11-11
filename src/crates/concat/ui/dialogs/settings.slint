@@ -732,17 +732,25 @@ export component SettingsDialog inherits Sheet {
     property <bool> compact: root.width < 600px;
 
     /// Every page, in order; the column and the row of tabs are drawn from
-    /// the same list. `desk` is a page a phone does not show.
-    property <[{label: string, glyph: Glyph, page: int, desk: bool}]> page-list: [
-        {label: I18n.t("settings.general"), glyph: Glyph.settings, page: 0, desk: false},
-        {label: I18n.t("settings.appearance"), glyph: Glyph.sun, page: 1, desk: false},
+    /// the same list. A phone's list leaves out the pages a phone does not
+    /// show, rather than hiding their tabs: a tab that is not `visible`
+    /// still has its place in the row, and the row showed three gaps (#718).
+    property <[{label: string, glyph: Glyph, page: int}]> page-list: root.phone ? [
+        {label: I18n.t("settings.general"), glyph: Glyph.settings, page: 0},
+        {label: I18n.t("settings.appearance"), glyph: Glyph.sun, page: 1},
+        {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2},
+        {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3},
+        {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5},
+    ] : [
+        {label: I18n.t("settings.general"), glyph: Glyph.settings, page: 0},
+        {label: I18n.t("settings.appearance"), glyph: Glyph.sun, page: 1},
         // The keys: a desk's, since a phone has no keyboard to bind.
-        {label: I18n.t("settings.shortcuts"), glyph: Glyph.keyboard, page: 7, desk: true},
-        {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2, desk: false},
-        {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3, desk: false},
-        {label: I18n.t("settings.automation"), glyph: Glyph.lock, page: 4, desk: true},
-        {label: I18n.t("settings.version"), glyph: Glyph.tag, page: 6, desk: true},
-        {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5, desk: false},
+        {label: I18n.t("settings.shortcuts"), glyph: Glyph.keyboard, page: 7},
+        {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2},
+        {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3},
+        {label: I18n.t("settings.automation"), glyph: Glyph.lock, page: 4},
+        {label: I18n.t("settings.version"), glyph: Glyph.tag, page: 6},
+        {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5},
     ];
 
     /// The launch screen is up: no project, so no dispatch. The capture
@@ -852,7 +860,6 @@ export component SettingsDialog inherits Sheet {
                         alignment: start;
 
                         for entry in root.page-list: PageTab {
-                            visible: !(entry.desk && root.phone);
                             min-width: self.preferred-width;
                             label: entry.label;
                             glyph: entry.glyph;
@@ -878,7 +885,6 @@ export component SettingsDialog inherits Sheet {
                     alignment: start;
 
                     for entry in root.page-list: PageTab {
-                        visible: !(entry.desk && root.phone);
                         label: entry.label;
                         glyph: entry.glyph;
                         current: root.data.tab == entry.page;
