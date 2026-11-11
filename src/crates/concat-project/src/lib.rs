@@ -29,6 +29,8 @@ pub mod model;
 pub mod placement;
 pub mod runs;
 pub mod speed;
+#[cfg(test)]
+mod speed_curve_tests;
 pub mod srt;
 
 pub use commands::{

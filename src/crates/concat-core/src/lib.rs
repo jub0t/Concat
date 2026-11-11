@@ -23,6 +23,8 @@ pub mod mask;
 pub mod motion;
 pub mod retime;
 pub mod shader;
+#[cfg(test)]
+mod speed_curve_tests;
 pub mod time;
 pub mod timeline;
 

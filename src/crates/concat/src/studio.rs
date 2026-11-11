@@ -65,6 +65,8 @@ mod placing;
 mod project_files;
 mod publish;
 mod speech;
+#[cfg(test)]
+mod speed_curve_tests;
 mod stage;
 mod text;
 mod vision;

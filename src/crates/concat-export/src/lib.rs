@@ -24,6 +24,8 @@ mod ahead;
 pub mod chains;
 pub mod flatten;
 mod resolve;
+#[cfg(test)]
+mod speed_curve_tests;
 
 use resolve::{
     BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise, quantise_at,
