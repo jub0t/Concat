@@ -2849,60 +2849,115 @@ pub struct Held {
     pub media: Option<model::MediaItem>,
 }
 
-/// The edits that make `placed` - the whole of `source`'s file, just laid
-/// on a free stretch of the lane - into a copy of `source` at `start` on
-/// `track_id`: its frames, speed and placement, and then everything else
-/// it has (see [`match_command`]).
-///
-/// The footage is trimmed at normal speed to what the source covers, then
-/// retimed - the speed command keeps the footage covered and recomputes
-/// the length - and only then moved to `start`, so neighbours there never
-/// push the whole file aside and shift the frames the trims cut.
-fn copy_commands(source: &Clip, placed: &Clip, track_id: &str, start: f64) -> Vec<Command> {
-    let created = &placed.id;
-    let mut commands = Vec::new();
-    let head = source.source_start - placed.source_start;
-    if head.abs() > 1e-6 {
-        commands.push(Command::TrimClip {
-            clip_id: created.clone(),
-            edge: TrimEdge::Start,
-            delta: head,
-            ripple: false,
-        });
+/// Changes smaller than this are not made: a copy that already matches
+/// gets no edit that does nothing.
+const COPY_SAME: f64 = 1e-6;
+
+/// The latest end of any clip on lane `track_id` of `timeline`, 0 for an
+/// empty lane: where a copy's file is first laid, so nothing lies after it
+/// while it is cut and retimed.
+fn lane_end(timeline: &Timeline, track_id: &str) -> f64 {
+    timeline
+        .clips
+        .iter()
+        .filter(|clip| clip.track_id == track_id)
+        .map(|clip| clip.start + clip.duration)
+        .fold(0.0, f64::max)
+}
+
+/// The first half of a copy of a media clip: `source`'s whole file laid at
+/// the end of lane `track_id`, where nothing can clamp the edits that
+/// shape it (see [`copy_commands`]).
+fn lay_command(timeline: &Timeline, source: &Clip, track_id: &str) -> Command {
+    Command::AddClip {
+        media_id: source.media_id.clone(),
+        track_id: track_id.to_owned(),
+        start: lane_end(timeline, track_id),
+        ripple: false,
     }
-    // The footage the source covers, at normal speed.
-    let covered = source.duration * source.speed;
-    let tail = covered - (placed.duration - head);
-    if tail.abs() > 1e-6 {
+}
+
+/// The edits, applied in order as one batch, that turn `placed` - the whole
+/// of `source`'s file just laid with nothing after it on its lane - into a
+/// copy of `source` on `track_id` at `start`: its frames, speed and
+/// placement, and then everything else it has (see [`match_command`]).
+///
+/// The footage is cut at the laid clip's own pace first, the tail before
+/// the head so the head never meets the shortest-clip limit; then the
+/// clip is retimed, which works the length out from the footage; and only
+/// then is it moved, so the neighbours where it lands can clamp none of
+/// the cuts. The move takes the editor's rule: a start that would cover a
+/// clip becomes the nearest one where the whole copy fits. Every edit is
+/// plain, never magnetic, so no other clip moves.
+fn copy_commands(source: &Clip, placed: &Clip, track_id: &str, start: f64) -> Vec<Command> {
+    use concat_project::model::ranges::{MAX_SPEED, MIN_SPEED};
+    use concat_project::speed;
+
+    let id = &placed.id;
+    let mut commands = Vec::new();
+    // A curve the editor would not take is no curve: the copy plays at
+    // the source's constant rate instead.
+    let curve = source
+        .speed_curve
+        .clone()
+        .filter(|points| speed::curve_of(points).is_some());
+    // The rate the editor gives the copy, and so the footage that rate
+    // must cover to last as long as the source does.
+    let rate = curve
+        .as_deref()
+        .map_or(source.speed, speed::mean_of)
+        .clamp(MIN_SPEED, MAX_SPEED);
+    let footage = source.duration * rate;
+    let pace = placed.speed.max(MIN_SPEED);
+
+    let laid_end = placed.source_start + placed.duration * pace;
+    let tail = (source.source_start + footage - laid_end) / pace;
+    if tail.abs() > COPY_SAME {
         commands.push(Command::TrimClip {
-            clip_id: created.clone(),
+            clip_id: id.clone(),
             edge: TrimEdge::End,
             delta: tail,
             ripple: false,
         });
     }
-    if (source.speed - 1.0).abs() > 1e-9 {
-        commands.push(Command::SetClipSpeed {
-            clip_id: created.clone(),
+    let head = (source.source_start - placed.source_start) / pace;
+    if head.abs() > COPY_SAME {
+        commands.push(Command::TrimClip {
+            clip_id: id.clone(),
+            edge: TrimEdge::Start,
+            delta: head,
             ripple: false,
-            speed: source.speed,
         });
     }
-    if source.speed_curve.is_some() {
-        commands.push(Command::SetClipSpeedCurve {
-            clip_id: created.clone(),
+
+    match curve {
+        Some(points) => commands.push(Command::SetClipSpeedCurve {
+            clip_id: id.clone(),
+            curve: Some(points),
             ripple: false,
-            curve: source.speed_curve.clone(),
+        }),
+        None if (rate - pace).abs() > COPY_SAME => commands.push(Command::SetClipSpeed {
+            clip_id: id.clone(),
+            speed: rate,
+            ripple: false,
+        }),
+        None => {}
+    }
+
+    // A plain head trim carries the clip's start along with it.
+    let cut_start = placed.start + head;
+    let to = start.max(0.0);
+    if (to - cut_start).abs() > COPY_SAME || placed.track_id != track_id {
+        commands.push(Command::MoveClips {
+            moves: vec![ClipMove {
+                clip_id: id.clone(),
+                start: to,
+                track_id: track_id.to_owned(),
+            }],
         });
     }
-    commands.push(Command::MoveClips {
-        moves: vec![ClipMove {
-            clip_id: created.clone(),
-            start,
-            track_id: track_id.to_owned(),
-        }],
-    });
-    commands.push(match_command(source, created));
+
+    commands.push(match_command(source, id));
     commands
 }
 
@@ -3434,80 +3489,6 @@ mod tests {
                 .iter()
                 .all(Option::is_none)
         );
-    }
-
-    /// A copy of a split clip's tail, laid right after it, shows the
-    /// tail's frames at the tail's speed - not the file's opening frames,
-    /// which it showed when the whole file was laid over the halves (#335).
-    #[test]
-    fn a_copy_of_a_split_tail_shows_the_tails_frames() {
-        use concat_project::Editor;
-        use concat_project::commands::NewMedia;
-        use concat_project::model::MediaKind;
-        for speed in [1.0, 2.0] {
-            let mut editor = Editor::new();
-            let item = NewMedia {
-                path: "/a.mp4".to_owned(),
-                name: "a.mp4".to_owned(),
-                duration: Some(10.0),
-                kind: MediaKind::Video,
-                width: Some(1920),
-                height: Some(1080),
-                frame_rate: Some(30.0),
-                frame_rate_fraction: Some("30/1".to_owned()),
-                video_codec: Some("h264".to_owned()),
-                audio_codec: None,
-                has_audio: false,
-                audio_tracks: Vec::new(),
-                origin: None,
-                color_space: Default::default(),
-            };
-            let apply =
-                |editor: &mut Editor, command| editor.apply(command).expect("applies").created_id;
-            let media_id = apply(&mut editor, Command::AddMedia { item }).expect("media");
-            let track_id = editor.project().active().tracks[0].id.clone();
-            let add = |start| Command::AddClip {
-                media_id: media_id.clone(),
-                track_id: track_id.clone(),
-                start,
-                ripple: false,
-            };
-            let whole = apply(&mut editor, add(0.0)).expect("clip");
-            apply(
-                &mut editor,
-                Command::SetClipSpeed {
-                    clip_id: whole.clone(),
-                    ripple: false,
-                    speed,
-                },
-            );
-            apply(
-                &mut editor,
-                Command::SplitClips {
-                    clip_ids: vec![whole],
-                    time: 2.0,
-                },
-            );
-            let tail = editor.project().active().clips[1].clone();
-            let end = tail.start + tail.duration;
-
-            let placed = apply(&mut editor, add(end)).expect("copy");
-            let placed = editor
-                .project()
-                .active()
-                .clip(&placed)
-                .expect("placed")
-                .clone();
-            let commands = super::copy_commands(&tail, &placed, &track_id, end);
-            apply(&mut editor, Command::Batch { commands });
-
-            let copy = editor.project().active().clip(&placed.id).expect("copy");
-            assert_eq!(
-                (copy.start, copy.duration, copy.source_start, copy.speed),
-                (end, tail.duration, tail.source_start, speed),
-                "at speed {speed}"
-            );
-        }
     }
 
     /// A detach that cannot happen has a reason to give, and a picture

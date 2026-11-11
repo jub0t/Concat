@@ -13,7 +13,7 @@ use concat_project::model::{
 };
 use concat_project::{Command, Editor};
 
-use super::{TrimEdge, copy_commands};
+use super::{TrimEdge, copy_commands, lay_command};
 
 const CLOSE: f64 = 1e-6;
 
@@ -497,4 +497,108 @@ fn the_shaping_of_a_copy_is_one_undo_step() {
     assert!(near(laid.duration, 10.0));
     assert!(bench.editor.redo());
     assert_eq!(bench.clip(&copy), made);
+}
+
+/// The file of a copy is first laid where the lane it is going to ends:
+/// past its last clip, or at the start of an empty lane.
+#[test]
+fn the_file_is_first_laid_where_the_lane_ends() {
+    let mut bench = Bench::new(MediaKind::Video, Some(10.0));
+    let whole = bench.lay(0.0);
+    let (_, tail) = bench.split(&whole, 3.0);
+    let other = bench.other_lane();
+    let timeline = bench.editor.project().active();
+    for (lane, end) in [(bench.track.clone(), 10.0), (other, 0.0)] {
+        match lay_command(timeline, &tail, &lane) {
+            Command::AddClip {
+                media_id,
+                track_id,
+                start,
+                ripple,
+            } => {
+                assert_eq!(media_id, tail.media_id);
+                assert_eq!(track_id, lane);
+                assert!(near(start, end), "laid at {start} for {end}");
+                assert!(!ripple);
+            }
+            other => panic!("laid by {other:?}"),
+        }
+    }
+}
+
+/// Duplicate lays and shapes every copy as one gesture: one undo takes all
+/// of them away and leaves every source as it was, redo brings every copy
+/// back, and the next Duplicate is a step of its own.
+#[test]
+fn a_duplicate_of_several_clips_is_one_undo_step() {
+    let mut bench = Bench::new(MediaKind::Video, Some(10.0));
+    let whole = bench.lay(0.0);
+    let (head, tail) = bench.split(&whole, 4.0);
+    let other = bench.other_lane();
+    let third = bench
+        .run(Command::AddClip {
+            media_id: bench.media.clone(),
+            track_id: other.clone(),
+            start: 2.0,
+            ripple: false,
+        })
+        .expect("a clip id");
+    bench.trim(&third, TrimEdge::Start, 1.0);
+    let third = bench.clip(&third);
+    let before = bench.clips();
+
+    let duplicate = |bench: &mut Bench, sources: &[Clip]| -> Vec<String> {
+        let mut made = Vec::new();
+        for source in sources {
+            let end = source.start + source.duration;
+            let lay = lay_command(bench.editor.project().active(), source, &source.track_id);
+            let laid = bench
+                .editor
+                .apply_within(Some("duplicate"), lay)
+                .expect("the file is laid")
+                .created_id
+                .expect("a clip id");
+            let placed = bench.clip(&laid);
+            let commands = copy_commands(source, &placed, &source.track_id, end);
+            bench
+                .editor
+                .apply_within(Some("duplicate"), Command::Batch { commands })
+                .expect("the copy is shaped");
+            made.push(laid);
+        }
+        bench.editor.end_gesture();
+        made
+    };
+
+    // Latest first, as Duplicate takes them.
+    let sources = [tail.clone(), third.clone(), head.clone()];
+    let made = duplicate(&mut bench, &sources);
+    for (source, id) in sources.iter().zip(&made) {
+        let copy = bench.clip(id);
+        assert_eq!(copy.track_id, source.track_id);
+        assert_same_footage(&copy, source);
+    }
+    assert!(near(bench.clip(&made[0]).start, 10.0));
+    assert!(near(bench.clip(&made[1]).start, 12.0));
+    // Nothing on a lane covers anything else.
+    let after = bench.clips();
+    for (index, one) in after.iter().enumerate() {
+        for two in &after[index + 1..] {
+            let apart = one.track_id != two.track_id
+                || one.start + one.duration <= two.start + CLOSE
+                || two.start + two.duration <= one.start + CLOSE;
+            assert!(apart, "{} covers {}", one.id, two.id);
+        }
+    }
+
+    assert!(bench.editor.undo());
+    assert_eq!(bench.clips(), before);
+    assert!(bench.editor.redo());
+    assert_eq!(bench.clips(), after);
+
+    // Another Duplicate after that is undone alone.
+    duplicate(&mut bench, std::slice::from_ref(&third));
+    assert_eq!(bench.clips().len(), after.len() + 1);
+    assert!(bench.editor.undo());
+    assert_eq!(bench.clips(), after);
 }

@@ -446,11 +446,12 @@ impl Studio {
         }
     }
 
-    /// A copy of `source` laid after it. Three commands, because a clip's
-    /// in-point and length are set by trims, not by placement.
-    /// Duplicate every unlocked selected clip (right-to-left by start so
-    /// neighbours do not stack). Falls back to the menu target when the
-    /// selection is empty.
+    /// Duplicate: a copy of every selected clip on an unlocked lane - or of
+    /// the clip the menu was opened on, when nothing is selected - laid
+    /// right after its own end on its own lane. The latest goes first, so a
+    /// copy never lands on a source still waiting its turn. The lot is one
+    /// undo step, and the copy of the earliest source is left selected; when
+    /// no copy could be made the selection stays as it was.
     pub fn duplicate_selected(&mut self) {
         let mut sources: Vec<Clip> = self
             .selection
@@ -472,22 +473,20 @@ impl Studio {
             return;
         }
         sources.sort_by(|left, right| right.start.total_cmp(&left.start));
-        let mut last = None;
+        self.flush_commit();
+        let mut earliest = None;
         for source in &sources {
-            self.duplicate(source);
-            last = self.selection.first().cloned();
+            let end = source.start + source.duration;
+            if let Some(id) = self.place_copy(source, &source.track_id, end, Some("duplicate")) {
+                earliest = Some(id);
+            }
         }
-        if let Some(id) = last {
+        // One step for the lot, and the next Duplicate a step of its own.
+        if let Some(session) = self.session.as_mut() {
+            session.end_gesture();
+        }
+        if let Some(id) = earliest {
             self.selection = vec![id];
-        }
-    }
-
-    /// A copy of `source` laid right after it on its own lane, selected.
-    pub fn duplicate(&mut self, source: &Clip) {
-        let end = source.start + source.duration;
-        let track_id = source.track_id.clone();
-        if let Some(created) = self.place_copy(source, &track_id, end, None) {
-            self.selection = vec![created];
         }
     }
 
@@ -631,10 +630,12 @@ impl Studio {
 
     /// Lays a copy of `source` on `track_id` starting at `start` - its
     /// trims, mix, placement, speed, keys and effects with it - and says
-    /// the new clip's id. `gesture` folds the commands into one undo step
-    /// with whatever else names it; `None` leaves them steps of their own.
-    /// Footage is first laid past the lane's last clip, then shaped by
-    /// [`copy_commands`].
+    /// the new clip's id. A copy of a file shows the same stretch of it at
+    /// the same pace; a start that would cover a clip becomes the nearest
+    /// one where the whole copy fits, and no other clip moves. `gesture`
+    /// folds the commands into one undo step with whatever else names it;
+    /// `None` leaves them steps of their own. A refused add or shaping
+    /// shows the editor's reason, leaves no clip behind and says `None`.
     fn place_copy(
         &mut self,
         source: &Clip,
@@ -702,25 +703,27 @@ impl Studio {
             self.apply_in(gesture, match_command(source, &created));
             return Some(created);
         }
-        let lane_end = self
-            .timeline()
-            .clips
-            .iter()
-            .filter(|clip| clip.track_id == track_id)
-            .map(|clip| clip.start + clip.duration)
-            .fold(0.0, f64::max);
-        let created = self.apply_in(
-            gesture,
-            Command::AddClip {
-                media_id: source.media_id.clone(),
-                track_id: track_id.to_owned(),
-                start: lane_end,
-                ripple: false,
-            },
-        )?;
+        // A clip that plays a file: the whole file is laid where nothing
+        // lies after it, then cut, retimed, moved and matched in one batch.
+        let lay = lay_command(self.timeline(), source, track_id);
+        let created = self.apply_in(gesture, lay)?;
         let placed = self.clip(&created).cloned()?;
         let commands = copy_commands(source, &placed, track_id, start);
+        let before = self.revision;
         self.apply_in(gesture, Command::Batch { commands });
+        if self.revision == before {
+            // The shaping was refused (and the reason shown): the whole
+            // file is not left lying at the lane's end as if it were the
+            // copy.
+            self.apply_in(
+                gesture,
+                Command::RemoveClips {
+                    clip_ids: vec![created],
+                    ripple: false,
+                },
+            );
+            return None;
+        }
         Some(created)
     }
 
