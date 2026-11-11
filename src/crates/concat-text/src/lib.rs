@@ -5,9 +5,9 @@
 //!
 //! A text clip is a style and some words; the compositor wants a picture. This
 //! crate is the step between: it finds the face, shapes each line, turns the
-//! glyph outlines into paths, and paints them - plate, shadow, outline, fill,
-//! and the glyphs that paint their own colours - onto a canvas the size of
-//! the output frame, transparent everywhere the words are not.
+//! glyphs into outlines and fills them on a transparent canvas the size of
+//! the frame. A glyph that brings its own colours - an emoji, mostly - is
+//! drawn in them instead, over the words: see the `colour_glyphs` module.
 //!
 //! Frame-sized on purpose. The compositor places a picture by fitting it into
 //! the frame and then applying the clip's transform about its centre, so a
@@ -38,6 +38,9 @@
 //! stores them, so a title looks the same at 720p and 4K. Everything here
 //! converts to pixels once, at the top.
 
+mod colour_glyphs;
+#[cfg(test)]
+mod emoji_tests;
 mod shape;
 pub use shape::{
     Align as StrokeAlign, Dash, Figure, Gradient, Head, Shadow, ShapeStyle, render_shape,
@@ -49,9 +52,10 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
+use colour_glyphs::{FaceKey, Mark, Pictures, Rendition};
 use tiny_skia::{
-    Color, FillRule, FilterQuality, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap,
-    PixmapPaint, Rect, Stroke, Transform,
+    Color, FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
+    Stroke, Transform,
 };
 use unicode_bidi::ParagraphBidiInfo;
 use unicode_linebreak::BreakOpportunity;
@@ -263,6 +267,9 @@ pub struct Fonts {
     db: fontdb::Database,
     /// What titles have learnt about the faces, kept for the next one.
     cache: Mutex<Cache>,
+    /// The colour glyphs' pictures, made once and shared by every title
+    /// painted with these faces, on whichever thread.
+    pictures: Pictures,
 }
 
 /// A face's bytes: the file mapped, or the data a font was loaded from.
@@ -273,27 +280,64 @@ struct Cache {
     /// Each face a title has been set in, opened once, with its index in
     /// its collection.
     data: HashMap<fontdb::ID, (FaceData, u32)>,
-    /// Per character, the faces that can draw it; learnt a title's missing
-    /// characters at a time, since each lesson reads every face; emptied
-    /// when a font is added.
+    /// For each character a title's own faces had no glyph for, the faces
+    /// that can draw it, learnt once by reading every face.
     covers: HashMap<char, Covers>,
 }
 
-/// The faces that can draw one character: those that paint colours of their
-/// own first, then the rest in the database's order. An emoji is wanted in
-/// colour whatever the title's weight, so a monochrome face that also has
-/// it - DejaVu, Symbola, hundreds of glyphs each - is only reached when no
-/// colour face does.
+/// The faces that can draw one character, in the database's order, split
+/// by how: in the glyph's own colours, or as an outline in the title's.
 #[derive(Default)]
 struct Covers {
     colour: Vec<fontdb::ID>,
     plain: Vec<fontdb::ID>,
 }
 
+/// Which way a character asks to be shown, by the variation selector that
+/// follows it: U+FE0F for an emoji's picture, U+FE0E for a letter. Without
+/// one, a picture where there is one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Presentation {
+    Picture,
+    Letter,
+}
+
+impl Presentation {
+    fn before(next: Option<char>) -> Presentation {
+        if next == Some('\u{FE0E}') {
+            Presentation::Letter
+        } else {
+            Presentation::Picture
+        }
+    }
+}
+
 impl Covers {
-    /// Whether `id` is one of them.
-    fn has(&self, id: fontdb::ID) -> bool {
-        self.colour.contains(&id) || self.plain.contains(&id)
+    /// The faces to offer first, then the rest: the colour faces for a
+    /// picture, the plain ones for a letter.
+    fn in_order(&self, presentation: Presentation) -> [&[fontdb::ID]; 2] {
+        match presentation {
+            Presentation::Picture => [&self.colour, &self.plain],
+            Presentation::Letter => [&self.plain, &self.colour],
+        }
+    }
+
+    /// Whether `id` may set the character. Any face that draws it, as long
+    /// as no face in the kind asked for is passed over: an emoji goes to a
+    /// colour face where there is one, even when a plain face the title
+    /// already uses also has it.
+    fn lends(&self, id: fontdb::ID, presentation: Presentation) -> bool {
+        let [first, rest] = self.in_order(presentation);
+        if first.is_empty() {
+            rest.contains(&id)
+        } else {
+            first.contains(&id)
+        }
+    }
+
+    /// Whether some face draws the character in its own colours.
+    fn has_colour(&self) -> bool {
+        !self.colour.is_empty()
     }
 }
 
@@ -502,6 +546,7 @@ impl Fonts {
         Fonts {
             db,
             cache: Mutex::default(),
+            pictures: Pictures::default(),
         }
     }
 
@@ -651,15 +696,19 @@ impl Fonts {
             .collect();
         let own_of = |at: usize| owns[look_of.get(at).copied().unwrap_or(0)];
 
+        // What to learn about: what a look's face lacks, and what it has but
+        // the words ask to see as a picture (`©` then U+FE0F), which a
+        // colour face may draw.
         let mut missing: Vec<char> = style
             .content
             .char_indices()
-            .filter(|&(at, ch)| {
+            .zip(style.content.chars().skip(1).map(Some).chain([None]))
+            .filter(|&((at, ch), next)| {
                 !ch.is_control()
-                    && own_faces[own_of(at)].glyph_index(ch).is_none()
+                    && (own_faces[own_of(at)].glyph_index(ch).is_none() || next == Some('\u{FE0F}'))
                     && !cache.covers.contains_key(&ch)
             })
-            .map(|(_, ch)| ch)
+            .map(|((_, ch), _)| ch)
             .collect();
         missing.sort_unstable();
         missing.dedup();
@@ -711,13 +760,14 @@ impl Fonts {
                     return;
                 };
                 for &ch in chars {
-                    let (Some(how), Some(covers)) = (draws(&face, ch), cache.covers.get_mut(&ch))
-                    else {
+                    let Some(rendition) = colour_glyphs::rendition(&face, ch) else {
                         continue;
                     };
-                    match how {
-                        Draw::Colour => covers.colour.push(info.id),
-                        Draw::Outline => covers.plain.push(info.id),
+                    if let Some(covers) = cache.covers.get_mut(&ch) {
+                        match rendition {
+                            Rendition::Colour => covers.colour.push(info.id),
+                            Rendition::Outline => covers.plain.push(info.id),
+                        }
                     }
                 }
             });
@@ -740,7 +790,8 @@ impl Fonts {
     ) -> Vec<usize> {
         let mut out = vec![0; text.len()];
         let mut last = 0;
-        for (at, ch) in text.char_indices() {
+        let nexts = text.chars().skip(1).map(Some).chain([None]);
+        for ((at, ch), next) in text.char_indices().zip(nexts) {
             let look = look_of.get(at).copied().unwrap_or(0);
             let own = owns[look];
             let want = Want {
@@ -748,19 +799,24 @@ impl Fonts {
                 italic: looks[look].italic,
             };
             let covers = cache.covers.get(&ch);
+            let presentation = Presentation::before(next);
+            // The look's own face keeps what it has, unless the words ask
+            // for a picture of it and a colour face has one.
+            let keeps = own_faces[own].glyph_index(ch).is_some()
+                && !(next == Some('\u{FE0F}') && covers.is_some_and(Covers::has_colour));
             let lends = |ids: &[fontdb::ID], index: usize| {
-                index != own && covers.is_some_and(|covers| covers.has(ids[index]))
+                index != own && covers.is_some_and(|covers| covers.lends(ids[index], presentation))
             };
             let index = if joins(ch) && at > 0 {
                 // A mark, a joiner, a skin tone: with what it modifies.
                 last
-            } else if own_faces[own].glyph_index(ch).is_some() {
+            } else if keeps {
                 own
             } else if lends(ids, last) {
                 last
             } else if let Some(index) = (0..ids.len()).find(|&index| lends(ids, index)) {
                 index
-            } else if let Some(id) = self.nearest(covers, want) {
+            } else if let Some(id) = self.nearest(covers, want, presentation) {
                 ids.push(id);
                 ids.len() - 1
             } else {
@@ -772,22 +828,28 @@ impl Fonts {
         out
     }
 
-    /// Of the faces that cover the character, the one closest to the style's
-    /// slant and weight; the database's order breaks a tie. A colour face
-    /// wins before weight is considered: its colours are the point of it,
-    /// and a title in a heavy weight still wants its emoji in colour.
-    fn nearest(&self, covers: Option<&Covers>, want: Want) -> Option<fontdb::ID> {
-        let covers = covers?;
-        let closest = |ids: &[fontdb::ID]| {
-            ids.iter()
-                .filter_map(|&id| self.db.face(id))
-                .min_by_key(|info| {
-                    let italic = info.style != fontdb::Style::Normal;
-                    (italic != want.italic, info.weight.0.abs_diff(want.weight))
-                })
-                .map(|info| info.id)
-        };
-        closest(&covers.colour).or_else(|| closest(&covers.plain))
+    /// The face to borrow for a character no face in use can lend: among
+    /// the faces of the kind it is shown as - the colour ones for a
+    /// picture - if any has it, else among the rest; within them, the same
+    /// slant first, then the nearest weight, then the database's order. A
+    /// heavy title's emoji are still drawn in colour, not in a heavy face's
+    /// outline.
+    fn nearest(
+        &self,
+        covers: Option<&Covers>,
+        want: Want,
+        presentation: Presentation,
+    ) -> Option<fontdb::ID> {
+        let [first, rest] = covers?.in_order(presentation);
+        let group = if first.is_empty() { rest } else { first };
+        group
+            .iter()
+            .filter_map(|&id| self.db.face(id))
+            .min_by_key(|info| {
+                let italic = info.style != fontdb::Style::Normal;
+                (italic != want.italic, info.weight.0.abs_diff(want.weight))
+            })
+            .map(|info| info.id)
     }
 
     /// A face's bytes, opened once and kept.
@@ -896,128 +958,6 @@ fn looks_of(style: &TitleStyle) -> (Vec<Look>, Vec<usize>) {
     (looks, look_of)
 }
 
-/// What `face` draws `ch` with, when it draws it: colours of its own, or
-/// an outline for the title's fill to colour.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Draw {
-    /// A bitmap strike or layered `COLR` paints - a picture the face
-    /// colours itself, as an emoji is.
-    Colour,
-    /// An outline the words' fill colours.
-    Outline,
-}
-
-/// Whether `face` can draw `ch`, and how: it has a glyph, and the glyph
-/// either carries colours the face paints on its own - a colour emoji
-/// face's picture, which has no outline to fill - or is an outline.
-fn draws(face: &ttf_parser::Face<'_>, ch: char) -> Option<Draw> {
-    struct Nowhere;
-    impl ttf_parser::OutlineBuilder for Nowhere {
-        fn move_to(&mut self, _: f32, _: f32) {}
-        fn line_to(&mut self, _: f32, _: f32) {}
-        fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
-        fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {}
-        fn close(&mut self) {}
-    }
-    let glyph = face.glyph_index(ch)?;
-    if own_colours(face, glyph) {
-        return Some(Draw::Colour);
-    }
-    (ch.is_whitespace() || face.outline_glyph(glyph, &mut Nowhere).is_some())
-        .then_some(Draw::Outline)
-}
-
-/// Whether `glyph` paints colours of its own that this crate can draw: a
-/// bitmap strike in a colour format, or the layered paints of a `COLR`
-/// face simple enough to follow - solid fills over outlines, which is all
-/// a layered emoji face needs. A monochrome strike is not one; that is
-/// the outline's job, done better. An `SVG` document would want another
-/// renderer whole, and stays out. https://github.com/jub0t/Concat/issues/276
-fn own_colours(face: &ttf_parser::Face<'_>, glyph: ttf_parser::GlyphId) -> bool {
-    if let Some(image) = face.glyph_raster_image(glyph, u16::MAX)
-        && matches!(
-            image.format,
-            ttf_parser::RasterImageFormat::PNG | ttf_parser::RasterImageFormat::BitmapPremulBgra32
-        )
-    {
-        return true;
-    }
-    if !face.is_color_glyph(glyph) {
-        return false;
-    }
-    // Probed rather than trusted: a `COLR` v1 glyph drawn with gradients
-    // or clips would come out wrong, and a face that only has those would
-    // draw nothing at all - a box, or a fallback face, beats that.
-    Layering::of(face, glyph, ttf_parser::RgbaColor::new(0, 0, 0, 255)).is_some()
-}
-
-/// What a face's `COLR` says about one glyph: the layers it paints, as
-/// glyph and palette colour, in the order they go down - and whether it
-/// painted only what this crate follows. A gradient, a clip, a transform
-/// or a composite mode would come out wrong or not at all, so the glyph
-/// falls back to its outline instead.
-struct Layering {
-    layers: Vec<(ttf_parser::GlyphId, ttf_parser::RgbaColor)>,
-    /// The outline awaiting its colour; `COLR` pairs them.
-    pending: Option<ttf_parser::GlyphId>,
-    /// Something outside the simple case turned up.
-    other: bool,
-}
-
-impl Layering {
-    /// The layers `COLR` paints for `glyph`, or `None` when it paints none
-    /// or paints them in a way this crate does not follow.
-    fn of(
-        face: &ttf_parser::Face<'_>,
-        glyph: ttf_parser::GlyphId,
-        foreground: ttf_parser::RgbaColor,
-    ) -> Option<Vec<(ttf_parser::GlyphId, ttf_parser::RgbaColor)>> {
-        let mut layering = Layering {
-            layers: Vec::new(),
-            pending: None,
-            other: false,
-        };
-        face.paint_color_glyph(glyph, 0, foreground, &mut layering)?;
-        (!layering.other && layering.pending.is_none() && !layering.layers.is_empty())
-            .then_some(layering.layers)
-    }
-}
-
-impl<'a> ttf_parser::colr::Painter<'a> for Layering {
-    fn outline_glyph(&mut self, glyph_id: ttf_parser::GlyphId) {
-        self.pending = Some(glyph_id);
-    }
-    fn paint(&mut self, paint: ttf_parser::colr::Paint<'a>) {
-        match (paint, self.pending.take()) {
-            (ttf_parser::colr::Paint::Solid(colour), Some(glyph_id)) => {
-                self.layers.push((glyph_id, colour));
-            }
-            _ => self.other = true,
-        }
-    }
-    fn push_clip(&mut self) {
-        self.other = true;
-    }
-    fn push_clip_box(&mut self, _: ttf_parser::colr::ClipBox) {
-        self.other = true;
-    }
-    fn pop_clip(&mut self) {
-        self.other = true;
-    }
-    fn push_layer(&mut self, _: ttf_parser::colr::CompositeMode) {
-        self.other = true;
-    }
-    fn pop_layer(&mut self) {
-        self.other = true;
-    }
-    fn push_transform(&mut self, _: ttf_parser::Transform) {
-        self.other = true;
-    }
-    fn pop_transform(&mut self) {
-        self.other = true;
-    }
-}
-
 /// A character that belongs with the one before it and is set in its face:
 /// a combining mark, a joiner or variation selector, an emoji's skin tone
 /// or tag.
@@ -1033,9 +973,9 @@ fn joins(ch: char) -> bool {
 struct Line {
     /// `(look, outlines)`, for the look's fill and outline to paint.
     paths: Vec<(usize, Path)>,
-    /// The glyphs that paint their own colours - a picture rather than an
-    /// outline - at that same pen origin, for laying over the words. The
-    /// fill would wash their colours out, so they stay out of `paths`.
+    /// The glyphs drawn in their own colours, in the same pen space, left
+    /// to right. A look's fill, outline and shadow would paint over those
+    /// colours, so they stay out of `paths` and are laid on last.
     marks: Vec<Mark>,
     width: f32,
     words: Vec<(f32, f32)>,
@@ -1049,25 +989,6 @@ struct Line {
     em: f32,
 }
 
-/// A glyph that colours itself, in pen space at its line's origin: an
-/// emoji, or a layered `COLR` face's glyphs. Drawn after the words, with
-/// no shadow and no outline of their own - they are pictures, and a box
-/// around them would be a box. https://github.com/jub0t/Concat/issues/276
-enum Mark {
-    /// The font's own bitmap, decoded, at its box: left edge, top edge,
-    /// and size in pixels.
-    Bitmap {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        pixmap: Pixmap,
-    },
-    /// Outlines each with the colour the face paints it in, already
-    /// placed.
-    Layers(Vec<(Path, Color)>),
-}
-
 /// A colour from `#rrggbb` or `#rrggbbaa`; anything else is `None`.
 fn colour(hex: &str) -> Option<Color> {
     let hex = hex.trim().strip_prefix('#')?;
@@ -1077,16 +998,6 @@ fn colour(hex: &str) -> Option<Color> {
         8 => Color::from_rgba8(byte(0)?, byte(2)?, byte(4)?, byte(6)?).into(),
         _ => None,
     }
-}
-
-/// The same colour in the bytes a font's palette wants.
-fn rgba(color: Color) -> ttf_parser::RgbaColor {
-    ttf_parser::RgbaColor::new(
-        (color.red() * 255.0).round() as u8,
-        (color.green() * 255.0).round() as u8,
-        (color.blue() * 255.0).round() as u8,
-        (color.alpha() * 255.0).round() as u8,
-    )
 }
 
 /// Collects a glyph's outline, scaled and placed, into a path under
@@ -1134,6 +1045,10 @@ impl ttf_parser::OutlineBuilder for Outliner<'_> {
 /// its looks, and its sizes in pixels.
 struct Setter<'a> {
     faces: &'a [rustybuzz::Face<'a>],
+    /// What each face's colour glyph pictures are kept under.
+    keys: &'a [FaceKey],
+    /// Where those pictures are kept.
+    pictures: &'a Pictures,
     /// The title's em; a look's is this times its scale.
     em: f32,
     tracking: f32,
@@ -1251,7 +1166,7 @@ impl Setter<'_> {
         let (levels, runs) = para.bidi.visual_runs(range.clone());
         // One outline per look, made as the look first turns up.
         let mut builders: Vec<Option<PathBuilder>> = self.looks.iter().map(|_| None).collect();
-        let mut marks: Vec<Mark> = Vec::new();
+        let mut marks = Vec::new();
         let mut pen = 0.0_f32;
         // Each glyph's cluster, as a byte into the paragraph, the span it
         // advances over, and its look.
@@ -1284,6 +1199,11 @@ impl Setter<'_> {
                     rustybuzz::Direction::LeftToRight
                 });
                 let shaped = rustybuzz::shape(face, &[], buffer);
+                // A colour layer that asks for the text's own colour gets
+                // this look's fill, opacity and all: a run's colour where
+                // the emoji is in a run that has one.
+                let foreground = colour_glyphs::font_colour(self.looks[look].fill);
+                let key = self.keys[para.face_of[piece.start]];
                 for (info, position) in shaped
                     .glyph_infos()
                     .iter()
@@ -1292,14 +1212,20 @@ impl Setter<'_> {
                     if outline {
                         let glyph = ttf_parser::GlyphId(info.glyph_id as u16);
                         let x = pen + position.x_offset as f32 * scale;
-                        let y = -(position.y_offset as f32 * scale);
-                        // A glyph that colours itself - a strike's
-                        // picture, layered paints - goes into the line's
-                        // marks instead of its outlines: the words' fill
-                        // would wash its colours out. Anything else is
-                        // an outline in its look's path, as always.
-                        let foreground = rgba(self.looks[look].fill);
-                        if let Some(mark) = self.mark(face, glyph, x, y, em, foreground) {
+                        let y = -(position.y_offset as f32) * scale;
+                        let drawn = colour_glyphs::Glyph {
+                            face,
+                            key,
+                            id: glyph,
+                            x,
+                            y,
+                            em,
+                            foreground,
+                        };
+                        // A glyph in its own colours is laid on as it is;
+                        // any other - or one whose colours cannot be drawn
+                        // - is an outline in its look's path.
+                        if let Some(mark) = self.pictures.mark(&drawn) {
                             marks.push(mark);
                         } else {
                             let mut outliner = Outliner {
@@ -1365,89 +1291,6 @@ impl Setter<'_> {
             descent,
             em,
         }
-    }
-
-    /// A glyph's own colours, at its origin `(x, y)` on the baseline and
-    /// at `em` pixels: its font's bitmap, decoded and boxed to the strike's
-    /// size, or its `COLR` layers outlined in their palette colours, with
-    /// `foreground` for the palette's "the text's own colour". `None` for a
-    /// plain outline - most glyphs - and for a colour glyph this crate does
-    /// not follow, which falls back to its outline as before.
-    fn mark(
-        &self,
-        face: &rustybuzz::Face<'_>,
-        glyph: ttf_parser::GlyphId,
-        x: f32,
-        y: f32,
-        em: f32,
-        foreground: ttf_parser::RgbaColor,
-    ) -> Option<Mark> {
-        if let Some(image) = face.glyph_raster_image(glyph, u16::MAX)
-            && matches!(
-                image.format,
-                ttf_parser::RasterImageFormat::PNG
-                    | ttf_parser::RasterImageFormat::BitmapPremulBgra32
-            )
-            && let Some(pixmap) = bitmap(&image)
-        {
-            // The strike's pixels are in the font's y-up, measured from
-            // the glyph's origin to the bitmap's *bottom* edge - both for
-            // `CBDT` and for `sbix` - while the canvas goes down. `k`
-            // turns a strike pixel into canvas pixels at this size.
-            let k = em / f32::from(image.pixels_per_em.max(1));
-            let height = f32::from(image.height) * k;
-            return Some(Mark::Bitmap {
-                x: x + f32::from(image.x) * k,
-                y: y - (f32::from(image.y) * k) - height,
-                width: f32::from(image.width) * k,
-                height,
-                pixmap,
-            });
-        }
-        let scale = em / face.units_per_em() as f32;
-        let layers = Layering::of(face, glyph, foreground)?;
-        let mut placed = Vec::with_capacity(layers.len());
-        for (glyph_id, colour) in layers {
-            let mut builder = PathBuilder::new();
-            face.outline_glyph(
-                glyph_id,
-                &mut Outliner {
-                    builder: &mut builder,
-                    scale,
-                    x,
-                    y,
-                },
-            );
-            // A layer with no outline paints nothing; the rest still do.
-            if let Some(path) = builder.finish() {
-                placed.push((
-                    path,
-                    Color::from_rgba8(colour.red, colour.green, colour.blue, colour.alpha),
-                ));
-            }
-        }
-        (!placed.is_empty()).then_some(Mark::Layers(placed))
-    }
-}
-
-/// The strike's bitmap, decoded into pixels the canvas can lay over the
-/// words: premultiplied RGBA, whether it arrived as a PNG or as raw
-/// `BGRA`. Colour formats only - a monochrome strike is the outline's
-/// job, and this crate's caller has an outline to fall back to.
-fn bitmap(image: &ttf_parser::RasterGlyphImage<'_>) -> Option<Pixmap> {
-    match image.format {
-        ttf_parser::RasterImageFormat::PNG => Pixmap::decode_png(image.data).ok(),
-        ttf_parser::RasterImageFormat::BitmapPremulBgra32 => {
-            let size = tiny_skia::IntSize::from_wh(image.width.into(), image.height.into())?;
-            let mut rgba = Vec::with_capacity(image.data.len());
-            for pixel in image.data.chunks_exact(4) {
-                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
-            }
-            // `from_vec` checks the length, so a strike that lies about
-            // its size comes out `None` rather than skewed.
-            Pixmap::from_vec(rgba, size)
-        }
-        _ => None,
     }
 }
 
@@ -1707,13 +1550,21 @@ fn paint(
     };
     // A borrowed face that will not parse sets its characters in the
     // style's own: boxes, but the line still holds together.
-    let faces: Vec<rustybuzz::Face<'_>> = casting
+    let own_key = {
+        let (data, index) = &casting.faces[0];
+        FaceKey::of((**data).as_ref(), *index)
+    };
+    let (faces, keys): (Vec<rustybuzz::Face<'_>>, Vec<FaceKey>) = casting
         .faces
         .iter()
         .map(|(data, index)| {
-            rustybuzz::Face::from_slice((**data).as_ref(), *index).unwrap_or_else(|| own.clone())
+            let bytes = (**data).as_ref();
+            match rustybuzz::Face::from_slice(bytes, *index) {
+                Some(face) => (face, FaceKey::of(bytes, *index)),
+                None => (own.clone(), own_key),
+            }
         })
-        .collect();
+        .unzip();
     // A line's metrics are its looks' own faces', whatever they borrow:
     // the pitch and the block should not jump because one character came
     // from elsewhere. A title in one look is the style's face's.
@@ -1768,9 +1619,11 @@ fn paint(
 
     // Shape every line with the pen at the origin; placement comes after,
     // once the block's width is known. Each look's colour goes along: a
-    // `COLR` palette entry of 0xFFFF means "paint it with the text's own".
+    // colour glyph's layer that asks for the text's own colour takes it.
     let setter = Setter {
         faces: &faces,
+        keys: &keys,
+        pictures: &fonts.pictures,
         em,
         tracking,
         looks: &looks,
@@ -2106,58 +1959,12 @@ fn paint(
         canvas.fill_path(path, &paint, FillRule::Winding, shift, None);
     }
 
-    // The glyphs that paint their own colours - an emoji's picture, a
-    // layered face's paints - over the words: their colours are their
-    // own, so the fill cannot have them. No shadow and no outline round
-    // them either; they are pictures, and a box would be a box.
-    // https://github.com/jub0t/Concat/issues/276
+    // Last, over everything - plate, shadow, outlines, fills and rules -
+    // the glyphs in their own colours, line by line: nothing of the
+    // title's look is painted over them.
     for (row, line) in lines.iter().enumerate() {
-        if line.marks.is_empty() {
-            continue;
-        }
-        let indent = indent_of(line);
-        let baseline = baseline_of(row);
-        let placed = Transform::from_translate(left + indent + shift_x, baseline + shift_y);
-        for mark in &line.marks {
-            match mark {
-                Mark::Bitmap {
-                    x,
-                    y,
-                    width,
-                    height,
-                    pixmap,
-                } => {
-                    let scale_x = *width / pixmap.width() as f32;
-                    let scale_y = *height / pixmap.height() as f32;
-                    canvas.draw_pixmap(
-                        0,
-                        0,
-                        pixmap.as_ref(),
-                        &PixmapPaint {
-                            // A strike is drawn far bigger than it lands;
-                            // nearest would stair-step its round edges.
-                            quality: FilterQuality::Bilinear,
-                            ..PixmapPaint::default()
-                        },
-                        Transform::from_row(
-                            scale_x,
-                            0.0,
-                            0.0,
-                            scale_y,
-                            left + indent + *x + shift_x,
-                            baseline + *y + shift_y,
-                        ),
-                        None,
-                    );
-                }
-                Mark::Layers(layers) => {
-                    for (path, layer_colour) in layers {
-                        paint.set_color(*layer_colour);
-                        canvas.fill_path(path, &paint, FillRule::Winding, placed, None);
-                    }
-                }
-            }
-        }
+        let origin = (left + indent_of(line) + shift_x, baseline_of(row) + shift_y);
+        colour_glyphs::lay(&mut canvas, &line.marks, origin);
     }
 
     Ok((
@@ -2463,6 +2270,10 @@ mod tests {
 
     fn is_white(r: u8, g: u8, b: u8) -> bool {
         r > 200 && g > 200 && b > 200
+    }
+
+    fn is_red(r: u8, g: u8, b: u8) -> bool {
+        r > 180 && g < 80 && b < 80
     }
 
     /// "Make" in red, "this" in the title's white: each word is painted in
@@ -3181,7 +2992,12 @@ mod tests {
         }
         let (data, index) = &casting.faces[face_of[0]];
         let lent = ttf_parser::Face::parse((**data).as_ref(), *index).expect("parses");
-        assert!(draws(&lent, '漢').is_some() && draws(&lent, '字').is_some());
+        for ch in ['漢', '字'] {
+            assert!(
+                colour_glyphs::rendition(&lent, ch).is_some(),
+                "the face lent for 漢 draws {ch} too"
+            );
+        }
         assert_eq!(face_of[0], face_of['漢'.len_utf8()], "one face for the run");
     }
 
@@ -3258,252 +3074,5 @@ mod tests {
         let plated = render(&fonts, &plated, 640, 360).expect("renders");
         assert!(plated.block_width > one.block_width);
         assert!(plated.block_height > one.block_height);
-    }
-
-    // ── colour emoji: https://github.com/jub0t/Concat/issues/276 ──
-
-    /// The solid pixels whose colour passes: the words are white and
-    /// their shadow and outline grey, so anything that passes is a
-    /// picture's own.
-    fn coloured_pixels(png: &[u8], passes: impl Fn(u8, u8, u8) -> bool) -> usize {
-        let pixmap = Pixmap::decode_png(png).expect("our own PNG decodes");
-        pixmap
-            .pixels()
-            .iter()
-            .filter(|p| p.alpha() > 200 && passes(p.red(), p.green(), p.blue()))
-            .count()
-    }
-
-    fn is_red(r: u8, g: u8, b: u8) -> bool {
-        r > 150 && g < 90 && b < 90
-    }
-
-    fn is_blue(r: u8, g: u8, b: u8) -> bool {
-        b > 150 && r < 90 && g < 90
-    }
-
-    /// The font's bytes with `extra` tables in the directory: laid out
-    /// four bytes at a time as a sfnt likes, the directory in tag order,
-    /// checksums summed. Enough for a test to give a real face tables it
-    /// does not carry.
-    fn with_tables(base: &[u8], extra: &[(&[u8], &[u8])]) -> Vec<u8> {
-        let tables = usize::from(u16::from_be_bytes([base[4], base[5]]));
-        let mut entries: Vec<(Vec<u8>, &[u8])> = Vec::with_capacity(tables + extra.len());
-        for index in 0..tables {
-            let at = 12 + index * 16;
-            let word = |at: usize| {
-                u32::from_be_bytes(base[at..at + 4].try_into().expect("four bytes")) as usize
-            };
-            let (offset, length) = (word(at + 8), word(at + 12));
-            entries.push((base[at..at + 4].to_vec(), &base[offset..offset + length]));
-        }
-        entries.extend(extra.iter().map(|(tag, data)| (tag.to_vec(), *data)));
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-        let count = entries.len() as u16;
-        let entry_selector = (u16::BITS - 1 - count.leading_zeros()) as u16;
-        let search_range = 16u16 << entry_selector;
-        let mut out = Vec::new();
-        out.extend_from_slice(&base[..4]); // the sfnt version
-        out.extend_from_slice(&count.to_be_bytes());
-        out.extend_from_slice(&search_range.to_be_bytes());
-        out.extend_from_slice(&entry_selector.to_be_bytes());
-        out.extend_from_slice(&(count * 16 - search_range).to_be_bytes());
-
-        // Each table padded to four bytes, as a sfnt likes.
-        let padded: Vec<usize> = entries.iter().map(|(_, d)| (d.len() + 3) & !3).collect();
-        let mut offsets = Vec::with_capacity(entries.len());
-        let mut next = 12 + entries.len() * 16;
-        for len in &padded {
-            offsets.push(next);
-            next += len;
-        }
-        for ((tag, data), offset) in entries.iter().zip(&offsets) {
-            let mut sum = 0u32;
-            for word in data.chunks(4) {
-                let mut bytes = [0u8; 4];
-                bytes[..word.len()].copy_from_slice(word);
-                sum = sum.wrapping_add(u32::from_be_bytes(bytes));
-            }
-            out.extend_from_slice(tag);
-            out.extend_from_slice(&sum.to_be_bytes());
-            out.extend_from_slice(&(*offset as u32).to_be_bytes());
-            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        }
-        for ((_, data), len) in entries.iter().zip(&padded) {
-            out.extend_from_slice(data);
-            out.resize(out.len() + (len - data.len()), 0);
-        }
-        out
-    }
-
-    /// The bundled face with `COLR` and `CPAL` laid over it: the glyph
-    /// for `A` painted as two layered outlines - `L` in the palette's
-    /// red, `I` in its blue. A colour face in the bytes a colour face
-    /// ships, cut from a font the test already carries, so it runs on a
-    /// machine with no fonts installed at all.
-    fn layered_face() -> Vec<u8> {
-        let face = ttf_parser::Face::parse(BUNDLED[0], 0).expect("the bundled face parses");
-        let base = face.glyph_index('A').expect("an A").0;
-        let first = face.glyph_index('L').expect("an L").0;
-        let second = face.glyph_index('I').expect("an I").0;
-
-        // COLR v0: a 14-byte header, one base glyph, two layers.
-        let mut colr = Vec::new();
-        colr.extend_from_slice(&0u16.to_be_bytes()); // version
-        colr.extend_from_slice(&1u16.to_be_bytes()); // numBaseGlyphRecords
-        colr.extend_from_slice(&14u32.to_be_bytes()); // baseGlyphRecordsOffset
-        colr.extend_from_slice(&20u32.to_be_bytes()); // layerRecordsOffset
-        colr.extend_from_slice(&2u16.to_be_bytes()); // numLayerRecords
-        colr.extend_from_slice(&base.to_be_bytes());
-        colr.extend_from_slice(&0u16.to_be_bytes()); // firstLayerIndex
-        colr.extend_from_slice(&2u16.to_be_bytes()); // numLayers
-        colr.extend_from_slice(&first.to_be_bytes());
-        colr.extend_from_slice(&0u16.to_be_bytes()); // palette entry: red
-        colr.extend_from_slice(&second.to_be_bytes());
-        colr.extend_from_slice(&1u16.to_be_bytes()); // palette entry: blue
-
-        // CPAL v0: one palette of two entries, records at byte 14 - just
-        // after the header's 12 bytes and the one palette index.
-        let mut cpal = Vec::new();
-        cpal.extend_from_slice(&0u16.to_be_bytes()); // version
-        cpal.extend_from_slice(&2u16.to_be_bytes()); // numPaletteEntries
-        cpal.extend_from_slice(&1u16.to_be_bytes()); // numPalettes
-        cpal.extend_from_slice(&2u16.to_be_bytes()); // numColorRecords
-        cpal.extend_from_slice(&14u32.to_be_bytes()); // colorRecordsArrayOffset
-        cpal.extend_from_slice(&0u16.to_be_bytes()); // colorRecordIndices[0]
-        cpal.extend_from_slice(&[0, 0, 255, 255]); // red: blue, green, red, alpha
-        cpal.extend_from_slice(&[255, 0, 0, 255]); // blue
-
-        with_tables(BUNDLED[0], &[(&b"COLR"[..], &colr), (&b"CPAL"[..], &cpal)])
-    }
-
-    /// A font set with no system fonts at all: the layered face and the
-    /// bundled weights around it, no more.
-    fn layered_fonts() -> Fonts {
-        let mut db = fontdb::Database::new();
-        db.load_font_data(layered_face());
-        for face in &BUNDLED[1..] {
-            db.load_font_data(face.to_vec());
-        }
-        // None of the weights around it is a regular, so a regular in
-        // the database is the layered face - if it parsed at all.
-        assert!(
-            db.faces()
-                .any(|info| { info.weight.0 == 400 && info.style == fontdb::Style::Normal }),
-            "the layered face parses"
-        );
-        Fonts {
-            db,
-            cache: Mutex::default(),
-        }
-    }
-
-    /// A face that paints a glyph in colours of its own draws it, and
-    /// those colours are what lands: layered `COLR` paints over the
-    /// words, in their palette's red and blue rather than the fill's
-    /// white - which is all the same face without those tables can
-    /// paint. And a colour face is the one borrowed first, whatever
-    /// weight the title asked for.
-    #[test]
-    fn a_colr_face_paints_its_layers_in_their_own_colours() {
-        let fonts = layered_fonts();
-        let mut title = style("A");
-        title.font_family = BUNDLED_FAMILY.to_owned();
-        title.font_weight = 400.0;
-        title.shadow = false;
-        // Big enough that each layer's pixels are counted past doubt.
-        title.font_size = 0.2;
-        let layered = render(&fonts, &title, 640, 360).expect("renders");
-        assert!(
-            coloured_pixels(&layered.png, is_red) > 20,
-            "the first layer's red"
-        );
-        assert!(
-            coloured_pixels(&layered.png, is_blue) > 20,
-            "the second layer's blue"
-        );
-
-        // The same face without those two tables paints only what the
-        // words' fill says: no red and no blue anywhere.
-        let mut plain_db = fontdb::Database::new();
-        plain_db.load_font_data(BUNDLED[0].to_vec());
-        let plain_fonts = Fonts {
-            db: plain_db,
-            cache: Mutex::default(),
-        };
-        let plain = render(&plain_fonts, &title, 640, 360).expect("renders");
-        assert_eq!(coloured_pixels(&plain.png, is_red), 0);
-        assert_eq!(coloured_pixels(&plain.png, is_blue), 0);
-
-        // And the faces say so: `draws` calls the layered one colour
-        // and the plain one an outline, and nearest takes the colour
-        // face before weight ever comes into it.
-        let bytes = layered_face();
-        let cut = ttf_parser::Face::parse(&bytes, 0).expect("parses");
-        assert_eq!(draws(&cut, 'A'), Some(Draw::Colour));
-        let bundled = ttf_parser::Face::parse(BUNDLED[0], 0).expect("parses");
-        assert_eq!(draws(&bundled, 'A'), Some(Draw::Outline));
-        assert_eq!(draws(&bundled, '漢'), None, "no glyph, no drawing");
-
-        let want = Want {
-            weight: 700,
-            italic: false,
-        };
-        let id = |weight: u16, slant: fontdb::Style| {
-            fonts
-                .db
-                .faces()
-                .find(|info| info.weight.0 == weight && info.style == slant)
-                .expect("the face")
-                .id
-        };
-        let bold = id(700, fontdb::Style::Normal);
-        let colour_face = id(400, fontdb::Style::Normal);
-        let mut covers = Covers::default();
-        covers.plain.push(bold);
-        covers.colour.push(colour_face);
-        assert_eq!(
-            fonts.nearest(Some(&covers), want),
-            Some(colour_face),
-            "colour before weight"
-        );
-        covers.colour.clear();
-        assert_eq!(
-            fonts.nearest(Some(&covers), want),
-            Some(bold),
-            "weight among the plain"
-        );
-        assert_eq!(fonts.nearest(None, want), None);
-    }
-
-    /// An emoji the style's face lacks is lent to a face that draws it
-    /// in colour, and painted in those colours rather than the words'
-    /// own. Skipped on a machine with no colour emoji face.
-    #[test]
-    fn an_emoji_is_painted_in_the_colours_of_the_face_that_draws_it() {
-        let fonts = Fonts::new();
-        let mut party = style("party 🎉 ❤️");
-        party.font_family = BUNDLED_FAMILY.to_owned();
-        party.shadow = false;
-        let casting = fonts.cast(&party).expect("casts");
-        let at = party.content.find('🎉').expect("the emoji");
-        let lent = casting
-            .faces
-            .get(casting.paragraphs[0][at])
-            .and_then(|(data, index)| ttf_parser::Face::parse((**data).as_ref(), *index).ok())
-            .is_some_and(|face| draws(&face, '🎉') == Some(Draw::Colour));
-        if !lent {
-            eprintln!("no colour face on this machine draws 🎉; skipped");
-            return;
-        }
-        let out = render(&fonts, &party, 640, 360).expect("renders");
-        let picture = coloured_pixels(&out.png, |r, g, b| {
-            r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 60
-        });
-        assert!(
-            picture > 50,
-            "{picture} coloured pixels: the emoji came out in colour"
-        );
     }
 }

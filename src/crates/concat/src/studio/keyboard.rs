@@ -12,7 +12,7 @@ impl Studio {
     /// menu's own handler in lib.rs, so a key and the row that advertises
     /// it are one thing.
     pub fn shortcut(&mut self, action: &str) {
-        log::info!("shortcut: {action}");
+        log::debug!("shortcut: {action}");
         match action {
             // The selected clips when there are any, as the tray's button
             // and the menu split: the chord cut every track under the
@@ -148,7 +148,10 @@ impl Studio {
     }
 
     pub fn clip_action(&mut self, id: &str, action: &str) {
-        log::info!("clip menu: {action} on {id}");
+        log::debug!("clip menu: {action} on {id}");
+        // The edits this makes say they came from the clip's menu, unless a
+        // shortcut brought them here.
+        let _asked = Asked::by("clip menu");
         let Some(clip) = self.clip(id).cloned() else {
             return;
         };

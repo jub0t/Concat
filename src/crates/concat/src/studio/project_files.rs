@@ -10,7 +10,60 @@ impl Studio {
     /// Opens a project as the session and leaves the launch screen, or
     /// says why it could not.
     pub fn open_project(&mut self, info: ProjectInfo) -> Result<(), String> {
-        log::info!("project: opening {}", info.path);
+        let name = info.name.clone();
+        let began = std::time::Instant::now();
+        let opened = self.open_project_timed(info);
+        match &opened {
+            Ok(()) => {
+                if let Some(session) = &self.session {
+                    let timeline = session.project().active();
+                    let tracks = match timeline.tracks.len() {
+                        1 => "1 track".to_owned(),
+                        count => format!("{count} tracks"),
+                    };
+                    log::info!(
+                        "project: opened {name} in {} · {tracks}, {}, {}",
+                        concat_log::span(began.elapsed()),
+                        clips_of(timeline.clips.len()),
+                        concat_log::span(std::time::Duration::from_secs_f64(
+                            timeline.duration().max(0.0)
+                        )),
+                    );
+                }
+            }
+            Err(error) => {
+                let left = if self.session.is_some() {
+                    format!("{} stays open", self.project_name)
+                } else {
+                    "the launch screen stays up".to_owned()
+                };
+                log::error!("project: opening {name} failed: {error}; {left}");
+            }
+        }
+        opened
+    }
+
+    /// The project in the folder at `path`, read and opened: what Open and
+    /// Recents do. A folder that will not read says so in the log as
+    /// [`Studio::open_project`] does for one that will not open.
+    pub fn open_project_at(&mut self, path: &str) -> Result<(), String> {
+        let info = projects::open(path).inspect_err(|error| {
+            let left = if self.session.is_some() {
+                format!("{} stays open", self.project_name)
+            } else {
+                "the launch screen stays up".to_owned()
+            };
+            log::error!(
+                "project: reading {} failed: {error}; {left}",
+                file_name_of(path)
+            );
+        })?;
+        self.open_project(info)
+    }
+
+    /// [`Studio::open_project`], which says how it went.
+    fn open_project_timed(&mut self, info: ProjectInfo) -> Result<(), String> {
+        log::debug!("project: opening {}", info.path);
         // File › Open and Recents from a window with a project in it: that
         // project is closed first, as a close would - saved, its folder let
         // go, its jobs stopped. Swapping the session alone dropped what the
@@ -23,6 +76,7 @@ impl Studio {
             .map(|session| session.path().to_owned())
         {
             if same_folder(&open, &info.path) {
+                log::debug!("project: {} is already open", info.name);
                 return Ok(());
             }
             self.save_and_release()
@@ -45,14 +99,17 @@ impl Studio {
                     .pid
                     .map(|pid| pid.to_string())
                     .unwrap_or_else(|| "?".to_owned());
-                log::warn!("project: {} is held by process {pid}", info.path);
+                log::debug!("project: {} is held by process {pid}", info.path);
                 return Err(tf("studio.projectOpenElsewhere", &[&pid]));
             }
         }
         match Session::open_info(&info) {
             Ok(session) => {
                 if let Err(error) = projects::remember(&self.host.dirs.config, &info) {
-                    log::warn!("{error}");
+                    log::warn!(
+                        "project: adding {} to Recents failed: {error}; it opens all the same",
+                        info.name
+                    );
                 }
                 self.pause();
                 // The proxies of media no longer in the project, or read
@@ -74,7 +131,10 @@ impl Studio {
                     .collect();
                 let swept = concat_host::proxy::sweep(project_dir, &kept);
                 if swept > 0 {
-                    log::info!("{swept} stale proxies swept from {}", project_dir.display());
+                    log::debug!(
+                        "project: {swept} stale proxies swept from {}",
+                        project_dir.display()
+                    );
                 }
                 self.session = Some(session);
                 // The relink dialog belongs to the project that opened it;
@@ -262,7 +322,7 @@ impl Studio {
     /// [`Studio::close_project`] without the notice: the project saved, then
     /// let go, or left open when the save fails.
     fn save_and_release(&mut self) -> Result<(), String> {
-        log::info!("project: closing {}", self.project_name);
+        log::debug!("project: closing {}", self.project_name);
         // Words still being typed land in the save, not on the floor.
         self.flush_commit();
         self.pause();
@@ -273,11 +333,18 @@ impl Studio {
             let (path, document) = session.prepare_save(None);
             let ticket = projects::ticket();
             if let Err(error) = projects::save_ordered(&path, &document, ticket) {
-                log::warn!("project: could not be saved, not closing: {error}");
+                log::error!(
+                    "project: saving {} to close it failed: {error}; it stays open",
+                    self.project_name
+                );
                 return Err(error);
             }
         }
+        let name = self.session.is_some().then(|| self.project_name.clone());
         self.release_project();
+        if let Some(name) = name {
+            log::info!("project: closed {name}");
+        }
         Ok(())
     }
 

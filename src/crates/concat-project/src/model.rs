@@ -1797,11 +1797,14 @@ pub struct SpeedPoint {
     pub at: f64,
     /// Source seconds per timeline second there.
     pub speed: f64,
-    /// How fast the speed is changing there, speed per unit of `at`, for a
-    /// curve with smooth bends: present on every point of such a curve and
-    /// absent on every point of one joined by straight lines. See
-    /// `concat_core::SpeedCurve`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// How fast the speed is changing there, in speed per unit of `at`.
+    /// When every point of a curve has one, the curve bends smoothly
+    /// through its points; when any lacks one, it runs in straight lines.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "wire::maybe"
+    )]
     pub slope: Option<f64>,
 }
 

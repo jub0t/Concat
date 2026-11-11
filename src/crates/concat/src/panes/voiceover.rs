@@ -304,7 +304,9 @@ impl VoiceoverPane {
             VoiceoverMsg::Retake => self.retake(studio),
             VoiceoverMsg::Retry => self.reopen(studio),
             VoiceoverMsg::Lost(error) => {
-                log::warn!("voiceover: the microphone was lost: {error}");
+                log::warn!(
+                    "voice: the microphone went away during a voiceover: {error}; the take stops there"
+                );
                 self.stop(studio);
                 self.mic = None;
                 self.error = Some(error);
@@ -418,7 +420,9 @@ impl VoiceoverPane {
         // plainly rather than a take of nothing.
         #[cfg(target_os = "ios")]
         if let Err(error) = crate::ios::record_alongside_playback() {
-            log::warn!("voiceover: the audio session would not record: {error}");
+            log::warn!(
+                "voice: wanted the audio session set to record a voiceover and it would not be: {error}; nothing is recorded"
+            );
             self.error = Some(tf("voiceover.failed", &[&error]));
             return;
         }
@@ -452,7 +456,7 @@ impl VoiceoverPane {
         self.waiting = false;
         match result {
             Ok((mic, mut devices)) => {
-                log::info!("voiceover: listening to {}", mic.name());
+                log::info!("voice: the voiceover listens to {}", mic.name());
                 // The one that opened is on the list whatever the list
                 // says: some systems do not list their default.
                 let device = match devices.iter().position(|name| name == mic.name()) {
@@ -470,7 +474,9 @@ impl VoiceoverPane {
                 self.error = None;
             }
             Err(error) => {
-                log::warn!("voiceover: the microphone would not open: {error}");
+                log::warn!(
+                    "voice: wanted a microphone for the voiceover and none would open: {error}; nothing can be recorded"
+                );
                 self.error = Some(tf("voiceover.failed", &[&error]));
             }
         }
@@ -541,7 +547,7 @@ impl VoiceoverPane {
             self.error = Some(tf("voiceover.failed", &[&error]));
             return;
         }
-        log::info!("voiceover: recording from {:.3}s", studio.playhead);
+        log::info!("voice: recording a voiceover from {:.2} s", studio.playhead);
         self.error = None;
         self.told = false;
         let start = f64::from(studio.playhead.max(0.0));
@@ -613,7 +619,11 @@ impl VoiceoverPane {
         };
         match mic.end() {
             Ok(done) => {
-                log::info!("voiceover: {:.2}s to {}", done.seconds, done.path.display());
+                log::info!(
+                    "voice: recorded a voiceover · {} to {}",
+                    concat_log::span(std::time::Duration::from_secs_f64(done.seconds.max(0.0))),
+                    crate::studio::file_name_of(&done.path.to_string_lossy())
+                );
                 let landing = record::landing(take.start, take.rolled, done.first);
                 let seconds = done.seconds;
                 let start = take.start;
@@ -673,7 +683,7 @@ impl VoiceoverPane {
                 last.start
             }
         };
-        log::info!("voiceover: retake from {start:.3}s");
+        log::info!("voice: voiceover retake from {start:.2} s");
         studio.seek(start as f32);
         self.record(studio);
     }

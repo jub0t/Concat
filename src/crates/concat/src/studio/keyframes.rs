@@ -21,57 +21,68 @@ impl Studio {
         })
     }
 
+    /// The Speed tab's word on the selected clip: Constant or Curve, the
+    /// curve's points, its line and which points are chosen, Smooth or
+    /// Straight, the preset it still is, its fastest and slowest, and where
+    /// the playhead crosses it. Points are synced row by row, so a point
+    /// under the pointer is not dropped when the graph is published again.
+    pub(super) fn publish_speed_ramp(&self, app: &App, models: &Models) {
+        let ramp = app.global::<SpeedRamp>();
+        let clip = self.speed_clip().and_then(|id| self.clip(&id));
+        let points = clip
+            .and_then(|clip| clip.speed_curve.as_deref())
+            .unwrap_or(&[]);
+        ramp.set_usable(clip.is_some());
+        ramp.set_has_curve(!points.is_empty());
+        // No curve shows as smooth: a curve begins smooth.
+        ramp.set_eased(points.is_empty() || concat_project::speed::is_eased(points));
+        ramp.set_active_preset(speed_ramp::preset_index(points));
+        let extreme = |faster| speed_ramp::extreme_of(points, faster).unwrap_or(0.0) as f32;
+        ramp.set_peak_speed(extreme(true));
+        ramp.set_trough_speed(extreme(false));
+        ramp.set_line_path(speed_ramp::curve_path(points).into());
+        let across = clip.and_then(|clip| {
+            let local = f64::from(self.playhead) - clip.start;
+            (clip.duration > 0.0 && (0.0..=clip.duration).contains(&local))
+                .then(|| (local / clip.duration) as f32)
+        });
+        ramp.set_playhead_at(across.unwrap_or(-1.0));
+        let last = points.len().saturating_sub(1);
+        sync(
+            &models.ramp_points,
+            points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| SpeedPointData {
+                    index: index as i32,
+                    x: point.at as f32,
+                    y: speed_ramp::height_for(point.speed) as f32,
+                    end: index == 0 || index == last,
+                })
+                .collect(),
+        );
+        let chosen = self.speed_chosen_now();
+        sync(
+            &models.curve_selected,
+            (0..points.len())
+                .map(|index| chosen.contains(&index))
+                .collect(),
+        );
+        sync(
+            &models.preset_labels,
+            speed_ramp::preset_labels()
+                .into_iter()
+                .map(SharedString::from)
+                .collect(),
+        );
+    }
+
     /// The selected clip and where the playhead is inside it, `0..=1`, or
     /// None when there is no sole selection or the playhead is outside it.
     ///
     /// Outside is not clamped to an end: a key put on from outside the clip
     /// would land on its first or last frame, which is never what the person
     /// pressing the diamond meant.
-    /// The Speed tab's curve for the selected clip: its points on the
-    /// graph's scale, the line through them, whether it bends, which preset
-    /// it still is, where the playhead crosses it, and its two extremes.
-    pub(super) fn publish_speed_ramp(&self, app: &App, models: &Models) {
-        let ramp = app.global::<SpeedRamp>();
-        if models.speed_presets.row_count() == 0 {
-            sync(
-                &models.speed_presets,
-                speed_ramp::preset_names()
-                    .into_iter()
-                    .map(SharedString::from)
-                    .collect(),
-            );
-        }
-        let clip = self.sole_selection().and_then(|id| self.clip(&id));
-        let curve = clip.and_then(|clip| clip.speed_curve.as_deref());
-        let points = curve.unwrap_or_default();
-        sync(
-            &models.speed_points,
-            points
-                .iter()
-                .enumerate()
-                .map(|(index, point)| CurvePointData {
-                    index: index as i32,
-                    x: point.at as f32,
-                    y: speed_ramp::height_of(point.speed) as f32,
-                })
-                .collect(),
-        );
-        let chosen = self.speed_chosen_now();
-        sync(
-            &models.speed_chosen,
-            (0..points.len())
-                .map(|index| chosen.contains(&index))
-                .collect(),
-        );
-        ramp.set_curved(curve.is_some());
-        ramp.set_smooth(curve.is_none_or(concat_project::speed::is_smooth));
-        ramp.set_path(speed_ramp::path(points).into());
-        ramp.set_preset(curve.map_or(-1, speed_ramp::preset_index));
-        ramp.set_at(self.key_point().map_or(-1.0, |(_, at)| at as f32));
-        ramp.set_fastest(speed_ramp::extreme(points, true).map_or(-1.0, |speed| speed as f32));
-        ramp.set_slowest(speed_ramp::extreme(points, false).map_or(-1.0, |speed| speed as f32));
-    }
-
     pub fn key_point(&self) -> Option<(&Clip, f64)> {
         let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
         if clip.duration <= 0.0 {
@@ -1670,7 +1681,9 @@ impl Studio {
         }
         for dir in tripped {
             if self.tripped_strokes.insert(dir) {
-                log::warn!("smart brush: a stroke the app closed while reading is skipped");
+                log::warn!(
+                    "cutout: skipped a Smart brush stroke: Concat closed while reading it last time, and would again; painting it again reads it"
+                );
                 self.notify(&t("studio.smartBrushSkipped"), true);
             }
         }
@@ -2441,7 +2454,8 @@ impl Studio {
 
     /// A row of a bin card's menu, for the media it was opened on.
     pub fn media_action(&mut self, id: &str, action: &str) {
-        log::info!("media menu: {action} on {id}");
+        log::debug!("media menu: {action} on {id}");
+        let _asked = Asked::by("media menu");
         let Some(row) = self.media.row_of(id) else {
             return;
         };

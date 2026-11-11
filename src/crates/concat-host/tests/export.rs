@@ -1510,8 +1510,8 @@ fn every_edit_still_exports() {
     // on a curve, then undone back to half speed.
     studio.apply(Command::SetClipSpeed {
         clip_id: tail.clone(),
-        ripple: false,
         speed: 2.0,
+        ripple: false,
     });
     let exported = studio.export("double speed");
     assert!(
@@ -1531,8 +1531,8 @@ fn every_edit_still_exports() {
     });
     studio.apply(Command::SetClipSpeed {
         clip_id: tail.clone(),
-        ripple: false,
         speed: 0.5,
+        ripple: false,
     });
     let exported = studio.export("half speed");
     exported.expect_second(2.25, 2);
@@ -1541,7 +1541,6 @@ fn every_edit_still_exports() {
 
     studio.apply(Command::SetClipSpeedCurve {
         clip_id: tail.clone(),
-        ripple: false,
         curve: Some(vec![
             SpeedPoint {
                 at: 0.0,
@@ -1554,6 +1553,7 @@ fn every_edit_still_exports() {
                 slope: None,
             },
         ]),
+        ripple: false,
     });
     let exported = studio.export("speed curve");
     exported.expect_length(16.0);
@@ -1984,8 +1984,8 @@ fn the_edges_export_too() {
     });
     studio.apply(Command::SetClipSpeed {
         clip_id: clip.clone(),
-        ripple: false,
         speed: 0.125,
+        ripple: false,
     });
     let start = studio.clip(&clip).start;
     let end = studio.end();
@@ -2113,8 +2113,8 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     // as it does the CPU.
     studio.apply(Command::SetClipSpeed {
         clip_id: clip.clone(),
-        ripple: false,
         speed: 2.0,
+        ripple: false,
     });
     let start = studio.clip(&clip).start;
     let end = studio.end();
@@ -2616,3 +2616,6 @@ fn consolidation_keeps_the_global_frame_grid_at_fractional_starts() {
         );
     }
 }
+
+#[path = "export/consolidate.rs"]
+mod consolidate;

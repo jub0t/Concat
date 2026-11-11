@@ -32,6 +32,9 @@ tokenizers = { version = "0.23", optional = true, default-features = false, feat
 # where a loop ran out. Through the facade, so the window's log file and a
 # terminal both get it; see concat-host's logs.rs.
 log = { version = "0.4", features = ["std"] }
+# A job as one timed line - captions, a read, a split - and the units a
+# line's numbers are said in; see docs/LOGGING.md.
+concat-log.workspace = true
 
 # Transcription: whisper.cpp in-process. Built from source by cmake at build
 # time; on macOS with Metal so the encoder runs on the GPU. `raw-api` for

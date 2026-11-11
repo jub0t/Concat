@@ -52,7 +52,9 @@ impl Studio {
                 });
             });
         if let Err(error) = spawned {
-            log::warn!("cards: {error}");
+            log::warn!(
+                "effects: wanted a thread to draw the effect cards and got none: {error}; the cards stay undrawn"
+            );
             self.cards_busy = false;
         }
     }
@@ -94,7 +96,7 @@ impl Studio {
         let dir = Self::looks_dir(&self.host.dirs);
         // Looks an earlier build imported, onto the format 2 look first.
         for id in concat_effects::looks::upgrade(&dir) {
-            log::info!("{id}: the imported look now reads its table in light");
+            log::info!("effects: the imported look {id} now reads its table in light");
         }
         // The trials run on a compositor of their own on the window's
         // device, never the monitor's: one that times out is dead from
@@ -121,7 +123,7 @@ impl Studio {
             Ok(())
         });
         for error in &errors {
-            log::warn!("package: {error}");
+            log::warn!("effects: an imported package was refused: {error}; it is not offered");
         }
         // Every picture package's card: those drawn before are read as the
         // shelves need them, the rest drawn on a thread of their own.

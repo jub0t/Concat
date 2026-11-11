@@ -135,6 +135,9 @@ slint = { version = "1.18", default-features = false, features = [
 # The log facade. The window writes `log::warn!`; where that ends up is
 # concat-host's logs.rs, opened by whichever entry point started this run.
 log = "0.4"
+# The logger's helpers: `span` and `bytes` for a line's numbers, and the
+# `Op` that times the launch.
+concat-log.workspace = true
 # The one device: created in gpu.rs, handed to Slint and to the monitor.
 wgpu.workspace = true
 pollster.workspace = true

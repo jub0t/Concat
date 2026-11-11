@@ -147,15 +147,19 @@ fn listen(
         sink,
     };
     if queue.roundtrip(&mut state).is_err() {
-        log::warn!("wayland drops: the registry did not answer");
+        log::warn!(
+            "import: wanted file drops from the Wayland display and its registry did not answer; files cannot be dropped on the window"
+        );
         return;
     }
     let (Some(seat), Some(manager)) = (state.seat.clone(), state.manager.clone()) else {
-        log::warn!("wayland drops: no seat or data device manager; file drops are off");
+        log::warn!(
+            "import: wanted file drops from the Wayland display and it has no seat or data device manager; files cannot be dropped on the window"
+        );
         return;
     };
     state.device = Some(manager.get_data_device(&seat, &qh, ()));
-    log::info!("wayland drops: listening on the window's display");
+    log::debug!("import: listening for file drops on the Wayland display");
 
     while !stop.load(Ordering::Relaxed) {
         if queue.dispatch_pending(&mut state).is_err() {

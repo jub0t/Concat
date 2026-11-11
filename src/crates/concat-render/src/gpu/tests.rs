@@ -2627,139 +2627,54 @@ fn the_budget_override_reads_off_and_a_percent_and_refuses_the_rest() {
     assert!(super::parse_budget("lots").is_none());
 }
 
-/// Chroma Key, the one package of more than two passes, leaves Windows
-/// CI's WARP device lost after it (#673), and taking out its finder's
-/// `continue` did not change that. This trial names the part that does
-/// it: the package with each stage's function stubbed out, with every one
-/// stubbed but one, and with all of them stubbed - the last a trial of the
-/// seven-picture plumbing alone. Each runs on a fresh device. Diagnostic:
-/// it goes once the cause is fixed.
+/// Chroma Key, drawn: a green screen goes and the red subject on it stays,
+/// and a picture with no screen in it is left whole - the matte's two
+/// answers, both worked out in every pixel since #673. Run on any adapter,
+/// WARP included, small enough for FXC and the CPU.
 #[test]
-fn chroma_key_bisected_on_this_adapter() {
-    const MANIFEST: &str =
-        include_str!("../../../concat-effects/packages/concat.chroma-key/effect.toml");
-    const BODY: &str =
-        include_str!("../../../concat-effects/packages/concat.chroma-key/effect.wgsl");
-    const STAGES: [&str; 8] = [
-        "cells",
-        "backing",
-        "plate",
-        "matte",
-        "grow_across",
-        "grow_down",
-        "soften_across",
-        "effect",
-    ];
-    // `name`'s function renamed out of the way and a constant in its place;
-    // `effect` passes the layer through.
-    let stub = |body: &str, name: &str| {
-        let head = format!("fn {name}(uv: vec2<f32>) -> vec4<f32> {{");
-        assert!(body.contains(&head), "{name} is in the shader");
-        // A stub still reads every picture drawn before it, at no weight:
-        // the compiler refuses a pass whose picture no later pass reads.
-        let earlier: String = STAGES
-            .iter()
-            .take_while(|stage| **stage != name)
-            .map(|stage| format!(" + 0.0 * {stage}_at(uv)"))
-            .collect();
-        let value = if name == "effect" {
-            format!("sample(uv){earlier}")
-        } else {
-            format!("vec4<f32>(0.5){earlier}")
-        };
-        body.replace(
-            &head,
-            &format!(
-                "fn {name}(uv: vec2<f32>) -> vec4<f32> {{ return {value}; }}\nfn {name}_whole(uv: vec2<f32>) -> vec4<f32> {{"
-            ),
-        )
-    };
-    let mut variants: Vec<(String, String)> = vec![("whole".to_owned(), BODY.to_owned())];
-    for name in STAGES {
-        variants.push((format!("without {name}"), stub(BODY, name)));
-        let only = STAGES
-            .iter()
-            .filter(|other| **other != name)
-            .fold(BODY.to_owned(), |body, other| stub(&body, other));
-        variants.push((format!("only {name}"), only));
-    }
-    variants.push((
-        "all stubbed".to_owned(),
-        STAGES
-            .iter()
-            .fold(BODY.to_owned(), |body, name| stub(&body, name)),
-    ));
-    // The matte alone loses WARP its device and the rest do not (CI,
-    // 2026-11-10): its parts taken out one at a time, in the matte alone
-    // and in the whole key, to name the one and to try the key without it.
-    let parts: [(&str, &str, &str); 3] = [
-        (
-            "early return",
-            "    if (!keyable(s)) {\n        return vec4<f32>(1.0);\n    }\n    let p = dominant(s.rgb);\n    let pitch",
-            "    let p = dominant(s.rgb);\n    let pitch",
-        ),
-        (
-            "plate read",
-            "excess(smooth_colour, p) / reach(uv, s.rgb, p)",
-            "excess(smooth_colour, p) / max(excess(s.rgb, p), 1e-4)",
-        ),
-        (
-            "smoothing",
-            "let smooth_colour = sum.rgb / max(sum.a, 1e-6);",
-            "let smooth_colour = sample_premultiplied(uv).rgb + 0.0 * sum.rgb;",
-        ),
-    ];
-    let only_matte = STAGES
-        .iter()
-        .filter(|other| **other != "matte")
-        .fold(BODY.to_owned(), |body, other| stub(&body, other));
-    let mut all_out = (only_matte.clone(), BODY.to_owned());
-    for (part, from, to) in parts {
-        assert!(BODY.contains(from), "the matte's {part} is where it was");
-        variants.push((
-            format!("only matte, without its {part}"),
-            only_matte.replace(from, to),
-        ));
-        variants.push((
-            format!("whole, matte without its {part}"),
-            BODY.replace(from, to),
-        ));
-        all_out = (all_out.0.replace(from, to), all_out.1.replace(from, to));
-    }
-    variants.push(("only matte, without all three".to_owned(), all_out.0));
-    variants.push(("whole, matte without all three".to_owned(), all_out.1));
-
-    let canary = package("test.canary", INVERT, "", &[], 1.0);
-    let mut verdicts = Vec::new();
-    let mut deaths = 0;
-    for (index, (label, body)) in variants.iter().enumerate() {
-        let manifest = MANIFEST.replace(
-            "id = \"concat.chroma-key\"",
-            &format!("id = \"test.chroma-key-{index}\""),
-        );
-        let package = concat_effects::Package::from_sources(&manifest, None, Some(body))
-            .unwrap_or_else(|error| panic!("{label}: {error}"));
-        let shader = package.shader().expect("a shader");
-        let values = package.resolve(&Default::default());
-        let pass = shader.pass(&values, &package.manifest.params, 1.0, None, None);
-        let Some(mut gpu) = WgpuCompositor::new() else {
-            eprintln!("no usable GPU adapter; skipping");
-            return;
-        };
-        let drawn = gpu.trial(&pass, std::time::Duration::from_secs(60));
-        let after = gpu.trial(&canary, std::time::Duration::from_secs(60));
-        if after.is_err() {
-            deaths += 1;
+fn chroma_key_takes_the_screen_and_leaves_the_rest() {
+    let Some(mut gpu) = gpu() else { return };
+    let catalogue = concat_effects::Catalogue::builtin();
+    let key = catalogue
+        .packages()
+        .find(|package| package.id() == "concat.chroma-key")
+        .expect("Chroma Key is built in");
+    let pass = key.shader().expect("a shader").pass(
+        &key.resolve(&Default::default()),
+        &key.manifest.params,
+        1.0,
+        None,
+        None,
+    );
+    let (width, height) = (96, 96);
+    let mut screen = solid(width, height, [20, 200, 30, 255]);
+    for y in 32..64 {
+        for x in 32..64 {
+            screen.set_pixel(x, y, [220, 40, 40, 255]);
         }
-        verdicts.push(format!(
-            "{label}: {} / {}",
-            drawn.map_or_else(|e| format!("refused ({e})"), |()| "drew".to_owned()),
-            after.map_or_else(
-                |e| format!("DEVICE LOST ({e})"),
-                |()| "device fine".to_owned()
-            ),
-        ));
     }
-    eprintln!("chroma key, bisected:\n{}", verdicts.join("\n"));
-    assert_eq!(deaths, 0, "chroma key, bisected:\n{}", verdicts.join("\n"));
+    let mut keyed = layer(screen);
+    keyed.effects = vec![pass.clone()];
+    let frame = gpu.render(&plan(width, height, vec![keyed]));
+    let corner = frame.pixel(6, 6).expect("a pixel");
+    assert!(
+        corner[..3].iter().all(|&c| c < 24),
+        "the screen goes, to the black behind it: {corner:?}"
+    );
+    let middle = frame.pixel(48, 48).expect("a pixel");
+    assert!(
+        middle[0] > 190 && middle[1] < 70 && middle[2] < 70,
+        "the subject stays: {middle:?}"
+    );
+
+    let mut grey = layer(solid(width, height, [128, 128, 128, 255]));
+    grey.effects = vec![pass];
+    let frame = gpu.render(&plan(width, height, vec![grey]));
+    for (x, y) in [(6, 6), (48, 48), (90, 90)] {
+        let pixel = frame.pixel(x, y).expect("a pixel");
+        assert!(
+            pixel[..3].iter().all(|&c| c.abs_diff(128) <= 3),
+            "no screen, nothing keyed at ({x}, {y}): {pixel:?}"
+        );
+    }
 }

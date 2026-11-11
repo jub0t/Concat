@@ -1165,6 +1165,7 @@ dependencies = [
  "concat-effects",
  "concat-export",
  "concat-host",
+ "concat-log",
  "concat-mcp",
  "concat-media",
  "concat-project",
@@ -1275,6 +1276,7 @@ dependencies = [
  "concat-core",
  "concat-effects",
  "concat-export",
+ "concat-log",
  "concat-media",
  "concat-project",
  "concat-render",
@@ -1294,6 +1296,14 @@ dependencies = [
  "tempfile",
  "ureq 2.12.1",
  "webpki-roots 0.26.11",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "concat-log"
+version = "0.2.10"
+dependencies = [
+ "log",
  "windows-sys 0.61.2",
 ]
 
@@ -1389,6 +1399,7 @@ name = "concat-speech"
 version = "0.2.10"
 dependencies = [
  "concat-host",
+ "concat-log",
  "concat-media",
  "concat-vision",
  "log",

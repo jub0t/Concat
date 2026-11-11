@@ -68,7 +68,7 @@ pub enum Msg {
 pub fn activity(msg: &Msg) -> Option<Activity> {
     use captions::CaptionsMsg;
     use export::ExportMsg;
-    use log::Level::{Debug, Info};
+    use log::Level::{Debug, Error, Info, Warn};
     use media_bin::MediaMsg;
     use monitor::MonitorMsg;
     use relink::RelinkMsg;
@@ -99,10 +99,13 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
             return Some(Activity::once(Info, "export: started".to_owned()));
         }
         Msg::Export(ExportMsg::Finished(Ok(path))) => {
-            return Some(Activity::once(Info, format!("export: finished, {path}")));
+            return Some(Activity::once(Info, format!("export: finished · {path}")));
         }
         Msg::Export(ExportMsg::Finished(Err(error))) => {
-            return Some(Activity::once(Info, format!("export: failed, {error}")));
+            return Some(Activity::once(
+                Error,
+                format!("export: failed: {error}; no file was finished"),
+            ));
         }
         Msg::Captions(CaptionsMsg::Begin) => {
             return Some(Activity::once(Info, "captions: started".to_owned()));
@@ -110,23 +113,25 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
         Msg::Captions(CaptionsMsg::Finished(Ok(segments))) => {
             return Some(Activity::once(
                 Info,
-                format!("captions: finished, {} segments", segments.len()),
+                format!("captions: finished · {} captions", segments.len()),
             ));
         }
         Msg::Captions(CaptionsMsg::Finished(Err(error))) => {
-            return Some(Activity::once(Info, format!("captions: failed, {error}")));
+            return Some(Activity::once(
+                Error,
+                format!("captions: failed: {error}; no captions were made"),
+            ));
         }
         Msg::Speech(SpeechMsg::Begin) => {
-            return Some(Activity::once(Info, "speech: started".to_owned()));
+            return Some(Activity::once(Info, "voice: started".to_owned()));
         }
         Msg::Speech(SpeechMsg::Finished(result)) => {
-            return Some(Activity::once(
-                Info,
-                match result.as_ref() {
-                    Ok(summary) => format!("speech: finished, {}", summary.path),
-                    Err(error) => format!("speech: failed, {error}"),
-                },
-            ));
+            return Some(match result.as_ref() {
+                Ok(summary) => Activity::once(Info, format!("voice: finished · {}", summary.path)),
+                Err(error) => {
+                    Activity::once(Error, format!("voice: failed: {error}; no sound was made"))
+                }
+            });
         }
         Msg::Media(MediaMsg::Import(paths)) => {
             let names: Vec<String> = paths
@@ -140,7 +145,7 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
             return Some(Activity::once(
                 Info,
                 format!(
-                    "import: {} file(s): {}",
+                    "import: asked for {} file(s) · {}",
                     paths.len(),
                     cap(&names.join(", "), 200)
                 ),
@@ -148,15 +153,23 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
         }
         Msg::Media(MediaMsg::Imported(results)) => {
             let failed = results.iter().filter(|result| result.is_err()).count();
-            return Some(Activity::once(
-                Info,
-                format!("import: {} added, {failed} failed", results.len() - failed),
-            ));
+            let added = results.len() - failed;
+            return Some(if failed == 0 {
+                Activity::once(Info, format!("import: {added} added"))
+            } else {
+                Activity::once(
+                    Warn,
+                    format!("import: {added} added, {failed} would not import"),
+                )
+            });
         }
         Msg::Relink(RelinkMsg::Show(missing)) => {
             return Some(Activity::once(
                 Info,
-                format!("relink: {} file(s) missing", missing.len()),
+                format!(
+                    "project: {} file(s) missing; asking where they are",
+                    missing.len()
+                ),
             ));
         }
         _ => {}
@@ -180,22 +193,17 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
             burst: Some(format!("{outer}: {inner}")),
         });
     }
-    // The view moving under the person is a burst - a wheel's worth of
-    // zooms is one line with a count, not a line a tick - and for Debug
-    // with a sheet's own housekeeping; a choice made is for Normal.
+    // What is left is the message by its own name in the code: a trail
+    // for whoever is chasing a bug at Debug, not a line of the run's story.
+    // What the person did is said in words where it is done - `edit:`,
+    // `settings:`, `project:` - and those are the lines Normal shows. The
+    // view moving under the person is a burst: a wheel's worth of zooms is
+    // one line with a count, not a line a tick.
     let continuous = matches!(
         inner.as_str(),
         "Select" | "Band" | "Zoomed" | "ZoomIn" | "ZoomOut" | "ZoomToFit"
     );
-    let level = match inner.as_str() {
-        "Select" | "Band" | "Zoomed" | "ZoomIn" | "ZoomOut" | "ZoomToFit" | "PageChanged"
-        | "Restore" | "Reset" | "Opened" | "Closed" | "SnapToggled" | "MagneticToggled"
-        | "UpdatesFetched"
-        // Every return to the front asks what is missing; only what it
-        // finds - the dialog opening - is worth a line of its own.
-        | "Recheck" => Debug,
-        _ => Info,
-    };
+    let level = Debug;
     Some(Activity {
         level,
         line: format!("{outer}: {}", cap(body, 160)),

@@ -69,7 +69,9 @@ pub fn apply_ui_scale(window: &slint::Window) {
         if TRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 40 {
             reapply_ui_scale(std::time::Duration::from_millis(50));
         } else {
-            log::warn!("interface scale: no window to scale; giving up");
+            log::warn!(
+                "display: wanted the chosen interface scale applied, but the window never came up to take it; it waits for the next pick in Settings"
+            );
         }
         return;
     };
@@ -83,7 +85,9 @@ pub fn apply_ui_scale(window: &slint::Window) {
     if (window.scale_factor() - factor).abs() < 1e-3 {
         return;
     }
-    log::info!("interface scale: the display's {native} times {chosen} is {factor}");
+    log::info!(
+        "display: interface scale {factor:.2} · the display's {native:.2} times the chosen {chosen:.2}"
+    );
     let physical = window.size();
     window.dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {
         scale_factor: factor,
@@ -453,11 +457,11 @@ pub fn select_backend(
     let software = asked || gpu.as_ref().is_some_and(Gpu::is_software);
     if asked {
         log::warn!(
-            "CONCAT_GPU=software: the window draws on the CPU and the monitor on a Metal device of its own"
+            "gpu: the window draws on the CPU, as CONCAT_GPU=software asks, and the monitor on a Metal device of its own"
         );
     } else if software {
         log::warn!(
-            "the GPU adapter is a software rasteriser; the window draws on the CPU and the monitor on a device of its own"
+            "gpu: wanted a GPU and the adapter is a software rasteriser; the window draws on the CPU and the monitor on a device of its own"
         );
     }
     if software {
@@ -467,7 +471,7 @@ pub fn select_backend(
         unsafe { std::env::set_var("CONCAT_GPU", "software") };
         gpu = None;
     } else if gpu.is_none() {
-        log::warn!("no GPU adapter; the monitor composites on the CPU");
+        log::warn!("gpu: wanted a GPU and found no adapter; the monitor composites on the CPU");
     }
 
     let mut selector = slint::BackendSelector::new()
@@ -648,7 +652,7 @@ fn fit_to_screen(window: &WinitWindow) {
     let room = f64::from(screen.height) * 0.9;
     if size.width > screen.width || f64::from(size.height) > room {
         log::info!(
-            "window: {}x{} does not fit the screen's {}x{}; maximised",
+            "display: the window's {}x{} does not fit the screen's {}x{} · maximised",
             size.width,
             size.height,
             screen.width,
@@ -1044,7 +1048,9 @@ pub fn pick_files_async(
         let kinds = PickKinds::of(filter.map(|(_, extensions)| extensions));
         match FILE_PICKER.get() {
             Some(picker) => picker(kinds, Box::new(on_picked)),
-            None => log::warn!("no file picker on this platform yet"),
+            None => log::warn!(
+                "import: wanted the system's file picker and this platform has none yet; nothing was picked"
+            ),
         }
     }
 }

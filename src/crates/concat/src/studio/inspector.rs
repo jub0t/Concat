@@ -271,8 +271,8 @@ impl Studio {
                     write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
                 }
                 ClipField::Speed => {
-                    // A rate set by hand is a constant rate: the curve goes,
-                    // as SetClipSpeed takes it.
+                    // A rate set by hand is a constant rate, so a curve the
+                    // clip had ends; the footage it covered is kept.
                     let speed = value.clamp(0.0625, 16.0);
                     clip.duration =
                         (clip.duration * clip.speed / speed).max(f64::from(MIN_DURATION));

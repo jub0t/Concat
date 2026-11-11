@@ -67,10 +67,10 @@ jobs:
   engine:
     name: Engine tests and lints
     runs-on: ubuntu-24.04
-    # The steps that can run long have timeouts of their own, 135 minutes
+    # The steps that can run long have timeouts of their own, 180 minutes
     # between them, so a stuck step is named by its own timeout; this is
-    # for a job stuck anywhere else. A warm run takes about twenty minutes.
-    timeout-minutes: 155
+    # for a job stuck anywhere else.
+    timeout-minutes: 200
     env:
       # See build-app.yml: the version the ort crate is built against.
       # scripts/ci/deps.lock pins the file.
@@ -145,16 +145,37 @@ jobs:
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review. Lints
       # before tests: they finish in a fraction of the time and catch the
-      # most. Two jobs at a time: checking the window's crate takes about
-      # 5 GB in one rustc, and --all-targets checks it, its tests and the
-      # Android shell's alike, so four at once ran the 16 GB runner out
-      # of memory and the job died as a "shutdown signal" (from 2026-11-04).
+      # most. The window's crate is linted on its own: its generated UI
+      # (some 86 MB of Rust) takes 7.5 GB and about 17 minutes here for
+      # each rustc that reads it. --all-targets reads it twice, the library
+      # and the library's tests: two at once ran the 16 GB runner out of
+      # memory (exit 143, every run 2026-11-04 to 11-10), and one after the
+      # other ran past 35 minutes. So it is read once, in test mode
+      # (--profile test), which is all of the library's code and its tests
+      # in one rustc. The Android shell is linted over a plain check of the
+      # library (--no-deps), not a second Clippy pass. The binary (main.rs
+      # and launch.rs) is not linted: selecting it makes the library a
+      # primary unit, which is a full second Clippy pass over the UI for
+      # 270 lines. It is still built and its tests run below.
+      # The rest of the workspace keeps every core.
       - name: Clippy
         timeout-minutes: 25
         working-directory: src
         run: |
           set -o pipefail
-          cargo clippy --workspace --all-targets -j 2 -- -D warnings 2>&1 | tee clippy.log
+          cargo clippy --workspace --exclude concat --exclude concat-android --all-targets -- -D warnings 2>&1 | tee clippy.log
+      - name: Clippy (the window)
+        timeout-minutes: 30
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo clippy -p concat --lib --profile test -- -D warnings 2>&1 | tee clippy-window.log
+      - name: Clippy (the Android shell)
+        timeout-minutes: 25
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo clippy -p concat-android --all-targets --no-deps -- -D warnings 2>&1 | tee clippy-shell.log
 
       # The tests are compiled in a step of their own, so a slow compile
       # and a slow test are told apart by which step ran out of time. One
@@ -214,7 +235,7 @@ jobs:
       # failures in it into annotations on the run (scripts/ci/annotate.py).
       - name: Failures to annotations (failure only)
         if: failure()
-        run: python3 scripts/ci/annotate.py src/clippy.log src/build-tests.log src/nextest-workspace.log src/clippy-grpc.log src/nextest-grpc.log
+        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/clippy-shell.log src/build-tests.log src/nextest-workspace.log src/clippy-grpc.log src/nextest-grpc.log
 
       - name: Keep the test report (failure only)
         if: failure()
@@ -329,20 +350,45 @@ jobs:
           workspaces: src
           key: check-${{ matrix.os }}
           cache-on-failure: true
+      # macOS: everything but the window's own tests, then those alone.
+      # Each rustc that reads the window's generated UI takes 7.5 GB and
+      # this runner has 7, so --all-targets, which reads it as the library
+      # and as the library's tests at once, swapped for 40 minutes and then
+      # past 45. Here only one is ever in memory: the library is checked
+      # as the Android shell's dependency in the first step, and in test
+      # mode (--profile test: its code and its tests in one rustc) in the
+      # second.
       - name: Check
         if: runner.os != 'Windows'
-        timeout-minutes: 45
+        timeout-minutes: 30
         working-directory: src
         run: |
           set -o pipefail
-          cargo check --workspace --all-targets 2>&1 | tee check.log
+          cargo check --workspace --exclude concat --all-targets 2>&1 | tee check.log
+          cargo check -p concat --bins 2>&1 | tee -a check.log
+      - name: Check the window's tests
+        if: runner.os != 'Windows'
+        timeout-minutes: 30
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo check -p concat --lib --profile test 2>&1 | tee check-window.log
 
       # Windows: compile, then run, then the one scenario that has hung
       # here on its own. Each step has its own timeout, so a red run says
       # whether the compile was slow, a test failed, or a test hung, and a
       # test that hangs is killed by nextest after its slow-timeout and
-      # reported by name (src/.config/nextest.toml). Two compile jobs: the
-      # runner has the memory for two, and one took most of an hour.
+      # reported by name (src/.config/nextest.toml). Two compile jobs for
+      # the workspace, then the window's own tests with one: each rustc
+      # that builds the window's generated UI (86 MB of Rust) takes most of
+      # this runner's 16 GB, and the library and the library's tests built
+      # side by side ran it out of memory ("rustc-LLVM ERROR: out of
+      # memory", run 42918745880). So everything but the libraries' unit
+      # tests is built first (the window's library among it, once), then
+      # the unit tests, when the window's are the only build of the UI
+      # left. Both select the whole workspace: -p concat or --exclude
+      # concat would resolve other features, and the run below would
+      # build both again, side by side.
       - name: Build the tests (Windows)
         id: build-tests
         if: runner.os == 'Windows'
@@ -351,7 +397,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo nextest run --workspace --no-run --build-jobs 2 2>&1 | tee build-tests.log
+          cargo nextest run --workspace --no-run --build-jobs 2 --bins --test '*' --examples 2>&1 | tee build-tests.log
+          cargo nextest run --workspace --no-run --build-jobs 2 --lib 2>&1 | tee -a build-tests.log
       - name: Run the tests (Windows)
         if: runner.os == 'Windows'
         timeout-minutes: 30
@@ -385,7 +432,7 @@ jobs:
         run: |
           python=python3
           command -v python3 >/dev/null 2>&1 || python=python
-          "$python" scripts/ci/annotate.py src/check.log src/build-tests.log src/nextest-workspace.log src/nextest-every-edit.log
+          "$python" scripts/ci/annotate.py src/check.log src/check-window.log src/build-tests.log src/nextest-workspace.log src/nextest-every-edit.log
       - name: Keep the test report (failure only)
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

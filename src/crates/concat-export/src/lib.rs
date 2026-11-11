@@ -24,6 +24,8 @@ mod ahead;
 pub mod chains;
 pub mod flatten;
 mod resolve;
+#[cfg(test)]
+mod speed_curve_tests;
 
 use resolve::{
     BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise, quantise_at,
@@ -180,10 +182,11 @@ pub struct ExportClip {
     /// clip's length; empty for the constant `speed`. See `SpeedCurve`.
     #[serde(default)]
     pub speed_curve: Vec<(f64, f64)>,
-    /// A slope for each of `speed_curve`'s points when the curve bends
-    /// smoothly between them; empty for straight lines.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub speed_slopes: Vec<f64>,
+    /// The curve's slope at each of `speed_curve`'s points, in speed per
+    /// unit of `at`, when it bends smoothly through them; empty for
+    /// straight lines.
+    #[serde(default)]
+    pub speed_tangents: Vec<f64>,
     /// Keys over the clip's placement and opacity, resolved by the UI from
     /// Empty for none.
     #[serde(default)]
@@ -374,11 +377,11 @@ impl ExportBackdrop {
 }
 
 impl ExportClip {
-    /// The engine's curve for the clip's speed, smooth when it carries
-    /// slopes; None for a constant rate.
-    pub fn retime(&self) -> Option<SpeedCurve> {
-        let slopes = (!self.speed_slopes.is_empty()).then_some(self.speed_slopes.as_slice());
-        SpeedCurve::with_slopes(&self.speed_curve, slopes)
+    /// The engine's time map for the clip's speed curve, or None when it
+    /// plays at the constant `speed`.
+    pub fn engine_curve(&self) -> Option<SpeedCurve> {
+        let slopes = (!self.speed_tangents.is_empty()).then_some(self.speed_tangents.as_slice());
+        SpeedCurve::with_tangents(&self.speed_curve, slopes)
     }
 
     /// A clip with nothing set but what places it: no file, unity gain,
@@ -404,7 +407,7 @@ impl ExportClip {
             speed: 1.0,
             preserve_pitch: true,
             speed_curve: Vec::new(),
-            speed_slopes: Vec::new(),
+            speed_tangents: Vec::new(),
             animation: Vec::new(),
             flip_h: false,
             flip_v: false,
@@ -931,7 +934,7 @@ fn last_frame_held(clip: &ExportClip, start: f64, length: f64, frame: f64) -> Ex
     let mut hold = held_at(clip, start, length, false);
     hold.hold = true;
     if clip.kind != ClipKind::Image {
-        let (played, rate) = match SpeedCurve::new(&clip.speed_curve) {
+        let (played, rate) = match clip.engine_curve() {
             Some(curve) => (clip.duration * curve.consumed(1.0), curve.speed_at(1.0)),
             None => (clip.duration * clip.speed, clip.speed),
         };
@@ -951,7 +954,7 @@ fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip
     held.duration = length;
     held.speed = 1.0;
     held.speed_curve.clear();
-    held.speed_slopes.clear();
+    held.speed_tangents.clear();
     held.muted = true;
     held.has_audio = Some(false);
     held.volume = 0.0;
@@ -1348,7 +1351,7 @@ fn audio_pieces_of(
 ) -> Vec<AudioClip> {
     let chain = clip.filter_chain.clone();
     let track = volume_track(clip);
-    let Some(curve) = clip.retime() else {
+    let Some(curve) = clip.engine_curve().filter(|_| clip.kind != ClipKind::Image) else {
         return vec![AudioClip {
             path: PathBuf::from(path),
             stream: stream.map(|index| index as usize),

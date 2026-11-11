@@ -63,6 +63,8 @@ pub use platform::{
 pub use platform::{LinkOpener, install_link_opener};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
+#[cfg(test)]
+mod close_gate_tests;
 mod panes;
 mod prefs;
 mod presets;
@@ -131,7 +133,33 @@ pub fn open_logging(extra: Option<Box<dyn log::Log>>) {
         Err(error) => concat_host::logs::open_console(extra).and(Err(error)),
     };
     if let Err(error) = opened {
-        log::warn!("this run is not being written to a file: {error}");
+        log::warn!(
+            "log: wanted a file for this run's log and there is none: {error}; it goes to the console only"
+        );
+    }
+    // The launch, timed from here to the window's first publish.
+    if let Ok(mut slot) = STARTING.lock() {
+        *slot = Some(concat_log::op!("start"));
+    }
+}
+
+/// The launch being timed: opened with the log, done when the window is
+/// first published. A launch that fails before that leaves it unfinished,
+/// which its line says.
+static STARTING: std::sync::Mutex<Option<concat_log::Op>> = std::sync::Mutex::new(None);
+
+/// Whether a way out of the run has said so; see [`closing`].
+static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Says, once, how this run is ending: `close: by Quit`. The first road
+/// out to say wins and the rest are detail, since one quit passes through
+/// several of them; a close the project's save refused takes the word back
+/// (see [`close_window`]), so the next try says itself again.
+pub(crate) fn closing(how: &str) {
+    if CLOSING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        log::debug!("close: {how}");
+    } else {
+        log::info!("close: {how}");
     }
 }
 
@@ -145,7 +173,8 @@ pub fn open_logging(extra: Option<Box<dyn log::Log>>) {
 /// https://github.com/jub0t/Concat/issues/135
 pub fn report_startup_failure(error: &slint::PlatformError) {
     let error = error.to_string();
-    log::error!("could not start: {error}");
+    // "could not start" right after the topic: the smoke scripts look for it.
+    log::error!("start: could not start the window: {error}; Concat says so in a dialog and quits");
     platform::report_startup_failure(&error);
 }
 
@@ -194,6 +223,9 @@ pub(crate) fn close_window(
     let result = close();
     if result.is_ok() {
         leave();
+    } else {
+        // Not closing after all: the next way out says itself.
+        CLOSING.store(false, std::sync::atomic::Ordering::Relaxed);
     }
     result
 }
@@ -284,15 +316,21 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             let free = std::cell::Cell::new(false);
             Shell::with(|shell, _| {
                 let Ok(mut studio) = shell.studio.try_borrow_mut() else {
-                    log::warn!("close: app terminating mid-edit; project not saved");
+                    closing("by Quit");
+                    log::warn!(
+                        "close: wanted to save the project before quitting, but an edit was under way; it was not saved"
+                    );
                     return;
                 };
                 free.set(true);
                 if studio.session.is_some() {
-                    log::info!("close: app terminating");
+                    closing("by Quit");
                     terminating.set(true);
                     if let Err(error) = studio.close_project() {
-                        log::warn!("close: project could not be saved: {error}");
+                        log::error!(
+                            "close: saving {} before quitting failed: {error}; Concat quits without it",
+                            studio.project_name
+                        );
                     }
                 }
             });
@@ -308,7 +346,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             // ("concat quit unexpectedly"). See `leave`.
             #[cfg(target_os = "macos")]
             {
-                log::info!("close: event loop exiting; leaving");
+                closing("by Quit");
+                log::debug!("close: event loop exiting; leaving");
                 leave(0);
             }
         },
@@ -317,7 +356,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     let host = match Host::start(gpu) {
         Ok(host) => host,
         Err(error) => {
-            log::error!("{error}");
+            log::error!("start: the engine could not start: {error}; the window does not open");
             return Err(slint::PlatformError::Other(error));
         }
     };
@@ -493,9 +532,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.global::<KeyEditor>()
             .set_rows(ModelRc::from(models.key_editor_rows.clone()));
         let ramp = app.global::<SpeedRamp>();
-        ramp.set_points(ModelRc::from(models.speed_points.clone()));
-        ramp.set_chosen(ModelRc::from(models.speed_chosen.clone()));
-        ramp.set_presets(ModelRc::from(models.speed_presets.clone()));
+        ramp.set_points(ModelRc::from(models.ramp_points.clone()));
+        ramp.set_selected(ModelRc::from(models.curve_selected.clone()));
+        ramp.set_preset_names(ModelRc::from(models.preset_labels.clone()));
         editor.set_key_marks(ModelRc::from(models.key_marks.clone()));
         app.global::<Library>()
             .set_views(ModelRc::from(models.library_views.clone()));
@@ -651,23 +690,23 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }
     });
     app.on_titlebar_close(|| {
-        log::info!("close: titlebar X pressed");
+        closing("by the window's close button");
         Shell::with(|shell, app| {
             shell.studio.borrow_mut().save_layout(app.window());
             let outcome = close_window(
                 || shell.studio.borrow_mut().close_project(),
                 || {
-                    log::info!("close: project closed, hiding window");
+                    log::debug!("close: project closed, hiding window");
                     app.window().hide().ok();
                     slint::quit_event_loop().ok();
-                    log::info!("close: quit_event_loop called");
+                    log::debug!("close: quit_event_loop called");
                 },
             );
             if let Err(error) = outcome {
                 // The save failed and `close_project` left the session
                 // open, so the window stays up. Its notice is published
                 // here or nobody would see it.
-                log::warn!("close: not closing, project could not be saved: {error}");
+                log::debug!("close: not closing, project could not be saved: {error}");
                 shell.studio.borrow_mut().offer_quit_without_saving(error);
                 shell.studio.borrow_mut().refresh_art();
                 shell.studio.borrow().publish(&app, &shell.models);
@@ -677,7 +716,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // System-driven close (Alt+F4, taskbar close): the same road out, and
     // refused the same way when the project cannot be saved.
     app.window().on_close_requested(|| {
-        log::info!("close: system close request (Alt+F4 / taskbar)");
+        closing("by the system");
         let saved = std::cell::Cell::new(true);
         Shell::with(|shell, app| {
             shell.studio.borrow_mut().save_layout(app.window());
@@ -689,7 +728,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             );
             if let Err(error) = outcome {
                 saved.set(false);
-                log::warn!("close: not closing, project could not be saved: {error}");
+                log::debug!("close: not closing, project could not be saved: {error}");
                 shell.studio.borrow_mut().offer_quit_without_saving(error);
                 shell.studio.borrow_mut().refresh_art();
                 shell.studio.borrow().publish(&app, &shell.models);
@@ -1337,24 +1376,32 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             state.frame_selected(fill);
         }));
     }
-    // The Speed tab's curve. Its own global, like the keyframe cluster's,
-    // since the Speed panel sits in three places; each verb edits the echo
-    // and the panel commits.
+    // The Speed tab's curve: each verb edits the clip as it is previewed,
+    // and the panel's commit lands it.
     {
         let ramp = app.global::<SpeedRamp>();
-        ramp.on_curve(on_lanes!(|state, on: bool| {
-            state.speed_curve_set(on);
+        ramp.on_toggle_curve(on_lanes!(|state, on: bool| {
+            state.speed_curve_mode(on);
         }));
-        ramp.on_point(on_lanes!(|state, index: i32, x: f32, y: f32| {
-            state.speed_curve_point(index, x, y);
+        ramp.on_pick_preset(on_lanes!(|state, index: i32| {
+            state.speed_preset(index);
         }));
-        ramp.on_remove(on_lanes!(|state, index: i32| {
-            state.speed_curve_remove(index);
+        ramp.on_move_point(on_lanes!(|state, index: i32, x: f32, y: f32| {
+            state.speed_point(index, x, y);
         }));
-        ramp.on_choose(on_lanes!(|state, index: i32, add: bool| {
+        ramp.on_remove_point(on_lanes!(|state, index: i32| {
+            state.speed_remove(index);
+        }));
+        ramp.on_set_eased(on_lanes!(|state, smooth: bool| {
+            state.speed_smooth(smooth);
+        }));
+        ramp.on_set_limit(on_lanes!(|state, faster: bool, target: f32| {
+            state.speed_extreme(faster, target);
+        }));
+        ramp.on_select(on_lanes!(|state, index: i32, add: bool| {
             state.speed_choose(index, add);
         }));
-        ramp.on_choose_box(on_lanes!(|state,
+        ramp.on_select_box(on_lanes!(|state,
                                       x0: f32,
                                       y0: f32,
                                       x1: f32,
@@ -1362,26 +1409,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                                       add: bool| {
             state.speed_choose_box([x0, y0, x1, y1], add);
         }));
-        ramp.on_choose_all(on_lanes!(|state, all: bool| {
+        ramp.on_select_all(on_lanes!(|state, all: bool| {
             state.speed_choose_all(all);
         }));
-        ramp.on_grab(on_lanes!(|state| {
+        ramp.on_begin_drag(on_lanes!(|state| {
             state.speed_grab();
         }));
-        ramp.on_drag_chosen(on_lanes!(|state, dx: f32, dy: f32| {
+        ramp.on_drag_selected(on_lanes!(|state, dx: f32, dy: f32| {
             state.speed_drag_chosen(dx, dy);
         }));
-        ramp.on_remove_chosen(on_lanes!(|state| {
+        ramp.on_remove_selected(on_lanes!(|state| {
             state.speed_remove_chosen();
-        }));
-        ramp.on_preset_chosen(on_lanes!(|state, index: i32| {
-            state.speed_curve_preset(index);
-        }));
-        ramp.on_smoothness(on_lanes!(|state, smooth: bool| {
-            state.speed_curve_smooth(smooth);
-        }));
-        ramp.on_extreme(on_lanes!(|state, faster: bool, speed: f32| {
-            state.speed_curve_extreme(faster, speed);
         }));
     }
     // The Keyframes panel's verbs; its rows go out with every publish.
@@ -1872,6 +1910,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 // The chord is one action's: whoever held it loses it,
                 // and the toast says which row is now unbound.
                 let lost = keymap::bind(&mut state.prefs, &id, &chord);
+                match lost {
+                    Some(lost) => {
+                        log::info!("settings: Shortcuts {id} {chord} · taken from {lost}")
+                    }
+                    None => log::info!("settings: Shortcuts {id} {chord}"),
+                }
                 state.prefs.save(&state.host.dirs);
                 if let Some(lost) = lost {
                     state.notify(
@@ -1949,11 +1993,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 "save" | "undo" | "redo" | "import" | "export" | "settings" | "zoom-in"
                 | "zoom-out" | "start" | "end" | "prev-edit" | "next-edit" | "snap" | "pan"
                 | "preview-axis" | "delete" => {
+                    let _asked = studio::Asked::by("shortcut");
                     app.invoke_app_menu_selected(SharedString::from(action));
                 }
                 // The rest: the editor's own table, the way the phone's
                 // buttons and the tray reach it.
                 _ => {
+                    let _asked = studio::Asked::by("shortcut");
                     shell.studio.borrow_mut().shortcut(action);
                     shell.studio.borrow_mut().refresh_art();
                     shell.studio.borrow().publish(&app, &shell.models);
@@ -2034,7 +2080,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // tree is a binding away from it; it is also remembered.
     app.on_settings_theme_changed({
         move |dark| {
-            log::info!("settings: theme {}", if dark { "dark" } else { "light" });
+            log::info!("settings: Theme {}", if dark { "Dark" } else { "Light" });
             Shell::with(|shell, app| {
                 app.global::<Theme>().set_dark(dark);
                 let mut studio = shell.studio.borrow_mut();
@@ -2047,7 +2093,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // remembered under the name the global lists it by.
     app.on_settings_accent_changed({
         move |index| {
-            log::info!("settings: accent {index}");
             Shell::with(|shell, app| {
                 let theme = app.global::<Theme>();
                 let names = theme.get_accent_names();
@@ -2057,6 +2102,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 else {
                     return;
                 };
+                log::info!("settings: Accent {name}");
                 theme.set_accent_choice(index);
                 let mut studio = shell.studio.borrow_mut();
                 studio.prefs.accent = Some(prefs::Preferences::accent_id(&name));
@@ -2072,6 +2118,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             Shell::with(|shell, app| {
                 let theme = app.global::<Theme>();
                 let count = slint::Model::row_count(&theme.get_accent_names());
+                // Every drag on the picker lands here: detail, not story.
+                log::debug!("settings: Accent {}", format::hex_of(colour));
                 theme.set_accent_custom(colour);
                 theme.set_accent_choice(count as i32);
                 let mut studio = shell.studio.borrow_mut();
@@ -2095,6 +2143,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 else {
                     return;
                 };
+                if index > 0 {
+                    log::info!("settings: Playhead colour {name}");
+                } else {
+                    log::info!("settings: Playhead colour the theme's own");
+                }
                 theme.set_playhead_choice(index);
                 let mut studio = shell.studio.borrow_mut();
                 studio.prefs.playhead = (index > 0).then(|| prefs::Preferences::accent_id(&name));
@@ -2107,6 +2160,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             Shell::with(|shell, app| {
                 let theme = app.global::<Theme>();
                 let count = slint::Model::row_count(&theme.get_accent_names());
+                log::debug!("settings: Playhead colour {}", format::hex_of(colour));
                 theme.set_playhead_custom(colour);
                 theme.set_playhead_choice(count as i32);
                 let mut studio = shell.studio.borrow_mut();
@@ -2125,9 +2179,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // https://github.com/jub0t/Concat/issues/320
     app.on_settings_scale_changed({
         move |index| {
-            log::info!("settings: ui scale {index}");
             Shell::with(|shell, app| {
                 let percent = prefs::Preferences::scale_at(usize::try_from(index).unwrap_or(0));
+                match percent {
+                    Some(percent) => log::info!("settings: Scale {percent}%"),
+                    None => log::info!("settings: Scale System"),
+                }
                 {
                     let mut studio = shell.studio.borrow_mut();
                     studio.prefs.ui_scale = percent;
@@ -2302,7 +2359,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             "retake" => VoiceoverMsg::Retake,
             "retry" => VoiceoverMsg::Retry,
             other => {
-                log::warn!("voiceover: no such action {other:?}");
+                log::warn!("voice: the voiceover panel asked for {other:?}, which it has no action called; nothing happened");
                 return;
             }
         };
@@ -2451,9 +2508,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_app_menu_selected({
         move |action| {
-            log::info!("menu: {action}");
+            log::debug!("menu: {action}");
             Shell::with(|shell, app| {
                 {
+                    // The edits a row makes say they were asked from the
+                    // menu, unless a shortcut came in through here first.
+                    let _asked = studio::Asked::by("menu");
                     let mut state = shell.studio.borrow_mut();
                     state.open_menu = -1;
                     match action.as_str() {
@@ -2532,7 +2592,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     }
                 }
                 if action == "close-window" {
-                    log::info!("close: File > Close Window");
+                    closing("by Close Window");
                     shell.studio.borrow_mut().save_layout(app.window());
                     let outcome = close_window(
                         || shell.studio.borrow_mut().close_project(),
@@ -2544,13 +2604,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     if let Err(error) = outcome {
                         // Unsaved work is worth more than the window: the
                         // project stays open and the reason is shown.
-                        log::warn!("close: not closing, project could not be saved: {error}");
+                        log::debug!("close: not closing, project could not be saved: {error}");
                         shell.studio.borrow_mut().offer_quit_without_saving(error);
                         shell.studio.borrow_mut().refresh_art();
                         shell.studio.borrow().publish(&app, &shell.models);
                         return;
                     }
-                    log::info!("close: quit_event_loop called (menu)");
+                    log::debug!("close: quit_event_loop called (menu)");
                     return;
                 }
                 shell.studio.borrow_mut().refresh_art();
@@ -2724,11 +2784,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 let path = path
                     .to_str()
                     .ok_or_else(|| "project directory is not valid Unicode".to_string())?;
-                concat_host::projects::open(path)
-            })
-            .and_then(|info| shell.studio.borrow_mut().open_project(info));
+                shell.studio.borrow_mut().open_project_at(path)
+            });
         if let Err(error) = opened {
-            log::error!("could not open launch project: {error}");
+            log::debug!("start: the project it was launched with did not open: {error}");
             shell.studio.borrow_mut().notify(&error, true);
         }
     }
@@ -2736,6 +2795,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     {
         shell.studio.borrow_mut().refresh_art();
         shell.studio.borrow().publish(&app, &shell.models);
+    }
+    if let Some(op) = STARTING.lock().ok().and_then(|mut slot| slot.take()) {
+        op.done("the window is up");
     }
 
     // As far as a smoke run goes: everything the first frame needs exists
@@ -2754,9 +2816,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             any(target_os = "windows", target_os = "linux")
         ))]
         match concat_speech::transcribe::cpu_backend() {
-            Ok(cpu) => log::info!("smoke: whisper runs on {cpu}"),
+            Ok(cpu) => log::info!("smoke: speech to text runs on {cpu}"),
             Err(error) => {
-                log::error!("smoke: {error}");
+                log::error!(
+                    "smoke: loading speech to text's CPU kernels failed: {error}; the smoke run fails"
+                );
                 leave(1);
             }
         }
@@ -2819,13 +2883,19 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
 
     let result = app.run();
     drop(reader_sweep);
-    log::info!("close: event loop exited (ok={})", result.is_ok());
+    if result.is_ok() {
+        log::debug!("close: event loop exited (ok={})", result.is_ok());
+    } else {
+        log::error!("close: event loop exited (ok={})", result.is_ok());
+    }
     // The loop failing is the window never having run at all - on a phone
     // whose Vulkan driver wgpu will not take, it is the whole launch, and
     // the person sees the app vanish. Its reason goes in the log before
     // anything else can end the process, and the exit says it failed.
     if let Err(error) = &result {
-        log::error!("close: the window could not run: {error}");
+        log::error!(
+            "close: the window could not run: {error}; Concat quits, and the next launch starts safe"
+        );
         // The mark stays: the next launch starts safe.
         std::mem::forget(startup_mark);
         leave(1);
@@ -2838,10 +2908,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     #[cfg(target_os = "android")]
     Shell::with(|shell, _| {
         let mut studio = shell.studio.borrow_mut();
+        closing("by the system");
         if studio.session.is_some()
             && let Err(error) = studio.close_project()
         {
-            log::warn!("close: the activity ended and the project could not be saved: {error}");
+            log::error!(
+                "close: saving {} as the system ended the app failed: {error}; it closes without it",
+                studio.project_name
+            );
         }
     });
     stop_exports();
@@ -2911,7 +2985,7 @@ fn stop_exports() {
     // The server first: it cancels its own jobs, so each ends as a cancel
     // its caller can tell apart from a failure.
     if let Some(server) = server {
-        log::info!("close: stopping the API's server");
+        log::debug!("close: stopping the API's server");
         let (stopped, wait) = std::sync::mpsc::channel();
         let _ = std::thread::Builder::new()
             .name("concat server stop".to_owned())
@@ -2926,7 +3000,10 @@ fn stop_exports() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     if exporter.is_busy() {
-        log::warn!("close: the export did not stop in time; leaving anyway");
+        log::warn!(
+            "close: wanted the export stopped before quitting, but it ran on past {}; Concat quits anyway",
+            concat_log::span(EXPORT_PATIENCE)
+        );
     }
 }
 
@@ -2994,7 +3071,9 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
 /// back on. Nothing where [`safe_start`] has no software rasteriser.
 pub fn draw_in_software() {
     if !cfg!(any(windows, target_os = "linux", target_os = "macos")) {
-        log::warn!("start: --software has no software rasteriser to draw on here");
+        log::warn!(
+            "start: --software asked to draw in software, but there is no software rasteriser here; nothing changed"
+        );
         return;
     }
     let Ok(dirs) = concat_host::AppDirs::locate() else {
@@ -3002,7 +3081,7 @@ pub fn draw_in_software() {
     };
     let mut preferences = prefs::Preferences::load(&dirs);
     if !preferences.software_gpu {
-        log::warn!("start: --software; drawing in software from now on");
+        log::warn!("start: drawing in software from now on, as --software asks");
         preferences.software_gpu = true;
         preferences.save(&dirs);
     }
@@ -3029,7 +3108,9 @@ pub fn draw_in_software() {
 /// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
 /// that way itself when it opts into sudden termination.
 fn leave(code: i32) -> ! {
-    log::logger().flush();
+    // The log's last line: a run that got here ended in order, whatever
+    // its code, and the next run reads the lack of this line as a crash.
+    concat_host::logs::end();
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::io::Write;

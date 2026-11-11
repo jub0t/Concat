@@ -195,7 +195,9 @@ fn default_location() -> String {
         && !location.is_empty()
         && let Err(error) = std::fs::create_dir_all(&location)
     {
-        log::warn!("could not make {location}: {error}");
+        log::warn!(
+            "project: wanted the new-project folder {location} and could not make it: {error}; the first project makes it"
+        );
     }
     location
 }
@@ -340,8 +342,7 @@ impl StartPane {
                     studio.recents = projects::recents(&studio.host.dirs.config);
                     return;
                 }
-                if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info))
-                {
+                if let Err(error) = studio.open_project_at(&path) {
                     studio.notify(&error, true);
                 }
             }
@@ -374,7 +375,9 @@ impl StartPane {
                     return;
                 }
                 let Some(url) = link(&name) else {
-                    log::warn!("start: no link is called {name:?}");
+                    log::warn!(
+                        "start: the launch screen asked for a link called {name:?}, which there is none of; nothing opened"
+                    );
                     return;
                 };
                 if let Err(error) = platform::open_link(&url) {
@@ -435,6 +438,11 @@ impl StartPane {
             return;
         }
         let opened = projects::create(&self.location, &name, width, height, num, den, self.canvas)
+            .inspect_err(|error| {
+                log::error!(
+                    "project: making {name} failed: {error}; the new-project sheet stays up"
+                );
+            })
             .and_then(|info| studio.open_project(info));
         self.busy = false;
         match opened {
@@ -496,7 +504,7 @@ impl StartPane {
             studio.notify(&tf("start.notConcatProjectFolder", &[&path]), true);
             return;
         }
-        if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info)) {
+        if let Err(error) = studio.open_project_at(&path) {
             studio.notify(&error, true);
         }
     }
@@ -519,7 +527,13 @@ impl StartPane {
                 };
                 studio.notify(&said, false);
             }
-            Err(error) => studio.notify(&tf("start.capcutImportFailed", &[&error]), true),
+            Err(error) => {
+                log::error!(
+                    "project: making a project of the draft {} failed: {error}; nothing was made",
+                    folder.display()
+                );
+                studio.notify(&tf("start.capcutImportFailed", &[&error]), true);
+            }
         }
     }
 

@@ -147,14 +147,13 @@ pub fn flatten_timeline_in(
                     .iter()
                     .map(|point| (point.at, point.speed))
                     .collect(),
-                speed_slopes: clip
+                // Slopes only when every point has one: a curve with some
+                // points bent and some not plays as straight lines.
+                speed_tangents: clip
                     .speed_curve
                     .as_deref()
-                    .filter(|points| concat_project::speed::is_smooth(points))
-                    .unwrap_or(&[])
-                    .iter()
-                    .filter_map(|point| point.slope)
-                    .collect(),
+                    .and_then(|points| points.iter().map(|point| point.slope).collect())
+                    .unwrap_or_default(),
                 animation: export_keys(clip),
                 motion: clip.motion.clone(),
                 flip_h: clip.flip_h,
