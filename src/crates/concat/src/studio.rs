@@ -52,6 +52,8 @@ mod masks;
 use masking::{MaskFrame, MaskGrip};
 mod bin;
 mod chains;
+#[cfg(test)]
+mod copy_tests;
 mod edit;
 mod gestures;
 mod inspector;
