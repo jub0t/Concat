@@ -708,9 +708,9 @@ impl Studio {
         let lay = lay_command(self.timeline(), source, track_id);
         let created = self.apply_in(gesture, lay)?;
         let placed = self.clip(&created).cloned()?;
-        let commands = copy_commands(source, &placed, track_id, start);
+        let shaping = shape_copy(source, &placed, track_id, start);
         let before = self.revision;
-        self.apply_in(gesture, Command::Batch { commands });
+        self.apply_in(gesture, Command::Batch { commands: shaping });
         if self.revision == before {
             // The shaping was refused (and the reason shown): the whole
             // file is not left lying at the lane's end as if it were the

@@ -13,7 +13,7 @@ use concat_project::model::{
 };
 use concat_project::{Command, Editor};
 
-use super::{TrimEdge, copy_commands, lay_command};
+use super::{TrimEdge, lay_command, shape_copy};
 
 const CLOSE: f64 = 1e-6;
 
@@ -162,7 +162,7 @@ impl Bench {
             })
             .expect("the file is laid");
         let placed = self.clip(&laid);
-        let commands = copy_commands(source, &placed, track, start);
+        let commands = shape_copy(source, &placed, track, start);
         self.run(Command::Batch { commands });
         laid
     }
@@ -559,7 +559,7 @@ fn a_duplicate_of_several_clips_is_one_undo_step() {
                 .created_id
                 .expect("a clip id");
             let placed = bench.clip(&laid);
-            let commands = copy_commands(source, &placed, &source.track_id, end);
+            let commands = shape_copy(source, &placed, &source.track_id, end);
             bench
                 .editor
                 .apply_within(Some("duplicate"), Command::Batch { commands })
