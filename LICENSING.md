@@ -23,11 +23,7 @@ To ask about one, email [jub0trd@gmail.com](mailto:jub0trd@gmail.com).
 Only a written agreement signed by the owner grants a commercial licence.
 Nothing in this repository, its issues, pull requests or discussions does.
 
-A commercial licence can cover only code the owner holds the copyright in.
-Some of Concat is still outside contributors' code under the AGPL alone;
-[`CLEAN-ROOM.md`](CLEAN-ROOM.md) lists it, and it is being
-rewritten. Until that list is done, a commercial licence names what it
-covers and how the rest is handled.
+A commercial licence says, in writing, what it covers.
 
 ## Codec patents
 
@@ -50,11 +46,10 @@ against their own FFmpeg.
 
 ## Contributions
 
-Contributions are accepted only under [`CLA.md`](CLA.md), which assigns their
-copyright to the owner, so that both licences can cover them. In return,
-contributors keep a licence to use their own work, and the owner promises
-that whatever they contributed stays available under the AGPL, even where it
-is also licensed commercially.
+Contributions come in under the MIT No Attribution licence, with a sign-off;
+[`CLA.md`](CLA.md) has the terms. That licence lets anyone use a contribution
+for anything, so both licences above can cover it, and contributors keep
+their copyright and every right to use their own work.
 
 ## The name
 

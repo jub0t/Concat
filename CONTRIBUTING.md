@@ -78,21 +78,25 @@ around you; the engine avoids cleverness on purpose.
 Concat is published under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)) and
 also licensed on commercial terms by its owner ([`LICENSING.md`](LICENSING.md)).
 
-Contributions are accepted only under the agreement in [`CLA.md`](CLA.md).
-**You assign your contribution, and every right in it, to Concat's owner**,
-who may then license it on any terms, commercial ones included. In return you
-get a licence back to use your own work for anything, and a promise that it
-always stays available under the AGPL. If you are not willing to assign your
-work, please don't open a pull request; an issue describing the problem is
-just as welcome.
+Contributions come in under the terms in [`CLA.md`](CLA.md): **you license
+your contribution under the MIT No Attribution licence (MIT-0)**. You keep
+your copyright and can use your own work for anything; Concat's owner, and
+anyone else, can use it for anything too, commercial terms included, with no
+credit owed.
 
-Sign off your commits to indicate agreement:
+Two things are needed before a pull request can be merged:
 
-```sh
-git commit -s -m "your message"
-```
+1. Every commit is signed off, with your real name and a working email:
 
-Submitting a contribution accepts the agreement, with or without a sign-off.
+   ```sh
+   git commit -s -m "your message"
+   ```
+
+2. On your first pull request, a comment from you confirming you have read the
+   terms and agree to them. The pull request asks for it.
+
+Pull requests are paused for now while this is put in place; issues are
+welcome as ever.
 
 ### File headers
 
