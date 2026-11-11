@@ -39,7 +39,9 @@ impl Studio {
                 let dir =
                     concat_vision::mask_dir(&request.project, &request.media_path, request.subject);
                 if self.tripped_strokes.insert(dir) {
-                    log::warn!("cutout: media the app closed while analysing is skipped");
+                    log::warn!(
+                        "cutout: skipped Remove background on a file: Concat closed while analysing it last time, and would again"
+                    );
                     self.notify(&t("studio.removeBackgroundSkipped"), true);
                 }
                 continue;
@@ -126,7 +128,9 @@ impl Studio {
                     // Skipped, and said once: starting it again by itself
                     // would close the app on every open.
                     if self.tripped_strokes.insert(dir) {
-                        log::warn!("stabilize: media the app closed while measuring is skipped");
+                        log::warn!(
+                            "stabilize: skipped a file: Concat closed while measuring it last time, and would again"
+                        );
                         self.notify(&t("studio.stabilizeSkipped"), true);
                     }
                     continue;
@@ -333,7 +337,9 @@ impl Studio {
     /// [`Studio::export_clip_audio`], after the person has said where.
     fn write_clip_audio(
         &mut self,
-        name: &str,
+        // The clip's name, which the log leaves out: it can be the
+        // person's own words.
+        _name: &str,
         pieces: Vec<concat_media::audio::AudioClip>,
         duration: f64,
         file: std::path::PathBuf,
@@ -344,9 +350,10 @@ impl Studio {
             .map(std::path::Path::to_path_buf)
             .unwrap_or(out_dir);
         let written = file.to_string_lossy().into_owned();
+        let file_name = crate::studio::file_name_of(&written);
         log::info!(
-            "export audio: {name} ({duration:.2}s, {} piece(s)) to {written}",
-            pieces.len(),
+            "export: a clip's sound to {file_name} · {}",
+            concat_log::span(std::time::Duration::from_secs_f64(duration.max(0.0)))
         );
         self.notify(&t("studio.exportingAudio"), false);
         spawn_in_project(
@@ -380,7 +387,9 @@ impl Studio {
                     studio.notify(&tf("studio.audioExported", &[&written]), false);
                 }
                 Err(error) => {
-                    log::warn!("export audio: {error}");
+                    log::warn!(
+                        "export: writing a clip's sound to {file_name} failed: {error}; nothing was added"
+                    );
                     studio.notify(&tf("studio.couldNotExportAudio", &[&error]), true);
                 }
             },

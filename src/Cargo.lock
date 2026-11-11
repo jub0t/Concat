@@ -1165,6 +1165,7 @@ dependencies = [
  "concat-effects",
  "concat-export",
  "concat-host",
+ "concat-log",
  "concat-mcp",
  "concat-media",
  "concat-project",
@@ -1398,6 +1399,7 @@ name = "concat-speech"
 version = "0.2.10"
 dependencies = [
  "concat-host",
+ "concat-log",
  "concat-media",
  "concat-vision",
  "log",

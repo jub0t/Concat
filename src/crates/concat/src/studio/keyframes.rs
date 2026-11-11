@@ -1670,7 +1670,9 @@ impl Studio {
         }
         for dir in tripped {
             if self.tripped_strokes.insert(dir) {
-                log::warn!("smart brush: a stroke the app closed while reading is skipped");
+                log::warn!(
+                    "cutout: skipped a Smart brush stroke: Concat closed while reading it last time, and would again; painting it again reads it"
+                );
                 self.notify(&t("studio.smartBrushSkipped"), true);
             }
         }
@@ -2441,7 +2443,8 @@ impl Studio {
 
     /// A row of a bin card's menu, for the media it was opened on.
     pub fn media_action(&mut self, id: &str, action: &str) {
-        log::info!("media menu: {action} on {id}");
+        log::debug!("media menu: {action} on {id}");
+        let _asked = Asked::by("media menu");
         let Some(row) = self.media.row_of(id) else {
             return;
         };

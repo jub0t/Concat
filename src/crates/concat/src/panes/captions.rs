@@ -263,8 +263,14 @@ impl CaptionsPane {
                         let count = commands.len();
                         self.open = false;
                         if count == 0 {
+                            log::info!("captions: placed none · nothing was said in the clip");
                             studio.notify(&t("captions.nothingSaidClip"), true);
                         } else {
+                            log::info!(
+                                "captions: placed {count} captions from {:.2} s",
+                                subject.start
+                            );
+                            let _told = crate::studio::Asked::told();
                             studio.apply(Command::Batch {
                                 commands: font.into_iter().chain(commands).collect(),
                             });
@@ -312,7 +318,10 @@ impl CaptionsPane {
         let cues = match cues {
             Ok(cues) => cues,
             Err(error) => {
-                log::warn!("captions: could not read {}: {error}", path.display());
+                log::warn!(
+                    "captions: reading the subtitles in {} failed: {error}; no captions were placed",
+                    crate::studio::file_name_of(&path.to_string_lossy())
+                );
                 self.message = tf("captions.couldNotReadSubtitles", &[&error]);
                 return;
             }
@@ -326,6 +335,11 @@ impl CaptionsPane {
         }
         let count = commands.len();
         self.open = false;
+        log::info!(
+            "captions: placed {count} captions from the subtitles in {}",
+            crate::studio::file_name_of(&path.to_string_lossy())
+        );
+        let _told = crate::studio::Asked::told();
         studio.apply(Command::Batch {
             commands: font.into_iter().chain(commands).collect(),
         });
@@ -389,14 +403,17 @@ impl CaptionsPane {
         };
         let cues = srt::title_cues(studio.timeline(), Some(&lane.track_id));
         if let Err(error) = std::fs::write(path, srt::write(&cues)) {
-            log::warn!("captions: could not write {}: {error}", path.display());
+            log::warn!(
+                "captions: writing the subtitles to {} failed: {error}; nothing was exported",
+                crate::studio::file_name_of(&path.to_string_lossy())
+            );
             self.message = tf("captions.couldNotWriteSubtitles", &[&error]);
             return;
         }
         log::info!(
-            "captions: wrote {} cue(s) to {}",
+            "captions: exported {} captions to {}",
             cues.len(),
-            path.display()
+            crate::studio::file_name_of(&path.to_string_lossy())
         );
         self.open = false;
         let count = cues.len();
@@ -422,7 +439,10 @@ impl CaptionsPane {
                 crate::host::on_ui(move |studio, _, _| match result {
                     Ok(place) => say(studio, &place),
                     Err(error) => {
-                        log::warn!("captions: could not publish {}: {error}", written.display());
+                        log::warn!(
+                            "captions: wanted {} handed to the phone's files and it was not: {error}; it stays in the project's folder",
+                            crate::studio::file_name_of(&written.to_string_lossy())
+                        );
                         studio.notify(
                             &tf(
                                 "captions.couldNotPublishSubtitles",
@@ -533,6 +553,11 @@ impl CaptionsPane {
             .collect();
         let count = commands.len();
         self.open = false;
+        log::info!(
+            "captions: placed {count} captions from a script, from {:.2} s",
+            studio.playhead
+        );
+        let _told = crate::studio::Asked::told();
         studio.apply(Command::Batch {
             commands: font.into_iter().chain(commands).collect(),
         });

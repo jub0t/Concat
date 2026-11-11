@@ -93,11 +93,9 @@ impl Studio {
             concat_speech::isolate::workers_for(memory)
         };
         let data = self.host.dirs.data.clone();
-        log::info!(
-            "voice: splitting {} on {workers} worker(s)",
-            request.source.display()
-        );
-        let started = std::time::Instant::now();
+        // The job's own line, timed, is the splitter's; this is detail.
+        let source = crate::studio::file_name_of(&request.source.to_string_lossy());
+        log::debug!("voice: splitting {source} on {workers} worker(s)");
         spawn_in_project(
             move || {
                 let stems = concat_speech::isolate::Stems {
@@ -171,7 +169,7 @@ impl Studio {
                 studio.voice_cancel = None;
                 match result {
                     Ok(()) => {
-                        log::info!("voice: split in {:.1} s", started.elapsed().as_secs_f64());
+                        log::debug!("voice: split {source}");
                         // The clips now play from the parts: the mix is
                         // handed over again, and the waveforms redrawn.
                         studio.flat = None;
@@ -181,7 +179,9 @@ impl Studio {
                     }
                     Err(error) if error.contains("cancelled") => {}
                     Err(error) => {
-                        log::error!("voice: {error}");
+                        log::error!(
+                            "voice: splitting {source} failed: {error}; its clips keep their whole sound"
+                        );
                         studio.voice_failed.insert(dir);
                         studio.notify(&tf("studio.voiceFailed", &[&error]), true);
                         studio.ensure_voices();

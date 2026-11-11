@@ -173,12 +173,11 @@ impl Cadence {
     fn report(&mut self, fps: f64) {
         if self.shown > 0 {
             log::info!(
-                "playback: {} frames shown at {fps:.3} fps, {} repeated, {} skipped, \
-                 worst wait {} ms",
+                "playback: {} frames shown at {fps:.3} fps · {} repeated, {} skipped · worst wait {}",
                 self.shown,
                 self.repeated,
                 self.skipped,
-                self.worst.as_millis(),
+                concat_log::span(self.worst),
             );
         }
         *self = Self::default();
@@ -276,7 +275,9 @@ impl MonitorPane {
                 self.inexact = !exact;
             }
             Err(error) => {
-                log::warn!("preview: {error}");
+                log::warn!(
+                    "preview: a frame could not be drawn: {error}; the monitor shows the last one it had"
+                );
                 if !self.failed {
                     self.failed = true;
                     studio.notify(&tf("monitor.previewFailed", &[&error]), true);

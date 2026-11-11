@@ -206,7 +206,9 @@ impl Studio {
                             studio.notify(&tf("studio.frameSaved", &[&written]), false);
                         }
                         Err(error) => {
-                            log::warn!("save frame: {error}");
+                            log::warn!(
+                                "export: saving the frame failed: {error}; it is not in the bin"
+                            );
                             studio.notify(&tf("studio.couldNotSaveFrame", &[&error]), true);
                         }
                     },

@@ -1848,18 +1848,325 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
     }
 }
 
-/// A command as the activity trail names it: its kind, and for a batch
-/// the kinds inside it. Never its contents - a patch carries a title's
-/// words - which is what keeps a line a line.
-fn command_name(command: &Command) -> String {
-    if let Command::Batch { commands } = command {
-        let inside: Vec<String> = commands.iter().map(command_name).collect();
-        return format!("Batch[{}]", inside.join(", "));
+thread_local! {
+    /// How the person asked for the edits being applied, when whoever is
+    /// applying them knows; see [`Asked`].
+    static ASKED: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+/// What [`Asked::told`] leaves in place of a way of asking: the caller has
+/// written the line itself.
+const TOLD: &str = "";
+
+/// How the person asked for the edits applied while this is held - a
+/// shortcut, a menu row - so the log's line for an edit says what happened
+/// and how it was asked for in one: `edit: Split at 12.40 s (shortcut)`.
+/// The first to say wins: a key that goes through the menu's handler is a
+/// shortcut, not a menu row.
+pub(crate) struct Asked(Option<&'static str>);
+
+impl Asked {
+    /// Until this is dropped, edits were asked for by `how`.
+    pub(crate) fn by(how: &'static str) -> Asked {
+        let before = ASKED.get();
+        if before.is_none() {
+            ASKED.set(Some(how));
+        }
+        Asked(before)
     }
-    let text = format!("{command:?}");
-    text.chars()
-        .take_while(|c| c.is_ascii_alphanumeric())
-        .collect()
+
+    /// Until this is dropped, the caller says what happened in a line of
+    /// its own - "captions: placed 120 captions" - and the edits behind it
+    /// are detail.
+    pub(crate) fn told() -> Asked {
+        Asked(ASKED.replace(Some(TOLD)))
+    }
+
+    /// `line`, written at the level and with the ending the way of asking
+    /// gives it.
+    pub(crate) fn log(line: std::fmt::Arguments<'_>) {
+        match ASKED.get() {
+            Some(TOLD) => log::debug!("{line}"),
+            Some(how) => log::info!("{line} ({how})"),
+            None => log::info!("{line}"),
+        }
+    }
+}
+
+impl Drop for Asked {
+    fn drop(&mut self) {
+        ASKED.set(self.0);
+    }
+}
+
+/// `count` clips, as a person says it.
+fn clips_of(count: usize) -> String {
+    if count == 1 {
+        "1 clip".to_owned()
+    } else {
+        format!("{count} clips")
+    }
+}
+
+/// A file's own name out of its path, which is all a line needs of it.
+pub(crate) fn file_name_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_owned())
+}
+
+/// A command's name as the log has it: the verb the interface uses, in
+/// English whatever language the interface is in. A table rather than the
+/// enum's own name, so a line reads `Split`, not `SplitClips`.
+fn command_kind(command: &Command) -> &'static str {
+    match command {
+        Command::AddMedia { .. } => "Import media",
+        Command::RemoveMedia { .. } => "Remove media",
+        Command::SetMediaPlaceholder { .. } => "Set media as a template slot",
+        Command::FillSlot { .. } => "Fill template slot",
+        Command::Batch { .. } => "Several edits",
+        Command::AddClip { .. }
+        | Command::AddClipAtFirstFree { .. }
+        | Command::AddClipsInSequence { .. } => "Add to timeline",
+        Command::AddTextClip { .. } => "Add text",
+        Command::AddShapeClip { .. } => "Add shape",
+        Command::AddLayerClip { sound: true, .. } => "Add audio effect layer",
+        Command::AddLayerClip { .. } => "Add effect layer",
+        Command::AddTransitionClip { .. } => "Add transition",
+        Command::SetClipSpeedCurve { curve: Some(_), .. } => "Speed ramp",
+        Command::SetClipSpeedCurve { .. } => "Remove speed ramp",
+        Command::MatchClip { .. } => "Copy clip settings",
+        Command::SetClipKey { .. } | Command::SetEffectKey { .. } | Command::SetMaskKey { .. } => {
+            "Set keyframe"
+        }
+        Command::ClearClipKey { .. }
+        | Command::ClearEffectKey { .. }
+        | Command::ClearMaskKey { .. } => "Remove keyframe",
+        Command::ClearClipKeys { .. }
+        | Command::ClearEffectKeys { .. }
+        | Command::ClearMaskKeys { .. } => "Remove keyframes",
+        Command::SetClipCutout {
+            cutout: Some(_), ..
+        } => "Remove background",
+        Command::SetClipCutout { .. } => "Remove background off",
+        Command::SetClipStabilize {
+            stabilize: Some(_), ..
+        } => "Stabilize",
+        Command::SetClipStabilize { .. } => "Stabilize off",
+        Command::SetClipVoice { voice: Some(_), .. } => "Voice isolation",
+        Command::SetClipVoice { .. } => "Voice isolation off",
+        Command::AddCutoutStroke { .. } => "Smart brush stroke",
+        Command::MoveClips { .. } => "Move",
+        Command::TrimClip { .. } => "Trim",
+        Command::SplitClips { .. } => "Split",
+        Command::ReplaceClipMedia { .. } => "Replace clip's file",
+        Command::SetClipEnhanced { on: true, .. } => "Enhance on",
+        Command::SetClipEnhanced { .. } => "Enhance off",
+        Command::FreezeFrame { .. } => "Freeze frame",
+        Command::MergeClips { .. } => "Merge",
+        Command::ConsolidateClips { .. } => "Merge into one clip",
+        Command::RemoveClips { ripple: true, .. } => "Ripple delete",
+        Command::RemoveClips { .. } => "Delete",
+        Command::UpdateClip { .. } => "Change clip",
+        Command::StyleTextRange { .. } => "Style text",
+        Command::ClearTextStyles { .. } => "Clear text styles",
+        Command::SetClipSpeed { .. } => "Speed",
+        Command::SetClipTransform { .. } => "Transform",
+        Command::FrameClip {
+            framing: model::Framing::Fit,
+            ..
+        } => "Fit to frame",
+        Command::FrameClip { .. } => "Fill frame",
+        Command::DetachAudio { .. } => "Detach audio",
+        Command::ReattachAudio { .. } => "Reattach audio",
+        Command::AddTrack { .. } => "Add track",
+        Command::RemoveTrack { .. } => "Delete track",
+        Command::SetTrackFlag {
+            flag: TrackFlag::Visible,
+            value,
+            ..
+        } => {
+            if *value {
+                "Show track"
+            } else {
+                "Hide track"
+            }
+        }
+        Command::SetTrackFlag { value, .. } => {
+            if *value {
+                "Mute track"
+            } else {
+                "Unmute track"
+            }
+        }
+        Command::AddTimeline => "New timeline",
+        Command::RemoveTimeline { .. } => "Delete timeline",
+        Command::SetTimelineVideo { .. } => "Project settings",
+        Command::SetTimelineBackground { .. } => "Canvas background",
+        Command::SetTimelineLinkage { on: true, .. } => "Linkage on",
+        Command::SetTimelineLinkage { .. } => "Linkage off",
+        Command::RenameTimeline { .. } => "Rename timeline",
+        Command::SelectTimeline { .. } => "Switch timeline",
+        Command::MoveTimeline { .. } => "Reorder timelines",
+        Command::AddFont { .. } => "Add font",
+        Command::RemoveFont { .. } => "Remove font",
+        Command::UpdateMediaPath { .. } => "Relink media",
+        Command::SetMediaColorRange { .. } => "Colour range",
+    }
+}
+
+/// What a patch changes about a clip, by name. Never to what: a patch
+/// carries a title's words and a clip's name.
+fn patch_words(patch: &ClipPatch) -> String {
+    let changed = [
+        (patch.name.is_some(), "name"),
+        (patch.volume.is_some(), "volume"),
+        (patch.fade_in.is_some() || patch.fade_out.is_some(), "fade"),
+        (patch.opacity.is_some(), "opacity"),
+        (patch.preserve_pitch.is_some(), "keep pitch"),
+        (patch.muted.is_some(), "mute"),
+        (patch.flip_h.is_some() || patch.flip_v.is_some(), "flip"),
+        (patch.blend.is_some(), "blend mode"),
+        (patch.crop.is_some(), "crop"),
+        (patch.masks.is_some(), "masks"),
+        (patch.motion.is_some(), "animation"),
+        (patch.filters.is_some(), "audio effects"),
+        (patch.video_effects.is_some(), "effects"),
+        (patch.transition_in.is_some(), "transition"),
+        (patch.text.is_some(), "text"),
+        (patch.shape.is_some(), "shape"),
+        (patch.audio_stream.is_some(), "audio track"),
+        (patch.background.is_some(), "background"),
+    ];
+    let names: Vec<&str> = changed
+        .into_iter()
+        .filter_map(|(set, name)| set.then_some(name))
+        .collect();
+    if names.is_empty() {
+        "nothing".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// A command as the activity trail says it: its name and the numbers that
+/// place it - where, how many, how much - and for a batch the kinds inside
+/// it, counted. Never its words: a title's text, a clip's or a timeline's
+/// name stay out of the log.
+fn command_words(command: &Command) -> String {
+    let kind = command_kind(command);
+    match command {
+        Command::Batch { commands } => match commands.as_slice() {
+            [] => "Nothing".to_owned(),
+            [only] => command_words(only),
+            _ => {
+                // The kinds in the order they first come, each with how
+                // many: a hundred captions are one "Add text ×100".
+                let mut kinds: Vec<(&'static str, usize)> = Vec::new();
+                for inner in commands {
+                    let name = command_kind(inner);
+                    match kinds.iter_mut().find(|(known, _)| *known == name) {
+                        Some((_, count)) => *count += 1,
+                        None => kinds.push((name, 1)),
+                    }
+                }
+                let more = kinds.len().saturating_sub(4);
+                let mut words: Vec<String> = kinds
+                    .into_iter()
+                    .take(4)
+                    .map(|(name, count)| {
+                        if count == 1 {
+                            name.to_owned()
+                        } else {
+                            format!("{name} ×{count}")
+                        }
+                    })
+                    .collect();
+                if more > 0 {
+                    words.push(format!("{more} more kinds"));
+                }
+                words.join(", ")
+            }
+        },
+        Command::AddMedia { item } | Command::FillSlot { item, .. } => {
+            format!("{kind} {}", file_name_of(&item.path))
+        }
+        Command::AddClip { start, ripple, .. } => {
+            let how = if *ripple {
+                ", pushing what follows"
+            } else {
+                ""
+            };
+            format!("{kind} at {start:.2} s{how}")
+        }
+        Command::AddClipAtFirstFree { start, .. }
+        | Command::AddTextClip { start, .. }
+        | Command::AddShapeClip { start, .. } => format!("{kind} at {start:.2} s"),
+        Command::AddClipsInSequence {
+            media_ids, start, ..
+        } => format!("{kind} {} at {start:.2} s", clips_of(media_ids.len())),
+        Command::AddLayerClip {
+            start, effect_id, ..
+        } => format!("{kind} {effect_id} at {start:.2} s"),
+        Command::AddTransitionClip {
+            start,
+            transition_id,
+            ..
+        } => format!("{kind} {transition_id} at {start:.2} s"),
+        Command::SetClipSpeedCurve {
+            curve: Some(points),
+            ..
+        } => format!("{kind} with {} points", points.len()),
+        Command::SetClipKey { at, .. }
+        | Command::SetEffectKey { at, .. }
+        | Command::SetMaskKey { at, .. }
+        | Command::ClearClipKey { at, .. }
+        | Command::ClearEffectKey { at, .. }
+        | Command::ClearMaskKey { at, .. } => format!("{kind} at {at:.2} s"),
+        Command::MoveClips { moves } => format!("{kind} {}", clips_of(moves.len())),
+        Command::TrimClip {
+            edge,
+            delta,
+            ripple,
+            ..
+        } => {
+            let edge = match edge {
+                TrimEdge::Start => "start",
+                TrimEdge::End => "end",
+            };
+            let how = if *ripple { ", rippling" } else { "" };
+            format!("{kind} a clip's {edge} by {delta:+.2} s{how}")
+        }
+        Command::SplitClips { clip_ids, time } => {
+            if clip_ids.len() == 1 {
+                format!("{kind} at {time:.2} s")
+            } else {
+                format!("{kind} {} at {time:.2} s", clips_of(clip_ids.len()))
+            }
+        }
+        Command::ReplaceClipMedia { item, .. } | Command::ConsolidateClips { item, .. } => {
+            format!("{kind}, now {}", file_name_of(&item.path))
+        }
+        Command::FreezeFrame { time, .. } => format!("{kind} at {time:.2} s"),
+        Command::MergeClips { clip_ids } | Command::RemoveClips { clip_ids, .. } => {
+            format!("{kind} {}", clips_of(clip_ids.len()))
+        }
+        Command::UpdateClip { patch, .. } => format!("{kind}: {}", patch_words(patch)),
+        Command::SetClipSpeed { speed, .. } => format!("{kind} {speed:.2}x"),
+        Command::SetTimelineVideo { video, .. } => format!(
+            "{kind} {}x{} {:.3} fps",
+            video.width,
+            video.height,
+            video.rate()
+        ),
+        Command::AddFont { path, .. } => format!("{kind} {}", file_name_of(path)),
+        Command::RemoveFont { family } => format!("{kind} {family}"),
+        Command::UpdateMediaPath { new_path, .. } => {
+            format!("{kind} to {}", file_name_of(new_path))
+        }
+        _ => kind.to_owned(),
+    }
 }
 
 /// The commands that turn `before` into `after`, clip `id` as the echo

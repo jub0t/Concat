@@ -520,7 +520,7 @@ impl ExportPane {
             .pool()
             .close_idle(std::time::Duration::ZERO);
         if closed > 0 {
-            log::info!("export: closed {closed} idle preview decoder(s) before starting");
+            log::debug!("export: closed {closed} idle preview decoder(s) before starting");
         }
         self.phase = ExportPhase::Running;
         self.progress = 0.0;

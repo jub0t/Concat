@@ -89,7 +89,11 @@ impl Studio {
                 crate::panes::settings::restart(project);
             }
             Some(Confirm::QuitWithoutSaving { .. }) => {
-                log::warn!("close: quitting without saving, as asked");
+                crate::closing("by Quit without saving");
+                log::warn!(
+                    "close: {} could not be saved, and the person chose to leave without it; its unsaved edits are lost",
+                    self.project_name
+                );
                 self.release_project();
                 slint::quit_event_loop().ok();
             }
@@ -355,7 +359,8 @@ impl Studio {
     pub fn apply(&mut self, command: Command) -> Option<String> {
         // An edit ends whatever burst the view was in.
         self.end_burst();
-        log::info!("edit: {}", command_name(&command));
+        let words = command_words(&command);
+        Asked::log(format_args!("edit: {words}"));
         self.flush_commit();
         self.echo = None;
         // Anything but an inspector commit ends the coalescing window; the
@@ -374,6 +379,7 @@ impl Studio {
                 view.created_id
             }
             Err(error) => {
+                log::warn!("edit: {words} was asked for and refused: {error}; nothing changed");
                 self.notify(&error, true);
                 None
             }
@@ -386,7 +392,8 @@ impl Studio {
     pub(super) fn apply_within(&mut self, gesture: &str, command: Command) -> Option<String> {
         // A knob's gesture, folded into one step; said at Debug, since a
         // dial turned is many of these.
-        log::debug!("edit: {} ({gesture})", command_name(&command));
+        let words = command_words(&command);
+        log::debug!("edit: {words} (part of one gesture)");
         self.echo = None;
         let session = self.session.as_mut()?;
         let before = session.video().color_space;
@@ -398,6 +405,7 @@ impl Studio {
                 view.created_id
             }
             Err(error) => {
+                log::warn!("edit: {words} was asked for and refused: {error}; nothing changed");
                 self.notify(&error, true);
                 None
             }
@@ -455,7 +463,10 @@ impl Studio {
             && session.can_undo()
         {
             session.undo();
+            Asked::log(format_args!("edit: Undo"));
             self.after_change();
+        } else {
+            log::debug!("edit: Undo was asked for with nothing to undo");
         }
     }
 
@@ -467,7 +478,10 @@ impl Studio {
             && session.can_redo()
         {
             session.redo();
+            Asked::log(format_args!("edit: Redo"));
             self.after_change();
+        } else {
+            log::debug!("edit: Redo was asked for with nothing to redo");
         }
     }
 
@@ -510,12 +524,35 @@ impl Studio {
         // worker happens to pick it up.
         let ticket = projects::ticket();
         self.dirty = false;
+        let name = self.project_name.clone();
+        let began = std::time::Instant::now();
         crate::host::spawn_in_project_publishing(
             move || projects::save_ordered(&path, &document, ticket),
             move |studio, _, _, result| match result {
-                Ok(_) if announce => studio.notify(&t("studio.projectSaved"), false),
-                Ok(_) => {}
+                Ok(_) if announce => {
+                    log::info!(
+                        "project: saved {name} in {}",
+                        concat_log::span(began.elapsed())
+                    );
+                    studio.notify(&t("studio.projectSaved"), false);
+                }
+                Ok(_) => log::debug!(
+                    "project: autosaved {name} in {}",
+                    concat_log::span(began.elapsed())
+                ),
+                // The project stays marked as changed, so the next edit's
+                // autosave and the next Save both try again.
+                Err(error) if announce => {
+                    log::error!(
+                        "project: saving {name} failed: {error}; it stays marked unsaved and the next edit or Save tries again"
+                    );
+                    studio.dirty = true;
+                    studio.notify(&tf("studio.couldNotSave", &[&error]), true);
+                }
                 Err(error) => {
+                    log::warn!(
+                        "project: autosaving {name} failed: {error}; it stays marked unsaved and the next edit or Save tries again"
+                    );
                     studio.dirty = true;
                     studio.notify(&tf("studio.couldNotSave", &[&error]), true);
                 }
