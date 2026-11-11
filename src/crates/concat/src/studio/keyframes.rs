@@ -32,44 +32,44 @@ impl Studio {
         let points = clip
             .and_then(|clip| clip.speed_curve.as_deref())
             .unwrap_or(&[]);
-        ramp.set_enabled(clip.is_some());
-        ramp.set_curved(!points.is_empty());
+        ramp.set_usable(clip.is_some());
+        ramp.set_has_curve(!points.is_empty());
         // No curve shows as smooth: a curve begins smooth.
-        ramp.set_smooth(points.is_empty() || concat_project::speed::is_smooth(points));
-        ramp.set_preset(speed_ramp::preset_position(points));
-        let extreme = |faster| speed_ramp::extreme_speed(points, faster).unwrap_or(0.0) as f32;
-        ramp.set_fastest(extreme(true));
-        ramp.set_slowest(extreme(false));
-        ramp.set_path(speed_ramp::drawn_path(points).into());
+        ramp.set_eased(points.is_empty() || concat_project::speed::is_eased(points));
+        ramp.set_active_preset(speed_ramp::preset_index(points));
+        let extreme = |faster| speed_ramp::extreme_of(points, faster).unwrap_or(0.0) as f32;
+        ramp.set_peak_speed(extreme(true));
+        ramp.set_trough_speed(extreme(false));
+        ramp.set_line_path(speed_ramp::curve_path(points).into());
         let across = clip.and_then(|clip| {
             let local = f64::from(self.playhead) - clip.start;
             (clip.duration > 0.0 && (0.0..=clip.duration).contains(&local))
                 .then(|| (local / clip.duration) as f32)
         });
-        ramp.set_playhead(across.unwrap_or(-1.0));
+        ramp.set_playhead_at(across.unwrap_or(-1.0));
         let last = points.len().saturating_sub(1);
         sync(
-            &models.speed_points,
+            &models.ramp_points,
             points
                 .iter()
                 .enumerate()
                 .map(|(index, point)| SpeedPointData {
                     index: index as i32,
                     x: point.at as f32,
-                    y: speed_ramp::height_of(point.speed) as f32,
+                    y: speed_ramp::height_for(point.speed) as f32,
                     end: index == 0 || index == last,
                 })
                 .collect(),
         );
         let chosen = self.speed_chosen_now();
         sync(
-            &models.speed_chosen,
+            &models.curve_selected,
             (0..points.len())
                 .map(|index| chosen.contains(&index))
                 .collect(),
         );
         sync(
-            &models.speed_presets,
+            &models.preset_labels,
             speed_ramp::preset_labels()
                 .into_iter()
                 .map(SharedString::from)

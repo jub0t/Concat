@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 use crate::commands::{NewMedia, TrimEdge};
 use crate::doc::DocumentSettings;
 use crate::model::{Clip, MediaKind, SpeedPoint};
-use crate::speed::{PRESETS, curve_of, is_smooth, matching_preset, mean_of, preset_curve};
+use crate::speed::{
+    SPEED_PRESETS, average_speed, engine_curve, is_eased, preset_matching, preset_points,
+};
 use crate::{Command, CommandError, Editor};
 
 const TIGHT: f64 = 1e-9;
@@ -113,7 +115,7 @@ fn clip(editor: &Editor, id: &str) -> Clip {
 
 /// Source seconds `t` timeline seconds into a clip.
 fn source_at(clip: &Clip, t: f64) -> f64 {
-    match clip.speed_curve.as_deref().and_then(curve_of) {
+    match clip.speed_curve.as_deref().and_then(engine_curve) {
         Some(curve) => clip.source_start + clip.duration * curve.consumed(t / clip.duration),
         None => clip.source_start + t * clip.speed,
     }
@@ -382,7 +384,7 @@ fn a_split_of_an_eased_curve_carries_the_bend_across_the_cut() {
     let (head, tail) = (clip(&editor, &id), clip(&editor, &tail_id));
     let head_curve = head.speed_curve.clone().unwrap();
     let tail_curve = tail.speed_curve.clone().unwrap();
-    assert!(is_smooth(&head_curve) && is_smooth(&tail_curve));
+    assert!(is_eased(&head_curve) && is_eased(&tail_curve));
     // The cut's speed, and its slope re-expressed over each piece.
     close(head_curve[1].speed, 0.974_609_375, "speed at the cut");
     close(
@@ -717,40 +719,40 @@ fn the_presets_are_these_shapes_in_this_order() {
             1.87,
         ),
     ];
-    assert_eq!(PRESETS.len(), expected.len());
-    for (shipped, (id, points, mean)) in PRESETS.iter().zip(expected) {
+    assert_eq!(SPEED_PRESETS.len(), expected.len());
+    for (shipped, (id, points, mean)) in SPEED_PRESETS.iter().zip(expected) {
         assert_eq!(shipped.id, id);
         assert_eq!(shipped.points, points, "{id}");
         // Chosen, a preset is eased through every point.
-        let chosen = preset_curve(id).unwrap();
+        let chosen = preset_points(id).unwrap();
         assert_eq!(chosen, eased(points), "{id}");
-        close(mean_of(&chosen), mean, id);
-        close(mean_of(&straight(points)), mean, id);
+        close(average_speed(&chosen), mean, id);
+        close(average_speed(&straight(points)), mean, id);
     }
-    assert!(preset_curve("slow-mo").is_none());
+    assert!(preset_points("slow-mo").is_none());
 }
 
 #[test]
 fn a_preset_is_known_by_its_points_whether_smooth_or_straight() {
-    let hero = preset_curve("hero").unwrap();
-    assert_eq!(matching_preset(&hero), Some("hero"));
+    let hero = preset_points("hero").unwrap();
+    assert_eq!(preset_matching(&hero), Some("hero"));
     let mut lines = hero.clone();
     for point in &mut lines {
         point.slope = None;
     }
-    assert_eq!(matching_preset(&lines), Some("hero"));
+    assert_eq!(preset_matching(&lines), Some("hero"));
     let mut moved = hero.clone();
     moved[3].at += 0.01;
-    assert_eq!(matching_preset(&moved), None);
+    assert_eq!(preset_matching(&moved), None);
     let mut fewer = hero;
     fewer.remove(2);
-    assert_eq!(matching_preset(&fewer), None);
+    assert_eq!(preset_matching(&fewer), None);
 }
 
 #[test]
 fn a_preset_on_a_ten_second_clip_sets_its_length() {
     let (mut editor, _, id) = one_clip();
-    set_curve(&mut editor, &id, preset_curve("bullet"), false);
+    set_curve(&mut editor, &id, preset_points("bullet"), false);
     close(
         clip(&editor, &id).duration,
         10.0 / 2.216,
@@ -760,16 +762,16 @@ fn a_preset_on_a_ten_second_clip_sets_its_length() {
 
 #[test]
 fn smooth_means_every_point_has_a_slope() {
-    assert!(is_smooth(&eased(&RAMP)));
-    assert!(!is_smooth(&straight(&RAMP)));
-    assert!(!is_smooth(&[]));
+    assert!(is_eased(&eased(&RAMP)));
+    assert!(!is_eased(&straight(&RAMP)));
+    assert!(!is_eased(&[]));
     let mut mixed = eased(&RAMP);
     mixed[1].slope = None;
-    assert!(!is_smooth(&mixed));
+    assert!(!is_eased(&mixed));
     // A mix plays as straight lines.
-    assert!(curve_of(&mixed).unwrap().tangents().is_none());
-    assert!(curve_of(&[]).is_none());
-    close(mean_of(&[]), 1.0, "no curve is normal speed");
+    assert!(engine_curve(&mixed).unwrap().tangents().is_none());
+    assert!(engine_curve(&[]).is_none());
+    close(average_speed(&[]), 1.0, "no curve is normal speed");
 }
 
 #[test]

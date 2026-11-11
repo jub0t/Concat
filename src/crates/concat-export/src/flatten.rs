@@ -149,7 +149,7 @@ pub fn flatten_timeline_in(
                     .collect(),
                 // Slopes only when every point has one: a curve with some
                 // points bent and some not plays as straight lines.
-                speed_slopes: clip
+                speed_tangents: clip
                     .speed_curve
                     .as_deref()
                     .and_then(|points| points.iter().map(|point| point.slope).collect())

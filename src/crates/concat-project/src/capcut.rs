@@ -557,8 +557,8 @@ impl Reader<'_> {
                         })
                     })
                     .collect();
-                if crate::speed::curve_of(&points).is_some() {
-                    clip.speed = crate::speed::mean_of(&points);
+                if crate::speed::engine_curve(&points).is_some() {
+                    clip.speed = crate::speed::average_speed(&points);
                     clip.speed_curve = Some(points);
                     return;
                 }
@@ -1021,7 +1021,7 @@ mod tests {
         let curve = first.speed_curve.as_ref().expect("CapCut's curve");
         assert_eq!(curve.len(), 3);
         assert!((curve[1].speed - 6.8).abs() < 1e-9 && (curve[1].at - 0.5).abs() < 1e-9);
-        assert!((first.speed - crate::speed::mean_of(curve)).abs() < 1e-9);
+        assert!((first.speed - crate::speed::average_speed(curve)).abs() < 1e-9);
         assert_eq!(
             imported.project.media.len(),
             3,

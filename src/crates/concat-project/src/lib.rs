@@ -2192,7 +2192,7 @@ mod tests {
                 "each piece keeps its share of the curve"
             );
         }
-        let head_curve = crate::speed::curve_of(head.speed_curve.as_deref().unwrap()).unwrap();
+        let head_curve = crate::speed::engine_curve(head.speed_curve.as_deref().unwrap()).unwrap();
         let head_end = head.source_start + head.duration * head_curve.consumed(1.0);
         assert!(
             (tail.source_start - head_end).abs() < 1e-9,

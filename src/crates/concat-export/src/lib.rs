@@ -186,7 +186,7 @@ pub struct ExportClip {
     /// unit of `at`, when it bends smoothly through them; empty for
     /// straight lines.
     #[serde(default)]
-    pub speed_slopes: Vec<f64>,
+    pub speed_tangents: Vec<f64>,
     /// Keys over the clip's placement and opacity, resolved by the UI from
     /// Empty for none.
     #[serde(default)]
@@ -380,7 +380,7 @@ impl ExportClip {
     /// The engine's time map for the clip's speed curve, or None when it
     /// plays at the constant `speed`.
     pub fn engine_curve(&self) -> Option<SpeedCurve> {
-        let slopes = (!self.speed_slopes.is_empty()).then_some(self.speed_slopes.as_slice());
+        let slopes = (!self.speed_tangents.is_empty()).then_some(self.speed_tangents.as_slice());
         SpeedCurve::with_tangents(&self.speed_curve, slopes)
     }
 
@@ -407,7 +407,7 @@ impl ExportClip {
             speed: 1.0,
             preserve_pitch: true,
             speed_curve: Vec::new(),
-            speed_slopes: Vec::new(),
+            speed_tangents: Vec::new(),
             animation: Vec::new(),
             flip_h: false,
             flip_v: false,
@@ -954,7 +954,7 @@ fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip
     held.duration = length;
     held.speed = 1.0;
     held.speed_curve.clear();
-    held.speed_slopes.clear();
+    held.speed_tangents.clear();
     held.muted = true;
     held.has_audio = Some(false);
     held.volume = 0.0;

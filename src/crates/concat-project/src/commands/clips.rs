@@ -354,7 +354,7 @@ pub(super) fn apply(
                         clip.rewindow_keys(old, 0.0, duration);
                         // Pulled out past its end, a curve holds its end
                         // speed over what is added.
-                        speed::rewindow_curve(clip, old, 0.0, duration);
+                        speed::refit_curve(clip, old, 0.0, duration);
                     }
                     (applied, duration - old, old_end - JOIN_EPSILON)
                 }
@@ -363,7 +363,7 @@ pub(super) fn apply(
                     // under the remaining part of the clip do not slide. The
                     // head cannot reach before the source begins: pulled
                     // out, it reaches back at the speed the clip starts at.
-                    let reach_back = clip.source_start / speed::start_speed(clip);
+                    let reach_back = clip.source_start / speed::opening_speed(clip);
                     let shift = delta
                         .min(clip.duration - MIN_CLIP_DURATION)
                         .max(-reach_back);
@@ -381,14 +381,14 @@ pub(super) fn apply(
                     // The in-point moves by the footage the curve, or the
                     // rate, covers over what came off or went back on.
                     let source_start =
-                        (clip.source_start + speed::consumed_by(clip, moved)).max(0.0);
+                        (clip.source_start + speed::source_consumed(clip, moved)).max(0.0);
                     // Bitwise so no assignment is short-circuited away.
                     let applied = assign(&mut clip.start, start)
                         | assign(&mut clip.duration, duration)
                         | assign(&mut clip.source_start, source_start);
                     if applied {
                         clip.rewindow_keys(old, moved, old);
-                        speed::rewindow_curve(clip, old, moved, old);
+                        speed::refit_curve(clip, old, moved, old);
                     }
                     if ripple {
                         // The in-point moved; the clip stays put, and the
@@ -454,14 +454,14 @@ pub(super) fn apply(
                 tail.transition_in = None;
                 tail.fade_in = 0.0;
                 tail.rewindow_keys(whole, offset, whole);
-                speed::rewindow_curve(&mut tail, whole, offset, whole);
+                speed::refit_curve(&mut tail, whole, offset, whole);
                 created = Some(tail.id.clone());
                 let head = timeline.clip_at_mut(index);
                 head.duration = offset;
                 head.source_start = head_source;
                 head.fade_out = 0.0;
                 head.rewindow_keys(whole, 0.0, offset);
-                speed::rewindow_curve(head, whole, 0.0, offset);
+                speed::refit_curve(head, whole, 0.0, offset);
                 timeline.clips.insert(index + 1, Arc::new(tail));
             }
             // A split always mints the tail, so "minted anything" and
@@ -662,13 +662,13 @@ pub(super) fn apply(
             tail.transition_in = None;
             tail.fade_in = 0.0;
             tail.rewindow_keys(clip_duration, offset, clip_duration);
-            speed::rewindow_curve(&mut tail, clip_duration, offset, clip_duration);
+            speed::refit_curve(&mut tail, clip_duration, offset, clip_duration);
             let head = timeline.clip_at_mut(index);
             head.duration = offset;
             head.source_start = head_source;
             head.fade_out = 0.0;
             head.rewindow_keys(clip_duration, 0.0, offset);
-            speed::rewindow_curve(head, clip_duration, 0.0, offset);
+            speed::refit_curve(head, clip_duration, 0.0, offset);
             timeline.clips.insert(index + 1, Arc::new(tail));
 
             // Ripple every later placement on this track (including the new
@@ -1129,7 +1129,7 @@ pub fn delete_to_playhead(
 fn split_source(clip: &Clip, offset: f64) -> (f64, f64) {
     (
         clip.source_start,
-        clip.source_start + speed::consumed_by(clip, offset),
+        clip.source_start + speed::source_consumed(clip, offset),
     )
 }
 

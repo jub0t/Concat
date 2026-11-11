@@ -530,9 +530,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.global::<KeyEditor>()
             .set_rows(ModelRc::from(models.key_editor_rows.clone()));
         let ramp = app.global::<SpeedRamp>();
-        ramp.set_points(ModelRc::from(models.speed_points.clone()));
-        ramp.set_chosen(ModelRc::from(models.speed_chosen.clone()));
-        ramp.set_presets(ModelRc::from(models.speed_presets.clone()));
+        ramp.set_points(ModelRc::from(models.ramp_points.clone()));
+        ramp.set_selected(ModelRc::from(models.curve_selected.clone()));
+        ramp.set_preset_names(ModelRc::from(models.preset_labels.clone()));
         editor.set_key_marks(ModelRc::from(models.key_marks.clone()));
         app.global::<Library>()
             .set_views(ModelRc::from(models.library_views.clone()));
@@ -1378,28 +1378,28 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // and the panel's commit lands it.
     {
         let ramp = app.global::<SpeedRamp>();
-        ramp.on_curve(on_lanes!(|state, on: bool| {
+        ramp.on_toggle_curve(on_lanes!(|state, on: bool| {
             state.speed_curve_mode(on);
         }));
-        ramp.on_preset_chosen(on_lanes!(|state, index: i32| {
+        ramp.on_pick_preset(on_lanes!(|state, index: i32| {
             state.speed_preset(index);
         }));
-        ramp.on_point(on_lanes!(|state, index: i32, x: f32, y: f32| {
+        ramp.on_move_point(on_lanes!(|state, index: i32, x: f32, y: f32| {
             state.speed_point(index, x, y);
         }));
-        ramp.on_remove(on_lanes!(|state, index: i32| {
+        ramp.on_remove_point(on_lanes!(|state, index: i32| {
             state.speed_remove(index);
         }));
-        ramp.on_smoothness(on_lanes!(|state, smooth: bool| {
+        ramp.on_set_eased(on_lanes!(|state, smooth: bool| {
             state.speed_smooth(smooth);
         }));
-        ramp.on_extreme(on_lanes!(|state, faster: bool, target: f32| {
+        ramp.on_set_limit(on_lanes!(|state, faster: bool, target: f32| {
             state.speed_extreme(faster, target);
         }));
-        ramp.on_choose(on_lanes!(|state, index: i32, add: bool| {
+        ramp.on_select(on_lanes!(|state, index: i32, add: bool| {
             state.speed_choose(index, add);
         }));
-        ramp.on_choose_box(on_lanes!(|state,
+        ramp.on_select_box(on_lanes!(|state,
                                       x0: f32,
                                       y0: f32,
                                       x1: f32,
@@ -1407,16 +1407,16 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                                       add: bool| {
             state.speed_choose_box([x0, y0, x1, y1], add);
         }));
-        ramp.on_choose_all(on_lanes!(|state, all: bool| {
+        ramp.on_select_all(on_lanes!(|state, all: bool| {
             state.speed_choose_all(all);
         }));
-        ramp.on_grab(on_lanes!(|state| {
+        ramp.on_begin_drag(on_lanes!(|state| {
             state.speed_grab();
         }));
-        ramp.on_drag_chosen(on_lanes!(|state, dx: f32, dy: f32| {
+        ramp.on_drag_selected(on_lanes!(|state, dx: f32, dy: f32| {
             state.speed_drag_chosen(dx, dy);
         }));
-        ramp.on_remove_chosen(on_lanes!(|state| {
+        ramp.on_remove_selected(on_lanes!(|state| {
             state.speed_remove_chosen();
         }));
     }

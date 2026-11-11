@@ -379,7 +379,7 @@ impl Studio {
             ) else {
                 continue;
             };
-            commands.extend(clip_commands(id, before, after, self.prefs.magnetic()));
+            commands.extend(clip_edit_commands(id, before, after, self.prefs.magnetic()));
         }
         if commands.is_empty() {
             return;

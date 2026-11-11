@@ -173,7 +173,7 @@ pub(super) fn apply(
                 )
                 | assign(&mut clip.speed_curve, None);
             if applied {
-                make_room(timeline, &clip_id, old_end, ripple);
+                shift_followers(timeline, &clip_id, old_end, ripple);
             }
             Ok(Outcome {
                 created_id: None,
@@ -445,12 +445,12 @@ pub(super) fn apply(
             // Stored as it will play, so a reopened project plays the same.
             // A curve with nothing usable in it is no curve: the clip keeps
             // the rate it had, its old mean, and so its length.
-            let curve = curve.as_deref().and_then(crate::speed::normalised);
+            let curve = curve.as_deref().and_then(crate::speed::sanitised);
             let source_covered = clip.duration * clip.speed;
             let old_end = clip.start + clip.duration;
             let mean = curve
                 .as_ref()
-                .map(|points| crate::speed::mean_of(points))
+                .map(|points| crate::speed::average_speed(points))
                 .unwrap_or(clip.speed)
                 .clamp(MIN_SPEED, MAX_SPEED);
             let applied = assign(&mut clip.speed_curve, curve)
@@ -460,7 +460,7 @@ pub(super) fn apply(
                     (source_covered / mean).max(MIN_CLIP_DURATION),
                 );
             if applied {
-                make_room(timeline, &clip_id, old_end, ripple);
+                shift_followers(timeline, &clip_id, old_end, ripple);
             }
             Ok(Outcome {
                 created_id: None,
@@ -582,7 +582,7 @@ pub(super) fn apply(
 /// timeline, so a shrink closes up rather than leaving a gap. A plain
 /// shrink leaves the gap. The rest of the timeline follows a ripple on the
 /// main lane, as every ripple does.
-fn make_room(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool) {
+fn shift_followers(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool) {
     let Some(clip) = timeline.clip(clip_id) else {
         return;
     };

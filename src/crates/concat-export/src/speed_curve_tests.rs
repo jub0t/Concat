@@ -190,7 +190,7 @@ fn curves_with_eased_points_carry_their_slopes_and_straight_ones_none() {
             .find(|clip| clip.kind == ClipKind::Video)
             .unwrap();
         assert_eq!(clip.speed_curve, vec![(0.0, 0.5), (1.0, 2.0)]);
-        assert_eq!(clip.speed_slopes, slopes);
+        assert_eq!(clip.speed_tangents, slopes);
         close(
             clip.speed,
             editor.project().active().clip(&id).unwrap().speed,

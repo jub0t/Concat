@@ -780,11 +780,11 @@ pub struct Models {
     pub curve_points: RefCell<HashMap<(i32, String), Rc<VecModel<CurvePointData>>>>,
     /// The Speed graph's points, kept like the rest so a point being
     /// dragged is not dropped when the graph is published under the pointer.
-    pub speed_points: Rc<VecModel<SpeedPointData>>,
+    pub ramp_points: Rc<VecModel<SpeedPointData>>,
     /// Which of them are chosen, one flag a point.
-    pub speed_chosen: Rc<VecModel<bool>>,
+    pub curve_selected: Rc<VecModel<bool>>,
     /// The speed presets' names, in the interface's language.
-    pub speed_presets: Rc<VecModel<SharedString>>,
+    pub preset_labels: Rc<VecModel<SharedString>>,
     /// The keyframe cluster's rows and the libraries' views: synced like
     /// the rest, since a model handed over fresh is unequal to the last by
     /// identity and re-evaluates every binding on it.
@@ -875,9 +875,9 @@ impl Models {
             link_wheels: RefCell::new(HashMap::new()),
             link_curves: RefCell::new(HashMap::new()),
             curve_points: RefCell::new(HashMap::new()),
-            speed_points: Rc::new(VecModel::default()),
-            speed_chosen: Rc::new(VecModel::default()),
-            speed_presets: Rc::new(VecModel::default()),
+            ramp_points: Rc::new(VecModel::default()),
+            curve_selected: Rc::new(VecModel::default()),
+            preset_labels: Rc::new(VecModel::default()),
             key_rows: Rc::new(VecModel::default()),
             key_editor_rows: Rc::new(VecModel::default()),
             key_marks: Rc::new(VecModel::default()),
@@ -1298,7 +1298,7 @@ pub struct Studio {
     voice_failed: HashSet<std::path::PathBuf>,
     /// The Speed graph's chosen points, by index, and the clip they are
     /// on: another clip selected chooses none.
-    speed_chosen: (String, Vec<usize>),
+    curve_selected: (String, Vec<usize>),
     /// The curve as it was when a drag of the chosen points began: each
     /// move is measured from it, so a point held at a limit does not drift.
     speed_grabbed: Option<Vec<model::SpeedPoint>>,
@@ -2180,7 +2180,7 @@ fn command_words(command: &Command) -> String {
 /// keys, and one patch for everything else that differs. Empty when
 /// nothing does. A speed change on a magnetic timeline moves the lane
 /// behind the clip with its end.
-fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<Command> {
+fn clip_edit_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<Command> {
     let mut commands = Vec::new();
     if after.scale != before.scale
         || after.offset_x != before.offset_x
@@ -2899,12 +2899,12 @@ fn shape_copy(of: &Clip, laid: &Clip, lane: &str, at: f64) -> Vec<Command> {
     let curve = of
         .speed_curve
         .clone()
-        .filter(|points| speed::curve_of(points).is_some());
+        .filter(|points| speed::engine_curve(points).is_some());
     // The rate the editor gives the copy, and so the footage that rate
     // must cover to last as long as the original does.
     let rate = curve
         .as_deref()
-        .map_or(of.speed, speed::mean_of)
+        .map_or(of.speed, speed::average_speed)
         .clamp(MIN_SPEED, MAX_SPEED);
     let footage = of.duration * rate;
     let pace = laid.speed.max(MIN_SPEED);
@@ -3179,7 +3179,7 @@ impl Studio {
             voice_jobs: HashMap::new(),
             voice_cancel: None,
             voice_failed: HashSet::new(),
-            speed_chosen: (String::new(), Vec::new()),
+            curve_selected: (String::new(), Vec::new()),
             speed_grabbed: None,
             stabilize_retry: HashSet::new(),
             mask_focus: None,
@@ -3297,7 +3297,7 @@ mod tests {
         for mix in [Some(VoiceMix::KEEP_VOICE), Some(VoiceMix::REMOVE_VOICE)] {
             let mut after = before.clone();
             after.voice = mix;
-            let commands = super::clip_commands("c1", &before, &after, false);
+            let commands = super::clip_edit_commands("c1", &before, &after, false);
             assert!(
                 commands.iter().any(|command| matches!(
                     command,
@@ -3309,7 +3309,7 @@ mod tests {
         let mut on = before.clone();
         on.voice = Some(VoiceMix::KEEP_VOICE);
         assert!(
-            super::clip_commands("c1", &on, &before, false)
+            super::clip_edit_commands("c1", &on, &before, false)
                 .iter()
                 .any(|command| matches!(command, Command::SetClipVoice { voice: None, .. }))
         );
@@ -3337,11 +3337,11 @@ mod tests {
             })
         };
         assert_eq!(
-            patched(super::clip_commands("c1", &before, &after, false)),
+            patched(super::clip_edit_commands("c1", &before, &after, false)),
             Some(after.motion.clone())
         );
         assert_eq!(
-            patched(super::clip_commands("c1", &after, &before, false)),
+            patched(super::clip_edit_commands("c1", &after, &before, false)),
             Some(None)
         );
     }
@@ -3903,7 +3903,7 @@ mod tests {
             let before = document.active().clip(id).expect("clip");
             let mut after = before.clone();
             crate::batch_volume::set_level(&mut after, before, 0.5, 0.0);
-            commands.extend(super::clip_commands(id, before, &after, false));
+            commands.extend(super::clip_edit_commands(id, before, &after, false));
         }
         editor.apply(Command::Batch { commands }).expect("applies");
         let clip = |editor: &concat_project::Editor, id: &str| {

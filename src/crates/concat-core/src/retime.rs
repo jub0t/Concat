@@ -79,13 +79,13 @@ impl SpeedCurve {
     /// what keeps every stretch between the speeds it joins.
     pub fn with_tangents(points: &[(f64, f64)], tangents: Option<&[f64]>) -> Option<SpeedCurve> {
         let tangents = tangents.filter(|tangents| tangents.len() == points.len());
-        let mut kept: Vec<(f64, f64, f64)> = points
+        let mut tidied: Vec<(f64, f64, f64)> = points
             .iter()
             .enumerate()
             .filter(|(_, (x, speed))| x.is_finite() && speed.is_finite())
-            .map(|(index, &(x, speed))| {
+            .map(|(slot, &(x, speed))| {
                 let tangent = tangents
-                    .map(|tangents| tangents[index])
+                    .map(|tangents| tangents[slot])
                     .filter(|tangent| tangent.is_finite())
                     .unwrap_or(0.0);
                 (
@@ -95,23 +95,23 @@ impl SpeedCurve {
                 )
             })
             .collect();
-        if kept.is_empty() {
+        if tidied.is_empty() {
             return None;
         }
         // Stable, so the two sides of a step keep their order.
-        kept.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let first = kept[0];
-        if first.0 > 0.0 {
-            kept.insert(0, (0.0, first.1, 0.0));
+        tidied.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let head = tidied[0];
+        if head.0 > 0.0 {
+            tidied.insert(0, (0.0, head.1, 0.0));
         }
-        let last = kept[kept.len() - 1];
-        if last.0 < 1.0 {
-            kept.push((1.0, last.1, 0.0));
+        let tail = tidied[tidied.len() - 1];
+        if tail.0 < 1.0 {
+            tidied.push((1.0, tail.1, 0.0));
         }
 
-        let points: Vec<(f64, f64)> = kept.iter().map(|&(x, speed, _)| (x, speed)).collect();
+        let points: Vec<(f64, f64)> = tidied.iter().map(|&(x, speed, _)| (x, speed)).collect();
         let tangents = tangents.map(|_| {
-            let mut tangents: Vec<f64> = kept.iter().map(|&(_, _, tangent)| tangent).collect();
+            let mut tangents: Vec<f64> = tidied.iter().map(|&(_, _, tangent)| tangent).collect();
             limit_to_monotone(&points, &mut tangents);
             tangents
         });
@@ -193,11 +193,11 @@ impl SpeedCurve {
         let count = count.max(1);
         let mut from = 0.0;
         (0..count)
-            .map(|index| {
-                let x0 = index as f64 / count as f64;
-                let x1 = (index + 1) as f64 / count as f64;
-                let to = self.consumed(x1);
-                let piece = (x0, x1, from, ((to - from) / (x1 - x0)).max(Self::MIN_SPEED));
+            .map(|slot| {
+                let xl = slot as f64 / count as f64;
+                let xr = (slot + 1) as f64 / count as f64;
+                let to = self.consumed(xr);
+                let piece = (xl, xr, from, ((to - from) / (xr - xl)).max(Self::MIN_SPEED));
                 from = to;
                 piece
             })
@@ -208,7 +208,7 @@ impl SpeedCurve {
     /// as the end of the earlier: the first stretch that ends at or after
     /// `x`. A stretch of no width there (a step) is taken at its end.
     fn arriving(&self, x: f64) -> Place {
-        let x = held(x);
+        let x = within_clip(x);
         let stretch = self.points[1..].partition_point(|point| point.0 < x);
         self.place(stretch.min(self.points.len() - 2), x)
     }
@@ -216,17 +216,17 @@ impl SpeedCurve {
     /// The stretch `x` falls on, counting a shared place as the start of
     /// the later: the first that ends after `x`, or the last at the end.
     fn leaving(&self, x: f64) -> Place {
-        let x = held(x);
+        let x = within_clip(x);
         let stretch = self.points[1..].partition_point(|point| point.0 <= x);
         self.place(stretch.min(self.points.len() - 2), x)
     }
 
     fn place(&self, stretch: usize, x: f64) -> Place {
-        let (x0, _) = self.points[stretch];
-        let (x1, _) = self.points[stretch + 1];
-        let width = x1 - x0;
-        let along = if width > 0.0 {
-            ((x - x0) / width).clamp(0.0, 1.0)
+        let (xl, _) = self.points[stretch];
+        let (xr, _) = self.points[stretch + 1];
+        let run = xr - xl;
+        let along = if run > 0.0 {
+            ((x - xl) / run).clamp(0.0, 1.0)
         } else {
             1.0
         };
@@ -236,70 +236,69 @@ impl SpeedCurve {
     /// A stretch's ends: its width, the two speeds and the two tangents
     /// scaled to the width (zero for straight lines).
     fn ends(&self, stretch: usize) -> (f64, f64, f64, f64, f64) {
-        let (x0, v0) = self.points[stretch];
-        let (x1, v1) = self.points[stretch + 1];
-        let width = x1 - x0;
+        let (xl, vl) = self.points[stretch];
+        let (xr, vr) = self.points[stretch + 1];
+        let run = xr - xl;
         let (m0, m1) = match &self.tangents {
-            Some(tangents) => (tangents[stretch] * width, tangents[stretch + 1] * width),
+            Some(tangents) => (tangents[stretch] * run, tangents[stretch + 1] * run),
             None => (0.0, 0.0),
         };
-        (width, v0, v1, m0, m1)
+        (run, vl, vr, m0, m1)
     }
 
     fn speed_on(&self, place: Place) -> f64 {
-        let (_, v0, v1, m0, m1) = self.ends(place.stretch);
+        let (_, vl, vr, m0, m1) = self.ends(place.stretch);
         let u = place.along;
         if self.tangents.is_none() {
-            return v0 + (v1 - v0) * u;
+            return vl + (vr - vl) * u;
         }
         let (u2, u3) = (u * u, u * u * u);
-        (2.0 * u3 - 3.0 * u2 + 1.0) * v0
+        (2.0 * u3 - 3.0 * u2 + 1.0) * vl
             + (u3 - 2.0 * u2 + u) * m0
-            + (-2.0 * u3 + 3.0 * u2) * v1
+            + (-2.0 * u3 + 3.0 * u2) * vr
             + (u3 - u2) * m1
     }
 
     fn tangent_on(&self, place: Place) -> f64 {
-        let (width, v0, v1, m0, m1) = self.ends(place.stretch);
-        if width <= 0.0 {
+        let (run, vl, vr, m0, m1) = self.ends(place.stretch);
+        if run <= 0.0 {
             return 0.0;
         }
         if self.tangents.is_none() {
-            return (v1 - v0) / width;
+            return (vr - vl) / run;
         }
         let u = place.along;
         let u2 = u * u;
-        ((6.0 * u2 - 6.0 * u) * v0
+        ((6.0 * u2 - 6.0 * u) * vl
             + (3.0 * u2 - 4.0 * u + 1.0) * m0
-            + (-6.0 * u2 + 6.0 * u) * v1
+            + (-6.0 * u2 + 6.0 * u) * vr
             + (3.0 * u2 - 2.0 * u) * m1)
-            / width
+            / run
     }
 
     /// The area under one stretch from its start to `u` of the way along:
     /// a trapezoid for a straight line, the Hermite basis integrated for a
     /// smooth one.
     fn area_along(&self, stretch: usize, u: f64) -> f64 {
-        let (width, v0, v1, m0, m1) = self.ends(stretch);
-        if width <= 0.0 || u <= 0.0 {
+        let (run, vl, vr, m0, m1) = self.ends(stretch);
+        if run <= 0.0 || u <= 0.0 {
             return 0.0;
         }
         if self.tangents.is_none() {
-            let reached = v0 + (v1 - v0) * u;
-            return width * u * (v0 + reached) / 2.0;
+            let reached = vl + (vr - vl) * u;
+            return run * u * (vl + reached) / 2.0;
         }
         let (u2, u3) = (u * u, u * u * u);
         let u4 = u2 * u2;
-        width
-            * ((u - u3 + u4 / 2.0) * v0
-                + (u4 / 4.0 - 2.0 * u3 / 3.0 + u2 / 2.0) * m0
-                + (u3 - u4 / 2.0) * v1
-                + (u4 / 4.0 - u3 / 3.0) * m1)
+        run * ((u - u3 + u4 / 2.0) * vl
+            + (u4 / 4.0 - 2.0 * u3 / 3.0 + u2 / 2.0) * m0
+            + (u3 - u4 / 2.0) * vr
+            + (u4 / 4.0 - u3 / 3.0) * m1)
     }
 }
 
 /// A place held to the clip; one that is not a number reads as the start.
-fn held(x: f64) -> f64 {
+fn within_clip(x: f64) -> f64 {
     if x.is_nan() { 0.0 } else { x.clamp(0.0, 1.0) }
 }
 
@@ -312,28 +311,28 @@ fn held(x: f64) -> f64 {
 /// leaves the range either.
 fn limit_to_monotone(points: &[(f64, f64)], tangents: &mut [f64]) {
     for stretch in 0..points.len() - 1 {
-        let (x0, v0) = points[stretch];
-        let (x1, v1) = points[stretch + 1];
-        let width = x1 - x0;
-        if width <= 0.0 {
+        let (xl, vl) = points[stretch];
+        let (xr, vr) = points[stretch + 1];
+        let run = xr - xl;
+        if run <= 0.0 {
             continue;
         }
-        let rise = (v1 - v0) / width;
-        if rise.abs() < FLAT_RISE {
+        let gain = (vr - vl) / run;
+        if gain.abs() < FLAT_RISE {
             tangents[stretch] = 0.0;
             tangents[stretch + 1] = 0.0;
             continue;
         }
-        let a = (tangents[stretch] / rise).max(0.0);
-        let b = (tangents[stretch + 1] / rise).max(0.0);
-        let length = a.hypot(b);
-        let scale = if length > MONOTONE_RADIUS {
-            MONOTONE_RADIUS / length
+        let a = (tangents[stretch] / gain).max(0.0);
+        let b = (tangents[stretch + 1] / gain).max(0.0);
+        let norm = a.hypot(b);
+        let shrink = if norm > MONOTONE_RADIUS {
+            MONOTONE_RADIUS / norm
         } else {
             1.0
         };
-        tangents[stretch] = scale * a * rise;
-        tangents[stretch + 1] = scale * b * rise;
+        tangents[stretch] = shrink * a * gain;
+        tangents[stretch + 1] = shrink * b * gain;
     }
 }
 

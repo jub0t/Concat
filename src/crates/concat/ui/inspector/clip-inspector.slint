@@ -1305,22 +1305,22 @@ export component SpeedPanel inherits VerticalLayout {
     property <float> speed;
     function seed() {
         root.speed = root.selected.speed;
-        root.fastest = SpeedRamp.fastest;
-        root.slowest = SpeedRamp.slowest;
+        root.fastest = SpeedRamp.peak-speed;
+        root.slowest = SpeedRamp.trough-speed;
     }
     init => { root.seed(); }
     changed selected => { root.seed(); }
 
     // Rust's word on the mode and the preset.
-    property <bool> curved: SpeedRamp.curved;
-    property <int> preset: SpeedRamp.preset;
+    property <bool> curved: SpeedRamp.has-curve;
+    property <int> preset: SpeedRamp.active-preset;
     // The two sliders' values, seeded from Rust's like the rate's: a
     // slider writes its own value as it is dragged, which would end a
     // binding.
     property <float> fastest;
     property <float> slowest;
-    property <float> fastest-truth: SpeedRamp.fastest;
-    property <float> slowest-truth: SpeedRamp.slowest;
+    property <float> fastest-truth: SpeedRamp.peak-speed;
+    property <float> slowest-truth: SpeedRamp.trough-speed;
     changed fastest-truth => { root.fastest = root.fastest-truth; }
     changed slowest-truth => { root.slowest = root.slowest-truth; }
 
@@ -1359,7 +1359,7 @@ export component SpeedPanel inherits VerticalLayout {
                     icons: [Glyph.speed-constant, Glyph.speed-curve];
                     current: root.curved ? 1 : 0;
                     changed(index) => {
-                        SpeedRamp.curve(index == 1);
+                        SpeedRamp.toggle-curve(index == 1);
                         root.commit();
                     }
                 }
@@ -1372,11 +1372,11 @@ export component SpeedPanel inherits VerticalLayout {
                     property <int> truth: root.preset;
                     changed truth => { self.current = self.truth; }
 
-                    options: SpeedRamp.presets;
+                    options: SpeedRamp.preset-names;
                     current: root.preset;
                     placeholder: I18n.t("speedRamp.custom");
                     changed(index) => {
-                        SpeedRamp.preset-chosen(index);
+                        SpeedRamp.pick-preset(index);
                         root.commit();
                     }
                 }
@@ -1386,11 +1386,11 @@ export component SpeedPanel inherits VerticalLayout {
                 padding-left: Theme.pad;
                 padding-right: Theme.pad;
                 point(index, x, y) => {
-                    SpeedRamp.point(index, x, y);
+                    SpeedRamp.move-point(index, x, y);
                     root.commit();
                 }
                 remove(index) => {
-                    SpeedRamp.remove(index);
+                    SpeedRamp.remove-point(index);
                     root.commit();
                 }
                 changed => { root.commit(); }
@@ -1400,14 +1400,14 @@ export component SpeedPanel inherits VerticalLayout {
                 label: I18n.t("speedRamp.bends");
                 SegmentedControl {
                     // As the mode's: set again from Rust's word.
-                    property <bool> truth: SpeedRamp.smooth;
+                    property <bool> truth: SpeedRamp.eased;
                     changed truth => { self.current = self.truth ? 0 : 1; }
 
                     options: [I18n.t("speedRamp.smooth"), I18n.t("speedRamp.straight")];
                     icons: [Glyph.bend-smooth, Glyph.bend-straight];
-                    current: SpeedRamp.smooth ? 0 : 1;
+                    current: SpeedRamp.eased ? 0 : 1;
                     changed(index) => {
-                        SpeedRamp.smoothness(index == 0);
+                        SpeedRamp.set-eased(index == 0);
                         root.commit();
                     }
                 }
@@ -1425,7 +1425,7 @@ export component SpeedPanel inherits VerticalLayout {
                 default-value: 2;
                 fmt: ParamFormat.rate;
                 unit: "x";
-                changed(v) => { SpeedRamp.extreme(true, v); root.commit(); }
+                changed(v) => { SpeedRamp.set-limit(true, v); root.commit(); }
             }
             if root.curved && root.slowest > 0: Param {
                 label: I18n.t("speedRamp.slowest");
@@ -1436,7 +1436,7 @@ export component SpeedPanel inherits VerticalLayout {
                 default-value: 0.5;
                 fmt: ParamFormat.rate;
                 unit: "x";
-                changed(v) => { SpeedRamp.extreme(false, v); root.commit(); }
+                changed(v) => { SpeedRamp.set-limit(false, v); root.commit(); }
             }
 
             if !root.curved: Param {

@@ -23,61 +23,61 @@ export struct SpeedPointData {
 /// and the panel's commit lands it as one edit.
 export global SpeedRamp {
     /// The clip's speed changes over it.
-    in property <bool> curved;
+    in property <bool> has-curve;
     /// The curve bends smoothly through its points, rather than running in
     /// straight lines between them.
-    in property <bool> smooth: true;
-    /// The preset the curve still is, by its place in `presets`; -1 for a
+    in property <bool> eased: true;
+    /// The preset the curve still is, by its place in `preset-names`; -1 for a
     /// curve shaped by hand.
-    in property <int> preset: -1;
+    in property <int> active-preset: -1;
     /// The presets' names, in their order.
-    in property <[string]> presets;
+    in property <[string]> preset-names;
     /// The fastest the curve goes above 1x; 0 when it never does.
-    in property <float> fastest;
+    in property <float> peak-speed;
     /// The slowest it goes below 1x; 0 when it never does.
-    in property <float> slowest;
+    in property <float> trough-speed;
     /// The curve's points, in order across the clip.
     in property <[SpeedPointData]> points;
     /// The curve's line as path commands on a unit square, down the way
     /// the screen's y runs.
-    in property <string> path;
+    in property <string> line-path;
     /// Where the playhead crosses the clip, 0..1; -1 when it is elsewhere.
-    in property <float> playhead: -1;
+    in property <float> playhead-at: -1;
     /// The controls act: exactly one video or sound clip is selected.
-    in property <bool> enabled;
+    in property <bool> usable;
 
     /// Curve (true): a level curve at the clip's rate, so nothing moves
     /// until a point does. Constant: the rate the curve averaged.
-    callback curve(on: bool);
-    /// A preset picked by its place in `presets`: its points replace the
+    callback toggle-curve(on: bool);
+    /// A preset picked by its place in `preset-names`: its points replace the
     /// curve's.
-    callback preset-chosen(index: int);
+    callback pick-preset(index: int);
     /// A point moved to `x` across and `y` up the graph, or put down there
     /// when `index` is -1.
-    callback point(index: int, x: float, y: float);
+    callback move-point(index: int, x: float, y: float);
     /// A point taken off; the ends stay.
-    callback remove(index: int);
+    callback remove-point(index: int);
     /// Every point smooth (true) or straight.
-    callback smoothness(smooth: bool);
+    callback set-eased(smooth: bool);
     /// The Fastest slider (`faster`) or the Slowest, moved to `target`.
-    callback extreme(faster: bool, target: float);
+    callback set-limit(faster: bool, target: float);
 
     /// Which points are chosen, one flag a point, in `points`' order.
-    in property <[bool]> chosen;
+    in property <[bool]> selected;
     /// A point pressed: with `add` it joins the chosen or leaves them;
     /// without, it is the one chosen, unless it is chosen already. -1
     /// chooses none.
-    callback choose(index: int, add: bool);
+    callback select(index: int, add: bool);
     /// The points inside a box dragged over the graph, on its scale.
-    callback choose-box(x0: float, y0: float, x1: float, y1: float, add: bool);
+    callback select-box(x0: float, y0: float, x1: float, y1: float, add: bool);
     /// Every point chosen, or none.
-    callback choose-all(all: bool);
+    callback select-all(all: bool);
     /// A drag of the chosen points begins, from the curve as it is now.
-    callback grab();
+    callback begin-drag();
     /// The chosen points moved together from where the drag began.
-    callback drag-chosen(dx: float, dy: float);
+    callback drag-selected(dx: float, dy: float);
     /// The chosen points taken off; the ends stay.
-    callback remove-chosen();
+    callback remove-selected();
 }
 
 /// One point of the curve: a ring that drags in time and speed, filled
@@ -86,31 +86,31 @@ export global SpeedRamp {
 /// it. The two ends only drag in speed - the curve always spans the whole
 /// clip - and do not come off.
 component SpeedHandle inherits TouchArea {
-    in property <float> px;
-    in property <float> py;
-    in property <length> plot-w;
-    in property <length> plot-h;
+    in property <float> pos-x;
+    in property <float> pos-y;
+    in property <length> plot-width;
+    in property <length> plot-height;
     /// The first or the last point of the curve.
     in property <bool> end;
     in property <bool> chosen;
 
-    callback pressed-with(add: bool);
-    callback dragged(dx: float, dy: float);
-    callback released(off: bool);
+    callback press-with(add: bool);
+    callback dragged-by(dx: float, dy: float);
+    callback let-go(off: bool);
     /// Double-clicked: a point between the ends comes off.
-    callback removed();
+    callback double-removed();
 
     /// Where the point was when it was pressed: each move is the pointer's
     /// whole way from there, the point having moved under it meanwhile.
-    property <float> from-x;
-    property <float> from-y;
-    property <bool> adding;
-    property <bool> dragging;
+    property <float> start-x;
+    property <float> start-y;
+    property <bool> extending;
+    property <bool> moving;
     /// Dragged well outside the graph: let go there, it comes off.
     property <bool> off;
 
-    x: root.px * root.plot-w - 8px;
-    y: (1 - root.py) * root.plot-h - 8px;
+    x: root.pos-x * root.plot-width - 8px;
+    y: (1 - root.pos-y) * root.plot-height - 8px;
     width: 16px;
     height: 16px;
     // The ends are held at the clip's ends: they move up and down only.
@@ -122,7 +122,7 @@ component SpeedHandle inherits TouchArea {
         width: 10px;
         height: 10px;
         border-radius: 5px;
-        background: root.chosen || root.dragging ? Theme.accent : Theme.panel;
+        background: root.chosen || root.moving ? Theme.accent : Theme.panel;
         border-width: 2px;
         border-color: Theme.accent;
         opacity: root.off ? 0.35 : 1;
@@ -140,35 +140,35 @@ component SpeedHandle inherits TouchArea {
 
     pointer-event(event) => {
         if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
-            self.adding = event.modifiers.shift || event.modifiers.control || event.modifiers.meta;
-            self.from-x = root.px;
-            self.from-y = root.py;
-            root.pressed-with(self.adding);
+            self.extending = event.modifiers.shift || event.modifiers.control || event.modifiers.meta;
+            self.start-x = root.pos-x;
+            self.start-y = root.pos-y;
+            root.press-with(self.extending);
         }
         if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
-            if (self.dragging) {
-                root.released(self.off && event.kind == PointerEventKind.up);
+            if (self.moving) {
+                root.let-go(self.off && event.kind == PointerEventKind.up);
             }
-            self.dragging = false;
+            self.moving = false;
             self.off = false;
         }
     }
     moved => {
-        if (self.pressed && !self.adding) {
-            self.dragging = true;
-            let dx = root.px - self.from-x + (self.mouse-x - self.pressed-x) / root.plot-w;
-            let dy = root.py - self.from-y - (self.mouse-y - self.pressed-y) / root.plot-h;
-            let x = self.from-x + dx;
-            let y = self.from-y + dy;
+        if (self.pressed && !self.extending) {
+            self.moving = true;
+            let dx = root.pos-x - self.start-x + (self.mouse-x - self.pressed-x) / root.plot-width;
+            let dy = root.pos-y - self.start-y - (self.mouse-y - self.pressed-y) / root.plot-height;
+            let x = self.start-x + dx;
+            let y = self.start-y + dy;
             // Well outside the graph, the points between the ends are on
             // their way off.
             self.off = !root.end && (x < -0.08 || x > 1.08 || y < -0.08 || y > 1.08);
-            root.dragged(dx, dy);
+            root.dragged-by(dx, dy);
         }
     }
     double-clicked => {
         if (!root.end) {
-            root.removed();
+            root.double-removed();
         }
     }
 }
@@ -184,7 +184,7 @@ component SpeedHandle inherits TouchArea {
 /// one moves them all, Delete takes them off, Escape lets them go.
 export component SpeedGraph inherits VerticalLayout {
     /// The graph takes presses and keys; dimmed when it does not.
-    in property <bool> enabled: SpeedRamp.enabled;
+    in property <bool> enabled: SpeedRamp.usable;
 
     /// A point moved, or put down when `index` is -1: `x` across the clip
     /// and `y` up the graph.
@@ -195,21 +195,21 @@ export component SpeedGraph inherits VerticalLayout {
     callback changed();
 
     /// The labels' column.
-    property <length> gutter: 38px;
-    /// Room inside the frame around the plot, for an end's ring.
-    property <length> inset: 9px;
-    property <length> plot-w: Math.max(1px, frame.width - 2 * root.inset);
+    property <length> label-width: 38px;
+    /// Room inside the border around the chart, for an end's ring.
+    property <length> pad: 9px;
+    property <length> plot-width: Math.max(1px, outline.width - 2 * root.pad);
     /// Sixteen rows of a half doubling and twenty columns, each a square:
     /// tall enough to shape a ramp by.
-    property <length> plot-h: root.plot-w * 16 / 20;
-    property <length> cell: root.plot-h / 16;
+    property <length> plot-height: root.plot-width * 16 / 20;
+    property <length> square: root.plot-height / 16;
 
-    // The box being dragged out, on the plot, in pixels.
-    property <bool> banding;
-    property <length> band-x0;
-    property <length> band-y0;
-    property <length> band-x1;
-    property <length> band-y1;
+    // The box being dragged out, on the chart, in pixels.
+    property <bool> boxing;
+    property <length> box-x0;
+    property <length> box-y0;
+    property <length> box-x1;
+    property <length> box-y1;
 
     spacing: 4px;
     opacity: root.enabled ? 1 : 0.45;
@@ -219,11 +219,11 @@ export component SpeedGraph inherits VerticalLayout {
 
         // Every doubling, beside its line: 1/16x at the foot, 16x at the top.
         Rectangle {
-            width: root.gutter;
+            width: root.label-width;
             for label[i] in ["16x", "8x", "4x", "2x", "1x", "1/2x", "1/4x", "1/8x", "1/16x"]: Text {
                 x: 0;
                 width: parent.width;
-                y: root.inset + i * 2 * root.cell - self.height / 2;
+                y: root.pad + i * 2 * root.square - self.height / 2;
                 text: label;
                 color: i == 4 ? Theme.fg : Theme.fg-dim;
                 font-size: Theme.fs-sm;
@@ -232,8 +232,8 @@ export component SpeedGraph inherits VerticalLayout {
             }
         }
 
-        frame := Rectangle {
-            height: root.plot-h + 2 * root.inset;
+        outline := Rectangle {
+            height: root.plot-height + 2 * root.pad;
             horizontal-stretch: 1;
             background: Theme.well;
             border-width: 1px;
@@ -241,43 +241,43 @@ export component SpeedGraph inherits VerticalLayout {
             border-radius: Theme.r;
             clip: true;
 
-            keys := FocusScope {
+            focus-scope := FocusScope {
                 enabled: root.enabled;
                 key-pressed(event) => {
                     if (event.text == Key.Delete || event.text == Key.Backspace) {
-                        SpeedRamp.remove-chosen();
+                        SpeedRamp.remove-selected();
                         root.changed();
                         return accept;
                     }
                     if (event.text == Key.Escape) {
-                        SpeedRamp.choose(-1, false);
+                        SpeedRamp.select(-1, false);
                         return accept;
                     }
                     if ((event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A")) {
-                        SpeedRamp.choose-all(true);
+                        SpeedRamp.select-all(true);
                         return accept;
                     }
                     return reject;
                 }
             }
 
-            plot := Rectangle {
-                x: root.inset;
-                y: root.inset;
-                width: root.plot-w;
-                height: root.plot-h;
+            chart := Rectangle {
+                x: root.pad;
+                y: root.pad;
+                width: root.plot-width;
+                height: root.plot-height;
 
-                // The squares: a fine line each cell, a firmer one each
+                // The squares: a fine line each square, a firmer one each
                 // doubling and each quarter of the clip, and 1x firmest.
                 for row in 17: Rectangle {
-                    y: row * root.cell;
+                    y: row * root.square;
                     width: parent.width;
                     height: 1px;
                     background: row == 8 ? Theme.line-strong : Theme.line;
                     opacity: row == 8 ? 1 : Math.mod(row, 2) == 0 ? 0.75 : 0.3;
                 }
                 for column in 21: Rectangle {
-                    x: column * root.cell;
+                    x: column * root.square;
                     width: 1px;
                     height: parent.height;
                     background: Theme.line;
@@ -289,40 +289,40 @@ export component SpeedGraph inherits VerticalLayout {
                 TouchArea {
                     enabled: root.enabled;
                     mouse-cursor: crosshair;
-                    property <bool> adding;
+                    property <bool> extending;
                     pointer-event(event) => {
                         if (event.kind == PointerEventKind.down) {
-                            keys.focus();
-                            self.adding = event.modifiers.shift || event.modifiers.control || event.modifiers.meta;
-                            root.band-x0 = self.mouse-x;
-                            root.band-y0 = self.mouse-y;
-                            root.band-x1 = self.mouse-x;
-                            root.band-y1 = self.mouse-y;
+                            focus-scope.focus();
+                            self.extending = event.modifiers.shift || event.modifiers.control || event.modifiers.meta;
+                            root.box-x0 = self.mouse-x;
+                            root.box-y0 = self.mouse-y;
+                            root.box-x1 = self.mouse-x;
+                            root.box-y1 = self.mouse-y;
                         }
                         if (event.kind == PointerEventKind.up) {
-                            if (root.banding) {
-                                SpeedRamp.choose-box(
-                                    root.band-x0 / plot.width, 1 - root.band-y0 / plot.height,
-                                    root.band-x1 / plot.width, 1 - root.band-y1 / plot.height,
-                                    self.adding);
-                            } else if (self.adding) {
+                            if (root.boxing) {
+                                SpeedRamp.select-box(
+                                    root.box-x0 / chart.width, 1 - root.box-y0 / chart.height,
+                                    root.box-x1 / chart.width, 1 - root.box-y1 / chart.height,
+                                    self.extending);
+                            } else if (self.extending) {
                                 // Shift on nothing keeps the chosen as they are.
                             } else {
                                 root.point(-1,
-                                    Math.clamp(self.mouse-x / plot.width, 0, 1),
-                                    Math.clamp(1 - self.mouse-y / plot.height, 0, 1));
+                                    Math.clamp(self.mouse-x / chart.width, 0, 1),
+                                    Math.clamp(1 - self.mouse-y / chart.height, 0, 1));
                             }
-                            root.banding = false;
+                            root.boxing = false;
                         }
                         if (event.kind == PointerEventKind.cancel) {
-                            root.banding = false;
+                            root.boxing = false;
                         }
                     }
                     moved => {
                         if (self.pressed) {
-                            root.band-x1 = Math.clamp(self.mouse-x, 0, plot.width);
-                            root.band-y1 = Math.clamp(self.mouse-y, 0, plot.height);
-                            root.banding = root.banding
+                            root.box-x1 = Math.clamp(self.mouse-x, 0, chart.width);
+                            root.box-y1 = Math.clamp(self.mouse-y, 0, chart.height);
+                            root.boxing = root.boxing
                                 || Math.abs(self.mouse-x - self.pressed-x) > 4px
                                 || Math.abs(self.mouse-y - self.pressed-y) > 4px;
                         }
@@ -330,8 +330,8 @@ export component SpeedGraph inherits VerticalLayout {
                 }
 
                 // Where the playhead crosses the clip.
-                if SpeedRamp.playhead >= 0: Rectangle {
-                    x: SpeedRamp.playhead * parent.width - 0.5px;
+                if SpeedRamp.playhead-at >= 0: Rectangle {
+                    x: SpeedRamp.playhead-at * parent.width - 0.5px;
                     width: 1px;
                     height: parent.height;
                     background: Theme.playhead;
@@ -346,46 +346,46 @@ export component SpeedGraph inherits VerticalLayout {
                     viewbox-width: 1;
                     viewbox-height: 1;
                     fit: fill;
-                    commands: SpeedRamp.path;
+                    commands: SpeedRamp.line-path;
                     fill: transparent;
                     stroke: Theme.accent;
                     stroke-width: 2px;
                 }
 
-                if root.banding: Rectangle {
-                    x: Math.min(root.band-x0, root.band-x1);
-                    y: Math.min(root.band-y0, root.band-y1);
-                    width: Math.abs(root.band-x1 - root.band-x0);
-                    height: Math.abs(root.band-y1 - root.band-y0);
+                if root.boxing: Rectangle {
+                    x: Math.min(root.box-x0, root.box-x1);
+                    y: Math.min(root.box-y0, root.box-y1);
+                    width: Math.abs(root.box-x1 - root.box-x0);
+                    height: Math.abs(root.box-y1 - root.box-y0);
                     background: Theme.accent-soft;
                     border-width: 1px;
                     border-color: Theme.accent;
                 }
 
                 for point in SpeedRamp.points: SpeedHandle {
-                    px: point.x;
-                    py: point.y;
-                    plot-w: plot.width;
-                    plot-h: plot.height;
+                    pos-x: point.x;
+                    pos-y: point.y;
+                    plot-width: chart.width;
+                    plot-height: chart.height;
                     end: point.end;
-                    chosen: SpeedRamp.chosen[point.index];
+                    chosen: SpeedRamp.selected[point.index];
                     enabled: root.enabled;
-                    pressed-with(add) => {
-                        keys.focus();
-                        SpeedRamp.choose(point.index, add);
-                        SpeedRamp.grab();
+                    press-with(add) => {
+                        focus-scope.focus();
+                        SpeedRamp.select(point.index, add);
+                        SpeedRamp.begin-drag();
                     }
-                    dragged(dx, dy) => {
-                        SpeedRamp.drag-chosen(dx, dy);
+                    dragged-by(dx, dy) => {
+                        SpeedRamp.drag-selected(dx, dy);
                         root.changed();
                     }
-                    released(off) => {
+                    let-go(off) => {
                         if (off) {
-                            SpeedRamp.remove-chosen();
+                            SpeedRamp.remove-selected();
                             root.changed();
                         }
                     }
-                    removed => {
+                    double-removed => {
                         root.remove(point.index);
                     }
                 }
@@ -398,7 +398,7 @@ export component SpeedGraph inherits VerticalLayout {
         height: 14px;
         for label[i] in ["0%", "25%", "50%", "75%", "100%"]: Text {
             // The ends' labels inside the graph's edges, the rest centred.
-            x: root.gutter + 6px + root.inset + i * 5 * root.cell
+            x: root.label-width + 6px + root.pad + i * 5 * root.square
                 - (i == 0 ? 0px : i == 4 ? self.width : self.width / 2);
             text: label;
             color: Theme.fg-dim;
