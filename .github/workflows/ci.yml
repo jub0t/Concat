@@ -378,8 +378,17 @@ jobs:
       # here on its own. Each step has its own timeout, so a red run says
       # whether the compile was slow, a test failed, or a test hung, and a
       # test that hangs is killed by nextest after its slow-timeout and
-      # reported by name (src/.config/nextest.toml). Two compile jobs: the
-      # runner has the memory for two, and one took most of an hour.
+      # reported by name (src/.config/nextest.toml). Two compile jobs for
+      # the workspace, then the window's own tests with one: each rustc
+      # that builds the window's generated UI (86 MB of Rust) takes most of
+      # this runner's 16 GB, and the library and the library's tests built
+      # side by side ran it out of memory ("rustc-LLVM ERROR: out of
+      # memory", run 42918745880). So everything but the libraries' unit
+      # tests is built first (the window's library among it, once), then
+      # the unit tests, when the window's are the only build of the UI
+      # left. Both select the whole workspace: -p concat or --exclude
+      # concat would resolve other features, and the run below would
+      # build both again, side by side.
       - name: Build the tests (Windows)
         id: build-tests
         if: runner.os == 'Windows'
@@ -388,7 +397,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo nextest run --workspace --no-run --build-jobs 2 2>&1 | tee build-tests.log
+          cargo nextest run --workspace --no-run --build-jobs 2 --bins --test '*' --examples 2>&1 | tee build-tests.log
+          cargo nextest run --workspace --no-run --build-jobs 2 --lib 2>&1 | tee -a build-tests.log
       - name: Run the tests (Windows)
         if: runner.os == 'Windows'
         timeout-minutes: 30
