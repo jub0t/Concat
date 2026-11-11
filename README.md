@@ -35,8 +35,8 @@
       <sub>Pay-as-you-go proxies for developers<br />Use code <code>JUB0T</code> for 20% off</sub>
     </td>
       <td align="center">
-      <a href="https://www.patreon.com/cw/jub0t"><b>Support Concat</b></a><br />
-      <sub>Concat needs your donations to continue development,<br/>we have come too far to back down now 😢</sub>
+      <a href="mailto:jub0trd@gmail.com"><b>Contact to advertise</b></a><br />
+      <sub>Put your product in front of the people who edit with Concat.<br /><a href="mailto:jub0trd@gmail.com">jub0trd@gmail.com</a></sub>
     </td>
   </tr>
 </table>
