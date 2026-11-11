@@ -38,6 +38,8 @@
 //! stores them, so a title looks the same at 720p and 4K. Everything here
 //! converts to pixels once, at the top.
 
+#[cfg(test)]
+mod emoji_tests;
 mod shape;
 pub use shape::{
     Align as StrokeAlign, Dash, Figure, Gradient, Head, Shadow, ShapeStyle, render_shape,
