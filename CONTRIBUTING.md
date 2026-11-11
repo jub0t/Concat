@@ -95,9 +95,6 @@ Two things are needed before a pull request can be merged:
 2. On your first pull request, a comment from you confirming you have read the
    terms and agree to them. The pull request asks for it.
 
-Pull requests are paused for now while this is put in place; issues are
-welcome as ever.
-
 ### File headers
 
 Every source file starts with:
