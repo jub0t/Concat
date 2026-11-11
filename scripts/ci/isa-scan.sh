@@ -143,7 +143,7 @@ done
 status=0
 row() { printf '%-36s %10s %10s %10s %10s %10s  %s\n' "$@"; }
 row file avx2 fma bmi mulx/rorx avx512 verdict
-for f in "${files[@]}"; do
+for f in ${files[@]+"${files[@]}"}; do
   is_x86_64 "$f" || continue
   base=$(basename "$f")
   read -r -a limits <<< "$(allowance "$base")"

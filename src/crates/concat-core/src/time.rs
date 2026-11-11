@@ -158,7 +158,9 @@ impl Rational {
 
     /// The smallest integer greater than or equal to this value.
     pub const fn ceil(self) -> i64 {
-        -((-self.num).div_euclid(self.den))
+        // i128 headroom for -i64::MIN; the ceiling of an i64 fraction fits
+        // i64 again.
+        -((-(self.num as i128)).div_euclid(self.den as i128)) as i64
     }
 
     /// Clamps to the inclusive range `[low, high]`.
@@ -254,7 +256,8 @@ impl Neg for Rational {
     type Output = Self;
     fn neg(self) -> Self {
         Self {
-            num: -self.num,
+            // -i64::MIN is not an i64: the named panic, never a silent wrap.
+            num: self.num.checked_neg().expect("rational overflowed i64"),
             den: self.den,
         }
     }
@@ -585,6 +588,19 @@ mod tests {
         assert_eq!(Rational::new(-3, 2).ceil(), -1);
         assert_eq!(Rational::new(3, 2).floor(), 1);
         assert_eq!(Rational::new(3, 2).ceil(), 2);
+    }
+
+    #[test]
+    fn ceil_of_the_bottom_of_i64_does_not_overflow() {
+        assert_eq!(Rational::from_int(i64::MIN).ceil(), i64::MIN);
+        assert_eq!(Rational::new(i64::MIN, 3).ceil(), -3_074_457_345_618_258_602);
+        assert_eq!(Rational::from_int(i64::MAX).ceil(), i64::MAX);
+    }
+
+    #[test]
+    #[should_panic(expected = "rational overflowed i64")]
+    fn negating_the_bottom_of_i64_is_the_named_panic() {
+        let _ = -Rational::from_int(i64::MIN);
     }
 
     #[test]
