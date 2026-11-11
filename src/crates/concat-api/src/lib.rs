@@ -32,6 +32,8 @@
 mod contract;
 mod job;
 pub mod message;
+#[cfg(test)]
+mod project_close_tests;
 pub mod rpc;
 
 use std::collections::BTreeMap;

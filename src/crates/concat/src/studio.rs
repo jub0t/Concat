@@ -60,6 +60,8 @@ mod inspector;
 mod keyboard;
 mod keyframes;
 mod menus;
+#[cfg(test)]
+mod merge_words_tests;
 mod monitor;
 mod placing;
 mod project_files;

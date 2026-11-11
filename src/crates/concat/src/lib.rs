@@ -63,6 +63,8 @@ pub use platform::{
 pub use platform::{LinkOpener, install_link_opener};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
+#[cfg(test)]
+mod close_gate_tests;
 mod panes;
 mod prefs;
 mod presets;

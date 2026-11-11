@@ -23,6 +23,8 @@
 
 pub mod capcut;
 pub mod commands;
+#[cfg(test)]
+mod consolidate_tests;
 pub mod doc;
 pub mod editor;
 pub mod model;
