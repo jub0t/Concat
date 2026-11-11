@@ -3029,7 +3029,9 @@ pub fn draw_in_software() {
 /// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
 /// that way itself when it opts into sudden termination.
 fn leave(code: i32) -> ! {
-    log::logger().flush();
+    // The log's last line: a run that got here ended in order, whatever
+    // its code, and the next run reads the lack of this line as a crash.
+    concat_host::logs::end();
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::io::Write;
