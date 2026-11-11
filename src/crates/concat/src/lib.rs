@@ -1374,19 +1374,27 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             state.frame_selected(fill);
         }));
     }
-    // The Speed tab's curve. Its own global, like the keyframe cluster's,
-    // since the Speed panel sits in three places; each verb edits the echo
-    // and the panel commits.
+    // The Speed tab's curve: each verb edits the clip as it is previewed,
+    // and the panel's commit lands it.
     {
         let ramp = app.global::<SpeedRamp>();
         ramp.on_curve(on_lanes!(|state, on: bool| {
-            state.speed_curve_set(on);
+            state.speed_curve_mode(on);
+        }));
+        ramp.on_preset_chosen(on_lanes!(|state, index: i32| {
+            state.speed_preset(index);
         }));
         ramp.on_point(on_lanes!(|state, index: i32, x: f32, y: f32| {
-            state.speed_curve_point(index, x, y);
+            state.speed_point(index, x, y);
         }));
         ramp.on_remove(on_lanes!(|state, index: i32| {
-            state.speed_curve_remove(index);
+            state.speed_remove(index);
+        }));
+        ramp.on_smoothness(on_lanes!(|state, smooth: bool| {
+            state.speed_smooth(smooth);
+        }));
+        ramp.on_extreme(on_lanes!(|state, faster: bool, target: f32| {
+            state.speed_extreme(faster, target);
         }));
         ramp.on_choose(on_lanes!(|state, index: i32, add: bool| {
             state.speed_choose(index, add);
@@ -1410,15 +1418,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }));
         ramp.on_remove_chosen(on_lanes!(|state| {
             state.speed_remove_chosen();
-        }));
-        ramp.on_preset_chosen(on_lanes!(|state, index: i32| {
-            state.speed_curve_preset(index);
-        }));
-        ramp.on_smoothness(on_lanes!(|state, smooth: bool| {
-            state.speed_curve_smooth(smooth);
-        }));
-        ramp.on_extreme(on_lanes!(|state, faster: bool, speed: f32| {
-            state.speed_curve_extreme(faster, speed);
         }));
     }
     // The Keyframes panel's verbs; its rows go out with every publish.

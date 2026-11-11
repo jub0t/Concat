@@ -327,7 +327,7 @@ pub(crate) fn build_timeline(
         if clip.kind != ClipKind::Image {
             engine_clip.speed =
                 Rational::approximate(audio::clamp_speed(clip.speed)).unwrap_or(Rational::ONE);
-            engine_clip.retime = clip.retime();
+            engine_clip.retime = clip.engine_curve();
         }
         engine_clip.animation = animation_of(&clip.animation);
         engine_clip.motion = clip.motion.as_ref().and_then(|motion| motion.engine());

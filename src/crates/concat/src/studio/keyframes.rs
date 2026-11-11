@@ -21,38 +21,43 @@ impl Studio {
         })
     }
 
-    /// The selected clip and where the playhead is inside it, `0..=1`, or
-    /// None when there is no sole selection or the playhead is outside it.
-    ///
-    /// Outside is not clamped to an end: a key put on from outside the clip
-    /// would land on its first or last frame, which is never what the person
-    /// pressing the diamond meant.
-    /// The Speed tab's curve for the selected clip: its points on the
-    /// graph's scale, the line through them, whether it bends, which preset
-    /// it still is, where the playhead crosses it, and its two extremes.
+    /// The Speed tab's word on the selected clip: Constant or Curve, the
+    /// curve's points, its line and which points are chosen, Smooth or
+    /// Straight, the preset it still is, its fastest and slowest, and where
+    /// the playhead crosses it. Points are synced row by row, so a point
+    /// under the pointer is not dropped when the graph is published again.
     pub(super) fn publish_speed_ramp(&self, app: &App, models: &Models) {
         let ramp = app.global::<SpeedRamp>();
-        if models.speed_presets.row_count() == 0 {
-            sync(
-                &models.speed_presets,
-                speed_ramp::preset_names()
-                    .into_iter()
-                    .map(SharedString::from)
-                    .collect(),
-            );
-        }
-        let clip = self.sole_selection().and_then(|id| self.clip(&id));
-        let curve = clip.and_then(|clip| clip.speed_curve.as_deref());
-        let points = curve.unwrap_or_default();
+        let clip = self.speed_clip().and_then(|id| self.clip(&id));
+        let points = clip
+            .and_then(|clip| clip.speed_curve.as_deref())
+            .unwrap_or(&[]);
+        ramp.set_enabled(clip.is_some());
+        ramp.set_curved(!points.is_empty());
+        // No curve shows as smooth: a curve begins smooth.
+        ramp.set_smooth(points.is_empty() || concat_project::speed::is_smooth(points));
+        ramp.set_preset(speed_ramp::preset_position(points));
+        let extreme = |faster| speed_ramp::extreme_speed(points, faster).unwrap_or(0.0) as f32;
+        ramp.set_fastest(extreme(true));
+        ramp.set_slowest(extreme(false));
+        ramp.set_path(speed_ramp::drawn_path(points).into());
+        let across = clip.and_then(|clip| {
+            let local = f64::from(self.playhead) - clip.start;
+            (clip.duration > 0.0 && (0.0..=clip.duration).contains(&local))
+                .then(|| (local / clip.duration) as f32)
+        });
+        ramp.set_playhead(across.unwrap_or(-1.0));
+        let last = points.len().saturating_sub(1);
         sync(
             &models.speed_points,
             points
                 .iter()
                 .enumerate()
-                .map(|(index, point)| CurvePointData {
+                .map(|(index, point)| SpeedPointData {
                     index: index as i32,
                     x: point.at as f32,
                     y: speed_ramp::height_of(point.speed) as f32,
+                    end: index == 0 || index == last,
                 })
                 .collect(),
         );
@@ -63,15 +68,21 @@ impl Studio {
                 .map(|index| chosen.contains(&index))
                 .collect(),
         );
-        ramp.set_curved(curve.is_some());
-        ramp.set_smooth(curve.is_none_or(concat_project::speed::is_smooth));
-        ramp.set_path(speed_ramp::path(points).into());
-        ramp.set_preset(curve.map_or(-1, speed_ramp::preset_index));
-        ramp.set_at(self.key_point().map_or(-1.0, |(_, at)| at as f32));
-        ramp.set_fastest(speed_ramp::extreme(points, true).map_or(-1.0, |speed| speed as f32));
-        ramp.set_slowest(speed_ramp::extreme(points, false).map_or(-1.0, |speed| speed as f32));
+        sync(
+            &models.speed_presets,
+            speed_ramp::preset_labels()
+                .into_iter()
+                .map(SharedString::from)
+                .collect(),
+        );
     }
 
+    /// The selected clip and where the playhead is inside it, `0..=1`, or
+    /// None when there is no sole selection or the playhead is outside it.
+    ///
+    /// Outside is not clamped to an end: a key put on from outside the clip
+    /// would land on its first or last frame, which is never what the person
+    /// pressing the diamond meant.
     pub fn key_point(&self) -> Option<(&Clip, f64)> {
         let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
         if clip.duration <= 0.0 {

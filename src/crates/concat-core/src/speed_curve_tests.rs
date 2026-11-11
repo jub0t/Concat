@@ -30,7 +30,7 @@ fn sample(curve: &SpeedCurve, speeds: [f64; 9], consumed: [f64; 9], slopes: [f64
             consumed[index],
             &format!("consumed at {x}"),
         );
-        close(curve.slope_at(x), slopes[index], &format!("slope at {x}"));
+        close(curve.tangent_at(x), slopes[index], &format!("slope at {x}"));
     }
 }
 
@@ -42,7 +42,7 @@ fn rise_and_fall() -> [(f64, f64); 3] {
 #[test]
 fn straight_lines_interpolate_linearly_and_integrate_as_trapezoids() {
     let curve = SpeedCurve::new(&rise_and_fall()).unwrap();
-    assert!(curve.slopes().is_none(), "no slopes, straight lines");
+    assert!(curve.tangents().is_none(), "no slopes, straight lines");
     sample(
         &curve,
         [0.5, 1.375, 2.25, 2.6875, 4.0, 3.5, 2.5, 1.5, 1.0],
@@ -57,8 +57,8 @@ fn straight_lines_interpolate_linearly_and_integrate_as_trapezoids() {
 
 #[test]
 fn zero_slopes_ease_in_and_out_of_every_point_with_the_same_area() {
-    let curve = SpeedCurve::with_slopes(&rise_and_fall(), Some(&[0.0, 0.0, 0.0])).unwrap();
-    assert_eq!(curve.slopes(), Some(&[0.0, 0.0, 0.0][..]));
+    let curve = SpeedCurve::with_tangents(&rise_and_fall(), Some(&[0.0, 0.0, 0.0])).unwrap();
+    assert_eq!(curve.tangents(), Some(&[0.0, 0.0, 0.0][..]));
     sample(
         &curve,
         [
@@ -105,12 +105,12 @@ fn given_slopes_bend_the_stretch_and_a_peak_is_flattened() {
     // The middle point is a peak: its slope is held to zero, as the
     // second stretch falls. The outer slopes are within the monotone
     // limit and kept.
-    let curve = SpeedCurve::with_slopes(
+    let curve = SpeedCurve::with_tangents(
         &[(0.0, 1.0), (0.5, 3.0), (1.0, 2.0)],
         Some(&[10.0, 2.0, -1.0]),
     )
     .unwrap();
-    let slopes = curve.slopes().unwrap();
+    let slopes = curve.tangents().unwrap();
     close(slopes[0], 10.0, "first slope");
     close(slopes[1], 0.0, "peak slope");
     close(slopes[2], -1.0, "last slope");
@@ -137,12 +137,12 @@ fn given_slopes_bend_the_stretch_and_a_peak_is_flattened() {
 fn slopes_too_steep_for_the_rise_are_scaled_to_the_monotone_limit() {
     // 40 against a rise of 6 per unit is far past three times the rise:
     // the pair is scaled until its length is three rises.
-    let curve = SpeedCurve::with_slopes(
+    let curve = SpeedCurve::with_tangents(
         &[(0.0, 1.0), (0.5, 4.0), (1.0, 1.0)],
         Some(&[40.0, 40.0, -40.0]),
     )
     .unwrap();
-    let slopes = curve.slopes().unwrap();
+    let slopes = curve.tangents().unwrap();
     close(slopes[0], 9.0 * 2f64.sqrt(), "first slope, 3/sqrt(2) rises");
     close(slopes[1], 0.0, "the peak");
     close(slopes[2], -18.0, "last slope, three rises");
@@ -186,7 +186,7 @@ fn slopes_too_steep_for_the_rise_are_scaled_to_the_monotone_limit() {
 
 #[test]
 fn the_curve_never_leaves_the_speeds_it_joins() {
-    let curve = SpeedCurve::with_slopes(
+    let curve = SpeedCurve::with_tangents(
         &[(0.0, 0.5), (0.3, 8.0), (0.6, 0.25), (1.0, 2.0)],
         Some(&[50.0, -50.0, 50.0, -50.0]),
     )
@@ -205,7 +205,7 @@ fn the_curve_never_leaves_the_speeds_it_joins() {
 fn the_area_matches_a_fine_numeric_sum_for_both_joins() {
     let points = [(0.0, 0.3), (0.2, 5.0), (0.45, 1.0), (0.8, 3.0), (1.0, 0.7)];
     let straight = SpeedCurve::new(&points).unwrap();
-    let smooth = SpeedCurve::with_slopes(&points, Some(&[0.0, 4.0, -1.0, 2.0, 0.0])).unwrap();
+    let smooth = SpeedCurve::with_tangents(&points, Some(&[0.0, 4.0, -1.0, 2.0, 0.0])).unwrap();
     for curve in [straight, smooth] {
         for end in [0.13, 0.45, 0.77, 1.0] {
             let steps = 40_000;
@@ -220,12 +220,12 @@ fn the_area_matches_a_fine_numeric_sum_for_both_joins() {
 
 #[test]
 fn points_off_the_ends_are_anchored_by_holding_the_end_speeds() {
-    let curve = SpeedCurve::with_slopes(&[(0.25, 2.0), (0.75, 0.5)], Some(&[0.0, 0.0])).unwrap();
+    let curve = SpeedCurve::with_tangents(&[(0.25, 2.0), (0.75, 0.5)], Some(&[0.0, 0.0])).unwrap();
     assert_eq!(
         curve.points(),
         &[(0.0, 2.0), (0.25, 2.0), (0.75, 0.5), (1.0, 0.5)]
     );
-    assert_eq!(curve.slopes(), Some(&[0.0, 0.0, 0.0, 0.0][..]));
+    assert_eq!(curve.tangents(), Some(&[0.0, 0.0, 0.0, 0.0][..]));
     sample(
         &curve,
         [2.0, 2.0, 2.0, 2.0, 1.676, 1.25, 0.542, 0.5, 0.5],
@@ -264,20 +264,20 @@ fn tidying_sorts_clamps_and_drops_what_is_not_a_number() {
 fn slopes_count_only_when_every_point_has_one() {
     let points = [(0.0, 1.0), (0.5, 2.0), (1.0, 1.0)];
     assert!(
-        SpeedCurve::with_slopes(&points, Some(&[0.0, 0.0]))
+        SpeedCurve::with_tangents(&points, Some(&[0.0, 0.0]))
             .unwrap()
-            .slopes()
+            .tangents()
             .is_none()
     );
     assert!(
-        SpeedCurve::with_slopes(&points, None)
+        SpeedCurve::with_tangents(&points, None)
             .unwrap()
-            .slopes()
+            .tangents()
             .is_none()
     );
     // A slope that is not a number is a flat one.
-    let curve = SpeedCurve::with_slopes(&points, Some(&[f64::NAN, 0.0, 0.0])).unwrap();
-    close(curve.slopes().unwrap()[0], 0.0, "flat slope");
+    let curve = SpeedCurve::with_tangents(&points, Some(&[f64::NAN, 0.0, 0.0])).unwrap();
+    close(curve.tangents().unwrap()[0], 0.0, "flat slope");
     close(curve.speed_at(0.25), 1.5, "the smoothstep's midpoint");
 }
 
@@ -291,7 +291,7 @@ fn a_step_holds_the_earlier_speed_on_itself_and_has_no_slope() {
     close(curve.consumed(0.75), 0.75, "consumed past it");
     close(curve.mean(), 1.25, "mean");
     for x in [0.25, 0.5, 0.75] {
-        close(curve.slope_at(x), 0.0, "flat either side");
+        close(curve.tangent_at(x), 0.0, "flat either side");
     }
 }
 
@@ -300,8 +300,8 @@ fn outside_the_clip_the_end_speeds_hold_and_the_slope_is_zero() {
     let curve = SpeedCurve::new(&rise_and_fall()).unwrap();
     close(curve.speed_at(-1.0), 0.5, "before");
     close(curve.speed_at(2.0), 1.0, "after");
-    close(curve.slope_at(-0.1), 0.0, "slope before");
-    close(curve.slope_at(1.1), 0.0, "slope after");
+    close(curve.tangent_at(-0.1), 0.0, "slope before");
+    close(curve.tangent_at(1.1), 0.0, "slope after");
     close(curve.consumed(-1.0), 0.0, "nothing consumed before");
     close(curve.consumed(3.0), 2.4, "everything by the end");
 }

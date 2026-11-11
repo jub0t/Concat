@@ -197,7 +197,7 @@ fn curves_with_eased_points_carry_their_slopes_and_straight_ones_none() {
             "mean",
         );
         assert_eq!(
-            clip.retime().unwrap().slopes().is_some(),
+            clip.engine_curve().unwrap().tangents().is_some(),
             !slopes.is_empty()
         );
     }

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::commands::{NewMedia, TrimEdge};
 use crate::doc::DocumentSettings;
 use crate::model::{Clip, MediaKind, SpeedPoint};
-use crate::speed::{PRESETS, curve_of, is_smooth, mean_of, preset, preset_of};
+use crate::speed::{PRESETS, curve_of, is_smooth, matching_preset, mean_of, preset_curve};
 use crate::{Command, CommandError, Editor};
 
 const TIGHT: f64 = 1e-9;
@@ -722,35 +722,35 @@ fn the_presets_are_these_shapes_in_this_order() {
         assert_eq!(shipped.id, id);
         assert_eq!(shipped.points, points, "{id}");
         // Chosen, a preset is eased through every point.
-        let chosen = preset(id).unwrap();
+        let chosen = preset_curve(id).unwrap();
         assert_eq!(chosen, eased(points), "{id}");
         close(mean_of(&chosen), mean, id);
         close(mean_of(&straight(points)), mean, id);
     }
-    assert!(preset("slow-mo").is_none());
+    assert!(preset_curve("slow-mo").is_none());
 }
 
 #[test]
 fn a_preset_is_known_by_its_points_whether_smooth_or_straight() {
-    let hero = preset("hero").unwrap();
-    assert_eq!(preset_of(&hero), Some("hero"));
+    let hero = preset_curve("hero").unwrap();
+    assert_eq!(matching_preset(&hero), Some("hero"));
     let mut lines = hero.clone();
     for point in &mut lines {
         point.slope = None;
     }
-    assert_eq!(preset_of(&lines), Some("hero"));
+    assert_eq!(matching_preset(&lines), Some("hero"));
     let mut moved = hero.clone();
     moved[3].at += 0.01;
-    assert_eq!(preset_of(&moved), None);
+    assert_eq!(matching_preset(&moved), None);
     let mut fewer = hero;
     fewer.remove(2);
-    assert_eq!(preset_of(&fewer), None);
+    assert_eq!(matching_preset(&fewer), None);
 }
 
 #[test]
 fn a_preset_on_a_ten_second_clip_sets_its_length() {
     let (mut editor, _, id) = one_clip();
-    set_curve(&mut editor, &id, preset("bullet"), false);
+    set_curve(&mut editor, &id, preset_curve("bullet"), false);
     close(
         clip(&editor, &id).duration,
         10.0 / 2.216,
@@ -767,7 +767,7 @@ fn smooth_means_every_point_has_a_slope() {
     mixed[1].slope = None;
     assert!(!is_smooth(&mixed));
     // A mix plays as straight lines.
-    assert!(curve_of(&mixed).unwrap().slopes().is_none());
+    assert!(curve_of(&mixed).unwrap().tangents().is_none());
     assert!(curve_of(&[]).is_none());
     close(mean_of(&[]), 1.0, "no curve is normal speed");
 }

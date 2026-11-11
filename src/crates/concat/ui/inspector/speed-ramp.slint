@@ -3,50 +3,64 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
-import { CurvePointData } from "grading.slint";
 
-// The Speed tab's curve: speed as it changes over the clip, drawn as a line
-// through a handful of points and shaped by dragging them. The clip runs
-// across, speed up on a scale of doublings - half and double sit the same
-// distance either side of 1x - over the engine's whole range, 1/16x to 16x.
-// The graph draws what Rust publishes and hands every change straight back,
-// so the line moves with the pointer, as the colour curves do.
+/// One point of a clip's speed curve, as the graph draws it.
+export struct SpeedPointData {
+    /// Where it stands among the clip's points, which Rust is handed back.
+    index: int,
+    /// Across the clip: 0 at its start, 1 at its end.
+    x: float,
+    /// Up the graph, on its scale of doublings: 0 is 1/16x, 0.5 is 1x and
+    /// 1 is 16x.
+    y: float,
+    /// The first or the last point: it moves in speed alone, and stays.
+    end: bool,
+}
 
-/// The selected clip's curve and the verbs that shape it. Its own global,
-/// as the keyframe cluster's is, so the Speed panel reads it wherever the
-/// panel is placed - under Video, under a sound clip's Audio, on a phone's
-/// sheet - without a property threaded to each.
+/// The Speed tab's word on the selected clip's speed, and the verbs that
+/// change it. Rust publishes the truth after every edit, every change of
+/// selection and every undo; each verb edits the clip as it is previewed,
+/// and the panel's commit lands it as one edit.
 export global SpeedRamp {
-    /// The clip plays on a curve rather than at one rate.
+    /// The clip's speed changes over it.
     in property <bool> curved;
-    /// The curve's points: `x` across the clip, `y` the speed on the
-    /// graph's scale (0 is 1/16x, 0.5 is 1x, 1 is 16x).
-    in property <[CurvePointData]> points;
-    /// The curve as a path in a unit box, y downwards.
-    in property <string> path;
-    /// The presets' names, in the order Rust lists them.
-    in property <[string]> presets;
-    /// The preset the points still are, as an index into `presets`; -1
-    /// once they have been shaped by hand.
-    in property <int> preset: -1;
-    /// The curve bends smoothly through its points rather than meeting
-    /// them in straight lines.
+    /// The curve bends smoothly through its points, rather than running in
+    /// straight lines between them.
     in property <bool> smooth: true;
-    /// The playhead in the clip, `0..1`, or -1 when it is outside it.
-    in property <float> at: -1;
-    /// The curve's fastest speed where it goes faster than 1x, and its
-    /// slowest where it goes slower; -1 where it does not.
-    in property <float> fastest: -1;
-    in property <float> slowest: -1;
+    /// The preset the curve still is, by its place in `presets`; -1 for a
+    /// curve shaped by hand.
+    in property <int> preset: -1;
+    /// The presets' names, in their order.
+    in property <[string]> presets;
+    /// The fastest the curve goes above 1x; 0 when it never does.
+    in property <float> fastest;
+    /// The slowest it goes below 1x; 0 when it never does.
+    in property <float> slowest;
+    /// The curve's points, in order across the clip.
+    in property <[SpeedPointData]> points;
+    /// The curve's line as path commands on a unit square, down the way
+    /// the screen's y runs.
+    in property <string> path;
+    /// Where the playhead crosses the clip, 0..1; -1 when it is elsewhere.
+    in property <float> playhead: -1;
+    /// The controls act: exactly one video or sound clip is selected.
+    in property <bool> enabled;
 
-    /// Constant rate (false) or a curve (true). A curve starts flat at the
-    /// clip's rate; a constant rate keeps the curve's mean, so the clip's
-    /// length does not jump either way.
+    /// Curve (true): a level curve at the clip's rate, so nothing moves
+    /// until a point does. Constant: the rate the curve averaged.
     callback curve(on: bool);
-    /// A point moved, or put down when `index` is -1, on the graph's scale.
+    /// A preset picked by its place in `presets`: its points replace the
+    /// curve's.
+    callback preset-chosen(index: int);
+    /// A point moved to `x` across and `y` up the graph, or put down there
+    /// when `index` is -1.
     callback point(index: int, x: float, y: float);
-    /// A point taken off. The two ends stay.
+    /// A point taken off; the ends stay.
     callback remove(index: int);
+    /// Every point smooth (true) or straight.
+    callback smoothness(smooth: bool);
+    /// The Fastest slider (`faster`) or the Slowest, moved to `target`.
+    callback extreme(faster: bool, target: float);
 
     /// Which points are chosen, one flag a point, in `points`' order.
     in property <[bool]> chosen;
@@ -64,13 +78,6 @@ export global SpeedRamp {
     callback drag-chosen(dx: float, dy: float);
     /// The chosen points taken off; the ends stay.
     callback remove-chosen();
-    /// The curve replaced by a preset's points.
-    callback preset-chosen(index: int);
-    /// Smooth bends (true) or straight lines (false) between the points.
-    callback smoothness(smooth: bool);
-    /// The fast stretches (or the slow ones) brought to `speed` at their
-    /// extreme, the rest of them following in proportion.
-    callback extreme(faster: bool, speed: float);
 }
 
 /// One point of the curve: a ring that drags in time and speed, filled
@@ -83,13 +90,14 @@ component SpeedHandle inherits TouchArea {
     in property <float> py;
     in property <length> plot-w;
     in property <length> plot-h;
-    /// An end of the curve: fixed in time, and not removable.
+    /// The first or the last point of the curve.
     in property <bool> end;
     in property <bool> chosen;
 
     callback pressed-with(add: bool);
     callback dragged(dx: float, dy: float);
     callback released(off: bool);
+    /// Double-clicked: a point between the ends comes off.
     callback removed();
 
     /// Where the point was when it was pressed: each move is the pointer's
@@ -98,13 +106,15 @@ component SpeedHandle inherits TouchArea {
     property <float> from-y;
     property <bool> adding;
     property <bool> dragging;
+    /// Dragged well outside the graph: let go there, it comes off.
     property <bool> off;
 
     x: root.px * root.plot-w - 8px;
     y: (1 - root.py) * root.plot-h - 8px;
     width: 16px;
     height: 16px;
-    mouse-cursor: root.end ? MouseCursor.ns-resize : MouseCursor.move;
+    // The ends are held at the clip's ends: they move up and down only.
+    mouse-cursor: root.end ? ns-resize : move;
 
     Rectangle {
         x: 3px;
@@ -173,10 +183,13 @@ component SpeedHandle inherits TouchArea {
 /// to choose the points in the box, Shift-click to choose more; a drag of
 /// one moves them all, Delete takes them off, Escape lets them go.
 export component SpeedGraph inherits VerticalLayout {
-    in property <bool> enabled: true;
+    /// The graph takes presses and keys; dimmed when it does not.
+    in property <bool> enabled: SpeedRamp.enabled;
 
-    /// A point moved, or put down when `index` is -1.
+    /// A point moved, or put down when `index` is -1: `x` across the clip
+    /// and `y` up the graph.
     callback point(index: int, x: float, y: float);
+    /// A point taken off.
     callback remove(index: int);
     /// The chosen points moved or taken off: one commit, as a point's is.
     callback changed();
@@ -199,7 +212,7 @@ export component SpeedGraph inherits VerticalLayout {
     property <length> band-y1;
 
     spacing: 4px;
-    opacity: root.enabled ? 1.0 : 0.45;
+    opacity: root.enabled ? 1 : 0.45;
 
     HorizontalLayout {
         spacing: 6px;
@@ -316,13 +329,15 @@ export component SpeedGraph inherits VerticalLayout {
                     }
                 }
 
-                if SpeedRamp.at >= 0: Rectangle {
-                    x: SpeedRamp.at * parent.width;
+                // Where the playhead crosses the clip.
+                if SpeedRamp.playhead >= 0: Rectangle {
+                    x: SpeedRamp.playhead * parent.width - 0.5px;
                     width: 1px;
                     height: parent.height;
                     background: Theme.playhead;
                 }
 
+                // The curve as it plays, bends and all.
                 Path {
                     x: 0;
                     y: 0;
@@ -332,7 +347,7 @@ export component SpeedGraph inherits VerticalLayout {
                     viewbox-height: 1;
                     fit: fill;
                     commands: SpeedRamp.path;
-                    fill: Colors.transparent;
+                    fill: transparent;
                     stroke: Theme.accent;
                     stroke-width: 2px;
                 }
@@ -352,7 +367,7 @@ export component SpeedGraph inherits VerticalLayout {
                     py: point.y;
                     plot-w: plot.width;
                     plot-h: plot.height;
-                    end: point.index == 0 || point.index == SpeedRamp.points.length - 1;
+                    end: point.end;
                     chosen: SpeedRamp.chosen[point.index];
                     enabled: root.enabled;
                     pressed-with(add) => {
@@ -370,7 +385,9 @@ export component SpeedGraph inherits VerticalLayout {
                             root.changed();
                         }
                     }
-                    removed => { root.remove(point.index); }
+                    removed => {
+                        root.remove(point.index);
+                    }
                 }
             }
         }

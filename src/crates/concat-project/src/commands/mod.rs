@@ -463,12 +463,15 @@ pub enum Command {
         /// The clip to retime.
         clip_id: String,
         /// The curve, or None for a constant rate at the current mean.
+        /// Its points are put in order of `at`, held to `0..=1` and to the
+        /// speed range, and reach both ends of the clip, as they will be
+        /// played and saved. A curve with no usable point is None.
+        #[serde(default)]
         curve: Option<Vec<SpeedPoint>>,
-        /// When true - the magnetic timeline - the clips after it on its
-        /// lane move by however far its end moved, either way, so a clip
-        /// sped up closes up behind it as a magnetic trim does. False
-        /// leaves the gap; later clips then only move out of the way of a
-        /// clip that grew over them.
+        /// The magnetic timeline: the clips behind on the lane follow the
+        /// clip's end whether it grows or shrinks, closing up the gap a
+        /// shrink would leave. False moves them only to make room when the
+        /// clip grows over the next.
         #[serde(default)]
         ripple: bool,
     },
@@ -816,12 +819,12 @@ pub enum Command {
         /// The clip to retime. An unknown id is a no-op.
         clip_id: String,
         /// The new rate, clamped into 0.0625..=16 (the engine's range).
+        /// A speed curve the clip had ends: the footage it covered is kept.
         speed: f64,
-        /// When true - the magnetic timeline - the clips after it on its
-        /// lane move by however far its end moved, either way, so a clip
-        /// sped up closes up behind it as a magnetic trim does. False
-        /// leaves the gap; later clips then only move out of the way of a
-        /// clip that grew over them.
+        /// The magnetic timeline: the clips behind on the lane follow the
+        /// clip's end whether it grows or shrinks, closing up the gap a
+        /// shrink would leave. False moves them only to make room when the
+        /// clip grows over the next.
         #[serde(default)]
         ripple: bool,
     },

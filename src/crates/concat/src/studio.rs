@@ -778,11 +778,12 @@ pub struct Models {
     pub link_wheels: RefCell<HashMap<i32, Rc<VecModel<WheelData>>>>,
     pub link_curves: RefCell<HashMap<i32, Rc<VecModel<CurveData>>>>,
     pub curve_points: RefCell<HashMap<(i32, String), Rc<VecModel<CurvePointData>>>>,
-    /// The Speed tab's curve: its points and the presets' names, kept like
-    /// the colour curves' so a point being dragged is not dropped.
-    pub speed_points: Rc<VecModel<CurvePointData>>,
+    /// The Speed graph's points, kept like the rest so a point being
+    /// dragged is not dropped when the graph is published under the pointer.
+    pub speed_points: Rc<VecModel<SpeedPointData>>,
     /// Which of them are chosen, one flag a point.
     pub speed_chosen: Rc<VecModel<bool>>,
+    /// The speed presets' names, in the interface's language.
     pub speed_presets: Rc<VecModel<SharedString>>,
     /// The keyframe cluster's rows and the libraries' views: synced like
     /// the rest, since a model handed over fresh is unequal to the last by
@@ -2177,7 +2178,8 @@ fn command_words(command: &Command) -> String {
 /// left it against the document's: a transform, a cutout, a
 /// stabilization, a speed, the
 /// keys, and one patch for everything else that differs. Empty when
-/// nothing does.
+/// nothing does. A speed change on a magnetic timeline moves the lane
+/// behind the clip with its end.
 fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<Command> {
     let mut commands = Vec::new();
     if after.scale != before.scale
@@ -2217,27 +2219,23 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
             voice: after.voice,
         });
     }
-    if after.speed_curve != before.speed_curve {
-        // A curve, changed or new, is one command; a curve taken away is
-        // the constant rate the echo left, which SetClipSpeed sets and
-        // which ends the curve.
-        commands.push(match &after.speed_curve {
-            Some(_) => Command::SetClipSpeedCurve {
+    // A curve still on the clip lands as the curve, which brings the rate
+    // and the length with it. Without one, a rate that moved lands as the
+    // rate - and so does taking a curve away, at the rate it averaged, as
+    // setting a rate is what ends a curve.
+    if after.speed_curve.is_some() {
+        if after.speed_curve != before.speed_curve {
+            commands.push(Command::SetClipSpeedCurve {
                 clip_id: id.to_owned(),
-                ripple: magnetic,
                 curve: after.speed_curve.clone(),
-            },
-            None => Command::SetClipSpeed {
-                clip_id: id.to_owned(),
                 ripple: magnetic,
-                speed: after.speed,
-            },
-        });
-    } else if after.speed != before.speed {
+            });
+        }
+    } else if after.speed != before.speed || before.speed_curve.is_some() {
         commands.push(Command::SetClipSpeed {
             clip_id: id.to_owned(),
-            ripple: magnetic,
             speed: after.speed,
+            ripple: magnetic,
         });
     }
     let mut patch = ClipPatch::default();
@@ -2937,9 +2935,9 @@ fn shape_copy(of: &Clip, laid: &Clip, lane: &str, at: f64) -> Vec<Command> {
         });
     } else if (rate - pace).abs() > COPY_SAME {
         edits.push(Command::SetClipSpeed {
-            ripple: false,
             clip_id: id.clone(),
             speed: rate,
+            ripple: false,
         });
     }
 
