@@ -1,0 +1,90 @@
+name: Contributing terms
+
+# What a pull request needs before it can be merged, besides its checks:
+# its authors have confirmed the contributing terms (CLA.md) once, in a
+# comment, and every commit in it is signed off.
+#
+# A confirmation is kept as a line in a file on the `terms` branch, so it is
+# asked for once per person, not once per pull request.
+#
+# This runs on `pull_request_target`, which has the repository's own token
+# even for a pull request from a fork. Nothing here checks out or runs the
+# pull request's code; both jobs only read what the API says about it.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+
+permissions: {}
+
+jobs:
+  confirmed:
+    name: Terms confirmed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # On a pull request, or on a comment on one that is either the
+    # confirmation itself or a request to look again.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request &&
+       (github.event.comment.body == 'recheck' ||
+        github.event.comment.body == 'I have read the Concat contributing terms and I agree to them.'))
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-document: https://github.com/jub0t/Concat/blob/main/CLA.md
+          path-to-signatures: confirmations/terms-4.json
+          branch: terms
+          allowlist: jub0t,dependabot[bot],github-actions[bot]
+          custom-notsigned-prcomment: >-
+            Thanks for the pull request. Before it can be merged, each person
+            who wrote it needs to confirm Concat's
+            [contributing terms](https://github.com/jub0t/Concat/blob/main/CLA.md)
+            once: your contribution is licensed under the MIT No Attribution
+            licence, and every commit is signed off (`git commit -s`). To
+            confirm, post a comment with exactly this sentence:
+          custom-pr-sign-comment: I have read the Concat contributing terms and I agree to them.
+          custom-allsigned-prcomment: Everyone who wrote this pull request has confirmed the contributing terms. Thank you.
+          signed-commit-message: "chore(terms): $contributorName confirmed the contributing terms in $owner/$repo#$pullRequestNo"
+          create-file-commit-message: "chore(terms): the file confirmations are kept in"
+          lock-pullrequest-aftermerge: true
+          suggest-recheck: true
+
+  signed-off:
+    name: Commits signed off
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The owner's own pull requests and the dependency bot's are not asked.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.user.login != 'jub0t' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    permissions:
+      pull-requests: read
+    steps:
+      # The number comes in through the environment, never pasted into the
+      # script: see release.yml for why.
+      - name: Every commit has a Signed-off-by line
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          missing=$(gh api --paginate "repos/$REPO/pulls/$PR/commits" \
+            --jq '.[] | select((.commit.message | test("(^|\n)Signed-off-by: .+ <.+>")) | not)
+                      | "\(.sha[:8])  \(.commit.message | split("\n")[0])"')
+          if [ -n "$missing" ]; then
+            echo "::error::These commits have no Signed-off-by line. Add one with 'git commit -s --amend' (or 'git rebase --signoff main' for several) and push again."
+            echo "$missing"
+            exit 1
+          fi
+          echo "Every commit is signed off."
