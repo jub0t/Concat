@@ -1,0 +1,1 @@
+Confirmations of Concat's contributing terms (CLA.md on main), one line per person. Written by the Contributing terms workflow.
