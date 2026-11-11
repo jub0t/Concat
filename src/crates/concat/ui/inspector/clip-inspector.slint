@@ -2785,6 +2785,10 @@ export component EnhancePanel inherits VerticalLayout {
                     label: I18n.t("clipInspector.enhanceOutputSize");
                     value: root.selected.enhance-output-size;
                 }
+                if root.selected.enhance-warning != "": Note {
+                    text: root.selected.enhance-warning;
+                    warn: true;
+                }
             }
         }
     }

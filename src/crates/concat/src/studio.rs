@@ -186,7 +186,8 @@ struct EnhanceReadout {
     /// Before, after and the estimate for a whole run - its time, its
     /// frames and each frame's time, the last two empty for a still - when
     /// a preview of these settings is on hand.
-    preview: Option<(slint::Image, slint::Image, (String, String, String))>,
+    /// The last is a warning when that run would take too long, else empty.
+    preview: Option<(slint::Image, slint::Image, (String, String, String), String)>,
 }
 
 impl EnhancePreview {
