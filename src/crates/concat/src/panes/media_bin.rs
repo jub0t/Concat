@@ -22,6 +22,7 @@ use crate::format::wave_path;
 use crate::host::{probe_error, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
+use crate::project_media::{self, Collection};
 use crate::studio::Studio;
 use crate::ui::{MediaFilter, MediaItemData, MediaKind};
 
@@ -51,6 +52,10 @@ pub enum MediaMsg {
     Import(Vec<PathBuf>),
     /// The import's worker is done probing.
     Imported(Vec<Result<MediaSummary, String>>),
+    /// Collect existing external files into the open project.
+    Collect,
+    /// The collect worker finished copying files and preparing path updates.
+    Collected(Collection),
     /// Everything selected goes on the timeline at the playhead.
     AddSelectedAtPlayhead,
     /// The phone's Add: what was picked, in the order it was picked, onto
@@ -167,15 +172,86 @@ impl MediaBin {
                 if paths.is_empty() || studio.session.is_none() {
                     return;
                 }
+                let project_dir = PathBuf::from(
+                    studio
+                        .session
+                        .as_ref()
+                        .expect("session checked above")
+                        .path(),
+                );
                 spawn_in_project(
                     move || {
                         paths
                             .iter()
-                            .map(|path| media::probe(&path.to_string_lossy()))
+                            .map(|path| {
+                                let imported =
+                                    project_media::copy_into_project_media(path, &project_dir)
+                                        .map_err(|error| {
+                                            format!(
+                                                "could not copy media into the project: {error}"
+                                            )
+                                        })?;
+                                let summary = media::probe(&imported.to_string_lossy())?;
+                                #[cfg(target_os = "android")]
+                                if imported != *path {
+                                    // Android's document picker stages files in the app's
+                                    // Imported folder. Once the project copy is usable, drop
+                                    // that staging copy so large videos do not occupy storage twice.
+                                    if let Err(error) = std::fs::remove_file(path) {
+                                        log::warn!(
+                                            "could not remove picked media {}: {error}",
+                                            path.display()
+                                        );
+                                    }
+                                }
+                                Ok(summary)
+                            })
                             .collect::<Vec<_>>()
                     },
                     |studio, _, _, results| studio.handle(Msg::Media(MediaMsg::Imported(results))),
                 );
+            }
+            MediaMsg::Collect => {
+                let Some(session) = studio.session.as_ref() else {
+                    return;
+                };
+                let project_dir = PathBuf::from(session.path());
+                let project = studio.project().clone();
+                spawn_in_project(
+                    move || project_media::collect(&project, &project_dir),
+                    |studio, _, _, result| studio.handle(Msg::Media(MediaMsg::Collected(result))),
+                );
+            }
+            MediaMsg::Collected(result) => {
+                let copied = result.commands.len();
+                if copied > 0 {
+                    studio.apply(Command::Batch {
+                        commands: result.commands,
+                    });
+                    studio.request_media_art();
+                    studio.request_preview();
+                }
+
+                let issues: Vec<&str> = result
+                    .missing_media
+                    .iter()
+                    .chain(&result.missing_fonts)
+                    .chain(&result.copy_errors)
+                    .map(String::as_str)
+                    .collect();
+                let message = if issues.is_empty() {
+                    if copied == 0 {
+                        t("studio.collectMediaNothing")
+                    } else {
+                        tf("studio.collectMediaDone", &[&copied])
+                    }
+                } else {
+                    tf(
+                        "studio.collectMediaWithIssues",
+                        &[&copied, &issues.join(", ")],
+                    )
+                };
+                studio.notify(&message, !result.copy_errors.is_empty());
             }
             MediaMsg::Imported(results) => {
                 let mut commands = Vec::new();

@@ -63,6 +63,17 @@ name = "android.permission.INTERNET"
 [[package.metadata.android.uses_permission]]
 name = "android.permission.RECORD_AUDIO"
 
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
 [package.metadata.android.application]
 label = "Concat"
 icon = "@mipmap/ic_launcher"

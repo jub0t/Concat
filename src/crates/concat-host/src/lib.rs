@@ -36,6 +36,7 @@ pub mod lock;
 pub mod logs;
 pub mod machine;
 pub mod media;
+pub mod media_paths;
 pub mod memory;
 pub mod models;
 pub mod net;

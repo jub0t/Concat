@@ -12,7 +12,6 @@ use concat_project::model::{MediaKind, MissingMedia};
 use slint::VecModel;
 
 use crate::i18n::{t, tf};
-use crate::platform;
 use crate::studio::Studio;
 use crate::ui::{MissingMediaItem, RelinkData};
 
@@ -63,12 +62,9 @@ impl RelinkPane {
             // message of its own; see `host::after_dialog`.
             RelinkMsg::RelinkAll => {
                 let title = t("relink.selectFolderContainingMedia");
-                crate::host::after_dialog(
-                    move || platform::pick_folder(&title, ""),
-                    |studio, _, _, folder| {
-                        studio.handle(crate::panes::Msg::Relink(RelinkMsg::RelinkIn(folder)));
-                    },
-                );
+                crate::host::pick_folder_then(title, String::new(), |studio, _, _, folder| {
+                    studio.handle(crate::panes::Msg::Relink(RelinkMsg::RelinkIn(folder)));
+                });
             }
             RelinkMsg::RelinkIn(folder) => self.relink_in(studio, folder),
             RelinkMsg::Locate(id) => {
@@ -198,7 +194,7 @@ impl RelinkPane {
             .iter()
             .filter(|item| Some(item.id.as_str()) != skip)
             .filter_map(|item| {
-                let name = Path::new(&item.path).file_name()?.to_str()?;
+                let name = basename(&item.path)?;
                 let found = index.get(name)?;
                 Some(Command::UpdateMediaPath {
                     media_id: item.id.clone(),
@@ -283,6 +279,10 @@ impl RelinkPane {
             )),
         }
     }
+}
+
+fn basename(path: &str) -> Option<&str> {
+    path.rsplit(['/', '\\']).find(|part| !part.is_empty())
 }
 
 /// Every file under `folder` by name, the one nearest the top first when
@@ -404,5 +404,24 @@ mod tests {
         pane.show(vec![missing("m1", "/gone/a.mp4")]);
         assert!(pane.open);
         assert_eq!(pane.items.len(), 1);
+    }
+
+    #[test]
+    fn relink_matches_windows_and_unix_path_basenames() {
+        let found = PathBuf::from("/media/a.mp4");
+        for original in [r"D:\x\a.mp4", "/x/a.mp4"] {
+            let pane = RelinkPane {
+                items: vec![missing("m1", original)],
+                ..RelinkPane::default()
+            };
+            let commands =
+                pane.matches(&HashMap::from([("a.mp4".to_owned(), found.clone())]), None);
+
+            assert_eq!(commands.len(), 1, "should match {original}");
+            assert!(matches!(
+                &commands[0],
+                Command::UpdateMediaPath { new_path, .. } if new_path == "/media/a.mp4"
+            ));
+        }
     }
 }

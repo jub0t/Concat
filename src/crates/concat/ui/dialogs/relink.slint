@@ -36,6 +36,7 @@ export component RelinkDialog inherits Modal {
     in property <RelinkData> data;
 
     callback relink-all();
+    callback collect-media();
     /// Pick this one file by hand.
     callback locate(id: string);
     /// Take this file out of the project, with its clips, for good.
@@ -184,6 +185,11 @@ export component RelinkDialog inherits Modal {
             action-glyph: Glyph.folder;
             cancel => { root.dismiss(); }
             act => { root.relink-all(); }
+        }
+
+        Button {
+            label: I18n.t("relink.collectMedia");
+            clicked => { root.collect-media(); }
         }
     }
 }

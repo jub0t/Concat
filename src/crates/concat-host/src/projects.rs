@@ -318,7 +318,9 @@ pub fn save_ordered(
         return Ok(Saved::Superseded);
     }
 
-    let encoded = serde_json::to_vec_pretty(document)
+    let mut portable = document.clone();
+    crate::media_paths::to_portable(&root, &mut portable);
+    let encoded = serde_json::to_vec_pretty(&portable)
         .map_err(|error| format!("could not encode the project: {error}"))?;
     write_manifest(&root, &encoded)?;
     state.written.store(ticket.0, Ordering::Release);
@@ -463,9 +465,10 @@ pub fn read_document(path: &str) -> Result<Option<serde_json::Value>, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("could not read {}: {error}", manifest.display())),
     };
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|error| format!("{} is not a Concat project: {error}", manifest.display()))
+    let mut document: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("{} is not a Concat project: {error}", manifest.display()))?;
+    crate::media_paths::to_local(Path::new(path), &mut document);
+    Ok(Some(document))
 }
 
 /// Reads an existing project's settings.
@@ -773,6 +776,29 @@ mod tests {
             &serde_json::json!({ "timelines": "garbage" })
         ));
         assert!(!is_settings_only(&serde_json::json!("nonsense")));
+    }
+
+    #[test]
+    fn saving_stores_project_media_relative_and_reading_restores_local_paths() {
+        let root = tempfile::tempdir().expect("project folder");
+        let media = root.path().join("media").join("a.mp4");
+        std::fs::create_dir_all(media.parent().expect("media folder")).expect("creates media");
+        std::fs::write(&media, b"video").expect("writes media");
+        let document = serde_json::json!({
+            "media": [{"path": media.to_string_lossy()}],
+            "fonts": [],
+            "tracks": []
+        });
+
+        save(root.path().to_str().expect("project path"), &document).expect("saves");
+
+        let bytes = std::fs::read(manifest_path(root.path())).expect("saved manifest");
+        let on_disk: serde_json::Value = serde_json::from_slice(&bytes).expect("valid json");
+        assert_eq!(on_disk["media"][0]["path"], "media/a.mp4");
+        let opened = read_document(root.path().to_str().expect("project path"))
+            .expect("reads")
+            .expect("document");
+        assert_eq!(opened["media"][0]["path"], media.to_string_lossy().as_ref());
     }
 
     #[test]

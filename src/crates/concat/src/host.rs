@@ -404,6 +404,22 @@ pub fn after_dialog<T: Send + 'static>(
     });
 }
 
+/// Asks for a folder without blocking the event loop while Android shows its
+/// system picker, then hands a chosen folder back on the window's thread.
+pub fn pick_folder_then(
+    title: String,
+    start: String,
+    then: impl FnOnce(&mut Studio, &App, &Models, std::path::PathBuf) + Send + 'static,
+) {
+    let _ = slint::invoke_from_event_loop(move || {
+        crate::platform::pick_folder_async(&title, &start, move |folder| {
+            if let Some(folder) = folder {
+                on_ui(move |studio, app, models| then(studio, app, models, folder));
+            }
+        });
+    });
+}
+
 /// [`after_dialog`] for files, on every platform. The desktop's dialog is
 /// asked on a turn of its own with the studio unborrowed. A phone's picker
 /// is another screen, which answers later from whichever thread it likes,

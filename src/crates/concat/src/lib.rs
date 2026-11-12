@@ -47,6 +47,7 @@ mod keymap;
 mod meters;
 mod motion_tiles;
 mod platform;
+mod project_media;
 /// How a phone keeps its screen on while a job runs; see
 /// `concat_host::awake`.
 #[cfg(target_os = "android")]
@@ -60,7 +61,7 @@ pub use platform::{
     ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
 };
 #[cfg(target_os = "android")]
-pub use platform::{LinkOpener, install_link_opener};
+pub use platform::{FolderPicker, LinkOpener, install_folder_picker, install_link_opener};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
 #[cfg(test)]
@@ -369,6 +370,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // the playhead at their middle; the strip and the dock are the desk's.
     let phone = platform::phone();
     app.set_phone(phone);
+    app.set_folder_picker(platform::folder_picker_available());
     // The launch screen's version line, and whether its drop zone is
     // offered: a drag in from the system is a desk's (see platform.rs).
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
@@ -2059,6 +2061,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_relink_all(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::RelinkAll));
     }));
+    app.on_relink_collect_media(on_window!(|state| {
+        state.handle(Msg::Media(MediaMsg::Collect));
+    }));
     app.on_relink_locate(on_window!(|state, id: SharedString| {
         state.handle(Msg::Relink(RelinkMsg::Locate(id.to_string())));
     }));
@@ -2537,6 +2542,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),
                         "speech" => state.handle(Msg::Speech(SpeechMsg::Open)),
+                        "collect-media" => state.handle(Msg::Media(MediaMsg::Collect)),
                         "clear-cache" => state.clear_project_cache(),
                         "settings" => state.handle(Msg::Settings(SettingsMsg::Open)),
                         "close-project" => {

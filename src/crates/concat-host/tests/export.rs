@@ -1569,7 +1569,11 @@ fn every_edit_still_exports() {
     .expect("encodes the freeze");
     media::write_artwork(studio.session.path(), "freeze-test.jpg", &frozen)
         .expect("writes the freeze");
-    let frozen_path = format!("{}/cache/freeze-test.jpg", studio.session.path());
+    let frozen_path = Path::new(studio.session.path())
+        .join("cache")
+        .join("freeze-test.jpg")
+        .to_string_lossy()
+        .into_owned();
     let frozen_media = media::probe(&frozen_path)
         .expect("probes the freeze")
         .to_new_media();

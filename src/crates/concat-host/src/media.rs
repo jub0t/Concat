@@ -782,9 +782,7 @@ pub fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
 /// clip ends. For the launch screen's cards, read on a worker beside the
 /// poster; None when the manifest cannot be read as a project.
 pub fn timeline_seconds(project: &str) -> Option<f64> {
-    let manifest = projects::manifest_path(Path::new(project));
-    let text = std::fs::read_to_string(manifest).ok()?;
-    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let document = projects::read_document(project).ok()??;
     let project = concat_project::from_document(&document)?;
     let timeline = project
         .timelines
@@ -822,11 +820,8 @@ pub fn is_dead(frame: &Frame) -> bool {
 /// middle. A still is one moment. Capped, so a timeline of black clips
 /// does not cost a launch a hundred decodes.
 fn poster_moments(project: &str) -> Result<Vec<(String, f64)>, String> {
-    let manifest = projects::manifest_path(Path::new(project));
-    let text = std::fs::read_to_string(&manifest)
-        .map_err(|error| format!("could not read {}: {error}", manifest.display()))?;
-    let document: serde_json::Value =
-        serde_json::from_str(&text).map_err(|error| format!("not a project: {error}"))?;
+    let document = projects::read_document(project)?
+        .ok_or_else(|| "the project document is missing".to_owned())?;
 
     // Typed access through the engine's own reader, not hand-parsed JSON -
     // a schema change breaks this at compile time now, not silently at the

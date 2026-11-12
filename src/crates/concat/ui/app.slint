@@ -311,6 +311,7 @@ export component App inherits Window {
     /// strip, no dock - and the launch screen carries its own verbs, as it
     /// does whenever it is narrow. Set once from Rust; see platform::phone.
     in property <bool> phone;
+    in property <bool> folder-picker;
     /// A sheet with pages of its own is the whole window, inside its safe
     /// area, on a phone and in any window too narrow for it to float as a
     /// card with room around it.
@@ -763,6 +764,7 @@ export component App inherits Window {
                 sort: root.start.sort;
                 busy: root.start.busy;
                 phone: root.phone;
+                folder-picker: root.folder-picker;
                 version: root.app-version;
                 can-drop: root.can-drop;
                 capcut: root.capcut;
@@ -943,6 +945,7 @@ export component App inherits Window {
         height: root.height;
         data: root.start;
         phone: root.phone;
+        folder-picker: root.folder-picker;
         aspects: root.start-aspects;
         sizes: root.start-sizes;
         rates: root.start-rates;
@@ -1056,6 +1059,7 @@ export component App inherits Window {
 
     in property <RelinkData> relink;
     callback relink-all();
+    callback relink-collect-media();
     callback relink-locate(id: string);
     callback relink-remove(id: string);
     callback relink-dismiss();
@@ -1114,6 +1118,7 @@ export component App inherits Window {
         inset-right: root.safe-area-insets.right;
         data: root.relink;
         relink-all => { root.relink-all(); }
+        collect-media => { root.relink-collect-media(); }
         locate(id) => { root.relink-locate(id); }
         remove(id) => { root.relink-remove(id); }
         dismiss => { root.relink-dismiss(); }
