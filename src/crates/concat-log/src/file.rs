@@ -221,6 +221,20 @@ pub struct PreviousRun {
     pub last_error: Option<String>,
 }
 
+impl PreviousRun {
+    /// Whether the run's own file says it died: it did not end in order,
+    /// and the last thing wrong in it is a crash line or a panic. A run that
+    /// was only stopped - on a phone, swiped away or put down by the system
+    /// in the background - leaves neither.
+    pub fn died(&self) -> bool {
+        !self.ended_cleanly
+            && self
+                .last_error
+                .as_deref()
+                .is_some_and(|line| line.starts_with("FATAL ") || line.contains(" ERROR panic "))
+    }
+}
+
 /// The newest run in `folder`, read before this run's own file is made.
 pub(crate) fn previous(folder: &Path) -> Option<PreviousRun> {
     let path = runs(folder).into_iter().max()?;
@@ -363,6 +377,25 @@ mod tests {
             run.last_error.as_deref(),
             Some("FATAL [main] crash: SIGSEGV at 0x10")
         );
+        assert!(run.died());
+
+        // One that stopped after a panic died too; one that only stopped,
+        // with nothing wrong in it, or with an error it carried on from,
+        // did not.
+        for (text, died) in [
+            (
+                "12:00:00.000 ERROR panic      index out of bounds, at src/a.rs:1:2  [concat_log, w]\n",
+                true,
+            ),
+            ("12:00:00.000 INFO  edit       Split  [concat, main]\n", false),
+            (
+                "12:00:00.000 ERROR gpu        device lost  [concat_render::gpu, w]\n",
+                false,
+            ),
+        ] {
+            std::fs::write(folder.join("concat-20260103-000000.log"), text).expect("a log");
+            assert_eq!(previous(&folder).expect("a run").died(), died, "{text}");
+        }
         let _ = std::fs::remove_dir_all(&folder);
     }
 }

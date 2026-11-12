@@ -333,6 +333,14 @@ impl SettingsPane {
                 keymap::reset_all(&mut studio.prefs);
                 studio.prefs.save(&studio.host.dirs);
             }
+            // A phone has no folder to show: the log goes to its share sheet.
+            #[cfg(target_os = "android")]
+            SettingsMsg::ShowLog => {
+                if let Err(error) = platform::share_log() {
+                    studio.notify(&i18n::tf("settings.couldNotShareLog", &[&error]), true);
+                }
+            }
+            #[cfg(not(target_os = "android"))]
             SettingsMsg::ShowLog => {
                 // The file this run is writing, when there is one, so the
                 // manager opens with it selected; the folder when there is
@@ -1013,6 +1021,7 @@ impl SettingsPane {
             layout_switchable: !crate::platform::phone(),
             gpu: !studio.prefs.draws_in_software(),
             gpu_switchable: cfg!(any(windows, target_os = "linux", target_os = "macos")),
+            shares_log: cfg!(target_os = "android"),
             magnetic: studio.prefs.magnetic(),
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),

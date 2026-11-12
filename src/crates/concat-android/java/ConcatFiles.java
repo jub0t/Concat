@@ -5,10 +5,14 @@ package app.concat.editor;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.app.Fragment;
 import android.content.ClipData;
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -25,6 +29,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -204,6 +209,218 @@ public class ConcatFiles extends Fragment {
             Log.w(TAG, "could not open " + url, e);
             return String.valueOf(e.getMessage());
         }
+    }
+
+    /**
+     * Hands the log files at {@code paths} - one per line - to the system's
+     * share sheet, so a report can carry them to mail, a chat, a drive.
+     * Nothing else on the phone can read the app's own folder, so from
+     * Android 10 each is copied into Download/Concat as a text file, the
+     * same run's copy written over, and shared by the media store's URI with
+     * a read grant: no permission asked, no file manager needed. Before
+     * Android 10 an app cannot write there without a permission, and the
+     * end of the logs goes as text instead. Null when the sheet went up, or
+     * why it could not. From any thread.
+     */
+    public static String shareLogs(Activity activity, String paths) {
+        try {
+            String[] files = paths.split("\n");
+            ArrayList<Uri> uris = new ArrayList<>();
+            Intent send = new Intent(files.length > 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
+            send.setType("text/plain");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                for (String path : files) {
+                    uris.add(logCopy(activity, new File(path)));
+                }
+                ClipData clip = ClipData.newRawUri(null, uris.get(0));
+                for (int i = 1; i < uris.size(); i++) {
+                    clip.addItem(new ClipData.Item(uris.get(i)));
+                }
+                send.setClipData(clip);
+                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                if (uris.size() > 1) {
+                    send.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                } else {
+                    send.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+                }
+            } else {
+                // A share's extras cross to the other app in one binder
+                // call, which holds about a megabyte: each file's end.
+                StringBuilder text = new StringBuilder();
+                for (String path : files) {
+                    File file = new File(path);
+                    text.append("==== ").append(file.getName()).append(" ====\n");
+                    text.append(tail(file, 120 * 1024)).append('\n');
+                }
+                send.putExtra(Intent.EXTRA_TEXT, text.toString());
+            }
+            activity.startActivity(Intent.createChooser(send, null));
+            return null;
+        } catch (Exception e) {
+            Log.w(TAG, "could not share the log", e);
+            return e.getMessage() == null ? e.toString() : e.getMessage();
+        }
+    }
+
+    /** The log at {@code file}, copied into Download/Concat as text. */
+    private static Uri logCopy(Activity activity, File file) throws IOException {
+        ContentResolver resolver = activity.getContentResolver();
+        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        String folder = Environment.DIRECTORY_DOWNLOADS + "/Concat/";
+        String name = file.getName().replaceFirst("\\.log$", "") + ".txt";
+        Uri uri = null;
+        // The copy an earlier share of this run made, which this one
+        // replaces rather than adding "name (1)" beside it.
+        Cursor cursor = resolver.query(collection, new String[] {MediaStore.MediaColumns._ID},
+                MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
+                        + MediaStore.MediaColumns.RELATIVE_PATH + "=?",
+                new String[] {name, folder}, null);
+        if (cursor != null) {
+            if (cursor.moveToFirst()) {
+                uri = ContentUris.withAppendedId(collection, cursor.getLong(0));
+            }
+            cursor.close();
+        }
+        if (uri == null) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, folder);
+            uri = resolver.insert(collection, values);
+            if (uri == null) {
+                throw new IOException("the media store refused " + name);
+            }
+        }
+        InputStream in = new FileInputStream(file);
+        try {
+            OutputStream out = resolver.openOutputStream(uri, "wt");
+            if (out == null) {
+                throw new IOException("the media store would not open " + name + " for writing");
+            }
+            try {
+                byte[] buffer = new byte[1 << 16];
+                int read;
+                while ((read = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, read);
+                }
+            } finally {
+                out.close();
+            }
+        } finally {
+            in.close();
+        }
+        return uri;
+    }
+
+    /** The last {@code most} bytes of {@code file}, as text. */
+    private static String tail(File file, int most) throws IOException {
+        java.io.RandomAccessFile in = new java.io.RandomAccessFile(file, "r");
+        try {
+            long from = Math.max(0, in.length() - most);
+            byte[] bytes = new byte[(int) (in.length() - from)];
+            in.seek(from);
+            in.readFully(bytes);
+            return new String(bytes, StandardCharsets.UTF_8);
+        } finally {
+            in.close();
+        }
+    }
+
+    /**
+     * How the system says the app's last process ended, read once as the
+     * app starts; Android 11 and on keep a record, and null comes back on
+     * an older phone or when there is none. Three strings: the log file
+     * that process was writing (as {@code log} named it for this one), or
+     * empty; "died" when it ended in a way nobody asked for - a crash, a
+     * hang, killed while on screen - or "ended"; and what the system says,
+     * for the log.
+     *
+     * This run is then marked with {@code log}, so the next run knows which
+     * file this one is.
+     */
+    public static String[] lastExit(Activity activity, String log) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return null;
+        }
+        ActivityManager manager =
+                (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+        String[] answer = null;
+        try {
+            List<ApplicationExitInfo> exits =
+                    manager.getHistoricalProcessExitReasons(null, 0, 1);
+            if (!exits.isEmpty()) {
+                answer = describe(exits.get(0));
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not read how the last run ended", e);
+        }
+        try {
+            manager.setProcessStateSummary(log.getBytes(StandardCharsets.UTF_8));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not mark this run", e);
+        }
+        return answer;
+    }
+
+    private static String[] describe(ApplicationExitInfo exit) {
+        int status = exit.getStatus();
+        boolean seen = exit.getImportance()
+                <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE;
+        String reason;
+        boolean died;
+        switch (exit.getReason()) {
+            case ApplicationExitInfo.REASON_CRASH_NATIVE:
+                reason = "a native crash, signal " + status;
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_CRASH:
+                reason = "an uncaught Java exception";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_ANR:
+                reason = "not responding (ANR)";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE:
+                reason = "a failure to start";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE:
+                reason = "killed for excessive resource use";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_LOW_MEMORY:
+                reason = "killed for memory";
+                died = seen;
+                break;
+            case ApplicationExitInfo.REASON_SIGNALED:
+                reason = "killed by signal " + status;
+                died = seen;
+                break;
+            case ApplicationExitInfo.REASON_EXIT_SELF:
+                reason = "its own exit, status " + status;
+                died = status != 0;
+                break;
+            case ApplicationExitInfo.REASON_USER_REQUESTED:
+                reason = "the person (force stop, or swiped away)";
+                died = false;
+                break;
+            default:
+                reason = "reason " + exit.getReason() + ", status " + status;
+                died = false;
+        }
+        StringBuilder detail = new StringBuilder(reason);
+        detail.append(seen ? " · on screen" : " · in the background");
+        if (exit.getPss() > 0) {
+            detail.append(" · ").append(exit.getPss() / 1024).append(" MB in use");
+        }
+        if (exit.getDescription() != null) {
+            detail.append(" · \"").append(exit.getDescription()).append('"');
+        }
+        byte[] mark = exit.getProcessStateSummary();
+        String log = mark == null ? "" : new String(mark, StandardCharsets.UTF_8);
+        return new String[] {log, died ? "died" : "ended", detail.toString()};
     }
 
     /** Registered from Rust: the picked files' paths, or none. */

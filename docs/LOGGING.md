@@ -19,6 +19,11 @@ Without the app:
 | macOS | `~/Library/Application Support/app.concat.editor/logs` |
 | Linux | `~/.local/share/app.concat.editor/logs` |
 
+On Android, **Settings › About › Share the log** hands this run's file and the
+one before it to the phone's share sheet (and leaves a copy in
+Download/Concat). When the last run closed on its own, the next launch says so
+and offers the same.
+
 There is one file per run, named for when the run started
 (`concat-20261111-052233.log`, in UTC). The newest ten are kept. When you report
 a problem, attach the file from the run it happened in. If Concat closed on you,

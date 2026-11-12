@@ -411,7 +411,7 @@ mod publisher {
     }
 
     /// A Java `String[]` as Rust's, a null element as None.
-    fn strings<'local>(
+    pub(super) fn strings<'local>(
         env: &mut jni::Env<'local>,
         answer: jni::objects::JObject<'local>,
     ) -> jni::errors::Result<Vec<Option<String>>> {
@@ -514,6 +514,94 @@ mod links {
     }
 }
 
+/// The log, for a report from a phone (#560).
+///
+/// A phone has no folder to show the log in, so Settings › About hands it
+/// to the share sheet, and so does the notice a launch puts up when the
+/// last run died. Which run died is the system's to say: a run on a phone
+/// is almost never closed in order - it is swiped away, or put down in the
+/// background - so a log without its last line proves nothing here. From
+/// Android 11 the system keeps a record of how each process ended, and the
+/// app may mark its own with a few bytes; each run marks itself with its
+/// log's name, so the next one reads which file the record is about.
+#[cfg(target_os = "android")]
+mod log_file {
+    use jni::objects::JString;
+    use jni::{jni_sig, jni_str};
+    use slint::android::AndroidApp;
+
+    /// Hands the window's crate the share sheet, and tells it how the last
+    /// run ended. After the backend, which seeds the JavaVM.
+    pub fn install(app: &AndroidApp) {
+        let sharer = app.clone();
+        concat::install_log_sharer(Box::new(move |paths: &[std::path::PathBuf]| {
+            let joined = paths
+                .iter()
+                .map(|path| path.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let answer = super::java::with_class(&sharer, |env, activity, class| {
+                let joined = env.new_string(&joined)?;
+                let answer = env
+                    .call_static_method(
+                        class,
+                        jni_str!("shareLogs"),
+                        jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;"),
+                        &[activity.into(), (&joined).into()],
+                    )?
+                    .l()?;
+                if answer.is_null() {
+                    return Ok(None);
+                }
+                let answer = env.cast_local::<JString>(answer)?;
+                Ok(Some(answer.mutf8_chars(env)?.to_string()))
+            });
+            match answer {
+                Ok(None) => Ok(()),
+                Ok(Some(why)) => Err(why),
+                Err(error) => Err(format!("could not reach the share sheet: {error}")),
+            }
+        }));
+        read_last_exit(app);
+    }
+
+    /// Asks the system how the last run ended, says so in the log, and
+    /// marks this run with its log's name.
+    fn read_last_exit(app: &AndroidApp) {
+        let this = concat::log_file_name().unwrap_or_default();
+        let answer = super::java::with_class(app, |env, activity, class| {
+            let this = env.new_string(&this)?;
+            let answer = env
+                .call_static_method(
+                    class,
+                    jni_str!("lastExit"),
+                    jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)[Ljava/lang/String;"),
+                    &[activity.into(), (&this).into()],
+                )?
+                .l()?;
+            if answer.is_null() {
+                return Ok(None);
+            }
+            super::publisher::strings(env, answer).map(Some)
+        });
+        match answer.as_ref().map(|answer| answer.as_deref()) {
+            Ok(Some([Some(log), Some(verdict), Some(detail)])) => {
+                let died = verdict == "died";
+                let run = if log.is_empty() { "unmarked" } else { log.as_str() };
+                if died {
+                    log::warn!("last run: {run} died · the system says: {detail}");
+                } else {
+                    log::info!("last run: {run} ended · the system says: {detail}");
+                }
+                concat::note_last_exit(log.clone(), died);
+            }
+            Ok(None) => log::debug!("last run: the system keeps no record of it"),
+            Ok(Some(other)) => log::warn!("last run: the system's record made no sense: {other:?}"),
+            Err(error) => log::warn!("last run: asking the system how it ended failed: {error}"),
+        }
+    }
+}
+
 /// The screen kept on while a job runs - an export, a transcription, a
 /// download - so a phone left on the table does not time out half a
 /// minute in and stop the export with it (#695). The window's flag, which
@@ -561,6 +649,7 @@ fn android_main(app: slint::android::AndroidApp) {
     microphone::install(&app);
     links::install(&app);
     awake::install(&app);
+    log_file::install(&app);
     if let Err(error) = concat::run() {
         log::error!("close: the window ended in an error: {error}; the app closes");
     }

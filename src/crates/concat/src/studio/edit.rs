@@ -88,6 +88,12 @@ impl Studio {
                     .map(|session| std::path::PathBuf::from(session.path()));
                 crate::panes::settings::restart(project);
             }
+            #[cfg(target_os = "android")]
+            Some(Confirm::LastRunClosed) => {
+                if let Err(error) = crate::platform::share_log() {
+                    self.notify(&tf("settings.couldNotShareLog", &[&error]), true);
+                }
+            }
             Some(Confirm::QuitWithoutSaving { .. }) => {
                 crate::closing("by Quit without saving");
                 log::warn!(
@@ -149,6 +155,16 @@ impl Studio {
                 cancel: t("settings.restartLater").into(),
                 calm: true,
                 glyph: crate::ui::Glyph::Reset,
+            },
+            #[cfg(target_os = "android")]
+            Confirm::LastRunClosed => crate::ui::ConfirmData {
+                open: true,
+                title: t("start.lastRunClosedTitle").into(),
+                message: t("start.lastRunClosed").into(),
+                action: t("settings.shareTheLog").into(),
+                cancel: t("relink.notNow").into(),
+                calm: true,
+                glyph: crate::ui::Glyph::Export,
             },
         }
     }

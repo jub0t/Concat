@@ -2835,6 +2835,10 @@ pub enum Confirm {
     /// Restarting for a setting that is read only at launch: the project
     /// is saved, and opens again in the new window.
     Restart,
+    /// The run before this one died, on a phone: said once, at launch,
+    /// with its log to share (#560).
+    #[cfg(target_os = "android")]
+    LastRunClosed,
 }
 
 /// One clip on the clipboard: the clip as it was when copied, the row of
