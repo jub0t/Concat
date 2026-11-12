@@ -3528,6 +3528,33 @@ mod tests {
         }
     }
 
+    /// A still - a picture, a title - is read once and held, not paced: its
+    /// layer shows the same source instant all along, so the export takes
+    /// the one frame from the pool every time and the compositor finds it
+    /// already on the device. Paced, a title was decoded, converted and
+    /// uploaded again at every frame it was on (#754).
+    #[test]
+    fn a_still_is_held_rather_than_paced() {
+        let clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("image", 1, 0.0, 2.0, 0.0),
+        ];
+        let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+        for seconds in [0.1, 1.0, 1.9] {
+            let time = Rational::approximate(seconds).expect("a time");
+            let frame = concat_render::plan::plan_frame(&plan.built.timeline, time);
+            let footage = frame.layers.iter().find(|layer| layer.track == 0);
+            let still = frame.layers.iter().find(|layer| layer.track == 1);
+            assert!(
+                footage.expect("the footage is on").paced,
+                "footage is paced"
+            );
+            let still = still.expect("the still is on");
+            assert!(!still.paced, "a still is held at {seconds}");
+            assert_eq!(still.source_time, Rational::ZERO, "at its one picture");
+        }
+    }
+
     /// A transition clip of `kind`, `duration` long from `start`, on `lane`.
     fn transition_clip(kind: &str, start: f64, duration: f64, lane: usize) -> ExportClip {
         ExportClip {

@@ -324,7 +324,11 @@ pub(crate) fn build_timeline(
 
         let mut engine_clip = Clip::new(MediaRef::new(&clip.path), start, duration);
         engine_clip.source_start = quantise(clip.source_start, rate);
-        engine_clip.hold = clip.hold;
+        // A still is one picture, held: read once and the same frame drawn
+        // at every instant, which the compositor then never uploads twice.
+        // Paced like footage, a title was decoded, converted, copied and
+        // uploaded again at every frame it was on (#754).
+        engine_clip.hold = clip.hold || clip.kind == ClipKind::Image;
         // The same clamp the audio path applies, so a 2x clip means the same
         // thing to picture and sound. A still has no meaningful rate.
         if clip.kind != ClipKind::Image {
