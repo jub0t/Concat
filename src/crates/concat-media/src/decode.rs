@@ -984,6 +984,15 @@ impl Decoder {
         self.hardware.as_ref().map(OnChip::device)
     }
 
+    /// The decoder libavcodec is running, by its own name: `h264`,
+    /// `libdav1d`, `libvpx-vp9`, `hevc_mediacodec`. Under a hwaccel it is
+    /// the codec's own decoder; [`Decoder::hardware`] says where it runs.
+    pub fn codec_name(&self) -> String {
+        self.decoder
+            .codec()
+            .map_or_else(|| "unknown".to_owned(), |codec| codec.name().to_owned())
+    }
+
     /// Reopens the codec in software and carries on from `from`: the frame
     /// at that instant is the next one out, or the one after it with
     /// `after`. The pacer's state is kept, so what comes out is what would

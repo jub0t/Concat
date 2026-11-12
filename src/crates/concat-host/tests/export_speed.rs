@@ -22,7 +22,8 @@
 //! any of `transitions`, `effects`, `blur` (pictures in the frame over
 //! their own blurred copy) and `curves` (speed ramps). The file is HEVC
 //! unless `CONCAT_SPEED_CODEC` says `h264` or `av1`; the footage is read on
-//! the hardware unless `CONCAT_SPEED_SOFTWARE` is set.
+//! the hardware unless `CONCAT_SPEED_SOFTWARE` is set; and
+//! `CONCAT_SPEED_CANCEL_AT` cancels the export at that frame.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -427,15 +428,28 @@ fn an_ordinary_project_exports_at_speed() {
     let request = export::request(&studio.session, &spec, title_clips);
     let begun = std::time::Instant::now();
     let mut stages: Vec<(&'static str, std::time::Instant)> = Vec::new();
-    export::run(&request, &AtomicBool::new(false), |progress| {
+    // `CONCAT_SPEED_CANCEL_AT`: a frame to press Cancel at, to see the
+    // line a cancelled export leaves.
+    let cancel_at: Option<i64> = std::env::var("CONCAT_SPEED_CANCEL_AT")
+        .ok()
+        .and_then(|value| value.parse().ok());
+    let cancel = AtomicBool::new(false);
+    let exported = export::run(&request, &cancel, |progress| {
         if stages
             .last()
             .is_none_or(|(stage, _)| *stage != progress.stage)
         {
             stages.push((progress.stage, std::time::Instant::now()));
         }
-    })
-    .unwrap_or_else(|error| panic!("the export failed: {error}"));
+        if cancel_at.is_some_and(|at| progress.frame >= at) {
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    });
+    if cancel_at.is_some() {
+        eprintln!("cancelled: {exported:?}");
+        return;
+    }
+    exported.unwrap_or_else(|error| panic!("the export failed: {error}"));
     let took = begun.elapsed().as_secs_f64();
     let frames = seconds * 30.0;
     for pair in stages.windows(2) {

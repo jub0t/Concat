@@ -16,10 +16,12 @@
 //! frame: a run is one decoder opened at the run's first frame, at that
 //! frame's source time, pulled once per output frame, as before.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use concat_core::frame::Frame;
 use concat_core::timeline::ClipId;
@@ -33,6 +35,40 @@ const QUEUED_BYTES: usize = 48 << 20;
 /// Frames a feed holds at most, whatever their size.
 const QUEUED_MOST: usize = 4;
 
+/// What the feeds' decoders did, by the way each one read: which decoder,
+/// and on which device or in software. Each run adds its frames and the
+/// time it spent decoding them once it ends, so a report of a slow export
+/// says which footage was read how, and what it cost.
+#[derive(Clone, Default)]
+pub(crate) struct Decoding(Arc<Mutex<BTreeMap<String, (u64, Duration)>>>);
+
+impl Decoding {
+    fn add(&self, how: String, frames: u64, took: Duration) {
+        let mut tally = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = tally.entry(how).or_default();
+        entry.0 += frames;
+        entry.1 += took;
+    }
+
+    /// Each way footage was read, with its frames and decoding time:
+    /// `hevc on Direct3D 11 2 m 01 s for 3600 frames`.
+    pub(crate) fn said(&self) -> Vec<String> {
+        let tally = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        tally
+            .iter()
+            .map(|(how, (frames, took))| {
+                format!("{how} {} for {frames} frames", concat_log::span(*took))
+            })
+            .collect()
+    }
+}
+
 /// One run of one clip, decoded on its own thread.
 pub(crate) struct Feed {
     frames: Option<Receiver<Result<Option<Frame>, String>>>,
@@ -40,8 +76,14 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
-    /// Starts reading `media` with `options`, `bytes` a frame.
-    fn open(media: PathBuf, options: DecodeOptions, bytes: usize) -> Result<Self, String> {
+    /// Starts reading `media` with `options`, `bytes` a frame, adding what
+    /// the run did to `decoding` once it ends.
+    fn open(
+        media: PathBuf,
+        options: DecodeOptions,
+        bytes: usize,
+        decoding: Decoding,
+    ) -> Result<Self, String> {
         let depth = (QUEUED_BYTES / bytes.max(1)).clamp(1, QUEUED_MOST);
         let (send, frames) = sync_channel(depth);
         let named = media.display().to_string();
@@ -58,13 +100,24 @@ impl Feed {
                 // Until the file runs out, fails, or nobody is reading: a
                 // send to a feed that was dropped fails, and that is the
                 // thread's signal to go.
+                let (mut frames, mut took) = (0, Duration::ZERO);
                 loop {
+                    let begun = Instant::now();
                     let next = decoder.next_frame().map_err(|error| error.to_string());
+                    took += begun.elapsed();
                     let last = !matches!(next, Ok(Some(_)));
+                    frames += u64::from(!last);
                     if send.send(next).is_err() || last {
-                        return;
+                        break;
                     }
                 }
+                // Where the reader ended up: a device that failed part way
+                // leaves it in software.
+                let how = match decoder.hardware() {
+                    Some(device) => format!("{} on {}", decoder.codec_name(), device.label()),
+                    None => format!("{} in software", decoder.codec_name()),
+                };
+                decoding.add(how, frames, took);
             })
             .map_err(|error| format!("could not start reading {named}: {error}"))?;
         Ok(Self {
@@ -105,16 +158,20 @@ pub(crate) struct Feeds {
     on_looked: HashSet<ClipId>,
     /// How many frames ahead of the drawing a run is opened.
     lead: i64,
+    /// What every run's decoder did; see [`Decoding`].
+    decoding: Decoding,
 }
 
 impl Feeds {
-    /// `lead`: how many frames before its first a run's decoder is opened.
-    pub(crate) fn new(lead: i64) -> Self {
+    /// `lead`: how many frames before its first a run's decoder is opened;
+    /// `decoding`: where each run says what it did as it ends.
+    pub(crate) fn new(lead: i64, decoding: Decoding) -> Self {
         Self {
             runs: HashMap::new(),
             looked: -1,
             on_looked: HashSet::new(),
             lead: lead.max(0),
+            decoding,
         }
     }
 
@@ -152,7 +209,7 @@ impl Feeds {
         open: &impl Fn(&PlannedLayer) -> (DecodeOptions, usize),
     ) -> Result<(), String> {
         let (options, bytes) = open(layer);
-        let feed = Feed::open(layer.media.clone(), options, bytes)?;
+        let feed = Feed::open(layer.media.clone(), options, bytes, self.decoding.clone())?;
         self.runs
             .entry(layer.clip)
             .or_default()
@@ -175,7 +232,7 @@ impl Feeds {
             .is_some_and(|(begins, _)| *begins <= index);
         if !ready {
             let (options, bytes) = open(layer);
-            let feed = Feed::open(layer.media.clone(), options, bytes)?;
+            let feed = Feed::open(layer.media.clone(), options, bytes, self.decoding.clone())?;
             self.runs
                 .entry(layer.clip)
                 .or_default()
@@ -268,7 +325,8 @@ mod tests {
                 64 * 64 * 4,
             )
         };
-        let mut feeds = Feeds::new(3);
+        let decoding = Decoding::default();
+        let mut feeds = Feeds::new(3, decoding.clone());
         let mut pulled: HashMap<ClipId, Vec<i64>> = HashMap::new();
         for index in 0..30 {
             feeds.look_ahead(index, 30, plan_at, open).expect("opens");
@@ -298,5 +356,9 @@ mod tests {
         }
         assert_eq!(pulled[&one].len(), 20);
         assert_eq!(pulled[&two].len(), 25);
+        drop(feeds);
+        let said = decoding.said();
+        assert_eq!(said.len(), 1, "one file, read one way: {said:?}");
+        assert!(said[0].starts_with("h264 "), "{said:?}");
     }
 }

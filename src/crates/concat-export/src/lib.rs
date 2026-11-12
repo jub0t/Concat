@@ -1179,11 +1179,23 @@ pub fn render_on(
     let mixed = directory.join(format!(".{stem}.concat-audio.{sound_container}"));
     let muxed = directory.join(format!(".{stem}.concat-muxed.{container}"));
 
+    // The export's one line, written when it ends however it ends: done,
+    // cancelled or failed, with where its time went (see `Spent`). It is
+    // the line a report of a slow or failed export is answered from.
+    let mut op = concat_log::op!("export");
+    let mut spent = Spent {
+        total: total_frames,
+        size: (request.width, request.height),
+        fps: rate.fps().as_f64(),
+        ..Spent::default()
+    };
+
     // The output path is touched once, by the rename at the end, whichever
     // way the file was made. The mux used to write it directly, and a mux
     // that failed - the disk full, a read error - left a truncated file
     // where the previous export had been (audit 2026-10-09, finding 4).
     let result = (|| -> Result<(), String> {
+        op.step("render");
         render_picture(
             request,
             compositor,
@@ -1193,6 +1205,7 @@ pub fn render_on(
             transitions,
             &silent,
             &mut reporter,
+            &mut spent,
         )?;
 
         let finished = if sound.is_empty() {
@@ -1200,6 +1213,7 @@ pub fn render_on(
         } else {
             reporter.cancelled()?;
             reporter.emit(0, total_frames, "mixing audio");
+            op.step("mix audio");
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
             let buses = audio_buses(&resolved);
             audio::mix_to_file_with(&mix, &buses, timeline_end.as_f64(), &mixed)
@@ -1207,12 +1221,23 @@ pub fn render_on(
 
             reporter.cancelled()?;
             reporter.emit(total_frames, total_frames, "muxing");
+            op.step("mux");
             audio::mux(&silent, &mixed, &muxed).map_err(|error| error.to_string())?;
             &muxed
         };
+        op.end_step();
         std::fs::rename(finished, &output)
             .map_err(|error| format!("could not write {}: {error}", output.display()))
     })();
+    spent.note(&mut op);
+    match &result {
+        Ok(()) => {
+            let fps = spent.frames as f64 / op.elapsed().as_secs_f64().max(1e-9);
+            op.done(format_args!("{} frames at {fps:.1} fps", spent.frames));
+        }
+        Err(_) if reporter.cancel.load(Ordering::Relaxed) => op.cancelled(),
+        Err(error) => op.failed(error),
+    }
 
     let _ = std::fs::remove_file(&silent);
     let _ = std::fs::remove_file(&mixed);
@@ -1740,6 +1765,7 @@ fn render_picture(
     transitions: Vec<TransitionSpan>,
     destination: &Path,
     reporter: &mut Reporter<'_>,
+    spent: &mut Spent,
 ) -> Result<(), String> {
     let effect_offset = quantise(request.effect_time_offset, rate);
     // Whether the window lent its device: a death under the export is then
@@ -1757,6 +1783,10 @@ fn render_picture(
         adapter.name,
         adapter.device_type,
         adapter.backend
+    );
+    spent.adapter = format!(
+        "{} ({:?}, {:?})",
+        adapter.name, adapter.device_type, adapter.backend
     );
     // The request was held to the document's ceiling; a phone's GPU can
     // hold less, and a frame past it is said here rather than failed on.
@@ -1806,8 +1836,6 @@ fn render_picture(
     let hdr = request.hdr && signal != Signal::Sdr && !request.codec.keeps_alpha();
     compositor.deliver_hdr(hdr);
 
-    // How many devices have died under this export so far; see `recovered`.
-    let mut losses = 0;
     // A clip whose speed changes, or runs backwards, cannot be followed by a
     // paced decoder: each of its frames is sought by its own source time,
     // through a pool that keeps the reader rolling where it can.
@@ -1842,6 +1870,8 @@ fn render_picture(
         // and a half a pixel rather than four.
         let planar = writer.takes;
         compositor.planar(planar);
+        // Each pass is said afresh: a second one starts the file over.
+        spent.pass(&writer.encoder);
 
         // When progress was last said; see `progress_due`.
         let mut said = std::time::Instant::now();
@@ -1853,7 +1883,7 @@ fn render_picture(
         // times without any seeking - including retimed clips. Each reads on
         // a thread of its own, ahead of the drawing, and is opened a moment
         // before its run begins; see `ahead`.
-        let mut feeds = ahead::Feeds::new(read_lead(rate));
+        let mut feeds = ahead::Feeds::new(read_lead(rate), spent.decoding.clone());
         let paced = |layer: &PlannedLayer| {
             // Aspect-correct: decode at the source's fitted size and let
             // the compositor place it, rather than stretching to the frame
@@ -1894,10 +1924,9 @@ fn render_picture(
             (options, bytes)
         };
 
-        // Where the pass's time went, said at its end: reading the footage,
-        // drawing the frame, and handing it to the encoder.
+        // Where the pass's time went, said at the export's end: reading the
+        // footage, drawing the frame, and handing it to the encoder.
         let begun = std::time::Instant::now();
-        let mut spent = Spent::default();
 
         // The frames on their way back from the device, oldest first, each
         // with its index and the plan it was drawn from; see `Device`. A
@@ -1933,6 +1962,7 @@ fn render_picture(
                     // last frame. This path used to drop a failed frame on the
                     // floor, so a reversed or retimed clip whose file had gone
                     // bad exported as a missing layer and nobody was told.
+                    let seeking = std::time::Instant::now();
                     let frame = sought
                         .frame_at(
                             &layer.media,
@@ -1948,6 +1978,8 @@ fn render_picture(
                             !cutouts.contains_key(&layer.clip),
                         )
                         .map_err(|error| error.to_string())?;
+                    spent.seeking += seeking.elapsed();
+                    spent.sought += 1;
                     let frame = cutouts
                         .get(&layer.clip)
                         .and_then(|job| job.cut(&frame, layer.source_time))
@@ -1966,7 +1998,10 @@ fn render_picture(
                 // A source that has run out contributes nothing rather than
                 // aborting the export - a clip trimmed past its media's end is a
                 // mistake in the edit, not a failure of the renderer.
-                if let Some(frame) = feeds.next(index, layer, paced)? {
+                let waiting = std::time::Instant::now();
+                let next = feeds.next(index, layer, paced)?;
+                spent.footage += waiting.elapsed();
+                if let Some(frame) = next {
                     // The cutout, on the decoded picture before it is placed:
                     // the same frame both compositors then draw.
                     let frame = match cutouts
@@ -1988,6 +2023,7 @@ fn render_picture(
                 }
             }
 
+            let seeking = std::time::Instant::now();
             let frame_plan = FramePlan {
                 time,
                 width: request.width,
@@ -2004,11 +2040,12 @@ fn render_picture(
                 output: output_of(request.color_space),
             };
             let drawing = std::time::Instant::now();
+            spent.seeking += drawing - seeking;
             spent.reading += drawing - reading;
             let mut device = Device {
                 compositor: &mut compositor,
                 offset: effect_offset,
-                losses: &mut losses,
+                losses: &mut spent.losses,
                 hdr,
                 lent,
                 total_frames,
@@ -2065,6 +2102,13 @@ fn render_picture(
             // Retire decoders whose run has finished, so a long timeline does
             // not hold a decoder open for every clip it has ever passed.
             feeds.retire(index, &plan);
+            spent.frames = index + 1;
+            spent.picture = begun.elapsed();
+            spent.encoding = writer.encoding();
+            if index % PROGRESS_FRAMES == 0 {
+                spent.sought_decoded = sought.stats().decoded;
+                spent.sought_ways = sought.readers_opened();
+            }
 
             if progress_due(index, said.elapsed()) {
                 reporter.emit(index, total_frames, stage);
@@ -2076,7 +2120,7 @@ fn render_picture(
         let mut device = Device {
             compositor: &mut compositor,
             offset: effect_offset,
-            losses: &mut losses,
+            losses: &mut spent.losses,
             hdr,
             lent,
             total_frames,
@@ -2103,7 +2147,9 @@ fn render_picture(
         match finished {
             Ok(encoding) => {
                 spent.encoding = encoding;
-                spent.log(total_frames, begun.elapsed());
+                spent.picture = begun.elapsed();
+                spent.sought_decoded = sought.stats().decoded;
+                spent.sought_ways = sought.readers_opened();
                 return Ok(());
             }
             Err((written, error)) => {
@@ -2163,6 +2209,11 @@ struct Writer {
     /// The YUV the encoder takes as it is, which the compositor is asked
     /// to hand over in its place; see [`Encoder::yuv_layout`].
     takes: Option<concat_core::frame::YuvLayout>,
+    /// Which encoder it is, and where it runs: `av1_nvenc (hardware)`.
+    encoder: String,
+    /// The time its thread has spent encoding so far, in nanoseconds:
+    /// read as the export goes, so a cancelled or failed one says it too.
+    busy: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// The encoder's thread: the time it spent encoding, or how many frames it
@@ -2181,13 +2232,15 @@ impl Writer {
     ) -> Result<Writer, concat_media::Error> {
         let (jobs, taken) = std::sync::mpsc::sync_channel::<Job>(ENCODER_QUEUE);
         let (opened, open_result) = std::sync::mpsc::channel();
+        let busy_so_far = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counting = Arc::clone(&busy_so_far);
         let thread = std::thread::Builder::new()
             .name("concat-export-encoder".into())
             .spawn(move || {
                 let mut encoder = match open() {
                     Ok(encoder) => {
-                        log::info!(
-                            "export: encoding with {} ({})",
+                        let which = format!(
+                            "{} ({})",
                             encoder.encoder_name(),
                             if encoder.on_hardware() {
                                 "hardware"
@@ -2195,7 +2248,8 @@ impl Writer {
                                 "software"
                             }
                         );
-                        let _ = opened.send(Ok(encoder.yuv_layout()));
+                        log::info!("export: encoding with {which}");
+                        let _ = opened.send(Ok((encoder.yuv_layout(), which)));
                         encoder
                     }
                     Err(error) => {
@@ -2225,7 +2279,12 @@ impl Writer {
                             return Ok(busy + begun.elapsed());
                         }
                     }
-                    busy += begun.elapsed();
+                    let took = begun.elapsed();
+                    busy += took;
+                    counting.fetch_add(
+                        u64::try_from(took.as_nanos()).unwrap_or(u64::MAX),
+                        Ordering::Relaxed,
+                    );
                 }
                 // Let go without a finish: the file is abandoned.
                 Ok(busy)
@@ -2235,10 +2294,13 @@ impl Writer {
             jobs: Some(jobs),
             thread: Some(thread),
             takes: None,
+            encoder: String::new(),
+            busy: busy_so_far,
         };
         match open_result.recv() {
-            Ok(Ok(takes)) => {
+            Ok(Ok((takes, encoder))) => {
                 writer.takes = takes;
+                writer.encoder = encoder;
                 Ok(writer)
             }
             Ok(Err(error)) => Err(error),
@@ -2250,6 +2312,11 @@ impl Writer {
                 detail: "the encoder's thread ended before it said whether it opened".into(),
             }),
         }
+    }
+
+    /// The time the encoder has spent so far.
+    fn encoding(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.busy.load(Ordering::Relaxed))
     }
 
     /// Hands `frame` to the encoder, waiting while the queue is full.
@@ -2289,29 +2356,133 @@ impl Drop for Writer {
     }
 }
 
-/// Where a picture pass's time went, frame by frame; see `render_picture`.
+/// Where an export's time went, said once at its end however it ends -
+/// done, cancelled or failed - on the export's one line (see `render_on`):
+/// what drew it and what encoded it, how far the picture got and how fast,
+/// and the picture's time frame by frame, stage by stage, with how each
+/// kind of footage was decoded and what that cost. A report of a slow
+/// export on a machine nobody here has is answered from this line.
 #[derive(Default)]
 struct Spent {
+    /// The output's size and frames a second.
+    size: (u32, u32),
+    fps: f64,
+    /// The frames the picture has, and how many were drawn.
+    total: i64,
+    frames: i64,
+    /// The adapter the picture was drawn on, as the drivers name it.
+    adapter: String,
+    /// How many times the device died under the export; see `recovered`.
+    losses: u32,
+    /// The encoder, and which pass this is: a second goes again on the
+    /// CPU's encoder after the hardware one stopped (#491).
+    encoder: String,
+    passes: u32,
+    /// The picture pass's wall time, so far.
+    picture: std::time::Duration,
+    /// On the drawing thread: everything before the draw - planning,
+    /// waiting on the footage, seeking - and, within it, the waiting on
+    /// the footage read ahead, and the footage sought frame by frame
+    /// (retimed and held clips, stills, backgrounds).
     reading: std::time::Duration,
+    footage: std::time::Duration,
+    seeking: std::time::Duration,
+    /// The frames sought, and what the pool's readers decoded for them
+    /// and how: filled in at the pass's end from the pool.
+    sought: u64,
+    sought_decoded: u64,
+    sought_ways: Vec<(String, u64)>,
     drawing: std::time::Duration,
-    /// On the encoder's own thread, alongside the reading and drawing.
+    /// On the encoder's own thread, alongside the reading and drawing;
+    /// known once the file is finished.
     encoding: std::time::Duration,
     /// The reading and drawing held up by an encoder behind them.
     waiting: std::time::Duration,
+    /// What the footage's decoders did, on their own threads.
+    decoding: ahead::Decoding,
 }
 
 impl Spent {
-    fn log(&self, frames: i64, total: std::time::Duration) {
-        let rate = frames as f64 / total.as_secs_f64().max(1e-9);
-        log::info!(
-            "export: {frames} frames in {:.2} s ({rate:.1} fps): reading {:.2} s, drawing {:.2} \
-             s, encoding {:.2} s alongside, {:.2} s of it waited for",
-            total.as_secs_f64(),
-            self.reading.as_secs_f64(),
-            self.drawing.as_secs_f64(),
-            self.encoding.as_secs_f64(),
-            self.waiting.as_secs_f64(),
-        );
+    /// A pass begins, on `encoder`: what the last one spent is for a file
+    /// nobody will finish.
+    fn pass(&mut self, encoder: &str) {
+        *self = Spent {
+            size: self.size,
+            fps: self.fps,
+            total: self.total,
+            adapter: std::mem::take(&mut self.adapter),
+            losses: self.losses,
+            encoder: encoder.to_owned(),
+            passes: self.passes + 1,
+            ..Spent::default()
+        };
+    }
+
+    /// Everything above, as notes on the export's line.
+    fn note(&self, op: &mut concat_log::Op) {
+        use concat_log::span;
+        let (width, height) = self.size;
+        let fps = self.fps;
+        op.note(format_args!(
+            "{width}x{height} at {} fps",
+            if fps.fract() == 0.0 {
+                format!("{fps:.0}")
+            } else {
+                format!("{fps:.2}")
+            }
+        ));
+        if !self.encoder.is_empty() {
+            op.note(format_args!("encoded with {}", self.encoder));
+        }
+        if self.passes > 1 {
+            op.note("started again on the software encoder");
+        }
+        if !self.adapter.is_empty() {
+            op.note(format_args!("drawn on {}", self.adapter));
+        }
+        if self.losses > 0 {
+            op.note(format_args!(
+                "the device was lost {} time{}",
+                self.losses,
+                if self.losses == 1 { "" } else { "s" }
+            ));
+        }
+        let drawn = self.frames as f64 / self.picture.as_secs_f64().max(1e-9);
+        op.note(format_args!(
+            "picture {} of {} frames at {drawn:.1} fps: planning {}, waiting for footage {}, \
+             seeking footage {} for {} frames, drawing {}, waiting for the encoder {}, encoding {} \
+             alongside",
+            self.frames,
+            self.total,
+            span(self.reading.saturating_sub(self.footage + self.seeking)),
+            span(self.footage),
+            span(self.seeking),
+            self.sought,
+            span(self.drawing),
+            span(self.waiting),
+            span(self.encoding),
+        ));
+        let decoded = self.decoding.said();
+        if !decoded.is_empty() {
+            op.note(format_args!("decoding alongside: {}", decoded.join("; ")));
+        }
+        if !self.sought_ways.is_empty() {
+            let ways: Vec<String> = self
+                .sought_ways
+                .iter()
+                .map(|(way, readers)| {
+                    format!(
+                        "{way} ({readers} reader{})",
+                        if *readers == 1 { "" } else { "s" }
+                    )
+                })
+                .collect();
+            op.note(format_args!(
+                "sought footage decoded {} frames: {}",
+                self.sought_decoded,
+                ways.join("; ")
+            ));
+        }
     }
 }
 
