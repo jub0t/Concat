@@ -309,19 +309,7 @@ pub fn instantiate(
     // document's relative paths become project-local absolute ones.
     copy_assets(&bundle.join(ASSETS), &root.join(ASSETS))?;
     document["name"] = Value::String(project.name.clone());
-    for section in ["media", "fonts"] {
-        if let Some(items) = document.get_mut(section).and_then(Value::as_array_mut) {
-            for item in items {
-                let Some(path) = item.get("path").and_then(Value::as_str) else {
-                    continue;
-                };
-                if let Some(relative) = path.strip_prefix(&format!("{ASSETS}/")) {
-                    let absolute = root.join(ASSETS).join(relative);
-                    item["path"] = Value::String(absolute.to_string_lossy().into_owned());
-                }
-            }
-        }
-    }
+    crate::media_paths::to_local(&root, &mut document);
 
     let mut editor = Editor::from_document(&document)
         .ok_or("this template holds a document this build cannot read")?;

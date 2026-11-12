@@ -1891,9 +1891,8 @@ component NarrowHome inherits Rectangle {
     in property <string> query;
     in property <bool> busy;
     in property <string> version;
-    /// A phone: no folder picker, so no Open; projects live in the app's
-    /// own folder, which the page already lists. See platform::pick_folder.
-    /// https://github.com/jub0t/Concat/issues/222
+    /// Android has a real folder picker; iOS keeps the recent projects only.
+    in property <bool> folder-picker;
     in property <bool> phone;
     in property <bool> capcut;
 
@@ -1941,7 +1940,7 @@ component NarrowHome inherits Rectangle {
                     wrap: word-wrap;
                 }
 
-                if !root.phone: VerticalLayout {
+                if root.folder-picker: VerticalLayout {
                     alignment: center;
                     BarAction {
                         glyph: Glyph.folder;
@@ -2102,6 +2101,7 @@ export component StartScreen inherits Rectangle {
     /// A file can be dragged in from the system here.
     in property <bool> can-drop;
     in property <bool> phone;
+    in property <bool> folder-picker;
     /// CapCut has drafts on this machine.
     in property <bool> capcut;
 
@@ -2156,6 +2156,7 @@ export component StartScreen inherits Rectangle {
         busy: root.busy;
         version: root.version;
         phone: root.phone;
+        folder-picker: root.folder-picker;
         capcut: root.capcut;
         compose => { root.compose(); }
         open => { root.open(); }
@@ -2205,10 +2206,7 @@ export component NewProjectDialog inherits Modal {
     /// A phone held upright: every label over its value, every chip row
     /// across the width, the button across the width with its line under
     /// it.
-    /// A phone: no folder picker, so no Open and no Choose - projects live
-    /// in the app's own folder, which the page already lists, and the
-    /// location is shown rather than typed. See platform::pick_folder.
-    /// https://github.com/jub0t/Concat/issues/222
+    in property <bool> folder-picker;
     in property <bool> phone;
     property <bool> narrow: root.width < 680px;
     /// A project needs somewhere to go. Everything else has a default.
@@ -2293,7 +2291,7 @@ export component NewProjectDialog inherits Modal {
         // A desk's question. A phone keeps its projects in the app's own
         // folder, as every phone editor does, and a path there is nothing
         // anybody can browse to, so the row is not shown.
-        if !root.phone: FormRow {
+        if root.folder-picker: FormRow {
             label: I18n.upper("start.location");
             stacked: root.narrow;
 

@@ -306,14 +306,11 @@ impl StartPane {
             StartMsg::Browse => {
                 let title = t("start.whereShouldProjectFolder");
                 let current = self.location.clone();
-                crate::host::after_dialog(
-                    move || platform::pick_folder(&title, &current),
-                    |studio, _, _, folder| {
-                        studio.handle(crate::panes::Msg::Start(StartMsg::FolderChosen(
-                            folder.to_string_lossy().into_owned(),
-                        )));
-                    },
-                );
+                crate::host::pick_folder_then(title, current, |studio, _, _, folder| {
+                    studio.handle(crate::panes::Msg::Start(StartMsg::FolderChosen(
+                        folder.to_string_lossy().into_owned(),
+                    )));
+                });
             }
             StartMsg::FolderChosen(folder) => self.location = folder,
             StartMsg::Create => self.create(studio),
@@ -324,12 +321,9 @@ impl StartPane {
                 let drafts = concat_host::capcut::drafts_folder()
                     .map(|folder| folder.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                crate::host::after_dialog(
-                    move || platform::pick_folder(&title, &drafts),
-                    |studio, _, _, folder| {
-                        studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
-                    },
-                );
+                crate::host::pick_folder_then(title, drafts, |studio, _, _, folder| {
+                    studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
+                });
             }
             // Both of the grid's verbs report through the toast, as Open
             // does: the sheet is down while a card is pressed, and a notice
@@ -483,12 +477,9 @@ impl StartPane {
     fn open(&self) {
         let title = t("start.openAProject");
         let current = self.location.clone();
-        crate::host::after_dialog(
-            move || platform::pick_folder(&title, &current),
-            |studio, _, _, folder| {
-                studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
-            },
-        );
+        crate::host::pick_folder_then(title, current, |studio, _, _, folder| {
+            studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
+        });
     }
 
     /// The folder Open was answered with: checked, then opened. A CapCut

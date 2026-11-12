@@ -2019,6 +2019,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::AddFont { .. } => "Add font",
         Command::RemoveFont { .. } => "Remove font",
         Command::UpdateMediaPath { .. } => "Relink media",
+        Command::UpdateFontPath { .. } => "Relink font",
         Command::SetMediaColorRange { .. } => "Colour range",
     }
 }

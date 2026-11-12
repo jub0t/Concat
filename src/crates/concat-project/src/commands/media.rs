@@ -199,6 +199,21 @@ pub(super) fn apply(
             })
         }
 
+        Command::UpdateFontPath {
+            font_path,
+            new_path,
+        } => {
+            let applied = project
+                .fonts
+                .iter_mut()
+                .find(|font| font.path == font_path)
+                .is_some_and(|font| assign(&mut font.path, new_path));
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
         Command::SetMediaColorRange { media_id, range } => {
             let applied = project
                 .media
@@ -218,6 +233,62 @@ pub(super) fn apply(
 #[cfg(test)]
 mod tests {
     use super::same_path_as;
+
+    #[test]
+    fn collecting_media_and_font_paths_is_one_undo_step() {
+        use crate::commands::NewMedia;
+        use crate::model::MediaKind;
+        use crate::{Command, Editor};
+
+        let mut editor = Editor::new();
+        editor
+            .apply(Command::AddMedia {
+                item: NewMedia {
+                    path: "/outside/a.mp4".into(),
+                    name: "a.mp4".into(),
+                    duration: Some(1.0),
+                    kind: MediaKind::Video,
+                    width: None,
+                    height: None,
+                    frame_rate: None,
+                    frame_rate_fraction: None,
+                    video_codec: None,
+                    audio_codec: None,
+                    has_audio: false,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                    color_space: Default::default(),
+                },
+            })
+            .expect("adds media");
+        editor
+            .apply(Command::AddFont {
+                family: "Test Font".into(),
+                path: "/outside/font.ttf".into(),
+            })
+            .expect("adds font");
+
+        editor
+            .apply(Command::Batch {
+                commands: vec![
+                    Command::UpdateMediaPath {
+                        media_id: "m1".into(),
+                        new_path: "/project/media/a.mp4".into(),
+                    },
+                    Command::UpdateFontPath {
+                        font_path: "/outside/font.ttf".into(),
+                        new_path: "/project/media/font.ttf".into(),
+                    },
+                ],
+            })
+            .expect("collects both paths");
+
+        assert_eq!(editor.project().media[0].path, "/project/media/a.mp4");
+        assert_eq!(editor.project().fonts[0].path, "/project/media/font.ttf");
+        assert!(editor.undo(), "one undo reverses the whole batch");
+        assert_eq!(editor.project().media[0].path, "/outside/a.mp4");
+        assert_eq!(editor.project().fonts[0].path, "/outside/font.ttf");
+    }
 
     #[test]
     fn windows_reads_either_slash_and_ignores_case() {

@@ -982,6 +982,13 @@ pub enum Command {
         /// The new absolute path on disk.
         new_path: String,
     },
+    /// Updates a custom font's file path. An unknown current path is a no-op.
+    UpdateFontPath {
+        /// The font file's current path; font paths are unique in a project.
+        font_path: String,
+        /// The new absolute path on disk.
+        new_path: String,
+    },
     /// Says what levels a media file's picture really spans, over whatever
     /// the file claims: the fix for a screen recording written full range
     /// and tagged nothing, which plays grey where it should be black, or a
@@ -1369,6 +1376,7 @@ pub fn apply(
         | Command::AddFont { .. }
         | Command::RemoveFont { .. }
         | Command::UpdateMediaPath { .. }
+        | Command::UpdateFontPath { .. }
         | Command::SetMediaColorRange { .. }) => media::apply(project, mint, command),
         command @ (Command::AddClip { .. }
         | Command::AddClipAtFirstFree { .. }

@@ -116,25 +116,27 @@ impl Studio {
                 // as a range they no longer are, go now: nothing else
                 // sweeps cache/proxy.
                 let project_dir = std::path::Path::new(session.path());
-                let kept: HashSet<std::path::PathBuf> = session
-                    .project()
-                    .media
-                    .iter()
-                    .filter_map(|item| {
-                        concat_host::proxy::path_for(
-                            project_dir,
-                            &item.path,
-                            item.color_range.map(concat_export::engine_range),
-                            item.color_space.is_hdr(),
-                        )
-                    })
-                    .collect();
-                let swept = concat_host::proxy::sweep(project_dir, &kept);
-                if swept > 0 {
-                    log::debug!(
-                        "project: {swept} stale proxies swept from {}",
-                        project_dir.display()
-                    );
+                if session.project().missing_media().is_empty() {
+                    let kept: HashSet<std::path::PathBuf> = session
+                        .project()
+                        .media
+                        .iter()
+                        .filter_map(|item| {
+                            concat_host::proxy::path_for(
+                                project_dir,
+                                &item.path,
+                                item.color_range.map(concat_export::engine_range),
+                                item.color_space.is_hdr(),
+                            )
+                        })
+                        .collect();
+                    let swept = concat_host::proxy::sweep(project_dir, &kept);
+                    if swept > 0 {
+                        log::debug!(
+                            "project: {swept} stale proxies swept from {}",
+                            project_dir.display()
+                        );
+                    }
                 }
                 self.session = Some(session);
                 // The relink dialog belongs to the project that opened it;

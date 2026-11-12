@@ -17,6 +17,8 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.util.Log;
 
 import java.io.File;
@@ -58,6 +60,7 @@ import java.util.List;
 public class ConcatFiles extends Fragment {
     private static final int REQUEST_PICK = 0xC0C4;
     private static final int REQUEST_MICROPHONE = 0xC0C5;
+    private static final int REQUEST_PICK_FOLDER = 0xC0C6;
     private static final String TAG = "concat-files";
 
     /**
@@ -209,6 +212,47 @@ public class ConcatFiles extends Fragment {
     /** Registered from Rust: the picked files' paths, or none. */
     public static native void filesPicked(String[] paths);
 
+    /** Registered from Rust: the selected folder's filesystem path, or null. */
+    public static native void folderPicked(String path);
+
+    /** Opens the special all-files access settings page when access is not granted. */
+    public static boolean ensureAllFilesAccess(Activity activity) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                || Environment.isExternalStorageManager()) {
+            return true;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(Uri.parse("package:" + activity.getPackageName()));
+            activity.startActivity(intent);
+        } catch (Exception e) {
+            Log.w(TAG, "could not open all-files access settings", e);
+        }
+        return false;
+    }
+
+    /** Opens the system folder picker. The answer comes through {@link #folderPicked}. */
+    public static void pickFolder(final Activity activity) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                ConcatFiles fragment = new ConcatFiles();
+                activity.getFragmentManager()
+                        .beginTransaction()
+                        .add(fragment, TAG)
+                        .commitAllowingStateLoss();
+                activity.getFragmentManager().executePendingTransactions();
+
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                try {
+                    fragment.startActivityForResult(intent, REQUEST_PICK_FOLDER);
+                } catch (Exception e) {
+                    fragment.doneFolder(null);
+                }
+            }
+        });
+    }
+
     /**
      * Shows the picker, offering the MIME types in {@code types} - comma
      * separated, "video/*,audio/*" - or every file when it is empty. From
@@ -243,6 +287,11 @@ public class ConcatFiles extends Fragment {
 
     @Override
     public void onActivityResult(int request, int result, Intent data) {
+        if (request == REQUEST_PICK_FOLDER) {
+            Uri uri = result == Activity.RESULT_OK && data != null ? data.getData() : null;
+            doneFolder(uri);
+            return;
+        }
         if (request != REQUEST_PICK) {
             return;
         }
@@ -261,6 +310,48 @@ public class ConcatFiles extends Fragment {
             }
         }
         done(uris);
+    }
+
+    /** Converts the picked storage volume's document ID to its plain path. */
+    private static String folderPath(Uri uri) {
+        if (uri == null) {
+            return null;
+        }
+        try {
+            String id = DocumentsContract.getTreeDocumentId(uri);
+            int separator = id.indexOf(':');
+            if (separator <= 0) {
+                return null;
+            }
+            String volume = id.substring(0, separator);
+            String relative = id.substring(separator + 1);
+            String root;
+            if ("primary".equalsIgnoreCase(volume)) {
+                root = Environment.getExternalStorageDirectory().getAbsolutePath();
+            } else if (volume.matches("[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}")) {
+                root = "/storage/" + volume;
+            } else {
+                return null;
+            }
+            for (String part : relative.split("/")) {
+                if (part.isEmpty() || ".".equals(part) || "..".equals(part)) {
+                    return null;
+                }
+            }
+            return relative.isEmpty() ? root : root + "/" + relative;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not resolve the selected folder", e);
+            return null;
+        }
+    }
+
+    /** Sends the folder path, including null when the picker was canceled. */
+    private void doneFolder(Uri uri) {
+        try {
+            getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
+        } catch (Exception ignored) {
+        }
+        folderPicked(folderPath(uri));
     }
 
     /** Copies what was picked and reports it; then the fragment goes. */

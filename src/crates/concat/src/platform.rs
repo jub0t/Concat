@@ -418,6 +418,11 @@ pub fn phone() -> bool {
         || std::env::var_os("CONCAT_PHONE").is_some_and(|value| !value.is_empty() && value != "0")
 }
 
+/// Whether this platform has a folder picker for project locations.
+pub const fn folder_picker_available() -> bool {
+    !cfg!(target_os = "ios")
+}
+
 /// Chooses and installs the backend, and hands back the device the
 /// renderer and the engine's compositor share, when there is one.
 ///
@@ -744,6 +749,27 @@ pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
     }
 }
 
+/// Asks for a folder and calls back when a phone's system picker returns.
+/// Desktop dialogs answer immediately; Android answers after the picker closes.
+pub fn pick_folder_async(
+    title: &str,
+    start: &str,
+    on_picked: impl FnOnce(Option<PathBuf>) + Send + 'static,
+) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    on_picked(pick_folder(title, start));
+    #[cfg(target_os = "android")]
+    match FOLDER_PICKER.get() {
+        Some(picker) => picker(title.to_owned(), start.to_owned(), Box::new(on_picked)),
+        None => on_picked(None),
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (title, start);
+        on_picked(None);
+    }
+}
+
 /// Where a folder dialog asked to start at `start` can open: `start`
 /// itself, or the nearest folder above it that exists. A new project's
 /// default, `<Desktop>/Concat`, is not made until the first project is, and
@@ -763,6 +789,19 @@ fn existing_folder(start: &str) -> Option<&std::path::Path> {
 /// crate before the window runs; see [`install_file_picker`].
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub type FilePicker = Box<dyn Fn(PickKinds, Box<dyn FnOnce(Vec<PathBuf>) + Send>) + Send + Sync>;
+
+#[cfg(target_os = "android")]
+pub type FolderPicker =
+    Box<dyn Fn(String, String, Box<dyn FnOnce(Option<PathBuf>) + Send>) + Send + Sync>;
+
+#[cfg(target_os = "android")]
+static FOLDER_PICKER: std::sync::OnceLock<FolderPicker> = std::sync::OnceLock::new();
+
+/// Installs Android's asynchronous folder picker. Once; a second call is ignored.
+#[cfg(target_os = "android")]
+pub fn install_folder_picker(picker: FolderPicker) {
+    let _ = FOLDER_PICKER.set(picker);
+}
 
 /// What a phone's picker is asked to offer, from the desktop dialog's
 /// list of extensions: media - some of video, sound and pictures - which
