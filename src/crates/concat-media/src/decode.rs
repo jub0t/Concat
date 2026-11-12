@@ -623,6 +623,8 @@ struct Landing {
 struct Source {
     frame: Video,
     pts: Option<Rational>,
+    /// How long the picture lasts, as the stream says, where it says.
+    lasts: Option<Rational>,
 }
 
 /// Decodes a file through libavcodec and libavfilter.
@@ -1281,6 +1283,11 @@ impl Decoder {
             {
                 continue;
             }
+            // Read before the picture is copied off a device: the copy
+            // carries the pixels, not the stream's timing.
+            // SAFETY: a frame this reader owns; a plain field read.
+            let lasts = ffi::seconds(unsafe { (*frame.as_ptr()).duration }, self.time_base)
+                .filter(|lasts| *lasts > Rational::ZERO);
             if let Some(&OnChip::Accel(device, format)) = self.hardware.as_ref() {
                 if frame.format() == format {
                     frame = match hardware::download(&frame) {
@@ -1328,7 +1335,7 @@ impl Decoder {
             self.discard_before = None;
             self.discard_through = None;
             self.last_pts = pts;
-            return Ok(Some(Source { frame, pts }));
+            return Ok(Some(Source { frame, pts, lasts }));
         }
     }
 
@@ -1494,12 +1501,20 @@ impl Decoder {
             return Ok(None);
         };
         if self.source_done && self.pending.is_none() && !self.options.looping {
-            // Past the last frame. It has already shown once at its own
-            // instant; the file is over. Its stamp is read with the same
+            // Past the last frame: the file is over once the last frame has
+            // lasted its own length - as long as the stream says it does,
+            // and never less than one output frame, so it shows at least
+            // once. Held one output frame instead, the last frame of 30 fps
+            // footage in a 60 fps export, or of any clip slowed down, was
+            // let go half-way through its own time and the clip's last
+            // frame came out black (#756). Its stamp is read with the same
             // tick of slack as above: a last frame stamped late would
             // otherwise be held for one output frame more than it lasts.
+            let lasts = current.lasts.map_or(rate.frame_duration(), |lasts| {
+                lasts.max(rate.frame_duration())
+            });
             if let Some(pts) = current.pts
-                && pts + rate.frame_duration() <= due
+                && pts + lasts <= due
             {
                 return Ok(None);
             }
@@ -2253,6 +2268,31 @@ mod tests {
             frames.push((decoder.position(), frame));
         }
         frames
+    }
+
+    /// Paced faster than it was shot, a file's last frame lasts its own
+    /// length: one second of 30 fps read at 60 is sixty frames, the last
+    /// two of them its last picture. The last frame used to last one
+    /// output frame, and the sixtieth of 30 fps footage in a 60 fps export
+    /// came out black (#756).
+    #[test]
+    fn a_paced_files_last_frame_lasts_its_own_length() {
+        let path = grey_steps_in("last-frame", "mp4");
+        let options = DecodeOptions::default().scaled_to(64, 64).in_software();
+        for (fps, count) in [(60, 60), (30, 30)] {
+            let mut paced =
+                Decoder::open(&path, &options.clone().at_rate(FrameRate::from_int(fps)))
+                    .expect("opens");
+            let frames = drain(&mut paced);
+            assert_eq!(frames.len(), count, "one second read at {fps} fps");
+            let last = &frames[count - 1].1;
+            assert!(
+                (i32::from(last.pixels()[0]) - 29 * 8).abs() <= 6,
+                "at {fps} fps the last frame is the file's last picture, not {}",
+                last.pixels()[0]
+            );
+        }
+        let _ = std::fs::remove_file(&path);
     }
 
     /// The largest difference between two frames, over every channel.
