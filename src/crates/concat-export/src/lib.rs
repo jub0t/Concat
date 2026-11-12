@@ -776,7 +776,9 @@ fn resolve_transitions_at(
         let first = quantise_at(start, rate, origin);
         spans.push(TransitionSpan {
             start: first,
-            end: first + quantise(end - start, rate),
+            // Its end rounded as a clip's is, so it ends on the frame the
+            // clips it runs over do.
+            end: quantise_at(end, rate, origin),
             track: lane,
             id: spec.kind,
             params: spec.params,
@@ -1220,18 +1222,14 @@ pub fn render_on(
 }
 
 /// The timeline's end and how many frames it runs for, on the frame grid the
-/// engine quantises every clip onto: a clip's start and its duration are each
-/// rounded to that grid separately on the way into the timeline, so the
-/// timeline the frames are drawn from can run a frame past - or stop a frame
-/// short of - what the f64 seconds add up to, whose own whole rounding is a
-/// third answer again. A clip starting half a frame in and running a further
-/// half-frame count lost the last frame of the last clip that way; a pair
-/// that rounds down at both ends gained a black one after it. The mix takes
-/// the same end, so the muxer joins two tracks of one length.
+/// engine quantises every clip onto: the last clip's end, rounded to that
+/// grid as `build_timeline` rounds it, so the frames drawn are the
+/// timeline's own - not one past its last clip, nor one short of it. The
+/// mix takes the same end, so the muxer joins two tracks of one length.
 fn timeline_extent(clips: &[ExportClip], rate: FrameRate, origin: f64) -> (Rational, i64) {
     let end = clips
         .iter()
-        .map(|clip| quantise_at(clip.start, rate, origin) + quantise(clip.duration, rate))
+        .map(|clip| resolve::clip_end(clip, rate, origin))
         .max()
         .unwrap_or(Rational::ZERO);
     (end, rate.frames_in(end))
@@ -4781,24 +4779,56 @@ mod tests {
         assert_eq!(resolve::planned_geometry(&untouched), None);
     }
 
-    /// The exported frame count is the timeline's own, not the f64 seconds'
-    /// rounded whole. A clip's start and its duration are each rounded to the
-    /// frame grid on the way into the timeline, and the sum rounded once
-    /// disagrees a frame either side: half a frame under half a frame lost the
-    /// last frame of the last clip - the engine drew to frame 301, the export
-    /// stopped at 300 - and a pair that rounds down at both ends gained a
-    /// black frame after everything ended.
+    /// The exported frame count is the timeline's own: the last clip's end,
+    /// rounded to the frame grid the way the timeline rounds it. A clip
+    /// starting half a frame in and running a further 296 and a half ends
+    /// on frame 300, and so does one whose ends both round the other way;
+    /// rounding the start and the length apart had them end on 301 and 299.
     #[test]
     fn the_exported_frame_count_is_the_timelines_own() {
-        let half = vec![clip("video", 0, 3.5 / 30.0, 296.5 / 30.0, 0.0)];
-        let (end, frames) = timeline_extent(&half, FrameRate::THIRTY, 0.0);
-        assert_eq!(end, Rational::new(301, 30));
-        assert_eq!(frames, 301, "the last frame of the last clip is drawn");
+        for (label, start, length) in [("half", 3.5, 296.5), ("down", 3.4, 296.4)] {
+            let clips = vec![clip("video", 0, start / 30.0, length / 30.0, 0.0)];
+            let (end, frames) = timeline_extent(&clips, FrameRate::THIRTY, 0.0);
+            assert_eq!(end, Rational::new(300, 30), "{label}");
+            assert_eq!(frames, 300, "{label}");
+            let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+            assert_eq!(
+                plan.built.timeline.duration(),
+                end,
+                "{label}: the timeline's own end"
+            );
+        }
+    }
 
-        let down = vec![clip("video", 0, 3.4 / 30.0, 296.4 / 30.0, 0.0)];
-        let (end, frames) = timeline_extent(&down, FrameRate::THIRTY, 0.0);
-        assert_eq!(end, Rational::new(299, 30));
-        assert_eq!(frames, 299, "no black frame past the end");
+    /// Two clips that touch touch on the frame grid, wherever between
+    /// frames they meet: no frame between them is left black (#756), and
+    /// none is drawn by both.
+    #[test]
+    fn touching_clips_touch_on_the_frame_grid() {
+        let rate = FrameRate::THIRTY;
+        // Starts and cuts at every tenth of a frame, each rounding its own
+        // way.
+        for start in 0..10 {
+            for cut in 0..10 {
+                let start = (3.0 + f64::from(start) / 10.0) / 30.0;
+                let at = start + (30.0 + f64::from(cut) / 10.0) / 30.0;
+                let clips = [
+                    clip("video", 0, start, at - start, 0.0),
+                    clip("video", 0, at, 1.0, 0.0),
+                ];
+                let plan =
+                    preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+                let timeline = &plan.built.timeline;
+                let first = (start * 30.0).round() as i64;
+                for index in first..timeline.frame_count() {
+                    let layers = plan_frame(timeline, rate.time_of_frame(index)).layers.len();
+                    assert_eq!(
+                        layers, 1,
+                        "start {start}, cut {at}: frame {index} has {layers} pictures"
+                    );
+                }
+            }
+        }
     }
 
     /// How fast a plain export runs, and where its time goes: ten seconds

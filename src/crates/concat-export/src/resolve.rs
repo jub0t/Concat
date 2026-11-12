@@ -294,9 +294,12 @@ pub(crate) fn build_timeline(
     for clip in visible {
         // Quantise to the frame grid on the way in. The UI works in f64
         // seconds; the engine works in exact rationals, and this is the seam
-        // where a value stops being approximate.
+        // where a value stops being approximate. The two ends are rounded,
+        // not the start and the length: two clips that touch then touch on
+        // the grid too, where a start and a length rounded apart left a
+        // frame between them black (#756) or drew one frame twice over.
         let start = quantise_at(clip.start, rate, request.effect_time_offset);
-        let duration = quantise(clip.duration, rate);
+        let duration = clip_end(clip, rate, request.effect_time_offset) - start;
         if duration.is_zero() {
             continue;
         }
@@ -570,6 +573,12 @@ fn overscan_of(clip: &ExportClip) -> f64 {
 
 pub(crate) fn quantise(seconds: f64, rate: FrameRate) -> Rational {
     rate.time_of_frame((seconds * rate.fps().as_f64()).round().max(0.0) as i64)
+}
+
+/// Where a clip ends on the frame grid: its end rounded as its start is,
+/// so the clip after it, starting where it ends, starts on the same frame.
+pub(crate) fn clip_end(clip: &ExportClip, rate: FrameRate, origin: f64) -> Rational {
+    quantise_at(clip.start + clip.duration, rate, origin)
 }
 
 /// Rebase a frame-grid timestamp without rounding a raw subtraction. Audio
