@@ -112,21 +112,55 @@ pub fn run_on(
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
 ) -> Result<String, String> {
+    // What a death part way through needs to be read: what was asked for,
+    // which stage it was in, and how far that stage had got. The stages
+    // and every quarter of one are a handful of lines an export.
+    let fps = request.rate_num as f64 / request.rate_den.max(1) as f64;
+    log::info!(
+        "export: {}x{} {fps:.3} fps · {}{} · {} kbps · {} clips",
+        request.width,
+        request.height,
+        request.codec.name(),
+        if request.ten_bit { " 10-bit" } else { "" },
+        request.bitrate_kbps,
+        request.clips.len(),
+    );
+    let mut stage_now = "";
+    let mut quarter = 0;
+    let mut reached = (0, 0);
     let mut report = |frame: i64, total: i64, stage: &'static str| {
+        if stage != stage_now {
+            log::info!("export: {stage} · {total} frames");
+            stage_now = stage;
+            quarter = 0;
+        }
+        let now = if total > 0 { frame * 4 / total } else { 0 };
+        if (1..4).contains(&now) && now > quarter {
+            log::info!("export: {stage} · frame {frame} of {total}");
+            quarter = now;
+        }
+        reached = (frame, total);
         progress(Progress {
             frame,
             total,
             stage,
         });
     };
-    render_on(
+    let result = render_on(
         request,
         compositor,
         Reporter {
             progress: &mut report,
             cancel,
         },
-    )
+    );
+    // How it ended, and where its time went, is the engine's own line
+    // (`render_on`); this adds only how far a stopped one had got.
+    if result.is_err() {
+        let (frame, total) = reached;
+        log::info!("export: stopped in {stage_now} at frame {frame} of {total}");
+    }
+    result
 }
 
 /// The slot for the one export that can run at a time - enforced, not
