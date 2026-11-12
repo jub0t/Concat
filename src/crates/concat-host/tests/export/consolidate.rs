@@ -399,8 +399,22 @@ fn after_a_merge_at_a_fractional_start_every_frame_exports_as_before() {
     }
 }
 
-/// Forty-eight frames at 30 fps, each its own red, four levels apart, so
-/// a frame lost or drawn twice is told from its neighbours.
+/// The bits of a counting frame's number, and the one lit block that says
+/// it is footage at all: a row of eight blocks across the middle of the
+/// frame, the first always lit, the next six the number's bits, lowest
+/// first.
+const COUNT_BLOCKS: u32 = 8;
+const COUNT_BITS: u32 = 6;
+/// A lit block and an unlit one: two hundred levels apart, so a lossy
+/// encoder that moves a level by tens still reads each bit the same.
+const LIT: u8 = 230;
+const UNLIT: u8 = 30;
+
+/// Forty-eight frames at 30 fps, each showing its own number in blocks
+/// (see [`COUNT_BLOCKS`]). A frame is told by its number, not by a shade a
+/// step from its neighbours': the CPU encoders the CI runners write with
+/// move a flat colour by more than such a step, and a frame read back
+/// eleven levels off looked like one three frames earlier.
 fn counting(path: &Path) {
     let options = EncodeOptions {
         codec: VideoCodec::H264,
@@ -417,11 +431,46 @@ fn counting(path: &Path) {
     let mut encoder = Encoder::create(path, WIDTH, HEIGHT, FrameRate::THIRTY, &options)
         .expect("the linked FFmpeg encodes");
     let mut frame = Frame::black(WIDTH, HEIGHT);
-    for index in 0..48u8 {
-        frame.fill([20 + 4 * index, 60, 200, 255]);
+    let block = WIDTH / COUNT_BLOCKS;
+    for number in 0..48u32 {
+        frame.fill([UNLIT, UNLIT, UNLIT, 255]);
+        let stride = WIDTH as usize * 4;
+        for slot in 0..COUNT_BLOCKS {
+            let lit =
+                slot == 0 || (1..=COUNT_BITS).contains(&slot) && number >> (slot - 1) & 1 == 1;
+            if !lit {
+                continue;
+            }
+            for y in 0..HEIGHT as usize {
+                for x in (slot * block) as usize..((slot + 1) * block) as usize {
+                    let at = y * stride + x * 4;
+                    frame.pixels_mut()[at..at + 4].copy_from_slice(&[LIT, LIT, LIT, 255]);
+                }
+            }
+        }
         encoder.write_frame(&frame).expect("writes a frame");
     }
     encoder.finish().expect("finishes the count");
+}
+
+/// The number a read-back frame of [`counting`] shows, or None where it
+/// shows no footage - a gap. Each block is read at its centre against the
+/// level half-way between lit and unlit.
+fn number_of(frame: &Frame) -> Option<u32> {
+    let block = frame.width() / COUNT_BLOCKS;
+    let lit = |slot: u32| {
+        let [r, g, b, _] = frame
+            .pixel(slot * block + block / 2, frame.height() / 2)
+            .expect("inside the frame");
+        let level = (u32::from(r) + u32::from(g) + u32::from(b)) / 3;
+        level > (u32::from(LIT) + u32::from(UNLIT)) / 2
+    };
+    lit(0).then(|| {
+        (1..=COUNT_BITS)
+            .filter(|&slot| lit(slot))
+            .map(|slot| 1 << (slot - 1))
+            .sum()
+    })
 }
 
 /// #756: two halves of a clip split between frames could not be merged.
@@ -510,22 +559,17 @@ fn pieces_cut_between_frames_merge_into_the_frames_they_covered() {
             before.frames.len(),
             "{label}: the timeline is as long"
         );
-        let dark = |pixel: [u8; 4]| pixel[..3].iter().all(|channel| *channel < 24);
         let mut footage = 0;
+        let mut gap_frames = 0;
         for (index, (got, want)) in after_merge.frames.iter().zip(&before.frames).enumerate() {
-            let got = got.pixel(WIDTH / 2, HEIGHT / 2).expect("a pixel");
-            let want = want.pixel(WIDTH / 2, HEIGHT / 2).expect("a pixel");
-            footage += usize::from(!dark(want));
-            assert!(
-                near(got, want),
-                "{label}: frame {index} is {got:?} after merging, {want:?} before"
+            let (got, want) = (number_of(got), number_of(want));
+            footage += usize::from(want.is_some());
+            gap_frames += usize::from(want.is_none());
+            assert_eq!(
+                got, want,
+                "{label}: frame {index} shows source frame {got:?} after merging, {want:?} before"
             );
         }
-        let gap_frames = before
-            .frames
-            .iter()
-            .filter(|frame| dark(frame.pixel(WIDTH / 2, HEIGHT / 2).expect("a pixel")))
-            .count();
         assert!(gap_frames > 0 && footage > 0, "{label}: a gap and footage");
     }
 }
