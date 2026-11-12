@@ -1016,6 +1016,18 @@ fn is_a_picture(fonts: &Fonts, text: &str) -> bool {
     white.rgba.iter().any(|&byte| byte != 0) && white.rgba == red.rgba
 }
 
+/// How many glyphs the face set `text` in. Letter spacing falls between
+/// glyphs and after none, so the width a spacing of 20 pixels adds is 20
+/// for each glyph after the first: one glyph means the face joined the
+/// sequence, more mean it drew its parts.
+fn glyphs_of(fonts: &Fonts, text: &str) -> usize {
+    let mut loose = title(text);
+    loose.tracking = 0.05; // 20 pixels
+    let gap =
+        paint(fonts, &loose).block_width as f32 - paint(fonts, &title(text)).block_width as f32;
+    (gap / 20.0).round() as usize + 1
+}
+
 /// Sequences joined into one picture by the face - a family joined with
 /// zero-width joiners, a skin tone, a flag, a heart asked for in colour -
 /// draw as one emoji, about one emoji wide, as the face's picture.
@@ -1023,11 +1035,13 @@ fn is_a_picture(fonts: &Fonts, text: &str) -> bool {
 /// Which sequences a face has a picture for is the face's to say: Windows'
 /// has no flags, and Noto Color Emoji (Linux, Android) draws a family as a
 /// grey picture, so the picture is told apart from an outline by ignoring
-/// the fill, not by being coloured. Where the face joins a sequence into
-/// one glyph - about one emoji wide - it must be that picture. Apple's face
-/// has all four, so there each must be one wide and in colour. Concat
-/// joining what any face offers is also settled with an assembled face, in
-/// `a_sequence_the_face_joins_draws_as_one_picture`.
+/// the fill, not by being coloured. Whether the face joined a sequence is
+/// read from how many glyphs it was set in. A joined sequence must be that
+/// picture. One the face did not join is its parts, each drawn: a flag
+/// from a face with no flags is its two letters, set in the title's fill.
+/// Apple's face has all four, so there each must be one glyph and in
+/// colour. Concat joining what any face offers is also settled with an
+/// assembled face, in `a_sequence_the_face_joins_draws_as_one_picture`.
 #[test]
 fn emoji_sequences_draw_as_one_picture() {
     if !has_colour_emoji() {
@@ -1047,12 +1061,30 @@ fn emoji_sequences_draw_as_one_picture() {
         "\u{2764}\u{FE0F}",
     ] {
         let wide = width(sequence);
-        assert!(wide > 0.0, "{sequence}: it renders");
+        let glyphs = glyphs_of(system(), sequence);
+        let picture = is_a_picture(system(), sequence);
+        let measured = format!(
+            "{sequence}: {glyphs} glyphs, {:.2} em wide (one emoji {:.2} em), \
+             the fill {} the pixels, apple {apple}",
+            wide / EM,
+            one / EM,
+            if picture { "left" } else { "changed" },
+        );
+        assert!(wide > 0.0, "it renders - {measured}");
         if apple {
-            assert!(wide <= one * 1.3, "{sequence}: {wide} vs {one}");
-            assert!(draws_in_colour(sequence), "{sequence} in colour");
-        } else if wide <= one * 1.3 {
-            assert!(is_a_picture(system(), sequence), "{sequence} as a picture");
+            assert_eq!(glyphs, 1, "one glyph - {measured}");
+            assert!(draws_in_colour(sequence), "in colour - {measured}");
+        } else if glyphs == 1 {
+            assert!(picture, "one glyph is a picture - {measured}");
+            assert!(wide <= one * 1.3, "one emoji wide - {measured}");
+        } else {
+            // The face has no picture for it: its parts, drawn in the fill.
+            let characters = sequence.chars().count();
+            assert!(
+                glyphs <= characters,
+                "no more glyphs than characters - {measured}"
+            );
+            assert!(!picture, "its parts are letters in the fill - {measured}");
         }
     }
 }
