@@ -37,7 +37,8 @@ log = { version = "0.4", features = ["std"] }
 concat-log.workspace = true
 
 # Transcription: whisper.cpp in-process. Built from source by cmake at build
-# time; on macOS with Metal so the encoder runs on the GPU. `raw-api` for
+# time; on macOS with Metal so the encoder runs on Apple silicon's GPU (an
+# Intel Mac's is not used: transcribe.rs, `whisper_gpu`). `raw-api` for
 # ggml's backend registry: where whisper.cpp is a shared build, its CPU
 # kernels are loaded by hand (transcribe.rs, `cpu_backend`).
 whisper-rs = { version = "0.16", features = ["raw-api"] }

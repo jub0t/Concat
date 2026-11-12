@@ -5,8 +5,9 @@
 //!
 //! whisper.cpp runs in-process through `whisper-rs`: no binary to ship or
 //! find, and cancellation is a
-//! callback returning `true`. On macOS the Metal build is used, so the
-//! encoder runs on the GPU.
+//! callback returning `true`. On macOS the Metal build is used, so on a
+//! Mac with Apple's own GPU the encoder runs there; an Intel Mac's GPU is
+//! left alone (`whisper_gpu`).
 //!
 //! Two pieces:
 //!
@@ -339,6 +340,104 @@ pub fn cpu_backend() -> Result<String, String> {
                 "whisper's CPU kernels (ggml-cpu-*) are missing from {} - reinstall Concat",
                 folders[0].display()
             ))
+        })
+        .clone()
+}
+
+/// Whether whisper runs on this machine's GPU: `Ok` with the GPU's name,
+/// or `Err` with why the CPU runs it instead. Asked once per process, after
+/// [`cpu_backend`], and the answer is logged, so a report says which path
+/// its captions took.
+///
+/// On a Mac the GPU path is Metal, and whisper.cpp's Metal kernels are
+/// written for Apple's own GPUs, family 7 (M1) and newer. On an older one -
+/// every Intel Mac's, Intel or AMD - ggml keeps the matrix products, the
+/// softmax and the norms on the CPU and sends the rest to the GPU, building
+/// each kernel the first time a graph needs it. A kernel the driver will
+/// not build comes back as no kernel at all, which this ggml then reads
+/// through: a crash at address 0 on the thread that called whisper, the
+/// moment captions start (#758; llama.cpp #25648 is the same read). The
+/// Intel Iris of a 2013 MacBook Pro failed to build its kernels this way
+/// (whisper.cpp #3116). whisper.cpp 1.7 refused these GPUs itself ("Metal
+/// GPU does not support family 7 - falling back to CPU"); 1.8 dropped the
+/// check, and this puts it back. They gain little from Metal besides: the
+/// heavy work stayed on the CPU.
+///
+/// The builds for other systems have no GPU path at all.
+fn whisper_gpu() -> Result<String, String> {
+    use whisper_rs::whisper_rs_sys as sys;
+
+    fn ask() -> Result<String, String> {
+        // SAFETY: lookups in ggml's registry of devices, which ggml guards
+        // itself; descriptions are C strings ggml owns for the life of the
+        // process.
+        let (device, name) = unsafe {
+            let device = (0..sys::ggml_backend_dev_count())
+                .map(|index| sys::ggml_backend_dev_get(index))
+                .find(|&device| {
+                    !device.is_null()
+                        && matches!(
+                            sys::ggml_backend_dev_type(device),
+                            sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU
+                                | sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU
+                        )
+                })
+                .ok_or_else(|| "this build has no GPU path".to_owned())?;
+            let description = sys::ggml_backend_dev_description(device);
+            let name = if description.is_null() {
+                "the GPU".to_owned()
+            } else {
+                std::ffi::CStr::from_ptr(description)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            (device, name)
+        };
+
+        #[cfg(target_os = "macos")]
+        {
+            unsafe extern "C" {
+                // ggml-metal.h. whisper-rs-sys's bindings carry it only when
+                // bindgen ran over that header, so it is named here.
+                fn ggml_backend_metal_supports_family(
+                    backend: sys::ggml_backend_t,
+                    family: std::os::raw::c_int,
+                ) -> bool;
+            }
+            // SAFETY: `device` is the registry's Metal device, found above;
+            // the backend made from it is asked its family and freed.
+            let apple7 = unsafe {
+                let backend = sys::ggml_backend_dev_init(device, std::ptr::null());
+                if backend.is_null() {
+                    return Err(format!("{name} would not start Metal"));
+                }
+                let apple7 = ggml_backend_metal_supports_family(backend, 7);
+                sys::ggml_backend_free(backend);
+                apple7
+            };
+            if !apple7 {
+                return Err(format!(
+                    "{name} is older than Apple's GPU family 7, which whisper's Metal kernels are written for"
+                ));
+            }
+            Ok(format!("{name} · Metal"))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = device;
+            Ok(name)
+        }
+    }
+
+    static ANSWER: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    ANSWER
+        .get_or_init(|| {
+            let answer = ask();
+            match &answer {
+                Ok(gpu) => log::info!("captions: whisper runs on the GPU · {gpu}"),
+                Err(why) => log::info!("captions: whisper runs on the CPU · {why}"),
+            }
+            answer
         })
         .clone()
 }
@@ -881,26 +980,27 @@ impl Transcriber {
             );
         }
 
+        // The GPU only where whisper's kernels are written for it; see
+        // `whisper_gpu`. An Intel Mac's crashed here (#758).
+        let gpu = recipe.gpu && whisper_gpu().is_ok();
         let mut loaded = self
             .model
             .lock()
             .map_err(|_| "transcriber state poisoned".to_owned())?;
         if loaded
             .as_ref()
-            .is_none_or(|model| model.id != request.model_id || model.gpu != recipe.gpu)
+            .is_none_or(|model| model.id != request.model_id || model.gpu != gpu)
         {
             // Load before overwriting: a failed load keeps the old model.
             progress(JobStage::Loading);
             cpu_backend()?;
             let mut context_params = WhisperContextParameters::default();
-            if !recipe.gpu {
-                context_params.use_gpu(false);
-            }
+            context_params.use_gpu(gpu);
             let context = WhisperContext::new_with_params(&model_path, context_params)
                 .map_err(|error| format!("could not load the model: {error}"))?;
             *loaded = Some(LoadedModel {
                 id: request.model_id.clone(),
-                gpu: recipe.gpu,
+                gpu,
                 context,
             });
         }
@@ -1352,6 +1452,23 @@ mod tests {
         assert_eq!(status.models.len(), KNOWN_MODELS.len());
         assert!(status.models.iter().all(|model| !model.downloaded));
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// Whisper is given the GPU only where its kernels are written for it:
+    /// every Apple silicon Mac's GPU is family 7 or newer, so there it is
+    /// taken, and the builds for other systems have none to take. An Intel
+    /// Mac's is refused (#758); no machine here can show that, and the
+    /// reason is in the log line `whisper_gpu` writes.
+    #[test]
+    fn whisper_takes_the_gpu_only_where_its_kernels_are_written_for_it() {
+        cpu_backend().expect("whisper has a CPU");
+        let answer = whisper_gpu();
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            let gpu = answer.expect("an Apple silicon GPU runs whisper");
+            assert!(gpu.ends_with(" · Metal"), "{gpu}");
+        } else if !cfg!(target_os = "macos") {
+            assert_eq!(answer, Err("this build has no GPU path".to_owned()));
+        }
     }
 
     /// The list is every language whisper knows, each once, under the
