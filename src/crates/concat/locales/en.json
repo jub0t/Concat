@@ -391,6 +391,7 @@
   "meters.clipped": "The mix clipped: a sample reached full scale. Click to clear.",
   "meters.peak": "Peak: the loudest the last moment reached, in dB below full scale.",
   "modal.copied": "Copied",
+  "monitor.drawnSlowly": "Concat is drawing the preview the slow way, without effects, until it restarts.",
   "monitor.previewFailed": "Preview failed: {0}",
   "motion.amount": "Amount",
   "motion.animate": "Animate",

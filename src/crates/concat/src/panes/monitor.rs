@@ -23,7 +23,7 @@ use concat_host::preview::FrameSpec;
 use concat_project::model::Project;
 
 use crate::host::{spawn_detached, spawn_frame};
-use crate::i18n::tf;
+use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::studio::Studio;
 
@@ -119,6 +119,9 @@ pub struct MonitorPane {
     /// Said once per project: a monitor that cannot decode says so, and
     /// then stops repeating itself.
     failed: bool,
+    /// Said once a run: the picture is drawn on the CPU, slower and without
+    /// effects, since no graphics device would draw it.
+    told_slow: bool,
     /// 0 Full, 1 Half, 2 Quarter of the output size, by timeline id. Kept
     /// per timeline because the cost it trades against is the timeline's
     /// frame - a 4K cut wants the quarter setting that a 1080p cut beside
@@ -262,6 +265,10 @@ impl MonitorPane {
                         .map_err(|error| format!("preview texture: {error}"))
                 }),
             Ok(Picture::Pixels(bytes, width, height, _)) => {
+                if !self.told_slow && studio.host.monitor.drawn_slowly() {
+                    self.told_slow = true;
+                    studio.notify(&t("monitor.drawnSlowly"), false);
+                }
                 let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                     &bytes, width, height,
                 );
