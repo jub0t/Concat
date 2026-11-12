@@ -1880,7 +1880,7 @@ mod tests {
     }
 
     #[test]
-    fn consolidation_refuses_subframe_spans_that_would_lose_a_rendered_frame() {
+    fn consolidation_accepts_subframe_spans_now_that_both_ends_are_rounded() {
         let (mut editor, media_id, first) = fixture();
         let track = editor.project().active().tracks[0].id.clone();
         let second = lane(&mut editor, &media_id, &track, &[10.0])[0].clone();
@@ -1889,7 +1889,7 @@ mod tests {
             clip.start = start;
             clip.duration = 0.04;
         }
-        assert!(crate::consolidation_clips(editor.project().active(), &[first, second]).is_err());
+        assert!(crate::consolidation_clips(editor.project().active(), &[first, second]).is_ok());
     }
 
     #[test]
