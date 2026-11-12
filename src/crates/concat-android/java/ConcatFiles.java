@@ -334,7 +334,8 @@ public class ConcatFiles extends Fragment {
      * that process was writing (as {@code log} named it for this one), or
      * empty; "died" when it ended in a way nobody asked for - a crash, a
      * hang, killed while on screen - or "ended"; and what the system says,
-     * for the log.
+     * for the log. A native crash brings its signal, thread, abort message
+     * and top frames, read from the crash report the system kept.
      *
      * This run is then marked with {@code log}, so the next run knows which
      * file this one is.
@@ -418,9 +419,188 @@ public class ConcatFiles extends Fragment {
         if (exit.getDescription() != null) {
             detail.append(" · \"").append(exit.getDescription()).append('"');
         }
+        if (exit.getReason() == ApplicationExitInfo.REASON_CRASH_NATIVE
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                InputStream trace = exit.getTraceInputStream();
+                if (trace != null) {
+                    detail.append(" · ").append(Tombstone.summary(readAll(trace)));
+                }
+            } catch (IOException | RuntimeException e) {
+                detail.append(" · its crash report could not be read: ").append(e);
+            }
+        }
         byte[] mark = exit.getProcessStateSummary();
         String log = mark == null ? "" : new String(mark, StandardCharsets.UTF_8);
         return new String[] {log, died ? "died" : "ended", detail.toString()};
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1 << 16];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+            }
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
+
+    /**
+     * The few fields of a native crash report worth a log line, read from
+     * the system's protobuf (debuggerd's tombstone.proto) by hand: the
+     * signal, the thread it hit, the abort message and the top frames.
+     */
+    static final class Tombstone {
+        private final byte[] data;
+        private int at;
+        private final int end;
+
+        private Tombstone(byte[] data, int from, int end) {
+            this.data = data;
+            this.at = from;
+            this.end = end;
+        }
+
+        static String summary(byte[] data) {
+            Tombstone top = new Tombstone(data, 0, data.length);
+            long tid = -1;
+            String signal = "", abort = "", cause = "";
+            java.util.Map<Long, int[]> threads = new java.util.HashMap<>();
+            while (top.more()) {
+                long key = top.varint();
+                int field = (int) (key >>> 3);
+                if (field == 6 && (key & 7) == 0) {
+                    tid = top.varint();
+                } else if (field == 10 && (key & 7) == 2) {
+                    Tombstone info = top.message();
+                    String name = "", code = "";
+                    while (info.more()) {
+                        long k = info.varint();
+                        if (k >>> 3 == 2 && (k & 7) == 2) name = info.string();
+                        else if (k >>> 3 == 4 && (k & 7) == 2) code = info.string();
+                        else info.skip(k);
+                    }
+                    signal = name + (code.isEmpty() ? "" : " (" + code + ")");
+                } else if (field == 14 && (key & 7) == 2) {
+                    abort = top.string();
+                } else if (field == 15 && (key & 7) == 2 && cause.isEmpty()) {
+                    Tombstone c = top.message();
+                    while (c.more()) {
+                        long k = c.varint();
+                        if (k >>> 3 == 1 && (k & 7) == 2) cause = c.string();
+                        else c.skip(k);
+                    }
+                } else if (field == 16 && (key & 7) == 2) {
+                    // A map entry: the thread's id, and where the thread is.
+                    Tombstone entry = top.message();
+                    long id = -1;
+                    int[] span = null;
+                    while (entry.more()) {
+                        long k = entry.varint();
+                        if (k >>> 3 == 1 && (k & 7) == 0) {
+                            id = entry.varint();
+                        } else if (k >>> 3 == 2 && (k & 7) == 2) {
+                            int length = (int) entry.varint();
+                            span = new int[] {entry.at, entry.at + length};
+                            entry.at += length;
+                        } else {
+                            entry.skip(k);
+                        }
+                    }
+                    if (span != null) threads.put(id, span);
+                } else {
+                    top.skip(key);
+                }
+            }
+            StringBuilder out = new StringBuilder("crash report: ").append(signal);
+            int[] span = threads.get(tid);
+            if (span != null) {
+                Tombstone thread = new Tombstone(data, span[0], span[1]);
+                String name = "";
+                StringBuilder frames = new StringBuilder();
+                int count = 0;
+                while (thread.more()) {
+                    long k = thread.varint();
+                    if (k >>> 3 == 2 && (k & 7) == 2) {
+                        name = thread.string();
+                    } else if (k >>> 3 == 4 && (k & 7) == 2 && count < 12) {
+                        frames.append(" | ").append(frame(thread.message()));
+                        count++;
+                    } else {
+                        thread.skip(k);
+                    }
+                }
+                out.append(" in thread ").append(tid).append(" (").append(name).append(')');
+                if (!cause.isEmpty()) out.append(" · cause: ").append(cause);
+                if (!abort.isEmpty()) out.append(" · abort message: \"").append(abort).append('"');
+                out.append(" · frames").append(frames);
+            } else {
+                if (!cause.isEmpty()) out.append(" · cause: ").append(cause);
+                if (!abort.isEmpty()) out.append(" · abort message: \"").append(abort).append('"');
+            }
+            return out.toString();
+        }
+
+        /** One frame: `libconcat_android.so+0x1a2b3c (function+12)`. */
+        private static String frame(Tombstone frame) {
+            long pc = 0, offset = 0;
+            String file = "", function = "";
+            while (frame.more()) {
+                long k = frame.varint();
+                int field = (int) (k >>> 3);
+                if (field == 1 && (k & 7) == 0) pc = frame.varint();
+                else if (field == 4 && (k & 7) == 2) function = frame.string();
+                else if (field == 5 && (k & 7) == 0) offset = frame.varint();
+                else if (field == 6 && (k & 7) == 2) file = frame.string();
+                else frame.skip(k);
+            }
+            String module = file.substring(file.lastIndexOf('/') + 1);
+            String where = module + "+0x" + Long.toHexString(pc);
+            return function.isEmpty() ? where : where + " (" + function + "+" + offset + ")";
+        }
+
+        private boolean more() {
+            return at < end;
+        }
+
+        private long varint() {
+            long value = 0;
+            for (int shift = 0; shift < 64 && at < end; shift += 7) {
+                byte b = data[at++];
+                value |= (long) (b & 0x7f) << shift;
+                if ((b & 0x80) == 0) {
+                    break;
+                }
+            }
+            return value;
+        }
+
+        private Tombstone message() {
+            int length = (int) varint();
+            Tombstone inner = new Tombstone(data, at, Math.min(end, at + length));
+            at = Math.min(end, at + length);
+            return inner;
+        }
+
+        private String string() {
+            Tombstone inner = message();
+            return new String(data, inner.at, inner.end - inner.at, StandardCharsets.UTF_8);
+        }
+
+        /** Steps over a field this does not read. */
+        private void skip(long key) {
+            switch ((int) (key & 7)) {
+                case 0: varint(); break;
+                case 1: at += 8; break;
+                case 2: message(); break;
+                case 5: at += 4; break;
+                default: at = end;
+            }
+        }
     }
 
     /** Registered from Rust: the picked files' paths, or none. */
