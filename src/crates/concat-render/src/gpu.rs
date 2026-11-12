@@ -1191,6 +1191,11 @@ pub struct WgpuCompositor {
     /// on drawing on a device that was gone, black frame after black frame.
     /// Shared with siblings, which are on the same device.
     gone: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// What wgpu said when it called the lost callback, shared as `gone` is.
+    lost_reason: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// The line [`WgpuCompositor::say_why`] wrote, once this compositor
+    /// found its device gone: said once, never per frame.
+    post_mortem: Option<String>,
     /// The format everything is drawn in: [`WORK`], or [`WORK_FALLBACK`] on
     /// a device that cannot draw into it.
     work: wgpu::TextureFormat,
@@ -1347,15 +1352,22 @@ impl WgpuCompositor {
                 );
             }
             // The reason, when it dies, in the log: see the window's device.
+            // What wgpu says is kept for `say_why`, which adds what the
+            // device's own API says and what was being drawn.
             let name = info.name;
             let lost = name.clone();
             let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let marked = std::sync::Arc::clone(&gone);
+            let lost_reason = std::sync::Arc::new(std::sync::Mutex::new(None));
+            let kept = std::sync::Arc::clone(&lost_reason);
             device.set_device_lost_callback(move |reason, message| {
                 marked.store(true, std::sync::atomic::Ordering::Relaxed);
                 log::error!(
-                    "the compositor's GPU device on {lost} was lost ({reason:?}): {message}"
+                    "gpu: the compositor's device on {lost} was lost · {reason:?}: {message}"
                 );
+                if let Ok(mut kept) = kept.lock() {
+                    *kept = Some(format!("{reason:?}: {message}"));
+                }
             });
             // An error no scope caught - a texture past the device's limit,
             // a buffer the driver refused - is wgpu's to handle, and its
@@ -1374,6 +1386,7 @@ impl WgpuCompositor {
             let mut compositor = Self::drawing_in(device, queue, work);
             compositor.uncaught = uncaught;
             compositor.gone = gone;
+            compositor.lost_reason = lost_reason;
             Some(compositor)
         })
     }
@@ -1399,6 +1412,63 @@ impl WgpuCompositor {
         self.dead || self.gone.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Says once, in the log, that this compositor has given up its device
+    /// and why: the adapter and its driver, what the device's own API says
+    /// happened where it can say (Direct3D 12's removed reason), what wgpu
+    /// said, and `drawing`, the frame in hand. "Unknown" was all a lost
+    /// device ever said (#709); every report now names its own cause.
+    fn say_why(&mut self, drawing: impl FnOnce() -> String) {
+        if self.post_mortem.is_some() {
+            return;
+        }
+        let info = self.device.adapter_info();
+        let driver = [info.driver.trim(), info.driver_info.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let driver = if driver.is_empty() {
+            "driver unknown".to_owned()
+        } else {
+            format!("driver {driver}")
+        };
+        let api = removal_of(&self.device)
+            .unwrap_or_else(|| format!("{:?} gives no reason of its own", info.backend));
+        let wgpu = self
+            .lost_reason
+            .lock()
+            .ok()
+            .and_then(|reason| reason.clone())
+            .unwrap_or_else(|| "a frame failed on it".to_owned());
+        let line = format!(
+            "{} ({:?}, {:?}) · {driver} · {api} · wgpu: {wgpu} · it was drawing {}",
+            info.name,
+            info.device_type,
+            info.backend,
+            drawing()
+        );
+        log::error!("gpu: the compositor gave up its device: {line}");
+        self.post_mortem = Some(line);
+    }
+
+    /// The line [`WgpuCompositor::say_why`] wrote, once this compositor has
+    /// given up its device; `None` while it draws.
+    pub fn post_mortem(&self) -> Option<&str> {
+        self.post_mortem.as_deref()
+    }
+
+    /// Loses this compositor's device as a driver would, for the tests that
+    /// hold recovery to account without a real loss: wgpu destroys the
+    /// device, and it is marked lost as its lost callback marks it.
+    #[doc(hidden)]
+    pub fn lose_device(&self) {
+        self.device.destroy();
+        if let Ok(mut reason) = self.lost_reason.lock() {
+            *reason = Some("destroyed by a test".to_owned());
+        }
+        self.gone.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Has this compositor treat its device as lost once `gone` is set: for
     /// a device someone else opened, whose lost callback is theirs - the
     /// window's, which sets it.
@@ -1415,6 +1485,7 @@ impl WgpuCompositor {
         let mut sibling = Self::drawing_in(self.device.clone(), self.queue.clone(), self.work);
         sibling.uncaught = std::sync::Arc::clone(&self.uncaught);
         sibling.gone = std::sync::Arc::clone(&self.gone);
+        sibling.lost_reason = std::sync::Arc::clone(&self.lost_reason);
         sibling
     }
 
@@ -1870,6 +1941,8 @@ impl WgpuCompositor {
             mask_stack_source: format!("{MASK_WGSL}{MASK_STACK_WGSL}").into(),
             dead: false,
             gone: std::sync::Arc::default(),
+            lost_reason: std::sync::Arc::default(),
+            post_mortem: None,
             work,
             uncaught: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             in_flight: std::collections::VecDeque::new(),
@@ -2337,6 +2410,7 @@ impl WgpuCompositor {
     /// CPU compositor.
     pub fn render_texture(&mut self, plan: &FramePlan) -> Option<wgpu::Texture> {
         if self.dead() {
+            self.say_why(|| plan.summary());
             return None;
         }
         let (draws, vertices) = self.prepare(plan);
@@ -4015,6 +4089,7 @@ impl WgpuCompositor {
     /// this one is still on its way back.
     fn submit_plan(&mut self, plan: &FramePlan) -> bool {
         if self.dead() {
+            self.say_why(|| plan.summary());
             return false;
         }
         // The same scopes as `render`'s, over the same calls: what the
@@ -4343,12 +4418,56 @@ fn clear_of([r, g, b, a]: [u8; 4]) -> wgpu::Color {
     }
 }
 
+/// What the device's own API says became of `device`, where it can say:
+/// Direct3D 12's removed reason. `None` from every other API: Vulkan says
+/// only that the device is lost, Metal and OpenGL say less.
+fn removal_of(device: &wgpu::Device) -> Option<String> {
+    #[cfg(windows)]
+    {
+        // SAFETY: the raw device is only asked a question, which Direct3D
+        // 12 answers on any thread; nothing is created or destroyed on it,
+        // and the guard is dropped before this returns.
+        let hal = unsafe { device.as_hal::<wgpu::hal::api::Dx12>() }?;
+        let removed = unsafe { hal.raw_device().GetDeviceRemovedReason() };
+        Some(match removed {
+            Ok(()) => "Direct3D 12 says the device was not removed".to_owned(),
+            Err(error) => {
+                let code = error.code().0 as u32;
+                format!(
+                    "Direct3D 12 says {} ({code:#010X})",
+                    removal_name(code).unwrap_or("an unlisted reason")
+                )
+            }
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = device;
+        None
+    }
+}
+
+/// The name of a reason Direct3D 12 gives for removing a device, as
+/// Microsoft's documentation writes it.
+fn removal_name(code: u32) -> Option<&'static str> {
+    Some(match code {
+        0x887A_0005 => "DXGI_ERROR_DEVICE_REMOVED",
+        0x887A_0006 => "DXGI_ERROR_DEVICE_HUNG: the device took too long or stopped answering",
+        0x887A_0007 => "DXGI_ERROR_DEVICE_RESET: a badly formed command reset it",
+        0x887A_0020 => "DXGI_ERROR_DRIVER_INTERNAL_ERROR: the driver failed",
+        0x887A_0001 => "DXGI_ERROR_INVALID_CALL: a call it could not take",
+        0x8007_000E => "E_OUTOFMEMORY: it ran out of memory",
+        _ => return None,
+    })
+}
+
 impl Compositor for WgpuCompositor {
     fn render(&mut self, plan: &FramePlan) -> Frame {
         // A dead device never comes back for this instance. What it hands
         // back is black, never a mid-export panic, and `lost` says so: the
         // export stops with an error rather than write a file of black.
         if self.dead() {
+            self.say_why(|| plan.summary());
             return Frame::black(plan.width, plan.height);
         }
         // Whatever the device says went wrong with this frame is caught
@@ -4388,6 +4507,7 @@ impl Compositor for WgpuCompositor {
             Some(frame) if !failed => frame,
             _ => {
                 self.dead = true;
+                self.say_why(|| plan.summary());
                 Frame::black(plan.width, plan.height)
             }
         }
@@ -4425,6 +4545,7 @@ impl Compositor for WgpuCompositor {
         pass: &TransitionPass,
     ) -> Option<Frame> {
         if self.dead() {
+            self.say_why(|| format!("the transition {} at {width}x{height}", pass.key));
             return None;
         }
         // The two pictures, uploaded into the working space as any frame
@@ -4481,6 +4602,7 @@ impl Compositor for WgpuCompositor {
         let frame = self.read_back();
         if frame.is_none() {
             self.dead = true;
+            self.say_why(|| format!("the transition {} at {width}x{height}", pass.key));
         }
         frame
     }

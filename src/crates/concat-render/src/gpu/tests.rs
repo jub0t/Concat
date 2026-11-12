@@ -2678,3 +2678,102 @@ fn chroma_key_takes_the_screen_and_leaves_the_rest() {
         );
     }
 }
+
+/// A device that is lost says why, once, and what it was drawing: the
+/// adapter, what wgpu said, and the frame's layers and effects by kind -
+/// never a file's name. "Unknown" was all a loss ever said (#709).
+#[test]
+fn a_lost_device_says_why_and_what_it_was_drawing() {
+    let Some(mut gpu) = gpu() else { return };
+    let mut video = layer(gradient(64, 36));
+    video.media = std::path::PathBuf::from("holiday-with-grandma.mp4");
+    let mut caption = layer(solid(64, 12, [255, 255, 255, 255]));
+    caption.transform.offset_y = 0.3;
+    caption.effects = vec![package("test.invert", INVERT, "", &[], 1.0)];
+    let plan = plan(32, 18, vec![video, caption.clone(), caption]);
+    assert!(gpu.post_mortem().is_none(), "nothing to say while it draws");
+    gpu.render(&plan);
+    assert!(!gpu.lost());
+
+    gpu.lose_device();
+    let frame = gpu.render(&plan);
+    assert!(gpu.lost(), "the lost device is reported");
+    assert_eq!(frame.pixel(16, 9), Some([0, 0, 0, 255]));
+    let said = gpu.post_mortem().expect("the loss is said").to_owned();
+    let name = gpu.adapter_info().name;
+    assert!(said.contains(&name), "{said}");
+    assert!(said.contains("destroyed by a test"), "{said}");
+    assert!(
+        said.contains("a 32x18 frame of 3 layers: 64x36, 64x12 placed +test.invert x2"),
+        "{said}"
+    );
+    assert!(!said.contains("grandma"), "no file names: {said}");
+    gpu.render(&plan);
+    assert_eq!(gpu.post_mortem(), Some(said.as_str()), "said once");
+}
+
+/// Direct3D 12's reasons for removing a device are named as Microsoft
+/// writes them, so a report can be searched for.
+#[test]
+fn a_removed_reason_is_named() {
+    assert!(removal_name(0x887A_0006).is_some_and(|name| name.contains("DEVICE_HUNG")));
+    assert!(removal_name(0x887A_0007).is_some_and(|name| name.contains("DEVICE_RESET")));
+    assert_eq!(removal_name(0), None);
+}
+
+/// The frame #709 lost its device on, a second into playback on Windows
+/// 10's software renderer: one H.264 clip of 1280x720 and six captions, no
+/// effects, drawn at the monitor's half size for three hundred frames -
+/// twelve seconds at 25 fps, each with a new picture of the clip and the
+/// captions' pictures held, as playback has them. The device must live and
+/// the frames must not be black. Meant for Windows CI, whose WARP is the
+/// software renderer the reports run on; it runs on any software adapter
+/// and is skipped where there is none.
+#[test]
+fn the_709_frame_survives_hundreds_of_frames_on_the_software_adapter() {
+    let Some(mut gpu) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    let captions: Vec<PlannedLayer> = (0..6)
+        .map(|index| {
+            let mut words = Frame::transparent(1280, 720);
+            for y in 560..620 {
+                for x in 200 + index * 20..1080 - index * 20 {
+                    words.set_pixel(x, y, [255, 255, 255, 255]);
+                }
+            }
+            let mut caption = layer(words);
+            caption.track = 1 + index as usize;
+            caption.opacity = if index % 2 == 0 { 1.0 } else { 0.5 };
+            caption.transitions = vec![Transition::FadeTo {
+                colour: [0.0; 3],
+                amount: 0.1 * index as f32,
+            }];
+            caption
+        })
+        .collect();
+    for index in 0..300u32 {
+        let mut clip = gradient(1280, 720);
+        // A new picture each frame, as a playing clip is.
+        clip.set_pixel(index % 1280, 0, [index as u8, 0, 0, 255]);
+        let mut frame_plan = plan(640, 360, vec![layer(clip)]);
+        frame_plan.layers.extend(captions.iter().cloned());
+        frame_plan.time = concat_core::time::Rational::new(i64::from(index), 25);
+        let frame = gpu.render(&frame_plan);
+        assert!(
+            !gpu.lost(),
+            "#709 reproduced: the software adapter lost its device at frame {index}: {:?}",
+            gpu.post_mortem()
+        );
+        let lit = frame
+            .pixels()
+            .chunks_exact(4)
+            .filter(|pixel| pixel[..3].iter().any(|&c| c > 16))
+            .count();
+        assert!(
+            lit > 640 * 360 / 2,
+            "frame {index} is black: {lit} pixels lit"
+        );
+    }
+}

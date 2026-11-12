@@ -818,6 +818,71 @@ impl FramePlan {
     pub fn seconds(&self) -> f32 {
         self.time.as_f64() as f32
     }
+
+    /// What this frame is made of, for the log line that says what a
+    /// device was drawing when it was lost: its size, each layer's picture
+    /// and what is done to it, and the effects by package. Never a file's
+    /// name or a title's words. Built only when something has gone wrong.
+    pub fn summary(&self) -> String {
+        use std::fmt::Write;
+        let mut layers: Vec<(String, usize)> = Vec::new();
+        for layer in &self.layers {
+            let mut words = match &layer.source {
+                Some(picture) => format!("{}x{}", picture.width(), picture.height()),
+                None => "no picture".to_owned(),
+            };
+            let deep = layer
+                .source
+                .as_ref()
+                .is_some_and(|picture| picture.depth() == concat_core::frame::Depth::Sixteen);
+            let marks = [
+                (deep, "deep"),
+                (!layer.transform.is_identity(), "placed"),
+                (!layer.crop.is_none(), "cropped"),
+                (layer.flip_h || layer.flip_v, "flipped"),
+                (!layer.warp.is_none(), "stabilized"),
+                (layer.mask.is_some(), "matte"),
+                (!layer.masks.masks.is_empty(), "masks"),
+                (!layer.transitions.is_empty(), "fading"),
+                (layer.weight() < 1.0, "see-through"),
+            ];
+            for (_, mark) in marks.iter().filter(|(on, _)| *on) {
+                let _ = write!(words, " {mark}");
+            }
+            if layer.blend != Blend::Normal {
+                let _ = write!(words, " {:?}", layer.blend);
+            }
+            for pass in &layer.effects {
+                let _ = write!(words, " +{}", pass.package);
+            }
+            match layers.last_mut() {
+                Some((last, count)) if *last == words => *count += 1,
+                _ => layers.push((words, 1)),
+            }
+        }
+        let mut out = format!(
+            "a {}x{} frame of {} layers",
+            self.width,
+            self.height,
+            self.layers.len()
+        );
+        for (words, count) in &layers {
+            out.push_str(if out.ends_with("layers") { ": " } else { ", " });
+            out.push_str(words);
+            if *count > 1 {
+                let _ = write!(out, " x{count}");
+            }
+        }
+        for treatment in &self.treatments {
+            for pass in &treatment.effects {
+                let _ = write!(out, " · +{} over track {}", pass.package, treatment.track);
+            }
+        }
+        if self.output != Signal::Sdr {
+            let _ = write!(out, " · {:?} output", self.output);
+        }
+        out
+    }
 }
 
 /// A clip id for a layer that belongs to no timeline: a picture handed
