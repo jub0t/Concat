@@ -1078,13 +1078,17 @@ fn emoji_sequences_draw_as_one_picture() {
             assert!(picture, "one glyph is a picture - {measured}");
             assert!(wide <= one * 1.3, "one emoji wide - {measured}");
         } else {
-            // The face has no picture for it: its parts, drawn in the fill.
+            // The face has no one picture for it, so its parts are drawn
+            // as the face has them: Windows' face sets a family's three
+            // people close together, each a picture (3 glyphs, 1.59 em on
+            // Server 2022), and gives a flag as its two letters. Which of
+            // the two is the face's business; what is Concat's is that
+            // nothing is dropped and nothing is invented.
             let characters = sequence.chars().count();
             assert!(
                 glyphs <= characters,
                 "no more glyphs than characters - {measured}"
             );
-            assert!(!picture, "its parts are letters in the fill - {measured}");
         }
     }
 }
