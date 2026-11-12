@@ -315,6 +315,18 @@ export component App inherits Window {
     /// area, on a phone and in any window too narrow for it to float as a
     /// card with room around it.
     property <bool> sheets-fill: root.phone || root.width < 600px;
+    /// Where the sheets start. Under the strip wherever the strip carries
+    /// the window's own buttons: a sheet over the whole window covered
+    /// them, and an export left a window that could not be minimised,
+    /// moved or closed until it was done (#751). Over it on a Mac, whose
+    /// traffic lights are the window's and float over any sheet, and on a
+    /// phone, which has no strip.
+    property <length> sheets-top: !root.phone && root.own-window-buttons ? 32px : 0px;
+    /// A sheet is up. The strip keeps the window's buttons and its drag
+    /// then, and nothing that acts on what the sheet covers.
+    property <bool> sheet-up: root.start.composing || root.export.open || root.settings.open
+        || root.project-sheet.open || root.new-voice.open || root.relink.open
+        || root.confirm.open;
     /// Which floating tool card is in front: "captions" or "speech". The
     /// one opened or grabbed last; Escape closes it first.
     property <string> front-tool: "captions";
@@ -744,6 +756,12 @@ export component App inherits Window {
                 }
 
                 own-buttons: root.own-window-buttons;
+                covered: root.sheets-top > 0 && root.sheet-up;
+                // A close goes the way every close does: the project is
+                // saved and a running export is cancelled. One click on the
+                // corner is not a way to lose a long export, so Close
+                // waits for it, as the sheet's own × does.
+                can-close: root.export.phase != ExportPhase.running;
                 maximized: root.window-maximized;
                 begin-drag => { root.titlebar-begin-drag(); }
                 toggle-maximize => { root.titlebar-toggle-maximize(); }
@@ -938,9 +956,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.start;
         phone: root.phone;
         aspects: root.start-aspects;
@@ -968,9 +986,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         phone: root.phone;
         data: root.export;
         preview-frame: Editor.preview-frame;
@@ -999,9 +1017,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         phone: root.phone;
         data: root.settings;
         transcribers: root.transcribers;
@@ -1067,9 +1085,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.project-sheet;
 
         closed => { root.project-closed(); }
@@ -1093,9 +1111,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.new-voice;
 
         closed => { root.new-voice-closed(); }
@@ -1112,6 +1130,10 @@ export component App inherits Window {
         inset-bottom: root.safe-area-insets.bottom;
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: root.sheets-top;
+        width: root.width;
+        height: root.height - root.sheets-top;
         data: root.relink;
         relink-all => { root.relink-all(); }
         locate(id) => { root.relink-locate(id); }
@@ -1131,9 +1153,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.confirm;
         confirmed => { root.confirm-accepted(); }
         dismissed => { root.confirm-dismissed(); }
