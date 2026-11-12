@@ -32,7 +32,7 @@ android_logger = "0.15"
 ndk = { version = "0.9", default-features = false, features = ["nativewindow", "rwh_06"] }
 # cpal's AAudio host reads the JavaVM and the app's Context through this.
 ndk-context = "0.1"
-jni-sys = "0.3"
+jni-sys = "0.4"
 ndk-sys = { version = "0.6", features = ["nativewindow"] }
 
 [lints]
