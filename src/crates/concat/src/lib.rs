@@ -1585,6 +1585,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_quality_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Monitor(MonitorMsg::QualityChanged(index)));
     }));
+    editor.on_preview_effects_toggled(on_window!(|state| {
+        state.toggle_preview_effects();
+    }));
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
     }));

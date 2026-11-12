@@ -737,6 +737,9 @@ export component PreviewPane inherits Rectangle {
     in property <float> frame-rate: 30;
     in property <int> ratio-index;
     in property <int> quality-index;
+    /// A monitor-only comparison; the document and exports keep their effects.
+    in property <bool> effects-bypassed;
+    callback effects-toggled();
 
     /// A library look is shown over the picture without being laid down.
     in property <bool> previewing;
@@ -840,6 +843,20 @@ export component PreviewPane inherits Rectangle {
     Pane {
         if !root.bare: PaneHeader {
             title: I18n.t("common.preview");
+
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    text: I18n.t("previewPane.effects");
+                    wide: true;
+                    checked: !root.effects-bypassed;
+                    enabled: root.source-name == "" && root.has-picture;
+                    label: root.effects-bypassed
+                        ? I18n.t("previewPane.restoreEffects")
+                        : I18n.t("previewPane.bypassEffects");
+                    clicked => { root.effects-toggled(); }
+                }
+            }
 
             // The output, stated rather than implied. Tabular-ish and dim: it
             // is a fact about the project, not a control.

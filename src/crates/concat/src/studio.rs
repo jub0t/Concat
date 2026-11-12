@@ -1144,6 +1144,9 @@ pub struct Studio {
     /// card is double-clicked or its plus pressed, which lays a filter
     /// layer at the playhead.
     audition: Option<String>,
+    /// Temporarily omit visual effects from the monitor, never the document
+    /// or an export. The flattened preview is rebuilt when this changes.
+    preview_effects_bypassed: bool,
     /// Counts every change to the document. What the flattened clip list
     /// below is keyed on, so a frame of an unchanged document reuses it.
     revision: u64,
@@ -1155,6 +1158,7 @@ pub struct Studio {
         u64,
         u32,
         u32,
+        bool,
         std::sync::Arc<Vec<concat_export::ExportClip>>,
     )>,
     /// A run painting the titles the monitor is missing is under way; see
@@ -3137,6 +3141,7 @@ impl Studio {
             media_jump: 0,
             captions_jump: 0,
             audition: None,
+            preview_effects_bypassed: false,
             revision: 0,
             flat: None,
             titles_painting: false,

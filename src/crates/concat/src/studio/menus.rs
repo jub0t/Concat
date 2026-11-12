@@ -117,7 +117,7 @@ impl Studio {
         if self.playing {
             self.pause();
         }
-        let Some((clips, settings)) = self.preview_clips() else {
+        let Some((clips, settings)) = self.composition_clips(false) else {
             return;
         };
         let Some(project_dir) = self

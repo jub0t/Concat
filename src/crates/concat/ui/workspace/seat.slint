@@ -180,13 +180,15 @@ export component Seat inherits Rectangle {
             pane-removable: Editor.seats.length > 1;
             pane-removed => { root.removed(); }
 
-            previewing: Editor.library-audition != "";
+            previewing: Editor.library-audition != "" && !Editor.preview-effects-bypassed;
             preview-ended => { Editor.library-audition-filter(Editor.library-audition); }
             output-width: Editor.output-width;
             output-height: Editor.output-height;
             frame-rate: Editor.frame-rate;
             ratio-index: Editor.ratio-index;
             quality-index: Editor.quality-index;
+            effects-bypassed: !SourcePreview.open && Editor.preview-effects-bypassed;
+            effects-toggled => { Editor.preview-effects-toggled(); }
             // A library file on the monitor has its transport: the readout,
             // the play button and the timecode run through the source.
             playhead: SourcePreview.open ? SourcePreview.time : Editor.playhead;

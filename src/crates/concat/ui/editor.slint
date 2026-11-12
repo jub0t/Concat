@@ -259,6 +259,7 @@ export global Editor {
     in-out property <int> output-height;
     in-out property <int> ratio-index;
     in-out property <int> quality-index;
+    in-out property <bool> preview-effects-bypassed;
     in-out property <bool> playing;
     in-out property <bool> has-picture;
     in-out property <string> preview-clip-name;
@@ -278,6 +279,7 @@ export global Editor {
     callback step-frames(frames: float);
     callback ratio-changed(index: int);
     callback quality-changed(index: int);
+    callback preview-effects-toggled();
 
     /// Every picture under the playhead, placed as the compositor places it.
     /// The stage outlines the selected ones and lets them be moved, scaled
