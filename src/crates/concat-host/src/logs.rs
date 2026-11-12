@@ -1,51 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
-//! What the app writes down about its own run.
+//! Where this app's log is kept, and how each run's opens.
 //!
-//! A packaged editor has no terminal. The `.app` a person double-clicks, the
-//! `.exe` a launcher starts and the window a desktop entry opens all have
-//! their standard error wired to nowhere, so every line the engine writes
-//! about a failed decode, a lost device or a refused file went straight into
-//! the dark, and a report of "it stopped" came with nothing behind it. This
-//! is where those lines go instead.
+//! The log itself - the file, the console, the layout of a line, what is
+//! counted and what is kept - is `concat_log`. This is the app's end of it:
+//! the folder under the data directory, the lines every run begins with,
+//! and the hand-over to the crash handler.
 //!
-//! One file per run, in `<app data>/logs/`, named for the instant it opened.
-//! A run is the unit because that is the unit a person reports: *this* time I
-//! opened it, *this* is what it did. The newest [`KEEP`] files stay and the
-//! rest are deleted as each run starts, so the folder is bounded without a
-//! sweeper, and each file stops growing at [`CAP`] so a loop that logs on
-//! every frame cannot fill a disk.
-//!
-//! Everything goes through the `log` facade, so a crate writes `log::warn!`
-//! and neither knows nor cares that a file is on the other end. The lines
-//! reach a console as well as the file - standard error on a desktop, so a
-//! run from a terminal reads exactly as it did, and logcat on a phone.
-//!
-//! What ends up here is the app's own account of itself - not a profile, not
-//! telemetry. Nothing is sent anywhere. The file is the user's, in their own
-//! data folder, and Settings › About is where they can go and find it.
+//! A run begins by answering what every report is asked first: which build
+//! this is, on which system, which CPU, how much memory - and how the run
+//! before this one ended, since "it closed on me" is so often about that
+//! one. What ends up in the file is the app's own account of itself - not a
+//! profile, not telemetry. Nothing is sent anywhere. The file is the
+//! person's, in their own data folder, and Settings › About is where they
+//! can go and find it. How lines are written is in `docs/LOGGING.md`.
 
-use std::fmt::Write as _;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+
+pub use concat_log::{CAP, KEEP, LEVEL_VARIABLE, level_name, level_named};
 
 use crate::dirs::AppDirs;
-
-/// How many runs' logs are kept. Ten covers "it did it again yesterday"
-/// without the folder ever being something a person has to think about.
-pub const KEEP: usize = 10;
-
-/// How much one run may write before the file stops growing, in bytes.
-pub const CAP: u64 = 16 * 1024 * 1024;
-
-/// The environment variable that overrides the level: `error`, `warn`,
-/// `info`, `debug` or `trace`. Info without one.
-pub const LEVEL_VARIABLE: &str = "CONCAT_LOG";
-
-/// The file this run is writing to, once [`open`] has been called.
-static CURRENT: OnceLock<PathBuf> = OnceLock::new();
 
 /// Where the logs are kept.
 pub fn folder(dirs: &AppDirs) -> PathBuf {
@@ -55,7 +30,7 @@ pub fn folder(dirs: &AppDirs) -> PathBuf {
 /// The file this run is writing to, or `None` when there is none - [`open`]
 /// was never called, or it could not make one.
 pub fn current() -> Option<&'static Path> {
-    CURRENT.get().map(PathBuf::as_path)
+    concat_log::current()
 }
 
 /// Opens this run's file and makes it the process's logger.
@@ -63,156 +38,125 @@ pub fn current() -> Option<&'static Path> {
 /// Call once, as early as a run can: anything logged before this is lost.
 /// `extra` is where the lines go besides the file - logcat on a phone - and
 /// `None` on a desktop, which puts them on standard error instead, so a run
-/// from a terminal reads the way it always did.
+/// from a terminal reads them as they come.
 ///
 /// Returns the file it opened. An `Err` means there is no file this run -
 /// an unwritable data folder, a second call - and is worth reporting, but it
 /// is never worth refusing to start over: the logger is installed either
-/// way, and standard error still has everything.
+/// way, and the console still has everything.
 pub fn open(dirs: &AppDirs, extra: Option<Box<dyn log::Log>>) -> Result<PathBuf, String> {
-    let opened = begin(dirs);
-    let sink = match &opened {
-        Ok((path, file)) => match file.try_clone() {
-            Ok(file) => {
-                let _ = CURRENT.set(path.clone());
-                crate::crash::write_to(&file);
-                Some(Sink {
-                    file,
-                    written: 0,
-                    stopped: false,
-                })
-            }
-            Err(_) => None,
-        },
-        Err(_) => None,
-    };
-    install(sink, extra)?;
-    opened.map(|(path, _)| path)
+    let opened = install(Some(folder(dirs)), extra)?;
+    match (opened.file, opened.file_error) {
+        (Some(path), _) => Ok(path),
+        (None, Some(error)) => Err(error),
+        (None, None) => Err("no log file was opened".to_owned()),
+    }
 }
 
 /// The logger with no file: the console alone.
 ///
 /// For a run with nowhere to put a file - a machine whose data directory
-/// cannot be located at all. The facade still has to lead somewhere, or
-/// every line the engine writes disappears silently instead of loudly.
+/// cannot be located at all - and for an agent's server, whose lines its
+/// client shows. The facade still has to lead somewhere, or every line the
+/// engine writes disappears silently instead of loudly.
 pub fn open_console(extra: Option<Box<dyn log::Log>>) -> Result<(), String> {
-    install(None, extra)
+    install(None, extra).map(|_| ())
 }
 
-/// Makes a logger out of the pieces and hands it to the facade.
-fn install(sink: Option<Sink>, extra: Option<Box<dyn log::Log>>) -> Result<(), String> {
-    let level = level_from_environment();
-    let logger = Logger {
-        sink: sink.map(Mutex::new),
-        extra,
-    };
-    log::set_boxed_logger(Box::new(logger))
-        .map(|()| log::set_max_level(level))
-        .map_err(|_| "a logger was already installed".to_owned())?;
+/// Opens the log and writes the lines every run begins with.
+fn install(
+    folder: Option<PathBuf>,
+    extra: Option<Box<dyn log::Log>>,
+) -> Result<concat_log::Opened, String> {
+    let spec = std::env::var(LEVEL_VARIABLE).unwrap_or_default();
+    let (filter, skipped) = concat_log::Filter::parse(&spec);
+    let opened = concat_log::open(concat_log::Config {
+        folder,
+        filter,
+        platform: extra,
+        home: home(),
+    })?;
+    if let Some(file) = concat_log::duplicate() {
+        crate::crash::write_to(&file);
+    }
     // What every report is asked first, answered before it is asked.
-    log::info!("{} · log level {level}", crate::machine::build());
+    log::info!(
+        "build: {} · {}",
+        crate::machine::build(),
+        if cfg!(debug_assertions) {
+            "debug build"
+        } else {
+            "optimised build"
+        }
+    );
     log::info!("system: {}", crate::machine::system());
     log::info!("cpu: {}", crate::machine::cpu());
-    Ok(())
+    if let Some(total) = crate::memory::total() {
+        log::info!("memory: {}", concat_log::bytes(total));
+    }
+    match &opened.file {
+        Some(path) => log::info!(
+            "log: {} · Concat at {}",
+            path.display(),
+            level_name(concat_log::level())
+        ),
+        None => log::info!(
+            "log: no file this run · Concat at {}",
+            level_name(concat_log::level())
+        ),
+    }
+    for word in skipped {
+        log::warn!(
+            "log: {LEVEL_VARIABLE} has \"{word}\", which is neither a level nor module=level; skipped"
+        );
+    }
+    if let Some(previous) = &opened.previous {
+        let name = previous
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match (previous.ended_cleanly, &previous.last_error) {
+            (true, _) => log::debug!("last run: {name} ended cleanly"),
+            (false, Some(error)) => log::warn!(
+                "last run: {name} did not end cleanly (it crashed, was killed, or the machine went down); the last thing that went wrong in it: {error}"
+            ),
+            (false, None) => log::warn!(
+                "last run: {name} did not end cleanly (it crashed, was killed, or the machine went down), with no error in its log"
+            ),
+        }
+    }
+    Ok(opened)
 }
 
-/// Sends panics to the log before they reach wherever they were going.
-///
-/// A panic is the one failure that never passes through a `Result`, and in a
-/// packaged build it is also the one that leaves nothing behind: the message
-/// goes to a standard error nobody is reading and the window disappears. The
-/// hook that was there still runs afterwards, so a terminal still prints the
-/// panic and a backtrace exactly as before.
+/// The person's home folder, which the log writes as `~`. A phone has none
+/// worth the name: its paths are the app's own sandbox.
+fn home() -> Option<PathBuf> {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        return None;
+    }
+    let name = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(name)
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Sends panics to the log before they reach wherever they were going; see
+/// [`concat_log::catch_panics`].
 pub fn catch_panics() {
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let where_ = info
-            .location()
-            .map_or_else(|| "somewhere".to_owned(), |at| at.to_string());
-        log::error!("panic at {where_}: {}", info);
-        previous(info);
-    }));
+    concat_log::catch_panics();
 }
 
-/// This run's file: the folder made, the older runs pruned, the file opened.
-fn begin(dirs: &AppDirs) -> Result<(PathBuf, std::fs::File), String> {
-    let folder = folder(dirs);
-    std::fs::create_dir_all(&folder)
-        .map_err(|error| format!("could not create {}: {error}", folder.display()))?;
-    prune(&folder);
-    let path = folder.join(format!("concat-{}.log", stamp(now(), Stamp::File)));
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|error| format!("could not open {}: {error}", path.display()))?;
-    Ok((path, file))
-}
-
-/// Deletes all but the newest [`KEEP`] runs.
-///
-/// By name, which for this name is by time: nothing depends on a file system
-/// that reports modification times, and a file copied out and back keeps its
-/// place in the order.
-fn prune(folder: &Path) {
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return;
-    };
-    let mut ours: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("concat-") && name.ends_with(".log"))
-        })
-        .collect();
-    if ours.len() < KEEP {
-        return;
-    }
-    ours.sort();
-    // One short of KEEP, because the run doing the pruning is about to
-    // make its own.
-    let doomed = ours.len().saturating_sub(KEEP.saturating_sub(1));
-    for path in ours.into_iter().take(doomed) {
-        let _ = std::fs::remove_file(path);
-    }
-}
-
-fn level_from_environment() -> log::LevelFilter {
-    environment_level().unwrap_or(log::LevelFilter::Info)
-}
-
-/// The level `CONCAT_LOG` names, when it names one: a run's own ceiling,
-/// over the one the Settings sheet remembers.
+/// The level `CONCAT_LOG` names for Concat's own crates, when it names one:
+/// a run's own ask, over the one the Settings sheet remembers.
 pub fn environment_level() -> Option<log::LevelFilter> {
-    level_named(&std::env::var(LEVEL_VARIABLE).unwrap_or_default())
+    let (filter, _) = concat_log::Filter::parse(&std::env::var(LEVEL_VARIABLE).unwrap_or_default());
+    filter.named().then(|| filter.own())
 }
 
-/// A level by the name the environment and the preferences use: `error`,
-/// `warn`, `info`, `debug`, `trace` or `off`, in any case.
-pub fn level_named(name: &str) -> Option<log::LevelFilter> {
-    Some(match name.trim().to_ascii_lowercase().as_str() {
-        "error" => log::LevelFilter::Error,
-        "warn" => log::LevelFilter::Warn,
-        "info" => log::LevelFilter::Info,
-        "debug" => log::LevelFilter::Debug,
-        "trace" => log::LevelFilter::Trace,
-        "off" => log::LevelFilter::Off,
-        _ => return None,
-    })
-}
-
-/// The name [`level_named`] reads back.
-pub fn level_name(level: log::LevelFilter) -> &'static str {
-    match level {
-        log::LevelFilter::Error => "error",
-        log::LevelFilter::Warn => "warn",
-        log::LevelFilter::Info => "info",
-        log::LevelFilter::Debug => "debug",
-        log::LevelFilter::Trace => "trace",
-        log::LevelFilter::Off => "off",
-    }
+/// The level Concat's own crates are written at.
+pub fn level() -> log::LevelFilter {
+    concat_log::level()
 }
 
 /// Sets the level for the rest of the run - the Settings sheet's choice,
@@ -222,235 +166,27 @@ pub fn level_name(level: log::LevelFilter) -> &'static str {
 /// for whoever is chasing a bug with it. The crates underneath - wgpu,
 /// naga, Slint, fontdb, the decoders - stay at warnings and errors
 /// whatever the sheet says, since at Debug they bury a run in lines
-/// nobody asked for. `CONCAT_LOG` in the environment is the other kind
-/// of switch and raises the lot; see [`Logger::enabled`].
+/// nobody asked for. `CONCAT_LOG` can name any of them; see
+/// [`concat_log::Filter`].
 pub fn set_level(level: log::LevelFilter) {
-    log::set_max_level(level);
-    log::info!("log level: {level}");
+    concat_log::set_level(level);
 }
 
-/// Whether the environment set the level: then every crate's lines come
-/// through at it, not only Concat's.
-fn firehose() -> bool {
-    static FIREHOSE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *FIREHOSE.get_or_init(|| environment_level().is_some())
-}
-
-/// Whether a target is one of Concat's own crates.
-fn own(target: &str) -> bool {
-    target.starts_with("concat")
-}
-
-/// The open file and how much of its allowance is gone.
-struct Sink {
-    file: std::fs::File,
-    written: u64,
-    /// Set once the cap is reached; the line that says so is written once.
-    stopped: bool,
-}
-
-/// The process's logger: a file, standard error, and on a phone one more.
-struct Logger {
-    /// `None` when this run has no file; standard error still has it all.
-    sink: Option<Mutex<Sink>>,
-    extra: Option<Box<dyn log::Log>>,
-}
-
-impl log::Log for Logger {
-    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        if metadata.level() > log::max_level() {
-            return false;
-        }
-        // Concat's own lines at the level asked for; the crates underneath
-        // at warnings and up, unless the environment asked for everything.
-        own(metadata.target()) || firehose() || metadata.level() <= log::Level::Warn
-    }
-
-    fn log(&self, record: &log::Record<'_>) {
-        if !self.enabled(record.metadata()) {
-            return;
-        }
-        let line = format(record);
-        // Standard error keeps its copy, so a run from a terminal reads the
-        // way it always did - but only when the caller named nowhere else.
-        // A caller that hands over a console of its own already has one, and
-        // on a phone that console is fed by a pipe off standard error: a line
-        // written there would come back through it and write itself forever.
-        if self.extra.is_none() {
-            eprintln!("{line}");
-        }
-        if let Some(sink) = &self.sink {
-            let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            if sink.stopped {
-                return;
-            }
-            if sink.written >= CAP {
-                sink.stopped = true;
-                let _ = writeln!(
-                    sink.file,
-                    "[this run passed {CAP} bytes of log; the rest is not written down]"
-                );
-                return;
-            }
-            if writeln!(sink.file, "{line}").is_ok() {
-                sink.written += line.len() as u64 + 1;
-            }
-        }
-        if let Some(extra) = &self.extra {
-            extra.log(record);
-        }
-    }
-
-    fn flush(&self) {
-        if let Some(sink) = &self.sink {
-            let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            let _ = sink.file.flush();
-        }
-        if let Some(extra) = &self.extra {
-            extra.flush();
-        }
-    }
-}
-
-/// One line: when, how bad, which thread, which module, and what happened.
-///
-/// The thread is in there because the answer to a good half of what gets
-/// logged is "which thread was that on" - a decode worker, the artwork lane,
-/// the event loop - and a line that does not say cannot be asked later.
-fn format(record: &log::Record<'_>) -> String {
-    let thread = std::thread::current();
-    let who = thread.name().unwrap_or("?").to_owned();
-    let mut line = String::with_capacity(128);
-    let _ = write!(
-        line,
-        "{} {:<5} [{}] {}: {}",
-        stamp(now(), Stamp::Line),
-        record.level(),
-        who,
-        record.target(),
-        record.args()
-    );
-    line
-}
-
-/// Seconds and milliseconds since the epoch, or zero if the clock is before
-/// it - which is not a case worth a branch anywhere else.
-fn now() -> (i64, u32) {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(since) => (since.as_secs() as i64, since.subsec_millis()),
-        Err(_) => (0, 0),
-    }
-}
-
-/// Which of the two shapes a stamp is written in.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Stamp {
-    /// `20260914-123456`, for a file name: sorts as it reads, and has
-    /// nothing in it a file system anywhere objects to.
-    File,
-    /// `2026-09-14 12:34:56.789Z`, for a line in one.
-    Line,
-}
-
-/// UTC, always: a log read by somebody else is a log whose times mean the
-/// same thing in both places.
-fn stamp((seconds, millis): (i64, u32), shape: Stamp) -> String {
-    let days = seconds.div_euclid(86_400);
-    let rest = seconds.rem_euclid(86_400);
-    let (hour, minute, second) = (rest / 3600, (rest % 3600) / 60, rest % 60);
-    let (year, month, day) = civil(days);
-    match shape {
-        Stamp::File => format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}"),
-        Stamp::Line => {
-            format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{millis:03}Z")
-        }
-    }
-}
-
-/// The calendar date `days` after 1970-01-01, by Howard Hinnant's
-/// `civil_from_days`: the years are shifted to start in March so that the
-/// leap day lands at the end of one and the month lengths fall into a
-/// pattern with no table in it.
-fn civil(days: i64) -> (i64, u32, u32) {
-    let shifted = days + 719_468;
-    let era = shifted.div_euclid(146_097);
-    let day_of_era = shifted.rem_euclid(146_097);
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let year = year_of_era + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let march_month = (5 * day_of_year + 2) / 153;
-    let day = (day_of_year - (153 * march_month + 2) / 5 + 1) as u32;
-    let month = if march_month < 10 {
-        march_month + 3
-    } else {
-        march_month - 9
-    } as u32;
-    (year + i64::from(month <= 2), month, day)
+/// Ends the run's log in order; see [`concat_log::end`]. Every way out of
+/// the app that is not a crash calls it, so a file without its last line
+/// is a run that did not get the chance.
+pub fn end() {
+    concat_log::end();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_epoch_and_a_leap_day_come_out_right() {
-        assert_eq!(civil(0), (1970, 1, 1));
-        // 2024-02-29, a leap day, and the day after it.
-        assert_eq!(civil(19_782), (2024, 2, 29));
-        assert_eq!(civil(19_783), (2024, 3, 1));
-        // 2000 is a leap year and 1900 was not; the era arithmetic is what
-        // gets that pair wrong when it is wrong at all.
-        assert_eq!(civil(11_016), (2000, 2, 29));
-        assert_eq!(civil(-25_508), (1900, 3, 1));
-    }
-
-    #[test]
-    fn a_stamp_reads_as_a_date_in_both_shapes() {
-        let at = (1_726_316_096, 789);
-        assert_eq!(stamp(at, Stamp::Line), "2024-09-14 12:14:56.789Z");
-        assert_eq!(stamp(at, Stamp::File), "20240914-121456");
-        // A file name sorts the way the runs happened.
-        assert!(stamp((0, 0), Stamp::File) < stamp(at, Stamp::File));
-    }
-
-    #[test]
-    fn pruning_keeps_the_newest_and_leaves_everything_else_alone() {
-        let folder = std::env::temp_dir().join(format!("concat-logs-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        std::fs::create_dir_all(&folder).expect("a temp dir");
-        for index in 0..KEEP + 5 {
-            std::fs::write(
-                folder.join(format!("concat-2026091{index:02}-000000.log")),
-                "x",
-            )
-            .expect("a log");
-        }
-        // Not ours, and not to be touched.
-        std::fs::write(folder.join("notes.txt"), "x").expect("a file");
-        prune(&folder);
-
-        let mut left: Vec<String> = std::fs::read_dir(&folder)
-            .expect("reads")
-            .flatten()
-            .filter_map(|entry| entry.file_name().into_string().ok())
-            .collect();
-        left.sort();
-        assert!(left.contains(&"notes.txt".to_owned()));
-        let ours: Vec<&String> = left
-            .iter()
-            .filter(|name| name.starts_with("concat-"))
-            .collect();
-        assert_eq!(ours.len(), KEEP - 1, "{ours:?}");
-        // The ones kept are the last ones written.
-        assert!(ours.iter().all(|name| name.as_str() >= "concat-20260906"));
-        let _ = std::fs::remove_dir_all(&folder);
-    }
-
     /// The one test that installs the process logger, because there is only
     /// one to install: everything from the facade down to a line in a file.
     #[test]
-    fn a_line_written_through_the_facade_lands_in_the_file() {
+    fn a_run_opens_with_what_a_report_is_asked_first_and_ends_in_order() {
         let root = std::env::temp_dir().join(format!("concat-open-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a temp dir");
@@ -461,24 +197,41 @@ mod tests {
         assert_eq!(current(), Some(path.as_path()));
 
         log::warn!("the kettle is broken");
-        log::logger().flush();
-
+        // No flush: a line is in the file when the call that logged it
+        // returns.
         let written = std::fs::read_to_string(&path).expect("reads back");
-        // The header the install writes, and then the line.
         assert!(written.contains(env!("CARGO_PKG_VERSION")), "{written}");
-        assert!(written.contains("WARN"), "{written}");
-        assert!(written.contains("the kettle is broken"), "{written}");
-        // Every line says when, on which thread, and out of which module.
+        for topic in ["build", "system", "cpu", "log"] {
+            assert!(
+                written
+                    .lines()
+                    .any(|line| line.contains(&format!(" INFO  {topic:<10} "))),
+                "no {topic} line in {written}"
+            );
+        }
+        // Every line says when, how bad, what about, and where from.
         let line = written
             .lines()
             .find(|line| line.contains("the kettle is broken"))
             .expect("the line");
-        assert!(line.starts_with("20"), "{line}");
-        assert!(line.contains("concat_host::logs"), "{line}");
+        assert!(
+            line.contains(" WARN  tests      the kettle is broken  [concat_host::logs::tests, "),
+            "{line}"
+        );
 
         // A second call cannot take the facade a second time, and says so
         // rather than pretending.
         assert!(open(&dirs, None).is_err());
+
+        end();
+        let written = std::fs::read_to_string(&path).expect("reads back");
+        assert!(
+            written
+                .lines()
+                .last()
+                .is_some_and(|line| line.contains("run ended cleanly")),
+            "{written}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -486,24 +239,5 @@ mod tests {
     fn a_folder_hangs_off_the_data_directory() {
         let dirs = AppDirs::under(Path::new("/tmp/concat-test"));
         assert_eq!(folder(&dirs), Path::new("/tmp/concat-test/logs"));
-    }
-
-    /// Every level the sheet offers reads back under the name it is kept
-    /// as, in any case, and a name that is no level is None.
-    #[test]
-    fn level_names_round_trip() {
-        for level in [
-            log::LevelFilter::Error,
-            log::LevelFilter::Warn,
-            log::LevelFilter::Info,
-            log::LevelFilter::Debug,
-            log::LevelFilter::Trace,
-            log::LevelFilter::Off,
-        ] {
-            assert_eq!(level_named(level_name(level)), Some(level));
-        }
-        assert_eq!(level_named(" DEBUG "), Some(log::LevelFilter::Debug));
-        assert_eq!(level_named("loud"), None);
-        assert_eq!(level_named(""), None);
     }
 }

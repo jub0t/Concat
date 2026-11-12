@@ -38,6 +38,9 @@ pub struct Gpu {
     pub device: wgpu::Device,
     /// The one queue, so submissions from both sides are ordered.
     pub queue: wgpu::Queue,
+    /// Set when the device is lost, for the monitor's compositor to stop
+    /// drawing on it (see `WgpuCompositor::watching`).
+    pub lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Gpu {
@@ -58,8 +61,8 @@ impl Gpu {
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
             // The window's device is the monitor's and the export's too;
-            // see `concat_render::gpu::MEMORY_BUDGET`.
-            memory_budget_thresholds: concat_render::gpu::MEMORY_BUDGET,
+            // see `concat_render::gpu::memory_budget`.
+            memory_budget_thresholds: concat_render::gpu::memory_budget(),
             // No indirect-call validation; see `concat_render::gpu::instance_flags`.
             flags: concat_render::gpu::instance_flags(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -82,13 +85,18 @@ impl Gpu {
         let software = std::env::var("CONCAT_GPU")
             .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
         if software {
-            log::warn!("CONCAT_GPU=software: the window draws on the software rasteriser");
+            log::warn!(
+                "gpu: the software rasteriser draws the window, as CONCAT_GPU=software asks, in place of the GPU"
+            );
         }
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: software,
             ..Default::default()
         }))
+        .inspect_err(|error| {
+            log::warn!("gpu: no adapter for the window: {error}; it opens without one")
+        })
         .ok()?;
         // This is not always a GPU. wgpu ranks a CPU adapter last but never
         // leaves it out, so on a machine whose hardware it will not drive -
@@ -98,13 +106,7 @@ impl Gpu {
         // see `is_software` and platform.rs for what that changes.
         // https://github.com/jub0t/Concat/issues/135
         let info = adapter.get_info();
-        log::info!(
-            "GPU adapter: {} ({:?}, {:?}, {})",
-            info.name,
-            info.device_type,
-            info.backend,
-            driver_of(&info)
-        );
+        log::info!("gpu: {}", adapter_words(&info));
         let _ = ADAPTER.set(if info.device_type == wgpu::DeviceType::Cpu {
             format!("{} · {} · software rasteriser", info.name, info.backend)
         } else {
@@ -124,25 +126,43 @@ impl Gpu {
             required_limits: adapter.limits(),
             ..Default::default()
         }))
+        .inspect_err(|error| {
+            log::warn!(
+                "gpu: {} would not open a device for the window: {error}; it opens without one",
+                info.name
+            )
+        })
         .ok()?;
         // Said in the log when it dies, with wgpu's reason: the one line a
         // report of "the GPU device was lost" needs, which until now there
         // was none of. https://github.com/jub0t/Concat/issues/223
-        device.set_device_lost_callback(|reason, message| {
-            log::error!("the window's GPU device was lost ({reason:?}): {message}");
+        let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let marked = std::sync::Arc::clone(&lost);
+        device.set_device_lost_callback(move |reason, message| {
+            marked.store(true, std::sync::atomic::Ordering::Relaxed);
+            let why = match reason {
+                wgpu::DeviceLostReason::Destroyed => "it was let go",
+                wgpu::DeviceLostReason::Unknown => "the driver gave it up",
+            };
+            log::error!(
+                "gpu: the window's device was lost, as {why}: {message}; the window cannot draw on it again"
+            );
         });
         // An error no scope caught goes to the log too. wgpu's default
         // handler panics, and on this device that is the window's thread:
         // a texture past the limit, asked for by anything that draws on it,
         // took the app down where a bad frame would do.
         device.on_uncaptured_error(std::sync::Arc::new(|error: wgpu::Error| {
-            log::error!("the window's GPU device reported an error: {error}");
+            log::error!(
+                "gpu: something drawing on the window's device was refused: {error}; that drawing is skipped"
+            );
         }));
         Some(Gpu {
             instance,
             adapter,
             device,
             queue,
+            lost,
         })
     }
 
@@ -162,6 +182,34 @@ impl Gpu {
             queue: self.queue.clone(),
         }
     }
+}
+
+/// An adapter as the log's `gpu:` line has it: its own name, what kind
+/// of thing it is, the system's name for what it draws through, and its
+/// driver when it says one.
+pub fn adapter_words(info: &wgpu::AdapterInfo) -> String {
+    let kind = match info.device_type {
+        wgpu::DeviceType::IntegratedGpu => "integrated",
+        wgpu::DeviceType::DiscreteGpu => "discrete",
+        wgpu::DeviceType::VirtualGpu => "virtual",
+        wgpu::DeviceType::Cpu => "software",
+        wgpu::DeviceType::Other => "of no stated kind",
+    };
+    let backend = match info.backend {
+        wgpu::Backend::Vulkan => "Vulkan",
+        wgpu::Backend::Metal => "Metal",
+        wgpu::Backend::Dx12 => "Direct3D 12",
+        wgpu::Backend::Gl => "OpenGL ES",
+        wgpu::Backend::BrowserWebGpu => "WebGPU",
+        wgpu::Backend::Noop => "no backend",
+    };
+    let mut words = format!("{} · {kind} · {backend}", info.name);
+    let driver = driver_of(info);
+    if driver != "driver unknown" {
+        words.push_str(" · ");
+        words.push_str(&driver);
+    }
+    words
 }
 
 /// The adapter's driver as the log names it: the driver and its version

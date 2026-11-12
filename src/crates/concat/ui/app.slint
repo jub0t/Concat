@@ -80,7 +80,9 @@ import { ParamFormat } from "inspector/controls.slint";
 import { ToastData, ToastLayer } from "primitives/toast.slint";
 import { TooltipLayer } from "primitives/tooltip.slint";
 import { FontSearch } from "inspector/font-picker.slint";
+import { CaptionStyles } from "dialogs/captions.slint";
 import { Meters } from "timeline/vu-meter.slint";
+import { MotionPose, MotionTile, MotionTiles } from "inspector/motion-picker.slint";
 import { Workspace } from "workspace/workspace.slint";
 import {
     Backdrop,
@@ -134,7 +136,11 @@ export {
     SeatBox,
     EffectData,
     FontSearch,
+    CaptionStyles,
     Meters,
+    MotionPose,
+    MotionTile,
+    MotionTiles,
     MediaFilter,
     MediaItemData,
     MediaKind,
@@ -988,7 +994,6 @@ export component App inherits Window {
     }
 
     SettingsDialog {
-        fill: root.sheets-fill;
         inset-top: root.safe-area-insets.top;
         inset-bottom: root.safe-area-insets.bottom;
         inset-left: root.safe-area-insets.left;
@@ -1051,6 +1056,7 @@ export component App inherits Window {
 
     in property <RelinkData> relink;
     callback relink-all();
+    callback relink-locate(id: string);
     callback relink-remove(id: string);
     callback relink-dismiss();
 
@@ -1108,6 +1114,7 @@ export component App inherits Window {
         inset-right: root.safe-area-insets.right;
         data: root.relink;
         relink-all => { root.relink-all(); }
+        locate(id) => { root.relink-locate(id); }
         remove(id) => { root.relink-remove(id); }
         dismiss => { root.relink-dismiss(); }
     }

@@ -44,11 +44,18 @@ originate at https://huggingface.co/ggerganov/whisper.cpp (MIT); Concat
 mirrors them and downloads them on demand from that mirror, and never
 bundles them. See "The model mirror" below.
 
-The one model Concat does bundle is Silero VAD v6.2.0 in whisper.cpp's
-format (`ggml-silero-v6.2.0.bin`, from https://huggingface.co/ggml-org/whisper-vad,
-MIT; Silero VAD itself is MIT, https://github.com/snakers4/silero-vad,
-Copyright (c) 2020-present Silero Team). It finds where the speech is, so
-captions are timed from it.
+Concat bundles two models:
+
+- Silero VAD v6.2.0 in whisper.cpp's format (`ggml-silero-v6.2.0.bin`, from
+  https://huggingface.co/ggml-org/whisper-vad, MIT; Silero VAD itself is MIT,
+  https://github.com/snakers4/silero-vad, Copyright (c) 2020-present Silero
+  Team). It finds where the speech is, so captions are timed from it.
+- DeepFilterNet 3's ONNX export (`enc.onnx`, `erb_dec.onnx`, `df_dec.onnx`
+  from `models/DeepFilterNet3_onnx.tar.gz` at
+  https://github.com/Rikorose/DeepFilterNet, Copyright (c) 2021 Hendrik
+  Schröter, code and weights dual-licensed MIT or Apache-2.0; Concat takes
+  it under MIT). It is voice isolation's model. The licence texts are in
+  `src/crates/concat-speech/assets/deepfilternet3/`.
 
 ## Slint (GPL-3.0-only, or Royalty-free for commercial builds)
 

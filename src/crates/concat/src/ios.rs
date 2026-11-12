@@ -126,7 +126,7 @@ pub fn install() {
             None => Err("asked for a picker off the main thread"),
         };
         if let Err(error) = shown {
-            log::error!("could not show the picker: {error}");
+            log::error!("import: showing the picker failed: {error}; nothing was picked");
             finish(Vec::new());
         }
     }));
@@ -292,7 +292,9 @@ fn choose(_mtm: MainThreadMarker) -> Result<(), &'static str> {
                 };
                 if let Err(error) = shown {
                     if error != "cancelled" {
-                        log::error!("could not show the picker: {error}");
+                        log::error!(
+                            "import: showing the picker failed: {error}; nothing was picked"
+                        );
                     }
                     finish(Vec::new());
                 }
@@ -476,7 +478,9 @@ fn photos_picked(results: &NSArray<AnyObject>) {
                             .as_ref()
                             .map(|error| error.localizedDescription().to_string())
                             .unwrap_or_default();
-                        log::warn!("could not fetch a picked photo or video: {why}");
+                        log::warn!(
+                            "import: fetching a picked photo or video failed: {why}; it is left out"
+                        );
                         None
                     }
                 };
@@ -515,12 +519,17 @@ fn import_name(suggested: Option<&str>, file: &Path) -> String {
 /// move fails (another volume, a file the app may read but not move).
 fn adopt(from: &Path, name: &str) -> Option<PathBuf> {
     let Some(home) = std::env::home_dir() else {
-        log::warn!("no home folder to import into");
+        log::warn!(
+            "import: wanted the app's home folder to keep a picked file in and there is none; it is left out"
+        );
         return None;
     };
     let dir = home.join("Documents").join("Imported");
     if let Err(error) = std::fs::create_dir_all(&dir) {
-        log::warn!("could not make {}: {error}", dir.display());
+        log::warn!(
+            "import: making {} failed: {error}; the picked file is left out",
+            dir.display()
+        );
         return None;
     }
     // Whatever the provider called it, it is one file name.
@@ -532,7 +541,10 @@ fn adopt(from: &Path, name: &str) -> Option<PathBuf> {
     match std::fs::copy(from, &to) {
         Ok(_) => Some(to),
         Err(error) => {
-            log::warn!("could not import {}: {error}", from.display());
+            log::warn!(
+                "import: copying {} into the app failed: {error}; it is left out",
+                name
+            );
             let _ = std::fs::remove_file(&to);
             None
         }

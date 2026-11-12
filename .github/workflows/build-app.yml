@@ -490,9 +490,12 @@ jobs:
       # read, but the step summary is public - so on failure the tail of the
       # build goes there, and a red run explains itself to anyone.
       - name: Build
-        # An Intel Mac runner is the slow one: its release build ran past
-        # sixty minutes in v0.2.7-rc.1.
-        timeout-minutes: ${{ matrix.platform == 'macos' && matrix.arch == 'x86_64' && 100 || 60 }}
+        # The Mac runners are the slow ones, with three cores and 7 GB for
+        # a window whose generated UI takes more than that to compile: the
+        # Intel build ran past sixty minutes in v0.2.7-rc.1, and the Apple
+        # silicon one took 57 in v0.2.9 and timed out at sixty in v0.2.10
+        # (run 42935189370) while every other bundle was built in 37.
+        timeout-minutes: ${{ matrix.platform == 'macos' && 100 || 60 }}
         shell: bash
         working-directory: src
         run: |

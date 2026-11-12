@@ -32,6 +32,8 @@
 mod contract;
 mod job;
 pub mod message;
+#[cfg(test)]
+mod project_close_tests;
 pub mod rpc;
 
 use std::collections::BTreeMap;
@@ -1408,11 +1410,12 @@ mod tests {
         let clip_id = placed.project.active().clips[0].id.clone();
         for command in [
             json!({ "op": "updateClip", "clipId": clip_id,
-                    "patch": { "mask": { "shape": "star", "feather": 0.3, "invert": true } } }),
-            json!({ "op": "setClipKey", "clipId": clip_id, "property": "maskWidth",
-                    "at": 0.0, "value": 0.2 }),
-            json!({ "op": "setClipKey", "clipId": clip_id, "property": "maskWidth",
-                    "at": 1.0, "value": 1.2 }),
+                    "patch": { "masks": [{ "source": { "kind": "shape", "shape": "star" },
+                                           "feather": 0.3, "invert": true }] } }),
+            json!({ "op": "setMaskKey", "clipId": clip_id, "maskId": "mask-1",
+                    "number": "width", "at": 0.0, "value": 0.2 }),
+            json!({ "op": "setMaskKey", "clipId": clip_id, "maskId": "mask-1",
+                    "number": "width", "at": 1.0, "value": 1.2 }),
         ] {
             let request: Request = serde_json::from_value(json!({
                 "method": "edit.apply", "path": path, "command": command
@@ -1422,10 +1425,10 @@ mod tests {
         }
         let got = view(ok(api.dispatch(Request::ProjectGet { path })));
         let clip = &got.project.active().clips[0];
-        let mask = clip.mask.expect("a mask");
-        assert_eq!(mask.shape, concat_project::model::MaskShape::Star);
+        let mask = &clip.masks[0];
+        assert_eq!(mask.shape(), Some(concat_project::model::MaskShape::Star));
         assert!(mask.invert && (mask.feather - 0.3).abs() < 1e-12);
-        let width = clip.value_at(concat_project::model::KeyProperty::MaskWidth, 0.5);
+        let width = mask.value_at("width", 0.5);
         assert!((width - 0.7).abs() < 1e-12, "the key rides: {width}");
     }
 

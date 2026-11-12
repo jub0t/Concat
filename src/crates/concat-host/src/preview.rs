@@ -112,12 +112,24 @@ impl Monitor {
     /// are.
     #[cfg(feature = "gpu")]
     pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        Self::with_gpu_watching(device, queue, Arc::default())
+    }
+
+    /// [`Monitor::with_gpu`] on a device whose lost callback sets `lost`:
+    /// from then on the monitor's frames are errors, not black pictures
+    /// drawn on a device that is gone.
+    #[cfg(feature = "gpu")]
+    pub fn with_gpu_watching(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        lost: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
         Self {
             pool: Arc::clone(crate::scheduler().pool()),
             plan: Arc::new(Mutex::new(None)),
             early: Arc::new(Mutex::new(Vec::new())),
             gpu: Some(Arc::new(Mutex::new(
-                concat_render::WgpuCompositor::with_device(device, queue),
+                concat_render::WgpuCompositor::with_device(device, queue).watching(lost),
             ))),
         }
     }
@@ -401,6 +413,89 @@ impl Monitor {
             1.0 / fps,
             moments,
         );
+    }
+
+    /// Compiles every packaged effect's pipeline for the window's device in
+    /// the background, so no effect waits on its compiler the first time
+    /// it is drawn - a look shown under the pointer in the Library, a
+    /// first frame of an effect just laid down. On a Mac the system keeps
+    /// what it compiled, so this is the first launch after an update: the
+    /// 85 packages took 86 ms each then, Chroma Key 580, and 1.5 ms after.
+    /// Direct3D 12 compiles with FXC in every process, so there it is every
+    /// launch. Half the cores compile at once; the compositor is held only
+    /// to take in each pipeline as it is done. The time is logged. Nothing
+    /// without a GPU, or on a software one.
+    #[cfg(feature = "gpu")]
+    pub fn warm_shaders(&self) {
+        let Some(gpu) = self.gpu.as_ref().map(Arc::clone) else {
+            return;
+        };
+        // Not on a software adapter: its compiles are the CPU's, and Chroma
+        // Key's has lost WARP its device (#673) - a warm-up must never take
+        // the device of a machine that never uses the effect.
+        let software = gpu
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .adapter_info()
+            .device_type
+            == concat_render::wgpu::DeviceType::Cpu;
+        if software {
+            return;
+        }
+        std::thread::Builder::new()
+            .name("concat shader warm-up".to_owned())
+            .spawn(move || {
+                let begun = std::time::Instant::now();
+                let catalogue = concat_effects::Catalogue::builtin();
+                let passes: Vec<concat_core::shader::ShaderPass> = catalogue
+                    .packages()
+                    .filter_map(|package| {
+                        let shader = package.shader()?;
+                        let values = package.resolve(&Default::default());
+                        Some(shader.pass(
+                            &values,
+                            &package.manifest.params,
+                            1.0,
+                            package.lut().cloned(),
+                            None,
+                        ))
+                    })
+                    .collect();
+                let forge = {
+                    let mut compositor = gpu.lock().unwrap_or_else(|e| e.into_inner());
+                    let wanted: Vec<concat_core::shader::ShaderPass> = passes
+                        .iter()
+                        .filter(|pass| !compositor.has_shader(&pass.key))
+                        .cloned()
+                        .collect();
+                    (compositor.forge(&wanted), wanted)
+                };
+                let (forge, wanted) = forge;
+                let threads = std::thread::available_parallelism()
+                    .map_or(1, |cores| (cores.get() / 2).max(1))
+                    .min(wanted.len().max(1));
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                std::thread::scope(|scope| {
+                    for _ in 0..threads {
+                        scope.spawn(|| {
+                            loop {
+                                let at = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some(pass) = wanted.get(at) else {
+                                    return;
+                                };
+                                let forged = forge.compile(pass);
+                                gpu.lock().unwrap_or_else(|e| e.into_inner()).adopt(forged);
+                            }
+                        });
+                    }
+                });
+                log::info!(
+                    "effects: {} pipelines ready in {:.2} s",
+                    wanted.len(),
+                    begun.elapsed().as_secs_f64()
+                );
+            })
+            .ok();
     }
 
     /// Forgets the kept plan, so the next frame builds it again: for when

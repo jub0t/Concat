@@ -146,7 +146,7 @@ fn register_fallbacks(
         }
         if registered.is_empty() {
             log::warn!(
-                "fonts: the bundled {} face did not register",
+                "fonts: the bundled {} face would not register; text in its scripts falls back to the system's fonts",
                 fallback.family
             );
         }

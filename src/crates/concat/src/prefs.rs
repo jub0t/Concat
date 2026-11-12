@@ -68,6 +68,9 @@ pub struct Preferences {
     /// whisper's code ("id", "de", ...). `None` is whisper's to hear, and
     /// so is a code whisper no longer knows.
     pub caption_language: Option<String>,
+    /// The text preset captions are set in, by id; `None`, "default" and
+    /// an id no longer on the list are the plain look.
+    pub caption_style: Option<String>,
     /// The chosen speech model id.
     pub tts_model: Option<String>,
     /// The chosen voice id.
@@ -338,13 +341,15 @@ impl Preferences {
         }
         match &self.software_after_crash {
             Some(crashed) if crashed != build => {
-                log::info!("start: {crashed} closed while starting; {build} tries the GPU again");
+                log::info!(
+                    "start: back on the GPU · {crashed} closed while starting and drew in software, and {build} tries the GPU again"
+                );
                 self.software_after_crash = None;
                 true
             }
             None if died_starting => {
                 log::warn!(
-                    "start: the last launch closed while starting; drawing in software until another build"
+                    "start: the last launch closed while starting; this build draws in software until the next one, or until Draw on the GPU is turned back on"
                 );
                 self.software_after_crash = Some(build.to_owned());
                 true
@@ -370,7 +375,7 @@ impl Preferences {
         let _ = std::fs::copy(&path, path.with_extension("json.unreadable"));
         let preferences = salvage(&bytes);
         log::warn!(
-            "settings: {} did not read whole; kept what did",
+            "settings: wanted the saved settings in {} and only part of them read; the rest are back to their defaults, and the file is kept beside it as .json.unreadable",
             path.display()
         );
         preferences

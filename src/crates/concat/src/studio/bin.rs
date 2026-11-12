@@ -433,6 +433,48 @@ impl Studio {
     /// of sixty-four bars, so a scroll rebuilds at each stride and not at
     /// every pixel, and the cache holds a few hundred windows before it
     /// is emptied.
+    /// The clip's first (`tail` false) or last seconds of sound, as far
+    /// as a fade can reach - half the clip, ten seconds at most, as the
+    /// Audio tab bounds its fades - drawn as bars in a 1x1 box: the tab's
+    /// fade panes. Empty while the peaks are not in, and for a muted clip.
+    pub(super) fn wave_end(&self, clip: &Clip, tail: bool) -> SharedString {
+        /// Bars across a pane: about one per three pixels of its width.
+        const COLUMNS: usize = 64;
+        if clip.muted == Some(true)
+            || !matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video)
+        {
+            return SharedString::default();
+        }
+        let art = art_key(&clip.media_id, clip.audio_stream);
+        let Some(peaks) = self.peaks.get(&art) else {
+            return SharedString::default();
+        };
+        let duration = clip.duration as f32;
+        let window = (duration / 2.0).clamp(0.1, 10.0).min(duration);
+        if window <= 0.0 {
+            return SharedString::default();
+        }
+        let from = if tail { duration - window } else { 0.0 };
+        let source_start = clip.source_start as f32;
+        let key = format!("end|{art}|{source_start:.3}|{from:.3}|{window:.3}");
+        if let Some(cached) = self.waves.borrow().get(&key) {
+            return cached.clone();
+        }
+        let built = SharedString::from(wave_path(
+            peaks,
+            source_start + from,
+            window,
+            COLUMNS,
+            WAVE_BAR,
+        ));
+        let mut waves = self.waves.borrow_mut();
+        if waves.len() >= 512 {
+            waves.clear();
+        }
+        waves.insert(key, built.clone());
+        built
+    }
+
     pub(super) fn wave(&self, clip: &Clip) -> (SharedString, f32, f32) {
         if clip.muted == Some(true) {
             return Default::default();

@@ -17,15 +17,64 @@ impl Studio {
             ClipField::Rotation => model::KeyProperty::Rotation,
             ClipField::Opacity => model::KeyProperty::Opacity,
             ClipField::Volume => model::KeyProperty::Volume,
-            ClipField::MaskX => model::KeyProperty::MaskX,
-            ClipField::MaskY => model::KeyProperty::MaskY,
-            ClipField::MaskWidth => model::KeyProperty::MaskWidth,
-            ClipField::MaskHeight => model::KeyProperty::MaskHeight,
-            ClipField::MaskRotation => model::KeyProperty::MaskRotation,
-            ClipField::MaskRoundness => model::KeyProperty::MaskRoundness,
-            ClipField::MaskFeather => model::KeyProperty::MaskFeather,
             _ => return None,
         })
+    }
+
+    /// The Speed tab's word on the selected clip: Constant or Curve, the
+    /// curve's points, its line and which points are chosen, Smooth or
+    /// Straight, the preset it still is, its fastest and slowest, and where
+    /// the playhead crosses it. Points are synced row by row, so a point
+    /// under the pointer is not dropped when the graph is published again.
+    pub(super) fn publish_speed_ramp(&self, app: &App, models: &Models) {
+        let ramp = app.global::<SpeedRamp>();
+        let clip = self.speed_clip().and_then(|id| self.clip(&id));
+        let points = clip
+            .and_then(|clip| clip.speed_curve.as_deref())
+            .unwrap_or(&[]);
+        ramp.set_usable(clip.is_some());
+        ramp.set_has_curve(!points.is_empty());
+        // No curve shows as smooth: a curve begins smooth.
+        ramp.set_eased(points.is_empty() || concat_project::speed::is_eased(points));
+        ramp.set_active_preset(speed_ramp::preset_index(points));
+        let extreme = |faster| speed_ramp::extreme_of(points, faster).unwrap_or(0.0) as f32;
+        ramp.set_peak_speed(extreme(true));
+        ramp.set_trough_speed(extreme(false));
+        ramp.set_line_path(speed_ramp::curve_path(points).into());
+        let across = clip.and_then(|clip| {
+            let local = f64::from(self.playhead) - clip.start;
+            (clip.duration > 0.0 && (0.0..=clip.duration).contains(&local))
+                .then(|| (local / clip.duration) as f32)
+        });
+        ramp.set_playhead_at(across.unwrap_or(-1.0));
+        let last = points.len().saturating_sub(1);
+        sync(
+            &models.ramp_points,
+            points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| SpeedPointData {
+                    index: index as i32,
+                    x: point.at as f32,
+                    y: speed_ramp::height_for(point.speed) as f32,
+                    end: index == 0 || index == last,
+                })
+                .collect(),
+        );
+        let chosen = self.speed_chosen_now();
+        sync(
+            &models.curve_selected,
+            (0..points.len())
+                .map(|index| chosen.contains(&index))
+                .collect(),
+        );
+        sync(
+            &models.preset_labels,
+            speed_ramp::preset_labels()
+                .into_iter()
+                .map(SharedString::from)
+                .collect(),
+        );
     }
 
     /// The selected clip and where the playhead is inside it, `0..=1`, or
@@ -34,44 +83,6 @@ impl Studio {
     /// Outside is not clamped to an end: a key put on from outside the clip
     /// would land on its first or last frame, which is never what the person
     /// pressing the diamond meant.
-    /// The Speed tab's curve for the selected clip: its points on the
-    /// graph's scale, the line through them, whether it bends, which preset
-    /// it still is, where the playhead crosses it, and its two extremes.
-    pub(super) fn publish_speed_ramp(&self, app: &App, models: &Models) {
-        let ramp = app.global::<SpeedRamp>();
-        if models.speed_presets.row_count() == 0 {
-            sync(
-                &models.speed_presets,
-                speed_ramp::preset_names()
-                    .into_iter()
-                    .map(SharedString::from)
-                    .collect(),
-            );
-        }
-        let clip = self.sole_selection().and_then(|id| self.clip(&id));
-        let curve = clip.and_then(|clip| clip.speed_curve.as_deref());
-        let points = curve.unwrap_or_default();
-        sync(
-            &models.speed_points,
-            points
-                .iter()
-                .enumerate()
-                .map(|(index, point)| CurvePointData {
-                    index: index as i32,
-                    x: point.at as f32,
-                    y: speed_ramp::height_of(point.speed) as f32,
-                })
-                .collect(),
-        );
-        ramp.set_curved(curve.is_some());
-        ramp.set_smooth(curve.is_none_or(concat_project::speed::is_smooth));
-        ramp.set_path(speed_ramp::path(points).into());
-        ramp.set_preset(curve.map_or(-1, speed_ramp::preset_index));
-        ramp.set_at(self.key_point().map_or(-1.0, |(_, at)| at as f32));
-        ramp.set_fastest(speed_ramp::extreme(points, true).map_or(-1.0, |speed| speed as f32));
-        ramp.set_slowest(speed_ramp::extreme(points, false).map_or(-1.0, |speed| speed as f32));
-    }
-
     pub fn key_point(&self) -> Option<(&Clip, f64)> {
         let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
         if clip.duration <= 0.0 {
@@ -90,7 +101,7 @@ impl Studio {
         let Some((clip, at)) = self.key_point() else {
             return Vec::new();
         };
-        model::KeyProperty::ALL
+        let mut rows: Vec<ClipKeyData> = model::KeyProperty::ALL
             .iter()
             .map(|&property| {
                 let (prev, next) = clip.keys_around(property, at);
@@ -102,7 +113,9 @@ impl Studio {
                     next: next.is_some(),
                 }
             })
-            .collect()
+            .collect();
+        rows.extend(self.mask_key_rows(clip, at));
+        rows
     }
 
     /// The Keyframes pane's rows: the six properties of the selected clip,
@@ -174,11 +187,6 @@ impl Studio {
         };
         let mut rows = Vec::new();
         for property in model::KeyProperty::ALL {
-            // The mask's numbers are rows only while there is a mask, or
-            // keys left from one: seven rows of nothing otherwise.
-            if property.is_mask() && clip.mask.is_none() && !clip.is_keyed(property) {
-                continue;
-            }
             // The same ranges and units as the inspector's knobs. The level
             // knob speaks decibels, floored where silence is.
             let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
@@ -243,76 +251,6 @@ impl Studio {
                         "",
                         1.0,
                     ),
-                    model::KeyProperty::MaskX => (
-                        tf("mask.row", &[&t("common.positionX")]),
-                        -1.0,
-                        1.0,
-                        0.005,
-                        0.0,
-                        ParamFormat::Centred,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskY => (
-                        tf("mask.row", &[&t("common.positionY")]),
-                        -1.0,
-                        1.0,
-                        0.005,
-                        0.0,
-                        ParamFormat::Centred,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskWidth => (
-                        tf("mask.row", &[&t("common.width")]),
-                        0.01,
-                        4.0,
-                        0.01,
-                        0.66,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskHeight => (
-                        tf("mask.row", &[&t("common.height")]),
-                        0.01,
-                        4.0,
-                        0.01,
-                        0.66,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskRotation => (
-                        tf("mask.row", &[&t("common.rotation")]),
-                        -180.0,
-                        180.0,
-                        1.0,
-                        0.0,
-                        ParamFormat::Degrees,
-                        "°",
-                        1.0,
-                    ),
-                    model::KeyProperty::MaskRoundness => (
-                        tf("mask.row", &[&t("mask.roundness")]),
-                        0.0,
-                        1.0,
-                        0.01,
-                        0.0,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
-                    model::KeyProperty::MaskFeather => (
-                        tf("mask.row", &[&t("clipInspector.feather")]),
-                        0.0,
-                        1.0,
-                        0.01,
-                        0.0,
-                        ParamFormat::Fraction,
-                        "%",
-                        100.0,
-                    ),
                 };
             let to_knob = |value: f64| knob_value(property, value);
             let keys: Vec<(f64, f64, model::KeyEase)> = clip
@@ -345,6 +283,55 @@ impl Studio {
                 curve: curve.into(),
                 ease_index,
             });
+        }
+        // Every mask's numbers: all of the current mask's, which the Mask
+        // section is showing, and the keyed ones of the rest. A row is the
+        // number's field with the mask's id beside it.
+        let current = self.current_mask(clip).map(|mask| mask.id.clone());
+        for (index, mask) in clip.masks.iter().enumerate() {
+            let is_current = current.as_deref() == Some(mask.id.as_str());
+            for field in masks::MASK_KEY_FIELDS {
+                let number = masks::mask_number_of(field).expect("a mask field");
+                let (Some(_), Some(knob)) = (mask.get(number), masks::mask_knob(number)) else {
+                    continue;
+                };
+                let held = mask.keys_on(number);
+                if !is_current && held.is_empty() {
+                    continue;
+                }
+                let keys: Vec<(f64, f64, model::KeyEase)> = held
+                    .iter()
+                    .map(|key| (key.at, key.value, key.ease))
+                    .collect();
+                let span = knob.maximum - knob.minimum;
+                let (marks, curve, ease_index) =
+                    marks_and_curve(&keys, &|value| (value - knob.minimum) / span);
+                let before = |key: &&model::ParamKey| key.at < at - model::KEY_EPSILON;
+                let after = |key: &&model::ParamKey| key.at > at + model::KEY_EPSILON;
+                rows.push(KeyRowData {
+                    field,
+                    param: mask.id.as_str().into(),
+                    label: format!("{} · {}", masks::mask_label(mask, index), knob.label).into(),
+                    keys: marks,
+                    state: ClipKeyData {
+                        field,
+                        keyed: !held.is_empty(),
+                        here: held.iter().any(|key| near(key.at, at)),
+                        prev: held.iter().any(|key| before(&key)),
+                        next: held.iter().any(|key| after(&key)),
+                    },
+                    value: mask.value_at(number, at) as f32,
+                    minimum: knob.minimum as f32,
+                    maximum: knob.maximum as f32,
+                    step: knob.step,
+                    default_value: knob.default_value,
+                    fmt: knob.fmt,
+                    unit: knob.unit.into(),
+                    unit_scale: knob.unit_scale,
+                    curve: curve.into(),
+                    ease_index,
+                });
+            }
         }
         if let Some(link) = clip
             .video_effects
@@ -450,6 +437,41 @@ impl Studio {
         let clip_id = clip.id.clone();
         let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
         let fraction = f64::from(fraction).clamp(0.0, 1.0);
+        if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
+            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
+                return;
+            };
+            let Some(key) = mask
+                .keys_on(number)
+                .iter()
+                .find(|key| (key.at - from).abs() <= model::KEY_EPSILON)
+                .copied()
+            else {
+                return;
+            };
+            let Some(knob) = masks::mask_knob(number) else {
+                return;
+            };
+            let value = knob.minimum + fraction * (knob.maximum - knob.minimum);
+            let commands = vec![
+                Command::ClearMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: key.at,
+                },
+                Command::SetMaskKey {
+                    clip_id,
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: to,
+                    value,
+                    ease: key.ease,
+                },
+            ];
+            self.apply(Command::Batch { commands });
+            return;
+        }
         let commands = if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
                 return;
@@ -528,6 +550,11 @@ impl Studio {
             .iter()
             .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
             .collect();
+        ats.extend(
+            clip.masks
+                .iter()
+                .flat_map(|mask| mask.keys.values().flatten().map(|key| key.at)),
+        );
         if let Some(link) = clip
             .video_effects
             .iter()
@@ -573,6 +600,30 @@ impl Studio {
                 value: key.value,
                 ease: key.ease,
             });
+        }
+        for mask in &clip.masks {
+            for (number, run) in &mask.keys {
+                let Some(key) = run
+                    .iter()
+                    .find(|key| (key.at - from_at).abs() <= model::KEY_EPSILON)
+                else {
+                    continue;
+                };
+                commands.push(Command::ClearMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: mask.id.clone(),
+                    number: number.clone(),
+                    at: key.at,
+                });
+                commands.push(Command::SetMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: mask.id.clone(),
+                    number: number.clone(),
+                    at: to_at,
+                    value: key.value,
+                    ease: key.ease,
+                });
+            }
         }
         if let Some(entry) = clip
             .video_effects
@@ -624,6 +675,37 @@ impl Studio {
         };
         let clip_id = clip.id.clone();
         let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
+        if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
+            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
+                return;
+            };
+            let Some(key) = mask
+                .keys_on(number)
+                .iter()
+                .find(|key| (key.at - from).abs() <= model::KEY_EPSILON)
+                .copied()
+            else {
+                return;
+            };
+            let commands = vec![
+                Command::ClearMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: key.at,
+                },
+                Command::SetMaskKey {
+                    clip_id,
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: to,
+                    value: key.value,
+                    ease: key.ease,
+                },
+            ];
+            self.apply(Command::Batch { commands });
+            return;
+        }
         let commands = if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
                 return;
@@ -692,6 +774,31 @@ impl Studio {
         let clip_id = clip.id.clone();
         let at = f64::from(at);
         let ease = model::KeyEase(ease.map(f64::from)).sane();
+        if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
+            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
+                return;
+            };
+            let Some(key) = mask
+                .keys_on(number)
+                .iter()
+                .find(|key| (key.at - at).abs() <= model::KEY_EPSILON)
+                .copied()
+            else {
+                return;
+            };
+            self.apply_within(
+                "ease",
+                Command::SetMaskKey {
+                    clip_id,
+                    mask_id: param.to_owned(),
+                    number: number.to_owned(),
+                    at: key.at,
+                    value: key.value,
+                    ease,
+                },
+            );
+            return;
+        }
         let command = if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
                 return;
@@ -751,6 +858,11 @@ impl Studio {
             .iter()
             .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
             .collect();
+        candidates.extend(
+            clip.masks
+                .iter()
+                .flat_map(|mask| mask.keys.values().flatten().map(|key| key.at)),
+        );
         if let Some(link) = clip
             .video_effects
             .iter()
@@ -793,6 +905,15 @@ impl Studio {
                 property,
             })
             .collect();
+        for mask in &clip.masks {
+            for number in mask.keys.keys() {
+                commands.push(Command::ClearMaskKeys {
+                    clip_id: clip_id.clone(),
+                    mask_id: mask.id.clone(),
+                    number: number.clone(),
+                });
+            }
+        }
         if let Some(entry) = clip
             .video_effects
             .iter()
@@ -818,6 +939,13 @@ impl Studio {
     /// value on one that has them. That is what makes the diamond safe to
     /// press: it never moves the picture, it only says "hold this here".
     pub fn toggle_key(&mut self, field: ClipField) {
+        if masks::mask_number_of(field).is_some() {
+            let commands = self.mask_toggle_commands(field);
+            if !commands.is_empty() {
+                self.apply(Command::Batch { commands });
+            }
+            return;
+        }
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
@@ -854,6 +982,12 @@ impl Studio {
 
     /// Takes every key off a field, leaving it its constant.
     pub fn clear_keys_on(&mut self, field: ClipField) {
+        if masks::mask_number_of(field).is_some() {
+            if let Some(command) = self.mask_clear_command(field) {
+                self.apply(command);
+            }
+            return;
+        }
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
@@ -865,6 +999,28 @@ impl Studio {
 
     /// Moves the playhead to this field's previous (-1) or next (+1) key.
     pub fn step_key(&mut self, field: ClipField, delta: i32) {
+        if masks::mask_number_of(field).is_some() {
+            let Some((clip, at)) = self.key_point() else {
+                return;
+            };
+            let (start, duration) = (clip.start, clip.duration);
+            let times = self.mask_key_times(field);
+            let target = if delta < 0 {
+                times
+                    .into_iter()
+                    .filter(|&key| key < at - model::KEY_EPSILON)
+                    .reduce(f64::max)
+            } else {
+                times
+                    .into_iter()
+                    .filter(|&key| key > at + model::KEY_EPSILON)
+                    .reduce(f64::min)
+            };
+            if let Some(target) = target {
+                self.seek((start + target * duration) as f32);
+            }
+            return;
+        }
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
@@ -1056,10 +1212,20 @@ impl Studio {
         let enhance_preview = enhance.preview.is_some();
         let (enhance_before, enhance_after, (estimate_total, estimate_frames, estimate_per_frame)) =
             enhance.preview.take().unwrap_or_default();
+        let current_mask = self.current_mask(clip);
+        let fresh_mask = model::Mask::of("", "", model::MaskShape::Circle);
+        let mask_number = |number: &str| -> f32 {
+            match current_mask {
+                Some(mask) => mask.value_at(number, at) as f32,
+                None => fresh_mask.get(number).unwrap_or(0.0) as f32,
+            }
+        };
+        let (mask_rows, mask_index) = self.mask_rows(clip);
         SelectedClipData {
             present: true,
             batch: targets.len() as i32,
             batch_volume,
+            has_sound: self.clip_has_sound(clip),
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
@@ -1109,19 +1275,73 @@ impl Studio {
             crop_top: clip.crop.map(|crop| crop.top as f32).unwrap_or(0.0),
             crop_right: clip.crop.map(|crop| crop.right as f32).unwrap_or(0.0),
             crop_bottom: clip.crop.map(|crop| crop.bottom as f32).unwrap_or(0.0),
-            mask: clip
-                .mask
-                .and_then(|mask| model::MaskShape::ALL.iter().position(|s| *s == mask.shape))
+            masks: ModelRc::new(VecModel::from(mask_rows)),
+            mask_index,
+            mask: current_mask
+                .and_then(|mask| mask.shape())
+                .and_then(|shape| model::MaskShape::ALL.iter().position(|s| *s == shape))
                 .map_or(-1, |index| index as i32),
-            mask_invert: clip.mask.is_some_and(|mask| mask.invert),
-            mask_x: shown(clip, model::KeyProperty::MaskX, at) as f32,
-            mask_y: shown(clip, model::KeyProperty::MaskY, at) as f32,
-            mask_width: shown(clip, model::KeyProperty::MaskWidth, at) as f32,
-            mask_height: shown(clip, model::KeyProperty::MaskHeight, at) as f32,
-            mask_rotation: shown(clip, model::KeyProperty::MaskRotation, at) as f32,
-            mask_roundness: shown(clip, model::KeyProperty::MaskRoundness, at) as f32,
-            mask_feather: shown(clip, model::KeyProperty::MaskFeather, at) as f32,
+            mask_invert: current_mask.is_some_and(|mask| mask.invert),
+            mask_mode: current_mask
+                .and_then(|mask| {
+                    model::MaskMode::ALL
+                        .iter()
+                        .position(|mode| *mode == mask.mode)
+                })
+                .map_or(0, |index| index as i32),
+            motion_in: motion_place(
+                clip.motion
+                    .as_ref()
+                    .and_then(|m| m.enter.as_ref())
+                    .map(|m| m.kind.as_str()),
+                false,
+            ),
+            motion_in_seconds: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.enter.as_ref())
+                .map_or(0.5, |m| m.seconds) as f32,
+            motion_out: motion_place(
+                clip.motion
+                    .as_ref()
+                    .and_then(|m| m.exit.as_ref())
+                    .map(|m| m.kind.as_str()),
+                false,
+            ),
+            motion_out_seconds: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.exit.as_ref())
+                .map_or(0.5, |m| m.seconds) as f32,
+            motion_loop: motion_place(
+                clip.motion
+                    .as_ref()
+                    .and_then(|m| m.cycle.as_ref())
+                    .map(|m| m.kind.as_str()),
+                true,
+            ),
+            motion_loop_seconds: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.cycle.as_ref())
+                .map_or(1.0, |m| m.seconds) as f32,
+            motion_loop_amount: clip
+                .motion
+                .as_ref()
+                .and_then(|m| m.cycle.as_ref())
+                .map_or(1.0, |m| m.amount) as f32,
+            mask_x: mask_number("x"),
+            mask_y: mask_number("y"),
+            mask_width: mask_number("width"),
+            mask_height: mask_number("height"),
+            mask_rotation: mask_number("rotation"),
+            mask_roundness: mask_number("roundness"),
+            mask_feather: mask_number("feather"),
+            mask_expand: mask_number("expand"),
+            mask_opacity: mask_number("opacity"),
             fade_in: clip.fade_in as f32,
+            wave_head: self.wave_end(clip, false),
+            wave_tail: self.wave_end(clip, true),
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),
             font_family: text.font_family.trim_matches('"').into(),
@@ -1200,6 +1420,20 @@ impl Studio {
                 .unwrap_or(-1.0),
             stabilize_zoom: steady.map_or(-1.0, |(zoom, _)| zoom as f32),
             stabilize_needed: steady.map_or(-1.0, |(_, needed)| needed as f32),
+            voice_mode: match clip.voice {
+                None => 0,
+                Some(mix) if mix.voice == 1.0 && mix.background == 0.0 => 1,
+                Some(mix) if mix.voice == 0.0 && mix.background == 1.0 => 2,
+                Some(_) => 3,
+            },
+            voice_level: clip.voice.map_or(1.0, |mix| mix.voice as f32),
+            background_level: clip.voice.map_or(1.0, |mix| mix.background as f32),
+            voice_progress: self.voice_progress(clip).0,
+            voice_fetching: self.voice_progress(clip).1,
+            voice_kind: match clip.voice.unwrap_or_default().kind {
+                model::VoiceKind::Vocals => 0,
+                model::VoiceKind::Speech => 1,
+            },
             enhance_progress: self
                 .enhance_jobs
                 .get(&clip.id)
@@ -1447,7 +1681,9 @@ impl Studio {
         }
         for dir in tripped {
             if self.tripped_strokes.insert(dir) {
-                log::warn!("smart brush: a stroke the app closed while reading is skipped");
+                log::warn!(
+                    "cutout: skipped a Smart brush stroke: Concat closed while reading it last time, and would again; painting it again reads it"
+                );
                 self.notify(&t("studio.smartBrushSkipped"), true);
             }
         }
@@ -1610,20 +1846,10 @@ impl Studio {
 
         app.set_on_start(self.on_start);
         app.set_project_name(self.project_name.as_str().into());
-        app.set_project_status(
-            if self.dirty {
-                "unsaved changes"
-            } else {
-                "saved"
-            }
-            .into(),
-        );
-        app.set_toast(ToastData {
-            token: self.toast.token,
-            message: self.toast.message.as_str().into(),
-            failed: self.toast.failed,
+        self.publish_status(app);
+        set_changed(app.get_start(), self.start.data(), same_start, |data| {
+            app.set_start(data)
         });
-        app.set_start(self.start.data());
         app.set_recents_total(self.recents.len() as i32);
         sync(
             &models.recents,
@@ -1665,28 +1891,7 @@ impl Studio {
         // The Text page's presets: the look each card draws its name in.
         // All of them for the phone's one shelf; on the desktop, Styles
         // has the Latin ones and Languages, under it, the rest.
-        let cards: Vec<TextPresetData> = self
-            .text_presets
-            .iter()
-            .map(|preset| {
-                let plate = colour_of(&preset.style.background);
-                TextPresetData {
-                    id: preset.id.as_str().into(),
-                    name: preset.name.as_str().into(),
-                    language: preset.language.as_str().into(),
-                    sample: preset.sample.as_str().into(),
-                    family: preset.style.font_family.trim_matches('"').into(),
-                    weight: preset.style.font_weight.round() as i32,
-                    italic: preset.style.italic,
-                    fill: colour_of(&preset.style.color),
-                    plate,
-                    plated: plate.alpha() > 0,
-                    stroke: colour_of(&preset.style.stroke_color),
-                    stroke_width: preset.style.stroke_width as f32,
-                    align: align_of(preset.style.align),
-                }
-            })
-            .collect();
+        let cards: Vec<TextPresetData> = self.text_presets.iter().map(preset_card).collect();
         let latin = |card: &TextPresetData| card.language.eq_ignore_ascii_case("latin");
         sync(
             &models.style_presets,
@@ -1769,13 +1974,28 @@ impl Studio {
         sync(&models.menu, rows);
         editor.set_menu_token(self.menu_token);
 
-        app.set_export(self.export.data(self));
-        app.set_settings(self.settings.data(self));
+        set_changed(
+            app.get_export(),
+            self.export.data(self),
+            same_export,
+            |data| app.set_export(data),
+        );
+        set_changed(
+            app.get_settings(),
+            self.settings.data(self),
+            same_settings,
+            |data| app.set_settings(data),
+        );
         sync(&models.transcribers, self.settings.transcriber_rows());
         sync(&models.voices, self.settings.voice_rows());
         sync(&models.versions, self.settings.version_rows());
         sync(&models.version_details, self.settings.version_details());
-        app.set_relink(self.relink.data(self));
+        set_changed(
+            app.get_relink(),
+            self.relink.data(self),
+            same_relink,
+            |data| app.set_relink(data),
+        );
         app.set_confirm(self.confirm_data());
 
         // The speech sheets, and the lists they choose from.
@@ -1789,8 +2009,38 @@ impl Studio {
         );
         sync(&models.caption_languages, self.captions.language_rows(self));
         let captions = self.captions.data(self);
-        app.global::<Editor>().set_captions_sheet(captions.clone());
-        app.set_captions(captions);
+        // The captions' style picker: the presets its search lets through,
+        // by name or by the writing they are for, and the one picked.
+        let query = self.captions.style_query.trim().to_lowercase();
+        sync(
+            &models.caption_styles,
+            self.text_presets
+                .iter()
+                .filter(|preset| {
+                    query.is_empty()
+                        || preset.name.to_lowercase().contains(&query)
+                        || preset.language.to_lowercase().contains(&query)
+                })
+                .map(preset_card)
+                .collect(),
+        );
+        let picked = crate::panes::captions::caption_style_id(self);
+        if let Some(preset) = self.text_presets.iter().find(|preset| preset.id == picked) {
+            let styles = app.global::<crate::ui::CaptionStyles>();
+            if styles.get_current().id != preset.id.as_str() {
+                styles.set_current(preset_card(preset));
+            }
+        }
+        let editor = app.global::<Editor>();
+        set_changed(
+            editor.get_captions_sheet(),
+            captions.clone(),
+            same_captions,
+            |data| editor.set_captions_sheet(data),
+        );
+        set_changed(app.get_captions(), captions, same_captions, |data| {
+            app.set_captions(data)
+        });
         let voices = installed(&self.settings.voices);
         sync(
             &models.speech_models,
@@ -2082,6 +2332,26 @@ impl Studio {
                 self.clip_has_sound(clip),
             ));
             rows.push(rule());
+            // Voice isolation, both ways, one click each: ticked when it is
+            // what the clip plays, and chosen again to play it as recorded
+            // (#120).
+            let voiced = self.clip_has_sound(clip) && !locked;
+            let mix = clip.voice;
+            rows.push(check(
+                "voice-keep",
+                &t("voice.keepOnly"),
+                "",
+                mix.is_some_and(|mix| mix.voice > 0.0 && mix.background == 0.0),
+                voiced,
+            ));
+            rows.push(check(
+                "voice-remove",
+                &t("voice.remove"),
+                "",
+                mix.is_some_and(|mix| mix.voice == 0.0),
+                voiced,
+            ));
+            rows.push(rule());
         }
         let audible = clip.kind != model::ClipKind::Image;
         rows.push(check(
@@ -2185,7 +2455,8 @@ impl Studio {
 
     /// A row of a bin card's menu, for the media it was opened on.
     pub fn media_action(&mut self, id: &str, action: &str) {
-        log::info!("media menu: {action} on {id}");
+        log::debug!("media menu: {action} on {id}");
+        let _asked = Asked::by("media menu");
         let Some(row) = self.media.row_of(id) else {
             return;
         };
@@ -2647,4 +2918,45 @@ impl Studio {
         self.apply(Command::SetTimelineVideo { timeline_id, video });
         self.request_preview();
     }
+}
+
+/// A text preset as its card draws it: enough of the look to set its
+/// sample in. The Text page's shelves and the captions' style picker.
+pub(crate) fn preset_card(preset: &TextPreset) -> TextPresetData {
+    let plate = colour_of(&preset.style.background);
+    TextPresetData {
+        id: preset.id.as_str().into(),
+        name: preset.name.as_str().into(),
+        language: preset.language.as_str().into(),
+        sample: preset.sample.as_str().into(),
+        family: preset.style.font_family.trim_matches('"').into(),
+        weight: preset.style.font_weight.round() as i32,
+        italic: preset.style.italic,
+        fill: colour_of(&preset.style.color),
+        plate,
+        plated: plate.alpha() > 0,
+        stroke: colour_of(&preset.style.stroke_color),
+        stroke_width: preset.style.stroke_width as f32,
+        align: align_of(preset.style.align),
+    }
+}
+
+/// Where a move or a loop named `kind` sits in its picker's list; -1 for
+/// none or a name the app does not know.
+fn motion_place(kind: Option<&str>, looping: bool) -> i32 {
+    let Some(kind) = kind else { return -1 };
+    let place = if looping {
+        concat_core::motion::Cycle::parse(kind).and_then(|found| {
+            concat_core::motion::Cycle::ALL
+                .iter()
+                .position(|c| *c == found)
+        })
+    } else {
+        concat_core::motion::Move::parse(kind).and_then(|found| {
+            concat_core::motion::Move::ALL
+                .iter()
+                .position(|m| *m == found)
+        })
+    };
+    place.map_or(-1, |place| place as i32)
 }

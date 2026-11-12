@@ -108,6 +108,34 @@ impl Model {
         Model::build(&bytes, dims, fixed_accelerators())
     }
 
+    /// A model on the CPU alone, on `threads` of its own: for a small
+    /// recurrent network run many times side by side - voice isolation's,
+    /// a few million weights a frame at a time - where a GPU's dispatch
+    /// costs more than the arithmetic and parallel work belongs to the
+    /// caller, one run a core, not to one run spread over all of them.
+    ///
+    /// Without ONNX Runtime's arena or its memory pattern: each holds on to
+    /// the largest tensors a run has made, and with three sessions to a
+    /// core that kept 220 MB a core of ten-second chunks' worth, three
+    /// times what the tensors need, for as long as the sessions lived.
+    pub fn from_bytes_on_cpu(bytes: &[u8], threads: usize) -> Result<Model, String> {
+        ready()?;
+        let fail = |error: &dyn std::fmt::Display| format!("onnx runtime: {error}");
+        let session = Session::builder()
+            .map_err(|error| fail(&error))?
+            .with_execution_providers([ort::ep::CPU::default().with_arena_allocator(false).build()])
+            .map_err(|error| fail(&error))?
+            .with_memory_pattern(false)
+            .map_err(|error| fail(&error))?
+            .with_intra_threads(threads.max(1))
+            .map_err(|error| fail(&error))?
+            .with_inter_threads(1)
+            .map_err(|error| fail(&error))?
+            .commit_from_memory(bytes)
+            .map_err(|error| fail(&error))?;
+        Ok(Model { session })
+    }
+
     fn build(
         bytes: &[u8],
         dims: &[(&str, i64)],

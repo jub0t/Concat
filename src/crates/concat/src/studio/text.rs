@@ -65,18 +65,26 @@ impl Studio {
     /// so it is there next session and for every project, and registered
     /// on this project; the selected title is set in the first of them.
     pub fn import_fonts(&mut self, paths: Vec<std::path::PathBuf>) {
-        log::info!("fonts: importing {} file(s)", paths.len());
+        log::debug!("fonts: importing {} file(s)", paths.len());
         let mut first: Option<String> = None;
         for path in paths {
             let families = concat_text::families_in(&path);
+            let file_name = crate::studio::file_name_of(&path.to_string_lossy());
             if families.is_empty() {
+                log::warn!(
+                    "fonts: {file_name} was picked as a font and holds none; it is not imported"
+                );
                 self.notify(&tf("studio.notAFont", &[&path.display()]), true);
                 continue;
             }
             let Some(installed) = presets::install_font_file(&self.host.dirs, &path) else {
+                log::warn!(
+                    "fonts: {file_name} could not be copied into Concat's fonts; it is not imported"
+                );
                 self.notify(&tf("studio.notAFont", &[&path.display()]), true);
                 continue;
             };
+            log::info!("fonts: imported {file_name} · {}", families.join(", "));
             let file = installed.to_string_lossy().into_owned();
             for family in families {
                 if !self.installed_fonts.iter().any(|(held, _)| *held == family) {
@@ -371,7 +379,7 @@ impl Studio {
             ) else {
                 continue;
             };
-            commands.extend(clip_commands(id, before, after, self.prefs.magnetic));
+            commands.extend(clip_edit_commands(id, before, after, self.prefs.magnetic()));
         }
         if commands.is_empty() {
             return;

@@ -6,18 +6,18 @@ name = "Zoom Blur"
 kind = "transition"
 category = "Zoom"
 order = 15
-description = "Rapid inward/outward camera rush with radial zoom blur."
+description = "The camera lunges into the last shot in a rush of streaks, and the next one rushes back out to meet it."
 
 [[param]]
 key = "strength"
 label = "Strength"
+unit = "%"
 min = 0
 max = 100
-default = 70
 step = 1
-unit = "%"
+default = 70
 
 [transition]
-entry = "effect.wgsl"
-xfade = "zoomin"
 fallback = "cross-fade"
+xfade = "zoomin"
+entry = "effect.wgsl"

@@ -4,53 +4,201 @@
 //! Speed curves: the arithmetic the commands share.
 //!
 //! A curve is a handful of `(at, speed)` points over the clip, joined by
-//! straight lines; the engine's [`SpeedCurve`] turns them into a time map.
+//! straight lines, or bent smoothly through them when every point carries a
+//! slope; the engine's [`SpeedCurve`] turns them into a time map. This is
+//! where the project's points meet the engine: making the engine's curve
+//! from them, tidying a curve that arrives from outside, the presets, and
+//! what a trim or a split does to a curve.
 
 use concat_core::SpeedCurve;
 
-use crate::model::ranges::{MAX_SPEED, MIN_SPEED};
-use crate::model::{Clip, SpeedPoint};
+use crate::model::{
+    Clip, SpeedPoint,
+    ranges::{MAX_SPEED, MIN_SPEED},
+};
 
 /// The engine's curve for these points, or None when they make no curve.
-/// Smooth when every point carries a slope, straight otherwise.
-pub fn curve_of(points: &[SpeedPoint]) -> Option<SpeedCurve> {
-    let raw: Vec<(f64, f64)> = points
+pub fn engine_curve(points: &[SpeedPoint]) -> Option<SpeedCurve> {
+    let pairs: Vec<(f64, f64)> = points
         .iter()
-        .map(|point: &SpeedPoint| (point.at, point.speed))
+        .map(|knot: &SpeedPoint| (knot.at, knot.speed))
         .collect();
-    let slopes: Option<Vec<f64>> = points.iter().map(|point| point.slope).collect();
-    SpeedCurve::with_slopes(&raw, slopes.as_deref())
+    // A slope on some points and not others is no way to bend a curve:
+    // such a curve plays as straight lines.
+    let slope_list: Option<Vec<f64>> = points.iter().map(|knot| knot.slope).collect();
+    SpeedCurve::with_tangents(&pairs, slope_list.as_deref())
 }
 
-/// Whether these points bend smoothly rather than meet in straight lines.
-pub fn is_smooth(points: &[SpeedPoint]) -> bool {
-    !points.is_empty() && points.iter().all(|point| point.slope.is_some())
+/// Whether the curve bends smoothly through its points: it has points, and
+/// every one of them has a slope.
+pub fn is_eased(points: &[SpeedPoint]) -> bool {
+    !points.is_empty() && points.iter().all(|knot| knot.slope.is_some())
 }
 
 /// Source seconds per timeline second over a whole clip with these points;
 /// the constant rate's equivalent for a curve.
-pub fn mean_of(points: &[SpeedPoint]) -> f64 {
-    curve_of(points).map(|curve| curve.mean()).unwrap_or(1.0)
+pub fn average_speed(points: &[SpeedPoint]) -> f64 {
+    engine_curve(points)
+        .map(|curve| curve.mean())
+        .unwrap_or(1.0)
 }
 
-/// A shape a clip's speed can be given in one go: points over the clip's
-/// length, so the same preset fits a clip of any length. Choosing one
-/// writes ordinary points, which are the clip's own from then on.
-pub struct SpeedPreset {
-    /// The name the window looks its label up by.
+/// The points as they will be played: in order of `at` (points that share
+/// one keep their order, a step), every `at` held to `0..=1` and every
+/// speed to the range, and reaching both ends of the clip, held level out
+/// to an end the points stop short of. A smooth curve stays smooth, a slope
+/// that is not a number being a flat one; anything else is straight lines.
+/// None when no point is a pair of numbers.
+///
+/// A curve that arrives from outside is stored this way, so what is saved
+/// is what plays, and reading the project back cannot change the clip.
+pub fn sanitised(points: &[SpeedPoint]) -> Option<Vec<SpeedPoint>> {
+    let bent = is_eased(points);
+    let mut tidy: Vec<SpeedPoint> = points
+        .iter()
+        .filter(|knot| knot.at.is_finite() && knot.speed.is_finite())
+        .map(|knot| SpeedPoint {
+            at: knot.at.clamp(0.0, 1.0),
+            speed: knot.speed.clamp(MIN_SPEED, MAX_SPEED),
+            slope: knot
+                .slope
+                .filter(|_| bent)
+                .map(|slope| if slope.is_finite() { slope } else { 0.0 }),
+        })
+        .collect();
+    if tidy.is_empty() {
+        return None;
+    }
+    // Stable, so the two sides of a step keep their order.
+    tidy.sort_by(|a, b| a.at.total_cmp(&b.at));
+    let level = bent.then_some(0.0);
+    let front = tidy[0];
+    if front.at > 0.0 {
+        tidy.insert(
+            0,
+            SpeedPoint {
+                at: 0.0,
+                speed: front.speed,
+                slope: level,
+            },
+        );
+    }
+    let back = tidy[tidy.len() - 1];
+    if back.at < 1.0 {
+        tidy.push(SpeedPoint {
+            at: 1.0,
+            speed: back.speed,
+            slope: level,
+        });
+    }
+    Some(tidy)
+}
+
+/// Source seconds a clip has consumed `offset` timeline seconds after its
+/// start: along its curve inside it, and at its end speeds beyond either
+/// end - before the start reaching back at the speed it starts at, after
+/// the end going on at the speed it ends at. A clip without a curve runs at
+/// its rate throughout.
+pub fn source_consumed(clip: &Clip, offset: f64) -> f64 {
+    let extent = clip.duration;
+    match clip.speed_curve.as_deref().and_then(engine_curve) {
+        Some(curve) if extent > 0.0 => {
+            if offset < 0.0 {
+                offset * curve.speed_at(0.0)
+            } else if offset > extent {
+                extent * curve.consumed(1.0) + (offset - extent) * curve.speed_at(1.0)
+            } else {
+                extent * curve.consumed(offset / extent)
+            }
+        }
+        _ => offset * clip.speed,
+    }
+}
+
+/// The speed a clip starts at: its curve's first, or its rate.
+pub fn opening_speed(clip: &Clip) -> f64 {
+    clip.speed_curve
+        .as_deref()
+        .and_then(engine_curve)
+        .map(|curve| curve.speed_at(0.0))
+        .unwrap_or(clip.speed)
+}
+
+/// Gives a clip the part of its curve a trim or a split leaves it, and the
+/// rate that part averages. `old` is the length the curve was drawn over and
+/// `[from, to]` the window of it the clip now covers, in seconds from the
+/// old start; a window past either end holds the end speeds out there.
+///
+/// The new curve starts at the speed the old one was going at `from` and
+/// ends at the speed it was going at `to`, with the old points between at
+/// their places in the window. A cut on a step takes the side of it the
+/// piece is on: a piece that starts there starts at the speed the step
+/// jumps to, one that ends there ends at the speed before it. A smooth
+/// curve's slopes are re-expressed over the window's shorter or longer
+/// span, and the cut points get the slope the old curve had there, so each
+/// piece is the same cubic the whole was and plays exactly what the whole
+/// played. A clip without a curve, or a window that is not one, is left as
+/// it was.
+pub fn refit_curve(clip: &mut Clip, old: f64, from: f64, to: f64) {
+    let valid = old.is_finite() && old > 0.0 && from.is_finite() && to.is_finite() && to > from;
+    if !valid {
+        return;
+    }
+    let Some(curve) = clip.speed_curve.as_deref().and_then(engine_curve) else {
+        return;
+    };
+    let (a, b) = (from / old, to / old);
+    let width = b - a;
+    let tangent_set = curve.tangents();
+    let scaled = |tangent: f64| tangent_set.map(|_| tangent * width);
+    let mut points = Vec::with_capacity(curve.points().len() + 2);
+    points.push(SpeedPoint {
+        at: 0.0,
+        speed: curve.speed_leaving(a),
+        slope: scaled(curve.tangent_leaving(a)),
+    });
+    for (slot, &(x, speed)) in curve.points().iter().enumerate() {
+        if a < x && x < b {
+            points.push(SpeedPoint {
+                at: (x - a) / width,
+                speed,
+                slope: tangent_set.map(|tangent_set| tangent_set[slot] * width),
+            });
+        }
+    }
+    points.push(SpeedPoint {
+        at: 1.0,
+        speed: curve.speed_at(b),
+        slope: scaled(curve.tangent_at(b)),
+    });
+    clip.speed = average_speed(&points).clamp(MIN_SPEED, MAX_SPEED);
+    clip.speed_curve = Some(points);
+}
+
+/// A shape that ships with the editor: points of `(at, speed)`, eased
+/// through every one when it is chosen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Preset {
+    /// What the shape is called in code and in the API.
     pub id: &'static str,
-    /// `(at, speed)`, ascending. Straight lines join them, so a bend that
-    /// should read as smooth is given a point either side of it.
+    /// The interface's key for its name.
+    pub label: &'static str,
+    /// The points, `at` ascending from 0 to 1.
     pub points: &'static [(f64, f64)],
 }
 
-/// The presets, in the order the window lists them. The names are the
-/// ones people bring from other editors.
-pub const PRESETS: &[SpeedPreset] = &[
-    // Slow, fast, slow, fast: a rhythm for a sequence of shots.
-    SpeedPreset {
-        id: "montage",
-        points: &[
+/// A shipped shape from its parts.
+const fn shape(id: &'static str, label: &'static str, points: &'static [(f64, f64)]) -> Preset {
+    Preset { id, label, points }
+}
+
+/// The shipped shapes, in the order the interface lists them.
+pub const SPEED_PRESETS: [Preset; 6] = [
+    // Slow, a burst, slow, a burst, slow: two beats cut together.
+    shape(
+        "montage",
+        "speedRamp.montage",
+        &[
             (0.0, 0.6),
             (0.15, 0.6),
             (0.3, 3.0),
@@ -60,11 +208,12 @@ pub const PRESETS: &[SpeedPreset] = &[
             (0.9, 0.6),
             (1.0, 0.6),
         ],
-    },
-    // Fast in, a long slow moment in the middle, fast out.
-    SpeedPreset {
-        id: "hero",
-        points: &[
+    ),
+    // Fast in, a slow middle for the moment, fast out.
+    shape(
+        "hero",
+        "speedRamp.hero",
+        &[
             (0.0, 2.5),
             (0.25, 2.5),
             (0.38, 0.5),
@@ -72,11 +221,12 @@ pub const PRESETS: &[SpeedPreset] = &[
             (0.75, 2.5),
             (1.0, 2.5),
         ],
-    },
-    // Fast, then nearly stopped, then fast: the bullet-time moment.
-    SpeedPreset {
-        id: "bullet",
-        points: &[
+    ),
+    // The same, harder: near stopped in the middle.
+    shape(
+        "bullet",
+        "speedRamp.bullet",
+        &[
             (0.0, 3.0),
             (0.3, 3.0),
             (0.42, 0.2),
@@ -84,11 +234,12 @@ pub const PRESETS: &[SpeedPreset] = &[
             (0.7, 3.0),
             (1.0, 3.0),
         ],
-    },
-    // Normal, a short burst very fast through the middle, normal.
-    SpeedPreset {
-        id: "jump-cut",
-        points: &[
+    ),
+    // Normal, a rush through the middle, normal.
+    shape(
+        "jump-cut",
+        "speedRamp.jumpCut",
+        &[
             (0.0, 1.0),
             (0.38, 1.0),
             (0.45, 8.0),
@@ -96,24 +247,30 @@ pub const PRESETS: &[SpeedPreset] = &[
             (0.62, 1.0),
             (1.0, 1.0),
         ],
-    },
-    // Rushing in, settling to normal.
-    SpeedPreset {
-        id: "flash-in",
-        points: &[(0.0, 8.0), (0.12, 4.0), (0.3, 1.0), (1.0, 1.0)],
-    },
+    ),
+    // Rushing in and settling to normal.
+    shape(
+        "flash-in",
+        "speedRamp.flashIn",
+        &[(0.0, 8.0), (0.12, 4.0), (0.3, 1.0), (1.0, 1.0)],
+    ),
     // Normal, then rushing out.
-    SpeedPreset {
-        id: "flash-out",
-        points: &[(0.0, 1.0), (0.7, 1.0), (0.88, 4.0), (1.0, 8.0)],
-    },
+    shape(
+        "flash-out",
+        "speedRamp.flashOut",
+        &[(0.0, 1.0), (0.7, 1.0), (0.88, 4.0), (1.0, 8.0)],
+    ),
 ];
 
-/// The points of the preset called `id`, smooth - easing in and out of
-/// every point, the way ramps are drawn - or None for a name there is no
-/// preset by.
-pub fn preset(id: &str) -> Option<Vec<SpeedPoint>> {
-    PRESETS.iter().find(|preset| preset.id == id).map(|preset| {
+/// How near two places or two speeds have to be for a curve to still be a
+/// preset's.
+const PRESET_EPSILON: f64 = 1e-9;
+
+/// The points of the preset `id`, eased through each (slope 0): a clip's
+/// own from then on. None for an id that is not a preset.
+pub fn preset_points(id: &str) -> Option<Vec<SpeedPoint>> {
+    let preset = SPEED_PRESETS.iter().find(|preset| preset.id == id)?;
+    Some(
         preset
             .points
             .iter()
@@ -122,15 +279,15 @@ pub fn preset(id: &str) -> Option<Vec<SpeedPoint>> {
                 speed,
                 slope: Some(0.0),
             })
-            .collect()
-    })
+            .collect(),
+    )
 }
 
-/// Which preset these points are, unchanged but for smooth or straight,
-/// or None for a curve of the clip's own: what the window's picker shows
-/// as chosen.
-pub fn preset_of(points: &[SpeedPoint]) -> Option<&'static str> {
-    PRESETS
+/// The preset these points still are, smooth or straight, or None once a
+/// point has been moved, added or taken away.
+pub fn preset_matching(points: &[SpeedPoint]) -> Option<&'static str> {
+    let near = |a: f64, b: f64| (a - b).abs() <= PRESET_EPSILON;
+    SPEED_PRESETS
         .iter()
         .find(|preset| {
             preset.points.len() == points.len()
@@ -138,66 +295,9 @@ pub fn preset_of(points: &[SpeedPoint]) -> Option<&'static str> {
                     .points
                     .iter()
                     .zip(points)
-                    .all(|(&(at, speed), point)| {
-                        (at - point.at).abs() < 1e-9 && (speed - point.speed).abs() < 1e-9
-                    })
+                    .all(|(&(at, speed), knot)| near(at, knot.at) && near(speed, knot.speed))
         })
         .map(|preset| preset.id)
-}
-
-/// A clip's curve after its span changed, so each stretch of it plays the
-/// speed it played before - the curve's counterpart of
-/// [`Clip::rewindow_keys`], and called with the same arguments: `old` is
-/// the length the curve was drawn over, `[from, to]` the window of it the
-/// clip now covers, in seconds from its old start. A window past either end
-/// holds the end's speed. The clip's `speed` becomes the new curve's mean.
-///
-/// Returns the source seconds the curve consumed between the old start and
-/// `from` - negative for a window that starts earlier - which is how far
-/// the in-point moves when the head goes; None, and nothing changed, for a
-/// clip with no curve or a window that makes no sense.
-pub fn rewindow_clip(clip: &mut Clip, old: f64, from: f64, to: f64) -> Option<f64> {
-    let sane = old.is_finite() && old > 0.0 && from.is_finite() && to.is_finite() && to > from;
-    if !sane {
-        return None;
-    }
-    let curve = curve_of(clip.speed_curve.as_deref()?)?;
-    let (a, b) = (from / old, to / old);
-    // A smooth curve keeps its slopes, re-expressed over the window's
-    // length, and gets the curve's own slope at a cut: the piece is then
-    // the same cubic the whole was.
-    let slopes = curve.slopes();
-    let slope = |at: f64| slopes.map(|_| curve.slope_at(at) * (b - a));
-    let mut points = vec![SpeedPoint {
-        at: 0.0,
-        speed: curve.speed_at(a),
-        slope: slope(a),
-    }];
-    points.extend(
-        curve
-            .points()
-            .iter()
-            .enumerate()
-            .filter(|(_, (at, _))| *at > a && *at < b)
-            .map(|(index, &(at, speed))| SpeedPoint {
-                at: (at - a) / (b - a),
-                speed,
-                slope: slopes.map(|slopes| slopes[index] * (b - a)),
-            }),
-    );
-    points.push(SpeedPoint {
-        at: 1.0,
-        speed: curve.speed_at(b),
-        slope: slope(b),
-    });
-    let consumed = if a >= 0.0 {
-        old * curve.consumed(a)
-    } else {
-        from * curve.speed_at(0.0)
-    };
-    clip.speed = mean_of(&points).clamp(MIN_SPEED, MAX_SPEED);
-    clip.speed_curve = Some(points);
-    Some(consumed)
 }
 
 #[cfg(test)]
@@ -205,136 +305,176 @@ mod tests {
     use super::*;
     use crate::model::ClipKind;
 
-    fn points(raw: &[(f64, f64)]) -> Vec<SpeedPoint> {
-        raw.iter()
-            .map(|&(at, speed)| SpeedPoint {
-                at,
-                speed,
-                slope: None,
-            })
-            .collect()
+    fn point(at: f64, speed: f64, slope: Option<f64>) -> SpeedPoint {
+        SpeedPoint { at, speed, slope }
     }
 
-    fn curved(raw: &[(f64, f64)], duration: f64) -> Clip {
-        let mut clip = Clip::blank("c1", "v1", ClipKind::Video, "clip", 0.0, duration);
-        clip.speed_curve = Some(points(raw));
-        clip.speed = mean_of(clip.speed_curve.as_deref().unwrap());
+    fn clip_with(points: Vec<SpeedPoint>, duration: f64) -> Clip {
+        let mut clip = Clip::blank("c1", "t1", ClipKind::Video, "clip", 0.0, duration);
+        clip.speed = average_speed(&points);
+        clip.speed_curve = Some(points);
         clip
     }
 
-    /// Source seconds at `t` seconds into a clip, the way the engine maps it.
-    fn source_at(clip: &Clip, t: f64) -> f64 {
-        let curve = curve_of(clip.speed_curve.as_deref().unwrap()).unwrap();
-        clip.source_start + clip.duration * curve.consumed(t / clip.duration)
+    #[test]
+    fn a_curve_from_outside_is_stored_as_it_plays() {
+        let given = [
+            point(0.8, 50.0, Some(1.0)),
+            point(-0.5, 2.0, Some(f64::NAN)),
+            point(0.3, 0.5, Some(2.0)),
+        ];
+        let tidied = sanitised(&given).unwrap();
+        assert_eq!(
+            tidied,
+            vec![
+                point(0.0, 2.0, Some(0.0)),
+                point(0.3, 0.5, Some(2.0)),
+                point(0.8, 16.0, Some(1.0)),
+                point(1.0, 16.0, Some(0.0)),
+            ]
+        );
+        // The engine makes the same curve of both, and the tidied one is
+        // already as tidy as it gets.
+        assert_eq!(engine_curve(&tidied), engine_curve(&given));
+        assert_eq!(sanitised(&tidied), Some(tidied));
+        // Points that only start at the middle are held level to the start.
+        let late = sanitised(&[point(0.5, 3.0, None)]).unwrap();
+        assert_eq!(
+            late,
+            vec![
+                point(0.0, 3.0, None),
+                point(0.5, 3.0, None),
+                point(1.0, 3.0, None)
+            ]
+        );
+        // Slopes on some points only play straight, and are stored so.
+        let mixed = sanitised(&[point(0.0, 1.0, Some(4.0)), point(1.0, 2.0, None)]).unwrap();
+        assert!(mixed.iter().all(|point| point.slope.is_none()));
+        assert!(sanitised(&[]).is_none());
+        assert!(sanitised(&[point(f64::NAN, 1.0, None)]).is_none());
     }
 
     #[test]
-    fn every_preset_is_a_curve_inside_the_engine_range() {
-        for preset in PRESETS {
-            let points = super::preset(preset.id).unwrap();
-            assert!(curve_of(&points).is_some(), "{}", preset.id);
-            assert_eq!(points.first().map(|p| p.at), Some(0.0), "{}", preset.id);
-            assert_eq!(points.last().map(|p| p.at), Some(1.0), "{}", preset.id);
-            assert!(
-                points.windows(2).all(|pair| pair[0].at <= pair[1].at),
-                "{} is not in order",
-                preset.id
-            );
-            assert!(
-                points
-                    .iter()
-                    .all(|p| (MIN_SPEED..=MAX_SPEED).contains(&p.speed)),
-                "{}",
-                preset.id
-            );
-            assert_eq!(preset_of(&points), Some(preset.id));
-        }
-        assert!(super::preset("no such preset").is_none());
+    fn a_curve_set_from_outside_reopens_playing_the_same() {
+        use crate::commands::NewMedia;
+        use crate::doc::DocumentSettings;
+        use crate::model::MediaKind;
+        use crate::{Command, Editor};
+
+        let mut editor = Editor::new();
+        let media = editor
+            .apply(Command::AddMedia {
+                item: NewMedia {
+                    path: "/ramp.mp4".to_owned(),
+                    name: "ramp.mp4".to_owned(),
+                    duration: Some(10.0),
+                    kind: MediaKind::Video,
+                    width: Some(1280),
+                    height: Some(720),
+                    frame_rate: Some(25.0),
+                    frame_rate_fraction: Some("25/1".to_owned()),
+                    video_codec: Some("h264".to_owned()),
+                    audio_codec: None,
+                    has_audio: false,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                    color_space: Default::default(),
+                },
+            })
+            .unwrap()
+            .created_id
+            .unwrap();
+        let track_id = editor.project().active().tracks[0].id.clone();
+        let id = editor
+            .apply(Command::AddClip {
+                media_id: media,
+                track_id,
+                start: 0.0,
+                ripple: false,
+            })
+            .unwrap()
+            .created_id
+            .unwrap();
+        // Out of order, past the clip's end and past the fastest speed: as
+        // played, double from the start to 4x at the end.
+        editor
+            .apply(Command::SetClipSpeedCurve {
+                clip_id: id.clone(),
+                curve: Some(vec![point(1.5, 4.0, None), point(0.0, 2.0, None)]),
+                ripple: false,
+            })
+            .unwrap();
+        let set = editor.project().active().clip(&id).unwrap().clone();
+        assert_eq!(
+            set.speed_curve,
+            Some(vec![point(0.0, 2.0, None), point(1.0, 4.0, None)])
+        );
+        assert_eq!(set.speed, 3.0);
+        let settings = DocumentSettings {
+            name: "ramp".to_owned(),
+            width: 1280,
+            height: 720,
+            rate_num: 25,
+            rate_den: 1,
+            canvas: [0, 0, 0, 255],
+        };
+        let reopened = Editor::from_document(&editor.to_document(&settings)).unwrap();
+        let back = reopened.project().active().clip(&id).unwrap();
+        assert_eq!(back.speed_curve, set.speed_curve);
+        assert_eq!(
+            average_speed(back.speed_curve.as_deref().unwrap()),
+            set.speed
+        );
+        assert_eq!(back.duration, set.duration);
     }
 
     #[test]
-    fn a_moved_point_is_no_longer_the_preset() {
-        let mut points = preset("hero").unwrap();
-        points[2].speed = 0.7;
-        assert_eq!(preset_of(&points), None);
-    }
-
-    #[test]
-    fn the_two_halves_of_a_split_play_what_the_whole_played() {
-        let whole = curved(&[(0.0, 0.5), (0.4, 4.0), (1.0, 1.0)], 10.0);
-        let cut = 3.0;
-        let mut head = whole.clone();
-        let mut tail = whole.clone();
-        assert_eq!(rewindow_clip(&mut head, 10.0, 0.0, cut), Some(0.0));
-        head.duration = cut;
-        let shift = rewindow_clip(&mut tail, 10.0, cut, 10.0).unwrap();
-        tail.source_start += shift;
-        tail.duration = 10.0 - cut;
-        for t in [0.0, 1.0, 2.5, 3.0] {
-            assert!(
-                (source_at(&head, t) - source_at(&whole, t)).abs() < 1e-9,
-                "head at {t}"
-            );
-        }
-        for t in [0.0, 0.5, 4.0, 7.0] {
-            assert!(
-                (source_at(&tail, t) - source_at(&whole, cut + t)).abs() < 1e-9,
-                "tail at {t}"
-            );
-        }
-        // Each piece's rate is its own share of the curve, and together
-        // they cover the source the whole did.
-        let covered = head.duration * head.speed + tail.duration * tail.speed;
-        assert!((covered - whole.duration * whole.speed).abs() < 1e-9);
-    }
-
-    #[test]
-    fn a_smooth_ramp_split_in_two_plays_what_the_whole_played() {
-        let mut whole = curved(&[(0.0, 0.5), (0.4, 4.0), (1.0, 1.0)], 10.0);
-        for point in whole.speed_curve.as_mut().unwrap() {
-            point.slope = Some(0.0);
-        }
-        whole.speed = mean_of(whole.speed_curve.as_deref().unwrap());
-        let cut = 2.7;
-        let mut head = whole.clone();
-        let mut tail = whole.clone();
-        rewindow_clip(&mut head, 10.0, 0.0, cut);
-        head.duration = cut;
-        tail.source_start += rewindow_clip(&mut tail, 10.0, cut, 10.0).unwrap();
-        tail.duration = 10.0 - cut;
-        assert!(is_smooth(head.speed_curve.as_deref().unwrap()));
-        assert!(is_smooth(tail.speed_curve.as_deref().unwrap()));
-        for t in [0.0, 1.3, cut] {
-            assert!(
-                (source_at(&head, t) - source_at(&whole, t)).abs() < 1e-9,
-                "head at {t}"
-            );
-        }
-        for t in [0.0, 0.9, 4.0, 7.3] {
-            assert!(
-                (source_at(&tail, t) - source_at(&whole, cut + t)).abs() < 1e-9,
-                "tail at {t}"
-            );
+    fn a_split_on_a_step_keeps_the_jump_between_the_pieces() {
+        // Half speed to the middle, then a jump to double, held.
+        for slope in [None, Some(0.0)] {
+            let step = vec![
+                point(0.0, 0.5, slope),
+                point(0.5, 0.5, slope),
+                point(0.5, 2.0, slope),
+                point(1.0, 2.0, slope),
+            ];
+            let whole = clip_with(step, 10.0);
+            let mut head = whole.clone();
+            let mut tail = whole.clone();
+            refit_curve(&mut head, 10.0, 0.0, 5.0);
+            refit_curve(&mut tail, 10.0, 5.0, 10.0);
+            let (head_curve, tail_curve) = (head.speed_curve.unwrap(), tail.speed_curve.unwrap());
+            assert_eq!(head_curve.len(), 2);
+            assert_eq!(head_curve[1].speed, 0.5, "the head ends before the jump");
+            assert_eq!(tail_curve[0].speed, 2.0, "the tail starts after it");
+            assert_eq!(head.speed, 0.5);
+            assert_eq!(tail.speed, 2.0);
+            // Between them, the footage the whole covered.
+            let covered = 5.0 * head.speed + 5.0 * tail.speed;
+            assert!((covered - source_consumed(&whole, 10.0)).abs() < 1e-12);
         }
     }
 
     #[test]
-    fn a_window_past_the_end_holds_the_end_speed() {
-        let mut clip = curved(&[(0.0, 1.0), (1.0, 2.0)], 4.0);
-        let shift = rewindow_clip(&mut clip, 4.0, -1.0, 6.0).unwrap();
-        // A second before the old start at the start's speed.
-        assert!((shift + 1.0).abs() < 1e-12);
+    fn a_trim_on_a_step_starts_the_clip_after_the_jump() {
+        let step = vec![
+            point(0.0, 1.0, None),
+            point(0.25, 1.0, None),
+            point(0.25, 4.0, None),
+            point(1.0, 1.0, None),
+        ];
+        let mut clip = clip_with(step, 8.0);
+        refit_curve(&mut clip, 8.0, 2.0, 8.0);
         let curve = clip.speed_curve.unwrap();
-        assert_eq!(curve.first().map(|p| p.speed), Some(1.0));
-        assert_eq!(curve.last().map(|p| p.speed), Some(2.0));
+        assert_eq!(curve, vec![point(0.0, 4.0, None), point(1.0, 1.0, None)]);
     }
 
     #[test]
-    fn a_clip_without_a_curve_is_left_alone() {
-        let mut clip = Clip::blank("c1", "v1", ClipKind::Video, "clip", 0.0, 4.0);
-        clip.speed = 2.0;
-        assert_eq!(rewindow_clip(&mut clip, 4.0, 1.0, 4.0), None);
-        assert_eq!(clip.speed, 2.0);
-        assert!(clip.speed_curve.is_none());
+    fn the_footage_reached_beyond_a_curved_clip_runs_at_its_end_speeds() {
+        let clip = clip_with(vec![point(0.0, 0.5, None), point(1.0, 2.0, None)], 8.0);
+        assert_eq!(source_consumed(&clip, -2.0), -1.0, "back at half speed");
+        assert_eq!(source_consumed(&clip, 8.0), 10.0);
+        assert_eq!(source_consumed(&clip, 9.0), 12.0, "on at double");
+        assert_eq!(opening_speed(&clip), 0.5);
     }
 }

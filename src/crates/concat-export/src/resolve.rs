@@ -327,11 +327,12 @@ pub(crate) fn build_timeline(
         if clip.kind != ClipKind::Image {
             engine_clip.speed =
                 Rational::approximate(audio::clamp_speed(clip.speed)).unwrap_or(Rational::ONE);
-            engine_clip.retime = clip.retime();
+            engine_clip.retime = clip.engine_curve();
         }
         engine_clip.animation = animation_of(&clip.animation);
+        engine_clip.motion = clip.motion.as_ref().and_then(|motion| motion.engine());
         engine_clip.blend = concat_core::timeline::Blend::parse(&clip.blend);
-        engine_clip.mask = clip.mask.map(|mask| mask.engine());
+        engine_clip.masks = clip.masks.iter().map(Mask::engine).collect();
         engine_clip.overscan = overscan_of(clip);
         engine_clip.transform = Transform {
             scale: clip.scale,
@@ -486,7 +487,7 @@ pub(crate) fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
     if keys.is_empty() {
         return None;
     }
-    let mut tracks: [Vec<Key>; 13] = Default::default();
+    let mut tracks: [Vec<Key>; 6] = Default::default();
     for key in keys {
         let slot = match key.property.as_str() {
             "scale" => 0,
@@ -495,13 +496,6 @@ pub(crate) fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
             "rotation" => 3,
             "opacity" => 4,
             "volume" => 5,
-            "maskX" => 6,
-            "maskY" => 7,
-            "maskWidth" => 8,
-            "maskHeight" => 9,
-            "maskRotation" => 10,
-            "maskRoundness" => 11,
-            "maskFeather" => 12,
             _ => continue,
         };
         let [x1, y1, x2, y2] = key.ease;
@@ -511,21 +505,7 @@ pub(crate) fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
             ease: Ease::new(x1, y1, x2, y2),
         });
     }
-    let [
-        scale,
-        x,
-        y,
-        rotation,
-        opacity,
-        volume,
-        mask_x,
-        mask_y,
-        mask_width,
-        mask_height,
-        mask_rotation,
-        mask_roundness,
-        mask_feather,
-    ] = tracks;
+    let [scale, x, y, rotation, opacity, volume] = tracks;
     let animation = Animation {
         scale: Track::new(scale),
         offset_x: Track::new(x),
@@ -533,15 +513,6 @@ pub(crate) fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
         rotation: Track::new(rotation),
         opacity: Track::new(opacity),
         volume: Track::new(volume),
-        mask: concat_core::animate::MaskTracks {
-            x: Track::new(mask_x),
-            y: Track::new(mask_y),
-            width: Track::new(mask_width),
-            height: Track::new(mask_height),
-            rotation: Track::new(mask_rotation),
-            roundness: Track::new(mask_roundness),
-            feather: Track::new(mask_feather),
-        },
     };
     (!animation.is_empty()).then_some(animation)
 }

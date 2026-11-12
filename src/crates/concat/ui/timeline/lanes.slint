@@ -33,6 +33,9 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image
             : kind == ClipKind.text ? Theme.kind-text
             : kind == ClipKind.filter ? Theme.kind-filter
+            : kind == ClipKind.effect ? Theme.kind-effect
+            : kind == ClipKind.adjustment ? Theme.kind-adjustment
+            : kind == ClipKind.transition ? Theme.kind-transition
             : kind == ClipKind.shape ? Theme.kind-shape
             : kind == ClipKind.sound-layer ? Theme.kind-sound-layer
             : Theme.kind-video;
@@ -42,15 +45,27 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image-well
             : kind == ClipKind.text ? Theme.kind-text-well
             : kind == ClipKind.filter ? Theme.kind-filter-well
+            : kind == ClipKind.effect ? Theme.kind-effect-well
+            : kind == ClipKind.adjustment ? Theme.kind-adjustment-well
+            : kind == ClipKind.transition ? Theme.kind-transition-well
             : kind == ClipKind.shape ? Theme.kind-shape-well
             : kind == ClipKind.sound-layer ? Theme.kind-sound-layer-well
             : Theme.kind-video-well;
+    }
+    /// The bars laid over the picture - a look, an effect, a grade, a
+    /// transition - each all bar, with no picture of their own.
+    public pure function over-picture(kind: ClipKind) -> bool {
+        return kind == ClipKind.filter || kind == ClipKind.effect
+            || kind == ClipKind.adjustment || kind == ClipKind.transition;
     }
     public pure function badge(kind: ClipKind) -> Glyph {
         return kind == ClipKind.audio ? Glyph.music
             : kind == ClipKind.image ? Glyph.image
             : kind == ClipKind.text ? Glyph.text-mark
             : kind == ClipKind.filter ? Glyph.filter
+            : kind == ClipKind.effect ? Glyph.sparkle
+            : kind == ClipKind.adjustment ? Glyph.sliders
+            : kind == ClipKind.transition ? Glyph.transition
             : kind == ClipKind.shape ? Glyph.shapes
             : kind == ClipKind.sound-layer ? Glyph.waveform
             : Glyph.film;
@@ -68,6 +83,10 @@ component Ramps inherits Rectangle {
     in property <length> px-per-second;
     /// The wedges' height; they sit at the foot of this element.
     in property <length> ramp-h: root.height;
+    /// A clip's sound fades on a curve - the gain the square of the way
+    /// through, as the mixer plays it - where a layer's strength ramps on a
+    /// line.
+    in property <bool> curved;
 
     if root.fade-in > 0: Rectangle {
         x: 0;
@@ -82,7 +101,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 0 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 Q 0.5 1 0 1 Z" : "M 0 0 L 1 0 L 0 1 Z";
         }
         Path {
             width: parent.width;
@@ -92,7 +111,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 1 L 1 0";
+            commands: root.curved ? "M 0 1 Q 0.5 1 1 0" : "M 0 1 L 1 0";
         }
     }
 
@@ -109,7 +128,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 1 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 L 1 1 Q 0.5 1 0 0 Z" : "M 0 0 L 1 0 L 1 1 Z";
         }
         Path {
             width: parent.width;
@@ -119,7 +138,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 0 L 1 1";
+            commands: root.curved ? "M 0 0 Q 0.5 1 1 1" : "M 0 0 L 1 1";
         }
     }
 }
@@ -185,7 +204,7 @@ component Clip inherits Rectangle {
     /// a filter layer's bar, for the same reason: no sound of its own to
     /// draw a wave of.
     property <bool> all-strip: root.item.kind == ClipKind.text
-        || root.item.kind == ClipKind.filter
+        || Paint.over-picture(root.item.kind)
         || root.item.kind == ClipKind.sound-layer
         || root.item.kind == ClipKind.shape;
     property <length> header-h: root.all-strip ? root.height : 17px;
@@ -432,6 +451,7 @@ component Clip inherits Rectangle {
             height: parent.height;
             fade-in: root.shown-fade-in;
             fade-out: root.shown-fade-out;
+            curved: true;
             px-per-second: root.px-per-second;
             ramp-h: root.fade-h;
         }
@@ -476,7 +496,7 @@ component Clip inherits Rectangle {
 
         // A filter layer's ramps run over its whole bar, and a sound
         // layer's; see Ramps.
-        if root.item.kind == ClipKind.filter || root.item.kind == ClipKind.sound-layer: Ramps {
+        if Paint.over-picture(root.item.kind) || root.item.kind == ClipKind.sound-layer: Ramps {
             x: 0;
             y: 0;
             width: parent.width;
@@ -961,9 +981,14 @@ component Clip inherits Rectangle {
 
         // A press anywhere on the wash picks the transition, not the clip
         // under it: the wash is the transition, drawn. Under the handles
-        // and the seam button, which are declared after it.
+        // and the seam button, which are declared after it. Not when the
+        // clip is already selected: then the press takes hold of the
+        // selection, as one on the clip's body does, and a marquee around a
+        // cut moves as a group (#635) - the seam button and the handles
+        // still pick the transition. Turned off, the wash lets the press
+        // through to the clip under it, which carries the selection.
         TouchArea {
-            enabled: !root.locked;
+            enabled: !root.locked && !root.item.selected;
             mouse-cursor: MouseCursor.pointer;
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
@@ -1255,6 +1280,8 @@ export component Lanes inherits Rectangle {
     in property <float> frame-rate: 30;
     /// Seconds at the left edge of the lanes.
     in property <float> scroll-left;
+    /// Where the cut ends: how far a drag at the edge may scroll the view.
+    in property <float> duration-seconds;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in property <bool> pan-mode: false;
     /// The preview axis: a hairline follows the pointer across the lanes
@@ -1468,15 +1495,34 @@ export component Lanes inherits Rectangle {
     /// `scroll-left` when the clip was pressed; see the clip's `dragged`.
     property <float> press-scroll;
     property <length> edge-zone: 40px;
+    /// How far into the edge zone the pointer is, or past it, as 0..1: a
+    /// pointer just inside it creeps, one well past the lanes runs. At one
+    /// speed, a dozen pixels a tick from the zone's first pixel, the view
+    /// ran off with the clip before it could be aimed (#633).
+    property <float> edge-depth: Math.min(1, Math.max(0,
+        (root.pointer-x < root.edge-zone
+            ? root.edge-zone - root.pointer-x
+            : root.pointer-x - (root.width - root.edge-zone)) / (root.edge-zone * 2)));
+    /// The furthest the right edge may scroll: a quarter of a view past the
+    /// cut's end, room to drop a clip after it, and no further - the view
+    /// used to run on into nothing for as long as the button was held.
+    property <float> view-seconds: root.width / 1px * root.seconds-per-pixel;
+    property <float> last-left: Math.max(root.scroll-left,
+        root.duration-seconds - root.view-seconds * 0.75);
+    property <bool> edge-left: root.pointer-x < root.edge-zone && root.scroll-left > 0;
+    property <bool> edge-right: root.pointer-x > root.width - root.edge-zone
+        && root.scroll-left < root.duration-seconds - root.view-seconds * 0.75;
     property <bool> at-edge: (root.scrubbing || root.clip-dragging)
-        && (root.pointer-x < root.edge-zone || root.pointer-x > root.width - root.edge-zone);
+        && (root.edge-left || root.edge-right);
 
     edge-scroll := Timer {
         interval: 16ms;
         running: root.at-edge;
         triggered => {
-            root.scrolled(Math.max(0, root.scroll-left
-                + (root.pointer-x < root.edge-zone ? -12 : 12) * root.seconds-per-pixel));
+            // One pixel a tick at the zone's inner edge, up to two dozen.
+            root.scrolled(Math.min(root.last-left, Math.max(0, root.scroll-left
+                + (root.edge-left ? -1 : 1) * (1 + 23 * root.edge-depth * root.edge-depth)
+                    * root.seconds-per-pixel)));
             if (root.scrubbing) {
                 root.scrubbed(Math.max(0, root.seconds-at(root.pointer-x)));
             } else {

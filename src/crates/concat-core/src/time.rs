@@ -23,10 +23,9 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 
-/// Greatest common divisor of two integers, ignoring sign.
-const fn gcd(a: i128, b: i128) -> i128 {
-    let mut a = if a < 0 { -a } else { a };
-    let mut b = if b < 0 { -b } else { b };
+/// Greatest common divisor of two magnitudes. Unsigned, so `i128::MIN`'s
+/// magnitude is one it can hold: negating it as an i128 overflowed (#682).
+const fn gcd(mut a: u128, mut b: u128) -> u128 {
     while b != 0 {
         let t = a % b;
         a = b;
@@ -111,12 +110,15 @@ impl Rational {
     }
 
     fn checked_reduce(num: i128, den: i128) -> Option<Self> {
-        let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
+        // Sign and magnitudes apart, in u128: no negation of an i128 here
+        // can overflow, whatever a file hands in (#682).
+        let negative = (num < 0) != (den < 0);
+        let (num, den) = (num.unsigned_abs(), den.unsigned_abs());
         let divisor = gcd(num, den).max(1);
-        let (num, den) = (num / divisor, den / divisor);
+        let num = i128::try_from(num / divisor).ok()?;
         Some(Self {
-            num: i64::try_from(num).ok()?,
-            den: i64::try_from(den).ok()?,
+            num: i64::try_from(if negative { -num } else { num }).ok()?,
+            den: i64::try_from(den / divisor).ok()?,
         })
     }
 
@@ -466,6 +468,32 @@ impl TimeRange {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The ends of i128 are refused or reduced, never a panic (#682).
+    #[test]
+    fn checked_new_survives_the_ends_of_i128() {
+        assert_eq!(Rational::checked_new(i128::MIN, 1), None);
+        assert_eq!(Rational::checked_new(1, i128::MIN), None);
+        assert_eq!(
+            Rational::checked_new(i128::MIN, i128::MIN),
+            Some(Rational::new(1, 1))
+        );
+        assert_eq!(
+            Rational::checked_new(i128::MAX, i128::MAX),
+            Some(Rational::new(1, 1))
+        );
+        assert_eq!(Rational::checked_new(i128::MIN, 2), None);
+        assert_eq!(Rational::checked_new(-6, -4), Some(Rational::new(3, 2)));
+        assert_eq!(Rational::checked_new(6, -4), Some(Rational::new(-3, 2)));
+        assert_eq!(
+            Rational::checked_new(i128::from(i64::MIN), 1).map(Rational::numerator),
+            Some(i64::MIN)
+        );
+        assert_eq!(
+            Rational::checked_new(0, i128::MIN),
+            Some(Rational::new(0, 1))
+        );
+    }
 
     #[test]
     fn a_checked_rate_refuses_what_no_video_has() {

@@ -193,71 +193,29 @@ impl Studio {
         });
     }
 
-    /// The Speed tab's Constant | Curve, on the echo. A curve starts flat
-    /// at the clip's rate and a constant rate is the curve's mean, so the
-    /// clip keeps its length either way until something is shaped.
-    pub fn speed_curve_set(&mut self, on: bool) {
-        self.edit_speed_curve(|points, speed| match (on, points.is_some()) {
-            (true, false) => *points = Some(speed_ramp::flat(speed)),
-            (false, true) => *points = None,
-            _ => {}
-        });
+    // ── the Speed tab's curve ──
+
+    /// The clip the Speed tab's curve belongs to: the one selected, when it
+    /// is a video or a sound clip. With several selected, or a still, a
+    /// title or a shape, the curve's controls change nothing.
+    pub(super) fn speed_clip(&self) -> Option<String> {
+        let id = self.sole_selection()?;
+        let kind = self.clip(&id)?.kind;
+        matches!(kind, model::ClipKind::Video | model::ClipKind::Audio).then_some(id)
     }
 
-    /// One point of the Speed tab's curve, on the echo: moved, or put down
-    /// when `point` is negative. `y` is the graph's height for the speed.
-    pub fn speed_curve_point(&mut self, point: i32, x: f32, y: f32) {
-        self.edit_speed_curve(|points, _| {
-            if let Some(points) = points.as_mut() {
-                speed_ramp::set_point(points, point, x.into(), y.into());
-            }
-        });
-    }
+    /// The Speed tab's clip's curve, edited on the echo by `edit`, which is
+    /// handed the curve - None for a constant rate - and the clip's rate.
+    ///
+    /// The rate and the length then follow the curve the way the command
+    /// will make them, so the timeline shows the new length as the graph
+    /// is dragged: the footage the clip covers is kept, the rate becomes
+    /// the curve's mean, and the length is that footage at that rate. A
+    /// curve taken away leaves the rate it averaged and the length.
+    fn edit_curve_points(&mut self, edit: impl FnOnce(&mut Option<Vec<model::SpeedPoint>>, f64)) {
+        use model::ranges::{MAX_SPEED, MIN_CLIP_DURATION, MIN_SPEED};
 
-    /// One point of the Speed tab's curve taken off, on the echo.
-    pub fn speed_curve_remove(&mut self, point: i32) {
-        self.edit_speed_curve(|points, _| {
-            if let Some(points) = points.as_mut() {
-                speed_ramp::remove_point(points, point);
-            }
-        });
-    }
-
-    /// The Speed tab's curve made smooth or straight, on the echo.
-    pub fn speed_curve_smooth(&mut self, smooth: bool) {
-        self.edit_speed_curve(|points, _| {
-            if let Some(points) = points.as_mut() {
-                speed_ramp::set_smooth(points, smooth);
-            }
-        });
-    }
-
-    /// The Speed tab's curve brought to `speed` at its fastest (or its
-    /// slowest), on the echo: one of the tab's two sliders.
-    pub fn speed_curve_extreme(&mut self, faster: bool, speed: f32) {
-        self.edit_speed_curve(|points, _| {
-            if let Some(points) = points.as_mut() {
-                speed_ramp::set_extreme(points, faster, speed.into());
-            }
-        });
-    }
-
-    /// The Speed tab's curve replaced by preset `index`'s, on the echo.
-    pub fn speed_curve_preset(&mut self, index: i32) {
-        self.edit_speed_curve(|points, _| {
-            if let Some(preset) = speed_ramp::preset_points(index) {
-                *points = Some(preset);
-            }
-        });
-    }
-
-    /// The selected clip's curve on the echo, handed to `edit` with the
-    /// clip's rate; the rate and the length then follow the curve the way
-    /// SetClipSpeedCurve will make them, so the timeline shows the clip
-    /// growing and shrinking under the pointer. Nothing for a clip that has
-    /// no speed - a still, a title.
-    fn edit_speed_curve(&mut self, edit: impl FnOnce(&mut Option<Vec<model::SpeedPoint>>, f64)) {
-        let Some(id) = self.sole_selection() else {
+        let Some(id) = self.speed_clip() else {
             return;
         };
         self.commit_targets = vec![id.clone()];
@@ -265,18 +223,203 @@ impl Studio {
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
         };
-        if !matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Audio) {
-            return;
-        }
-        let covered = clip.duration * clip.speed;
-        let mut points = clip.speed_curve.clone();
-        edit(&mut points, clip.speed);
-        if let Some(curve) = points.as_deref() {
-            let mean = concat_project::speed::mean_of(curve).clamp(0.0625, 16.0);
+        let footage = clip.duration * clip.speed;
+        edit(&mut clip.speed_curve, clip.speed);
+        if let Some(points) = clip.speed_curve.as_deref() {
+            let mean = concat_project::speed::average_speed(points).clamp(MIN_SPEED, MAX_SPEED);
             clip.speed = mean;
-            clip.duration = (covered / mean).max(f64::from(MIN_DURATION));
+            clip.duration = (footage / mean).max(MIN_CLIP_DURATION);
         }
-        clip.speed_curve = points;
+    }
+
+    /// Curve (`on`) or Constant. Curve gives a clip without one a level,
+    /// smooth curve at its rate, so nothing changes until a point moves;
+    /// Constant takes the curve away and leaves the rate it averaged.
+    pub fn speed_curve_mode(&mut self, on: bool) {
+        self.edit_curve_points(|points, rate| {
+            if !on {
+                *points = None;
+            } else if points.is_none() {
+                *points = Some(speed_ramp::level_curve(rate));
+            }
+        });
+        self.set_speed_chosen(Vec::new());
+    }
+
+    /// A point of the curve moved to `x` across the clip and `y` up the
+    /// graph, or put down there when `index` is -1; see
+    /// `speed_ramp::place_point`.
+    pub fn speed_point(&mut self, index: i32, x: f32, y: f32) {
+        // A point put down is the one chosen, so it can be dragged on or
+        // taken straight off again.
+        let mut placed = None;
+        self.edit_curve_points(|points, _| {
+            if let Some(points) = points.as_mut() {
+                let at = speed_ramp::place_point(points, index, x.into(), y.into());
+                if index < 0 {
+                    placed = at;
+                }
+            }
+        });
+        if let Some(at) = placed {
+            self.set_speed_chosen(vec![at]);
+        }
+    }
+
+    /// A point of the curve taken off; the two ends stay. The points after
+    /// it move up a place, so none stays chosen.
+    pub fn speed_remove(&mut self, index: i32) {
+        self.edit_curve_points(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::drop_point(points, index);
+            }
+        });
+        self.set_speed_chosen(Vec::new());
+    }
+
+    /// Smooth (`smooth`) or Straight, for every point of the curve.
+    pub fn speed_smooth(&mut self, smooth: bool) {
+        self.edit_curve_points(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::apply_easing(points, smooth);
+            }
+        });
+    }
+
+    /// The Fastest slider (`faster`) or the Slowest, moved to `target`; see
+    /// `speed_ramp::stretch_extreme`.
+    pub fn speed_extreme(&mut self, faster: bool, target: f32) {
+        self.edit_curve_points(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::stretch_extreme(points, faster, target.into());
+            }
+        });
+    }
+
+    /// The preset at `index` in the Shape list: its points replace the
+    /// curve's, the clip's own from then on. An index that is not a preset
+    /// changes nothing.
+    pub fn speed_preset(&mut self, index: i32) {
+        let Some(preset) = speed_ramp::preset_by_index(index) else {
+            return;
+        };
+        self.edit_curve_points(|points, _| *points = Some(preset));
+        self.set_speed_chosen(Vec::new());
+    }
+
+    /// The Speed graph's chosen points, if they are on the selected clip.
+    pub(super) fn speed_chosen_now(&self) -> &[usize] {
+        match self.sole_selection() {
+            Some(id) if id == self.curve_selected.0 => &self.curve_selected.1,
+            _ => &[],
+        }
+    }
+
+    /// The selected clip's curve as it stands, echo or document.
+    fn speed_points_now(&self) -> Vec<model::SpeedPoint> {
+        self.sole_selection()
+            .and_then(|id| self.clip(&id))
+            .and_then(|clip| clip.speed_curve.clone())
+            .unwrap_or_default()
+    }
+
+    /// Sets the chosen points, on the selected clip.
+    fn set_speed_chosen(&mut self, mut chosen: Vec<usize>) {
+        chosen.sort_unstable();
+        chosen.dedup();
+        // The graph is published again after every press it hands over.
+        self.curve_selected = (self.sole_selection().unwrap_or_default(), chosen);
+    }
+
+    /// A point pressed: with `add` (Shift, or the platform's command key)
+    /// it joins the chosen or leaves them; without, it becomes the one
+    /// chosen - unless it is chosen already, so a press on one of several
+    /// starts dragging them all.
+    pub fn speed_choose(&mut self, index: i32, add: bool) {
+        let Ok(index) = usize::try_from(index) else {
+            self.set_speed_chosen(Vec::new());
+            return;
+        };
+        let mut chosen = self.speed_chosen_now().to_vec();
+        if add {
+            match chosen.iter().position(|held| *held == index) {
+                Some(at) => {
+                    chosen.remove(at);
+                }
+                None => chosen.push(index),
+            }
+        } else if !chosen.contains(&index) {
+            chosen = vec![index];
+        }
+        self.set_speed_chosen(chosen);
+    }
+
+    /// The points inside a box dragged across the graph, `[x0, y0, x1, y1]`
+    /// on its scale, chosen - joining the chosen with `add`.
+    pub fn speed_choose_box(&mut self, corners: [f32; 4], add: bool) {
+        let [x0, y0, x1, y1] = corners.map(f64::from);
+        let (left, right) = (x0.min(x1), x0.max(x1));
+        let (low, high) = (y0.min(y1), y0.max(y1));
+        let inside = self
+            .speed_points_now()
+            .iter()
+            .enumerate()
+            .filter(|(_, point)| {
+                let y = speed_ramp::height_for(point.speed);
+                (left..=right).contains(&point.at) && (low..=high).contains(&y)
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let mut chosen = if add {
+            self.speed_chosen_now().to_vec()
+        } else {
+            Vec::new()
+        };
+        chosen.extend(inside);
+        self.set_speed_chosen(chosen);
+    }
+
+    /// Every point chosen, or none.
+    pub fn speed_choose_all(&mut self, all: bool) {
+        let count = if all {
+            self.speed_points_now().len()
+        } else {
+            0
+        };
+        self.set_speed_chosen((0..count).collect());
+    }
+
+    /// A drag of the chosen points begins: the curve as it is now is what
+    /// each move is measured from.
+    pub fn speed_grab(&mut self) {
+        let points = self.speed_points_now();
+        self.speed_grabbed = (!points.is_empty()).then_some(points);
+    }
+
+    /// The chosen points moved together, `dx` across the clip and `dy` up
+    /// the graph from where the drag began; see `speed_ramp::move_selected`.
+    pub fn speed_drag_chosen(&mut self, dx: f32, dy: f32) {
+        let Some(from) = self.speed_grabbed.clone() else {
+            return;
+        };
+        let chosen = self.speed_chosen_now().to_vec();
+        self.edit_curve_points(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::move_selected(points, &from, &chosen, dx.into(), dy.into());
+            }
+        });
+    }
+
+    /// The chosen points taken off; the two ends stay.
+    pub fn speed_remove_chosen(&mut self) {
+        let chosen = std::mem::take(&mut self.curve_selected.1);
+        self.edit_curve_points(|points, _| {
+            if let Some(points) = points.as_mut() {
+                for index in chosen.iter().rev() {
+                    speed_ramp::drop_point(points, *index as i32);
+                }
+            }
+        });
     }
 
     /// One point of one of the colour panel's curves, on the echo: moved,

@@ -13,10 +13,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Background, Clip, ClipKind, ClipMask, ColorRange, ColorSpace, Crop,
-    CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty, MediaItem, MediaKind,
-    MediaOrigin, Project, RunStyle, ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline,
-    Track, Transition, VideoSettings,
+    AppliedFilter, AudioTrack, Background, Clip, ClipKind, ClipMotion, ColorRange, ColorSpace,
+    Crop, CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty, Mask, MediaItem,
+    MediaKind, MediaOrigin, Project, RunStyle, ShapeStyle, SpeedPoint, Stabilize, Stroke,
+    TextStyle, Timeline, Track, Transition, VideoSettings, VoiceMix,
 };
 
 mod audio;
@@ -129,17 +129,22 @@ pub struct ClipPatch {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "Option<Crop>"))]
     pub crop: Option<Option<Crop>>,
-    /// The mask, same three-way wire semantics as `crop`: absent leaves it
-    /// alone, null takes it off, a value replaces it, tidied on the way in.
-    /// Its keys are the clip's own (`setClipKey` with `maskX` and on), and
-    /// stay when it is taken off, for a mask put back on to ride again.
+    /// The masks, top first: absent leaves them alone, a list replaces
+    /// them, empty takes them all off. Tidied on the way in; an empty or
+    /// repeated id is minted anew. Each carries its own keys
+    /// (`setMaskKey`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub masks: Option<Vec<Mask>>,
+    /// The entrance, exit and loop, same three-way wire semantics as
+    /// `crop`: absent leaves them alone, null takes them all off, a value
+    /// replaces them, tidied on the way in.
     #[serde(
         default,
         with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
-    #[cfg_attr(feature = "schema", schemars(with = "Option<ClipMask>"))]
-    pub mask: Option<Option<ClipMask>>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<ClipMotion>"))]
+    pub motion: Option<Option<ClipMotion>>,
     /// Wholesale replacement of the audio filter chain - the UI sends the
     /// full list, not a diff.
     pub filters: Option<Vec<AppliedFilter>>,
@@ -458,12 +463,15 @@ pub enum Command {
         /// The clip to retime.
         clip_id: String,
         /// The curve, or None for a constant rate at the current mean.
+        /// Its points are put in order of `at`, held to `0..=1` and to the
+        /// speed range, and reach both ends of the clip, as they will be
+        /// played and saved. A curve with no usable point is None.
+        #[serde(default)]
         curve: Option<Vec<SpeedPoint>>,
-        /// When true - the magnetic timeline - the clips after it on its
-        /// lane move by however far its end moved, either way, so a clip
-        /// sped up closes up behind it as a magnetic trim does. False
-        /// leaves the gap; later clips then only move out of the way of a
-        /// clip that grew over them.
+        /// The magnetic timeline: the clips behind on the lane follow the
+        /// clip's end whether it grows or shrinks, closing up the gap a
+        /// shrink would leave. False moves them only to make room when the
+        /// clip grows over the next.
         #[serde(default)]
         ripple: bool,
     },
@@ -561,6 +569,45 @@ pub enum Command {
         /// The parameter's manifest key.
         key: String,
     },
+    /// Puts a key on one number of one of a clip's masks, replacing
+    /// whichever key on it was already within a hair of `at`. The value is
+    /// the number's own, held to its range.
+    SetMaskKey {
+        /// The clip.
+        clip_id: String,
+        /// The mask's id. One the clip does not have is a no-op.
+        mask_id: String,
+        /// Which number: one of `model::Mask::NUMBERS`.
+        number: String,
+        /// Where in the clip, `0..=1`.
+        at: f64,
+        /// The value there.
+        value: f64,
+        /// How the key is approached from the one before it.
+        #[serde(default)]
+        ease: KeyEase,
+    },
+    /// Takes the key at `at` off one number of one mask, if there is one.
+    ClearMaskKey {
+        /// The clip.
+        clip_id: String,
+        /// The mask's id.
+        mask_id: String,
+        /// Which number.
+        number: String,
+        /// Where in the clip the key to remove sits, `0..=1`.
+        at: f64,
+    },
+    /// Takes every key off one number of one mask, returning it to the
+    /// value it holds.
+    ClearMaskKeys {
+        /// The clip.
+        clip_id: String,
+        /// The mask's id.
+        mask_id: String,
+        /// Which number.
+        number: String,
+    },
     /// Sets or clears a picture's cutout: the mask that takes its
     /// background away. Tidied on the way in; see [`Cutout::tidy`].
     SetClipCutout {
@@ -578,6 +625,17 @@ pub enum Command {
         clip_id: String,
         /// The settings, or None to take stabilization off.
         stabilize: Option<Stabilize>,
+    },
+    /// Sets a clip's voice isolation - the voice and the rest at levels of
+    /// their own - or takes it off. Tidied on the way in; see
+    /// [`VoiceMix::tidy`]. A clip with no sound is left as it is. The two
+    /// parts are worked out by the host the first time a clip of the media
+    /// asks for them; until then the clip plays as recorded.
+    SetClipVoice {
+        /// The clip. An unknown id is a no-op.
+        clip_id: String,
+        /// The levels, or None to play the clip as recorded.
+        voice: Option<VoiceMix>,
     },
     /// Paints one stroke onto a clip's cutout. A clip with no cutout gets a
     /// custom one; an automatic cutout becomes custom, since a stroke is a
@@ -761,12 +819,12 @@ pub enum Command {
         /// The clip to retime. An unknown id is a no-op.
         clip_id: String,
         /// The new rate, clamped into 0.0625..=16 (the engine's range).
+        /// A speed curve the clip had ends: the footage it covered is kept.
         speed: f64,
-        /// When true - the magnetic timeline - the clips after it on its
-        /// lane move by however far its end moved, either way, so a clip
-        /// sped up closes up behind it as a magnetic trim does. False
-        /// leaves the gap; later clips then only move out of the way of a
-        /// clip that grew over them.
+        /// The magnetic timeline: the clips behind on the lane follow the
+        /// clip's end whether it grows or shrinks, closing up the gap a
+        /// shrink would leave. False moves them only to make room when the
+        /// clip grows over the next.
         #[serde(default)]
         ripple: bool,
     },
@@ -1162,8 +1220,13 @@ impl Command {
             }
             | Command::SetEffectKey {
                 at, value, ease, ..
+            }
+            | Command::SetMaskKey {
+                at, value, ease, ..
             } => bad([*at, *value]) || bad(ease.0),
-            Command::ClearClipKey { at, .. } | Command::ClearEffectKey { at, .. } => bad([*at]),
+            Command::ClearClipKey { at, .. }
+            | Command::ClearEffectKey { at, .. }
+            | Command::ClearMaskKey { at, .. } => bad([*at]),
             Command::SetClipCutout { cutout, .. } => cutout.as_ref().is_some_and(|cutout| {
                 bad([cutout.feather]) || cutout.strokes.iter().any(bad_stroke)
             }),
@@ -1171,6 +1234,9 @@ impl Command {
             Command::SetClipStabilize { stabilize, .. } => stabilize
                 .as_ref()
                 .is_some_and(|stabilize| bad([stabilize.smoothness, stabilize.max_zoom])),
+            Command::SetClipVoice { voice, .. } => voice
+                .as_ref()
+                .is_some_and(|voice| bad([voice.voice, voice.background])),
             Command::MoveClips { moves } => bad(moves.iter().map(|wanted| wanted.start)),
             Command::TrimClip { delta, .. } => bad([*delta]),
             Command::SplitClips { time, .. } => bad([*time]),
@@ -1197,17 +1263,10 @@ impl Command {
                         .iter()
                         .flatten()
                         .any(|crop| bad([crop.left, crop.top, crop.right, crop.bottom]))
-                    || patch.mask.iter().flatten().any(|mask| {
-                        bad([
-                            mask.x,
-                            mask.y,
-                            mask.width,
-                            mask.height,
-                            mask.rotation,
-                            mask.roundness,
-                            mask.feather,
-                        ])
-                    })
+                    // Masks are not checked here: `Mask::tidy_all` fills a
+                    // number that is not one from a new mask's - which is how
+                    // a size the caller left out reads - and drops a key that
+                    // is not, so none can land.
                     || patch.shape.iter().any(|style| bad(style.numbers()))
                     || patch.filters.as_deref().is_some_and(bad_chain)
                     || patch.video_effects.as_deref().is_some_and(bad_chain)
@@ -1335,12 +1394,16 @@ pub fn apply(
         | Command::SetClipCutout { .. }
         | Command::AddCutoutStroke { .. }
         | Command::SetClipStabilize { .. }
+        | Command::SetClipVoice { .. }
         | Command::SetClipKey { .. }
         | Command::ClearClipKey { .. }
         | Command::ClearClipKeys { .. }
         | Command::SetEffectKey { .. }
         | Command::ClearEffectKey { .. }
         | Command::ClearEffectKeys { .. }
+        | Command::SetMaskKey { .. }
+        | Command::ClearMaskKey { .. }
+        | Command::ClearMaskKeys { .. }
         | Command::SetClipSpeedCurve { .. }
         | Command::SetClipTransform { .. }
         | Command::FrameClip { .. }) => properties::apply(project, mint, command),

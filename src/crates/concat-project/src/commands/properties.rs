@@ -62,8 +62,11 @@ pub(super) fn apply(
                 let crop = crop.map(Crop::tidy).filter(|crop| !crop.is_none());
                 applied |= assign(&mut clip.crop, crop);
             }
-            if let Some(mask) = patch.mask {
-                applied |= assign(&mut clip.mask, mask.map(ClipMask::tidy));
+            if let Some(masks) = patch.masks {
+                applied |= assign(&mut clip.masks, Mask::tidy_all(masks));
+            }
+            if let Some(motion) = patch.motion {
+                applied |= assign(&mut clip.motion, motion.and_then(ClipMotion::tidy));
             }
             if let Some(filters) = patch.filters {
                 applied |= assign(&mut clip.filters, filters);
@@ -156,7 +159,8 @@ pub(super) fn apply(
                 return Ok(Outcome::default());
             };
             // The amount of source covered is held constant - that is what
-            // makes this a speed change rather than a trim.
+            // makes this a speed change rather than a trim. Under a curve
+            // the rate is its mean, so the curve's footage is what is kept.
             let next = speed.clamp(MIN_SPEED, MAX_SPEED);
             let source_covered = clip.duration * clip.speed;
             let old_end = clip.start + clip.duration;
@@ -168,7 +172,9 @@ pub(super) fn apply(
                     (source_covered / next).max(MIN_CLIP_DURATION),
                 )
                 | assign(&mut clip.speed_curve, None);
-            make_room(timeline, &clip_id, old_end, ripple);
+            if applied {
+                shift_followers(timeline, &clip_id, old_end, ripple);
+            }
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -198,6 +204,22 @@ pub(super) fn apply(
                 return Ok(Outcome::default());
             }
             let applied = assign(&mut clip.stabilize, stabilize.map(Stabilize::tidy));
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetClipVoice { clip_id, voice } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            // Only what plays sound has a voice in it: footage and sound.
+            if !matches!(clip.kind, ClipKind::Video | ClipKind::Audio) && voice.is_some() {
+                return Ok(Outcome::default());
+            }
+            let applied = assign(&mut clip.voice, voice.map(VoiceMix::tidy));
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -247,7 +269,6 @@ pub(super) fn apply(
                 // same value at a different instant.
                 KeyProperty::Volume => value.max(0.0),
                 KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => value,
-                mask => ClipMask::clamp(mask, value),
             };
             let before = clip.keys.clone();
             clip.set_key(property, at, value, ease);
@@ -350,6 +371,68 @@ pub(super) fn apply(
             })
         }
 
+        Command::SetMaskKey {
+            clip_id,
+            mask_id,
+            number,
+            at,
+            value,
+            ease,
+        } => {
+            let timeline = project.active_mut();
+            let Some(mask) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.masks.iter_mut().find(|mask| mask.id == mask_id))
+            else {
+                return Ok(Outcome::default());
+            };
+            let before = mask.keys.clone();
+            mask.set_key(&number, at, value, ease);
+            Ok(Outcome {
+                created_id: None,
+                applied: mask.keys != before,
+            })
+        }
+
+        Command::ClearMaskKey {
+            clip_id,
+            mask_id,
+            number,
+            at,
+        } => {
+            let timeline = project.active_mut();
+            let Some(mask) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.masks.iter_mut().find(|mask| mask.id == mask_id))
+            else {
+                return Ok(Outcome::default());
+            };
+            let applied = mask.clear_key(&number, at);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::ClearMaskKeys {
+            clip_id,
+            mask_id,
+            number,
+        } => {
+            let timeline = project.active_mut();
+            let Some(mask) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.masks.iter_mut().find(|mask| mask.id == mask_id))
+            else {
+                return Ok(Outcome::default());
+            };
+            let applied = mask.clear_keys(&number);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
         Command::SetClipSpeedCurve {
             clip_id,
             curve,
@@ -359,12 +442,15 @@ pub(super) fn apply(
             let Some(clip) = timeline.clip_mut(&clip_id) else {
                 return Ok(Outcome::default());
             };
-            let curve = curve.filter(|points| crate::speed::curve_of(points).is_some());
+            // Stored as it will play, so a reopened project plays the same.
+            // A curve with nothing usable in it is no curve: the clip keeps
+            // the rate it had, its old mean, and so its length.
+            let curve = curve.as_deref().and_then(crate::speed::sanitised);
             let source_covered = clip.duration * clip.speed;
             let old_end = clip.start + clip.duration;
             let mean = curve
                 .as_ref()
-                .map(|points| crate::speed::mean_of(points))
+                .map(|points| crate::speed::average_speed(points))
                 .unwrap_or(clip.speed)
                 .clamp(MIN_SPEED, MAX_SPEED);
             let applied = assign(&mut clip.speed_curve, curve)
@@ -373,7 +459,9 @@ pub(super) fn apply(
                     &mut clip.duration,
                     (source_covered / mean).max(MIN_CLIP_DURATION),
                 );
-            make_room(timeline, &clip_id, old_end, ripple);
+            if applied {
+                shift_followers(timeline, &clip_id, old_end, ripple);
+            }
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -488,28 +576,35 @@ pub(super) fn apply(
     }
 }
 
-/// What a retimed clip does to the lane behind it. One that ends later
-/// than `old_end` and would cover what follows it pushes the rest of the
-/// lane along by the growth, as a freeze frame's does. On the magnetic
-/// timeline (`ripple`) the lane follows the clip's end either way, so a
-/// clip sped up leaves no gap, as a magnetic trim leaves none. Shared by
-/// the constant rate and the curve, which both stretch a clip.
-fn make_room(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool) {
+/// The lane after a retime moved a clip's end from `old_end`: the clips
+/// behind it move by as much as the end did when the clip has grown over
+/// the next one, so nothing is covered, and always on the magnetic
+/// timeline, so a shrink closes up rather than leaving a gap. A plain
+/// shrink leaves the gap. The rest of the timeline follows a ripple on the
+/// main lane, as every ripple does.
+fn shift_followers(timeline: &mut Timeline, clip_id: &str, old_end: f64, ripple: bool) {
     let Some(clip) = timeline.clip(clip_id) else {
         return;
     };
-    let (track_id, start, duration) = (clip.track_id.clone(), clip.start, clip.duration);
-    let moved = start + duration - old_end;
-    let pushed = moved > 0.0 && !timeline.is_free(&track_id, start, duration, &[clip_id]);
-    if (ripple && moved != 0.0) || pushed {
-        let main = timeline.background_lane().map(str::to_owned);
-        for other in timeline.clips_where(|other| {
-            other.id != clip_id
-                && other.track_id == track_id
-                && other.start >= old_end - crate::placement::TOUCH
-        }) {
+    let track_id = clip.track_id.clone();
+    let new_end = clip.start + clip.duration;
+    let moved = new_end - old_end;
+    if moved == 0.0 {
+        return;
+    }
+    let behind = old_end - crate::placement::TOUCH;
+    let is_behind =
+        |other: &Clip| other.id != clip_id && other.track_id == track_id && other.start >= behind;
+    let covers = moved > 0.0
+        && timeline
+            .clips
+            .iter()
+            .any(|other| is_behind(other) && other.start < new_end - crate::placement::TOUCH);
+    if covers || ripple {
+        for other in timeline.clips_where(is_behind) {
             other.start = (other.start + moved).max(0.0);
         }
+        let main = timeline.background_lane().map(str::to_owned);
         // Linkage: sped up, the clip gave back the end of its old span;
         // slowed down, it put more in at its old end.
         let ripple = if moved < 0.0 {

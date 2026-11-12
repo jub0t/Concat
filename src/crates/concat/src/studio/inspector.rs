@@ -18,6 +18,9 @@ impl Studio {
             self.style_words(&id, start, end, &patch);
             return;
         }
+        if self.mask_set(field, f64::from(value)) {
+            return;
+        }
         let mut ids = self.edit_targets();
         // A batch of sounds takes the level alone; see `batch_volume`.
         let batch_volume = ids.is_empty() && field == ClipField::Volume;
@@ -94,6 +97,24 @@ impl Studio {
             }
             let text = clip.text.get_or_insert_with(TextStyle::default);
             match field {
+                // The Mask section's, which `mask_set` took before the echo
+                // was borrowed here.
+                ClipField::MaskShape
+                | ClipField::MaskInvert
+                | ClipField::MaskMode
+                | ClipField::MaskAdd
+                | ClipField::MaskSelect
+                | ClipField::MaskRemove
+                | ClipField::MaskMove
+                | ClipField::MaskX
+                | ClipField::MaskY
+                | ClipField::MaskWidth
+                | ClipField::MaskHeight
+                | ClipField::MaskRotation
+                | ClipField::MaskRoundness
+                | ClipField::MaskFeather
+                | ClipField::MaskExpand
+                | ClipField::MaskOpacity => {}
                 ClipField::Scale => {
                     write_keyable(clip, model::KeyProperty::Scale, value.clamp(0.05, 8.0), at)
                 }
@@ -146,54 +167,112 @@ impl Studio {
                         stabilize.max_zoom = value.clamp(1.0, model::MAX_STABILIZE_ZOOM);
                     }
                 }
+                // Only what plays sound has a voice in it.
+                // A new way keeps the kind the clip had.
+                ClipField::VoiceMode => {
+                    let sounding =
+                        matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Audio);
+                    let kind = clip.voice.unwrap_or_default().kind;
+                    clip.voice = match value as i32 {
+                        1 if sounding => Some(model::VoiceMix::KEEP_VOICE),
+                        2 if sounding => Some(model::VoiceMix::REMOVE_VOICE),
+                        _ => None,
+                    }
+                    .map(|mix| model::VoiceMix { kind, ..mix });
+                }
+                ClipField::VoiceKind => {
+                    if let Some(mix) = clip.voice.as_mut() {
+                        mix.kind = if value as i32 == 1 {
+                            model::VoiceKind::Speech
+                        } else {
+                            model::VoiceKind::Vocals
+                        };
+                    }
+                }
+                ClipField::VoiceLevel => {
+                    if let Some(mix) = clip.voice.as_mut() {
+                        mix.voice = value.clamp(0.0, model::MAX_VOICE_GAIN);
+                    }
+                }
+                ClipField::BackgroundLevel => {
+                    if let Some(mix) = clip.voice.as_mut() {
+                        mix.background = value.clamp(0.0, model::MAX_VOICE_GAIN);
+                    }
+                }
                 ClipField::StabilizeTripod => {
                     if let Some(stabilize) = clip.stabilize.as_mut() {
                         stabilize.tripod = value != 0.0;
                     }
                 }
-                // The shape's place in the picker, or below zero for none.
-                // A new shape keeps where the mask was, its turn, softness
-                // and invert, and takes the new shape's own size.
-                ClipField::MaskShape => {
-                    let shape = (value >= 0.0)
-                        .then(|| model::MaskShape::ALL.get(value as usize).copied())
-                        .flatten();
-                    clip.mask = shape.map(|shape| match clip.mask {
-                        Some(held) if held.shape == shape => held,
-                        Some(held) => model::ClipMask {
-                            x: held.x,
-                            y: held.y,
-                            rotation: held.rotation,
-                            roundness: held.roundness,
-                            feather: held.feather,
-                            invert: held.invert,
-                            ..model::ClipMask::of(shape)
-                        },
-                        None => model::ClipMask::of(shape),
-                    });
-                }
-                ClipField::MaskInvert => {
-                    if let Some(mask) = clip.mask.as_mut() {
-                        mask.invert = value != 0.0;
+                ClipField::MotionIn
+                | ClipField::MotionInSeconds
+                | ClipField::MotionOut
+                | ClipField::MotionOutSeconds
+                | ClipField::MotionLoop
+                | ClipField::MotionLoopSeconds
+                | ClipField::MotionLoopAmount => {
+                    let mut motion = clip.motion.clone().unwrap_or_default();
+                    let place = value.round() as i64;
+                    let moving = |place: i64| {
+                        usize::try_from(place)
+                            .ok()
+                            .and_then(|place| concat_core::motion::Move::ALL.get(place))
+                            .map(|kind| kind.name().to_owned())
+                    };
+                    match field {
+                        ClipField::MotionIn => {
+                            let seconds = motion.enter.as_ref().map_or(0.5, |m| m.seconds);
+                            motion.enter =
+                                moving(place).map(|kind| model::ClipMove { kind, seconds });
+                        }
+                        ClipField::MotionOut => {
+                            let seconds = motion.exit.as_ref().map_or(0.5, |m| m.seconds);
+                            motion.exit =
+                                moving(place).map(|kind| model::ClipMove { kind, seconds });
+                        }
+                        ClipField::MotionLoop => {
+                            let (seconds, amount) = motion
+                                .cycle
+                                .as_ref()
+                                .map_or((1.0, 1.0), |m| (m.seconds, m.amount));
+                            motion.cycle = usize::try_from(place)
+                                .ok()
+                                .and_then(|place| concat_core::motion::Cycle::ALL.get(place))
+                                .map(|kind| model::ClipLoop {
+                                    kind: kind.name().to_owned(),
+                                    seconds,
+                                    amount,
+                                });
+                        }
+                        ClipField::MotionInSeconds => {
+                            if let Some(m) = motion.enter.as_mut() {
+                                m.seconds = value;
+                            }
+                        }
+                        ClipField::MotionOutSeconds => {
+                            if let Some(m) = motion.exit.as_mut() {
+                                m.seconds = value;
+                            }
+                        }
+                        ClipField::MotionLoopSeconds => {
+                            if let Some(m) = motion.cycle.as_mut() {
+                                m.seconds = value;
+                            }
+                        }
+                        _ => {
+                            if let Some(m) = motion.cycle.as_mut() {
+                                m.amount = value;
+                            }
+                        }
                     }
-                }
-                ClipField::MaskX
-                | ClipField::MaskY
-                | ClipField::MaskWidth
-                | ClipField::MaskHeight
-                | ClipField::MaskRotation
-                | ClipField::MaskRoundness
-                | ClipField::MaskFeather => {
-                    if let Some(property) = Self::key_property_of(field) {
-                        write_keyable(clip, property, model::ClipMask::clamp(property, value), at);
-                    }
+                    clip.motion = motion.tidy();
                 }
                 ClipField::Volume => {
                     write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
                 }
                 ClipField::Speed => {
-                    // A rate set by hand is a constant rate: the curve goes,
-                    // as SetClipSpeed takes it.
+                    // A rate set by hand is a constant rate, so a curve the
+                    // clip had ends; the footage it covered is kept.
                     let speed = value.clamp(0.0625, 16.0);
                     clip.duration =
                         (clip.duration * clip.speed / speed).max(f64::from(MIN_DURATION));

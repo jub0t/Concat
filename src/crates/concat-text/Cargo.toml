@@ -28,6 +28,9 @@ unicode-linebreak = "0.1"
 unicode-script = "0.5"
 # Fill, stroke and anti-aliasing of those paths, and the PNG encoder.
 tiny-skia = { version = "0.12", features = ["png-format"] }
+# The titles' PNGs, written with its fast deflate: the one tiny-skia
+# already brings in, so nothing new is built.
+png = "0.18"
 
 [lints]
 workspace = true

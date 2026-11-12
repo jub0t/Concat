@@ -6,18 +6,18 @@ name = "Iris"
 kind = "transition"
 category = "Wipe"
 order = 11
-description = "A circle opens from the centre to reveal the incoming shot."
+description = "A round opening grows from the centre until the next shot fills the frame."
 
 [[param]]
 key = "softness"
 label = "Softness"
+unit = "%"
 min = 0
 max = 100
-default = 15
 step = 1
-unit = "%"
+default = 15
 
 [transition]
-entry = "effect.wgsl"
-xfade = "circleopen"
 fallback = "cross-fade"
+xfade = "circleopen"
+entry = "effect.wgsl"

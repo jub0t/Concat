@@ -12,7 +12,7 @@ impl Studio {
     /// menu's own handler in lib.rs, so a key and the row that advertises
     /// it are one thing.
     pub fn shortcut(&mut self, action: &str) {
-        log::info!("shortcut: {action}");
+        log::debug!("shortcut: {action}");
         match action {
             // The selected clips when there are any, as the tray's button
             // and the menu split: the chord cut every track under the
@@ -148,7 +148,10 @@ impl Studio {
     }
 
     pub fn clip_action(&mut self, id: &str, action: &str) {
-        log::info!("clip menu: {action} on {id}");
+        log::debug!("clip menu: {action} on {id}");
+        // The edits this makes say they came from the clip's menu, unless a
+        // shortcut brought them here.
+        let _asked = Asked::by("clip menu");
         let Some(clip) = self.clip(id).cloned() else {
             return;
         };
@@ -198,6 +201,30 @@ impl Studio {
                 self.inspector_jump = (self.inspector_jump.0 + 1, "Video", "Enhance");
             }
             "export-audio" => self.export_clip_audio(id),
+            // One of the two ways, or back to the recording when that way
+            // is the one already on; on the selection when the clip is in
+            // it, else on the clip alone.
+            "voice-keep" | "voice-remove" => {
+                self.flush_commit();
+                if !self.selection.iter().any(|held| held == id) {
+                    self.selection = vec![id.to_owned()];
+                    self.transition_selected = None;
+                }
+                let wanted = concat_project::model::VoiceMix {
+                    // The kind the clip had; speech apart from noise else.
+                    kind: clip.voice.unwrap_or_default().kind,
+                    ..if action == "voice-keep" {
+                        concat_project::model::VoiceMix::KEEP_VOICE
+                    } else {
+                        concat_project::model::VoiceMix::REMOVE_VOICE
+                    }
+                };
+                let on = clip.voice.is_some_and(|mix| {
+                    (mix.voice == 0.0) == (wanted.voice == 0.0)
+                        && (mix.background == 0.0) == (wanted.background == 0.0)
+                });
+                self.set_voice((!on).then_some(wanted));
+            }
             "detach" => self.detach_audio(&clip),
             "reattach" => {
                 self.apply(Command::ReattachAudio {

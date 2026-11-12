@@ -66,6 +66,7 @@ impl Studio {
             && self.flat.as_ref().is_some_and(|(at, w, h, bypassed, _)| {
                 *at == self.revision && *w == width && *h == height && *bypassed == bypass_effects
             });
+        let mut painted_all = true;
         let clips = if cached {
             std::sync::Arc::clone(&self.flat.as_ref().expect("checked").4)
         } else {
@@ -108,11 +109,17 @@ impl Studio {
                     clips.push(title.clip);
                 }
             } else {
-                for title in self.host.titles.clips(self.project(), width, height) {
+                // The titles painted already; the rest are painted on a
+                // thread of their own and the frame asked for again when
+                // they are in. A transcribed interview is hundreds of
+                // captions, and painting them here held the window.
+                let (titles, complete) = self.host.titles.ready(self.project(), width, height);
+                for title in titles {
                     self.title_blocks
                         .insert(title.clip_id, (title.block, title.offset));
                     clips.push(title.clip);
                 }
+                painted_all = complete;
             }
             if bypass_effects {
                 for clip in &mut clips {
@@ -120,7 +127,9 @@ impl Studio {
                 }
             }
             let clips = std::sync::Arc::new(clips);
-            if self.echo.is_none() {
+            // Kept only once every title is in it, so the frame after the
+            // painter is done flattens again and finds them.
+            if self.echo.is_none() && painted_all {
                 self.flat = Some((
                     self.revision,
                     width,
@@ -175,7 +184,40 @@ impl Studio {
             }
         }
         let clips = own.map(std::sync::Arc::new).unwrap_or(clips);
-        Some((clips, session.settings()))
+        let settings = session.settings();
+        if !painted_all {
+            self.paint_titles(width, height);
+        }
+        Some((clips, settings))
+    }
+
+    /// Paints the titles the monitor does not have yet, at `width` by
+    /// `height`, on every core and off the window's thread, and asks for
+    /// the frame again when they are done. One run at a time: a frame asked
+    /// for meanwhile shows what is painted and leaves the run to finish.
+    fn paint_titles(&mut self, width: u32, height: u32) {
+        // Once a document revision and size: a title that will not paint
+        // stays missing, and must not send the painter round again for
+        // every frame after.
+        let attempt = (self.revision, width, height);
+        if self.titles_painting || self.titles_tried == Some(attempt) {
+            return;
+        }
+        self.titles_painting = true;
+        self.titles_tried = Some(attempt);
+        let titles = std::sync::Arc::clone(&self.host.titles);
+        let project = self.project().clone();
+        crate::host::spawn_in_project_publishing(
+            move || {
+                titles.clips(&project, width, height);
+            },
+            |studio, _, _, ()| {
+                studio.titles_painting = false;
+                studio.flat = None;
+                studio.request_preview();
+            },
+            |_, _, _| {},
+        );
     }
 
     // ── playback ──

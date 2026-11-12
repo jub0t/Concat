@@ -236,6 +236,137 @@ export component Modal inherits Rectangle {
                 }
             }
 
+            // The sheet's body, scrolled where the window is shorter than
+            // it: the Welcome window at its smallest cut the New Project
+            // sheet off at Background with no way down to Create (#689).
+            // Where it fits, it fills the surface and does not move.
+            scroller := Flickable {
+                preferred-height: content.preferred-height;
+                min-height: 0px;
+                vertical-stretch: 1;
+                interactive: content.preferred-height > self.height;
+                viewport-height: Math.max(self.height, content.preferred-height);
+
+                content := VerticalLayout {
+                    width: scroller.width;
+                    height: scroller.viewport-height;
+
+                    @children
+                }
+            }
+        }
+    }
+}
+
+// A page over the whole window, for a place to work in rather than a
+// question to answer: Export and Settings. It slides up from the bottom
+// edge and goes back down it, a quick start and a long settle, and
+// nothing under it takes a press while it is up. Its panel runs behind
+// the system's bars (insets, zero on a desk); its header and its body
+// stay inside them. The title is centred against the whole strip and the
+// leading corner is empty: on a Mac that is the traffic lights.
+export component Sheet inherits Rectangle {
+    in property <bool> open;
+    in property <string> title;
+    in property <Glyph> glyph;
+    /// False while a job is running: the × is gone, not disabled.
+    in property <bool> dismissable: true;
+    in property <length> inset-top;
+    in property <length> inset-bottom;
+    in property <length> inset-left;
+    in property <length> inset-right;
+
+    callback closed();
+
+    /// How far down the sheet is, as a share of the window: 0 up, 1 gone.
+    /// A share rather than a length, so a window resized while the sheet
+    /// is away does not animate it back into view on the way to the new
+    /// edge.
+    property <float> lowered: root.open ? 0 : 1;
+    animate lowered { duration: 380ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+
+    // Up while open, and while it is still sliding away after closing, so
+    // the way out is seen as well as the way in.
+    visible: root.open || root.lowered < 1;
+
+    Rectangle {
+        x: 0;
+        y: root.height * root.lowered;
+        width: root.width;
+        height: root.height;
+        background: Theme.panel;
+
+        TouchArea { }
+
+        VerticalLayout {
+            padding-top: root.inset-top;
+            padding-bottom: root.inset-bottom;
+            padding-left: root.inset-left;
+            padding-right: root.inset-right;
+
+            Rectangle {
+                height: 52px;
+
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 1px;
+                    width: parent.width;
+                    height: 1px;
+                    background: Theme.line;
+                }
+
+                HorizontalLayout {
+                    padding-left: Theme.pad;
+                    padding-right: 12px;
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    if root.dismissable: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            border-radius: Theme.r-sm;
+                            background: shut.has-hover ? Theme.field : Colors.transparent;
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.close;
+                                size: 14px;
+                                tint: shut.has-hover ? Theme.fg : Theme.fg-muted;
+                            }
+
+                            shut := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.closed(); }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    x: (parent.width - self.preferred-width) / 2;
+                    y: 0;
+                    width: self.preferred-width;
+                    height: parent.height;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Icon { glyph: root.glyph; size: 16px; tint: Theme.accent; }
+                    }
+
+                    Text {
+                        text: root.title;
+                        color: Theme.fg;
+                        font-size: Theme.fs-lg;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
             @children
         }
     }
@@ -262,7 +393,7 @@ export component Button inherits Rectangle {
     in property <bool> large;
     /// A glyph alone on a square the height of the row, for a toggle that
     /// sits beside a field and says what it does with its mark: the eye
-    /// that shows a token. The label, if one is given, is not drawn.
+    /// that shows a token. The label is not drawn; it is the tooltip.
     in property <bool> square;
 
     callback clicked();
@@ -329,6 +460,56 @@ export component Button inherits Rectangle {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
+    }
+
+    // A mark alone says what it does once it has been learnt; the name
+    // under the pointer is how it is learnt.
+    if root.square: Tip {
+        text: root.label;
+        active: touch.has-hover;
+    }
+}
+
+/// A dialog's Cancel and its go-ahead, in the platform's order: the
+/// go-ahead first on Windows, last on macOS and Linux (`Theme.ok-first`).
+/// Right-aligned, as every desktop lays them.
+export component ActionPair inherits HorizontalLayout {
+    in property <string> cancel-label: I18n.t("common.cancel");
+    in property <bool> cancel-enabled: true;
+    in property <string> action-label;
+    in property <Glyph> action-glyph;
+    in property <bool> action-enabled: true;
+    /// The go-ahead destroys something: the danger tone, not the primary.
+    in property <bool> danger;
+
+    callback cancel();
+    callback act();
+
+    alignment: end;
+    spacing: 8px;
+
+    if Theme.ok-first: Button {
+        primary: !root.danger;
+        danger: root.danger;
+        glyph: root.action-glyph;
+        label: root.action-label;
+        enabled: root.action-enabled;
+        clicked => { root.act(); }
+    }
+
+    Button {
+        label: root.cancel-label;
+        enabled: root.cancel-enabled;
+        clicked => { root.cancel(); }
+    }
+
+    if !Theme.ok-first: Button {
+        primary: !root.danger;
+        danger: root.danger;
+        glyph: root.action-glyph;
+        label: root.action-label;
+        enabled: root.action-enabled;
+        clicked => { root.act(); }
     }
 }
 

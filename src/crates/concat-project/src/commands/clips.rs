@@ -7,6 +7,7 @@
 //! everything these arms share lives in the parent module.
 
 use super::*;
+use crate::speed;
 
 /// Applies one of this module's commands. Any other is a routing error.
 pub(super) fn apply(
@@ -351,23 +352,21 @@ pub(super) fn apply(
                     let applied = assign(&mut clip.duration, duration);
                     if applied {
                         clip.rewindow_keys(old, 0.0, duration);
-                        crate::speed::rewindow_clip(clip, old, 0.0, duration);
+                        // Pulled out past its end, a curve holds its end
+                        // speed over what is added.
+                        speed::refit_curve(clip, old, 0.0, duration);
                     }
                     (applied, duration - old, old_end - JOIN_EPSILON)
                 }
                 TrimEdge::Start => {
                     // Dragging the head moves the in-point too, so the pixels
                     // under the remaining part of the clip do not slide. The
-                    // head cannot reach before the source begins.
-                    // Under a curve the head extends at the speed it starts at.
-                    let lead = clip
-                        .speed_curve
-                        .as_deref()
-                        .and_then(crate::speed::curve_of)
-                        .map_or(clip.speed, |curve| curve.speed_at(0.0));
+                    // head cannot reach before the source begins: pulled
+                    // out, it reaches back at the speed the clip starts at.
+                    let reach_back = clip.source_start / speed::opening_speed(clip);
                     let shift = delta
                         .min(clip.duration - MIN_CLIP_DURATION)
-                        .max(-clip.source_start / lead);
+                        .max(-reach_back);
                     // A magnetic head trim never moves the clip, so the
                     // timeline's own start is no limit to it; a plain one
                     // stops at zero.
@@ -379,21 +378,17 @@ pub(super) fn apply(
                     let moved = start - clip.start;
                     let duration = clip.duration - moved;
                     let old = clip.duration;
-                    // The source the head took with it: a constant rate's
-                    // share, or under a curve the curve's own. Worked on a
-                    // copy, so a trim that changes nothing changes nothing.
-                    let mut retimed = Clip::clone(clip);
-                    let consumed = crate::speed::rewindow_clip(&mut retimed, old, moved, old)
-                        .unwrap_or(moved * clip.speed);
-                    let source_start = (clip.source_start + consumed).max(0.0);
+                    // The in-point moves by the footage the curve, or the
+                    // rate, covers over what came off or went back on.
+                    let source_start =
+                        (clip.source_start + speed::source_consumed(clip, moved)).max(0.0);
                     // Bitwise so no assignment is short-circuited away.
                     let applied = assign(&mut clip.start, start)
                         | assign(&mut clip.duration, duration)
                         | assign(&mut clip.source_start, source_start);
                     if applied {
                         clip.rewindow_keys(old, moved, old);
-                        clip.speed = retimed.speed;
-                        clip.speed_curve = retimed.speed_curve;
+                        speed::refit_curve(clip, old, moved, old);
                     }
                     if ripple {
                         // The in-point moved; the clip stays put, and the
@@ -445,16 +440,9 @@ pub(super) fn apply(
                 if offset <= MIN_CLIP_DURATION || offset >= clip.duration - MIN_CLIP_DURATION {
                     continue;
                 }
-                let (head_source, mut tail_source) =
-                    split_source(clip.source_start, clip.speed, offset);
+                let (head_source, tail_source) = split_source(clip, offset);
                 let whole = clip.duration;
-                let mut tail = clip.clone();
-                // Under a curve each half keeps its share of it, and the
-                // tail starts where the curve had got to in the source.
-                if let Some(consumed) = crate::speed::rewindow_clip(&mut tail, whole, offset, whole)
-                {
-                    tail_source = clip.source_start + consumed;
-                }
+                let mut tail = Clip::clone(clip);
                 tail.id = mint.next("c");
                 tail.start = clip.start + offset;
                 tail.duration = clip.duration - offset;
@@ -466,13 +454,14 @@ pub(super) fn apply(
                 tail.transition_in = None;
                 tail.fade_in = 0.0;
                 tail.rewindow_keys(whole, offset, whole);
+                speed::refit_curve(&mut tail, whole, offset, whole);
                 created = Some(tail.id.clone());
                 let head = timeline.clip_at_mut(index);
-                crate::speed::rewindow_clip(head, whole, 0.0, offset);
                 head.duration = offset;
                 head.source_start = head_source;
                 head.fade_out = 0.0;
                 head.rewindow_keys(whole, 0.0, offset);
+                speed::refit_curve(head, whole, 0.0, offset);
                 timeline.clips.insert(index + 1, Arc::new(tail));
             }
             // A split always mints the tail, so "minted anything" and
@@ -599,7 +588,7 @@ pub(super) fn apply(
                 .unwrap_or(DEFAULT_FREEZE_DURATION)
                 .max(MIN_CLIP_DURATION);
 
-            let (kind, media_id, track_id, start, clip_duration, speed, source_start, picture) = {
+            let (kind, media_id, track_id, start, clip_duration, picture) = {
                 let timeline = project.active();
                 let Some(clip) = timeline.clip(&clip_id) else {
                     return Ok(Outcome::default());
@@ -617,8 +606,6 @@ pub(super) fn apply(
                     clip.track_id.clone(),
                     clip.start,
                     clip.duration,
-                    clip.speed,
-                    clip.source_start,
                     clip.clone(),
                 )
             };
@@ -663,15 +650,11 @@ pub(super) fn apply(
                 return Ok(Outcome::default());
             };
             // The cut is a split's, so it leaves the pieces as a split does:
-            // under a curve each keeps its share of it.
+            // each its share of the curve, the tail picking up the footage
+            // where the head leaves it.
             let offset = time - start;
-            let (head_source, mut tail_source) = split_source(source_start, speed, offset);
+            let (head_source, tail_source) = split_source(&picture, offset);
             let mut tail = Clip::clone(&timeline.clips[index]);
-            if let Some(consumed) =
-                crate::speed::rewindow_clip(&mut tail, clip_duration, offset, clip_duration)
-            {
-                tail_source = source_start + consumed;
-            }
             tail.id = mint.next("c");
             tail.start = time;
             tail.duration = clip_duration - offset;
@@ -679,12 +662,13 @@ pub(super) fn apply(
             tail.transition_in = None;
             tail.fade_in = 0.0;
             tail.rewindow_keys(clip_duration, offset, clip_duration);
+            speed::refit_curve(&mut tail, clip_duration, offset, clip_duration);
             let head = timeline.clip_at_mut(index);
-            crate::speed::rewindow_clip(head, clip_duration, 0.0, offset);
             head.duration = offset;
             head.source_start = head_source;
             head.fade_out = 0.0;
             head.rewindow_keys(clip_duration, 0.0, offset);
+            speed::refit_curve(head, clip_duration, 0.0, offset);
             timeline.clips.insert(index + 1, Arc::new(tail));
 
             // Ripple every later placement on this track (including the new
@@ -1139,10 +1123,14 @@ pub fn delete_to_playhead(
 }
 
 /// Where each piece of a clip cut at `offset` begins in the source: the
-/// head keeps its in-point and the tail starts `offset × speed` later, so
-/// the two pieces together show exactly what the whole did.
-fn split_source(source_start: f64, speed: f64, offset: f64) -> (f64, f64) {
-    (source_start, source_start + offset * speed)
+/// head keeps its in-point and the tail starts as much later as the clip
+/// had consumed by the cut - `offset × speed`, or the area under its curve
+/// - so the two pieces together show exactly what the whole did.
+fn split_source(clip: &Clip, offset: f64) -> (f64, f64) {
+    (
+        clip.source_start,
+        clip.source_start + speed::source_consumed(clip, offset),
+    )
 }
 
 /// Why these clips cannot be merged, or None if they can. A sentence, because

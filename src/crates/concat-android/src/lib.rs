@@ -89,7 +89,7 @@ mod activity {
                     .lines()
                     .map_while(Result::ok)
                 {
-                    log::warn!("{line}");
+                    log::warn!("stderr: {line}");
                 }
             })
             .ok();
@@ -232,7 +232,9 @@ mod picker {
                 previous(Vec::new());
             }
             if let Err(error) = pick(&app, &kinds) {
-                log::error!("could not show the document picker: {error}");
+                log::error!(
+                    "import: showing the document picker failed: {error}; nothing was picked"
+                );
                 if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
                     pending(Vec::new());
                 }
@@ -299,7 +301,7 @@ mod picker {
         let paths = match read {
             Ok(paths) => paths,
             Err(error) => {
-                log::error!("could not read the picked files: {error}");
+                log::error!("import: reading the picked files failed: {error}; nothing was picked");
                 Vec::new()
             }
         };
@@ -334,12 +336,14 @@ mod publisher {
             Ok(Some(folder)) => folder,
             Ok(None) => {
                 log::info!(
-                    "exports stay in the app's folder: this phone's media store takes no files"
+                    "export: finished exports stay in the app's folder · this phone's media store takes no files"
                 );
                 return;
             }
             Err(error) => {
-                log::warn!("could not ask where exports go: {error}");
+                log::warn!(
+                    "export: asking the phone where exports go failed: {error}; they stay in the app's folder"
+                );
                 return;
             }
         };
@@ -464,7 +468,9 @@ mod microphone {
             .unwrap_or_else(|error| {
                 // Not knowing is not a no: the device is opened, and its
                 // own error, or its silence, says the rest.
-                log::warn!("could not ask for the microphone: {error}");
+                log::warn!(
+                    "voice: asking for the microphone failed: {error}; it is opened all the same"
+                );
                 true
             })
         }));
@@ -508,6 +514,34 @@ mod links {
     }
 }
 
+/// The screen kept on while a job runs - an export, a transcription, a
+/// download - so a phone left on the table does not time out half a
+/// minute in and stop the export with it (#695). The window's flag, which
+/// the activity applies on its own thread.
+#[cfg(target_os = "android")]
+mod awake {
+    use slint::android::AndroidApp;
+    use slint::android::android_activity::WindowManagerFlags;
+
+    pub fn install(app: &AndroidApp) {
+        let app = app.clone();
+        concat::install_awake(Box::new(move |on| {
+            log::debug!("display: the screen kept on while a job runs: {on}");
+            if on {
+                app.set_window_flags(
+                    WindowManagerFlags::KEEP_SCREEN_ON,
+                    WindowManagerFlags::empty(),
+                );
+            } else {
+                app.set_window_flags(
+                    WindowManagerFlags::empty(),
+                    WindowManagerFlags::KEEP_SCREEN_ON,
+                );
+            }
+        }));
+    }
+}
+
 /// Called by the activity's native glue; the name is the contract.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
@@ -517,7 +551,8 @@ fn android_main(app: slint::android::AndroidApp) {
     activity::open_log();
     log::info!("Concat {} starting", env!("CARGO_PKG_VERSION"));
     if let Err(error) = slint::android::init(app.clone()) {
-        log::error!("could not start the Android backend: {error}");
+        // "could not start" right after the topic: the smoke script looks for it.
+        log::error!("start: could not start the Android backend: {error}; the app closes");
         return;
     }
     // After the backend, which seeds the JavaVM the Java is reached by.
@@ -525,7 +560,8 @@ fn android_main(app: slint::android::AndroidApp) {
     publisher::install(&app);
     microphone::install(&app);
     links::install(&app);
+    awake::install(&app);
     if let Err(error) = concat::run() {
-        log::error!("{error}");
+        log::error!("close: the window ended in an error: {error}; the app closes");
     }
 }

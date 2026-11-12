@@ -7,19 +7,19 @@ kind = "transition"
 category = "Zoom"
 order = 3
 aliases = ["zoom"]
-description = "A whip zoom out of the outgoing shot and into the incoming one."
+description = "One unbroken push of the camera: into the last shot and on out of it into the next, streaked by the speed."
 
 [[param]]
 key = "direction"
 label = "Direction"
 type = "enum"
-min = 0
-max = 1
-default = 0
 values = [0, 1]
 labels = ["In", "Out"]
+default = 0
+min = 0
+max = 1
 
 [transition]
-entry = "effect.wgsl"
-xfade = "zoomin"
 fallback = "cross-fade"
+xfade = "zoomin"
+entry = "effect.wgsl"

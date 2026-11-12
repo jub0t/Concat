@@ -120,16 +120,18 @@ export component ThinHScrollbar inherits Rectangle {
         ? root.travel * Math.min(root.offset, root.overflow) / root.overflow
         : 0px;
 
-    height: 8px;
+    // Twelve pixels to aim at, with a thumb that fattens under the pointer:
+    // at eight with a four-pixel thumb it was a hairline to hunt for (#634).
+    height: 12px;
     background: transparent;
     visible: root.overflow > 0px;
 
     thumb := Rectangle {
         x: root.thumb-x;
-        y: 2px;
+        y: (root.height - self.height) / 2;
         width: root.thumb-w;
-        height: 4px;
-        border-radius: 2px;
+        height: (grab.pressed || grab.has-hover) ? 8px : 5px;
+        border-radius: self.height / 2;
         background: (grab.pressed || grab.has-hover) ? Theme.fg-dim : Theme.line-strong;
 
         animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
@@ -140,6 +142,17 @@ export component ThinHScrollbar inherits Rectangle {
         property <length> from;
 
         mouse-cursor: default;
+
+        // A wheel over the bar scrolls along it, either axis, so a mouse
+        // with one wheel moves the timeline from here (#634).
+        scroll-event(event) => {
+            if (root.overflow <= 0px) {
+                return reject;
+            }
+            root.scrolled(Math.max(0px, Math.min(root.overflow,
+                root.offset - (event.delta-x != 0px ? event.delta-x : event.delta-y))));
+            accept
+        }
 
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {

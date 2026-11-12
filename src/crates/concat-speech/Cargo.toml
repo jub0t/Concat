@@ -32,12 +32,18 @@ tokenizers = { version = "0.23", optional = true, default-features = false, feat
 # where a loop ran out. Through the facade, so the window's log file and a
 # terminal both get it; see concat-host's logs.rs.
 log = { version = "0.4", features = ["std"] }
+# A job as one timed line - captions, a read, a split - and the units a
+# line's numbers are said in; see docs/LOGGING.md.
+concat-log.workspace = true
 
 # Transcription: whisper.cpp in-process. Built from source by cmake at build
 # time; on macOS with Metal so the encoder runs on the GPU. `raw-api` for
 # ggml's backend registry: where whisper.cpp is a shared build, its CPU
 # kernels are loaded by hand (transcribe.rs, `cpu_backend`).
 whisper-rs = { version = "0.16", features = ["raw-api"] }
+
+# Voice isolation's STFT: pure Rust, MIT or Apache-2.0.
+realfft = { version = "3.5", optional = true }
 
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -55,6 +61,9 @@ ort = { workspace = true, optional = true, features = ["directml"] }
 
 [features]
 chatterbox = ["dep:ort", "dep:tokenizers", "dep:concat-vision"]
+# Voice isolation: DeepFilterNet 3, carried in the app, run on ONNX Runtime's
+# CPU provider on every platform. See isolate.rs.
+isolate = ["dep:concat-vision", "dep:realfft"]
 
 [lints]
 workspace = true

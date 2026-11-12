@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
+import { ResizeBox } from "../primitives/resize-box.slint";
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
-import { Switch } from "../inspector/controls.slint";
+import { StylePicker, TextPresetData } from "../inspector/style-picker.slint";
+
+/// The captions' look: a text preset, searched for in the list the Text
+/// page's Styles and Languages draw from. A global, as the font picker's
+/// search is, so the phone's sheet and the desk's Library page read one
+/// list without it being handed down through either.
+export global CaptionStyles {
+    /// The presets the search lets through.
+    in property <[TextPresetData]> matches;
+    /// The one the captions are set in.
+    in property <TextPresetData> current;
+    callback query-changed(text: string);
+    callback picked(id: string);
+}
 
 // Captions: what the tray's Captions tool opens.
 //
@@ -110,88 +124,16 @@ export component CaptionsForm inherits VerticalLayout {
     }
     init => { root.draft = root.data.text; }
 
-        if !root.data.running && !root.from-voice: DialogSection {
+        // Where the words come from, first and in the same place whether
+        // it is on or off: on, the clip and the transcriber are under its
+        // switch; off, the script is the next group down.
+        if !root.data.running: DialogSection {
             first: true;
-            title: I18n.t("common.script");
-
-            Rectangle {
-                height: 104px;
-                border-radius: Theme.r;
-                background: Theme.well;
-                border-width: 1px;
-                border-color: script.has-focus ? Theme.accent : Theme.line;
-                clip: true;
-
-                script := TextInput {
-                    x: 10px;
-                    y: 8px;
-                    width: parent.width - 20px;
-                    height: parent.height - 16px;
-                    text <=> root.draft;
-                    color: Theme.fg;
-                    font-size: Theme.fs-lg;
-                    single-line: false;
-                    wrap: word-wrap;
-                    selection-background-color: Theme.accent;
-                    selection-foreground-color: Theme.on-accent;
-                    changed has-focus => { root.typing = self.has-focus; }
-                    edited => { root.text-edited(self.text); }
-                    // Home and End are unbound in Slint on macOS and would
-                    // walk up to the window's playhead shortcuts.
-                    key-pressed(event) => {
-                        if (event.text == Key.Home) {
-                            self.set-selection-offsets(0, 0);
-                            return accept;
-                        }
-                        if (event.text == Key.End) {
-                            self.set-selection-offsets(1000000000, 1000000000);
-                            return accept;
-                        }
-                        return reject;
-                    }
-                }
-
-                if root.draft == "" && !script.has-focus: Text {
-                    x: 10px;
-                    y: 8px;
-                    text: I18n.t("captions.typeWordsPutScreen");
-                    color: Theme.fg-dim;
-                    font-size: Theme.fs-lg;
-                }
-            }
-        }
-
-        // The switch, under the script it stands in for: off, the words
-        // are typed above it; on, they come from a clip's voice, chosen
-        // under it. A row of its own rather than a DialogRow, whose label
-        // column is too narrow for the words.
-        if !root.data.running: HorizontalLayout {
-            padding-left: 14px;
-            padding-right: 14px;
-            padding-top: 14px;
-            spacing: 10px;
-
-            Text {
-                horizontal-stretch: 1;
-                text: I18n.t("captions.transcribeClipVoice");
-                color: Theme.fg;
-                font-size: Theme.fs;
-                vertical-alignment: center;
-                wrap: word-wrap;
-            }
-
-            VerticalLayout {
-                alignment: center;
-                Switch {
-                    checked: root.from-voice;
-                    toggled(on) => { root.voice-toggled(on); }
-                }
-            }
-        }
-
-        if !root.data.running && root.from-voice: DialogSection {
-            first: true;
-            title: I18n.t("common.transcriber");
+            title: I18n.t("captions.transcribeClipVoice");
+            switchable: true;
+            on: root.from-voice;
+            open: root.from-voice;
+            switched(on) => { root.voice-toggled(on); }
 
             DialogRow {
                 label: I18n.t("common.audio");
@@ -233,8 +175,68 @@ export component CaptionsForm inherits VerticalLayout {
             }
         }
 
+        if !root.data.running && !root.from-voice: DialogSection {
+            title: I18n.t("common.script");
+
+            // Scrolls past its bottom and is drawn taller by its corner.
+            script-box := ResizeBox {
+                content-height: script.preferred-height;
+                focused: script.has-focus;
+
+                script := TextInput {
+                    y: script-box.pad-y;
+                    width: parent.width;
+                    height: Math.max(self.preferred-height, script-box.view-height);
+                    cursor-position-changed(at) => { script-box.reveal(at.y, self.font-size * 1.4); }
+                    text <=> root.draft;
+                    color: Theme.fg;
+                    font-size: Theme.fs-lg;
+                    single-line: false;
+                    wrap: word-wrap;
+                    selection-background-color: Theme.accent;
+                    selection-foreground-color: Theme.on-accent;
+                    changed has-focus => { root.typing = self.has-focus; }
+                    edited => { root.text-edited(self.text); }
+                    // Home and End are unbound in Slint on macOS and would
+                    // walk up to the window's playhead shortcuts.
+                    key-pressed(event) => {
+                        if (event.text == Key.Home) {
+                            self.set-selection-offsets(0, 0);
+                            return accept;
+                        }
+                        if (event.text == Key.End) {
+                            self.set-selection-offsets(1000000000, 1000000000);
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+
+                if root.draft == "" && !script.has-focus: Text {
+                    x: 0;
+                    y: script-box.pad-y;
+                    text: I18n.t("captions.typeWordsPutScreen");
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-lg;
+                }
+            }
+        }
+
         if !root.data.running: DialogSection {
             title: I18n.t("captions.captions");
+
+            // The look, from the Text page's presets; where it sits and
+            // how big stay the captions' own, since a style's own size
+            // and place are a title's, not a subtitle's.
+            DialogRow {
+                label: I18n.t("textPanel.style");
+                StylePicker {
+                    current: CaptionStyles.current;
+                    matches: CaptionStyles.matches;
+                    query-changed(text) => { CaptionStyles.query-changed(text); }
+                    picked(id) => { CaptionStyles.picked(id); }
+                }
+            }
 
             DialogRow {
                 label: I18n.t("captions.placement");

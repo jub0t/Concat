@@ -41,7 +41,7 @@ pub struct Host {
     /// Text to speech, and its model downloads.
     pub speech: Arc<Speech>,
     /// Titles painted to pictures, and the cache of them.
-    pub titles: concat_host::Titles,
+    pub titles: Arc<concat_host::Titles>,
     /// The cutout models, and the masks they find for the project's media.
     pub cutouts: Arc<concat_host::Cutouts>,
     /// The stabilization analysis, and the camera movement it measures.
@@ -69,8 +69,8 @@ impl Host {
     pub fn start(gpu: Option<Gpu>) -> Result<Host, String> {
         let dirs = AppDirs::locate()?;
         let _ = std::fs::create_dir_all(&dirs.config);
-        Ok(Host {
-            titles: concat_host::Titles::new(&dirs),
+        let host = Host {
+            titles: Arc::new(concat_host::Titles::new(&dirs)),
             cutouts: Arc::new(concat_host::Cutouts::new(&dirs.data)),
             stabilizers: Arc::new(concat_host::Stabilizers::new()),
             brushes: Arc::new(concat_host::Brushes::new(&dirs.data)),
@@ -79,7 +79,7 @@ impl Host {
             dirs,
             playback: Playback::start(Arc::new(Events))?,
             monitor: match gpu {
-                Some(gpu) => Monitor::with_gpu(gpu.device, gpu.queue),
+                Some(gpu) => Monitor::with_gpu_watching(gpu.device, gpu.queue, gpu.lost),
                 None => Monitor::new(),
             },
             exporter: Exporter::new(),
@@ -87,7 +87,11 @@ impl Host {
             speech: Arc::new(Speech::new()),
             server: None,
             open_projects: concat_api::OpenProjects::default(),
-        })
+        };
+        // Every effect's pipeline, compiled while the window opens rather
+        // than at the first frame each effect draws.
+        host.monitor.warm_shaders();
+        Ok(host)
     }
 }
 
@@ -224,6 +228,18 @@ pub fn spawn_in_project<T: Send + 'static>(
 ) {
     let epoch = project_epoch();
     spawn_detached(move || deliver(Some(epoch), work(), then));
+}
+
+/// [`spawn_in_project`] with the publish after `then` chosen by the caller:
+/// for work whose result touches one corner of the window, where a whole
+/// publish would be all cost.
+pub fn spawn_in_project_publishing<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+    publish: impl FnOnce(&Studio, &App, &Models) + Send + 'static,
+) {
+    let epoch = project_epoch();
+    spawn_detached(move || deliver_then(Some(epoch), work(), then, publish));
 }
 
 /// [`spawn_in_project`] for the monitor's frames. While playback runs a

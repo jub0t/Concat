@@ -204,12 +204,11 @@ impl Studio {
     /// numbers at their ride's values; None for a clip with no mask or one
     /// that is not a picture.
     fn mask_frame(&self, clip: &Clip) -> Option<MaskFrame> {
-        let held = clip.mask.filter(|_| clip.kind.is_visual())?;
-        let at = place_in(clip, self.playhead);
-        let mut mask = held;
-        for property in model::KeyProperty::MASK {
-            mask.set(property, shown(clip, property, at));
+        if !clip.kind.is_visual() {
+            return None;
         }
+        let at = place_in(clip, self.playhead);
+        let mask = masking::MaskAt::of(self.current_mask(clip)?, at)?;
         Some(MaskFrame::new(
             mask,
             &self.footprint(clip),
@@ -699,15 +698,19 @@ impl Studio {
                 }
                 let start = frame.mask;
                 let playhead = self.playhead;
+                let focus = self.mask_focus.clone();
                 if let Some(clip) = self.echo_clip_mut(clip) {
                     let at = place_in(clip, playhead);
+                    let Some(index) = masks::current_index(&clip.masks, focus.as_deref()) else {
+                        return;
+                    };
                     // Only the numbers the grip moves: a keyed one the drag
                     // left alone must not gain a key here.
-                    for property in model::KeyProperty::MASK {
-                        if let (Some(value), Some(was)) = (next.get(property), start.get(property))
-                            && value != was
-                        {
-                            write_keyable(clip, property, value, at);
+                    for ((number, value), (_, was)) in
+                        next.numbers().into_iter().zip(start.numbers())
+                    {
+                        if value != was {
+                            clip.masks[index].write_at(number, value, at);
                         }
                     }
                 }
@@ -827,12 +830,13 @@ impl Studio {
             // snaps back to the ride the document still holds.
             // https://github.com/jub0t/Concat/issues/228
             commands.extend(key_commands(&id, before, after));
-            // A mask's grips move its numbers that hold still.
-            if after.mask != before.mask {
+            // A mask's grips move its numbers, held or keyed: the masks
+            // carry their own keys, so the list is the whole of it.
+            if after.masks != before.masks {
                 commands.push(Command::UpdateClip {
                     clip_id: id.clone(),
                     patch: ClipPatch {
-                        mask: Some(after.mask),
+                        masks: Some(after.masks.clone()),
                         ..Default::default()
                     },
                 });

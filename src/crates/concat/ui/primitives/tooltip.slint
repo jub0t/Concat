@@ -109,12 +109,17 @@ export component TooltipLayer inherits Rectangle {
         width: 0px;
         height: 0px;
         text: Tips.text;
-        font-size: Theme.fs-sm;
+        font-size: root.font-size;
         visible: false;
     }
+    /// A step over the body text: a tip is read, often a sentence or
+    /// three, and at the dense readout's size the bubble was hard to read.
+    property <length> font-size: Theme.fs-lg;
     /// The widest a bubble gets before its words wrap. A help tip is a
     /// sentence or three, and one line of that ran off the window.
-    property <length> max-text-w: 280px;
+    property <length> max-text-w: 340px;
+    property <length> pad-x: 11px;
+    property <length> pad-y: 8px;
     /// The same words at the cap, for how tall they come out wrapped.
     wrapped := Text {
         x: 0;
@@ -122,16 +127,15 @@ export component TooltipLayer inherits Rectangle {
         width: root.max-text-w;
         height: 0px;
         text: Tips.text;
-        font-size: Theme.fs-sm;
+        font-size: root.font-size;
         wrap: word-wrap;
         visible: false;
     }
 
     property <length> text-w: Math.min(measure.preferred-width, root.max-text-w);
-    property <length> bubble-w: root.text-w + 16px;
-    /// One line is 22px; wrapped words take what they take, plus the
-    /// same padding above and below.
-    property <length> bubble-h: Math.max(22px, wrapped.preferred-height + 10px);
+    property <length> bubble-w: root.text-w + 2 * root.pad-x;
+    /// One line, or the wrapped words, with the same padding above and below.
+    property <length> bubble-h: wrapped.preferred-height + 2 * root.pad-y;
     /// The gap between the control and the bubble.
     property <length> gap: 6px;
 
@@ -174,17 +178,18 @@ export component TooltipLayer inherits Rectangle {
         border-color: Theme.line-strong;
 
         Text {
-            x: 8px;
+            x: root.pad-x;
             y: 0;
-            width: parent.width - 16px;
+            width: parent.width - 2 * root.pad-x;
             height: parent.height;
             text: Tips.text;
             color: Theme.fg;
-            font-size: Theme.fs-sm;
+            font-size: root.font-size;
             wrap: word-wrap;
             // Centred on one line, as a label; ranged left once it wraps,
             // as a paragraph.
-            horizontal-alignment: wrapped.preferred-height > 16px ? left : center;
+            horizontal-alignment: wrapped.preferred-height > measure.preferred-height * 1.5
+                ? left : center;
             vertical-alignment: center;
         }
     }

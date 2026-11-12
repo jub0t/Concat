@@ -503,7 +503,11 @@ fn read_through(
     height: u32,
     tiles: &mut [Option<Frame>],
 ) -> Result<(), String> {
-    let mut options = DecodeOptions::default().scaled_to(width, height);
+    // Tiles a few dozen pixels high: a frame or two from the instant and
+    // no deblocking are invisible there, and halve the work of the pass.
+    let mut options = DecodeOptions::default()
+        .scaled_to(width, height)
+        .at_a_glance();
     if from > 0.0 {
         options = options.starting_at(Rational::approximate(from).unwrap_or(Rational::ZERO));
     }
