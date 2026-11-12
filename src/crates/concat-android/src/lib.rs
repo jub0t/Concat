@@ -587,7 +587,11 @@ mod log_file {
         match answer.as_ref().map(|answer| answer.as_deref()) {
             Ok(Some([Some(log), Some(verdict), Some(detail)])) => {
                 let died = verdict == "died";
-                let run = if log.is_empty() { "unmarked" } else { log.as_str() };
+                let run = if log.is_empty() {
+                    "unmarked"
+                } else {
+                    log.as_str()
+                };
                 if died {
                     log::warn!("last run: {run} died · the system says: {detail}");
                 } else {

@@ -224,7 +224,10 @@ mod tests {
             assert!(losses <= 2 * ladder.rungs.len(), "the ladder ends");
         }
         assert!(ladder.on_cpu());
-        eprintln!("on the CPU after {losses} losses, {} devices asked for", ladder.opened);
+        eprintln!(
+            "on the CPU after {losses} losses, {} devices asked for",
+            ladder.opened
+        );
         let asked = ladder.opened;
         for _ in 0..10 {
             let (frame, _) = ladder.draw(|compositor| compositor.render(&plan));

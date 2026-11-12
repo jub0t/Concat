@@ -387,7 +387,10 @@ mod tests {
                 "12:00:00.000 ERROR panic      index out of bounds, at src/a.rs:1:2  [concat_log, w]\n",
                 true,
             ),
-            ("12:00:00.000 INFO  edit       Split  [concat, main]\n", false),
+            (
+                "12:00:00.000 INFO  edit       Split  [concat, main]\n",
+                false,
+            ),
             (
                 "12:00:00.000 ERROR gpu        device lost  [concat_render::gpu, w]\n",
                 false,
