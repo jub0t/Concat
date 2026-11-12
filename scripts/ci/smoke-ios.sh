@@ -186,10 +186,13 @@ if [ "$smoke" = 1 ]; then
     > "$out/smoke-run.txt" 2>&1 || status=$?
   tail -n 40 "$out/smoke-run.txt"
   [ "$status" -ne 142 ] || fail "--smoke was still running after 180s"
-  if found=$(grep -E -m 5 "$fatal" "$out/smoke-run.txt"); then
+  # The console is a pty, so the log colours its lines; the checks below read
+  # them without the colour codes, which sat between "smoke" and "ok".
+  sed -E $'s/\x1b\\[[0-9;]*m//g' "$out/smoke-run.txt" > "$out/smoke-run.plain.txt"
+  if found=$(grep -E -m 5 "$fatal" "$out/smoke-run.plain.txt"); then
     fail "--smoke failed: $(head -n 1 <<< "$found")"
   fi
-  grep -E -q ' smoke +ok' "$out/smoke-run.txt" || fail "--smoke ended without \"smoke: ok\" (simctl exited $status)"
+  grep -E -q ' smoke +ok' "$out/smoke-run.plain.txt" || fail "--smoke ended without \"smoke: ok\" (simctl exited $status)"
   # "smoke: ok" and then a crash on the way out is still a crash: v0.2.7-rc.2's
   # Linux arm64 bundle did exactly that. simctl's --console-pty ends with
   # the app's process; whether its status is the app's own is for the first
