@@ -1693,66 +1693,50 @@ fn recovered(
     Ok(compositor)
 }
 
-/// A compositor for the frames drawn without a window: the API's and the
-/// command line's previews. Made once and kept, since making a device is
-/// far slower than drawing one small frame on it.
-fn headless<T>(draw: impl FnOnce(&mut WgpuCompositor) -> T) -> Result<T, String> {
-    static HEADLESS: std::sync::OnceLock<Option<std::sync::Mutex<WgpuCompositor>>> =
+/// The compositor for the frames drawn without a window's device: the
+/// API's and the command line's previews, and the monitor's where the
+/// window draws on the CPU. Made once and kept, since making a device is
+/// far slower than drawing one small frame on it; a device lost under it
+/// is let go and replaced, down to the CPU (see [`concat_render::Ladder`]).
+/// `strict` is the API's: a frame the CPU drew with something left out is
+/// an error saying so, not a picture that is not the frame.
+fn headless<T>(strict: bool, draw: impl FnMut(&mut dyn Compositor) -> T) -> Result<T, String> {
+    static HEADLESS: std::sync::OnceLock<std::sync::Mutex<concat_render::Ladder>> =
         std::sync::OnceLock::new();
-    // A machine with nothing to draw on stays so for the process; why is
-    // in the log above this line, adapter by adapter.
-    let slot = HEADLESS
-        .get_or_init(|| {
-            let made = WgpuCompositor::new();
-            match &made {
-                Some(gpu) => {
-                    let adapter = gpu.adapter_info();
-                    log::info!(
-                        "previews draw on {} ({:?}, {:?})",
-                        adapter.name,
-                        adapter.device_type,
-                        adapter.backend
-                    );
-                }
-                None => log::error!("previews have nothing to draw on: {NO_RENDERER}"),
-            }
-            made.map(std::sync::Mutex::new)
-        })
-        .as_ref()
-        .ok_or_else(|| NO_RENDERER.to_owned())?;
-    let mut gpu = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    // A device that died under an earlier preview is not kept: every
-    // preview after it would be black. A fresh one is asked for at most
-    // every two seconds: asking makes an instance and walks every backend's
-    // adapters, and where none answers - WARP lost on a Windows PC, with
-    // nothing else to fall back to (#673) - asking on every frame cost the
-    // frame and filled the log with the same failure, frame after frame.
-    static NEXT_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
-    if gpu.lost() {
-        let mut next = NEXT_TRY
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let now = std::time::Instant::now();
-        if next.is_none_or(|at| now >= at) {
-            match WgpuCompositor::new() {
-                Some(fresh) => {
-                    log::warn!("previews: the GPU device was lost; drawing on a fresh one");
-                    *gpu = fresh;
-                    *next = None;
-                }
-                None => {
-                    if next.is_none() {
-                        log::error!(
-                            "previews: the GPU device was lost and no other opens: {NO_RENDERER}; \
-                             trying again every two seconds"
-                        );
-                    }
-                    *next = Some(now + std::time::Duration::from_secs(2));
-                }
-            }
-        }
+    let mut ladder = HEADLESS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let drawn = drawn_on(&mut ladder, strict, draw);
+    PREVIEWS_ON_CPU.store(ladder.on_cpu(), std::sync::atomic::Ordering::Relaxed);
+    drawn
+}
+
+/// Set while [`headless`] draws on the CPU; see [`previews_on_cpu`].
+static PREVIEWS_ON_CPU: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether previews drawn without the window's device are drawn on the
+/// CPU: slower, and without effects. The monitor says so once.
+pub fn previews_on_cpu() -> bool {
+    PREVIEWS_ON_CPU.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// [`headless`] on `ladder`.
+fn drawn_on<T>(
+    ladder: &mut concat_render::Ladder,
+    strict: bool,
+    draw: impl FnMut(&mut dyn Compositor) -> T,
+) -> Result<T, String> {
+    let (made, left_out) = ladder.draw(draw);
+    if strict && left_out {
+        return Err(
+            "this frame has effects or HDR that cannot be drawn now: the graphics \
+             device was lost, and previews are drawn on the CPU without them until Concat \
+             restarts"
+                .to_owned(),
+        );
     }
-    Ok(draw(&mut gpu))
+    Ok(made)
 }
 
 /// Composites every frame of the timeline into a soundless video file.
@@ -2982,7 +2966,9 @@ pub fn preview_frame(
     // The window composites on its own device through `preview_sources`;
     // this is the API's and the command line's frame, on the shared
     // headless compositor.
-    headless(|gpu| sources.composite(gpu).into_pixels())
+    headless(true, |compositor| {
+        sources.composite(compositor).into_pixels()
+    })
 }
 
 /// The paused monitor's frame, described but not yet drawn: the plan
@@ -3032,9 +3018,13 @@ impl PreviewSources {
     }
 
     /// The frame as raw RGBA, drawn on the shared headless compositor: the
-    /// monitor's picture where the window has no device of its own.
-    pub fn pixels(&self) -> Result<Vec<u8>, String> {
-        headless(|gpu| self.composite(gpu).into_pixels())
+    /// monitor's picture where the window has no device of its own. With
+    /// `strict`, a frame drawn with something left out is an error; see
+    /// [`headless`].
+    pub fn pixels(&self, strict: bool) -> Result<Vec<u8>, String> {
+        headless(strict, |compositor| {
+            self.composite(compositor).into_pixels()
+        })
     }
 
     /// The frame drawn whole on the GPU and kept there, when what stops
@@ -4844,6 +4834,32 @@ mod tests {
             "the corner is {corner:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A preview drawn on the CPU, its device gone, is the frame where
+    /// nothing was left out of it; where something was, the API's preview
+    /// is an error saying so and the window's is the picture without it.
+    #[test]
+    fn a_preview_the_cpu_cannot_draw_whole_is_an_error_for_the_api() {
+        let mut ladder = concat_render::Ladder::cpu_only();
+        let mut white = concat_core::frame::Frame::transparent(8, 8);
+        white.fill([255, 255, 255, 255]);
+        let plain = FramePlan {
+            layers: vec![PlannedLayer::picture(
+                concat_render::detached_clip(),
+                Arc::new(white),
+            )],
+            ..FramePlan::empty(8, 8)
+        };
+        let frame = drawn_on(&mut ladder, true, |c| c.render(&plain)).expect("the whole frame");
+        assert_eq!(frame.pixel(4, 4), Some([255, 255, 255, 255]), "not black");
+        let hdr = FramePlan {
+            output: Signal::Pq,
+            ..plain
+        };
+        let error = drawn_on(&mut ladder, true, |c| c.render(&hdr)).expect_err("not the frame");
+        assert!(error.contains("CPU"), "{error}");
+        assert!(drawn_on(&mut ladder, false, |c| c.render(&hdr)).is_ok());
     }
 
     /// A device that dies under an export is replaced: first by a fresh

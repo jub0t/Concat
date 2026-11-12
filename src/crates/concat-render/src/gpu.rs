@@ -1068,6 +1068,16 @@ fn work_format(adapter: &wgpu::Adapter) -> wgpu::TextureFormat {
     }
 }
 
+/// One rung of the adapters a compositor is opened on: a set of APIs, and
+/// whether it is the software adapter among them or the hardware.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rung {
+    /// The APIs asked.
+    pub backends: wgpu::Backends,
+    /// The software adapter (WARP, lavapipe) rather than a GPU.
+    pub software: bool,
+}
+
 /// A compositor that draws on the GPU. See the module docs.
 pub struct WgpuCompositor {
     device: wgpu::Device,
@@ -1253,6 +1263,21 @@ impl WgpuCompositor {
     /// then every API wgpu was built with. `software_only` leaves the
     /// hardware adapters out.
     fn own_api_first(software_only: bool) -> Option<Self> {
+        Self::rungs_for(software_only)
+            .into_iter()
+            .find_map(Self::on_rung)
+    }
+
+    /// The adapters [`WgpuCompositor::new`] asks for, in its order: each a
+    /// set of APIs and whether it is the software adapter among them. The
+    /// preview's ladder ([`crate::Ladder`]) steps down them one by one.
+    pub fn rungs() -> Vec<Rung> {
+        Self::rungs_for(false)
+    }
+
+    /// [`WgpuCompositor::rungs`], the software adapters alone where
+    /// `software_only` says so.
+    fn rungs_for(software_only: bool) -> Vec<Rung> {
         // CONCAT_GPU=software - set by hand, or by a safe start after a
         // launch the GPU's driver killed - keeps the compositor off the GPU
         // too, so an export or a card does not meet that driver either.
@@ -1277,15 +1302,25 @@ impl WgpuCompositor {
         } else {
             wgpu::Backends::VULKAN
         };
+        let choices: &[bool] = if software_only {
+            &[true]
+        } else {
+            &[false, true]
+        };
         [own, wgpu::Backends::all()]
             .into_iter()
-            .find_map(|backends| Self::on_backends(backends, software_only))
+            .flat_map(|backends| {
+                choices
+                    .iter()
+                    .map(move |&software| Rung { backends, software })
+            })
+            .collect()
     }
 
-    /// A compositor on the best adapter among `backends`, hardware before
-    /// software - or software alone - or `None` when none of them opens a
-    /// device.
-    fn on_backends(backends: wgpu::Backends, software_only: bool) -> Option<Self> {
+    /// A compositor on the best adapter `rung` names, or `None` when it
+    /// opens no device there.
+    pub fn on_rung(rung: Rung) -> Option<Self> {
+        let Rung { backends, software } = rung;
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
             flags: instance_flags(),
@@ -1302,12 +1337,7 @@ impl WgpuCompositor {
         descriptor.backend_options.dx12.shader_compiler =
             wgpu::Dx12Compiler::from_env().unwrap_or(wgpu::Dx12Compiler::Fxc);
         let instance = wgpu::Instance::new(descriptor);
-        let choices: &[bool] = if software_only {
-            &[true]
-        } else {
-            &[false, true]
-        };
-        choices.iter().copied().find_map(|software| {
+        {
             let adapter =
                 match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
@@ -1388,7 +1418,7 @@ impl WgpuCompositor {
             compositor.gone = gone;
             compositor.lost_reason = lost_reason;
             Some(compositor)
-        })
+        }
     }
 
     /// The adapter this compositor's device was opened on - its name, its

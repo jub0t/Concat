@@ -2105,7 +2105,7 @@ fn cuts_between_frames_leave_no_black_frame() {
                         false,
                     )
                     .unwrap_or_else(|error| panic!("{label}: frame {index}: {error}"));
-                    let pixels = sources.pixels().expect("the monitor draws the frame");
+                    let pixels = sources.pixels(true).expect("the monitor draws the frame");
                     let at = ((HEIGHT / 2 * WIDTH + WIDTH / 2) * 4) as usize;
                     second_of_colour([pixels[at], pixels[at + 1], pixels[at + 2]]).is_none()
                 })

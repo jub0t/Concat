@@ -20,6 +20,7 @@
 
 pub mod compositor;
 pub mod gpu;
+mod ladder;
 pub mod metrics;
 pub mod plan;
 mod reference;
@@ -27,7 +28,8 @@ mod transitions;
 pub mod upscale;
 
 pub use compositor::{Compositor, Drawn};
-pub use gpu::{ForgedShader, ShaderForge, WgpuCompositor};
+pub use gpu::{ForgedShader, Rung, ShaderForge, WgpuCompositor};
+pub use ladder::Ladder;
 pub use metrics::ssim;
 pub use plan::{
     Backdrop, Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition, Warp,
