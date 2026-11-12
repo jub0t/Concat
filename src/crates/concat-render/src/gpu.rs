@@ -4449,6 +4449,7 @@ fn removal_of(device: &wgpu::Device) -> Option<String> {
 
 /// The name of a reason Direct3D 12 gives for removing a device, as
 /// Microsoft's documentation writes it.
+#[cfg(any(windows, test))]
 fn removal_name(code: u32) -> Option<&'static str> {
     Some(match code {
         0x887A_0005 => "DXGI_ERROR_DEVICE_REMOVED",

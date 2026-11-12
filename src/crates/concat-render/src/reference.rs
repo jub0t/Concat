@@ -1,26 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
-//! The CPU compositor, kept for the tests alone: the reference the GPU
-//! compositor's parity suite holds it to, obvious and dependency-free. It
-//! is not built into the app. It blends 8-bit, gamma-encoded pictures, as
-//! the GPU does today; when the working space goes float and linear, the
-//! suite moves to expectations of its own and this goes.
+//! The CPU compositor: the reference the GPU compositor's parity suite
+//! holds it to, and the preview's last rung (see [`crate::ladder`]), the
+//! one that draws when no device will. It blends 8-bit, gamma-encoded
+//! pictures in light, as the GPU does.
 //!
 //! The picture of a layer is made the way [`crate::plan`] describes: the
-//! crop, the flips and the fit, then the effects, then the mask, the fades
-//! and the wipes at the placement. Effects run through the CPU kernels in
-//! [`crate::kernels`], keyed by the package.
+//! crop, the flips and the fit, then the mask, the fades and the wipes at
+//! the placement. Effects are the GPU's alone and are left out here, as are
+//! treatments; [`leaves_out`] says when a frame had any. A deep picture is
+//! drawn from its top eight bits.
+//!
+//! The frame is drawn in bands of rows, one a core, every layer in order
+//! within a band: a pixel's blend reads only that pixel, so the bands
+//! never meet.
 
 use std::borrow::Cow;
 
-use concat_core::frame::{BYTES_PER_PIXEL, Frame};
+use concat_core::frame::{BYTES_PER_PIXEL, Depth, Frame, Signal};
 use concat_core::mask::{self, MaskUniform, StackUniform};
-use concat_core::shader::{ShaderPass, TransitionPass};
+use concat_core::shader::TransitionPass;
 use concat_core::timeline::Blend;
 
 use crate::compositor::Compositor;
-use crate::plan::{FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading};
+use crate::plan::{FramePlan, Geometry, PlannedLayer, Shading};
 
 /// A straightforward CPU compositor.
 #[derive(Clone, Copy, Default, Debug)]
@@ -44,17 +48,89 @@ impl Compositor for CpuCompositor {
     }
 
     fn render(&mut self, plan: &FramePlan) -> Frame {
-        // Geometry, masks, transitions and blending: what a frame is made of
-        // besides its effects, which are the GPU's alone and are held to
-        // their packages' probes instead.
-        let mut ground = Frame::black(plan.width, plan.height);
-        ground.fill(plan.canvas);
-        let next = 0;
-        for layer in &plan.layers[next..] {
-            draw(&mut ground, plan, layer);
-        }
-        ground
+        render_in_bands(plan, band_rows(plan.width, plan.height))
     }
+}
+
+/// [`CpuCompositor::render`], in bands of `rows` rows.
+fn render_in_bands(plan: &FramePlan, rows: usize) -> Frame {
+    // Geometry, masks, transitions and blending: what a frame is made of
+    // besides its effects, which are the GPU's alone and are held to
+    // their packages' probes instead.
+    let mut ground = Frame::black(plan.width, plan.height);
+    ground.fill(plan.canvas);
+    let shallow: Vec<Option<Frame>> = plan
+        .layers
+        .iter()
+        .map(|layer| {
+            layer
+                .source
+                .as_deref()
+                .filter(|source| source.depth() == Depth::Sixteen)
+                .map(top_bytes)
+        })
+        .collect();
+    let layers: Vec<Placed<'_>> = plan
+        .layers
+        .iter()
+        .zip(&shallow)
+        .filter_map(|(layer, shallow)| Placed::of(plan, layer, shallow.as_ref()))
+        .collect();
+    if layers.is_empty() {
+        return ground;
+    }
+    let width = plan.width;
+    let stride = width as usize * BYTES_PER_PIXEL;
+    let pixels = ground.pixels_mut();
+    std::thread::scope(|scope| {
+        let mut bands = pixels.chunks_mut(rows * stride).enumerate();
+        let first = bands.next();
+        for (index, band) in bands {
+            let layers = &layers;
+            scope.spawn(move || draw_band(band, (index * rows) as u32, width, layers));
+        }
+        if let Some((_, band)) = first {
+            draw_band(band, 0, width, &layers);
+        }
+    });
+    ground
+}
+
+impl CpuCompositor {
+    /// Whether the CPU leaves anything of `plan` out: an effect, a
+    /// treatment, a deep picture it draws in eight bits, an HDR output it
+    /// draws as SDR. The frame it draws is then not the frame, and a caller
+    /// that promises the frame says so.
+    pub fn leaves_out(plan: &FramePlan) -> bool {
+        plan.output != Signal::Sdr
+            || !plan.treatments.is_empty()
+            || plan.layers.iter().any(|layer| {
+                !layer.effects.is_empty()
+                    || layer
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| source.depth() == Depth::Sixteen)
+            })
+    }
+}
+
+/// How many rows a band is: the frame split once a core, and drawn whole
+/// on this thread where it is too small for a thread to pay.
+fn band_rows(width: u32, height: u32) -> usize {
+    static CORES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let cores = *CORES.get_or_init(|| std::thread::available_parallelism().map_or(1, usize::from));
+    let height = height.max(1) as usize;
+    if (width as usize) * height < 1 << 16 {
+        return height;
+    }
+    height.div_ceil(cores.min(height / 16).max(1))
+}
+
+/// A deep picture's top eight bits: what the CPU draws of it.
+fn top_bytes(deep: &Frame) -> Frame {
+    let pixels = deep.pixels().chunks_exact(2).map(|pair| pair[1]).collect();
+    Frame::from_rgba(deep.width(), deep.height(), pixels)
+        .unwrap_or_else(|| Frame::transparent(deep.width(), deep.height()))
 }
 
 /// `a` towards `b` by `amount` in their stored gamma: the old transition
@@ -69,45 +145,92 @@ pub(crate) fn mix_frames(a: &Frame, b: &Frame, amount: f32) -> Frame {
     out
 }
 
-/// Draws one layer over `output`.
-fn draw(output: &mut Frame, plan: &FramePlan, layer: &PlannedLayer) {
-    let opacity = layer.weight();
-    if opacity <= 0.0 {
-        return;
-    }
-    let Some(source) = &layer.source else {
-        return;
-    };
-    let geometry = layer.geometry(source, plan.width, plan.height);
+/// One layer made ready to draw: its picture, its placement, and what
+/// weighs it. Built once a frame, and read by every band.
+struct Placed<'a> {
+    picture: Cow<'a, Frame>,
+    geometry: Geometry,
+    flip_h: bool,
+    flip_v: bool,
+    weigh: Weighing<'a>,
+    aligned: bool,
+}
 
-    // The picture the placement samples: the source as it came, or made
-    // first when the effects have to see it cropped, flipped and fitted.
-    let (picture, geometry, flip_h, flip_v): (Cow<'_, Frame>, Geometry, bool, bool) =
-        if layer.needs_preparing(&geometry) {
-            let made = prepare(source, &geometry, layer.flip_h, layer.flip_v);
-            (Cow::Owned(made), geometry.prepared(), false, false)
+impl<'a> Placed<'a> {
+    /// `layer` placed in `plan`, its picture `shallow` where it is deep;
+    /// `None` when it draws nothing.
+    fn of(plan: &FramePlan, layer: &'a PlannedLayer, shallow: Option<&'a Frame>) -> Option<Self> {
+        let opacity = layer.weight();
+        if opacity <= 0.0 {
+            return None;
+        }
+        let source = shallow.or(layer.source.as_deref())?;
+        let geometry = layer.geometry(source, plan.width, plan.height);
+        // The picture the placement samples: the source as it came, or made
+        // first when the effects have to see it cropped, flipped and fitted.
+        let (picture, geometry, flip_h, flip_v): (Cow<'_, Frame>, Geometry, bool, bool) =
+            if layer.needs_preparing(&geometry) {
+                let made = prepare(source, &geometry, layer.flip_h, layer.flip_v);
+                (Cow::Owned(made), geometry.prepared(), false, false)
+            } else {
+                (Cow::Borrowed(source), geometry, layer.flip_h, layer.flip_v)
+            };
+        let shading = layer.shading();
+        let weigh = Weighing {
+            plain: layer.blend == Blend::Normal
+                && shading.scale == 1.0
+                && shading.offset == [0.0; 3],
+            shading,
+            mask: layer.mask.as_deref(),
+            shape: layer.shape_uniform(&geometry),
+            stack: layer.stack_uniform(&geometry),
+            opacity,
+            blend: layer.blend,
+        };
+        let aligned = geometry.is_aligned() && geometry.fits_source() && !flip_h && !flip_v;
+        Some(Placed {
+            picture,
+            geometry,
+            flip_h,
+            flip_v,
+            weigh,
+            aligned,
+        })
+    }
+}
+
+/// Draws every layer, in order, into `band`: the rows of a `width` wide
+/// frame from `top` down.
+fn draw_band(band: &mut [u8], top: u32, width: u32, layers: &[Placed<'_>]) {
+    let rows = (band.len() / (width as usize * BYTES_PER_PIXEL)) as u32;
+    let mut band = Band {
+        pixels: band,
+        top,
+        rows,
+        width,
+    };
+    for layer in layers {
+        if layer.aligned {
+            blend_aligned(&mut band, &layer.picture, &layer.geometry, &layer.weigh);
         } else {
-            (
-                Cow::Borrowed(source.as_ref()),
-                geometry,
+            blend_transformed(
+                &mut band,
+                &layer.picture,
+                &layer.geometry,
                 layer.flip_h,
                 layer.flip_v,
-            )
-        };
-
-    let weigh = Weighing {
-        shading: layer.shading(),
-        mask: layer.mask.as_deref(),
-        shape: layer.shape_uniform(&geometry),
-        stack: layer.stack_uniform(&geometry),
-        opacity,
-        blend: layer.blend,
-    };
-    if geometry.is_aligned() && geometry.fits_source() && !flip_h && !flip_v {
-        blend_aligned(output, &picture, &geometry, &weigh);
-    } else {
-        blend_transformed(output, &picture, &geometry, flip_h, flip_v, &weigh);
+                &layer.weigh,
+            );
+        }
     }
+}
+
+/// Rows `top..top + rows` of a frame `width` pixels wide.
+struct Band<'a> {
+    pixels: &'a mut [u8],
+    top: u32,
+    rows: u32,
+    width: u32,
 }
 
 /// The picture at its fitted size: the crop rectangle of `source`, flipped
@@ -136,6 +259,8 @@ fn prepare(source: &Frame, geometry: &Geometry, flip_h: bool, flip_v: bool) -> F
 /// What weighs a layer's pixel on its way to the ground: the fades and
 /// wipes, the matte, the opacity, and the blend it meets the ground with.
 struct Weighing<'a> {
+    /// Normal blend and no fade: an opaque pixel is the picture's own.
+    plain: bool,
     shading: Shading,
     mask: Option<&'a Frame>,
     shape: MaskUniform,
@@ -168,6 +293,15 @@ impl Weighing<'_> {
         if alpha <= 0.0 {
             return;
         }
+        if self.plain && alpha >= 1.0 {
+            // Opaque over anything: the picture's level, which the trip
+            // into light and back would land on anyway.
+            for channel in 0..3 {
+                under[channel] = sample[channel].round().clamp(0.0, 255.0) as u8;
+            }
+            under[3] = 255;
+            return;
+        }
         // In linear light, as the GPU blends: the layer's colour and the
         // ground decoded from their stored gamma, weighed, and encoded back.
         // The ground is weighed by its own coverage, which is all of it
@@ -179,23 +313,42 @@ impl Weighing<'_> {
         for channel in 0..3 {
             let colour = self.shading.colour(channel, linear(sample[channel]));
             let ground = linear(f32::from(under[channel])) * coverage;
-            under[channel] = encoded(mix(self.blend, colour, ground, alpha) / covered)
-                .round()
-                .clamp(0.0, 255.0) as u8;
+            under[channel] = encoded(mix(self.blend, colour, ground, alpha) / covered);
         }
         under[3] = (covered * 255.0).round().clamp(0.0, 255.0) as u8;
     }
 }
 
-/// A stored eight-bit level, `0..=255`, as linear light `0..1`: BT.1886's
-/// 2.4 gamma, the GPU's upload.
-fn linear(level: f32) -> f32 {
-    (level / 255.0).max(0.0).powf(2.4)
+/// The 2.4 gamma both ways, as tables: three powers a channel a pixel
+/// were most of a frame's time.
+struct Curves {
+    /// Linear light at 1024 even steps of the level, and one past.
+    light: [f32; 1025],
+    /// The light at which each level rounds up to the next.
+    edges: [f32; 255],
 }
 
-/// Linear light back to an eight-bit level, clipped: the GPU's resolve.
-fn encoded(light: f32) -> f32 {
-    light.clamp(0.0, 1.0).powf(1.0 / 2.4) * 255.0
+fn curves() -> &'static Curves {
+    static CURVES: std::sync::OnceLock<Curves> = std::sync::OnceLock::new();
+    CURVES.get_or_init(|| Curves {
+        light: std::array::from_fn(|step| (step as f32 / 1024.0).powf(2.4)),
+        edges: std::array::from_fn(|level| ((level as f32 + 0.5) / 255.0).powf(2.4)),
+    })
+}
+
+/// A stored eight-bit level, `0..=255`, as linear light `0..1`: BT.1886's
+/// 2.4 gamma, the GPU's upload. Read off the table between its steps.
+fn linear(level: f32) -> f32 {
+    let at = (level / 255.0).clamp(0.0, 1.0) * 1024.0;
+    let step = (at as usize).min(1023);
+    let table = &curves().light;
+    table[step] + (table[step + 1] - table[step]) * (at - step as f32)
+}
+
+/// Linear light back to the eight-bit level nearest it, clipped: the GPU's
+/// resolve.
+fn encoded(light: f32) -> u8 {
+    curves().edges.partition_point(|&edge| edge <= light) as u8
 }
 
 /// One channel of `blend`: `colour` is the layer's straight colour, `under`
@@ -259,7 +412,7 @@ pub(crate) fn sample_bilinear(source: &Frame, sx: f32, sy: f32) -> [f32; 4] {
 /// does not shimmer on motion. Only the transformed bounding box is
 /// visited, so a small layer stays cheap on a large frame.
 fn blend_transformed(
-    output: &mut Frame,
+    band: &mut Band<'_>,
     picture: &Frame,
     geometry: &Geometry,
     flip_h: bool,
@@ -271,24 +424,25 @@ fn blend_transformed(
     let (fitted_w, fitted_h) = (geometry.fitted.0 as f32, geometry.fitted.1 as f32);
     let (centre_x, centre_y) = geometry.centre;
 
-    // Bounding box of the transformed rectangle, clamped to the output.
+    // Bounding box of the transformed rectangle, clamped to the band.
     let half_w = fitted_w * scale_x / 2.0;
     let half_h = fitted_h * scale_y / 2.0;
     let reach_x = (half_w * cos.abs()) + (half_h * sin.abs());
     let reach_y = (half_w * sin.abs()) + (half_h * cos.abs());
 
     let x_from = ((centre_x - reach_x).floor().max(0.0)) as u32;
-    let y_from = ((centre_y - reach_y).floor().max(0.0)) as u32;
-    let x_to = ((centre_x + reach_x).ceil().min(output.width() as f32)) as u32;
-    let y_to = ((centre_y + reach_y).ceil().min(output.height() as f32)) as u32;
+    let y_from = ((centre_y - reach_y).floor().max(band.top as f32)) as u32;
+    let x_to = ((centre_x + reach_x).ceil().min(band.width as f32)) as u32;
+    let y_to = ((centre_y + reach_y)
+        .ceil()
+        .min((band.top + band.rows) as f32)) as u32;
     if x_from >= x_to || y_from >= y_to {
         return;
     }
 
-    let dst_stride = output.width() as usize * BYTES_PER_PIXEL;
-    let dst_pixels = output.pixels_mut();
-
+    let dst_stride = band.width as usize * BYTES_PER_PIXEL;
     for y in y_from..y_to {
+        let row = (y - band.top) as usize * dst_stride;
         for x in x_from..x_to {
             // Sample at the pixel centre, mapped back into the picture:
             // untranslate, unrotate, unscale, then re-origin at the corner.
@@ -302,8 +456,8 @@ fn blend_transformed(
             let (u, v) = (px / fitted_w, py / fitted_h);
             let (sx, sy) = geometry.source_of(u, v, flip_h, flip_v);
             let sample = sample_bilinear(picture, sx, sy);
-            let at = y as usize * dst_stride + x as usize * BYTES_PER_PIXEL;
-            weigh.blend_into(&mut dst_pixels[at..at + BYTES_PER_PIXEL], sample, u, v);
+            let at = row + x as usize * BYTES_PER_PIXEL;
+            weigh.blend_into(&mut band.pixels[at..at + BYTES_PER_PIXEL], sample, u, v);
         }
     }
 }
@@ -327,21 +481,22 @@ fn overlap(offset: i32, source: u32, destination: u32) -> Option<(u32, u32, u32)
 
 /// Blends a picture placed by whole pixels, texel for pixel: the aligned
 /// case, no resampling.
-fn blend_aligned(output: &mut Frame, picture: &Frame, geometry: &Geometry, weigh: &Weighing<'_>) {
+fn blend_aligned(band: &mut Band<'_>, picture: &Frame, geometry: &Geometry, weigh: &Weighing<'_>) {
     let (x, y) = geometry.corner();
-    let Some((dst_x, src_x, columns)) = overlap(x, picture.width(), output.width()) else {
+    let Some((dst_x, src_x, columns)) = overlap(x, picture.width(), band.width) else {
         return;
     };
-    let Some((dst_y, src_y, rows)) = overlap(y, picture.height(), output.height()) else {
+    // The band's rows alone: the frame's, less what is above and below it.
+    let Some((dst_y, src_y, rows)) = overlap(y - band.top as i32, picture.height(), band.rows)
+    else {
         return;
     };
     let src_stride = picture.width() as usize * BYTES_PER_PIXEL;
-    let dst_stride = output.width() as usize * BYTES_PER_PIXEL;
+    let dst_stride = band.width as usize * BYTES_PER_PIXEL;
     let span = columns as usize * BYTES_PER_PIXEL;
     let (fitted_w, fitted_h) = (picture.width() as f32, picture.height() as f32);
 
     let src_pixels = picture.pixels();
-    let dst_pixels = output.pixels_mut();
 
     for row in 0..rows as usize {
         let src_offset = (src_y as usize + row) * src_stride + src_x as usize * BYTES_PER_PIXEL;
@@ -349,7 +504,7 @@ fn blend_aligned(output: &mut Frame, picture: &Frame, geometry: &Geometry, weigh
         let v = (src_y as f32 + row as f32 + 0.5) / fitted_h;
 
         let src_row = &src_pixels[src_offset..src_offset + span];
-        let dst_row = &mut dst_pixels[dst_offset..dst_offset + span];
+        let dst_row = &mut band.pixels[dst_offset..dst_offset + span];
 
         for (column, (src_pixel, dst_pixel)) in src_row
             .chunks_exact(BYTES_PER_PIXEL)
@@ -456,7 +611,8 @@ mod tests {
     use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 
     use super::*;
-    use crate::plan::{Crop, Transition};
+    use crate::plan::{Crop, PlannedTreatment, Transition};
+    use concat_core::shader::ShaderPass;
 
     fn a_clip() -> ClipId {
         let mut timeline = Timeline::new(8, 8, FrameRate::THIRTY);
@@ -810,6 +966,83 @@ mod tests {
                 .combine(8, 8, 0.0, &from, &to, &pass(Some("hlslice")))
                 .is_none()
         );
+    }
+
+    /// The #709 frame - a 1280x720 clip and six captions over it - drawn
+    /// at the monitor's half size: the same picture in bands as whole, and
+    /// how long a frame takes, printed (`--release --nocapture`).
+    #[test]
+    fn the_cpu_draws_the_709_frame_in_bands_as_it_does_whole() {
+        let mut clip = Frame::transparent(1280, 720);
+        for (index, pixel) in clip.pixels_mut().chunks_exact_mut(4).enumerate() {
+            let (x, y) = (index % 1280, index / 1280);
+            pixel.copy_from_slice(&[(x / 5) as u8, (y / 3) as u8, 160, 255]);
+        }
+        let mut layers = vec![layer(clip)];
+        for index in 0..6 {
+            let mut words = Frame::transparent(1280, 720);
+            for y in 560..620 {
+                for x in 200 + index * 20..1080 - index * 20 {
+                    words.set_pixel(x, y, [255, 255, 255, 255]);
+                }
+            }
+            let mut caption = layer(words);
+            caption.opacity = if index % 2 == 0 { 1.0 } else { 0.5 };
+            caption.transform.offset_y = -0.05 * f64::from(index);
+            caption.transform.rotation = f64::from(index);
+            layers.push(caption);
+        }
+        let plan = plan(640, 360, layers);
+        let whole = render_in_bands(&plan, 360);
+        let banded = render_in_bands(&plan, 7);
+        assert!(whole == banded, "the bands draw the frame as one does");
+        assert!(
+            !CpuCompositor::leaves_out(&plan),
+            "nothing in it is left out"
+        );
+
+        let begun = std::time::Instant::now();
+        for _ in 0..20 {
+            CpuCompositor.render(&plan);
+        }
+        eprintln!(
+            "cpu: the 709 frame at 640x360 in {:.2} ms, bands of {} rows",
+            begun.elapsed().as_secs_f64() * 1000.0 / 20.0,
+            band_rows(640, 360)
+        );
+    }
+
+    /// What the CPU leaves out of a frame is said: effects, treatments,
+    /// deep pictures, an HDR output.
+    #[test]
+    fn the_cpu_says_what_it_leaves_out() {
+        let plain = plan(4, 4, vec![layer(solid(4, 4, [9, 9, 9, 255]))]);
+        assert!(!CpuCompositor::leaves_out(&plain));
+        let mut treated = plain.clone();
+        treated.layers[0].effects = vec![ShaderPass {
+            package: "test.nothing".to_owned(),
+            key: "test.nothing@1".to_owned(),
+            source: Arc::from(""),
+            params: Vec::new(),
+            values: Default::default(),
+            intensity: 1.0,
+            lut: None,
+            reveal_map: None,
+            stages: Vec::new(),
+        }];
+        assert!(CpuCompositor::leaves_out(&treated));
+        let deep = Frame::from_rgba64(2, 2, vec![0xff; 32], Signal::Hlg).expect("deep");
+        let mut deep = plan(4, 4, vec![layer(deep)]);
+        assert!(CpuCompositor::leaves_out(&deep));
+        let frame = CpuCompositor.render(&deep);
+        assert_eq!(
+            frame.pixel(2, 2),
+            Some([255, 255, 255, 255]),
+            "drawn from its top bytes"
+        );
+        deep.layers.clear();
+        deep.output = Signal::Pq;
+        assert!(CpuCompositor::leaves_out(&deep));
     }
 
     #[test]
