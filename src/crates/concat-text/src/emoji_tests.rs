@@ -238,6 +238,10 @@ struct Recipe {
     strikes: Vec<(u16, Vec<Picture>)>,
     /// The face's weight, where it should not be the base face's.
     weight: Option<u16>,
+    /// Sequences the face joins into one glyph: the characters, as the
+    /// letters whose glyphs they map to, and the letter whose glyph is the
+    /// joined picture. Each character must be in `map`.
+    joins: Vec<(Vec<char>, char)>,
 }
 
 impl Recipe {
@@ -250,6 +254,9 @@ impl Recipe {
         }
         if !self.strikes.is_empty() {
             tables.insert(*b"sbix", self.sbix());
+        }
+        if !self.joins.is_empty() {
+            tables.insert(*b"GSUB", self.gsub());
         }
         if let Some(weight) = self.weight {
             let os2 = tables.get_mut(b"OS/2").expect("an OS/2 table");
@@ -282,6 +289,87 @@ impl Recipe {
             push32(&mut out, code);
             push32(&mut out, u32::from(id));
         }
+        out
+    }
+
+    /// One `liga` lookup that joins each sequence into its glyph, the way
+    /// an emoji face joins a family, a flag or a skin tone.
+    fn gsub(&self) -> Vec<u8> {
+        // Ligatures grouped under their first glyph, in glyph order.
+        let mut sets: BTreeMap<u16, Vec<(Vec<u16>, u16)>> = BTreeMap::new();
+        for (letters, joined) in &self.joins {
+            let ids: Vec<u16> = letters.iter().map(|&letter| glyph(letter)).collect();
+            sets.entry(ids[0])
+                .or_default()
+                .push((ids[1..].to_vec(), glyph(*joined)));
+        }
+        // The substitution subtable: format, coverage, then the sets.
+        let mut subtable = Vec::new();
+        let head = 6 + 2 * sets.len();
+        let mut coverage = Vec::new();
+        push16(&mut coverage, 1);
+        push16(&mut coverage, sets.len() as u16);
+        for first in sets.keys() {
+            push16(&mut coverage, *first);
+        }
+        push16(&mut subtable, 1);
+        push16(&mut subtable, head as u16);
+        push16(&mut subtable, sets.len() as u16);
+        let mut bodies = Vec::new();
+        let mut offset = head + coverage.len();
+        for ligatures in sets.values() {
+            push16(&mut subtable, offset as u16);
+            let mut set = Vec::new();
+            push16(&mut set, ligatures.len() as u16);
+            let mut ligs = Vec::new();
+            let mut at = 2 + 2 * ligatures.len();
+            for (rest, joined) in ligatures {
+                push16(&mut set, at as u16);
+                push16(&mut ligs, *joined);
+                push16(&mut ligs, rest.len() as u16 + 1);
+                for id in rest {
+                    push16(&mut ligs, *id);
+                }
+                at = 2 + 2 * ligatures.len() + ligs.len();
+            }
+            set.extend_from_slice(&ligs);
+            offset += set.len();
+            bodies.push(set);
+        }
+        subtable.extend_from_slice(&coverage);
+        for body in bodies {
+            subtable.extend_from_slice(&body);
+        }
+        // Header, then the script list (one default script, one default
+        // language), the feature list (`liga`), the lookup list (type 4)
+        // and the subtable, each at the offset the one before it ends on.
+        let mut out = Vec::new();
+        push32(&mut out, 0x0001_0000);
+        push16(&mut out, 10);
+        push16(&mut out, 30);
+        push16(&mut out, 44);
+        push16(&mut out, 1);
+        out.extend_from_slice(b"DFLT");
+        push16(&mut out, 8);
+        push16(&mut out, 4); // Script: its default language
+        push16(&mut out, 0); // Script: no others
+        push16(&mut out, 0); // language: lookup order
+        push16(&mut out, 0xFFFF); // no required feature
+        push16(&mut out, 1);
+        push16(&mut out, 0);
+        push16(&mut out, 1);
+        out.extend_from_slice(b"liga");
+        push16(&mut out, 8);
+        push16(&mut out, 0); // Feature: no parameters
+        push16(&mut out, 1);
+        push16(&mut out, 0);
+        push16(&mut out, 1);
+        push16(&mut out, 4);
+        push16(&mut out, 4); // Lookup: ligature substitution
+        push16(&mut out, 0);
+        push16(&mut out, 1);
+        push16(&mut out, 8);
+        out.extend_from_slice(&subtable);
         out
     }
 
@@ -823,6 +911,73 @@ fn with_no_colour_face_an_emoji_title_still_renders() {
     assert_eq!(count(&frame, is_saturated), 0);
 }
 
+/// A face that joins a family, a skin tone, a flag and a heart asked for
+/// in colour into one glyph each, the way an emoji face does, and draws
+/// each in a colour of its own.
+fn joining_face() -> Recipe {
+    let strike = |letter, colour| Picture {
+        letter,
+        x: 0,
+        y: 0,
+        png: png(64, colour),
+    };
+    Recipe {
+        map: vec![
+            (GRIN, 'ก'),
+            ('\u{1F468}', 'ข'),
+            ('\u{1F469}', 'ค'),
+            ('\u{1F467}', 'ฆ'),
+            ('\u{200D}', 'ง'),
+            ('\u{1F44D}', 'จ'),
+            ('\u{1F3FD}', 'ฉ'),
+            ('\u{1F1EF}', 'ช'),
+            ('\u{1F1F5}', 'ซ'),
+        ],
+        joins: vec![
+            (vec!['ข', 'ง', 'ค', 'ง', 'ฆ'], 'ฮ'),
+            (vec!['จ', 'ฉ'], 'ฎ'),
+            (vec!['ช', 'ซ'], 'ฏ'),
+        ],
+        strikes: vec![(
+            64,
+            vec![
+                strike('ก', [0, 255, 0, 255]),
+                strike('ฮ', [255, 0, 0, 255]),
+                strike('ฎ', [0, 0, 255, 255]),
+                strike('ฏ', [255, 0, 255, 255]),
+            ],
+        )],
+        ..Recipe::default()
+    }
+}
+
+/// A family, a skin tone and a flag, each made of several characters, are
+/// shaped by the face into one glyph and drawn as one picture about one
+/// emoji wide: not as its parts side by side, and not as an outline.
+#[test]
+fn a_sequence_the_face_joins_draws_as_one_picture() {
+    let fonts = install(&[joining_face().build()]);
+    let width = |text: &str| paint(&fonts.fonts, &title(text)).block_width as f32;
+    let one = width("\u{1F600}");
+    for (sequence, wanted) in [
+        (
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            is_red as fn(Rgba) -> bool,
+        ),
+        ("\u{1F44D}\u{1F3FD}", is_blue),
+        ("\u{1F1EF}\u{1F1F5}", is_magenta),
+    ] {
+        let frame = paint(&fonts.fonts, &title(sequence));
+        let wide = frame.block_width as f32;
+        assert!(
+            wide > 0.0 && wide <= one * 1.3,
+            "{sequence}: {wide} vs {one}"
+        );
+        assert!(count(&frame, wanted) > 50, "{sequence} in its colour");
+        assert_eq!(count(&frame, is_white), 0, "{sequence} left no outline");
+    }
+}
+
 // ── the machine's own colour emoji face ──
 
 /// The machine's faces, loaded once for every case below.
@@ -852,15 +1007,37 @@ fn has_colour_emoji() -> bool {
     drawn
 }
 
+/// Whether `text` is painted as the face's own picture: the same pixels
+/// whatever the title's fill, where an outline falls back to the fill.
+fn is_a_picture(fonts: &Fonts, text: &str) -> bool {
+    let mut other = title(text);
+    other.color = "#ff0000".to_owned();
+    let (white, red) = (paint(fonts, &title(text)), paint(fonts, &other));
+    white.rgba.iter().any(|&byte| byte != 0) && white.rgba == red.rgba
+}
+
 /// Sequences joined into one picture by the face - a family joined with
 /// zero-width joiners, a skin tone, a flag, a heart asked for in colour -
-/// draw as one emoji, about one emoji wide, and in colour.
+/// draw as one emoji, about one emoji wide, as the face's picture.
+///
+/// Which sequences a face has a picture for is the face's to say: Windows'
+/// has no flags, and Noto Color Emoji (Linux, Android) draws a family as a
+/// grey picture, so the picture is told apart from an outline by ignoring
+/// the fill, not by being coloured. Where the face joins a sequence into
+/// one glyph - about one emoji wide - it must be that picture. Apple's face
+/// has all four, so there each must be one wide and in colour. Concat
+/// joining what any face offers is also settled with an assembled face, in
+/// `a_sequence_the_face_joins_draws_as_one_picture`.
 #[test]
 fn emoji_sequences_draw_as_one_picture() {
     if !has_colour_emoji() {
         eprintln!("no colour emoji face on this machine; skipped");
         return;
     }
+    let apple = system()
+        .families()
+        .iter()
+        .any(|family| family == "Apple Color Emoji");
     let width = |text: &str| paint(system(), &title(text)).block_width as f32;
     let one = width("\u{1F600}");
     for sequence in [
@@ -870,11 +1047,13 @@ fn emoji_sequences_draw_as_one_picture() {
         "\u{2764}\u{FE0F}",
     ] {
         let wide = width(sequence);
-        assert!(
-            wide > 0.0 && wide <= one * 1.3,
-            "{sequence}: {wide} vs {one}"
-        );
-        assert!(draws_in_colour(sequence), "{sequence} in colour");
+        assert!(wide > 0.0, "{sequence}: it renders");
+        if apple {
+            assert!(wide <= one * 1.3, "{sequence}: {wide} vs {one}");
+            assert!(draws_in_colour(sequence), "{sequence} in colour");
+        } else if wide <= one * 1.3 {
+            assert!(is_a_picture(system(), sequence), "{sequence} as a picture");
+        }
     }
 }
 
