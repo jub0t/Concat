@@ -169,7 +169,7 @@ jobs:
       - name: Android libraries
         run: src/scripts/android-libs.sh ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: ${{ matrix.target }}
@@ -391,7 +391,7 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: aarch64-apple-ios
@@ -496,7 +496,7 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios-sim
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         timeout-minutes: 10
         with:
           workspaces: src
