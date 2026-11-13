@@ -393,6 +393,7 @@
   "modal.copied": "تم النسخ",
   "monitor.drawnSlowly": "تعرض Concat المعاينة بالطريقة البطيئة ومن دون تأثيرات حتى تُعاد تشغيلها.",
   "monitor.previewFailed": "فشلت المعاينة: {0}",
+  "monitor.previewMissing": "فشلت المعاينة: الملف {0} مفقود.",
   "motion.amount": "المقدار",
   "motion.animate": "تحريك",
   "motion.breathe": "تنفّس",

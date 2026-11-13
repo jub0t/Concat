@@ -393,6 +393,7 @@
   "modal.copied": "Disalin",
   "monitor.drawnSlowly": "Concat menggambar pratinjau dengan cara lambat, tanpa efek, sampai dimulai ulang.",
   "monitor.previewFailed": "Pratinjau gagal: {0}",
+  "monitor.previewMissing": "Pratinjau gagal: {0} hilang.",
   "motion.amount": "Jumlah",
   "motion.animate": "Animasi",
   "motion.breathe": "Bernapas",

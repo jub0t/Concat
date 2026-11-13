@@ -393,6 +393,7 @@
   "modal.copied": "कॉपी हो गया",
   "monitor.drawnSlowly": "Concat प्रीव्यू को धीमे तरीके से, बिना इफ़ेक्ट के, दोबारा शुरू होने तक बना रहा है।",
   "monitor.previewFailed": "प्रीव्यू विफल: {0}",
+  "monitor.previewMissing": "प्रीव्यू विफल: {0} गुम है।",
   "motion.amount": "मात्रा",
   "motion.animate": "एनिमेट",
   "motion.breathe": "साँस",

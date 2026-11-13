@@ -393,6 +393,7 @@
   "modal.copied": "Đã sao chép",
   "monitor.drawnSlowly": "Concat đang vẽ bản xem trước theo cách chậm, không có hiệu ứng, cho đến khi khởi động lại.",
   "monitor.previewFailed": "Xem trước thất bại: {0}",
+  "monitor.previewMissing": "Xem trước thất bại: tệp {0} bị thiếu.",
   "motion.amount": "Mức độ",
   "motion.animate": "Hoạt ảnh",
   "motion.breathe": "Thở",

@@ -393,6 +393,7 @@
   "modal.copied": "Скопировано",
   "monitor.drawnSlowly": "Concat рисует просмотр медленным способом, без эффектов, пока не перезапустится.",
   "monitor.previewFailed": "Просмотр не удался: {0}",
+  "monitor.previewMissing": "Просмотр не удался: файл {0} отсутствует.",
   "motion.amount": "Сила",
   "motion.animate": "Анимация",
   "motion.breathe": "Дыхание",

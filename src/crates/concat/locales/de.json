@@ -393,6 +393,7 @@
   "modal.copied": "Kopiert",
   "monitor.drawnSlowly": "Concat zeichnet die Vorschau auf dem langsamen Weg, ohne Effekte, bis es neu startet.",
   "monitor.previewFailed": "Vorschau fehlgeschlagen: {0}",
+  "monitor.previewMissing": "Vorschau fehlgeschlagen: {0} fehlt.",
   "motion.amount": "Stärke",
   "motion.animate": "Animieren",
   "motion.breathe": "Atmen",

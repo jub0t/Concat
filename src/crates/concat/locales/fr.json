@@ -393,6 +393,7 @@
   "modal.copied": "Copié",
   "monitor.drawnSlowly": "Concat dessine l'aperçu de la manière lente, sans effets, jusqu'à son redémarrage.",
   "monitor.previewFailed": "L'aperçu a échoué : {0}",
+  "monitor.previewMissing": "L'aperçu a échoué : {0} est manquant.",
   "motion.amount": "Intensité",
   "motion.animate": "Animer",
   "motion.breathe": "Respiration",

@@ -393,6 +393,7 @@
   "modal.copied": "Copiado",
   "monitor.drawnSlowly": "O Concat está desenhando a pré-visualização do jeito lento, sem efeitos, até reiniciar.",
   "monitor.previewFailed": "A pré-visualização falhou: {0}",
+  "monitor.previewMissing": "A pré-visualização falhou: {0} está ausente.",
   "motion.amount": "Intensidade",
   "motion.animate": "Animar",
   "motion.breathe": "Respirar",

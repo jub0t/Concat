@@ -393,6 +393,7 @@
   "modal.copied": "Kopirano",
   "monitor.drawnSlowly": "Concat crta pregled sporim načinom, bez efekata, dok se ponovno ne pokrene.",
   "monitor.previewFailed": "Pregled nije uspio: {0}",
+  "monitor.previewMissing": "Pregled nije uspio: {0} nedostaje.",
   "motion.amount": "Jačina",
   "motion.animate": "Animacija",
   "motion.breathe": "Disanje",

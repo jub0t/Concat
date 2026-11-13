@@ -393,6 +393,7 @@
   "modal.copied": "کاپی ہو گیا",
   "monitor.drawnSlowly": "Concat پیش منظر کو سست طریقے سے، بغیر ایفیکٹس کے، دوبارہ شروع ہونے تک بنا رہا ہے۔",
   "monitor.previewFailed": "پیش منظر ناکام: {0}",
+  "monitor.previewMissing": "پیش منظر ناکام: {0} گمشدہ ہے۔",
   "motion.amount": "مقدار",
   "motion.animate": "اینیمیٹ",
   "motion.breathe": "سانس",

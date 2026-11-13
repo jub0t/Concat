@@ -393,6 +393,7 @@
   "modal.copied": "কপি হয়েছে",
   "monitor.drawnSlowly": "Concat প্রিভিউ ধীর পদ্ধতিতে, ইফেক্ট ছাড়া আঁকছে, আবার চালু না হওয়া পর্যন্ত।",
   "monitor.previewFailed": "প্রিভিউ ব্যর্থ হয়েছে: {0}",
+  "monitor.previewMissing": "প্রিভিউ ব্যর্থ হয়েছে: {0} হারিয়ে গেছে।",
   "motion.amount": "পরিমাণ",
   "motion.animate": "অ্যানিমেট",
   "motion.breathe": "শ্বাস",

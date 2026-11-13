@@ -393,6 +393,7 @@
   "modal.copied": "Skopiowano",
   "monitor.drawnSlowly": "Concat rysuje podgląd wolniejszym sposobem, bez efektów, do ponownego uruchomienia.",
   "monitor.previewFailed": "Podgląd nie powiódł się: {0}",
+  "monitor.previewMissing": "Podgląd nie powiódł się: brakuje pliku {0}.",
   "motion.amount": "Siła",
   "motion.animate": "Animacja",
   "motion.breathe": "Oddech",

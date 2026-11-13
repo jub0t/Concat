@@ -393,6 +393,7 @@
   "modal.copied": "복사됨",
   "monitor.drawnSlowly": "Concat이 다시 시작될 때까지 효과 없이 느린 방식으로 미리보기를 그리고 있습니다.",
   "monitor.previewFailed": "미리보기 실패: {0}",
+  "monitor.previewMissing": "미리보기 실패: {0} 파일이 누락되었습니다.",
   "motion.amount": "양",
   "motion.animate": "애니메이션",
   "motion.breathe": "숨쉬기",

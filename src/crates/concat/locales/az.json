@@ -393,6 +393,7 @@
   "modal.copied": "Kopyalandı",
   "monitor.drawnSlowly": "Concat önbaxışı yavaş üsulla, effektsiz çəkir; yenidən başlayana qədər belə qalacaq.",
   "monitor.previewFailed": "Önbaxış uğursuz oldu: {0}",
+  "monitor.previewMissing": "Önbaxış uğursuz oldu: {0} itkindir.",
   "motion.amount": "Miqdar",
   "motion.animate": "Animasiya",
   "motion.breathe": "Nəfəs",

@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use concat_host::preview::FrameSpec;
-use concat_project::model::Project;
+use concat_project::model::{MediaItem, Project};
 
 use crate::host::{spawn_detached, spawn_frame};
 use crate::i18n::{t, tf};
@@ -287,7 +287,14 @@ impl MonitorPane {
                 );
                 if !self.failed {
                     self.failed = true;
-                    studio.notify(&tf("monitor.previewFailed", &[&error]), true);
+                    // The chain above is for the log. A file that has gone
+                    // is said in a sentence, by its name: the chain names
+                    // its whole path twice and reads as a stack trace.
+                    let said = match missing_source(&error, &studio.project().media) {
+                        Some(name) => tf("monitor.previewMissing", &[&name]),
+                        None => tf("monitor.previewFailed", &[&error]),
+                    };
+                    studio.notify(&said, true);
                 }
             }
         }
@@ -425,9 +432,58 @@ impl MonitorPane {
     }
 }
 
+/// The name of the project's file a frame's error is about, when that file
+/// is no longer on disk. Matched on the paths the project holds rather than
+/// on the decoder's wording, so it holds whatever words the chain is in;
+/// the check on disk keeps a file that is there but would not decode from
+/// being called missing.
+fn missing_source(error: &str, media: &[MediaItem]) -> Option<String> {
+    media
+        .iter()
+        .filter(|item| !item.path.is_empty() && error.contains(item.path.as_str()))
+        .find(|item| !std::path::Path::new(&item.path).exists())
+        .map(|item| {
+            std::path::Path::new(&item.path).file_name().map_or_else(
+                || item.name.clone(),
+                |name| name.to_string_lossy().into_owned(),
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn media(path: &str) -> MediaItem {
+        MediaItem {
+            path: path.to_owned(),
+            name: "shown name".to_owned(),
+            ..MediaItem::default()
+        }
+    }
+
+    /// A gone file is named, not pathed; one on disk that failed some other
+    /// way is not called missing, and an error about no project file is left
+    /// as it is.
+    #[test]
+    fn a_missing_source_is_named_by_its_file() {
+        let gone = std::env::temp_dir().join("concat-test-gone/clip-1.mp4");
+        let gone = gone.to_string_lossy().into_owned();
+        let error = format!(
+            "no layer decoded for the paused preview: {gone}: open failed for {gone}: No such file or directory"
+        );
+        let here = std::env::temp_dir().to_string_lossy().into_owned();
+        assert_eq!(
+            missing_source(&error, &[media(&here), media(&gone)]),
+            Some("clip-1.mp4".to_owned())
+        );
+        let broken = format!("decode failed for {here}: bad data");
+        assert_eq!(missing_source(&broken, &[media(&here)]), None);
+        assert_eq!(
+            missing_source("preview texture: lost", &[media(&gone)]),
+            None
+        );
+    }
 
     #[test]
     fn a_frame_is_even_sided_and_never_vanishes() {

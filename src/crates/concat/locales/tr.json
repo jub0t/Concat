@@ -393,6 +393,7 @@
   "modal.copied": "Kopyalandı",
   "monitor.drawnSlowly": "Concat önizlemeyi yavaş yoldan, efektsiz çiziyor; yeniden başlayana kadar böyle kalacak.",
   "monitor.previewFailed": "Önizleme başarısız: {0}",
+  "monitor.previewMissing": "Önizleme başarısız: {0} eksik.",
   "motion.amount": "Miktar",
   "motion.animate": "Canlandır",
   "motion.breathe": "Nefes",

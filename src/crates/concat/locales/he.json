@@ -393,6 +393,7 @@
   "modal.copied": "הועתק",
   "monitor.drawnSlowly": "Concat מציירת את התצוגה המקדימה בדרך האיטית, בלי אפקטים, עד שתופעל מחדש.",
   "monitor.previewFailed": "התצוגה המקדימה נכשלה: {0}",
+  "monitor.previewMissing": "התצוגה המקדימה נכשלה: {0} חסר.",
   "motion.amount": "עוצמה",
   "motion.animate": "הנפשה",
   "motion.breathe": "נשימה",

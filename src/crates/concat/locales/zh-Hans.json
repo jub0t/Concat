@@ -393,6 +393,7 @@
   "modal.copied": "已复制",
   "monitor.drawnSlowly": "Concat 正以较慢的方式绘制预览，不带效果，直到重新启动。",
   "monitor.previewFailed": "预览失败：{0}",
+  "monitor.previewMissing": "预览失败：{0} 缺失。",
   "motion.amount": "幅度",
   "motion.animate": "动画",
   "motion.breathe": "呼吸",

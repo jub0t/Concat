@@ -393,6 +393,7 @@
   "modal.copied": "Copiado",
   "monitor.drawnSlowly": "Concat está dibujando la vista previa de la forma lenta, sin efectos, hasta que se reinicie.",
   "monitor.previewFailed": "La vista previa falló: {0}",
+  "monitor.previewMissing": "La vista previa falló: falta {0}.",
   "motion.amount": "Cantidad",
   "motion.animate": "Animar",
   "motion.breathe": "Respirar",

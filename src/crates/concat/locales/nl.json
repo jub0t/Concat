@@ -393,6 +393,7 @@
   "modal.copied": "Gekopieerd",
   "monitor.drawnSlowly": "Concat tekent de voorvertoning op de trage manier, zonder effecten, tot het opnieuw start.",
   "monitor.previewFailed": "Voorvertoning mislukt: {0}",
+  "monitor.previewMissing": "Voorvertoning mislukt: {0} ontbreekt.",
   "motion.amount": "Hoeveelheid",
   "motion.animate": "Animeren",
   "motion.breathe": "Ademen",

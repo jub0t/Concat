@@ -393,6 +393,7 @@
   "modal.copied": "コピーしました",
   "monitor.drawnSlowly": "Concat は再起動するまで、エフェクトなしの低速な方法でプレビューを描画しています。",
   "monitor.previewFailed": "プレビューに失敗しました: {0}",
+  "monitor.previewMissing": "プレビューに失敗しました: {0} が見つかりません。",
   "motion.amount": "量",
   "motion.animate": "アニメーション",
   "motion.breathe": "呼吸",
