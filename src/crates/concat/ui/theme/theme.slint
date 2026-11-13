@@ -213,6 +213,8 @@ export global Theme {
     out property <color> on-accent: tone.on;
     out property <color> green: dark ? Dark.green : Light.green;
     out property <color> on-green: dark ? Dark.on-green : Light.on-green;
+    /// cautionary: worked, but not as it should
+    out property <color> warn: dark ? Dark.warn : Light.warn;
 
     /// The `index`th accent under the palette that is on, for the row in
     /// Settings that offers them: each is shown as it would be worn, so the

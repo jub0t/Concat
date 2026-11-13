@@ -543,6 +543,8 @@ export component App inherits Window {
     /// The bottom-right notice: what just happened, said once. Set from Rust
     /// and watched by its token — see ToastLayer, which owns the timing.
     in property <ToastData> toast;
+    /// The notice with this token has gone from the screen.
+    callback toast-gone(int);
 
     // The level feed is a Rust timer, and a property cannot reach across to
     // stop it, so the hover edge is forwarded as a callback: Rust arms the
@@ -1161,6 +1163,27 @@ export component App inherits Window {
         dismissed => { root.confirm-dismissed(); }
     }
 
+    // Over everything but the tooltips and the menus, the sheets included:
+    // an export that failed behind a dialog is exactly the case a notice is
+    // for. Only its card takes events, so covering the window costs the
+    // window nothing; and it is under the tooltip layer so the card's own
+    // close button can be named over it.
+    ToastLayer {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.toast;
+        phone: root.phone;
+        shares-log: root.settings.shares-log;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        gone(token) => { root.toast-gone(token); }
+        // The same action as Settings › About's, by the same callback.
+        show-log => { root.settings-show-log(); }
+    }
+
     // Over the workspace and both sheets, under the menus. A tooltip has to
     // clear the pane it belongs to — panes clip — and it has no business over
     // an open menu, which is the one surface that would rather not be
@@ -1191,15 +1214,4 @@ export component App inherits Window {
         neighbour(by) => { root.open-menu-from-keys(Math.mod(root.open-menu + by, 3)); }
     }
 
-    // Last of all, and over everything including the sheets: an export that
-    // failed behind a dialog is exactly the case a notice is for. It takes no
-    // events — there is no TouchArea anywhere in it — so covering the window
-    // costs the window nothing.
-    ToastLayer {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height;
-        data: root.toast;
-    }
 }

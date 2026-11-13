@@ -7,14 +7,24 @@ use super::*;
 impl Studio {
     // ── notices ──
 
-    /// Raises the bottom-right notice. Every caller is some other handler
-    /// that has just done - or refused to do - the thing it is reporting, so
-    /// this only records; the publish that handler was going to make anyway
-    /// is what puts it on screen.
+    /// Raises the bottom-right notice: done, or failed. Every caller is
+    /// some other handler that has just done - or refused to do - the thing
+    /// it is reporting, so this only records; the publish that handler was
+    /// going to make anyway is what puts it on screen. A confirmation over a
+    /// failure still up is dropped; see [`ToastState::raise`].
     pub fn notify(&mut self, message: &str, failed: bool) {
-        self.toast.token += 1;
-        self.toast.message = message.into();
-        self.toast.failed = failed;
+        let kind = if failed {
+            ToastKind::Failed
+        } else {
+            ToastKind::Done
+        };
+        self.toast.raise(message, kind);
+    }
+
+    /// [`Studio::notify`] for something that worked, but not as well as it
+    /// should: the work goes on, and the person may want the log.
+    pub fn warn(&mut self, message: &str) {
+        self.toast.raise(message, ToastKind::Warning);
     }
 
     // ── publishing ──
@@ -62,7 +72,8 @@ impl Studio {
         app.set_toast(ToastData {
             token: self.toast.token,
             message: self.toast.message.as_str().into(),
-            failed: self.toast.failed,
+            kind: self.toast.kind,
+            hold: self.toast.hold_ms,
         });
     }
 

@@ -267,7 +267,7 @@ impl MonitorPane {
             Ok(Picture::Pixels(bytes, width, height, _)) => {
                 if !self.told_slow && studio.host.monitor.drawn_slowly() {
                     self.told_slow = true;
-                    studio.notify(&t("monitor.drawnSlowly"), false);
+                    studio.warn(&t("monitor.drawnSlowly"));
                 }
                 let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                     &bytes, width, height,

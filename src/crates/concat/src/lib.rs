@@ -2260,6 +2260,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_shortcut_reset_all(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ShortcutResetAll));
     }));
+    // The notice says when it has gone, which is what lets a failure stand
+    // against a confirmation until it has been seen. Nothing on screen
+    // changes, so nothing is published.
+    app.on_toast_gone(|token| {
+        Shell::with(|shell, _app| shell.studio.borrow_mut().toast.gone(token));
+    });
     app.on_settings_show_log(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ShowLog));
     }));

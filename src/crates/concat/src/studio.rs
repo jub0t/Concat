@@ -71,6 +71,8 @@ mod speech;
 mod speed_curve_tests;
 mod stage;
 mod text;
+mod toast;
+pub use toast::ToastState;
 mod vision;
 mod voice;
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -454,15 +456,6 @@ pub(crate) fn home_folder(name: &str) -> String {
                 .into_owned()
         })
         .unwrap_or_default()
-}
-
-/// The bottom-right notice: one at a time. The token is what the panel
-/// watches, bumped per notice so the same sentence said twice blinks twice.
-#[derive(Default)]
-pub struct ToastState {
-    pub token: i32,
-    pub message: String,
-    pub failed: bool,
 }
 
 /// Which edge of a clip a trim has hold of.

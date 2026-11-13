@@ -47,6 +47,9 @@ export enum Glyph {
     /// three dots in a row: a menu of more
     more,
     check,
+    /// an exclamation mark alone, for a mark that already sits in a
+    /// disc of its own: a notice's warning
+    alert,
     chevron-down,
     chevron-left,
     /// the Stickers page: a peeling square with a face
@@ -377,6 +380,12 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.check: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M20 6 9 17l-5-5";
+    }
+
+    // lucide/circle-alert's mark without its circle
+    if root.glyph == Glyph.alert: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 6v7.5 M12 18h.01";
     }
 
     // lucide/chevron-down
