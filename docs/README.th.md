@@ -23,7 +23,7 @@
   <a href="https://trendshift.io/repositories/191379?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/191379" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · **🇹🇭 ไทย** · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇭🇺 Magyar](README.hu.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · **🇹🇭 ไทย** · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
 > แปลจาก README ภาษาอังกฤษ ณ วันที่ 11 ตุลาคม 2026 ฉบับภาษาอังกฤษคือฉบับที่ได้รับการอัปเดตอยู่เสมอ
 
@@ -68,7 +68,7 @@ Concat คือโปรแกรมตัดต่อวิดีโอที�
 - 📤 **ส่งออก** H.264, HEVC, AV1 สูงสุด 4K 60 สี 10 บิต
 - 🦀 **เอนจิน Rust แบบเนทีฟ** คอมโพสิตบน GPU, พร็อกซี, ถอดรหัสด้วยฮาร์ดแวร์ เลื่อนดูวิดีโอ 4K ได้ลื่นไหล
 - 🤖 **สั่งงานด้วยสคริปต์ได้** มี API แบบ JSON-RPC ที่สคริปต์และเอเจนต์ AI ใช้ตัดต่อวิดีโอได้ ถ้าบิลด์จากซอร์สโค้ดจะได้ gRPC และเครื่องมือบรรทัดคำสั่งเพิ่มมาด้วย
-- 🖥️ **macOS, Windows, Linux, Android** 26 ภาษา แอปเดียวกัน ไฟล์โปรเจกต์เดียวกัน
+- 🖥️ **macOS, Windows, Linux, Android** 27 ภาษา แอปเดียวกัน ไฟล์โปรเจกต์เดียวกัน
 
 ## ดาวน์โหลด
 
