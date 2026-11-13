@@ -99,7 +99,7 @@ fn package(
         .iter()
         .map(|(key, value)| ((*key).to_owned(), *value))
         .collect();
-    shader.pass(&values, &manifest.params, intensity, None, None)
+    shader.pass(values, intensity, None, None)
 }
 
 const INVERT: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(vec3<f32>(1.0) - c.rgb, c.a); }";
@@ -834,7 +834,7 @@ fn a_transition_combines_its_two_inputs_by_progress() {
     let blue = solid(4, 4, [0, 0, 255, 255]);
 
     let mut at = |progress: f32| {
-        let pass = shader.pass(&Default::default(), &[], progress, None);
+        let pass = shader.pass(&Default::default(), progress, None);
         gpu.combine(4, 4, 0.0, &red, &blue, &pass)
             .expect("a GPU combine")
     };
@@ -867,13 +867,7 @@ fn every_shader_package_renders_at_its_defaults() {
             continue;
         };
         let values = package.resolve(&Default::default());
-        let pass = shader.pass(
-            &values,
-            &package.manifest.params,
-            1.0,
-            package.lut().cloned(),
-            None,
-        );
+        let pass = shader.pass(values, 1.0, package.lut().cloned(), None);
         let mut treated = layer(source.clone());
         treated.effects = vec![pass];
         let out = gpu.render(&plan(4, 4, vec![treated]));
@@ -914,13 +908,7 @@ fn every_shader_package_builds_on_this_adapter() {
             continue;
         };
         let values = package.resolve(&Default::default());
-        let pass = shader.pass(
-            &values,
-            &package.manifest.params,
-            1.0,
-            package.lut().cloned(),
-            None,
-        );
+        let pass = shader.pass(values, 1.0, package.lut().cloned(), None);
         if let Err(error) = gpu.trial(&pass, std::time::Duration::from_secs(60)) {
             refused.push(format!("{}: {error}", package.id()));
         }
@@ -1576,7 +1564,7 @@ fn scene_linear(id: &str, body: &str, intensity: f32) -> ShaderPass {
     ))
     .expect("a manifest");
     let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
-    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None)
+    shader.pass(BTreeMap::new(), intensity, None, None)
 }
 
 /// Within `tolerance` of `want` a channel, relative, for the colour and
@@ -1857,7 +1845,7 @@ fn in_passes(body: &str, passes: &str, params: &str, intensity: f32) -> ShaderPa
     ))
     .expect("a manifest");
     let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
-    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None)
+    shader.pass(BTreeMap::new(), intensity, None, None)
 }
 
 /// The picture `picture`, `size` pixels, blurred by a Gaussian of `sigma`
@@ -2122,7 +2110,7 @@ fn a_table_is_read_in_its_space_and_carried_past_its_ends() {
         .expect("a manifest");
         concat_effects::Shader::compile(&manifest, concat_effects::looks::SHADER)
             .expect("compiles")
-            .pass(&BTreeMap::new(), &[], 1.0, Some(Arc::new(lut)), None)
+            .pass(BTreeMap::new(), 1.0, Some(Arc::new(lut)), None)
     };
     for space in ["display", "log"] {
         let identity = look(space, Lut::identity(33));
@@ -2639,13 +2627,10 @@ fn chroma_key_takes_the_screen_and_leaves_the_rest() {
         .packages()
         .find(|package| package.id() == "concat.chroma-key")
         .expect("Chroma Key is built in");
-    let pass = key.shader().expect("a shader").pass(
-        &key.resolve(&Default::default()),
-        &key.manifest.params,
-        1.0,
-        None,
-        None,
-    );
+    let pass = key
+        .shader()
+        .expect("a shader")
+        .pass(key.resolve(&Default::default()), 1.0, None, None);
     let (width, height) = (96, 96);
     let mut screen = solid(width, height, [20, 200, 30, 255]);
     for y in 32..64 {
