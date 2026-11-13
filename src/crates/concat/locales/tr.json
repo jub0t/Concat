@@ -824,6 +824,7 @@
   "studio.enhance": "İyileştirme: {0}",
   "studio.enhanceAlreadyWorkOne": "İyileştirme zaten çalışıyor; aynı anda tek klip",
   "studio.enhanceAt2k": "Zaten 2K veya daha büyük: İyileştirme onu kendi boyutunda onarır.",
+  "studio.enhanceTooLong": "Bu, bu makinede çok uzun sürer (yaklaşık {0}). Daha kısa bir klip ya da daha küçük bir boyut deneyin.",
   "studio.enhancedClipNowShows": "İyileştirildi; klip artık kopyayı gösteriyor",
   "studio.enhancingWayFrameFrame": "{0} iyileştiriliyor: {1}× kare kare yolda",
   "studio.exit": "Çıkış",

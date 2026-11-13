@@ -824,6 +824,7 @@
   "studio.enhance": "Enhance: {0}",
   "studio.enhanceAlreadyWorkOne": "Enhance is already at work; one clip at a time",
   "studio.enhanceAt2k": "Already 2K or larger: Enhance restores it at its own size.",
+  "studio.enhanceTooLong": "This would take a very long time on this machine (about {0}). Try a shorter clip or a smaller size.",
   "studio.enhancedClipNowShows": "Enhanced; the clip now shows the copy",
   "studio.enhancingWayFrameFrame": "Enhancing {0}: {1}× on its way, frame by frame",
   "studio.exit": "Exit",
