@@ -37,6 +37,19 @@ pub const TAIL: u64 = 6 * 1024 * 1024;
 /// What the last line of a run that ended in order says.
 pub(crate) const ENDED: &str = "run ended cleanly";
 
+/// What the end of a run that ended in order said before the marker above
+/// existed: the event loop signing off, which is all a 0.2.8 log closes
+/// with. Only the `ok=true` form is a clean end - the other is the loop
+/// reporting that it failed.
+pub(crate) const ENDED_BEFORE: &str = "event loop exited (ok=true)";
+
+/// Whether a line from the end of a run says the run ended in order, in
+/// either of the wordings above: a run read back after an upgrade may
+/// predate the marker.
+fn says_ended(line: &str) -> bool {
+    line.contains(ENDED) || line.contains(ENDED_BEFORE)
+}
+
 /// The open file, and how much it holds.
 pub(crate) struct RunFile {
     path: PathBuf,
@@ -246,7 +259,7 @@ pub(crate) fn previous(folder: &Path) -> Option<PreviousRun> {
     let mut end = Vec::new();
     file.read_to_end(&mut end).ok()?;
     let end = String::from_utf8_lossy(&end);
-    let ended_cleanly = end.lines().rev().take(8).any(|line| line.contains(ENDED));
+    let ended_cleanly = end.lines().rev().take(8).any(says_ended);
     let last_error = end
         .lines()
         .rev()
@@ -399,6 +412,28 @@ mod tests {
             std::fs::write(folder.join("concat-20260103-000000.log"), text).expect("a log");
             assert_eq!(previous(&folder).expect("a run").died(), died, "{text}");
         }
+
+        // A run from before the marker existed: 0.2.8's log closes with the
+        // event loop signing off, and nothing else. That is a clean end,
+        // not a crash - while the same sign-off reporting a failure is not
+        // one.
+        std::fs::write(
+            folder.join("concat-20260104-000000.log"),
+            "08:07:24.151 INFO  [main] concat: close: event loop exited (ok=true)\n",
+        )
+        .expect("a log");
+        let run = previous(&folder).expect("a run");
+        assert!(run.ended_cleanly);
+        assert_eq!(run.last_error, None);
+        assert!(!run.died());
+
+        std::fs::write(
+            folder.join("concat-20260105-000000.log"),
+            "08:07:24.151 ERROR [main] concat: close: event loop exited (ok=false)\n",
+        )
+        .expect("a log");
+        let run = previous(&folder).expect("a run");
+        assert!(!run.ended_cleanly);
         let _ = std::fs::remove_dir_all(&folder);
     }
 }
