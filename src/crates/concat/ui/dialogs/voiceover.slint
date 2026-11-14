@@ -545,8 +545,9 @@ export component VoiceoverPanel inherits Rectangle {
                     focused: script.has-focus;
 
                     script := TextInput {
+                        x: script-box.pad-x;
                         y: script-box.pad-y;
-                        width: parent.width;
+                        width: parent.width - self.x - 2 * script-box.pad-x;
                         height: Math.max(self.preferred-height, script-box.view-height);
                         cursor-position-changed(at) => { script-box.reveal(at.y, self.font-size * 1.4); }
                         visible: !root.taking;
@@ -555,7 +556,7 @@ export component VoiceoverPanel inherits Rectangle {
                         color: Theme.fg;
                         font-size: Theme.fs-input;
                         single-line: false;
-                        wrap: word-wrap;
+                        wrap: char-wrap;
                         selection-background-color: Theme.accent;
                         selection-foreground-color: Theme.on-accent;
                         changed has-focus => { root.typing = self.has-focus; }
