@@ -200,8 +200,9 @@ export component TextPanel inherits VerticalLayout {
                 focused: body.has-focus;
 
                 body := TextInput {
+                    x: body-box.pad-x;
                     y: body-box.pad-y;
-                    width: parent.width;
+                    width: parent.width - self.x - 2 * body-box.pad-x;
                     height: Math.max(self.preferred-height, body-box.view-height);
                     cursor-position-changed(at) => { body-box.reveal(at.y, self.font-size * 1.4); }
                     text: root.selected.content;
@@ -210,7 +211,7 @@ export component TextPanel inherits VerticalLayout {
                     // Multi-line: a lower third is routinely two lines, and a
                     // single-line field would silently eat the break.
                     single-line: false;
-                    wrap: word-wrap;
+                    wrap: char-wrap;
                     selection-background-color: Theme.accent;
                     selection-foreground-color: Theme.on-accent;
 
