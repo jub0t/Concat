@@ -3863,6 +3863,7 @@ mod tests {
                     audio_codec: Some("pcm".to_owned()),
                     has_audio: true,
                     audio_tracks: Vec::new(),
+                    chapters: Vec::new(),
                     origin: None,
                     color_space: Default::default(),
                 },

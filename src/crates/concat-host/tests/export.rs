@@ -55,6 +55,8 @@ const RATE: u32 = 48_000;
 /// both sides for the encoder's chroma.
 const WIDTH: u32 = 160;
 const HEIGHT: u32 = 90;
+/// Kvazaar and Media Foundation's HEVC encoder require aligned dimensions.
+const HEVC_HEIGHT: u32 = 96;
 
 // ── the sources ──
 
@@ -84,6 +86,11 @@ fn second_of_colour(rgb: [u8; 3]) -> Option<u32> {
 /// A silent picture of `seconds` at `rate`, each frame the colour of its
 /// source second.
 fn picture(path: &Path, rate: FrameRate, seconds: u32, codec: VideoCodec) {
+    let height = if codec == VideoCodec::Hevc {
+        HEVC_HEIGHT
+    } else {
+        HEIGHT
+    };
     let options = EncodeOptions {
         codec,
         preset: "ultrafast".to_owned(),
@@ -97,10 +104,10 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32, codec: VideoCodec) {
         software_only: false,
     };
     let mut encoder =
-        Encoder::create(path, WIDTH, HEIGHT, rate, &options).expect("the linked FFmpeg encodes");
+        Encoder::create(path, WIDTH, height, rate, &options).expect("the linked FFmpeg encodes");
     let fps = rate.fps().as_f64();
     let frames = (f64::from(seconds) * fps).round() as u32;
-    let mut frame = Frame::black(WIDTH, HEIGHT);
+    let mut frame = Frame::black(WIDTH, height);
     for index in 0..frames {
         let second = (f64::from(index) / fps).floor() as u32;
         frame.fill(colour_of_second(second));
@@ -2147,7 +2154,7 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     let can_encode = Encoder::create(
         scratch.path().join("can-encode.mp4"),
         WIDTH,
-        HEIGHT,
+        HEVC_HEIGHT,
         FrameRate::THIRTY,
         &EncodeOptions {
             codec: VideoCodec::Hevc,
@@ -2155,8 +2162,20 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
             ..EncodeOptions::default()
         },
     );
-    if let Err(error) = can_encode {
-        eprintln!("no HEVC encoder opens at {WIDTH}x{HEIGHT} here ({error}); skipped");
+    let mut can_encode = match can_encode {
+        Ok(encoder) => encoder,
+        Err(error) => {
+            eprintln!("no HEVC encoder opens at {WIDTH}x{HEVC_HEIGHT} here ({error}); skipped");
+            return;
+        }
+    };
+    let probe_frame = Frame::black(WIDTH, HEVC_HEIGHT);
+    if let Err(error) = can_encode.write_frame(&probe_frame) {
+        eprintln!("no HEVC encoder writes at {WIDTH}x{HEVC_HEIGHT} here ({error}); skipped");
+        return;
+    }
+    if let Err(error) = can_encode.finish() {
+        eprintln!("no HEVC encoder finishes at {WIDTH}x{HEVC_HEIGHT} here ({error}); skipped");
         return;
     }
     let sources = Sources::make_in(scratch.path(), VideoCodec::Hevc);

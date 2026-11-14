@@ -2439,7 +2439,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         const KBPS: u32 = 1_000;
-        const FRAMES: u32 = 60;
+        // Keep the sample long enough for Media Foundation's rate control
+        // to settle before measuring the average bitrate.
+        const FRAMES: u32 = 180;
         let seconds = f64::from(FRAMES) / 30.0;
         for codec in [VideoCodec::H264, VideoCodec::Hevc] {
             let options = EncodeOptions {
@@ -2452,10 +2454,10 @@ mod tests {
             };
             let rate_of = |noisy: bool| {
                 let path = dir.join(format!("{}-{noisy}.mp4", codec.name()));
-                let mut encoder = Encoder::create(&path, 320, 176, FrameRate::THIRTY, &options)
+                let mut encoder = Encoder::create(&path, 640, 360, FrameRate::THIRTY, &options)
                     .unwrap_or_else(|error| panic!("{codec:?} average opens: {error}"));
                 let name = encoder.encoder_name().to_owned();
-                let mut frame = Frame::black(320, 176);
+                let mut frame = Frame::black(640, 360);
                 let mut grain = 0x2545_F491_4F6C_DD1D_u64;
                 for index in 0..FRAMES {
                     if noisy {
@@ -3122,16 +3124,16 @@ mod tests {
                     threads: 0,
                     software_only: false,
                 };
-                let mut encoder = match Encoder::create(&path, 64, 64, FrameRate::THIRTY, &options)
-                {
-                    Ok(encoder) => encoder,
-                    Err(error) if ten_bit && codec.ten_bit_only_on_hardware() => {
-                        eprintln!("{} at ten bits: {error}; skipped", codec.label());
-                        continue;
-                    }
-                    Err(error) => panic!("{} {ten_bit}: {error}", codec.label()),
-                };
-                let mut frame = Frame::black(64, 64);
+                let mut encoder =
+                    match Encoder::create(&path, 640, 360, FrameRate::THIRTY, &options) {
+                        Ok(encoder) => encoder,
+                        Err(error) if ten_bit && codec.ten_bit_only_on_hardware() => {
+                            eprintln!("{} at ten bits: {error}; skipped", codec.label());
+                            continue;
+                        }
+                        Err(error) => panic!("{} {ten_bit}: {error}", codec.label()),
+                    };
+                let mut frame = Frame::black(640, 360);
                 frame.fill([200, 40, 40, 255]);
                 for _ in 0..4 {
                     encoder.write_frame(&frame).expect("writes");
