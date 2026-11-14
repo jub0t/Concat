@@ -3,6 +3,7 @@
 //! Gestures in flight: drags, trims and moves, previewed on the echo.
 
 use super::*;
+use concat_project::placement::shifted_starts;
 
 impl Studio {
     // ── gestures ──
@@ -82,7 +83,7 @@ impl Studio {
                 let clip = self.clip(clip_id)?;
                 Some(MoveOrigin {
                     clip: clip.id.clone(),
-                    start: clip.start as f32,
+                    start: clip.start,
                     row: self.row_of(&clip.track_id),
                 })
             })
@@ -115,7 +116,7 @@ impl Studio {
                     .iter()
                     .filter_map(|origin| {
                         let clip = self.clip(&origin.clip)?;
-                        let start = origin.start + seconds;
+                        let start = origin.start as f32 + seconds;
                         Some([start, start + clip.duration as f32])
                     })
                     .flatten()
@@ -123,20 +124,26 @@ impl Studio {
                 let shift = seconds + self.snap_shift(&edges, threshold, &moving);
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
+                // Every start moves by the one shift, in f64 and from the
+                // start the press recorded: `self.clip` is the echo while a
+                // gesture runs and already holds the last shift. Why f64 is
+                // on `shifted_starts`.
+                let starts: Vec<f64> = origins.iter().map(|origin| origin.start).collect();
+                let landed_at = shifted_starts(&starts, f64::from(shift));
                 let moves: Vec<ClipMove> = origins
                     .iter()
-                    .filter_map(|origin| {
+                    .zip(landed_at)
+                    .filter_map(|(origin, start)| {
+                        let clip = self.clip(&origin.clip)?;
                         let row = (origin.row + rows).clamp(0, count - 1);
                         let track_id = self
                             .row_track(row)
                             .filter(|track| !self.locked(&track.id))
                             .map(|track| track.id.clone())
-                            .or_else(|| {
-                                self.clip(&origin.clip).map(|clip| clip.track_id.clone())
-                            })?;
+                            .unwrap_or_else(|| clip.track_id.clone());
                         Some(ClipMove {
                             clip_id: origin.clip.clone(),
-                            start: f64::from((origin.start + shift).max(0.0)),
+                            start,
                             track_id,
                         })
                     })

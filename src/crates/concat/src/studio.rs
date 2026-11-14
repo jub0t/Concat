@@ -468,7 +468,10 @@ pub enum Edge {
 /// Where one clip sat when a gesture began, so the whole set moves rigidly.
 pub struct MoveOrigin {
     pub clip: String,
-    pub start: f32,
+    /// Where the clip began when the press landed, exact: the drag adds its
+    /// shift to this, not to the echo's start, which already holds the last
+    /// shift.
+    pub start: f64,
     pub row: i32,
 }
 
