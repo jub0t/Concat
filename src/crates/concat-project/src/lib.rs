@@ -957,6 +957,74 @@ mod tests {
         assert_eq!(start_of(&editor, &b[0]), 15.0);
     }
 
+    /// A drag hands the engine one shift in f32. Clips laid end to end must
+    /// still butt after it, however late they sit: a run that came back
+    /// overlapping by a hair was refused whole, and the drag did nothing.
+    #[test]
+    fn a_run_laid_end_to_end_late_in_the_timeline_moves_as_one() {
+        use crate::placement::shifted_starts;
+        let (mut editor, _media_id, _first) = fixture();
+        let tracks = editor.project().active().tracks.clone();
+        // Footage cut to lengths no float grid holds, as real takes are,
+        // each clip starting where the last ends.
+        let length = 3.770_433;
+        let media_id = editor
+            .apply(media("/b.mp4", length, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let from: Vec<f64> = (0..8).map(|n| 120.0 + f64::from(n) * length).collect();
+        let ids = lane(&mut editor, &media_id, &tracks[1].id, &from);
+        for pointer in [17.3_f32, 0.1, 33.337, 91.9] {
+            let to = shifted_starts(&from, f64::from(pointer));
+            let outcome = editor
+                .apply(Command::MoveClips {
+                    moves: ids
+                        .iter()
+                        .zip(&to)
+                        .map(|(id, start)| ClipMove {
+                            clip_id: id.clone(),
+                            start: *start,
+                            track_id: tracks[3].id.clone(),
+                        })
+                        .collect(),
+                })
+                .expect("moves");
+            assert!(
+                outcome.applied,
+                "the run stayed put for a shift of {pointer}"
+            );
+            for (id, wanted) in ids.iter().zip(&to) {
+                assert_eq!(start_of(&editor, id), *wanted);
+            }
+            // Back where it began for the next shift.
+            editor
+                .apply(Command::MoveClips {
+                    moves: ids
+                        .iter()
+                        .zip(&from)
+                        .map(|(id, start)| ClipMove {
+                            clip_id: id.clone(),
+                            start: *start,
+                            track_id: tracks[1].id.clone(),
+                        })
+                        .collect(),
+                })
+                .expect("moves back");
+        }
+    }
+
+    #[test]
+    fn a_dragged_group_stops_at_zero_as_a_whole() {
+        use crate::placement::shifted_starts;
+        // Pulled left past the start, the early clip would stop at zero and
+        // the rest would go on: the group keeps its shape instead.
+        assert_eq!(shifted_starts(&[3.0, 13.0, 23.0], -5.0), [0.0, 10.0, 20.0]);
+        assert_eq!(shifted_starts(&[3.0, 13.0], -1.0), [2.0, 12.0]);
+        assert_eq!(shifted_starts(&[3.0, 13.0], 4.0), [7.0, 17.0]);
+        assert!(shifted_starts(&[], 4.0).is_empty());
+    }
+
     #[test]
     fn a_move_whose_clips_would_cover_each_other_stays_put() {
         let (mut editor, media_id, _first) = fixture();
