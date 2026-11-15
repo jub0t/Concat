@@ -19,8 +19,10 @@
 //! 2. **Transcription.** The engine's audio decoder hands over the clip's
 //!    window as 16 kHz mono floats - the input whisper wants. Silero finds
 //!    the speech in it, and whisper hears only that, laid end to end: the
-//!    silence and the music between are where it made words up. The
-//!    language is the one asked for, or the one heard over the speech,
+//!    silence and the music between are where it made words up. An
+//!    answer that threw away more sound as loud as speech than it kept is
+//!    not taken, and whisper hears the whole (`Doubt`). The language is
+//!    the one asked for, or the one heard over the speech,
 //!    and it is fixed for the whole run. The segments come back relative
 //!    to the window, with what whisper heard but did not mean - a line it
 //!    had no confidence in over what it took for silence, a phrase looped
@@ -613,6 +615,189 @@ fn on_speech(start: f64, end: f64, speech: &[(f64, f64)]) -> (f64, f64) {
     (start.max(first), end.min(last))
 }
 
+/// What whisper hears of `samples`, and the speech its captions are timed
+/// by, from the detector's answer: the speech cut out and laid end to end,
+/// or the whole of the sound when there is no answer, when the recipe
+/// wants the whole, or when the answer is in [`Doubt`]. Says which in the
+/// log.
+fn hear(
+    samples: &[f32],
+    detected: Option<Vec<(f64, f64)>>,
+    recipe: Recipe,
+) -> (SpeechReel<'_>, Vec<(f64, f64)>) {
+    let total = samples.len() as f64 / f64::from(SAMPLE_RATE);
+    let Some(spans) = detected else {
+        return (SpeechReel::whole(samples), Vec::new());
+    };
+    let cut = SpeechReel::cut(samples, &spans);
+    let measure = Doubt::measure(samples, &spans, &cut);
+    if let Some(doubt) = measure.as_ref().filter(|doubt| doubt.holds()) {
+        log::info!(
+            "transcribe: whisper hears all {total:.1} s of the sound, not the speech detector's \
+             {:.1} s in {} piece(s): {doubt}",
+            cut.seconds(),
+            cut.pieces.len(),
+        );
+        return (SpeechReel::whole(samples), Vec::new());
+    }
+    if !recipe.speech_only {
+        return (SpeechReel::whole(samples), spans);
+    }
+    if cut.samples.is_empty() {
+        log::info!("transcribe: no speech heard in {total:.1} s of sound");
+    } else {
+        // What an answer that was taken left out is said too: a share of
+        // the speech lost short of the rule shows in a report's log.
+        let left_out = measure
+            .filter(|measure| measure.thrown >= MIN_THROWN)
+            .map(|measure| format!(" · {:.1} s as loud as speech left out", measure.thrown))
+            .unwrap_or_default();
+        log::info!(
+            "transcribe: {:.1} s of speech in {} piece(s), of {total:.1} s of sound{left_out}",
+            cut.seconds(),
+            cut.pieces.len(),
+        );
+    }
+    (cut, spans)
+}
+
+/// Why the speech detector's answer is not taken: it threw away more of
+/// the sound that is as loud as speech than it kept. Skipping silence is
+/// an optimisation and must never drop speech, so the answer is checked
+/// against the sound's own levels before whisper is held to it.
+///
+/// The sound is read in 20 ms frames, and a frame is as loud as speech
+/// when it is within [`UNDER_SPEECH`] of the median frame of the speech
+/// the detector heard. `kept` is the seconds of such frames inside the
+/// reel whisper would hear, `thrown` the seconds outside it. Levels are
+/// relative to the speech, not to the sound's floor: under a music bed
+/// louder than the voice the floor is the music, and a bar above it
+/// counted nothing, kept or thrown, while the detector lost 54 s of 92.
+///
+/// A detector that is right throws away silence, room tone and the odd
+/// music sting: little sound as loud as the speech beside what it keeps.
+/// On synthesised dialogue - clean, at -45 dB, clipped, over music or
+/// pink noise at 0 to 20 dB SNR, 16, 44.1 and 48 kHz - Silero kept all of
+/// it. With music 10 dB over the voice it kept 38 s of 92, and in #763
+/// 9.6 s of 92 s of continuous talk: each a claim that most of the
+/// clip's sound is not speech, which is the claim a detector that has
+/// failed makes. When it is true - a music video with a line in it - not
+/// taking it costs what 0.2.8 did, whisper over all of it with its own
+/// pruning; when it is false, taking it loses the captions for good. So
+/// it is not taken.
+///
+/// With no speech heard there is no voice to measure against, and the
+/// loudest tenth of the sound stands in for one. A sound that is quiet
+/// throughout ([`QUIET`]) - silence, a room's own tone - has no speech in
+/// it to lose, and nothing is captioned, as before. Any other goes to
+/// whisper whole, steady or not: with a voice 18 and 22 dB under music
+/// the detector heard no speech at all, and whisper, given all of it,
+/// wrote every line; given the music alone, hiss, room tone or silence it
+/// wrote none (base.en; the multilingual models were not at hand).
+#[derive(Debug, PartialEq)]
+struct Doubt {
+    kept: f64,
+    thrown: f64,
+}
+
+/// A frame is as loud as speech within this of the speech's median: a
+/// voice's own frames spread about that wide, and a steady background
+/// further under it is not a line the detector missed.
+const UNDER_SPEECH: f32 = 10.0;
+/// A sound whose loudest tenth of frames is under this, in dBFS, is quiet
+/// throughout: silence or a room's own tone, under the quietest voice a
+/// microphone hands over.
+const QUIET: f32 = -55.0;
+/// Less loud sound thrown away than this is no doubt: shorter than a word.
+const MIN_THROWN: f64 = 0.5;
+
+impl Doubt {
+    /// The measure of an answer, taken or not; none for a sound with no
+    /// frames, or a steady one in which no speech was heard.
+    fn measure(samples: &[f32], speech: &[(f64, f64)], reel: &SpeechReel) -> Option<Doubt> {
+        const FRAME: usize = SAMPLE_RATE as usize / 50;
+        let rate = f64::from(SAMPLE_RATE);
+        let levels: Vec<f32> = samples
+            .chunks(FRAME)
+            .map(|frame| {
+                let power = frame
+                    .iter()
+                    .map(|&s| if s.is_finite() { s * s } else { 0.0 })
+                    .sum::<f32>()
+                    / frame.len() as f32;
+                10.0 * power.max(1e-12).log10()
+            })
+            .collect();
+        if levels.is_empty() {
+            return None;
+        }
+        let percentile = |mut values: Vec<f32>, share: f64| {
+            values.sort_by(f32::total_cmp);
+            values[((values.len() - 1) as f64 * share) as usize]
+        };
+        let centre = |index: usize| (index * FRAME + FRAME / 2) as f64 / rate;
+        let heard: Vec<f32> = levels
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| {
+                let at = centre(index);
+                speech.iter().any(|&(from, to)| from <= at && at < to)
+            })
+            .map(|(_, &level)| level)
+            .collect();
+        let voice = if heard.is_empty() {
+            let loud = percentile(levels.clone(), 0.9);
+            if loud < QUIET {
+                return None;
+            }
+            loud
+        } else {
+            percentile(heard, 0.5)
+        };
+        let bar = voice - UNDER_SPEECH;
+        let (mut kept, mut thrown) = (0.0, 0.0);
+        for (index, &level) in levels.iter().enumerate() {
+            if level < bar {
+                continue;
+            }
+            let at = index * FRAME + FRAME / 2;
+            let seconds = FRAME.min(samples.len() - index * FRAME) as f64 / rate;
+            if reel
+                .pieces
+                .iter()
+                .any(|piece| piece.from <= at && at < piece.from + piece.len)
+            {
+                kept += seconds;
+            } else {
+                thrown += seconds;
+            }
+        }
+        Some(Doubt { kept, thrown })
+    }
+
+    /// Whether the answer is not to be taken: more sound as loud as
+    /// speech thrown away than kept.
+    fn holds(&self) -> bool {
+        self.thrown > self.kept && self.thrown >= MIN_THROWN
+    }
+
+    /// The measure of an answer that is not to be taken.
+    #[cfg(test)]
+    fn of(samples: &[f32], speech: &[(f64, f64)], reel: &SpeechReel) -> Option<Doubt> {
+        Self::measure(samples, speech, reel).filter(Doubt::holds)
+    }
+}
+
+impl std::fmt::Display for Doubt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "it threw away {:.1} s of sound as loud as speech and kept {:.1} s",
+            self.thrown, self.kept
+        )
+    }
+}
+
 /// The VAD model as a file whisper can open, written beside the
 /// transcription models the first time it is wanted.
 fn vad_model(dirs: &AppDirs) -> Result<PathBuf, String> {
@@ -955,29 +1140,14 @@ impl Transcriber {
             .unwrap_or(4);
 
         // Where the speech is; see `VAD_MODEL`. Whisper hears only that,
-        // and the captions are timed by it. A clip in which Silero hears no
-        // speech at all has nothing to caption: whisper given music or
-        // silence alone is where "thanks for watching" came from.
-        let speech = speech_spans(dirs, &samples, threads);
-        let reel = match &speech {
-            Some(spans) if recipe.speech_only => SpeechReel::cut(&samples, spans),
-            _ => SpeechReel::whole(&samples),
-        };
+        // and the captions are timed by it - unless the detector's answer
+        // cannot be trusted to hold all of the speech (`Doubt`), when
+        // whisper hears the whole of the sound. A clip that is silence
+        // throughout has nothing to caption: whisper given silence alone is
+        // where "thanks for watching" came from.
+        let (reel, speech) = hear(&samples, speech_spans(dirs, &samples, threads), recipe);
         if reel.samples.is_empty() {
-            log::info!(
-                "transcribe: no speech heard in {:.1} s of sound",
-                samples.len() as f64 / f64::from(SAMPLE_RATE)
-            );
             return Ok(Vec::new());
-        }
-        let speech = speech.unwrap_or_default();
-        if recipe.speech_only {
-            log::info!(
-                "transcribe: {:.1} s of speech in {} piece(s), of {:.1} s of sound",
-                reel.seconds(),
-                reel.pieces.len(),
-                samples.len() as f64 / f64::from(SAMPLE_RATE)
-            );
         }
 
         // The GPU only where whisper's kernels are written for it; see
@@ -1371,6 +1541,10 @@ mod tests {
     fn captions_of_a_file() {
         let path = std::env::var("CONCAT_CAPTION_FILE").expect("CONCAT_CAPTION_FILE");
         let model_id = std::env::var("CONCAT_CAPTION_MODEL").unwrap_or("base.en".to_owned());
+        // The log beside the captions: what the speech detector kept, and
+        // whether its answer was taken.
+        let _ = log::set_logger(&super::accuracy::Stderr)
+            .map(|()| log::set_max_level(log::LevelFilter::Info));
         let dirs = AppDirs::locate().expect("app dirs");
         // Past the end is fine: the decoder stops where the sound does.
         let window = 3600.0;
@@ -1543,6 +1717,126 @@ mod tests {
         assert!(close(whole.seconds(), 20.0));
     }
 
+    /// `seconds` of a voice whose syllables are at `db` dBFS: 140 Hz and
+    /// its harmonics, 180 ms on and 70 ms off, each a little louder or
+    /// softer than the last, and a breath of 400 ms every three seconds.
+    fn talk(seconds: f64, db: f32) -> Vec<f32> {
+        let rate = f64::from(SAMPLE_RATE);
+        let mut voice: Vec<f32> = (0..(seconds * rate) as usize)
+            .map(|n| {
+                let t = n as f64 / rate;
+                let (syllable, into) = ((t / 0.25) as u64, t % 0.25);
+                if into > 0.18 || t % 3.0 > 2.6 {
+                    return 0.0;
+                }
+                let loudness = 0.6 + 0.4 * ((syllable * 2_654_435_761) % 97) as f32 / 97.0;
+                let envelope = (std::f64::consts::PI * into / 0.18).sin() as f32;
+                let voice: f64 = (1..=6)
+                    .map(|k| (2.0 * std::f64::consts::PI * 140.0 * k as f64 * t).sin() / k as f64)
+                    .sum();
+                loudness * envelope * voice as f32
+            })
+            .collect();
+        let voiced: Vec<f32> = voice.iter().copied().filter(|&s| s != 0.0).collect();
+        let rms = (voiced.iter().map(|s| s * s).sum::<f32>() / voiced.len() as f32).sqrt();
+        let gain = 10f32.powf(db / 20.0) / rms;
+        voice.iter_mut().for_each(|s| *s *= gain);
+        voice
+    }
+
+    /// `seconds` of steady hiss at `db` dBFS.
+    fn hiss(seconds: f64, db: f32) -> Vec<f32> {
+        let gain = 10f32.powf(db / 20.0) * 3f32.sqrt();
+        let mut state: u32 = 0x1234_5678;
+        (0..(seconds * f64::from(SAMPLE_RATE)) as usize)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                gain * ((state >> 8) as f32 / (1 << 24) as f32 * 2.0 - 1.0)
+            })
+            .collect()
+    }
+
+    /// Two sounds played together.
+    fn mix(mut a: Vec<f32>, b: &[f32]) -> Vec<f32> {
+        for (a, b) in a.iter_mut().zip(b) {
+            *a += b;
+        }
+        a
+    }
+
+    /// #763: 92 s of continuous talk, of which the speech detector on a
+    /// Windows machine heard two short stretches at the start. Its answer
+    /// is not taken: whisper hears all of the sound, and the captions keep
+    /// whisper's own times rather than ones drawn in to spans that missed
+    /// most of the speech.
+    #[test]
+    fn a_detector_that_keeps_a_tenth_of_continuous_talk_is_not_trusted() {
+        let samples = mix(talk(92.0, -20.0), &hiss(92.0, -60.0));
+        let missed = vec![(1.5, 4.3), (6.0, 8.6)];
+        let doubt =
+            Doubt::of(&samples, &missed, &SpeechReel::cut(&samples, &missed)).expect("in doubt");
+        assert!(doubt.thrown > 40.0 && doubt.kept < 10.0, "{doubt:?}");
+        let (reel, speech) = hear(&samples, Some(missed), Recipe::SHIPPED);
+        assert_eq!(
+            reel.pieces,
+            [Piece {
+                at: 0,
+                from: 0,
+                len: samples.len()
+            }]
+        );
+        assert!(speech.is_empty());
+    }
+
+    /// What the detector is for: the silences cut, a music sting between
+    /// two stretches of talk left out, and a steady fan under the voice
+    /// not taken for speech it missed. Its answer stands.
+    #[test]
+    fn a_detector_that_cuts_silence_a_sting_and_a_fan_is_trusted() {
+        let mut samples = hiss(3.0, -70.0);
+        samples.extend(talk(17.0, -20.0));
+        samples.extend(hiss(6.0, -70.0));
+        samples.extend(hiss(4.0, -20.0));
+        samples.extend(talk(30.0, -20.0));
+        samples.extend(hiss(5.0, -70.0));
+        let spans = vec![(3.0, 20.0), (30.0, 60.0)];
+        assert_eq!(
+            Doubt::of(&samples, &spans, &SpeechReel::cut(&samples, &spans)),
+            None
+        );
+        let (reel, speech) = hear(&samples, Some(spans.clone()), Recipe::SHIPPED);
+        assert_eq!(reel.pieces.len(), 2);
+        assert!(reel.seconds() < 55.0);
+        assert_eq!(speech, spans);
+
+        // Twenty seconds of talk, then a minute of a fan 18 dB under it.
+        let mut fan = mix(talk(20.0, -20.0), &hiss(20.0, -38.0));
+        fan.extend(hiss(60.0, -38.0));
+        let spans = vec![(0.0, 20.0)];
+        let (reel, _) = hear(&fan, Some(spans), Recipe::SHIPPED);
+        assert!(reel.seconds() < 25.0);
+    }
+
+    /// No speech heard in silence or a room's tone is nothing to caption;
+    /// no speech heard in any sound louder than that - a minute of talk, or
+    /// a steady bed a voice may lie under - is not taken, and whisper hears
+    /// the whole of it.
+    #[test]
+    fn no_speech_heard_is_taken_only_of_a_quiet_sound() {
+        for quiet in [hiss(60.0, -65.0), vec![0.0; 30 * SAMPLE_RATE as usize]] {
+            let (reel, _) = hear(&quiet, Some(Vec::new()), Recipe::SHIPPED);
+            assert!(reel.samples.is_empty());
+        }
+        for sound in [
+            mix(talk(60.0, -20.0), &hiss(60.0, -60.0)),
+            // Steady and loud: the bed a voice 18 dB under it was lost in.
+            hiss(60.0, -30.0),
+        ] {
+            let (reel, _) = hear(&sound, Some(Vec::new()), Recipe::SHIPPED);
+            assert_eq!(reel.samples.len(), sound.len());
+        }
+    }
+
     #[test]
     fn a_loop_inside_a_line_is_said_once() {
         assert_eq!(
@@ -1642,7 +1936,7 @@ mod accuracy {
     }
 
     /// The log, on stderr, so the language heard shows beside the numbers.
-    struct Stderr;
+    pub(super) struct Stderr;
     impl log::Log for Stderr {
         fn enabled(&self, metadata: &log::Metadata) -> bool {
             metadata.level() <= log::max_level()
