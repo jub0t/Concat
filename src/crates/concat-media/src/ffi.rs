@@ -115,10 +115,149 @@ unsafe extern "C" fn relay(
     if text.is_empty() {
         return;
     }
+    if level <= ffmpeg::sys::AV_LOG_ERROR {
+        remember(text);
+    }
     if level <= ffmpeg::sys::AV_LOG_FATAL {
         log::error!(target: "ffmpeg", "{text}");
     } else {
         log::debug!(target: "ffmpeg", "{text}");
+    }
+}
+
+/// How many of FFmpeg's error lines an operation's failure carries: the
+/// last few, which are the ones that say why.
+const SAID_LINES: usize = 4;
+
+thread_local! {
+    /// FFmpeg's error lines on this thread since the operation now running
+    /// began (see [`begin`]). Thread-local because the operations it serves
+    /// - parsing and configuring a filter graph, opening a codec - run on
+    /// the thread that asked for them, and `relay` is called on the thread
+    /// that logs; a line logged by one of FFmpeg's own worker threads, as
+    /// a frame-threaded decoder's are while it decodes, is not kept.
+    static SAID: std::cell::RefCell<std::collections::VecDeque<String>> =
+        const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
+}
+
+/// Keeps one of FFmpeg's error lines for the failure it may explain.
+fn remember(text: &str) {
+    let _ = SAID.try_with(|said| {
+        if let Ok(mut said) = said.try_borrow_mut() {
+            if said.len() == SAID_LINES {
+                said.pop_front();
+            }
+            said.push_back(text.to_owned());
+        }
+    });
+}
+
+/// The start of an operation in which FFmpeg reads text - a filter graph
+/// built and configured, a codec opened with its options - and whose
+/// failure should carry FFmpeg's own words ([`fail_said`]). Numbers are
+/// made to read as FFmpeg expects first ([`keep_c_numbers`]).
+pub(crate) fn begin() {
+    init();
+    keep_c_numbers();
+    let _ = SAID.try_with(|said| {
+        if let Ok(mut said) = said.try_borrow_mut() {
+            said.clear();
+        }
+    });
+}
+
+/// [`fail`] with what FFmpeg said since the operation [`begin`]: its error
+/// code alone is "Invalid argument", and the line before it is the one
+/// that names the option it could not read.
+pub(crate) fn fail_said(operation: &'static str, path: &Path, error: ffmpeg::Error) -> Error {
+    let lines = SAID
+        .try_with(|said| {
+            said.try_borrow_mut()
+                .map(|mut said| said.drain(..).collect::<Vec<_>>().join("; "))
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    Error::Ffi {
+        operation,
+        path: path.to_path_buf(),
+        detail: if lines.is_empty() {
+            error.to_string()
+        } else {
+            format!("{error} · {lines}")
+        },
+    }
+}
+
+/// `struct lconv` as far as its first field, which is all that is read of
+/// it. The `libc` crate has no `localeconv` for Windows; the UCRT exports
+/// it, and the field order is the C standard's everywhere.
+#[cfg(windows)]
+#[repr(C)]
+struct Lconv {
+    decimal_point: *mut c_char,
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    fn localeconv() -> *mut Lconv;
+}
+
+#[cfg(unix)]
+use libc::localeconv;
+
+/// Puts the C runtime's number format back to C's when something loaded
+/// into the process has switched it, and says whether it had to.
+///
+/// FFmpeg reads every fractional value in a filter graph or an option -
+/// `atempo=1.500000`, `volume=0.5` - with the C runtime's `strtod`, which
+/// reads the decimal point the current `LC_NUMERIC` names. Under one that
+/// writes decimals with a comma, every such value is refused and the graph
+/// fails with "Invalid argument": a clip at any speed but 1x decoded to
+/// nothing (#762). Concat never sets the locale itself; this undoes it
+/// whoever did. One `localeconv` read when nothing is wrong. On Windows
+/// the program and FFmpeg's DLLs share the UCRT's one locale, so setting
+/// it here sets it for them. Android's and iOS's C libraries take the
+/// same calls; Android's has no locale but C's, so there it never acts.
+pub(crate) fn keep_c_numbers() -> bool {
+    #[cfg(any(unix, windows))]
+    {
+        // SAFETY: `localeconv` returns the C runtime's own struct, valid
+        // until the next locale call; the point is copied out at once and
+        // the struct not touched again.
+        let point = unsafe {
+            let conv = localeconv();
+            if conv.is_null() || (*conv).decimal_point.is_null() {
+                return false;
+            }
+            CStr::from_ptr((*conv).decimal_point).to_bytes().to_vec()
+        };
+        if point == b"." {
+            return false;
+        }
+        let found = String::from_utf8_lossy(&point).into_owned();
+        // SAFETY: a constant, NUL-terminated locale name for one category.
+        let set = unsafe { libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr()) };
+        if set.is_null() {
+            log::warn!(
+                target: "ffmpeg",
+                "this process's number format had been switched to {found:?} for decimals by \
+                 something loaded into Concat, and could not be set back: FFmpeg will refuse \
+                 every fractional value"
+            );
+        } else {
+            log::warn!(
+                target: "ffmpeg",
+                "this process's number format had been switched to {found:?} for decimals by \
+                 something loaded into Concat; set back, since FFmpeg would refuse every \
+                 fractional value"
+            );
+        }
+        true
+    }
+    // No C locale to speak of on any other target.
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
     }
 }
 
@@ -451,6 +590,7 @@ const PLATFORM_AAC: Option<&str> = if cfg!(any(target_os = "macos", target_os = 
 pub(crate) fn audio_decoder(
     stream: &ffmpeg::format::stream::Stream,
 ) -> std::result::Result<ffmpeg::codec::decoder::Audio, ffmpeg::Error> {
+    begin();
     if stream.parameters().id() == ffmpeg::codec::Id::AAC
         && let Some(name) = PLATFORM_AAC
         && let Some(codec) = ffmpeg::codec::decoder::find_by_name(name)

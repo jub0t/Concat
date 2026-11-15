@@ -957,6 +957,7 @@ impl Decoder {
                 (None, Some(found))
             }
         };
+        ffi::begin();
         let opened = match named {
             Some(found) => context
                 .decoder()
@@ -964,7 +965,7 @@ impl Decoder {
                 .and_then(|opened| opened.video()),
             None => context.decoder().video(),
         };
-        let mut decoder = opened.map_err(|error| ffi::fail("open decoder", path, error))?;
+        let mut decoder = opened.map_err(|error| ffi::fail_said("open decoder", path, error))?;
         if options.keyframes_only {
             decoder.skip_frame(ffmpeg::Discard::NonKey);
         }
@@ -1401,6 +1402,7 @@ impl Decoder {
     }
 
     fn build_graph(&self, format: Pixel, width: u32, height: u32) -> Result<filter::Graph> {
+        ffi::begin();
         let mut graph = filter::Graph::new();
         let args = format!(
             "video_size={width}x{height}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1",
@@ -1418,14 +1420,14 @@ impl Decoder {
                 "in",
                 &args,
             )
-            .map_err(|error| ffi::fail("buffer source", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("buffer source", &self.path, error))?;
         graph
             .add(
                 &filter::find("buffersink").ok_or_else(|| missing("buffersink"))?,
                 "out",
                 "",
             )
-            .map_err(|error| ffi::fail("buffer sink", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("buffer sink", &self.path, error))?;
         let spec = video_filter(
             self.rotation,
             &self.options,
@@ -1437,10 +1439,10 @@ impl Decoder {
             .output("in", 0)
             .and_then(|parser| parser.input("out", 0))
             .and_then(|parser| parser.parse(&spec))
-            .map_err(|error| ffi::fail("filter graph", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("filter graph", &self.path, error))?;
         graph
             .validate()
-            .map_err(|error| ffi::fail("filter graph", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("filter graph", &self.path, error))?;
         Ok(graph)
     }
 

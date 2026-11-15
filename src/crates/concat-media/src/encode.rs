@@ -1249,9 +1249,10 @@ fn open_video(
             _ => {}
         }
     }
+    ffi::begin();
     let encoder = video
         .open_with(settings)
-        .map_err(|error| ffi::fail("open encoder", path, error))?;
+        .map_err(|error| ffi::fail_said("open encoder", path, error))?;
     Ok((encoder, pixel_format))
 }
 
@@ -2165,9 +2166,10 @@ pub fn jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>> {
     let quality = i32::from(quality.clamp(2, 31));
     video.set_qmin(quality);
     video.set_qmax(quality);
+    ffi::begin();
     let mut encoder = video
         .open()
-        .map_err(|error| ffi::fail("open jpeg encoder", path, error))?;
+        .map_err(|error| ffi::fail_said("open jpeg encoder", path, error))?;
 
     let mut rgba = Video::new(Pixel::RGBA, frame.width(), frame.height());
     {
