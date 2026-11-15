@@ -9,7 +9,7 @@ description = "Titles as pixels: shapes a text clip's words and rasterises them 
 
 [dependencies]
 # Font discovery - the system's faces plus the files a project carries.
-fontdb = "0.23"
+fontdb = "0.24"
 # Shaping: glyph ids and advances from the words, kerning and ligatures
 # included. Pure Rust HarfBuzz.
 rustybuzz = "0.20"
