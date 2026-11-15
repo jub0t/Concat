@@ -457,6 +457,12 @@ pub fn is_settings_only(document: &serde_json::Value) -> bool {
 /// opens a half-written document as an empty project and saves over it
 /// (audit 2026-09-23, #1).
 pub fn read_document(path: &str) -> Result<Option<serde_json::Value>, String> {
+    read_document_as_stored(path).map(|read| read.map(|(document, _)| document))
+}
+
+/// [`read_document`], with the bytes the document was read from: what
+/// [`keep_opened_copy`] keeps.
+pub fn read_document_as_stored(path: &str) -> Result<Option<(serde_json::Value, Vec<u8>)>, String> {
     let manifest = manifest_path(Path::new(path));
     let bytes = match std::fs::read(&manifest) {
         Ok(bytes) => bytes,
@@ -464,8 +470,33 @@ pub fn read_document(path: &str) -> Result<Option<serde_json::Value>, String> {
         Err(error) => return Err(format!("could not read {}: {error}", manifest.display())),
     };
     serde_json::from_slice(&bytes)
-        .map(Some)
+        .map(|document| Some((document, bytes)))
         .map_err(|error| format!("{} is not a Concat project: {error}", manifest.display()))
+}
+
+/// Where the copy of the document as it was last opened lives: beside the
+/// manifest, under its name with `.opened` before the extension
+/// (`concat.opened.json`). Never a manifest itself, so nothing that looks
+/// for projects takes it for one.
+pub fn opened_copy_path(root: &Path) -> PathBuf {
+    let manifest = manifest_path(root);
+    let stem = manifest
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "concat".to_owned());
+    root.join(format!("{stem}.opened.json"))
+}
+
+/// Keeps `bytes` - the document exactly as an open read it - beside the
+/// manifest, replacing the copy the last open kept. Written before the
+/// session's first save, so whatever that save and every one after it do,
+/// the file as it stood before this run touched it is one rename away.
+/// Written like the manifest: a temporary of its own, flushed, renamed.
+pub fn keep_opened_copy(path: &str, bytes: &[u8]) -> Result<(), String> {
+    let root = Path::new(path);
+    let mut temporary = Temporary::open(root)?;
+    temporary.write(bytes)?;
+    temporary.commit(&opened_copy_path(root))
 }
 
 /// Reads an existing project's settings.

@@ -533,6 +533,11 @@ export global Editor {
     in-out property <int> count-media;
     in-out property <int> count-tracks;
     in-out property <int> count-clips;
+    /// What the project holds and this build cannot show, counted short
+    /// ("2 clips, 1 part"); empty when it shows everything.
+    in-out property <string> unread-count;
+    /// The same, as the sentence the open's notice said.
+    in-out property <string> unread-notice;
     /// The panel's Modify button: open the project sheet.
     callback modify-project();
 

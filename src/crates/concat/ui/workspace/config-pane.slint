@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
 import { I18n } from "../i18n.slint";
-import { Theme, SegmentedControl } from "../primitives/primitives.slint";
+import { Theme, SegmentedControl, Tip } from "../primitives/primitives.slint";
 import { SectionTabs } from "../primitives/section-tabs.slint";
 import { Glyph } from "../icons.slint";
 import { Select } from "../primitives/select.slint";
@@ -75,6 +75,32 @@ component FactRow inherits HorizontalLayout {
     }
 }
 
+// A FactRow with more to say than fits: the same row, and the whole sentence
+// in a tip while the pointer rests on it. The pointer is the tip's, so this
+// value is not selectable as the others are; a count is nothing to copy.
+component TipFactRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> tip;
+
+    height: row.preferred-height;
+
+    row := FactRow {
+        x: 0;
+        y: 0;
+        width: root.width;
+        label: root.label;
+        value: root.value;
+    }
+
+    touch := TouchArea { }
+
+    Tip {
+        text: root.tip;
+        active: touch.has-hover;
+    }
+}
+
 // "PROJECT", "CONTENTS" — the muted caps that break the facts into groups.
 component FactHeading inherits HorizontalLayout {
     in property <string> title;
@@ -132,6 +158,11 @@ export component ConfigPane inherits Rectangle {
     in property <int> count-media;
     in property <int> count-tracks;
     in property <int> count-clips;
+    /// What the project holds and cannot show, counted short; empty hides
+    /// the row.
+    in property <string> unread-count;
+    /// The whole sentence, behind that row.
+    in property <string> unread-notice;
 
     callback modify-project();
 
@@ -521,6 +552,11 @@ export component ConfigPane inherits Rectangle {
                     FactRow { label: I18n.t("common.media"); value: "\{root.count-media}"; }
                     FactRow { label: I18n.t("configPane.tracks"); value: "\{root.count-tracks}"; }
                     FactRow { label: I18n.t("configPane.clips"); value: "\{root.count-clips}"; }
+                    if root.unread-count != "": TipFactRow {
+                        label: I18n.t("configPane.notShown");
+                        value: root.unread-count;
+                        tip: root.unread-notice;
+                    }
                 }
             }
         }

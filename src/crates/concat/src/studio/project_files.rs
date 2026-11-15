@@ -140,6 +140,7 @@ impl Studio {
                 // The relink dialog belongs to the project that opened it;
                 // this project's own check follows below.
                 self.relink = Default::default();
+                self.unread_pending = None;
                 crate::host::next_project_epoch();
                 self.forget_art();
                 self.art_failed.clear();
@@ -216,6 +217,13 @@ impl Studio {
                         false,
                     );
                 }
+                // Parts of the file this build cannot read - from a newer
+                // Concat, or damaged - are kept in it unchanged, and the
+                // person told once, after the other notices of this open.
+                let unread = self
+                    .session
+                    .as_ref()
+                    .and_then(|session| unread_notice(session.unread()));
 
                 // Log missing media to file for debugging
                 if let Some(session) = &self.session {
@@ -235,6 +243,15 @@ impl Studio {
                         self.handle(crate::panes::Msg::Relink(
                             crate::panes::relink::RelinkMsg::Show(missing),
                         ));
+                    }
+                }
+                // The relink dialog opening now would hide the notice while
+                // the person deals with it: it waits for the dialog to close.
+                if let Some(notice) = unread {
+                    if self.relink.open {
+                        self.unread_pending = Some(notice);
+                    } else {
+                        self.warn(&notice);
                     }
                 }
                 Ok(())
@@ -499,6 +516,13 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.relink);
                 pane.update(msg, self);
                 self.relink = pane;
+                // However the dialog closed - every file found, the last one
+                // removed, dismissed - the notice it held back goes up now.
+                if !self.relink.open
+                    && let Some(notice) = self.unread_pending.take()
+                {
+                    self.warn(&notice);
+                }
             }
             crate::panes::Msg::Project(msg) => {
                 let mut pane = std::mem::take(&mut self.project_sheet);
@@ -527,4 +551,66 @@ impl Studio {
             }
         }
     }
+}
+
+/// What the person is told when part of the project opened cannot be shown,
+/// or None when all of it can.
+pub(super) fn unread_notice(unread: concat_project::UnreadSummary) -> Option<String> {
+    let what: Vec<String> = [
+        match unread.clips {
+            0 => None,
+            1 => Some(t("studio.unreadClipOne")),
+            n => Some(tf("studio.unreadClipsMany", &[&n.to_string()])),
+        },
+        match unread.media {
+            0 => None,
+            1 => Some(t("studio.unreadMediaOne")),
+            n => Some(tf("studio.unreadMediaMany", &[&n.to_string()])),
+        },
+        match unread.timelines {
+            0 => None,
+            1 => Some(t("studio.unreadTimelineOne")),
+            n => Some(tf("studio.unreadTimelinesMany", &[&n.to_string()])),
+        },
+        match unread.parts {
+            0 => None,
+            1 => Some(t("studio.unreadPartOne")),
+            n => Some(tf("studio.unreadPartsMany", &[&n.to_string()])),
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!what.is_empty()).then(|| tf("studio.unreadKept", &[&what.join(", ")]))
+}
+
+/// The Details panel's short count of what the project holds and cannot
+/// show, or empty when it shows everything.
+pub(super) fn unread_count(unread: concat_project::UnreadSummary) -> String {
+    let what: Vec<String> = [
+        match unread.clips {
+            0 => None,
+            1 => Some(t("configPane.notShownClipOne")),
+            n => Some(tf("configPane.notShownClipsMany", &[&n.to_string()])),
+        },
+        match unread.media {
+            0 => None,
+            1 => Some(t("configPane.notShownMediaOne")),
+            n => Some(tf("configPane.notShownMediaMany", &[&n.to_string()])),
+        },
+        match unread.timelines {
+            0 => None,
+            1 => Some(t("configPane.notShownTimelineOne")),
+            n => Some(tf("configPane.notShownTimelinesMany", &[&n.to_string()])),
+        },
+        match unread.parts {
+            0 => None,
+            1 => Some(t("configPane.notShownPartOne")),
+            n => Some(tf("configPane.notShownPartsMany", &[&n.to_string()])),
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    what.join(", ")
 }

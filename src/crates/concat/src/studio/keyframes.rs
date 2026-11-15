@@ -1966,6 +1966,19 @@ impl Studio {
         editor.set_count_media(self.project().media.len() as i32);
         editor.set_count_tracks(self.timeline().tracks.len() as i32);
         editor.set_count_clips(self.timeline().clips.len() as i32);
+        // What the file holds and this build cannot show: a row only while
+        // there is any, its whole sentence behind it.
+        let unread = self
+            .session
+            .as_ref()
+            .map(|session| session.unread())
+            .unwrap_or_default();
+        editor.set_unread_count(super::project_files::unread_count(unread).into());
+        editor.set_unread_notice(
+            super::project_files::unread_notice(unread)
+                .unwrap_or_default()
+                .into(),
+        );
         app.set_project_sheet(self.project_sheet.data(self));
 
         let rows = self.menu();

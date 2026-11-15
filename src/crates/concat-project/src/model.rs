@@ -1288,9 +1288,16 @@ impl Mask {
 
     /// The first id of the form `mask-N` none of `masks` has.
     pub fn next_id(masks: &[Mask]) -> String {
+        Mask::next_id_past(masks, &[])
+    }
+
+    /// [`Mask::next_id`], stepping past `taken` too: the ids of the clip's
+    /// masks this build could not read, which the file still holds
+    /// ([`crate::unread::Unread::mask_ids`]).
+    pub fn next_id_past(masks: &[Mask], taken: &[&str]) -> String {
         (1..)
             .map(|n| format!("mask-{n}"))
-            .find(|id| masks.iter().all(|mask| &mask.id != id))
+            .find(|id| masks.iter().all(|mask| &mask.id != id) && !taken.contains(&id.as_str()))
             .expect("an unbounded range finds one")
     }
 
@@ -3649,6 +3656,13 @@ pub struct Project {
     /// Top-level fields this build does not know, kept so they round-trip.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
+    /// The entries of the document this build could not read or place - a
+    /// clip of a kind from a newer build, a keyframe that does not parse -
+    /// held as they were read and written back where they came from; see
+    /// [`crate::unread`]. Not part of the edit: no command touches it, and
+    /// it is never sent anywhere but the document.
+    #[serde(skip)]
+    pub unread: crate::unread::Unread,
 }
 
 /// A media reference that points to a non-existent file.
@@ -3691,7 +3705,15 @@ impl Project {
                 extra: Map::new(),
             })],
             active_timeline_id: "TL1".to_owned(),
+            unread: crate::unread::Unread::default(),
         }
+    }
+
+    /// How much of the document this project was read from could not be
+    /// read, and is held unchanged for the next save to write back. Empty
+    /// for a document read in full and for a project made here.
+    pub fn unread_summary(&self) -> crate::unread::UnreadSummary {
+        self.unread.summary()
     }
 
     /// The timeline being edited. The active id is maintained by the command

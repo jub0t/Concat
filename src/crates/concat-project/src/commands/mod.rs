@@ -1102,6 +1102,11 @@ impl IdMint {
                 self.adopt(&clip.id);
             }
         }
+        // And every id in what the read held unread: a clip minted here
+        // must never share an id with one the file still carries.
+        for id in project.unread.ids() {
+            self.adopt(id);
+        }
     }
 }
 

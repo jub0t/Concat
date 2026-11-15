@@ -1081,6 +1081,9 @@ pub struct Studio {
     pub export: crate::panes::export::ExportPane,
     pub settings: crate::panes::settings::SettingsPane,
     pub relink: crate::panes::relink::RelinkPane,
+    /// The notice that part of the project cannot be shown, held back while
+    /// the relink dialog the same open raised is up; raised when it closes.
+    pub unread_pending: Option<String>,
     /// What the confirmation sheet is asking about, while it is up.
     pub confirm: Option<Confirm>,
     /// The clip whose incoming transition is selected, while no clip is:
@@ -3110,6 +3113,7 @@ impl Studio {
             export: Default::default(),
             settings: crate::panes::settings::SettingsPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
+            unread_pending: None,
             confirm: None,
             transition_selected: None,
             open_menu: -1,

@@ -12,7 +12,7 @@
 //! disk is written by exactly one code path.
 
 use concat_project::model::VideoSettings;
-use concat_project::{Command, DocumentSettings, Editor, Project};
+use concat_project::{Command, DocumentSettings, Editor, Project, UnreadSummary};
 use serde::Serialize;
 
 use crate::projects;
@@ -28,6 +28,9 @@ pub struct Session {
     upgraded: Vec<(String, String)>,
     /// The clips whose retired fields the open took off.
     retired: concat_project::RetiredFields,
+    /// How much of the document this build could not read, held unchanged
+    /// for every save to write back: what the window tells the person.
+    unread: UnreadSummary,
 }
 
 /// What every mutating call returns: the authoritative state plus history
@@ -78,13 +81,19 @@ impl Session {
     /// every timeline's own frame with it, and those win, because that is
     /// where an edited frame was saved.
     pub fn open(path: &str, settings: DocumentSettings) -> Result<Session, String> {
-        let editor = match projects::read_document(path) {
-            Ok(Some(document)) => match Editor::from_document(&document) {
-                Some(editor) => editor,
+        // The document's bytes, as read, for the copy kept once it opens.
+        let mut stored: Option<Vec<u8>> = None;
+        let editor = match projects::read_document_as_stored(path) {
+            Ok(Some((document, bytes))) => match Editor::from_document(&document) {
+                Some(editor) => {
+                    stored = Some(bytes);
+                    editor
+                }
                 // The settings-only manifest `create` writes: a project
                 // closed before its first edit reopens empty, it is not
                 // corrupt.
                 None if projects::is_settings_only(&document) => {
+                    stored = Some(bytes);
                     Editor::with_video(settings.video())
                 }
                 None if concat_project::document_version(&document)
@@ -124,12 +133,34 @@ impl Session {
         // Fields an earlier version wrote and this one does not read, off
         // the clips, with the clips named for the window to say so.
         let retired = editor.drop_retired_fields();
+        // What this build cannot read stays in the document, unchanged, and
+        // every save writes it back; the person is told by the window.
+        let unread = editor.project().unread_summary();
+        if !unread.is_empty() {
+            log::warn!(
+                "project: opened with parts this build cannot read, kept unchanged in the file and not shown · {} clips, {} media, {} timelines, {} other parts",
+                unread.clips,
+                unread.media,
+                unread.timelines,
+                unread.parts
+            );
+        }
+        // The file as this open found it, kept before any save of this run
+        // can replace it.
+        if let Some(bytes) = stored
+            && let Err(error) = projects::keep_opened_copy(path, &bytes)
+        {
+            log::warn!(
+                "project: keeping a copy of the document as opened failed: {error}; it opens all the same"
+            );
+        }
         Ok(Session {
             path: path.to_owned(),
             settings,
             editor,
             upgraded,
             retired,
+            unread,
         })
     }
 
@@ -160,6 +191,13 @@ impl Session {
     /// forwards, animated ones that hold still. Empty for most documents.
     pub fn retired(&self) -> &concat_project::RetiredFields {
         &self.retired
+    }
+
+    /// How much of the document this open could not read: clips, media,
+    /// timelines and parts of clips this build cannot show, held unchanged
+    /// and written back by every save. Empty for most documents.
+    pub fn unread(&self) -> UnreadSummary {
+        self.unread
     }
 
     /// The project folder.
@@ -386,6 +424,84 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A document with parts this build cannot read - a clip of a kind from
+    /// a newer build, an effect among readable ones, a media item that does
+    /// not parse - opens with the rest, keeps a copy of itself as opened,
+    /// and every save writes the parts back as they were.
+    #[test]
+    fn what_this_build_cannot_read_survives_open_save_and_reopen() {
+        use serde_json::json;
+        let scratch = tempfile::tempdir().expect("scratch dir");
+        let root = scratch.path().join("Newer");
+        std::fs::create_dir_all(&root).expect("project folder");
+        let newer_clip = json!({ "id": "c2", "trackId": "T1", "kind": "hologram",
+                                 "start": 2.0, "duration": 1.0, "beam": "teal" });
+        let newer_effect = json!({ "id": "glow", "params": { "amount": "lots" } });
+        let newer_media = json!({ "id": "m2", "path": { "cloud": "x" }, "kind": "video" });
+        let document = json!({
+            "name": "Newer", "version": 2,
+            "media": [{ "id": "m1", "path": "/a.mp4", "name": "a.mp4", "kind": "video" },
+                      newer_media],
+            "timelines": [{
+                "id": "TL1", "name": "Timeline 1",
+                "tracks": [{ "id": "T1" }],
+                "clips": [
+                    { "id": "c1", "trackId": "T1", "mediaId": "m1", "kind": "video",
+                      "start": 0.0, "duration": 2.0,
+                      "videoEffects": [{ "id": "sepia" }, newer_effect] },
+                    newer_clip
+                ]
+            }],
+            "activeTimelineId": "TL1"
+        });
+        let bytes = serde_json::to_vec_pretty(&document).expect("encodes");
+        std::fs::write(root.join("concat.json"), &bytes).expect("writes");
+        let path = root.to_string_lossy().into_owned();
+
+        let mut session = Session::open(&path, settings()).expect("opens");
+        assert_eq!(
+            session.unread(),
+            UnreadSummary {
+                clips: 1,
+                media: 1,
+                timelines: 0,
+                parts: 1,
+            }
+        );
+        assert_eq!(session.project().active().clips.len(), 1);
+        // The file as opened, kept beside it before any save.
+        assert_eq!(
+            std::fs::read(root.join("concat.opened.json")).expect("the copy"),
+            bytes
+        );
+
+        session
+            .apply(Command::AddTrack { bottom: false })
+            .expect("edits");
+        session.save(None).expect("saves");
+        let reopened = Session::open(&path, settings()).expect("reopens");
+        assert_eq!(reopened.unread(), session.unread(), "nothing was lost");
+        let saved = projects::read_document(&path)
+            .expect("reads")
+            .expect("a document");
+        let clips = saved["timelines"][0]["clips"].as_array().expect("clips");
+        assert!(clips.contains(&newer_clip));
+        assert_eq!(clips[0]["videoEffects"][1], newer_effect);
+        assert!(
+            saved["media"]
+                .as_array()
+                .expect("media")
+                .contains(&newer_media)
+        );
+        // The reopen kept the saved document as its copy, and the copy is
+        // never taken for a project's manifest.
+        assert_eq!(
+            std::fs::read(projects::opened_copy_path(&root)).expect("the copy"),
+            std::fs::read(projects::manifest_path(&root)).expect("the manifest")
+        );
+        assert!(projects::manifest_path(&root).ends_with("concat.json"));
     }
 
     #[test]

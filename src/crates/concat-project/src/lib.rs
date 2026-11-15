@@ -34,6 +34,7 @@ pub mod speed;
 #[cfg(test)]
 mod speed_curve_tests;
 pub mod srt;
+pub mod unread;
 
 pub use commands::{
     Command, CommandError, Outcome, PlayheadSide, consolidation_clips, delete_to_playhead,
@@ -42,6 +43,7 @@ pub use commands::{
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};
 pub use model::Project;
+pub use unread::UnreadSummary;
 
 #[cfg(test)]
 mod tests {
@@ -2786,11 +2788,12 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_the_reader_cannot_parse_is_dropped_not_the_document() {
+    fn an_entry_the_reader_cannot_parse_is_held_not_the_document() {
         let document = json!({
             "name": "Mixed", "version": 1,
             "media": [
-                { "id": "m1", "path": "/a.mp4", "kind": "hologram" },
+                { "id": "m1", "path": "/a.mp4" },
+                { "id": "m4", "path": "/d.mp4", "kind": "hologram" },
                 { "id": "m2", "path": "/b.mp4", "kind": "audio", "audioTracks": "nope" },
                 { "path": "/no-id.mp4" }
             ],
@@ -2805,12 +2808,13 @@ mod tests {
         });
         let editor = Editor::from_document(&document).expect("loads");
         let project = editor.project();
-        assert_eq!(project.media.len(), 2, "the entry without an id is dropped");
         assert_eq!(
-            project.media[0].kind,
-            MediaKind::Video,
-            "an unknown kind is video"
+            project.media.len(),
+            2,
+            "the entry without an id and the one of a kind from a newer build are held"
         );
+        assert_eq!(project.unread_summary().media, 2);
+        assert_eq!(project.media[0].kind, MediaKind::Video, "no kind is video");
         assert_eq!(
             project.media[0].name, "/a.mp4",
             "a nameless entry is called by its path"
@@ -2830,7 +2834,7 @@ mod tests {
         let clip = timeline.clip("c1").expect("c1");
         assert!(
             clip.cutout.is_none(),
-            "a cutout that does not parse is no cutout"
+            "a cutout that does not parse is no cutout here, and is held"
         );
         assert!(clip.keys.is_empty());
         assert_eq!(clip.transition_in.as_ref().expect("kept").duration, 1.0);
