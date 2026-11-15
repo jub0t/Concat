@@ -244,6 +244,50 @@ pub enum Request {
         #[serde(default)]
         height: Option<u32>,
     },
+
+    /// Hears one clip's speech with an installed whisper model and makes
+    /// captions of it, as the window's auto-captions do. The captions are
+    /// placed on the timeline in one undoable step, unless `place` is
+    /// false, and are handed back either way, so a caller can place them
+    /// itself with the edits it already has. Runs until the clip is
+    /// heard: a long clip takes a while.
+    #[serde(rename = "captions.generate")]
+    CaptionsGenerate {
+        /// The project folder.
+        path: String,
+        /// The clip whose speech is heard, on the active timeline.
+        clip_id: String,
+        /// Which whisper model, e.g. "small". Absent: the largest one
+        /// installed, the way the settings panel lists them. A model that
+        /// is not downloaded is an error naming it.
+        #[serde(default)]
+        model: Option<String>,
+        /// The language spoken, by whisper's code ("id", "de", ...).
+        /// Absent, whisper hears it for itself. An English-only model
+        /// hears English whatever this says.
+        #[serde(default)]
+        language: Option<String>,
+        /// The most words one caption may carry. A longer run of speech
+        /// is split at word boundaries, its span shared out by word
+        /// count. Absent: whisper's own phrases, as the window places
+        /// them.
+        #[serde(default)]
+        max_words: Option<u32>,
+        /// Place the captions on the timeline as they are made, in the
+        /// window's caption look; the title edits restyle them after.
+        #[serde(default = "place_by_default")]
+        place: bool,
+        /// Vertical placement of placed captions, as a fraction of frame
+        /// height from the centre: 0.35 (the default) is near the bottom,
+        /// 0 the middle, -0.35 the top.
+        #[serde(default)]
+        offset_y: Option<f64>,
+    },
+}
+
+/// `captions.generate` places unless told not to.
+fn place_by_default() -> bool {
+    true
 }
 
 /// One template slot and the file that takes it.
@@ -334,8 +378,38 @@ pub enum Reply {
     Written(Written),
     /// [`Request::PreviewFrame`] without one: the picture itself.
     Picture(Picture),
+    /// [`Request::CaptionsGenerate`]: the captions that were made.
+    Captions(GeneratedCaptions),
     /// Methods with nothing to say beyond having worked.
     Done(Done),
+}
+
+/// One caption [`Request::CaptionsGenerate`] made, in timeline seconds.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionCue {
+    /// When it appears, in seconds on the timeline.
+    pub start: f64,
+    /// When it goes, in seconds on the timeline.
+    pub end: f64,
+    /// The words.
+    pub text: String,
+}
+
+/// [`Request::CaptionsGenerate`]'s answer: what was heard, and where it
+/// went.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedCaptions {
+    /// The whisper model that heard it, e.g. "small".
+    pub model: String,
+    /// The captions, in timeline order.
+    pub captions: Vec<CaptionCue>,
+    /// How many of them were placed on the timeline: all of them, or
+    /// none when the caller asked only to hear them.
+    pub placed: usize,
 }
 
 /// The build and the contract it speaks.

@@ -54,11 +54,13 @@ use concat_host::stabilize::{StabilizeRequest, Stabilizers};
 use concat_host::templates::{self, SlotFill};
 use concat_host::{ProjectInfo, Session, Titles, lock, media, projects};
 use concat_project::Command;
-use concat_project::model::VideoSettings;
+use concat_project::model::{TextStyle, VideoSettings};
+use concat_speech::transcribe::{Segment, TranscribeRequest, Transcriber};
 
 pub use message::{
-    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, JobState, JobStatus,
-    PackageInfo, ParamInfo, Picture, Reply, Request, Response, Started, VersionInfo, Written,
+    API_VERSION, ApiError, CaptionCue, Dirs, Done, ErrorCode, Event, ExportSpec, Fill,
+    GeneratedCaptions, JobState, JobStatus, PackageInfo, ParamInfo, Picture, Reply, Request,
+    Response, Started, VersionInfo, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -243,6 +245,10 @@ pub struct Api {
     titles: Titles,
     cutouts: Arc<Cutouts>,
     stabilizers: Arc<Stabilizers>,
+    /// The whisper transcriber behind `captions.generate`: its own, so a
+    /// transport's captions never wait on the window's sheet, and the
+    /// transcriber's gate keeps it to one hearing at a time.
+    transcriber: Arc<Transcriber>,
     monitor: Monitor,
     exporter: Exporter,
     events: EventSink,
@@ -302,6 +308,7 @@ impl Api {
             titles: Titles::new(&dirs),
             cutouts: Arc::new(Cutouts::new(&dirs.data)),
             stabilizers: Arc::new(Stabilizers::new()),
+            transcriber: Arc::new(Transcriber::new()),
             monitor: Monitor::new(),
             exporter: Exporter::new(),
             sessions: BTreeMap::new(),
@@ -501,6 +508,17 @@ impl Api {
                     None => Ok(Reply::Picture(self.picture(&path, time, size)?)),
                 }
             }
+            Request::CaptionsGenerate {
+                path,
+                clip_id,
+                model,
+                language,
+                max_words,
+                place,
+                offset_y,
+            } => Ok(Reply::Captions(self.generate_captions(
+                &path, &clip_id, model, language, max_words, place, offset_y,
+            )?)),
         }
     }
 
@@ -848,6 +866,110 @@ impl Api {
         })
     }
 
+    /// [`Request::CaptionsGenerate`]: the clip heard by the transcriber,
+    /// its speech made into captions and, unless the caller asked only to
+    /// hear it, placed in one undoable step. The hearing runs to its end
+    /// on this call, as the window's sheet runs to its own.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_captions(
+        &mut self,
+        path: &str,
+        clip_id: &str,
+        model: Option<String>,
+        language: Option<String>,
+        max_words: Option<u32>,
+        place: bool,
+        offset_y: Option<f64>,
+    ) -> Result<GeneratedCaptions, ApiError> {
+        // The clip, its file and the hearing's shape, settled before the
+        // hearing starts: the session is not held across it.
+        let (request, clip_start, speed) = {
+            let session = self.session(path)?;
+            let project = session.project();
+            let clip = project.active().clip(clip_id).ok_or_else(|| {
+                ApiError::new(
+                    ErrorCode::NotFound,
+                    format!("no clip {clip_id} on the active timeline"),
+                )
+            })?;
+            let media = project
+                .media_by_id(&clip.media_id)
+                .ok_or_else(|| ApiError::failed(format!("clip {clip_id} has no file")))?;
+            let model = match model {
+                Some(model) => model,
+                None => self.installed_model()?,
+            };
+            let language = (!concat_speech::transcribe::english_only(&model))
+                .then_some(language)
+                .flatten();
+            (
+                TranscribeRequest {
+                    path: media.path.clone(),
+                    audio_stream: clip.audio_stream,
+                    source_start: clip.source_start,
+                    window: clip.duration * clip.speed,
+                    model_id: model,
+                    language,
+                },
+                clip.start,
+                clip.speed,
+            )
+        };
+        let segments = self
+            .transcriber
+            .transcribe(&self.dirs, &request, |_| {})
+            .map_err(ApiError::failed)?;
+        let captions = caption_cues(&segments, clip_start, speed, max_words);
+        let placed = if place && !captions.is_empty() {
+            let base = caption_style();
+            let commands: Vec<Command> = captions
+                .iter()
+                .map(|cue| Command::AddTextClip {
+                    track_id: None,
+                    above: true,
+                    start: cue.start,
+                    style: Some(TextStyle {
+                        content: cue.text.clone(),
+                        // A caption is sized by its words, as the
+                        // window's are, and one title's word looks are
+                        // not another's.
+                        max_width: 0.0,
+                        max_height: 0.0,
+                        runs: Vec::new(),
+                        ..base.clone()
+                    }),
+                    duration: Some(cue.end - cue.start),
+                    offset_y: Some(offset_y.unwrap_or(0.35)),
+                })
+                .collect();
+            let count = commands.len();
+            self.apply(path, Command::Batch { commands })?;
+            count
+        } else {
+            0
+        };
+        Ok(GeneratedCaptions {
+            model: request.model_id.clone(),
+            captions,
+            placed,
+        })
+    }
+
+    /// The whisper model a hearing falls back to: the largest one
+    /// downloaded, in the order the catalogue lists them.
+    fn installed_model(&self) -> Result<String, ApiError> {
+        let status = Transcriber::status(&self.dirs).map_err(ApiError::failed)?;
+        status
+            .models
+            .iter()
+            .rev()
+            .find(|model| model.downloaded)
+            .map(|model| model.id.clone())
+            .ok_or_else(|| {
+                ApiError::failed("no whisper model is downloaded - see Settings > Transcriber")
+            })
+    }
+
     /// The composited RGBA frame at `time`.
     fn pixels(
         &mut self,
@@ -1153,6 +1275,59 @@ fn not_open(path: &str) -> ApiError {
     )
 }
 
+/// The look a placed caption gets: the window's, Hanken Grotesk
+/// semibold at 0.04 of the frame.
+fn caption_style() -> TextStyle {
+    TextStyle {
+        font_family: "Hanken Grotesk".to_owned(),
+        font_size: 0.04,
+        font_weight: 600.0,
+        ..TextStyle::default()
+    }
+}
+
+/// Whisper's segments as captions on the timeline. A segment's seconds
+/// are the clip's source seconds, so they are divided by its speed and
+/// set down at its start, the window's own arithmetic, with no caption
+/// shorter than the 0.2 s the window allows. A word cap splits a long
+/// segment at word boundaries, its span shared out by word count.
+fn caption_cues(
+    segments: &[Segment],
+    clip_start: f64,
+    speed: f64,
+    max_words: Option<u32>,
+) -> Vec<CaptionCue> {
+    let cap = max_words.filter(|cap| *cap > 0).map(|cap| cap as usize);
+    let mut cues = Vec::new();
+    for segment in segments {
+        let words: Vec<&str> = segment.text.split_whitespace().collect();
+        if words.is_empty() {
+            continue;
+        }
+        let chunks: Vec<&[&str]> = match cap {
+            Some(cap) if words.len() > cap => words.chunks(cap).collect(),
+            _ => vec![&words[..]],
+        };
+        let total = words.len() as f64;
+        let mut done = 0usize;
+        for chunk in chunks {
+            let share =
+                |done: usize| segment.start + (segment.end - segment.start) * (done as f64 / total);
+            let from = share(done);
+            done += chunk.len();
+            let to = share(done);
+            let start = clip_start + from / speed;
+            let end = (clip_start + to / speed).max(start + 0.2);
+            cues.push(CaptionCue {
+                start,
+                end,
+                text: chunk.join(" "),
+            });
+        }
+    }
+    cues
+}
+
 /// The edit layer's no, as the code that says so.
 fn refused(message: String) -> ApiError {
     ApiError::new(ErrorCode::Refused, message)
@@ -1197,6 +1372,55 @@ mod tests {
     use concat_project::model::MediaKind;
     use serde_json::json;
     use std::sync::Mutex;
+
+    fn segment(start: f64, end: f64, text: &str) -> Segment {
+        Segment {
+            start,
+            end,
+            text: text.to_owned(),
+        }
+    }
+
+    #[test]
+    fn caption_cues_land_at_the_clips_start_divided_by_its_speed() {
+        // The window's arithmetic: source seconds over the clip's speed,
+        // set down at the clip's start, nothing shorter than 0.2 s.
+        let segments = vec![
+            segment(2.0, 5.0, "halo dunia"),
+            segment(5.0, 5.1, "ya"),
+            segment(6.0, 7.0, "   "),
+        ];
+        let cues = caption_cues(&segments, 10.0, 2.0, None);
+        assert_eq!(cues.len(), 2);
+        assert_eq!(
+            cues[0],
+            CaptionCue {
+                start: 11.0,
+                end: 12.5,
+                text: "halo dunia".to_owned(),
+            }
+        );
+        assert_eq!(cues[1].start, 12.5);
+        assert_eq!(cues[1].end, 12.7);
+    }
+
+    #[test]
+    fn caption_cues_split_a_long_segment_at_the_word_cap() {
+        // Six words over nine seconds, two to a caption: three captions
+        // of three seconds each, the words in order.
+        let segments = vec![segment(0.0, 9.0, "satu dua tiga empat lima enam")];
+        let cues = caption_cues(&segments, 0.0, 1.0, Some(2));
+        assert_eq!(cues.len(), 3);
+        assert_eq!(cues[0].text, "satu dua");
+        assert_eq!(cues[1].text, "tiga empat");
+        assert_eq!(cues[2].text, "lima enam");
+        assert_eq!((cues[0].start, cues[0].end), (0.0, 3.0));
+        assert_eq!((cues[1].start, cues[1].end), (3.0, 6.0));
+        assert_eq!((cues[2].start, cues[2].end), (6.0, 9.0));
+        // A cap of zero, and one the segment already meets, split nothing.
+        assert_eq!(caption_cues(&segments, 0.0, 1.0, Some(0)).len(), 1);
+        assert_eq!(caption_cues(&segments, 0.0, 1.0, Some(6)).len(), 1);
+    }
 
     /// An API whose config and data live in a scratch folder that goes
     /// away with the test, and whose events pile up where a test can read
