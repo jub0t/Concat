@@ -16,7 +16,7 @@ use ndk::media::media_codec::{
 };
 use ndk::media::media_format::MediaFormat;
 
-use super::{AudioBus, AudioClip, MIX_RATE, run_mix};
+use super::{AudioBus, AudioClip, MIX_RATE, MixOutput, run_mix};
 use crate::error::{Error, Result};
 use crate::ffi;
 
@@ -204,6 +204,7 @@ pub(super) fn mix(
     buses: &[AudioBus],
     duration: f64,
     destination: &Path,
+    mut progress: impl FnMut(f64) -> bool,
 ) -> Result<()> {
     let mut aac = Aac::open(destination)?;
     let mut output = ffmpeg::format::output(destination)
@@ -273,15 +274,21 @@ pub(super) fn mix(
         clips,
         buses,
         (0.0, duration),
-        "s16",
-        Some(FRAME as u32),
-        destination,
+        MixOutput {
+            format: "s16",
+            frame_size: Some(FRAME as u32),
+            destination,
+        },
+        &mut progress,
         |mixed| {
             let bytes = mixed.samples() * CHANNELS * 2;
             aac.feed(&mixed.data(0)[..bytes], false, &mut packets)?;
             write(&mut packets, &mut output)
         },
     )?;
+    if !progress(1.0) {
+        return Err(Error::Cancelled);
+    }
     // The encoder's delay and a frame more of silence, so the mix's last
     // samples come out of it before the end of the stream.
     let tail = vec![0u8; (DELAY as usize + FRAME) * CHANNELS * 2];

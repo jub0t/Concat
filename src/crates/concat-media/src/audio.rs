@@ -764,7 +764,7 @@ fn mix_encoded(
         {
             validate_chain(chain)?;
         }
-        return android_aac::mix(clips, buses, duration, destination);
+        return android_aac::mix(clips, buses, duration, destination, progress);
     }
     let wav = matches!(encoding, MixEncoding::Pcm16 | MixEncoding::PcmFloat);
     let (codec_name, mix_format) = match encoding {
