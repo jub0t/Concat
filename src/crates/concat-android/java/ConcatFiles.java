@@ -191,6 +191,28 @@ public class ConcatFiles extends Fragment {
     }
 
     /**
+     * Keeps the screen on while a job runs, or lets it go dark again (#695).
+     * From any thread, and without waiting: the window's flag is set on the
+     * activity's own thread. The native side must not set it through
+     * android-activity, whose lock the window's thread holds while it
+     * handles the event that starts the job.
+     */
+    public static void keepScreenOn(final Activity activity, final boolean on) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (on) {
+                    activity.getWindow().addFlags(
+                            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                } else {
+                    activity.getWindow().clearFlags(
+                            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            }
+        });
+    }
+
+    /**
      * Opens a web address in the browser, or in whichever app claims it -
      * the launch screen's guides, the repository, the Discord invite. Null
      * when it went, or why it could not. Asked straight rather than through
@@ -330,12 +352,14 @@ public class ConcatFiles extends Fragment {
     /**
      * How the system says the app's last process ended, read once as the
      * app starts; Android 11 and on keep a record, and null comes back on
-     * an older phone or when there is none. Three strings: the log file
+     * an older phone or when there is none. Four strings: the log file
      * that process was writing (as {@code log} named it for this one), or
      * empty; "died" when it ended in a way nobody asked for - a crash, a
-     * hang, killed while on screen - or "ended"; and what the system says,
-     * for the log. A native crash brings its signal, thread, abort message
-     * and top frames, read from the crash report the system kept.
+     * hang, killed while on screen - or "ended"; what the system says, for
+     * the log; and, for a hang (ANR), where the threads that matter were
+     * when the system gave up on it, or empty. A native crash brings its
+     * signal, thread, abort message and top frames, read from the crash
+     * report the system kept.
      *
      * This run is then marked with {@code log}, so the next run knows which
      * file this one is.
@@ -430,9 +454,144 @@ public class ConcatFiles extends Fragment {
                 detail.append(" · its crash report could not be read: ").append(e);
             }
         }
+        // A hang's record carries the system's dump of every thread as it
+        // was when the app was given up on: the one place that says what
+        // the window was doing instead of answering.
+        String threads = "";
+        if (exit.getReason() == ApplicationExitInfo.REASON_ANR) {
+            try {
+                InputStream trace = exit.getTraceInputStream();
+                if (trace != null) {
+                    threads = AnrTrace.threads(new String(readAll(trace), StandardCharsets.UTF_8));
+                } else {
+                    threads = "the system kept no dump of its threads";
+                }
+            } catch (IOException | RuntimeException e) {
+                threads = "its threads' dump could not be read: " + e;
+            }
+        }
         byte[] mark = exit.getProcessStateSummary();
         String log = mark == null ? "" : new String(mark, StandardCharsets.UTF_8);
-        return new String[] {log, died ? "died" : "ended", detail.toString()};
+        return new String[] {log, died ? "died" : "ended", detail.toString(), threads};
+    }
+
+    /**
+     * The threads of an ANR dump worth a log: the Java main thread, and
+     * every thread standing in Concat's own library - the window's thread
+     * among them, which on a NativeActivity is not "main". The dump is the
+     * runtime's text or the system's native one, one block a thread, each
+     * opening with the thread's quoted name, with a blank line after; each
+     * block kept is its first line and its frames, at most
+     * {@link #FRAMES} of them, and all of them together at most
+     * {@link #BUDGET} characters, the main thread first.
+     */
+    static final class AnrTrace {
+        /** The library cargo-apk packages Concat's code as. */
+        static final String LIBRARY = "libconcat_android.so";
+        static final int FRAMES = 40;
+        static final int BUDGET = 12 * 1024;
+
+        static String threads(String dump) {
+            List<String> main = new ArrayList<>();
+            List<String> ours = new ArrayList<>();
+            // A thread's block opens with its quoted name at the start of
+            // a line - straight under "DALVIK THREADS (n):" for the first -
+            // and ends at a blank line.
+            // The process's own id, from the "----- pid N at ... -----" a
+            // dump opens with: a native dump names the main thread after
+            // the process, and only its sysTid, the process's id, says
+            // which it is.
+            String pid = "";
+            StringBuilder block = null;
+            for (String line : (dump + "\n").split("\\r?\\n")) {
+                if (line.startsWith("----- pid ")) {
+                    String[] words = line.split(" ");
+                    pid = words.length > 2 ? words[2] : "";
+                }
+                if (line.startsWith("\"")) {
+                    sort(block, pid, main, ours);
+                    block = new StringBuilder();
+                } else if (line.trim().isEmpty()) {
+                    sort(block, pid, main, ours);
+                    block = null;
+                }
+                if (block != null) {
+                    block.append(line).append('\n');
+                }
+            }
+            sort(block, pid, main, ours);
+            List<String> blocks = new ArrayList<>(main);
+            blocks.addAll(ours);
+            if (blocks.isEmpty()) {
+                return "its threads' dump named neither the main thread nor " + LIBRARY;
+            }
+            StringBuilder out = new StringBuilder();
+            int left = blocks.size();
+            for (String thread : blocks) {
+                if (out.length() + thread.length() > BUDGET) {
+                    out.append(left).append(" more thread(s) left out for length\n");
+                    break;
+                }
+                out.append(thread);
+                left--;
+            }
+            return out.toString().trim();
+        }
+
+        /**
+         * A finished block to the main thread's place, Concat's, or none.
+         * The runtime's dump names the main thread "main"; the system's
+         * native one, which it falls back on when the runtime does not
+         * answer, names it after the process, with the process's id.
+         */
+        private static void sort(
+                StringBuilder block, String pid, List<String> main, List<String> ours) {
+            if (block == null) {
+                return;
+            }
+            String text = block.toString().trim();
+            String name = text.split("\\r?\\n", 2)[0];
+            if (name.startsWith("\"main\"")
+                    || (!pid.isEmpty() && name.endsWith(" sysTid=" + pid))) {
+                main.add(kept(text));
+            } else if (name.startsWith("\"android_main\"")) {
+                // The window's own thread, the one a hang is most likely
+                // in: first of Concat's, whatever the budget leaves out.
+                ours.add(0, kept(text));
+            } else if (text.contains(LIBRARY)) {
+                ours.add(kept(text));
+            }
+        }
+
+        /** One thread's block: its name line, then its frames. */
+        private static String kept(String block) {
+            String[] lines = block.split("\\r?\\n");
+            StringBuilder out = new StringBuilder(lines[0].trim()).append('\n');
+            int frames = 0;
+            int cut = 0;
+            for (int i = 1; i < lines.length; i++) {
+                String line = lines[i].trim();
+                // The runtime's own facts about the thread - its group, its
+                // scheduler, its stack's bounds, how long it took to dump -
+                // are left; the state is in the name line.
+                if (line.isEmpty() || line.startsWith("|") || line.startsWith("DumpLatencyMs")) {
+                    continue;
+                }
+                if (frames < FRAMES) {
+                    // A file by its name alone: the app's folder under
+                    // /data/app is two random names long, and the rest of
+                    // the path says nothing the name does not.
+                    out.append("  ").append(line.replaceAll("(?<=\\s)/\\S*/", "")).append('\n');
+                    frames++;
+                } else {
+                    cut++;
+                }
+            }
+            if (cut > 0) {
+                out.append("  ... ").append(cut).append(" more frame(s)\n");
+            }
+            return out.toString();
+        }
     }
 
     private static byte[] readAll(InputStream in) throws IOException {

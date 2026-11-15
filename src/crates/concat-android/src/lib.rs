@@ -585,7 +585,7 @@ mod log_file {
             super::publisher::strings(env, answer).map(Some)
         });
         match answer.as_ref().map(|answer| answer.as_deref()) {
-            Ok(Some([Some(log), Some(verdict), Some(detail)])) => {
+            Ok(Some([Some(log), Some(verdict), Some(detail), threads])) => {
                 let died = verdict == "died";
                 let run = if log.is_empty() {
                     "unmarked"
@@ -596,6 +596,15 @@ mod log_file {
                     log::warn!("last run: {run} died · the system says: {detail}");
                 } else {
                     log::info!("last run: {run} ended · the system says: {detail}");
+                }
+                // A hang's threads as the system found them, one entry
+                // under the line above: what the window was doing instead
+                // of answering, frames in Concat's library as offsets in
+                // it (docs/LOGGING.md, "Reading a phone's hang").
+                if let Some(threads) = threads.as_deref().filter(|text| !text.trim().is_empty()) {
+                    log::warn!(
+                        "last run: the threads of {run} when the system gave up on it\n{threads}"
+                    );
                 }
                 concat::note_last_exit(log.clone(), died);
             }
@@ -610,24 +619,37 @@ mod log_file {
 /// download - so a phone left on the table does not time out half a
 /// minute in and stop the export with it (#695). The window's flag, which
 /// the activity applies on its own thread.
+///
+/// Through the activity's Java, never `AndroidApp::set_window_flags`: that
+/// takes the app's lock for writing, and the window's thread is inside
+/// `poll_events`, which holds the same lock for reading for as long as an
+/// event is handled - and an event is where a job starts. Called from
+/// Export, the window's thread waited on itself for good, and Android
+/// closed Concat as not responding (#747, #786, #760, #744; 0.2.10 and
+/// 0.2.11, since #695). Off that thread it is no better: a writer waiting
+/// there blocks the next read the window's thread takes inside its event.
+/// The Java posts to the activity's thread and returns.
 #[cfg(target_os = "android")]
 mod awake {
+    use jni::{jni_sig, jni_str};
     use slint::android::AndroidApp;
-    use slint::android::android_activity::WindowManagerFlags;
 
     pub fn install(app: &AndroidApp) {
         let app = app.clone();
         concat::install_awake(Box::new(move |on| {
             log::debug!("display: the screen kept on while a job runs: {on}");
-            if on {
-                app.set_window_flags(
-                    WindowManagerFlags::KEEP_SCREEN_ON,
-                    WindowManagerFlags::empty(),
-                );
-            } else {
-                app.set_window_flags(
-                    WindowManagerFlags::empty(),
-                    WindowManagerFlags::KEEP_SCREEN_ON,
+            let asked = super::java::with_class(&app, |env, activity, class| {
+                env.call_static_method(
+                    class,
+                    jni_str!("keepScreenOn"),
+                    jni_sig!("(Landroid/app/Activity;Z)V"),
+                    &[activity.into(), on.into()],
+                )?;
+                Ok(())
+            });
+            if let Err(error) = asked {
+                log::warn!(
+                    "display: could not keep the screen on while a job runs: {error}; it may go dark part way"
                 );
             }
         }));
