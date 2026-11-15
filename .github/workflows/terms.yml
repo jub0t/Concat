@@ -23,20 +23,58 @@ jobs:
     name: Terms confirmed
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # On a pull request, or on a comment on one that is either the
-    # confirmation itself or a request to look again.
+    # On a pull request, or on a comment on one that asks to look again or
+    # mentions the terms at all (`contains` ignores case). A pull request
+    # closed without being merged is left alone: on any `closed` event the
+    # action locks the conversation, and a locked pull request can neither
+    # be confirmed in nor be asked about after it is reopened.
     if: >-
-      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'pull_request_target' &&
+       (github.event.action != 'closed' || github.event.pull_request.merged)) ||
       (github.event.issue.pull_request &&
        (github.event.comment.body == 'recheck' ||
-        github.event.comment.body == 'I have read the Concat contributing terms and I agree to them.'))
+        contains(github.event.comment.body, 'contributing terms')))
     permissions:
       actions: write
       contents: write
       pull-requests: write
       statuses: write
     steps:
-      - uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+      # The action counts a comment only when it is the sentence and nothing
+      # else (it ignores case and the spaces around it). A comment that is
+      # close but not that gets an answer saying so, not silence. The body
+      # comes in through the environment, never pasted into the script.
+      - name: A confirmation is the sentence on its own
+        id: sentence
+        if: github.event_name == 'issue_comment' && github.event.comment.body != 'recheck'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          BODY: ${{ github.event.comment.body }}
+          SENTENCE: I have read the Concat contributing terms and I agree to them.
+        run: |
+          # Lower case, and every space, tab and line break trimmed off both
+          # ends: what the action itself does before it compares.
+          normal() {
+            local text
+            text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+            text="${text#"${text%%[![:space:]]*}"}"
+            printf '%s' "${text%"${text##*[![:space:]]}"}"
+          }
+          if [ "$(normal "$BODY")" = "$(normal "$SENTENCE")" ]; then
+            echo "counts=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "counts=false" >> "$GITHUB_OUTPUT"
+          case "$(normal "$BODY")" in
+            *"have read the concat contributing terms"*)
+              printf 'That one did not count: the confirmation has to be a comment with this sentence and nothing else, exactly as written (the full stop too):\n\n%s\n' "$SENTENCE" > reply.md
+              gh pr comment "$PR" --repo "$REPO" --body-file reply.md
+              ;;
+          esac
+      - if: steps.sentence.outcome == 'skipped' || steps.sentence.outputs.counts == 'true'
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
