@@ -529,6 +529,29 @@ impl Api {
         video: VideoSettings,
     ) -> Result<EditorView, ApiError> {
         self.writable(location)?;
+        // The tool contract says the location is an existing directory.
+        // Hold it to that, in words and codes a caller can act on: a
+        // location that is not there gets NotFound, one that is not a
+        // folder gets Invalid, and neither is silently created. Without
+        // this, the only word for every failure was the OS's, and a
+        // location that exists but cannot be written to could report
+        // itself as a missing file (#598).
+        match std::fs::metadata(location) {
+            Ok(meta) if !meta.is_dir() => {
+                return Err(ApiError::new(
+                    ErrorCode::Invalid,
+                    format!("the location {location} is not a folder"),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ApiError::new(
+                    ErrorCode::NotFound,
+                    format!("the location {location} does not exist"),
+                ));
+            }
+            Err(_) => {}
+        }
         let info = projects::create(
             location,
             name,
@@ -1656,6 +1679,38 @@ mod tests {
             height: Some(9),
         }));
         assert_eq!(refused.code, ErrorCode::Invalid);
+    }
+
+    #[test]
+    fn create_names_a_location_that_is_not_there() {
+        let (mut api, scratch, _events) = api();
+        let missing = scratch.path().join("nope").to_string_lossy().into_owned();
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: missing.clone(),
+            name: "Nope".to_owned(),
+            video: None,
+        }));
+        assert_eq!(refused.code, ErrorCode::NotFound);
+        assert!(
+            refused.message.contains("does not exist"),
+            "{}",
+            refused.message
+        );
+        assert!(!scratch.path().join("nope").exists(), "nothing made");
+
+        let file = scratch.path().join("afile");
+        std::fs::write(&file, b"x").expect("file");
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: file.to_string_lossy().into_owned(),
+            name: "Nope".to_owned(),
+            video: None,
+        }));
+        assert_eq!(refused.code, ErrorCode::Invalid);
+        assert!(
+            refused.message.contains("is not a folder"),
+            "{}",
+            refused.message
+        );
     }
 
     #[test]
