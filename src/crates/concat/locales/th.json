@@ -931,6 +931,7 @@
   "textPanel.horizontal": "แนวนอน",
   "textPanel.importFont": "นำเข้าฟอนต์…",
   "textPanel.italic": "ตัวเอียง",
+  "textPanel.justify": "ชิดขอบทั้งสองด้าน",
   "textPanel.layout": "เลย์เอาต์",
   "textPanel.letterCase": "ตัวพิมพ์",
   "textPanel.lineHeight": "ความสูงบรรทัด",

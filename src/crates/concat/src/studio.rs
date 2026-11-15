@@ -1430,10 +1430,7 @@ fn align_of(align: TextAlign) -> TextAlignment {
         TextAlign::Left => TextAlignment::Left,
         TextAlign::Center => TextAlignment::Center,
         TextAlign::Right => TextAlignment::Right,
-        // The panel's alignment control has no fourth segment yet, so a
-        // justified title shows as left there; the words themselves are
-        // set justified all the same.
-        TextAlign::Justify => TextAlignment::Left,
+        TextAlign::Justify => TextAlignment::Justify,
     }
 }
 

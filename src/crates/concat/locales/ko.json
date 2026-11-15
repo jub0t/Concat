@@ -931,6 +931,7 @@
   "textPanel.horizontal": "가로",
   "textPanel.importFont": "글꼴 가져오기…",
   "textPanel.italic": "기울임",
+  "textPanel.justify": "양쪽 맞춤",
   "textPanel.layout": "레이아웃",
   "textPanel.letterCase": "대소문자",
   "textPanel.lineHeight": "줄 높이",
