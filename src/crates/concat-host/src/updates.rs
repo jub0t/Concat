@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Which release this is, which releases are out, and putting one of them
 //! in this one's place.
@@ -636,6 +636,48 @@ pub fn relaunch() -> Result<(), String> {
     }
 }
 
+/// Starts this build again, on `project` when one was open, so a setting
+/// read only at launch - drawing on the GPU or in software - takes hold.
+/// The caller saves, closes the project and quits; the new process opens
+/// it once this one has let go of its lock. A Mac's app is started from
+/// its bundle, so the Dock shows the one Concat; a build from the tree,
+/// Linux and Windows start the executable itself. Nothing on a phone.
+pub fn restart(project: Option<&Path>) -> Result<(), String> {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        return Err("a phone's app is started from its launcher".to_owned());
+    }
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    if let Some(project) = project {
+        args.push("--project".into());
+        args.push(project.into());
+    }
+    if cfg!(target_os = "macos")
+        && let Some(bundle) = own_bundle()
+    {
+        return detach(
+            Command::new("sh")
+                .args(["-c", "sleep 1; exec open -n \"$0\" --args \"$@\""])
+                .arg(bundle)
+                .args(&args),
+        );
+    }
+    let target = std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok())
+        .ok_or_else(|| "could not tell what to start".to_owned())?;
+    if cfg!(windows) {
+        // The project is saved and its lock let go before this is called,
+        // so the new window can open it straight away.
+        return detach(Command::new(target).args(&args));
+    }
+    detach(
+        Command::new("sh")
+            .args(["-c", "sleep 1; exec \"$0\" \"$@\""])
+            .arg(target)
+            .args(&args),
+    )
+}
+
 /// Runs a command to its end and reads its failure off standard error.
 fn run(command: &mut Command) -> Result<(), String> {
     let program = command.get_program().to_string_lossy().into_owned();
@@ -669,16 +711,25 @@ fn detach(command: &mut Command) -> Result<(), String> {
 /// One GET, read whole as text. GitHub wants a user agent and says so with
 /// a 403 otherwise.
 fn get_text(url: &str) -> Result<String, String> {
-    let agent = crate::net::strict_agent(
+    let agent = format!("Concat/{}", Version::current());
+    let response = crate::net::get(
+        url,
         std::time::Duration::from_secs(20),
         std::time::Duration::from_secs(30),
-    );
-    let response = agent
-        .get(url)
-        .set("User-Agent", &format!("Concat/{}", Version::current()))
-        .set("Accept", "application/vnd.github+json")
-        .call()
-        .map_err(|error| match error {
+        crate::net::Trust::Shipped,
+        &|request| {
+            request
+                .set("User-Agent", &agent)
+                .set("Accept", "application/vnd.github+json")
+        },
+    )
+    .map_err(|failure| {
+        let crate::net::Failure {
+            error,
+            cause,
+            proxy,
+        } = *failure;
+        match error {
             ureq::Error::Status(code, response) => {
                 let body = response.into_string().unwrap_or_default();
                 let said = serde_json::from_str::<serde_json::Value>(&body)
@@ -686,8 +737,17 @@ fn get_text(url: &str) -> Result<String, String> {
                     .unwrap_or_else(|_| body.chars().take(200).collect());
                 format!("{url} answered {code}: {said}")
             }
-            other => format!("{url} did not answer: {other}"),
-        })?;
+            other => {
+                let through = proxy
+                    .map(|proxy| format!(" (through the proxy {proxy})"))
+                    .unwrap_or_default();
+                format!(
+                    "{url} did not answer: {}{through}: {other}",
+                    cause.describe()
+                )
+            }
+        }
+    })?;
     response
         .into_string()
         .map_err(|error| format!("{url} was cut short: {error}"))

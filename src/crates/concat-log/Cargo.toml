@@ -1,0 +1,22 @@
+[package]
+name = "concat-log"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "What a run writes down about itself: one file per run that is whole up to a crash, a console a person can read, and operations timed step by step."
+
+[dependencies]
+# The facade every crate and every dependency already writes through.
+log = { version = "0.4", features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+# console.rs: colours in a Windows terminal are a mode to be switched on.
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_Console",
+] }
+
+[lints]
+workspace = true

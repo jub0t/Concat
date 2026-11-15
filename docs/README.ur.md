@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">CapCut کا مفت، اوپن سورس اور کراس پلیٹ فارم متبادل۔</h3>
+<h3 align="center">مفت، اوپن سورس اور کراس پلیٹ فارم ویڈیو ایڈیٹر۔</h3>
 
 <div align="center">
 
@@ -12,20 +12,20 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.8-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.8" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
-  <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://trendshift.io/repositories/191379?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/191379" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · **🇵🇰 اردو** · [🇧🇩 বাংলা](README.bn.md)
 
-> 11 اکتوبر 2026 کو انگریزی README سے ترجمہ کیا گیا۔ انگریزی نسخہ ہی تازہ رکھا جاتا ہے۔
+> 28 اکتوبر 2026 کو انگریزی README سے ترجمہ کیا گیا۔ انگریزی نسخہ ہی تازہ رکھا جاتا ہے۔
 
 ## ادا شدہ سپانسرز
 
@@ -44,13 +44,13 @@
 
 ## تعارف
 
-Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر اور macOS، Windows، Linux اور Android کے لیے CapCut کا متبادل ہے۔ یہ وہی سب کرتا ہے جس کے لیے لوگ اصل میں CapCut کھولتے ہیں: خودکار کیپشن، متن سے آواز، پس منظر ہٹانا، کی فریم اینیمیشن، ایفیکٹس اور ٹائٹل، ملٹی ٹریک کٹنگ، 4K ایکسپورٹ۔ اور کسی چالاکی کے بغیر: نہ واٹر مارک، نہ اکاؤنٹ، نہ سبسکرپشن، نہ اپ لوڈ۔
+Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر ہے، macOS، Windows، Linux اور Android کے لیے۔ زیادہ تر ایڈٹس کو جو چاہیے وہ سب اس میں ہے: خودکار کیپشن، متن سے آواز، پس منظر ہٹانا، کی فریم اینیمیشن، ایفیکٹس اور ٹائٹل، ملٹی ٹریک کٹنگ، 4K ایکسپورٹ۔ اور کسی چالاکی کے بغیر: نہ واٹر مارک، نہ اکاؤنٹ، نہ سبسکرپشن، نہ اپ لوڈ۔
 
 سب کچھ GPU کمپوزیٹر والے نیٹو Rust انجن پر مقامی طور پر چلتا ہے۔ انسٹال کریں، فوٹیج ڈالیں، کاٹیں۔ کیپشن، آوازوں اور کٹ آؤٹ کے AI ماڈل سیٹنگز سے ایک بار ڈاؤن لوڈ ہوتے ہیں اور اس کے بعد آف لائن کام کرتے ہیں۔ آپ کی فوٹیج کبھی آپ کی ڈسک سے باہر نہیں جاتی۔
 
 **ان کے لیے موزوں:** TikTok، Reels اور Shorts، YouTube ویڈیوز، ٹیوٹوریل اور اسکرین ریکارڈنگ، پوڈکاسٹ کلپس، میمز۔
 
-**مشینوں کے لیے بھی:** ایک JSON-RPC API، تاکہ اسکرپٹس اور AI ایجنٹس بھی اس سے ویڈیو کاٹ سکیں۔
+**مشینوں کے لیے بھی:** AI ایجنٹس کے لیے بلٹ ان MCP سرور (`concat --mcp`، [سیٹ اپ](MCP.md)) اور اسکرپٹس کے لیے ایک JSON-RPC API، تاکہ وہ بھی اس سے ویڈیو کاٹ سکیں۔
 
 ## نمایاں خصوصیات
 
@@ -62,19 +62,19 @@ Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر اور macOS، 
 - 🎞️ **کی فریمز۔** پوزیشن، اسکیل، گردش، شفافیت، والیوم، ایفیکٹ پیرامیٹرز۔ کرو ایڈیٹر شامل۔
 - ✨ **100 ایفیکٹس، فلٹرز اور ٹرانزیشنز۔** GPU سے رینڈر، پری ویو میں لائیو۔
 - ✂️ **تیزی سے کاٹیں۔** اسپلٹ، ٹرم، رِپل، مرج، فریز فریم، اسپیڈ۔ چاہیں تو مقناطیسی ٹائم لائن۔
-- 🎚️ **ملٹی ٹریک، ملٹی ٹائم لائن۔** ایک پراجیکٹ میں کئی کٹس۔ بلینڈ موڈز، کراپ، فلپس۔
+- 🎚️ **ملٹی ٹریک، ملٹی ٹائم لائن۔** اوورلیز اور پکچر ان پکچر: جتنی ٹریکس چاہیں، ویڈیو، تصاویر اور ٹائٹل ایک دوسرے پر رکھیں۔ ایک پراجیکٹ میں کئی کٹس۔ بلینڈ موڈز (اسکرین، ایڈ، ملٹی پلائی…)، کراپ، فلپس۔
 - 📝 **ٹائٹل۔** فونٹس، اسٹروک، سایہ، پس منظر پلیٹ۔ شروعات کے لیے پری سیٹس۔
 - 🎙️ **ایک سوئچ سے آواز کی صفائی۔** شور ہٹائیں، آواز نکھاریں، لاؤڈنیس برابر کریں۔ ساتھ میں چپمنک، روبوٹ، ٹیلی فون وغیرہ۔
 - 📤 **ایکسپورٹ۔** H.264، HEVC، AV1۔ 4K 60 تک، 10 بٹ رنگ۔
 - 🦀 **نیٹو Rust انجن۔** GPU کمپوزیٹر، پراکسیز، ہارڈویئر ڈی کوڈ۔ 4K آسانی سے اسکرب ہوتا ہے۔
-- 🤖 **اسکرپٹ کے قابل۔** ایک JSON-RPC API، جس سے اسکرپٹس اور AI ایجنٹس ویڈیو کاٹ سکتے ہیں۔ سورس سے بلڈ کرنے پر gRPC اور ایک کمانڈ لائن ٹول بھی ملتا ہے۔
+- 🤖 **اسکرپٹ کے قابل۔** بلٹ ان MCP سرور، جس سے Claude اور دوسرے AI ایجنٹس اس سے ایڈٹ کر سکتے ہیں ([ایک لائن میں سیٹ اپ](MCP.md))، اور اسکرپٹس کے لیے ایک JSON-RPC API۔ سورس سے بلڈ کرنے پر gRPC اور ایک کمانڈ لائن ٹول بھی ملتا ہے۔
 - 🖥️ **macOS، Windows، Linux، Android۔** 26 زبانیں۔ وہی ایپ، وہی پراجیکٹ فائلیں۔
 
 ## ڈاؤن لوڈ
 
 دو راستے:
 
-1. **[ویب سائٹ](https://concatenate.pages.dev/#download)** آپ کی مشین کے لیے درست بلڈ دیتی ہے۔ یہیں سے شروع کریں۔
+1. **[ویب سائٹ](https://concat.standalones.org/#download)** آپ کی مشین کے لیے درست بلڈ دیتی ہے۔ یہیں سے شروع کریں۔
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** پر ہر پلیٹ فارم کی ہر بلڈ ہے، انسٹالرز، پیکجز اور چیک سمز کے ساتھ۔ جب آپ خود چننا چاہیں۔
 
 Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی اس میں کچھ کھردرا پن ہے۔ کوئی ملے تو [بتائیں](https://github.com/jub0t/Concat/issues)۔
@@ -89,7 +89,7 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 
 ✅ معاون · 🚧 کام جاری · 🧪 آزمائش باقی
 
-**سسٹم کی ضروریات** اور اختیاری ماڈلز کے سائز [ویب سائٹ](https://concatenate.pages.dev/guides/system-requirements) پر ہیں۔
+**سسٹم کی ضروریات** اور اختیاری ماڈلز کے سائز [ویب سائٹ](https://concat.standalones.org/guides/system-requirements) پر ہیں۔
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 > [!IMPORTANT]
 > حصہ ڈالنے کا بہترین طریقہ یہ ہے کہ [Releases](https://github.com/jub0t/Concat/releases) صفحے سے ایک بلڈ لیں اور اسے استعمال کریں: معلوم کریں کہاں ٹوٹتا ہے، اور بتائیں کہاں بہتر ہو سکتا ہے۔
 >
-> کوڈ لکھنے کو تیار ہیں؟ [CONTRIBUTING.md](../CONTRIBUTING.md) میں سیٹ اپ، ٹری کی ترتیب، چلائی جانے والی جانچیں اور شراکتوں کے لائسنس کی تفصیل ہے۔ کسی اسکرپٹ، سروس یا ایجنٹ سے Concat چلا رہے ہیں؟ [ڈویلپر دستاویزات](https://concatenate.pages.dev/docs) میں Concat API اور اس کے ٹرانسپورٹس ہیں: JSON-RPC اور gRPC۔ پراجیکٹ کا اعلان [اس Discussion](https://github.com/jub0t/Concat/discussions/3) میں ہوا تھا۔
+> کوڈ لکھنے کو تیار ہیں؟ [CONTRIBUTING.md](../CONTRIBUTING.md) میں سیٹ اپ، ٹری کی ترتیب، چلائی جانے والی جانچیں اور شراکتوں کے لائسنس کی تفصیل ہے۔ کسی اسکرپٹ، سروس یا ایجنٹ سے Concat چلا رہے ہیں؟ [ڈویلپر دستاویزات](https://concat.standalones.org/docs) میں Concat API اور اس کے ٹرانسپورٹس ہیں: JSON-RPC اور gRPC۔ پراجیکٹ کا اعلان [اس Discussion](https://github.com/jub0t/Concat/discussions/3) میں ہوا تھا۔
 > 
 > شراکت دار Discord سرور پر `@Contributor` رول لے سکتے ہیں: بس مانگ لیں۔
 

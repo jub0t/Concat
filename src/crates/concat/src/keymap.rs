@@ -108,7 +108,7 @@ pub const ACTIONS: &[Action] = &[
         id: "freeze",
         defaults: &["f"],
     },
-    // CapCut's Delete Left and Delete Right, on its keys: the clip under
+    // Delete Left and Delete Right, on Q and W: the clip under
     // the playhead loses everything before it (Q) or after it (W).
     // https://github.com/jub0t/Concat/issues/400
     Action {
@@ -171,6 +171,16 @@ pub const ACTIONS: &[Action] = &[
         id: "step-forward",
         defaults: &["right"],
     },
+    // The cut before and after the playhead, on the keys Premiere and
+    // Resolve give them: clip to clip without the mouse.
+    Action {
+        id: "prev-edit",
+        defaults: &["up"],
+    },
+    Action {
+        id: "next-edit",
+        defaults: &["down"],
+    },
 ];
 
 /// The action a row and a dispatch speak, by its id.
@@ -215,6 +225,8 @@ pub fn name(id: &str) -> String {
         "end" => i18n::t("common.goToEnd"),
         "step-back" => i18n::t("shortcuts.stepBack"),
         "step-forward" => i18n::t("shortcuts.stepForward"),
+        "prev-edit" => i18n::t("shortcuts.prevEdit"),
+        "next-edit" => i18n::t("shortcuts.nextEdit"),
         _ => String::new(),
     }
 }
@@ -609,7 +621,7 @@ mod tests {
     #[test]
     fn the_defaults_resolve_to_their_actions() {
         let prefs = Preferences::default();
-        // CapCut's Delete Left and Right; E is nobody's.
+        // Delete Left and Right; E is nobody's.
         assert_eq!(resolve(&prefs, "q"), Some("delete-left"));
         assert_eq!(resolve(&prefs, "w"), Some("delete-right"));
         assert_eq!(resolve(&prefs, "e"), None);

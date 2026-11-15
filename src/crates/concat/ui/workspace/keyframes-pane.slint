@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 // The Keyframes pane: the selected clip's keys, with room to work on them.
 // A column of every knob that can ride on the left - the knob itself, with
@@ -332,6 +332,7 @@ export component KeyframesPane inherits Pane {
                 VerticalLayout {
                     alignment: center;
                     SegmentedControl {
+                        tabs: true;
                         // Two marks want no more room than two chips; a set
                         // width is fixed, so the control's own minimum,
                         // sized for words, does not apply.

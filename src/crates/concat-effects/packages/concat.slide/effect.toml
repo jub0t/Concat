@@ -6,18 +6,18 @@ name = "Slide"
 kind = "transition"
 category = "Slide"
 order = 4
-description = "The incoming shot slides in over the outgoing one, which holds still underneath."
+description = "The next shot glides in over the last one and settles, casting a soft shadow on the shot it covers."
 
 [[param]]
 key = "direction"
 label = "Direction"
 type = "enum"
-min = 0
-max = 3
-default = 0
 values = [0, 1, 2, 3]
 labels = ["Left", "Right", "Up", "Down"]
+default = 0
+min = 0
+max = 3
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"

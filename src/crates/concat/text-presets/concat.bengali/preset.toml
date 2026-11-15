@@ -1,0 +1,15 @@
+id = "concat.bengali"
+name = "Bengali"
+language = "Bengali"
+order = 51
+# The card shows a whole syllable: the first two characters would cut
+# the conjunct স্ব after its virama.
+sample = "স্বা"
+
+[style]
+content = "স্বাগতম"
+fontFamily = "Noto Sans Bengali"
+fontWeight = 400
+fontSize = 0.1
+strokeWidth = 0.008
+strokeColor = "#000000"

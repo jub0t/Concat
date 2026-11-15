@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Template bundles on disk.
 //!
@@ -31,6 +31,7 @@ const ASSETS: &str = "assets";
 const POSTER: &str = "poster.jpg";
 
 /// One template, as the gallery sees it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TemplateInfo {
@@ -53,6 +54,7 @@ pub struct TemplateInfo {
 }
 
 /// One placeholder the user's media will replace.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotInfo {
@@ -299,7 +301,7 @@ pub fn instantiate(
         info.height,
         info.rate_num,
         info.rate_den,
-        [0, 0, 0],
+        [0, 0, 0, 255],
     )?;
     let root = PathBuf::from(&project.path);
 
@@ -327,7 +329,6 @@ pub fn instantiate(
     // project does: its links read as links to the stand-ins.
     let catalogue = concat_effects::Catalogue::builtin();
     editor.upgrade_links(|link| catalogue.upgrade(link));
-    editor.upgrade_mask_effects();
     if !fills.is_empty() {
         editor
             .apply(Command::Batch {
@@ -489,7 +490,7 @@ mod tests {
         }
 
         let settings = DocumentSettings {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             name: "Beat Intro".to_owned(),
             width: 1920,
             height: 1080,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! The thread that owns the preview Surface and the GPU device behind it.
 //!
@@ -390,6 +390,7 @@ fn spec(doc: &Doc, at: f64, size: (u32, u32), moving: bool) -> concat_host::prev
         proxy: false,
         color_space: doc.color,
         canvas: doc.settings.canvas,
+        nearest: false,
     }
 }
 

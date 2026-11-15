@@ -10,9 +10,14 @@ description = "What the editor window needs that is not the edit itself: session
 # The wgpu compositor for previews and exports, off by default for the same
 # reason as everywhere else in the engine; the window turns it on.
 gpu = ["concat-export/gpu", "concat-render/gpu"]
+# A JSON Schema for every reply type, so the API can state its whole
+# contract; see concat_api::contract_schema.
+schema = ["dep:schemars", "concat-project/schema"]
 
 [dependencies]
 concat-core.workspace = true
+# The run's log: the file, the console, and operations timed step by step.
+concat-log.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
 concat-export.workspace = true
@@ -27,7 +32,10 @@ concat-vision = { workspace = true, features = ["infer"] }
 # An enhanced still is written as a PNG: lossless, since the point was
 # the detail.
 png = "0.17"
-ureq = "2"
+# `socks-proxy` for a SOCKS proxy named by the environment or the system
+# (Clash, v2rayN and ssh -D all offer one); see route.rs. The `socks` crate
+# it pulls is already in the tree for ureq 3.
+ureq = { version = "2", features = ["socks-proxy"] }
 # The TLS ureq speaks, configured here to trust the system's roots beside
 # the shipped ones; see net.rs. The same rustls, ring and webpki-roots as
 # ureq's, so nothing is built twice.
@@ -44,6 +52,7 @@ log = { version = "0.4", features = ["std"] }
 # `gpu`, so a headless host pays for no GPU tree.
 concat-render.workspace = true
 serde = { version = "1", features = ["derive"] }
+schemars = { workspace = true, optional = true }
 serde_json.workspace = true
 
 # Engine-owned audio playback: cpal talks to the output device, memmap2 keeps
@@ -59,6 +68,11 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = [
   "Win32_Media",
   "Win32_System_SystemInformation",
+  # memory.rs: the process heap compacted when the app goes quiet.
+  "Win32_System_Memory",
+  # awake.rs: the power request that keeps the system awake under a job
+  # (and Win32_System_Threading below, for its reason).
+  "Win32_System_Power",
   # crash.rs: the unhandled-exception filter and what it reads and writes.
   "Win32_Foundation",
   "Win32_Storage_FileSystem",
@@ -71,6 +85,8 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_Registry",
   # jobs.rs: whether the process that left a mark is still running.
   "Win32_System_Threading",
+  # route.rs: the per-user proxy settings, and the proxy script they name.
+  "Win32_Networking_WinHttp",
 ] }
 
 [dev-dependencies]

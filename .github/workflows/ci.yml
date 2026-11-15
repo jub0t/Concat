@@ -67,10 +67,10 @@ jobs:
   engine:
     name: Engine tests and lints
     runs-on: ubuntu-24.04
-    # The steps that can run long have timeouts of their own, 135 minutes
+    # The steps that can run long have timeouts of their own, 180 minutes
     # between them, so a stuck step is named by its own timeout; this is
-    # for a job stuck anywhere else. A warm run takes about twenty minutes.
-    timeout-minutes: 155
+    # for a job stuck anywhere else.
+    timeout-minutes: 200
     env:
       # See build-app.yml: the version the ort crate is built against.
       # scripts/ci/deps.lock pins the file.
@@ -91,13 +91,13 @@ jobs:
           components: clippy, rustfmt
       # cargo-nextest runs the tests: each in a process of its own, with a
       # timeout per test and a JUnit report. See src/.config/nextest.toml.
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         with:
           tool: cargo-nextest@0.9.148
       # Saved even when the job fails: a cache saved only by a green run
       # is never saved while the job is red, and every red run then
       # compiles from nothing.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           cache-on-failure: true
@@ -125,10 +125,9 @@ jobs:
           tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
           echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
 
-      # ONNX Runtime as a shared library, linked dynamically, for the reason
-      # build-app.yml gives: a static one beside sherpa-onnx's is the same
-      # protobuf twice, and the test binary does not link. The tests then
-      # find it through LD_LIBRARY_PATH, as they find FFmpeg.
+      # ONNX Runtime as a shared library, linked dynamically, as the
+      # Linux bundle links it (see build-app.yml). The tests then find it
+      # through LD_LIBRARY_PATH, as they find FFmpeg.
       - name: ONNX Runtime
         run: |
           set -euo pipefail
@@ -143,35 +142,40 @@ jobs:
             echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib:$PWD/$stem/lib"
           } >> "$GITHUB_ENV"
 
-      # The prebuilt sherpa-onnx library, fetched here as the platform jobs
-      # below fetch theirs. Left to its own build script, sherpa-onnx-sys
-      # unpacks it into target/sherpa-onnx-prebuilt, which rust-cache does
-      # not keep while the build script's run is kept: a cache hit then
-      # links against a folder that is not there. The version is the
-      # lockfile's, and deps.lock must pin that version's file.
-      - name: sherpa-onnx libraries
-        run: |
-          set -euo pipefail
-          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
-          name=sherpa-onnx-linux-x64-static-lib
-          case "$(scripts/ci/fetch.sh --url "$name")" in
-            */v"$version"/*) ;;
-            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
-          esac
-          stem="sherpa-onnx-v$version-linux-x64-static-lib"
-          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
-          mkdir -p sherpa
-          tar -xjf sherpa.tar.bz2 -C sherpa
-          test -d "sherpa/$stem/lib"
-          echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
-
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review. Lints
       # before tests: they finish in a fraction of the time and catch the
-      # most.
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # most. The window's crate is linted on its own: its generated UI
+      # (some 86 MB of Rust) takes 7.5 GB and about 17 minutes here for
+      # each rustc that reads it. --all-targets reads it twice, the library
+      # and the library's tests: two at once ran the 16 GB runner out of
+      # memory (exit 143, every run 2026-11-04 to 11-10), and one after the
+      # other ran past 35 minutes. So it is read once, in test mode
+      # (--profile test), which is all of the library's code and its tests
+      # in one rustc. The Android shell is linted over a plain check of the
+      # library (--no-deps), not a second Clippy pass. The binary (main.rs
+      # and launch.rs) is not linted: selecting it makes the library a
+      # primary unit, which is a full second Clippy pass over the UI for
+      # 270 lines. It is still built and its tests run below.
+      # The rest of the workspace keeps every core.
+      - name: Clippy
         timeout-minutes: 25
         working-directory: src
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --exclude concat --exclude concat-android --all-targets -- -D warnings 2>&1 | tee clippy.log
+      - name: Clippy (the window)
+        timeout-minutes: 30
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo clippy -p concat --lib --profile test -- -D warnings 2>&1 | tee clippy-window.log
+      - name: Clippy (the Android shell)
+        timeout-minutes: 25
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo clippy -p concat-android --all-targets --no-deps -- -D warnings 2>&1 | tee clippy-shell.log
 
       # The tests are compiled in a step of their own, so a slow compile
       # and a slow test are told apart by which step ran out of time. One
@@ -183,7 +187,9 @@ jobs:
         working-directory: src
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
-        run: cargo nextest run --workspace --no-run --build-jobs 1
+        run: |
+          set -o pipefail
+          cargo nextest run --workspace --no-run --build-jobs 1 2>&1 | tee build-tests.log
       # CONCAT_REQUIRE_GPU: the GPU tests fail rather than skip when no
       # adapter is usable, so the parity suite is known to have run. The
       # report and the log are kept when it fails (the last step).
@@ -208,9 +214,12 @@ jobs:
         run: cargo test --workspace --doc -j 1
       # The gRPC transport is a feature nothing else in the workspace turns
       # on, so it is linted and tested here on its own. See concat-server.
-      - run: cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings
+      - name: Clippy (gRPC)
         timeout-minutes: 10
         working-directory: src
+        run: |
+          set -o pipefail
+          cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings 2>&1 | tee clippy-grpc.log
       - name: Run the gRPC tests
         timeout-minutes: 10
         working-directory: src
@@ -220,6 +229,13 @@ jobs:
           cargo nextest run -p concat-server --features grpc --profile ci 2>&1 | tee nextest-grpc.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-grpc.xml 2>/dev/null || true
           exit "$status"
+
+      # A job's log needs a signed-in session to read; annotations do not.
+      # The cargo steps above tee their output, and this turns the
+      # failures in it into annotations on the run (scripts/ci/annotate.py).
+      - name: Failures to annotations (failure only)
+        if: failure()
+        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/clippy-shell.log src/build-tests.log src/nextest-workspace.log src/clippy-grpc.log src/nextest-grpc.log
 
       - name: Keep the test report (failure only)
         if: failure()
@@ -248,10 +264,8 @@ jobs:
       matrix:
         include:
           - os: macos-15
-            sherpa: osx-arm64
             verb: Compiles
           - os: windows-2022
-            sherpa: win-x64
             verb: Tests
     runs-on: ${{ matrix.os }}
     # Windows' steps that can run long have timeouts of their own, 115
@@ -276,7 +290,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         if: runner.os == 'Windows'
         with:
           tool: cargo-nextest@0.9.148
@@ -331,62 +345,60 @@ jobs:
           "ORT_LIB_LOCATION=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append
           "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
           $lib | Out-File -FilePath $env:GITHUB_PATH -Append
-      # The prebuilt sherpa-onnx library, as build-app.yml fetches it:
-      # static on macOS, the import libraries alone on Windows, whose DLLs
-      # go on the path for the test binaries - all but sherpa's own
-      # onnxruntime.dll, so the one the tests load is the one above.
-      - name: sherpa-onnx libraries
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            kind=shared-MT-Release-lib
-          else
-            kind=static-lib
-          fi
-          name="sherpa-onnx-${{ matrix.sherpa }}-$kind"
-          stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-$kind"
-          case "$(scripts/ci/fetch.sh --url "$name")" in
-            */v"$version"/*) ;;
-            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
-          esac
-          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
-          mkdir -p sherpa
-          python3 -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall('sherpa', **({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
-          test -d "sherpa/$stem/lib"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            mkdir -p sherpa-libs sherpa-dlls
-            cp "sherpa/$stem/lib/"sherpa-onnx-*.lib sherpa-libs/
-            cp "sherpa/$stem/lib/"sherpa-onnx-*.dll sherpa-dlls/
-            echo "SHERPA_ONNX_LIB_DIR=$(pwd -W)\\sherpa-libs" >> "$GITHUB_ENV"
-            echo "$(pwd -W)\\sherpa-dlls" >> "$GITHUB_PATH"
-          else
-            echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
-          fi
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: check-${{ matrix.os }}
           cache-on-failure: true
-      - run: cargo check --workspace --all-targets
+      # macOS: everything but the window's own tests, then those alone.
+      # Each rustc that reads the window's generated UI takes 7.5 GB and
+      # this runner has 7, so --all-targets, which reads it as the library
+      # and as the library's tests at once, swapped for 40 minutes and then
+      # past 45. Here only one is ever in memory: the library is checked
+      # as the Android shell's dependency in the first step, and in test
+      # mode (--profile test: its code and its tests in one rustc) in the
+      # second.
+      - name: Check
         if: runner.os != 'Windows'
-        timeout-minutes: 45
+        timeout-minutes: 30
         working-directory: src
+        run: |
+          set -o pipefail
+          cargo check --workspace --exclude concat --all-targets 2>&1 | tee check.log
+          cargo check -p concat --bins 2>&1 | tee -a check.log
+      - name: Check the window's tests
+        if: runner.os != 'Windows'
+        timeout-minutes: 30
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo check -p concat --lib --profile test 2>&1 | tee check-window.log
 
       # Windows: compile, then run, then the one scenario that has hung
       # here on its own. Each step has its own timeout, so a red run says
       # whether the compile was slow, a test failed, or a test hung, and a
       # test that hangs is killed by nextest after its slow-timeout and
-      # reported by name (src/.config/nextest.toml). Two compile jobs: the
-      # runner has the memory for two, and one took most of an hour.
+      # reported by name (src/.config/nextest.toml). Two compile jobs for
+      # the workspace, then the window's own tests with one: each rustc
+      # that builds the window's generated UI (86 MB of Rust) takes most of
+      # this runner's 16 GB, and the library and the library's tests built
+      # side by side ran it out of memory ("rustc-LLVM ERROR: out of
+      # memory", run 42918745880). So everything but the libraries' unit
+      # tests is built first (the window's library among it, once), then
+      # the unit tests, when the window's are the only build of the UI
+      # left. Both select the whole workspace: -p concat or --exclude
+      # concat would resolve other features, and the run below would
+      # build both again, side by side.
       - name: Build the tests (Windows)
         id: build-tests
         if: runner.os == 'Windows'
         timeout-minutes: 60
         working-directory: src
         shell: bash
-        run: cargo nextest run --workspace --no-run --build-jobs 2
+        run: |
+          set -o pipefail
+          cargo nextest run --workspace --no-run --build-jobs 2 --bins --test '*' --examples 2>&1 | tee build-tests.log
+          cargo nextest run --workspace --no-run --build-jobs 2 --lib 2>&1 | tee -a build-tests.log
       - name: Run the tests (Windows)
         if: runner.os == 'Windows'
         timeout-minutes: 30
@@ -414,6 +426,13 @@ jobs:
             -E 'test(=every_edit_still_exports)' 2>&1 | tee nextest-every-edit.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-every-edit.xml 2>/dev/null || true
           exit "$status"
+      - name: Failures to annotations (failure only)
+        if: failure()
+        shell: bash
+        run: |
+          python=python3
+          command -v python3 >/dev/null 2>&1 || python=python
+          "$python" scripts/ci/annotate.py src/check.log src/check-window.log src/build-tests.log src/nextest-workspace.log src/nextest-every-edit.log
       - name: Keep the test report (failure only)
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

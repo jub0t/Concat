@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Stabilization end to end: a shaky shot made here, its clip stabilized
 //! by a command, the camera's movement measured by the host's job, and the
@@ -175,7 +175,7 @@ fn a_shaky_shot_is_measured_and_held_still() {
         HEIGHT,
         30,
         1,
-        [0, 0, 0],
+        [0, 0, 0, 255],
     )
     .expect("creates the project");
     let mut session = Session::open_info(&info).expect("opens the project");
@@ -292,20 +292,25 @@ fn a_shaky_shot_is_measured_and_held_still() {
                 Arc::clone(&clips),
                 &session.settings(),
                 FrameSpec {
-                    canvas: [0, 0, 0],
+                    canvas: [0, 0, 0, 255],
                     time: k as f64 / 30.0,
                     width: WIDTH,
                     height: HEIGHT,
                     moving: false,
                     proxy: false,
                     color_space: ColorSpace::default(),
+                    // The exact frame: this compares it with the export's.
+                    nearest: false,
                 },
             )
             .expect("the monitor draws");
         let against_export = difference(&pixels, &steady[k]);
         let against_shot = difference(&pixels, &plain[k]);
         eprintln!("frame {k}: monitor vs export {against_export:.2}, vs as shot {against_shot:.2}");
-        assert!(against_export < 2.0, "frame {k}: {against_export:.2}");
+        // Windows' encoder, Media Foundation's, is a little further from
+        // its input than x264 was: 2.06 on frame 12. The shot as shot is
+        // what this must not be near, and the line below holds that.
+        assert!(against_export < 3.0, "frame {k}: {against_export:.2}");
         assert!(against_shot > against_export * 2.0, "frame {k}");
     }
 }

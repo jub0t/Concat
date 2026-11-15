@@ -27,6 +27,15 @@ fn main() -> Result<(), slint::PlatformError> {
         let _ = writeln!(std::io::stdout(), "concat {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    // The API's contract, for a client generator or the docs: no log, no
+    // GPU, nothing on standard output but the document.
+    if launch == Ok(Launch::Schema) {
+        use std::io::Write;
+        let text = serde_json::to_string_pretty(&concat_api::contract_schema())
+            .map_err(|error| slint::PlatformError::Other(error.to_string()))?;
+        let _ = writeln!(std::io::stdout(), "{text}");
+        return Ok(());
+    }
     // Before the log and the window too: what this proves is that whisper's
     // CPU kernels load on this CPU, and nothing else should be in the way.
     if launch == Ok(Launch::WhisperCpu) {
@@ -49,7 +58,7 @@ fn main() -> Result<(), slint::PlatformError> {
             .unwrap_or_default();
         let _ = concat_host::logs::open_console(None);
         return concat_mcp::run(mode).map_err(|error| {
-            log::error!("mcp: {error}");
+            log::error!("api: the MCP server for an agent stopped: {error}; Concat exits");
             slint::PlatformError::Other(error)
         });
     }
@@ -77,6 +86,6 @@ fn main() -> Result<(), slint::PlatformError> {
             log::error!("smoke: could not start: {error}");
         }),
         // Answered above, before the log was opened.
-        Launch::Version | Launch::WhisperCpu | Launch::Mcp(_) => Ok(()),
+        Launch::Version | Launch::Schema | Launch::WhisperCpu | Launch::Mcp(_) => Ok(()),
     }
 }

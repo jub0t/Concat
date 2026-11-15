@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+// The moves as a wall of cards: each a little picture making its move,
+// played from the engine's own poses (concat_core::motion) so the card
+// shows exactly what the clip will do. A card plays while the pointer is
+// on it or while it is the one picked, and otherwise holds a frame from
+// the middle of its move.
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+
+/// Where a move has the picture at one instant; see concat_core::motion::Pose.
+export struct MotionPose {
+    dx: float,
+    dy: float,
+    scale: float,
+    rotation: float,
+    opacity: float,
+    sx: float,
+    sy: float,
+}
+
+/// One move's card: the frames it plays, a thirtieth of a second apart,
+/// and the frame it holds when still.
+export struct MotionTile {
+    frames: [MotionPose],
+    still: MotionPose,
+}
+
+/// Every move's card, set once at start: the entrances, the exits and the
+/// loops, each in its list's order.
+export global MotionTiles {
+    in property <[MotionTile]> enter;
+    in property <[MotionTile]> exit;
+    in property <[MotionTile]> cycle;
+}
+
+component MotionCard inherits Rectangle {
+    in property <MotionTile> tile;
+    in property <string> label;
+    in property <bool> selected;
+    /// The None card: no picture, a struck circle.
+    in property <bool> none;
+    in property <length> size: 72px;
+
+    callback clicked();
+
+    property <int> frame;
+    property <bool> playing: !root.none && (touch.has-hover || root.selected)
+        && root.tile.frames.length > 0;
+    property <MotionPose> pose: root.playing ? root.tile.frames[root.frame] : root.tile.still;
+
+    width: root.size;
+    height: root.size + 22px;
+
+    changed playing => { root.frame = 0; }
+
+    Timer {
+        interval: 33ms;
+        running: root.playing;
+        triggered => {
+            root.frame = Math.mod(root.frame + 1, Math.max(1, root.tile.frames.length));
+        }
+    }
+
+    Rectangle {
+        y: 0;
+        width: root.size;
+        height: root.size;
+        border-radius: 8px;
+        clip: true;
+        background: root.none ? Theme.well : #0c0c0e;
+
+        if !root.none: Image {
+            source: @image-url("../assets/motion-still.jpg");
+            image-fit: cover;
+            width: parent.width * Math.max(0, root.pose.scale * root.pose.sx);
+            height: parent.height * Math.max(0, root.pose.scale * root.pose.sy);
+            x: (parent.width - self.width) / 2 + parent.width * root.pose.dx;
+            y: (parent.height - self.height) / 2 + parent.height * root.pose.dy;
+            transform-rotation: root.pose.rotation * 1deg;
+            opacity: Math.max(0, Math.min(1, root.pose.opacity));
+        }
+
+        if root.none: Icon {
+            glyph: Glyph.close;
+            size: 22px;
+            tint: Theme.fg-muted;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+    }
+
+    // The ring sits over the picture, not under it, so a picture moving
+    // past the edge never covers it.
+    Rectangle {
+        y: 0;
+        width: root.size;
+        height: root.size;
+        border-radius: 8px;
+        border-width: root.selected ? 2px : (touch.has-hover ? 1px : 0px);
+        border-color: root.selected ? Theme.accent : Theme.line-strong;
+    }
+
+    Text {
+        y: root.size + 4px;
+        width: root.size;
+        height: 16px;
+        text: root.label;
+        font-size: Theme.fs-sm;
+        color: root.selected ? Theme.fg : Theme.fg-muted;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// The cards for one list - None first - wrapped into as many columns as
+/// the width holds, each as wide as the columns leave.
+export component MotionPicker inherits Rectangle {
+    in property <[MotionTile]> tiles;
+    /// The moves' names, in the tiles' order, without None.
+    in property <[string]> labels;
+    in property <string> none-label;
+    /// Which is picked, as a place in `tiles`; -1 for None.
+    in property <int> current;
+
+    callback picked(index: int);
+
+    property <length> gap: 10px;
+    property <int> columns: Math.max(3, Math.floor((root.width + root.gap) / (72px + root.gap)));
+    property <length> size: (root.width - (root.columns - 1) * root.gap) / root.columns;
+    property <int> count: root.tiles.length + 1;
+    property <int> rows: Math.ceil(root.count / root.columns);
+
+    height: root.rows * (root.size + 22px) + (root.rows - 1) * root.gap;
+
+    for i in root.count: MotionCard {
+        x: Math.mod(i, root.columns) * (root.size + root.gap);
+        y: Math.floor(i / root.columns) * (root.size + 22px + root.gap);
+        size: root.size;
+        none: i == 0;
+        tile: i == 0 ? root.tiles[0] : root.tiles[i - 1];
+        label: i == 0 ? root.none-label : root.labels[i - 1];
+        selected: root.current == i - 1;
+        clicked => { root.picked(i - 1); }
+    }
+}

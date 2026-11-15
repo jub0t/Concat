@@ -6,30 +6,62 @@ name = "Chroma Key"
 kind = "effect"
 category = "Cutout"
 order = 58
-intensity = "similarity"
-description = "Keys out the screen colour you pick, leaving the picture over whatever is beneath, its spill cleaned off."
+version = 2
+intensity = "strength"
+description = "Keys out a green or blue screen - found by itself, or the colour picked off the picture - even where it is unevenly lit, cleaning its colour off the edges and the spill off the subject. For a black background, use Remove Black."
 
-# 0x00B140FF: broadcast green, the screen a studio paints.
+# The screen's colour, as picked. Left at its default, which is no colour at
+# all (an alpha of zero), the key finds the screen in the picture itself: the
+# commonest strongly green or strongly blue colour in it.
 [[param]]
 key = "color"
 label = "Key colour"
 type = "color"
 min = 0
 max = 4294967295
-default = 11616511
+default = 0
 
+# How hard the screen is taken out: 100 % takes out exactly the screen's
+# colour, more takes out what is less of it too.
 [[param]]
-key = "similarity"
-label = "Similarity"
-min = 1
-max = 60
-default = 30
+key = "strength"
+label = "Strength"
+min = 50
+max = 200
+default = 100
 step = 1
 unit = "%"
 
+# How much darker than the key colour a patch of screen may be - a shadow,
+# a fold, a corner the lights miss - and still go, measured against the
+# screen around it rather than the one colour.
 [[param]]
-key = "softness"
-label = "Softness"
+key = "shadows"
+label = "Shadows"
+min = 0
+max = 90
+default = 50
+step = 1
+unit = "%"
+
+# Which of the two other channels the screen's own is measured against: at
+# 50 % the larger of them, so neither a yellow nor a cyan is mistaken for
+# the screen; towards 0 % or 100 % the one or the other.
+[[param]]
+key = "balance"
+label = "Balance"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+# The matte's levels: what is screen up to `clip_black` goes, and what is
+# subject from `clip_white` stays whole, so grain on the screen and a touch
+# of spill on the subject do not read as see-through.
+[[param]]
+key = "clip_black"
+label = "Clip black"
 min = 0
 max = 50
 default = 10
@@ -37,32 +69,130 @@ step = 1
 unit = "%"
 
 [[param]]
+key = "clip_white"
+label = "Clip white"
+min = 50
+max = 100
+default = 85
+step = 1
+unit = "%"
+
+# The matte's edge drawn in or let out, and softened, in pixels of a 1080
+# line picture, so a 4K clip and its half-size preview keep the same edge.
+[[param]]
+key = "grow"
+label = "Shrink / grow"
+min = -10
+max = 10
+default = 0
+step = 0.5
+unit = "px"
+
+[[param]]
+key = "feather"
+label = "Edge softness"
+min = 0
+max = 8
+default = 0
+step = 0.5
+unit = "px"
+
+# The screen's colour cast cleaned off what stays, and the light it took
+# given back as grey, so a face or a shirt keeps its brightness.
+[[param]]
 key = "spill"
 label = "Spill"
 min = 0
 max = 100
-default = 50
+default = 100
 step = 1
 unit = "%"
 
+[[param]]
+key = "restore"
+label = "Keep brightness"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+
+[[param]]
+key = "view"
+label = "View"
+type = "enum"
+min = 0
+max = 2
+default = 0
+values = [0, 1, 2]
+labels = ["Result", "Matte", "Status"]
+
 [wgsl]
 entry = "effect.wgsl"
-space = "display"
 
-# The still before a broadcast green screen, for the key to take out.
+# The picture's mean colour over cells of 16 pixels, which the screen is
+# looked for among and which tell how bright the screen is locally.
+[[wgsl.pass]]
+target = "cells"
+shrink = ["16", "16"]
+
+# The screen's colour, the same in every pixel: the one picked, or the one
+# found among the cells.
+[[wgsl.pass]]
+target = "backing"
+shrink = ["64", "64"]
+
+# How strongly the screen shows in each cell and the cells about it: the
+# screen's brightness where it is, shadows and hot spots alike.
+[[wgsl.pass]]
+target = "plate"
+shrink = ["16", "16"]
+
+# The matte, from the picture with its colour smoothed a pixel or two -
+# what a 4:2:0 stream holds at half the size - so the edge does not crawl.
+[[wgsl.pass]]
+target = "matte"
+
+# The matte drawn in or let out across and then down, and softened across;
+# `effect` softens it down. Each is drawn at a sliver of the layer, and
+# passed over, while its knob is at nothing.
+[[wgsl.pass]]
+target = "grow_across"
+shrink = ["if(abs(grow) < 0.1, 64, 1)", "if(abs(grow) < 0.1, 64, 1)"]
+
+[[wgsl.pass]]
+target = "grow_down"
+shrink = ["if(abs(grow) < 0.1, 64, 1)", "if(abs(grow) < 0.1, 64, 1)"]
+
+[[wgsl.pass]]
+target = "soften_across"
+shrink = ["if(feather < 0.1, 64, 1)", "if(feather < 0.1, 64, 1)"]
+
+# The still before a broadcast green screen, for the key to find and take
+# out.
 [card]
 screen = "#00b140"
 
-# The two screen keys this stands in for, keyed to the colours they took out.
-# FFmpeg's chromakey measured the distance between two colours at half the
-# scale this key does, so its similarity and softness come across doubled;
-# neither cleaned spill, so the key's starts at none.
+# The two screen keys this stands in for. They were keyed to pure green and
+# pure blue, which no real screen is; this finds the screen in the picture
+# instead. Neither cleaned spill, so the key's starts at none.
 [[replaces]]
 id = "concat.green-screen"
 defaults = { similarity = 25, softness = 10 }
-knobs = { color = "16711935", similarity = "similarity * 2", softness = "softness * 2", spill = "0" }
+knobs = { spill = "0" }
 
 [[replaces]]
 id = "concat.blue-screen"
 defaults = { similarity = 25, softness = 10 }
-knobs = { color = "65535", similarity = "similarity * 2", softness = "softness * 2", spill = "0" }
+knobs = { spill = "0" }
+
+# This key before it measured the screen by its colour difference: a link
+# that still holds its similarity or softness is read as this one. The
+# colour it was keyed to and its spill carry over; its similarity, how far
+# from that colour it still took out, becomes the strength; its softness,
+# how wide the fade between, the clip levels. A link that left the colour
+# at the old default comes over finding the screen by itself.
+[[replaces]]
+id = "concat.chroma-key"
+defaults = { color = 0, similarity = 30, softness = 10, spill = 50 }
+knobs = { color = "color", strength = "70 + similarity", clip_white = "max(60, 95 - softness)", spill = "spill" }

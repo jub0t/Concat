@@ -9,13 +9,15 @@
 # also named elsewhere, change it there too; the comment above each group
 # says where.
 
-# FFmpeg 8.1, BtbN's GPL shared builds. A month's last autobuild, not
-# `latest`: BtbN keeps those, where the daily ones are deleted after a
-# fortnight, and `latest` changes under a build every day.
-ffmpeg-linux64      https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-gpl-shared-8.1.tar.xz      76649c19a7a4615b367251ba4a8adc643f65831278a00e7a0c38398f7f06484b
-ffmpeg-linuxarm64   https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linuxarm64-gpl-shared-8.1.tar.xz   d5b52fcb4f8d86d997bb75f6c4b383ca0be3f4cd9efd94ab3b4f27b22984f91c
-ffmpeg-win64        https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-win64-gpl-shared-8.1.zip          dfe81c3aa0a546ee81980b1b824486dd0fe0a1d452f00cb55135379a74be7bcf
-ffmpeg-winarm64     https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-winarm64-gpl-shared-8.1.zip       31f35037625a8084085248fb47de2958678601ee9ab54e087234693616359c4b
+# FFmpeg 8.1, BtbN's LGPL shared builds: no x264, x265 or fdk-aac, since
+# Concat encodes H.264, HEVC and AAC on the platform's own encoders. A
+# month's last autobuild, not `latest`: BtbN keeps those, where the daily
+# ones are deleted after a fortnight, and `latest` changes under a build
+# every day.
+ffmpeg-linux64      https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-shared-8.1.tar.xz      d4d7b6936f492c0b866b1cb4a29a1bbae09d6a064b4ec4eb90c95bed7969535a
+ffmpeg-linuxarm64   https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linuxarm64-lgpl-shared-8.1.tar.xz   d44838f375c66cf31a8b1473b6f8bad76e5c7dac55870c4d96a75c907a52ba2d
+ffmpeg-win64        https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-win64-lgpl-shared-8.1.zip          3e47bda1607740550141e37c0e49d1e5182b34699f15adfd137ee266d346811a
+ffmpeg-winarm64     https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-winarm64-lgpl-shared-8.1.zip       7674d11915c95c8f65eeec36b329917c3023f6bae5786549cc47aed52cc1cea7
 
 # ONNX Runtime, Microsoft's own builds. 1.28.0 is the version ort
 # 2.0.0-rc.13 is built against (ORT_VERSION in ci.yml and build-app.yml);
@@ -27,14 +29,11 @@ onnxruntime-win-x64         https://github.com/microsoft/onnxruntime/releases/do
 onnxruntime-win-arm64       https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-win-arm64-1.28.0.zip       cbe4547463ece092b505c3581376ed5896d22b5429f39d5e645e425ecdd369ad
 onnxruntime-osx-x86_64      https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-x86_64-1.23.2.tgz      d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6
 
-# sherpa-onnx's prebuilt libraries. The version is the one src/Cargo.lock
-# resolves for sherpa-onnx-sys; the workflows check the two agree.
-sherpa-onnx-linux-x64-static-lib            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-linux-x64-static-lib.tar.bz2            d1be7a69ac2b30120058d8302e624239a3064085383cfa47994a14fdc44c32d6
-sherpa-onnx-linux-aarch64-static-lib        https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-linux-aarch64-static-lib.tar.bz2        743b4debabab2e9f654e393da7263bd9795aabed60ae80c83023054083415d14
-sherpa-onnx-osx-arm64-static-lib            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-osx-arm64-static-lib.tar.bz2            126daa2e8c09a4c5d54dc985722c43bd22f598adc56445905b377454b1b27e38
-sherpa-onnx-osx-x64-static-lib              https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-osx-x64-static-lib.tar.bz2              8d8db6199af0119b16f6e2b01c5548b90c4392a462388dd59491e8c471283cca
-sherpa-onnx-win-x64-shared-MT-Release-lib   https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-win-x64-shared-MT-Release-lib.tar.bz2   7a362a9f339a2937e7f8806e904f3e8a031a7774982eea08bca8336b2c257529
-sherpa-onnx-win-arm64-shared-MT-Release-lib https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-win-arm64-shared-MT-Release-lib.tar.bz2 2afa23a479fe15729e1ea9a9ed242454b1d9fccf749103742071684baa91a232
+# The Android emulator's ONNX Runtime (x86_64), from Microsoft's AAR on
+# Maven Central: ort publishes none for that ABI. src/scripts/android-libs.sh
+# takes jni/x86_64/libonnxruntime.so out of it. Phones (arm64) link ort's own.
+onnxruntime-android         https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.28.0/onnxruntime-android-1.28.0.aar   f351a0638696f54b35184290dbc001d66daae17281ad0b548d2c70347d53b8a9
+
 
 # The Linux packagers: nfpm (NFPM_VERSION in build-app.yml) for the .deb
 # and .rpm, and appimagetool with the AppImage runtime it embeds, both a

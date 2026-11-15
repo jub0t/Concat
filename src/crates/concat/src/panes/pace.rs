@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! How far along a transcription or a read looks, from what it reports.
 //!
-//! The jobs report rarely: whisper once per thirty seconds of sound, Kokoro
-//! and Pocket once per sentence, and nothing at all while the sound is read
+//! The jobs report rarely: whisper once per thirty seconds of sound, the
+//! phone's voice once per piece, and nothing at all while the sound is read
 //! in or the model loads. A bar fed only those numbers sits still for most
 //! of a run and then jumps. [`Pace`] lays the run out as its stages, each
 //! given room on the bar by how long it is expected to take, and for each

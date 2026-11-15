@@ -9,11 +9,14 @@ import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { TextAlignment } from "../timeline/model.slint";
 import { CatalogueEntryData, Library } from "../inspector/clip-inspector.slint";
 import { SearchField } from "../inspector/controls.slint";
+import { TextPresetData } from "../inspector/style-picker.slint";
+export { TextPresetData }
 import { Select } from "../primitives/select.slint";
 import { Wave } from "../primitives/wave.slint";
 import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
 import { SourcePreview } from "source-preview.slint";
 import { Sounds, SoundList, VoiceList } from "audio-page.slint";
+import { CaptionsForm, CaptionsSheetData } from "../dialogs/captions.slint";
 
 export { SourcePreview }
 
@@ -31,29 +34,6 @@ export enum MediaKind { video, audio, image }
 /// value here and not the absence of one. `speech` is the Generated group's
 /// shelf: what the editor read aloud, which the Media rows leave out.
 export enum MediaFilter { all, video, audio, images, speech, processed }
-
-/// One look a title can be given, as the Text page's Presets shelf shows
-/// it: enough of the style to draw the name in it. Published by Rust from
-/// the preset list; the id is what is placed, and ids are stable for ever
-/// because project files store them.
-export struct TextPresetData {
-    id: string,
-    name: string,
-    /// The writing its face is made for: "Latin", "Japanese", "Hebrew".
-    language: string,
-    /// What the card draws in the look: "Aa", or a word of its own writing.
-    sample: string,
-    family: string,
-    weight: int,
-    italic: bool,
-    fill: color,
-    plate: color,
-    plated: bool,
-    stroke: color,
-    /// as a fraction of the frame; zero for none
-    stroke-width: float,
-    align: TextAlignment,
-}
 
 export struct MediaItemData {
     id: int,
@@ -75,6 +55,10 @@ export struct MediaItemData {
     /// a file should look like itself wherever it is drawn.
     wave: string,
     selected: bool,
+    /// Where the file is in the order of the selection, from 1, or 0 when
+    /// it is not selected: the number a phone's pick wears, and the order
+    /// Add lays the picks down in.
+    pick: int,
 }
 
 // ── the page strip ───────────────────────────────────────────────────────────
@@ -1405,6 +1389,7 @@ export component CategoryPillBar inherits Rectangle {
         "Retro & Film",
         "Optical & Lens",
         "Distortion & Glitch",
+        "Shake & Motion",
         "Party & Club",
         "Light & Shadow",
     ];
@@ -1650,16 +1635,34 @@ export component ShapeGrid inherits Rectangle {
 
     // The ids are written into project files, so they are stable for ever;
     // see ShapeKind in concat-project.
+    // A card that is a figure set a particular way - a rounded square, a
+    // hexagon - carries an id of its own; see ShapeStyle::preset.
     property <[ShapeCardData]> shapes: [
         { id: "square", label: I18n.t("mediaPane.shapeSquare"), commands: "M4 4h16v16H4z" },
+        { id: "rounded", label: I18n.t("mediaPane.shapeRounded"),
+            commands: "M4 9a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z" },
         { id: "circle", label: I18n.t("mediaPane.shapeCircle"),
             commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" },
+        { id: "ring", label: I18n.t("mediaPane.shapeRing"),
+            commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M7 12a5 5 0 1 0 10 0a5 5 0 1 0 -10 0" },
         { id: "triangle", label: I18n.t("mediaPane.shapeTriangle"), commands: "M12 4l9 16H3z" },
+        { id: "pentagon", label: I18n.t("mediaPane.shapePentagon"),
+            commands: "M12 2.5l9.5 6.9-3.6 11.1H6.1L2.5 9.4z" },
+        { id: "polygon", label: I18n.t("mediaPane.shapeHexagon"),
+            commands: "M12 2l8.66 5v10L12 22l-8.66-5V7z" },
+        { id: "star", label: I18n.t("mediaPane.shapeStar"),
+            commands: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" },
+        { id: "heart", label: I18n.t("mediaPane.shapeHeart"),
+            commands: "M12 20s-8-4.5-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 9c0 6.5-8 11-8 11z" },
+        { id: "pill", label: I18n.t("mediaPane.shapePill"),
+            commands: "M8 8h8a4 4 0 0 1 0 8H8a4 4 0 0 1 0-8z" },
         { id: "parallelogram", label: I18n.t("mediaPane.shapeParallelogram"),
             commands: "M8 5h13l-5 14H3z" },
         { id: "trapezoid", label: I18n.t("mediaPane.shapeTrapezoid"), commands: "M8 5h8l5 14H3z" },
         { id: "line", label: I18n.t("mediaPane.shapeLine"), commands: "M3 12h18" },
         { id: "arrow", label: I18n.t("mediaPane.shapeArrow"), commands: "M3 12h18 M15 6l6 6-6 6" },
+        { id: "double-arrow", label: I18n.t("mediaPane.shapeDoubleArrow"),
+            commands: "M3 12h18 M9 6l-6 6 6 6 M15 6l6 6-6 6" },
     ];
 
     property <length> gap: 8px;
@@ -1736,6 +1739,36 @@ export component MediaPane inherits Rectangle {
     /// See Editor.media-jump-token: turn to the Media page.
     in property <int> jump-token;
     changed jump-token => { root.tab = 0; }
+    /// Captions, on the Text & Captions page; see Editor.captions.
+    in property <CaptionsSheetData> captions;
+    in property <[string]> caption-models;
+    in property <[string]> caption-languages;
+    /// See Editor.captions-jump-token: turn to Text & Captions > Captions.
+    in property <int> captions-jump-token;
+    changed captions-jump-token => {
+        root.tab = 1;
+        root.captions-open = true;
+        root.text-category = 2;
+    }
+    /// The Captions page is up: Rust lists the clips with sound and the
+    /// languages only while it is, as it does for the phone's sheet.
+    property <bool> showing-captions: root.tab == 1 && root.text-category == 2;
+    changed showing-captions => { root.captions-shown(self.showing-captions); }
+    init => {
+        if (root.showing-captions) { root.captions-shown(true); }
+    }
+    callback captions-shown(shown: bool);
+    callback captions-voice-toggled(on: bool);
+    callback captions-source-changed(index: int);
+    callback captions-text-edited(text: string);
+    callback captions-model-changed(index: int);
+    callback captions-language-changed(index: int);
+    callback captions-placement-changed(index: int);
+    callback captions-size-changed(index: int);
+    callback captions-begin();
+    callback captions-cancel();
+    callback captions-import-srt();
+    callback captions-export-srt();
 
     callback import-media();
     callback filter-changed(filter: MediaFilter);
@@ -1831,7 +1864,8 @@ export component MediaPane inherits Rectangle {
     property <bool> categories-open: true;
     property <bool> generated-open: true;
     property <bool> text-open: true;
-    /// 0 = Styles, 1 = Languages
+    property <bool> captions-open: true;
+    /// 0 = Styles, 1 = Languages, 2 = Captions
     property <int> text-category;
     property <bool> stickers-open: true;
     property <bool> transitions-open: true;
@@ -1949,7 +1983,7 @@ export component MediaPane inherits Rectangle {
                             current: root.tab == 0;
                             clicked => { root.tab = 0; }
                         }
-                        // Beside Media, where CapCut keeps it: the page
+                        // Beside Media: the page
                         // number is the last one handed out, not the place.
                         LibraryTab {
                             glyph: Glyph.music;
@@ -1959,7 +1993,7 @@ export component MediaPane inherits Rectangle {
                         }
                         LibraryTab {
                             glyph: Glyph.text-mark;
-                            label: I18n.t("common.text");
+                            label: I18n.t("mediaPane.textAndCaptions");
                             current: root.tab == 1;
                             clicked => { root.tab = 1; }
                         }
@@ -1987,7 +2021,7 @@ export component MediaPane inherits Rectangle {
                             current: root.tab == 5;
                             clicked => { root.tab = 5; }
                         }
-                        // Beside Filters, where CapCut keeps it: the page
+                        // Beside Filters: the page
                         // number is the last one handed out, not the place.
                         LibraryTab {
                             glyph: Glyph.sun;
@@ -2071,7 +2105,10 @@ export component MediaPane inherits Rectangle {
                 }
             }
 
-            Rectangle {
+            // Scrolled, like the grid beside it: Effects alone lists more
+            // shelves than a short pane is tall, and a clipped column hid
+            // Audio Effects below the fold with no way down to it.
+            PaneScroll {
                 // Pinned: an element with an explicit width but no x is
                 // CENTRED in its parent by Slint's default geometry, and this
                 // column spent two rounds of debugging drifting into the card
@@ -2079,7 +2116,7 @@ export component MediaPane inherits Rectangle {
                 // that sets one dimension must pin the other axis too.
                 x: 0;
                 width: root.sidebar;
-                clip: true;
+                height: parent.height;
 
                 // One group per page, each behind its own `if`.
                 //
@@ -2093,9 +2130,6 @@ export component MediaPane inherits Rectangle {
                 // rebuild on a tab switch — which the pages themselves already
                 // pay, a few lines down — and cannot drift.
                 VerticalLayout {
-                    x: 0;
-                    y: 0;
-                    width: parent.width;
                     alignment: start;
                     padding: 4px;
 
@@ -2223,6 +2257,20 @@ export component MediaPane inherits Rectangle {
                             label: I18n.t("mediaPane.languages");
                             current: root.text-category == 1;
                             clicked => { root.text-category = 1; }
+                        }
+                        // Words from a clip's voice, or from a script, laid
+                        // down as titles; and SubRip in and out.
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("captions.captions");
+                            open: root.captions-open;
+                            toggled => { root.captions-open = !root.captions-open; }
+                        }
+                        if root.captions-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("mediaPane.autoCaptions");
+                            current: root.text-category == 2;
+                            clicked => { root.text-category = 2; }
                         }
                     }
 
@@ -2581,6 +2629,17 @@ export component MediaPane inherits Rectangle {
                     }
                     VoiceList {
                         styles: root.audio-category == 11;
+
+                        // A recording of the user's own kept as a voice,
+                        // brought in as Mine brings in a sound.
+                        if root.audio-category == 10: VerticalLayout {
+                            padding-top: 4px;
+                            padding-bottom: 6px;
+                            ImportButton {
+                                label: I18n.t("voices.importVoice");
+                                clicked => { Sounds.voice-import(); }
+                            }
+                        }
                     }
                 }
 
@@ -2592,7 +2651,27 @@ export component MediaPane inherits Rectangle {
                 // The looks. Each card is a title in that look, placed at
                 // the playhead on a click or dragged onto a lane; a preset
                 // that brings a font installs it on the way.
-                if root.tab == 1: HorizontalLayout {
+                if root.tab == 1 && root.text-category == 2: HorizontalLayout {
+                    padding-top: 4px;
+                    CaptionsForm {
+                        horizontal-stretch: 1;
+                        data: root.captions;
+                        models: root.caption-models;
+                        languages: root.caption-languages;
+                        voice-toggled(on) => { root.captions-voice-toggled(on); }
+                        source-changed(index) => { root.captions-source-changed(index); }
+                        text-edited(text) => { root.captions-text-edited(text); }
+                        model-changed(index) => { root.captions-model-changed(index); }
+                        language-changed(index) => { root.captions-language-changed(index); }
+                        placement-changed(index) => { root.captions-placement-changed(index); }
+                        size-changed(index) => { root.captions-size-changed(index); }
+                        begin => { root.captions-begin(); }
+                        cancel => { root.captions-cancel(); }
+                        import-srt => { root.captions-import-srt(); }
+                        export-srt => { root.captions-export-srt(); }
+                    }
+                }
+                if root.tab == 1 && root.text-category != 2: HorizontalLayout {
                     padding: 8px;
 
                     PresetGrid {
@@ -2623,7 +2702,10 @@ export component MediaPane inherits Rectangle {
                     ShelfGrid {
                         entries: root.catalogue-transitions;
                         glyph: Glyph.transition;
-                        // Transitions apply directly on single-click — no audition overlay.
+                        // A card drags onto the timeline as a transition
+                        // clip (#621); a click lays one on the selected
+                        // cut, or at the playhead. No audition overlay.
+                        payload-kind: "transition";
                         auditions: false;
                         applied(id, label) => { root.apply-transition(id); }
                     }

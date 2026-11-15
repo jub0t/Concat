@@ -22,6 +22,8 @@ concat-effects.workspace = true
 concat-vision.workspace = true
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
+# The export's one line at its end: how it went and where its time went.
+concat-log.workspace = true
 
 [lints]
 workspace = true

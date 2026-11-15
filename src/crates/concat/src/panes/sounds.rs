@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! The library's Audio page (#60): the user's own sounds, kept across
 //! projects.
@@ -167,7 +167,9 @@ impl SoundsPane {
                 }
                 Ok(None) => self.concat = ConcatState::Soon,
                 Err(error) => {
-                    log::info!("sounds: the Concat list could not be fetched: {error}");
+                    log::warn!(
+                        "network: wanted Concat's sound list and could not fetch it: {error}; the Audio page shows what it had, or says it is offline"
+                    );
                     // A list already on screen stays: the refresh failed,
                     // not the shelf.
                     if self.concat != ConcatState::Ready {
@@ -455,7 +457,12 @@ impl Studio {
             .map(|voice| VoiceCardData {
                 id: format!("saved-{}", voice.id).into(),
                 name: voice.name.as_str().into(),
-                detail: t("speech.savedVoice").into(),
+                // The line the user wrote about it, or what it is.
+                detail: voice
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| t("speech.savedVoice"))
+                    .into(),
                 avatar: self.speech.saved_avatar(voice),
                 removable: true,
             })

@@ -20,6 +20,21 @@ const FILE: &str = "settings.json";
 /// https://github.com/jub0t/Concat/issues/320
 pub const UI_SCALES: [u32; 6] = [100, 110, 125, 150, 175, 200];
 
+/// The workspace as the last session left it: each dock, and the window.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SavedLayout {
+    /// The dock a wide window shows.
+    pub wide: Option<crate::dock::SavedDock>,
+    /// The dock a narrow one shows; see `studio::COMPACT_WIDTH`.
+    pub compact: Option<crate::dock::SavedDock>,
+    /// The window's size in logical pixels when it was last not maximised,
+    /// so a maximised window restored comes back to that size.
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub maximized: bool,
+}
+
 /// Remembered preferences.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -33,8 +48,11 @@ pub struct Preferences {
     /// `None`, or a name no longer on the list, is the first one, which is
     /// Lime.
     pub accent: Option<String>,
-    /// The playhead's colour as "#rrggbb", when one was picked by hand in
-    /// Settings > Appearance. `None` is the palette's own, which is lime.
+    /// The playhead's colour the accent's way: the lower-cased name of one
+    /// of the accents - "sky", ... - worn as each palette has it, or
+    /// "#rrggbb" for a colour picked by hand in Settings > Appearance.
+    /// `None`, or a name no longer on the list, is the palette's own, which
+    /// is Lime.
     pub playhead: Option<String>,
     /// The interface scale, as a percent from [`UI_SCALES`]: the window and
     /// everything in it are drawn this much larger than the display's own
@@ -46,9 +64,16 @@ pub struct Preferences {
     pub ui_scale: Option<u32>,
     /// The chosen transcriber model id, e.g. "base.en".
     pub transcriber_model: Option<String>,
+    /// The language the captions sheet last asked the transcriber for, by
+    /// whisper's code ("id", "de", ...). `None` is whisper's to hear, and
+    /// so is a code whisper no longer knows.
+    pub caption_language: Option<String>,
+    /// The text preset captions are set in, by id; `None`, "default" and
+    /// an id no longer on the list are the plain look.
+    pub caption_style: Option<String>,
     /// The chosen speech model id.
     pub tts_model: Option<String>,
-    /// The chosen Kokoro speaker id.
+    /// The chosen voice id.
     pub tts_voice: Option<i32>,
     /// The interface's locale code ("de", "pt-BR", ...); absent is English.
     pub locale: Option<String>,
@@ -63,7 +88,7 @@ pub struct Preferences {
     pub playhead_stops_at_end: bool,
     /// Proxies: a file larger than HD gets a smaller copy written in the
     /// background, and playback at Half and Quarter reads that copy. Off
-    /// by default, as in CapCut: a proxy is a full re-encode of every large
+    /// by default: a proxy is a full re-encode of every large
     /// file, on the CPU of a phone or through a hardware encoder a laptop
     /// may not take (an HDR one opened NVENC first), and the person who
     /// wants one for smoother playback turns it on in Settings.
@@ -132,6 +157,12 @@ pub struct Preferences {
     /// How the voiceover panel was last set up.
     #[serde(default)]
     pub voiceover: VoiceoverPrefs,
+    /// Settings > General's "Remember layout": the next launch opens with
+    /// the panels where this one left them, and the window at its size.
+    /// `None` is on; read it through [`Preferences::remembers_layout`].
+    pub remember_layout: Option<bool>,
+    /// The arrangement that is remembered, while the switch is on.
+    pub layout: Option<SavedLayout>,
     /// Rebound shortcuts, by action id: the chord each was given, or ""
     /// for an action a rebind left with none. Absent is the shipped
     /// chord — the file holds what moved, not the whole table. Written
@@ -283,6 +314,11 @@ impl Preferences {
         self.magnetic || (crate::platform::phone() && !self.magnetic_chosen)
     }
 
+    /// Whether a launch opens on the last session's layout.
+    pub fn remembers_layout(&self) -> bool {
+        self.remember_layout.unwrap_or(true)
+    }
+
     /// Sets the magnetic timeline by the person's choice.
     pub fn set_magnetic(&mut self, on: bool) {
         self.magnetic = on;
@@ -305,13 +341,15 @@ impl Preferences {
         }
         match &self.software_after_crash {
             Some(crashed) if crashed != build => {
-                log::info!("start: {crashed} closed while starting; {build} tries the GPU again");
+                log::info!(
+                    "start: back on the GPU · {crashed} closed while starting and drew in software, and {build} tries the GPU again"
+                );
                 self.software_after_crash = None;
                 true
             }
             None if died_starting => {
                 log::warn!(
-                    "start: the last launch closed while starting; drawing in software until another build"
+                    "start: the last launch closed while starting; this build draws in software until the next one, or until Draw on the GPU is turned back on"
                 );
                 self.software_after_crash = Some(build.to_owned());
                 true
@@ -337,7 +375,7 @@ impl Preferences {
         let _ = std::fs::copy(&path, path.with_extension("json.unreadable"));
         let preferences = salvage(&bytes);
         log::warn!(
-            "settings: {} did not read whole; kept what did",
+            "settings: wanted the saved settings in {} and only part of them read; the rest are back to their defaults, and the file is kept beside it as .json.unreadable",
             path.display()
         );
         preferences

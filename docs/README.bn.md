@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">বিনামূল্যের, ওপেন-সোর্স ও ক্রস-প্ল্যাটফর্ম CapCut-এর বিকল্প।</h3>
+<h3 align="center">বিনামূল্যের, ওপেন-সোর্স ও ক্রস-প্ল্যাটফর্ম ভিডিও এডিটর।</h3>
 
 <div align="center">
 
@@ -12,15 +12,15 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.8-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.8" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
-  <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://trendshift.io/repositories/191379?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/191379" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · **🇧🇩 বাংলা**
@@ -44,7 +44,7 @@
 
 ## পরিচিতি
 
-Concat হলো macOS, Windows, Linux ও Android-এর জন্য একটি বিনামূল্যের, ওপেন-সোর্স ভিডিও এডিটর এবং CapCut-এর বিকল্প। মানুষ আসলে যে কাজগুলোর জন্য CapCut খোলে, তার সবই এতে আছে: অটো-ক্যাপশন, টেক্সট-টু-স্পিচ, ব্যাকগ্রাউন্ড রিমুভ, কীফ্রেম অ্যানিমেশন, ইফেক্ট ও টাইটেল, মাল্টি-ট্র্যাক কাটিং, 4K এক্সপোর্ট। আর কোনো শর্ত ছাড়াই: না ওয়াটারমার্ক, না অ্যাকাউন্ট, না সাবস্ক্রিপশন, না আপলোড।
+Concat হলো macOS, Windows, Linux ও Android-এর জন্য একটি বিনামূল্যের, ওপেন-সোর্স ভিডিও এডিটর। বেশিরভাগ এডিটে যা লাগে, তার সবই এতে আছে: অটো-ক্যাপশন, টেক্সট-টু-স্পিচ, ব্যাকগ্রাউন্ড রিমুভ, কীফ্রেম অ্যানিমেশন, ইফেক্ট ও টাইটেল, মাল্টি-ট্র্যাক কাটিং, 4K এক্সপোর্ট। আর কোনো শর্ত ছাড়াই: না ওয়াটারমার্ক, না অ্যাকাউন্ট, না সাবস্ক্রিপশন, না আপলোড।
 
 সবকিছু আপনার মেশিনেই চলে, GPU কম্পোজিটরসহ একটি নেটিভ Rust ইঞ্জিনে। ইনস্টল করুন, ফুটেজ টেনে আনুন, কাটুন। ক্যাপশন, ভয়েস আর কাটআউটের AI মডেলগুলো সেটিংস থেকে একবার ডাউনলোড করলেই পরে অফলাইনে কাজ করে। আপনার ফুটেজ কখনো আপনার ডিস্ক ছেড়ে যায় না।
 
@@ -74,7 +74,7 @@ Concat হলো macOS, Windows, Linux ও Android-এর জন্য একট
 
 দুইভাবে পাওয়া যায়:
 
-1. **[ওয়েবসাইট](https://concatenate.pages.dev/#download)** আপনার মেশিনের জন্য ঠিক বিল্ডটি দিয়ে দেয়। এখান থেকেই শুরু করুন।
+1. **[ওয়েবসাইট](https://concat.standalones.org/#download)** আপনার মেশিনের জন্য ঠিক বিল্ডটি দিয়ে দেয়। এখান থেকেই শুরু করুন।
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** প্রতিটি প্ল্যাটফর্মের সব বিল্ড রাখে, ইনস্টলার, প্যাকেজ আর চেকসামসহ। যখন নিজে বেছে নিতে চান, তখনকার জন্য।
 
 Concat এখন **বেটা** পর্যায়ে: কাজ করে, তবে এখনো কিছু খুঁত আছে। কোনোটা পেলে [জানান](https://github.com/jub0t/Concat/issues)।
@@ -89,7 +89,7 @@ Concat এখন **বেটা** পর্যায়ে: কাজ করে,
 
 ✅ সমর্থিত · 🚧 কাজ চলছে · 🧪 পরীক্ষা বাকি
 
-**সিস্টেমের প্রয়োজনীয়তা** এবং ঐচ্ছিক মডেলগুলোর সাইজ [ওয়েবসাইটে](https://concatenate.pages.dev/guides/system-requirements) দেওয়া আছে।
+**সিস্টেমের প্রয়োজনীয়তা** এবং ঐচ্ছিক মডেলগুলোর সাইজ [ওয়েবসাইটে](https://concat.standalones.org/guides/system-requirements) দেওয়া আছে।
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Concat এখন **বেটা** পর্যায়ে: কাজ করে,
 > [!IMPORTANT]
 > অবদান রাখার সবচেয়ে ভালো উপায় হলো [Releases](https://github.com/jub0t/Concat/releases) পেজ থেকে একটি বিল্ড নিয়ে ব্যবহার করা: কোথায় ভেঙে পড়ে খুঁজে বের করুন, আর কোথায় আরও ভালো হতে পারে বলুন।
 >
-> কোড লিখতে প্রস্তুত? [CONTRIBUTING.md](../CONTRIBUTING.md)-এ সেটআপ, সোর্স ট্রির গঠন, কোন চেকগুলো চালাতে হবে, আর অবদানগুলো কোন লাইসেন্সে যায় তা লেখা আছে। স্ক্রিপ্ট, সার্ভিস বা এজেন্ট থেকে Concat চালাতে চান? [ডেভেলপার ডকস](https://concatenate.pages.dev/docs)-এ Concat API আর তার ট্রান্সপোর্টগুলোর কথা আছে: JSON-RPC ও gRPC। [এই Discussion](https://github.com/jub0t/Concat/discussions/3)-এ প্রজেক্টটির ঘোষণা দেওয়া হয়েছিল।
+> কোড লিখতে প্রস্তুত? [CONTRIBUTING.md](../CONTRIBUTING.md)-এ সেটআপ, সোর্স ট্রির গঠন, কোন চেকগুলো চালাতে হবে, আর অবদানগুলো কোন লাইসেন্সে যায় তা লেখা আছে। স্ক্রিপ্ট, সার্ভিস বা এজেন্ট থেকে Concat চালাতে চান? [ডেভেলপার ডকস](https://concat.standalones.org/docs)-এ Concat API আর তার ট্রান্সপোর্টগুলোর কথা আছে: JSON-RPC ও gRPC। [এই Discussion](https://github.com/jub0t/Concat/discussions/3)-এ প্রজেক্টটির ঘোষণা দেওয়া হয়েছিল।
 > 
 > অবদানকারীরা Discord সার্ভারে `@Contributor` রোল নিতে পারেন: শুধু চেয়ে নিন।
 

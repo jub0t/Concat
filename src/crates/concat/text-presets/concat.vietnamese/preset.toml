@@ -1,0 +1,13 @@
+id = "concat.vietnamese"
+name = "Vietnamese"
+language = "Vietnamese"
+order = 60
+
+# Montserrat carries every stacked Vietnamese diacritic.
+[style]
+content = "Xin chào"
+fontFamily = "Montserrat"
+fontWeight = 900
+fontSize = 0.09
+strokeWidth = 0.01
+strokeColor = "#000000"

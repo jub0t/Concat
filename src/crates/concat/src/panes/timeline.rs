@@ -17,6 +17,8 @@
 
 use std::collections::HashMap;
 
+use concat_project::Command;
+
 use crate::studio::Studio;
 use crate::ui::{TimelineTool, TrackSize};
 
@@ -58,6 +60,8 @@ pub enum TimelineMsg {
     MagneticChanged(bool),
     /// The menu's Magnetic row: the other way round.
     MagneticToggled,
+    /// Linkage on or off for the active timeline: an edit, undone as one.
+    LinkageChanged(bool),
     /// The tray's preview axis button: the monitor follows the pointer.
     /// A preference, remembered.
     TrimFollowChanged(bool),
@@ -138,6 +142,10 @@ impl TimelinePane {
             TimelineMsg::MagneticChanged(on) => {
                 studio.prefs.set_magnetic(on);
                 studio.prefs.save(&studio.host.dirs);
+            }
+            TimelineMsg::LinkageChanged(on) => {
+                let timeline_id = studio.timeline().id.clone();
+                studio.apply(Command::SetTimelineLinkage { timeline_id, on });
             }
             TimelineMsg::MagneticToggled => {
                 let on = !studio.prefs.magnetic();

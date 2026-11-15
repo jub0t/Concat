@@ -6,9 +6,9 @@
 #
 # Build first (`cargo build -p concat --target aarch64-apple-ios --release`
 # under `eval "$(scripts/mobile-env.sh aarch64-apple-ios)"`), then this
-# lays out target/<target>/<profile>/Concat.app: the binary, an Info.plist,
-# the icon, and the sherpa-onnx framework the binary loads, with the load
-# path rewritten to the bundle. The bundle is ad-hoc signed, which is what
+# lays out target/<target>/<profile>/Concat.app: the binary, an Info.plist
+# and the icon. FFmpeg and ONNX Runtime are linked into the binary
+# statically, so the bundle carries no frameworks. It is ad-hoc signed, which is what
 # a simulator accepts; a phone needs a developer identity and provisioning
 # profile on top, with `codesign --force --sign "<identity>"`.
 set -euo pipefail
@@ -22,26 +22,12 @@ ios_min=${IPHONEOS_DEPLOYMENT_TARGET:-15.0}
 
 binary=$workspace/target/$target/$profile/concat
 [ -f "$binary" ] || { echo "no binary at $binary: build first" >&2; exit 1; }
-framework=$(find "$workspace/vendor/sherpa-onnx/ios" -maxdepth 2 -name '*.xcframework' | head -1)
-[ -n "$framework" ] || { echo "no sherpa-onnx xcframework: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
-slice=ios-arm64
-[ "$target" = aarch64-apple-ios-sim ] && slice=ios-arm64_x86_64-simulator
 
 app=$workspace/target/$target/$profile/Concat.app
 rm -rf "$app"
-mkdir -p "$app/Frameworks"
+mkdir -p "$app"
 cp "$binary" "$app/Concat"
-cp -R "$framework/$slice/SherpaOnnxC.framework" "$app/Frameworks/"
 cp "$root/assets/icons/concat_logo_512.png" "$app/AppIcon.png" 2>/dev/null || true
-
-# The binary was linked against the dylib by the name the linker saw in
-# vendor/; in the bundle it lives in Frameworks/ under the framework's
-# own name.
-old=$(otool -L "$app/Concat" | awk '/sherpa-onnx-c-api|SherpaOnnxC/ {print $1; exit}')
-if [ -n "$old" ]; then
-  install_name_tool -change "$old" "@rpath/SherpaOnnxC.framework/SherpaOnnxC" "$app/Concat"
-fi
-install_name_tool -add_rpath "@executable_path/Frameworks" "$app/Concat" 2>/dev/null || true
 
 platform=iPhoneOS
 [ "$target" = aarch64-apple-ios-sim ] && platform=iPhoneSimulator
@@ -106,6 +92,5 @@ cat > "$app/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$app/Frameworks/SherpaOnnxC.framework"
 codesign --force --sign - "$app"
 echo "Bundled $app"

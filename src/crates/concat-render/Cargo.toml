@@ -24,6 +24,8 @@ half = "2"
 # The pass test compiles a real package shader through the catalogue's
 # stitching, so what the test runs is what a package would run.
 concat-effects.workspace = true
+# The upscaler's answer is held to the network's plain CPU reference.
+concat-vision.workspace = true
 
 [lints]
 workspace = true

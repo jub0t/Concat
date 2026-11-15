@@ -1,0 +1,12 @@
+id = "concat.russian"
+name = "Russian"
+language = "Cyrillic"
+order = 61
+
+[style]
+content = "Привет"
+fontFamily = "Montserrat"
+fontWeight = 800
+fontSize = 0.09
+strokeWidth = 0.01
+strokeColor = "#000000"

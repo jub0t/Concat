@@ -1,0 +1,13 @@
+id = "concat.ukrainian"
+name = "Ukrainian"
+language = "Cyrillic"
+order = 62
+
+[style]
+content = "Привіт"
+fontFamily = "Lobster"
+fontWeight = 400
+fontSize = 0.1
+color = "#FFD500"
+strokeWidth = 0.008
+strokeColor = "#0057B7"

@@ -1,0 +1,32 @@
+format = 2
+
+[effect]
+id = "concat.linen"
+name = "Linen"
+kind = "filter"
+category = "Everyday"
+order = 18
+intensity = "matte"
+description = "Whitewash's warm twin: the same soft matte with cream in the whites and a little gold in the middle. Interiors and morning light."
+
+[[param]]
+key = "matte"
+label = "Matte"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"

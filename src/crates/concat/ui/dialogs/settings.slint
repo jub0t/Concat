@@ -5,7 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, DialogSection, Field, Progress, Sheet } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
@@ -39,6 +39,11 @@ export struct ModelData {
     /// "42 MB of 142 MB · 3.1 MB/s"
     transferred: string,
     eta: string,
+    /// why the last download failed, in a sentence; "" when it did not
+    problem: string,
+    /// the failure can be got round: the model is one file, which the
+    /// browser can fetch and the row can take
+    manual: bool,
 }
 
 /// One line of the system report: what it is called, and what it says.
@@ -72,10 +77,18 @@ export struct SettingsData {
     playhead-stops: bool,
     /// large files get a smaller copy for playback
     proxies: bool,
+    /// a launch opens with the panels and the window where the last
+    /// session left them
+    remember-layout: bool,
+    /// there is a dock to remember: a desk, not a phone
+    layout-switchable: bool,
     /// the window and the compositor draw on the GPU, not in software
     gpu: bool,
     /// there is a software rasteriser to draw on instead: Windows, Linux
     gpu-switchable: bool,
+    /// the log goes to the system's share sheet, not to a folder shown:
+    /// Android
+    shares-log: bool,
     /// the magnetic timeline: deleting and trimming close the gap
     magnetic: bool,
     /// where model downloads look first: automatic, Concat's mirror,
@@ -167,8 +180,11 @@ component ModelMeta inherits HorizontalLayout {
 
     if root.spread: Rectangle { horizontal-stretch: 1; }
 
+    // As wide as its button and no wider: the row's stretch belongs to
+    // the name and its note, not to an action.
     VerticalLayout {
         alignment: center;
+        horizontal-stretch: 0;
 
         if root.model.downloading: Button {
             label: I18n.t("common.cancel");
@@ -177,9 +193,12 @@ component ModelMeta inherits HorizontalLayout {
             clicked => { root.cancel(); }
         }
 
+        // The bin alone, as a file list's delete is: the row already
+        // says which model, and the word made the button the row's loudest.
         if !root.model.downloading && root.model.installed: Button {
-            label: I18n.t("common.remove");
+            label: I18n.t("common.delete");
             glyph: Glyph.trash;
+            square: true;
             danger: true;
             clicked => { root.remove(); }
         }
@@ -201,6 +220,8 @@ component ModelRow inherits Rectangle {
     callback download();
     callback cancel();
     callback remove();
+    callback open-link();
+    callback choose-file();
 
     border-radius: Theme.r;
     border-width: 1px;
@@ -296,6 +317,7 @@ component ModelRow inherits Rectangle {
             }
 
             if !root.compact: ModelMeta {
+                horizontal-stretch: 0;
                 model: root.model;
                 download => { root.download(); }
                 cancel => { root.cancel(); }
@@ -337,6 +359,41 @@ component ModelRow inherits Rectangle {
                     font-family: Theme.font-technical;
                     font-size: Theme.fs-sm;
                     vertical-alignment: center;
+                }
+            }
+        }
+
+        // A download that failed says why under the name, and - when the
+        // model is one file - offers the way round a network that lets the
+        // browser through and not Concat: fetch it there, then hand the
+        // file over. Download stays the retry.
+        if root.model.problem != "" && !root.model.downloading && !root.model.installed: VerticalLayout {
+            padding-left: 26px;
+            spacing: 8px;
+
+            Text {
+                text: root.model.problem;
+                color: Theme.danger;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+
+            if root.model.manual: HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+
+                Button {
+                    label: I18n.t("settings.downloadInBrowser");
+                    glyph: Glyph.arrow-up-right;
+                    ghost: true;
+                    clicked => { root.open-link(); }
+                }
+
+                Button {
+                    label: I18n.t("settings.chooseFile");
+                    glyph: Glyph.folder;
+                    ghost: true;
+                    clicked => { root.choose-file(); }
                 }
             }
         }
@@ -582,7 +639,7 @@ component ShortcutRow inherits Rectangle {
     }
 }
 
-export component SettingsDialog inherits Modal {
+export component SettingsDialog inherits Sheet {
     in property <SettingsData> data;
     in property <[ModelData]> transcribers;
     in property <[ModelData]> voices;
@@ -613,13 +670,15 @@ export component SettingsDialog inherits Modal {
     callback accent-custom-changed(colour: color);
     /// The playhead's colour, picked by hand in place of the palette's own.
     callback playhead-changed(colour: color);
-    /// The palette's own playhead colour, back in place of a picked one.
-    callback playhead-reset();
+    /// One of the accents for the playhead, as an index into
+    /// `Theme.accent-names`: 0, Lime, is the palette's own.
+    callback playhead-chosen(index: int);
     /// The interface scale, as an index into the scales the row lists: 0
     /// follows the display's own.
     callback scale-changed(index: int);
     callback playhead-stops-changed(on: bool);
     callback proxies-changed(on: bool);
+    callback remember-layout-changed(on: bool);
     callback gpu-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback download-source-changed(index: int);
@@ -639,6 +698,8 @@ export component SettingsDialog inherits Modal {
     callback model-download(id: string);
     callback model-cancel(id: string);
     callback model-remove(id: string);
+    callback model-open-link(id: string);
+    callback model-choose-file(id: string);
     /// The Shortcuts page: a row asked for the next keys it should be
     /// bound to, one row put back as it ships, and all of them put back.
     callback shortcut-capture(id: string);
@@ -674,17 +735,25 @@ export component SettingsDialog inherits Modal {
     property <bool> compact: root.width < 600px;
 
     /// Every page, in order; the column and the row of tabs are drawn from
-    /// the same list. `desk` is a page a phone does not show.
-    property <[{label: string, glyph: Glyph, page: int, desk: bool}]> page-list: [
-        {label: I18n.t("settings.general"), glyph: Glyph.settings, page: 0, desk: false},
-        {label: I18n.t("settings.appearance"), glyph: Glyph.sun, page: 1, desk: false},
+    /// the same list. A phone's list leaves out the pages a phone does not
+    /// show, rather than hiding their tabs: a tab that is not `visible`
+    /// still has its place in the row, and the row showed three gaps (#718).
+    property <[{label: string, glyph: Glyph, page: int}]> page-list: root.phone ? [
+        {label: I18n.t("settings.general"), glyph: Glyph.settings, page: 0},
+        {label: I18n.t("settings.appearance"), glyph: Glyph.sun, page: 1},
+        {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2},
+        {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3},
+        {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5},
+    ] : [
+        {label: I18n.t("settings.general"), glyph: Glyph.settings, page: 0},
+        {label: I18n.t("settings.appearance"), glyph: Glyph.sun, page: 1},
         // The keys: a desk's, since a phone has no keyboard to bind.
-        {label: I18n.t("settings.shortcuts"), glyph: Glyph.keyboard, page: 7, desk: true},
-        {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2, desk: false},
-        {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3, desk: false},
-        {label: I18n.t("settings.automation"), glyph: Glyph.lock, page: 4, desk: true},
-        {label: I18n.t("settings.version"), glyph: Glyph.tag, page: 6, desk: true},
-        {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5, desk: false},
+        {label: I18n.t("settings.shortcuts"), glyph: Glyph.keyboard, page: 7},
+        {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2},
+        {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3},
+        {label: I18n.t("settings.automation"), glyph: Glyph.lock, page: 4},
+        {label: I18n.t("settings.version"), glyph: Glyph.tag, page: 6},
+        {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5},
     ];
 
     /// The launch screen is up: no project, so no dispatch. The capture
@@ -696,7 +765,7 @@ export component SettingsDialog inherits Modal {
     /// The column of pages' width, as the hairline beside it was last left.
     /// In-out because it is dragged; what is drawn is `pages` below, which
     /// keeps it inside the room the sheet has.
-    in-out property <length> pages-w: root.phone ? 112px : 164px;
+    in-out property <length> pages-w: root.phone ? 112px : 200px;
     /// Narrow enough to be a real squeeze, wide enough for a mark and the
     /// start of a word.
     property <length> min-pages: 64px;
@@ -720,12 +789,19 @@ export component SettingsDialog inherits Modal {
     open: root.data.open;
     title: I18n.t("common.settings");
     glyph: Glyph.settings;
-    surface-width: 640px;
-    // Fixed rather than fitted: the pages are different lengths and a sheet
-    // that resized as you moved between them would be its own distraction.
-    surface-height: 460px;
 
+    // The whole window, as Export is. The pages and the page are held to
+    // a column a person can read across, centred in whatever width is
+    // left over, rather than stretched to the edges of a wide screen.
+    // Centred by padding, not by `alignment: center`: that gives every
+    // child only its preferred width, and the body, placed by hand, has
+    // none - the page vanished and the pages' names went to "…".
+    property <length> column: 1080px;
     HorizontalLayout {
+        vertical-stretch: 1;
+        padding-top: root.compact ? 0px : 12px;
+        padding-left: Math.max(0px, (root.width - root.column) / 2);
+        padding-right: Math.max(0px, (root.width - root.column) / 2);
         // The clipboard takes text, so there has to be a TextInput holding
         // the report: Slint copies from a text element's own selection and
         // has no other way in. It is never read — it is zero wide and clipped
@@ -787,7 +863,6 @@ export component SettingsDialog inherits Modal {
                         alignment: start;
 
                         for entry in root.page-list: PageTab {
-                            visible: !(entry.desk && root.phone);
                             min-width: self.preferred-width;
                             label: entry.label;
                             glyph: entry.glyph;
@@ -813,7 +888,6 @@ export component SettingsDialog inherits Modal {
                     alignment: start;
 
                     for entry in root.page-list: PageTab {
-                        visible: !(entry.desk && root.phone);
                         label: entry.label;
                         glyph: entry.glyph;
                         current: root.data.tab == entry.page;
@@ -847,6 +921,8 @@ export component SettingsDialog inherits Modal {
             finger: root.phone;
 
             if root.data.tab == 0: VerticalLayout {
+                padding-top: 10px;
+
                 DialogSection {
                     ruled: false;
                     first: true;
@@ -955,12 +1031,26 @@ export component SettingsDialog inherits Modal {
                     switched(on) => { root.proxies-changed(on); }
                 }
 
+                // On, the next launch opens with the panels where this one
+                // left them, and the window at its size. Off, every launch
+                // starts on the default arrangement.
+                if root.data.layout-switchable: DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.rememberLayout");
+                    hint: I18n.t("settings.rememberLayoutHint");
+                    switchable: true;
+                    on: root.data.remember-layout;
+                    open: false;
+                    switched(on) => { root.remember-layout-changed(on); }
+                }
+
                 // Off, the window and the compositor draw in software:
                 // slower, but out of the way of a graphics driver that
                 // closes the app. A launch that dies while starting turns
                 // it off by itself. Read when Concat starts. Only where
                 // there is a software rasteriser: WARP, lavapipe.
                 if root.data.gpu-switchable: DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.gpu");
                     hint: I18n.t("settings.gpuHint");
                     switchable: true;
@@ -978,9 +1068,41 @@ export component SettingsDialog inherits Modal {
             // the first. The change still goes out as a callback, so Rust
             // stays the one place a remembered preference will be written.
             if root.data.tab == 1: VerticalLayout {
-                DialogSection {
+                padding-top: 10px;
+
+                // The interface scale: how much larger than the display's own
+                // scale the window is drawn. Most of Concat was built on a
+                // small laptop and reads small on a large screen, which is
+                // what this row is for. First on the page: it changes the
+                // size of everything else on it.
+                //
+                // The desk's alone. It rides on the window backend's
+                // SLINT_SCALE_FACTOR, which winit reads and the phone's
+                // backend does not: on Android the scale comes from the
+                // display density and a config change would take the choice
+                // back, so offering the row there would be a control that
+                // does not hold. Phones set their size the system's way
+                // anyway. The backend takes it as a multiplier rather than as
+                // a property, so Rust hands the window a scale-factor event
+                // to apply it (lib.rs, `on_settings_scale_changed`).
+                // https://github.com/jub0t/Concat/issues/320
+                if !root.phone: DialogSection {
                     ruled: false;
                     first: true;
+                    title: I18n.t("settings.scale");
+                    hint: I18n.t("settings.scaleHint");
+                    choices: [
+                        I18n.t("settings.scaleSystem"),
+                        "100%", "110%", "125%", "150%", "175%", "200%",
+                    ];
+                    choice: Theme.ui-scale;
+                    open: false;
+                    chose(index) => { root.scale-changed(index); }
+                }
+
+                DialogSection {
+                    ruled: false;
+                    first: root.phone;
                     title: I18n.t("settings.theme");
 
                     SegmentedControl {
@@ -1071,12 +1193,13 @@ export component SettingsDialog inherits Modal {
 
                 // The playhead: the one line over the lanes that has to be
                 // found at a glance, whatever the clips under it are wearing.
-                // The palette's own is lime. The second dot opens the same
-                // picker the accent does, and the picked colour replaces the
-                // palette's under both palettes until the first dot puts it
-                // back. Read off the Theme global for the same reason the
-                // accent is, and the hex is always shown: what the line is
-                // wearing is the whole point of the row.
+                // The same seven dots the accent has: the six on the list,
+                // each worn as the palette that is on has it - the first,
+                // Lime, is the palette's own playhead - and the seventh any
+                // colour at all, through the same picker, one colour under
+                // both palettes. Read off the Theme global for the same
+                // reason the accent is, and the hex is always shown: what the
+                // line is wearing is the whole point of the row.
                 DialogSection {
                     ruled: false;
                     title: I18n.t("settings.playhead");
@@ -1086,11 +1209,11 @@ export component SettingsDialog inherits Modal {
                         spacing: 6px;
                         alignment: start;
 
-                        AccentSwatch {
-                            colour: Theme.playhead-default;
-                            label: I18n.t("settings.default");
-                            chosen: !Theme.playhead-is-custom;
-                            clicked => { root.playhead-reset(); }
+                        for name[index] in Theme.accent-names: AccentSwatch {
+                            colour: index == 0 ? Theme.playhead-default : Theme.accent-of(index);
+                            label: root.accent-labels[index];
+                            chosen: Theme.playhead-choice == index;
+                            clicked => { root.playhead-chosen(index); }
                         }
 
                         Rectangle {
@@ -1127,7 +1250,8 @@ export component SettingsDialog inherits Modal {
                         }
 
                         Text {
-                            text: Theme.playhead-is-custom ? I18n.t("common.custom") : I18n.t("settings.default");
+                            text: Theme.playhead-is-custom ? I18n.t("common.custom")
+                                : root.accent-labels[Math.max(0, Theme.playhead-choice)];
                             color: Theme.fg-muted;
                             font-size: Theme.fs;
                             vertical-alignment: center;
@@ -1143,38 +1267,11 @@ export component SettingsDialog inherits Modal {
                     }
                 }
 
-                // The interface scale: how much larger than the display's own
-                // scale the window is drawn. Most of Concat was built on a
-                // small laptop and reads small on a large screen, which is
-                // what this row is for.
-                //
-                // The desk's alone. It rides on the window backend's
-                // SLINT_SCALE_FACTOR, which winit reads and the phone's
-                // backend does not: on Android the scale comes from the
-                // display density and a config change would take the choice
-                // back, so offering the row there would be a control that
-                // does not hold. Phones set their size the system's way
-                // anyway. The backend takes it as a multiplier rather than as
-                // a property, so Rust hands the window a scale-factor event
-                // to apply it (lib.rs, `on_settings_scale_changed`).
-                // https://github.com/jub0t/Concat/issues/320
-                if !root.phone: DialogSection {
-                    ruled: false;
-                    title: I18n.t("settings.scale");
-                    hint: I18n.t("settings.scaleHint");
-
-                    Select {
-                        options: [
-                            I18n.t("settings.scaleSystem"),
-                            "100%", "110%", "125%", "150%", "175%", "200%",
-                        ];
-                        current: Theme.ui-scale;
-                        changed(index) => { root.scale-changed(index); }
-                    }
-                }
             }
 
             if root.data.tab == 2: VerticalLayout {
+                padding-top: 10px;
+
                 DialogSection {
                     ruled: false;
                     first: true;
@@ -1187,6 +1284,8 @@ export component SettingsDialog inherits Modal {
                         download => { root.model-download(model.id); }
                         cancel => { root.model-cancel(model.id); }
                         remove => { root.model-remove(model.id); }
+                        open-link => { root.model-open-link(model.id); }
+                        choose-file => { root.model-choose-file(model.id); }
                     }
 
                     HorizontalLayout {
@@ -1218,6 +1317,8 @@ export component SettingsDialog inherits Modal {
             }
 
             if root.data.tab == 3: VerticalLayout {
+                padding-top: 10px;
+
                 DialogSection {
                     ruled: false;
                     first: true;
@@ -1230,6 +1331,8 @@ export component SettingsDialog inherits Modal {
                         download => { root.model-download(model.id); }
                         cancel => { root.model-cancel(model.id); }
                         remove => { root.model-remove(model.id); }
+                        open-link => { root.model-open-link(model.id); }
+                        choose-file => { root.model-choose-file(model.id); }
                     }
                 }
             }
@@ -1540,6 +1643,8 @@ export component SettingsDialog inherits Modal {
             }
 
             if root.data.tab == 5: VerticalLayout {
+                padding-top: 10px;
+
                 // The name and the build, and nothing under them: the engine
                 // and the FFmpeg it links are rows of the table below, where
                 // a report reads them from.
@@ -1595,10 +1700,12 @@ export component SettingsDialog inherits Modal {
                         // The other half of a report: the block says what
                         // this machine is, the log says what the app did on
                         // it. A run writes one file, and the last ten runs
-                        // are in the folder this opens.
+                        // are in the folder this opens. Android has no
+                        // folder to show, and hands the log to its share
+                        // sheet instead.
                         IconButton {
-                            glyph: Glyph.folder;
-                            label: I18n.t("settings.showTheLog");
+                            glyph: root.data.shares-log ? Glyph.export : Glyph.folder;
+                            label: root.data.shares-log ? I18n.t("settings.shareTheLog") : I18n.t("settings.showTheLog");
                             icon-size: 13px;
                             clicked => { root.show-log(); }
                         }

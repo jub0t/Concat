@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! The speech sheet: a title's words, or any words, read aloud.
 //!
@@ -10,27 +10,24 @@
 //! written file, which lands in the bin and on the timeline.
 //!
 //! The model comes first and decides the rest: which voices are offered,
-//! and which dials. Kokoro reads with built-in speakers at a speed and
-//! with a pause of your choosing; Pocket reads in a recording, at a speed,
-//! with a pause, and at a quality that is its flow steps; Chatterbox reads
-//! at its own pace and knows the expression tags. Either of the two that
-//! read in a recording can read in a sample voice instead of a named one:
-//! a recording from the bin, chosen by its waveform, from a point in it of
-//! the sheet's choosing. The sheet shows each model its own controls rather
-//! than the few every model shares, which is why the pane carries every
-//! dial and the family says which are read.
+//! and which dials. Chatterbox, on the desktop, reads in a recording at its
+//! own pace and knows the expression tags; it can read in a sample voice
+//! instead of its stock one: a recording from the bin, chosen by its
+//! waveform, from a point in it of the sheet's choosing. The phone's own
+//! voice, on Android, reads at a speed of your choosing. The sheet shows
+//! each model its own controls rather than the few every model shares.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use concat_host::media::{self, MediaSummary};
-use concat_host::voices::{self, SavedVoice};
+use concat_host::voices::{self, Heard, SavedVoice};
 use concat_project::Command;
 use concat_project::commands::ClipPatch;
 use concat_project::model::{AppliedFilter, ClipKind, MediaItem, MediaOrigin};
 use concat_speech::JobStage;
 use concat_speech::tts::{
-    CHATTERBOX_CLONE, Family, POCKET_CLONE, Reference, VoiceInfo, family_of, is_clone, voice_family,
+    CHATTERBOX_CLONE, Family, Reference, VoiceInfo, family_of, is_clone, voice_family,
 };
 use slint::SharedString;
 
@@ -42,22 +39,16 @@ use crate::panes::captions::CHARS_PER_SECOND;
 use crate::panes::pace::{Pace, Stage, Timings};
 use crate::panes::settings::installed;
 use crate::studio::Studio;
-use crate::ui::SpeechSheetData;
+use crate::ui::{NewVoiceData, SpeechSheetData};
 
-/// The default Kokoro speaker: `af_heart`.
-const DEFAULT_VOICE: i32 = 3;
-/// The default Pocket voice: Bria, the bundle's first recording.
-const DEFAULT_POCKET_VOICE: i32 = 1000;
-/// The default Chatterbox voice: the same recording, read by Chatterbox.
+/// The default Chatterbox voice: Elizabeth, the first recording Concat
+/// carries.
 const DEFAULT_CHATTERBOX_VOICE: i32 = 2000;
+/// The phone's voice: whichever its engine is set to.
+const DEFAULT_SYSTEM_VOICE: i32 = 3000;
 /// The speeds a voice can be asked for, as the rate multiplier the sheet's
 /// slider runs over; 1 is the voice's own.
 const SPEEDS: (f32, f32) = (0.5, 2.0);
-/// Pocket's flow steps behind the sheet's three qualities: quick, the
-/// engine's own, and fine.
-const STEPS: [i32; 3] = [3, 5, 8];
-/// The breath between sentences the sheet opens on: sherpa's own.
-const DEFAULT_PAUSES: f32 = 0.2;
 
 /// A style a voice can be read in: a few of the audio effects Concat ships,
 /// laid on the speech clip once it lands, where they stay as ordinary
@@ -113,8 +104,7 @@ pub enum VoiceChoice {
 /// it has been timed: about what each took on a recent CPU.
 fn reading_pace(family: Family) -> f32 {
     match family {
-        Family::Kokoro => 0.35,
-        Family::Pocket => 0.3,
+        Family::System => 0.1,
         Family::Chatterbox => 1.6,
     }
 }
@@ -136,6 +126,24 @@ pub enum SpeechMsg {
     VoiceSaved(Box<Result<SavedVoice, String>>),
     /// A saved voice deleted, by its id.
     ForgetVoice(String),
+    /// A recording picked by the Voices shelf's Import voice: the New
+    /// voice sheet on it.
+    ImportVoice(PathBuf),
+    /// The listen's worker is done: what it heard in that recording.
+    VoiceHeard(PathBuf, Box<Result<Heard, String>>),
+    /// The New voice sheet's name, its description, and the seconds into
+    /// the recording its sample starts at.
+    NewVoiceNameEdited(String),
+    NewVoiceDescriptionEdited(String),
+    NewVoiceStartChanged(f32),
+    /// A picture for the new voice, from the system's picker.
+    NewVoicePicturePicked(PathBuf),
+    /// Keep the new voice.
+    NewVoiceSave,
+    /// That save's worker is done.
+    NewVoiceSaved(Box<Result<SavedVoice, String>>),
+    /// The New voice sheet put away without a save.
+    NewVoiceClose,
     /// The style taken off: the speech lands plain.
     ClearStyle,
     Close,
@@ -144,10 +152,6 @@ pub enum SpeechMsg {
     ModelChanged(i32),
     /// The rate, `0.5..=2`.
     SpeedChanged(f32),
-    /// Pocket's quality: a row of [`STEPS`].
-    QualityChanged(i32),
-    /// The breath between sentences, `0..=1`.
-    PausesChanged(f32),
     /// Seconds into the sample the voice is taken from.
     ReferenceStartChanged(f32),
     /// Read in a sample from the bin rather than a named voice.
@@ -162,6 +166,31 @@ pub enum SpeechMsg {
     /// The synthesiser's worker is done: the file it wrote, probed, or
     /// why not.
     Finished(Box<Result<MediaSummary, String>>),
+}
+
+/// The Voices shelf's New voice sheet: a recording from the system's
+/// files, to be kept as a voice under a name, with a picture and a line
+/// about it when given them (#518). It opens on the file's name and, once
+/// the recording has been listened to, on the stretch of it most given to
+/// speech; see `voices::listen`.
+#[derive(Default)]
+pub struct NewVoice {
+    pub open: bool,
+    /// The recording picked.
+    source: PathBuf,
+    name: String,
+    description: String,
+    picture: Option<PathBuf>,
+    /// The recording's length, once it has been listened to; zero before.
+    duration: f64,
+    /// Seconds into the recording the kept sample starts at, and where
+    /// listening to it put the start.
+    start: f64,
+    found: f64,
+    /// The recording being listened to: the start is not known yet.
+    listening: bool,
+    /// A save running.
+    saving: bool,
 }
 
 /// The speech sheet's state.
@@ -179,14 +208,10 @@ pub struct SpeechPane {
     /// The family of the chosen model, which is which voices are offered
     /// and which of the dials below are read.
     pub family: Family,
-    /// The rate, `0.5..=2`; Kokoro and Pocket.
+    /// The rate, `0.5..=2`; the phone's voice.
     pub speed: f32,
-    /// Row of [`STEPS`]; Pocket.
-    pub quality: usize,
-    /// The breath between sentences, `0..=1`; Kokoro and Pocket.
-    pub pauses: f32,
-    /// Reading in a sample from the bin rather than a named voice; Pocket
-    /// and Chatterbox, the two that read in a recording.
+    /// Reading in a sample from the bin rather than a named voice;
+    /// Chatterbox, which reads in a recording.
     pub use_sample: bool,
     /// Row of [`SpeechPane::samples`]: which recording.
     pub sample: usize,
@@ -220,6 +245,9 @@ pub struct SpeechPane {
     pub save_picture: Option<PathBuf>,
     /// A save running.
     pub saving: bool,
+    /// The Voices shelf's New voice sheet, which keeps a voice of its own
+    /// beside this sheet's.
+    pub new_voice: NewVoice,
     /// Each saved voice's picture, read once, by its id: the rows are
     /// published on every frame of playback.
     pictures: std::cell::RefCell<std::collections::HashMap<String, slint::Image>>,
@@ -244,7 +272,7 @@ impl SpeechPane {
                 let family = installed
                     .get(model)
                     .map(|model| family_of(&model.id))
-                    .unwrap_or(Family::Kokoro);
+                    .unwrap_or_default();
                 *self = SpeechPane {
                     open: true,
                     clip: title.as_ref().map(|clip| clip.id.clone()),
@@ -255,14 +283,13 @@ impl SpeechPane {
                     model,
                     family,
                     speed: 1.0,
-                    quality: 1,
-                    pauses: DEFAULT_PAUSES,
                     use_sample: false,
                     sample: 0,
                     reference_start: 0.0,
                     speakers: std::mem::take(&mut self.speakers),
                     timings: std::mem::take(&mut self.timings),
                     saved: std::mem::take(&mut self.saved),
+                    new_voice: std::mem::take(&mut self.new_voice),
                     pictures: std::mem::take(&mut self.pictures),
                     ..SpeechPane::default()
                 };
@@ -315,6 +342,68 @@ impl SpeechPane {
                     Err(error) => studio.notify(&error, true),
                 }
             }
+            SpeechMsg::ImportVoice(source) => self.import_voice(source),
+            SpeechMsg::VoiceHeard(source, heard) => {
+                // An answer about a recording the sheet has since let go
+                // of is not the sheet's.
+                let sheet = &mut self.new_voice;
+                if !sheet.open || sheet.source != source {
+                    return;
+                }
+                sheet.listening = false;
+                match *heard {
+                    Ok(heard) => {
+                        sheet.duration = heard.duration;
+                        sheet.start = heard.start;
+                        sheet.found = heard.start;
+                    }
+                    // Nothing to keep a voice from: the sheet goes, and
+                    // the notice says why.
+                    Err(error) => {
+                        self.new_voice = NewVoice::default();
+                        studio.notify(&error, true);
+                    }
+                }
+            }
+            SpeechMsg::NewVoiceNameEdited(name) => self.new_voice.name = name,
+            SpeechMsg::NewVoiceDescriptionEdited(text) => self.new_voice.description = text,
+            SpeechMsg::NewVoiceStartChanged(seconds) => {
+                let sheet = &mut self.new_voice;
+                // Held short of the end, as the speech sheet's start is,
+                // so there is always a second of sound left to keep.
+                sheet.start = if seconds.is_finite() {
+                    f64::from(seconds).clamp(0.0, (sheet.duration - 1.0).max(0.0))
+                } else {
+                    sheet.found
+                }
+            }
+            SpeechMsg::NewVoicePicturePicked(path) => self.new_voice.picture = Some(path),
+            SpeechMsg::NewVoiceSave => self.save_new_voice(studio),
+            SpeechMsg::NewVoiceSaved(result) => {
+                self.new_voice.saving = false;
+                match *result {
+                    Ok(voice) => {
+                        self.new_voice = NewVoice::default();
+                        // The new voice lands at the head of the list, so
+                        // the one this sheet reads in is found again by
+                        // its id rather than kept by its row.
+                        let chosen = self
+                            .saved_voice
+                            .and_then(|row| self.saved.get(row))
+                            .map(|held| held.id.clone());
+                        self.reload_saved(studio);
+                        self.saved_voice =
+                            chosen.and_then(|id| self.saved.iter().position(|held| held.id == id));
+                        studio.notify(&tf("voices.saved", &[&voice.name]), false);
+                    }
+                    Err(error) => studio.notify(&error, true),
+                }
+            }
+            SpeechMsg::NewVoiceClose => {
+                if !self.new_voice.saving {
+                    self.new_voice = NewVoice::default();
+                }
+            }
             SpeechMsg::ClearStyle => self.style = None,
             SpeechMsg::Close => self.open = false,
             SpeechMsg::TextEdited(text) => self.text = text,
@@ -342,7 +431,7 @@ impl SpeechPane {
                 self.family = installed(&studio.settings.voices)
                     .get(self.model)
                     .map(|model| family_of(&model.id))
-                    .unwrap_or(Family::Kokoro);
+                    .unwrap_or_default();
                 self.voice = self.voice_row(chosen);
                 if self.sample_voice().is_none() {
                     self.saved_voice = None;
@@ -353,16 +442,6 @@ impl SpeechPane {
                     speed.clamp(SPEEDS.0, SPEEDS.1)
                 } else {
                     1.0
-                }
-            }
-            SpeechMsg::QualityChanged(index) => {
-                self.quality = (index.max(0) as usize).min(STEPS.len() - 1)
-            }
-            SpeechMsg::PausesChanged(pauses) => {
-                self.pauses = if pauses.is_finite() {
-                    pauses.clamp(0.0, 1.0)
-                } else {
-                    DEFAULT_PAUSES
                 }
             }
             SpeechMsg::ReferenceStartChanged(seconds) => {
@@ -464,9 +543,7 @@ impl SpeechPane {
         };
         // A sample voice is a recording of the sheet's choosing, handed over
         // as the request's reference under the family's own id for one.
-        // Otherwise the voice is one the model names - and Chatterbox may
-        // name none, since its stock voices are Pocket's recordings and
-        // are only there while Pocket is.
+        // Otherwise the voice is one the model names.
         let saved = self
             .saved_voice
             .filter(|_| !self.use_sample)
@@ -502,14 +579,7 @@ impl SpeechPane {
             )
         } else {
             let Some(voice) = self.offered().get(self.voice).map(|speaker| speaker.id) else {
-                self.message = if self.family == Family::Chatterbox {
-                    t(
-                        "Chatterbox has no voice of its own: turn on Use sample voice, or \
-                         download Pocket TTS for its two recordings",
-                    )
-                } else {
-                    t("speech.noVoiceRead")
-                };
+                self.message = t("speech.noVoiceRead");
                 return;
             };
             (voice, None)
@@ -534,9 +604,9 @@ impl SpeechPane {
             .map(|clip| clip.start)
             .unwrap_or(f64::from(studio.playhead));
         // The read as the bar lays it out: the model loaded unless it
-        // still is, the recording the voice comes from read in (Kokoro
-        // has none), and the reading at the pace the last read with this
-        // model measured, or the model's usual pace.
+        // still is, the recording the voice comes from read in (the
+        // phone's voice has none), and the reading at the pace the last
+        // read with this model measured, or the model's usual pace.
         let chars = text.chars().count() as f32;
         let learned = self.timings.get(&model);
         let loaded = studio.host.speech.loaded_model().as_deref() == Some(model.as_str());
@@ -549,7 +619,7 @@ impl SpeechPane {
             .per_unit
             .unwrap_or(reading_pace(self.family) / CHARS_PER_SECOND / self.rate());
         let mut plan = vec![(Stage::Loading, load)];
-        if self.family != Family::Kokoro {
+        if self.family == Family::Chatterbox {
             plan.push((Stage::Reading, 0.3));
         }
         plan.push((Stage::Working, chars * per_char));
@@ -561,9 +631,6 @@ impl SpeechPane {
             reference,
             text,
             speed: self.rate(),
-            pauses: self.reads_at_a_pace().then_some(self.pauses),
-            steps: (self.family == Family::Pocket)
-                .then(|| STEPS[self.quality.min(STEPS.len() - 1)]),
             project,
         };
         let dirs = studio.host.dirs.clone();
@@ -613,9 +680,9 @@ impl SpeechPane {
         )
     }
 
-    /// Whether the chosen model reads at a speed and with a pause of the
-    /// sheet's choosing. Chatterbox does neither: it reads at its own
-    /// pace, and the sheet does not offer what the engine would ignore.
+    /// Whether the chosen model reads at a speed of the sheet's choosing.
+    /// Chatterbox does not: it reads at its own pace, and the sheet does
+    /// not offer what the engine would ignore.
     pub fn reads_at_a_pace(&self) -> bool {
         self.family != Family::Chatterbox
     }
@@ -635,8 +702,7 @@ impl SpeechPane {
     /// speakers.
     fn sample_voice(&self) -> Option<i32> {
         match self.family {
-            Family::Kokoro => None,
-            Family::Pocket => Some(POCKET_CLONE),
+            Family::System => None,
             Family::Chatterbox => Some(CHATTERBOX_CLONE),
         }
     }
@@ -694,8 +760,7 @@ impl SpeechPane {
     fn voice_row(&self, wanted: Option<i32>) -> usize {
         let offered = self.offered();
         let default = match self.family {
-            Family::Kokoro => DEFAULT_VOICE,
-            Family::Pocket => DEFAULT_POCKET_VOICE,
+            Family::System => DEFAULT_SYSTEM_VOICE,
             Family::Chatterbox => DEFAULT_CHATTERBOX_VOICE,
         };
         wanted
@@ -797,8 +862,7 @@ impl SpeechPane {
         installed(&studio.settings.voices)
             .iter()
             .map(|model| match family_of(&model.id) {
-                Family::Kokoro => t("speech.builtInSpeakersFast"),
-                Family::Pocket => t("speech.anyVoiceRecording"),
+                Family::System => t("speech.builtInSpeakersFast"),
                 Family::Chatterbox => t("speech.studioVoiceSlow"),
             })
             .map(SharedString::from)
@@ -869,13 +933,10 @@ impl SpeechPane {
             saving: self.saving,
             model: self.model as i32,
             family: match self.family {
-                Family::Kokoro => 0,
-                Family::Pocket => 1,
+                Family::System => 0,
                 Family::Chatterbox => 2,
             },
             speed: self.speed,
-            quality: self.quality as i32,
-            pauses: self.pauses,
             samples_offered: self.sample_voice().is_some(),
             use_sample: self.use_sample,
             sample: self.sample as i32,
@@ -954,7 +1015,7 @@ impl SpeechPane {
             pane.family = models
                 .get(row)
                 .map(|model| family_of(&model.id))
-                .unwrap_or(Family::Kokoro);
+                .unwrap_or_default();
         };
         match choice {
             VoiceChoice::Builtin(id) => {
@@ -979,7 +1040,7 @@ impl SpeechPane {
                 if self.sample_voice().is_none() {
                     match models
                         .iter()
-                        .position(|model| family_of(&model.id) != Family::Kokoro)
+                        .position(|model| family_of(&model.id) == Family::Chatterbox)
                     {
                         Some(row) => pick_model(self, row),
                         None => {
@@ -1019,12 +1080,101 @@ impl SpeechPane {
                     std::path::Path::new(&sample.path),
                     start,
                     picture.as_deref(),
+                    None,
                 )
             },
             |studio, _, _, result| {
                 studio.handle(Msg::Speech(SpeechMsg::VoiceSaved(Box::new(result))));
             },
         );
+    }
+
+    /// The New voice sheet on a recording just picked: named for its file,
+    /// and listened to on a worker for where its voice is, the start held
+    /// until that is known. A save under way keeps the sheet it is saving.
+    fn import_voice(&mut self, source: PathBuf) {
+        if self.new_voice.saving {
+            return;
+        }
+        let name = source
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.new_voice = NewVoice {
+            open: true,
+            source: source.clone(),
+            name,
+            listening: true,
+            ..NewVoice::default()
+        };
+        crate::host::spawn(
+            move || {
+                let heard = voices::listen(&source);
+                (source, heard)
+            },
+            |studio, _, _, (source, heard)| {
+                studio.handle(Msg::Speech(SpeechMsg::VoiceHeard(source, Box::new(heard))));
+            },
+        );
+    }
+
+    /// Keeps the New voice sheet's recording as a voice, on a worker: the
+    /// few seconds from where the sheet's start is, under its name, with
+    /// its picture and its description.
+    fn save_new_voice(&mut self, studio: &Studio) {
+        let sheet = &mut self.new_voice;
+        let name = sheet.name.trim().to_owned();
+        if name.is_empty() || sheet.listening || sheet.saving {
+            return;
+        }
+        let dir = voices::dir_in(&studio.host.dirs);
+        let source = sheet.source.clone();
+        let start = sheet.start;
+        let picture = sheet.picture.clone();
+        let description = sheet.description.clone();
+        sheet.saving = true;
+        crate::host::spawn(
+            move || {
+                voices::save(
+                    &dir,
+                    &name,
+                    &source,
+                    start,
+                    picture.as_deref(),
+                    Some(&description),
+                )
+            },
+            |studio, _, _, result| {
+                studio.handle(Msg::Speech(SpeechMsg::NewVoiceSaved(Box::new(result))));
+            },
+        );
+    }
+
+    /// The New voice sheet as Slint shows it.
+    pub fn new_voice_data(&self) -> NewVoiceData {
+        let sheet = &self.new_voice;
+        let file_name = |path: &std::path::Path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        NewVoiceData {
+            open: sheet.open,
+            source: file_name(&sheet.source).into(),
+            name: sheet.name.as_str().into(),
+            description: sheet.description.as_str().into(),
+            picture: sheet
+                .picture
+                .as_deref()
+                .map(file_name)
+                .unwrap_or_default()
+                .into(),
+            duration: sheet.duration as f32,
+            start: sheet.start as f32,
+            found: sheet.found as f32,
+            listening: sheet.listening,
+            saving: sheet.saving,
+        }
     }
 }
 
@@ -1066,21 +1216,13 @@ pub fn voice_names(name: &str) -> (String, String) {
 }
 
 /// "af_heart" as a person would say it: the name, and the accent and
-/// gender its prefix encodes. A Pocket voice says where it comes from.
+/// gender its prefix encodes; "bf_ruth" is Ruth, British, female.
 fn voice_label(name: &str) -> (String, String) {
-    if name == "pocket_clone" || name == "chatterbox_clone" {
+    if name == "chatterbox_clone" {
         return (
             t("speech.theSelectedClipsVoice"),
             t("speech.readsVoiceHeardClip"),
         );
-    }
-    if let Some(rest) = name.strip_prefix("pocket_") {
-        let mut chars = rest.chars();
-        let title = match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => String::new(),
-        };
-        return (title, t("speech.recordingComesPocketTts"));
     }
     let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
     let mut chars = rest.chars();
@@ -1184,9 +1326,14 @@ mod tests {
         assert!(detail.contains("American"));
         assert!(detail.contains("female"));
         assert_eq!(voice_label("nova").0, "Nova");
-        assert_eq!(voice_label("pocket_bria").0, "Bria");
-        assert!(voice_label("pocket_bria").1.contains("Pocket"));
-        assert!(voice_label("pocket_clone").0.contains("clip"));
+        // The stock Chatterbox voices: a British woman, and a man whose
+        // accent goes unsaid.
+        let (title, detail) = voice_label("bf_ruth");
+        assert_eq!(title, "Ruth");
+        assert!(detail.contains("British") && detail.contains("female"));
+        let (title, detail) = voice_label("xm_bob");
+        assert_eq!(title, "Bob");
+        assert!(!detail.contains("·") && detail.contains("male"), "{detail}");
         assert!(voice_label("chatterbox_clone").0.contains("clip"));
     }
 }

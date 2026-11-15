@@ -42,8 +42,8 @@ pub fn targets(
     }
 }
 
-/// Sets one clip of a batch to `level` (a gain), the way CapCut's batch
-/// volume does: it is the clip's level that changes, not a key at the
+/// Sets one clip of a batch to `level` (a gain), as a batch volume
+/// should: it is the clip's level that changes, not a key at the
 /// playhead. A clip with no keys on its volume takes the level as it is.
 /// A clip whose volume rides keeps its ride: every key moves by the same
 /// number of decibels - the knob's unit - so the gain at `at` lands on

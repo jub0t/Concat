@@ -10,10 +10,20 @@
 //! reference lives on in the tests alone ([`crate::reference`]), as the
 //! oracle the GPU's plain layers are held to.
 
-use concat_core::frame::Frame;
+use concat_core::frame::{Frame, Yuv420, YuvLayout};
 use concat_core::shader::TransitionPass;
 
 use crate::plan::FramePlan;
+
+/// A frame [`Compositor::collect`] hands back: RGBA as
+/// [`Compositor::render`] draws it, or the encoder's own YUV where
+/// [`Compositor::planar`] asked for it.
+pub enum Drawn {
+    /// Eight or sixteen bits a channel, RGBA.
+    Rgba(Frame),
+    /// Eight-bit 4:2:0, converted where it was drawn.
+    Yuv(Yuv420),
+}
 
 /// Draws a plan into a frame.
 pub trait Compositor {
@@ -25,6 +35,31 @@ pub trait Compositor {
     /// The result is always fully opaque - it is what goes to screen or to an
     /// encoder, and neither has anything to show through.
     fn render(&mut self, plan: &FramePlan) -> Frame;
+
+    /// Starts drawing `plan` as [`Compositor::render`] would, without
+    /// waiting for it: [`Compositor::collect`] hands it back later, oldest
+    /// first, so the device draws one frame while the caller reads the
+    /// next. False from a compositor that cannot, or cannot take another
+    /// yet; the caller then collects, or draws with `render`.
+    fn submit(&mut self, _plan: &FramePlan) -> bool {
+        false
+    }
+
+    /// The oldest frame [`Compositor::submit`] started, once it is drawn;
+    /// `None` when none is on its way. A frame the device failed comes back
+    /// black, and [`Compositor::lost`] says so, as after `render`.
+    fn collect(&mut self) -> Option<Drawn> {
+        None
+    }
+
+    /// From here on, an SDR frame [`Compositor::submit`] starts comes back
+    /// as 4:2:0 YUV in `layout` - BT.709's coefficients, in its range -
+    /// converted on the device, so it reads back at a byte and a half a
+    /// pixel and the encoder converts nothing. `None` goes back to RGBA. A
+    /// frame that cannot be - an HDR file's, one with alpha kept, an odd
+    /// side - still comes back RGBA, and a compositor that cannot do it
+    /// at all does nothing.
+    fn planar(&mut self, _layout: Option<YuvLayout>) {}
 
     /// Combines two finished frames with a transition: the outgoing picture
     /// `from` and the incoming one `to`, at the pass's `progress`. The shader

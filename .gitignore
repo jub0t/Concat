@@ -58,3 +58,6 @@ desktop.ini
 # FFmpeg built for a phone by src/scripts/ffmpeg-mobile.sh: sources,
 # build trees and the installed prefixes, all machine-built.
 /src/vendor/
+
+# Audits are working notes for whoever runs them, not part of the source
+audit/

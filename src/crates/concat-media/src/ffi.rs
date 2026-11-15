@@ -115,10 +115,149 @@ unsafe extern "C" fn relay(
     if text.is_empty() {
         return;
     }
+    if level <= ffmpeg::sys::AV_LOG_ERROR {
+        remember(text);
+    }
     if level <= ffmpeg::sys::AV_LOG_FATAL {
         log::error!(target: "ffmpeg", "{text}");
     } else {
         log::debug!(target: "ffmpeg", "{text}");
+    }
+}
+
+/// How many of FFmpeg's error lines an operation's failure carries: the
+/// last few, which are the ones that say why.
+const SAID_LINES: usize = 4;
+
+thread_local! {
+    /// FFmpeg's error lines on this thread since the operation now running
+    /// began (see [`begin`]). Thread-local because the operations it serves
+    /// - parsing and configuring a filter graph, opening a codec - run on
+    /// the thread that asked for them, and `relay` is called on the thread
+    /// that logs; a line logged by one of FFmpeg's own worker threads, as
+    /// a frame-threaded decoder's are while it decodes, is not kept.
+    static SAID: std::cell::RefCell<std::collections::VecDeque<String>> =
+        const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
+}
+
+/// Keeps one of FFmpeg's error lines for the failure it may explain.
+fn remember(text: &str) {
+    let _ = SAID.try_with(|said| {
+        if let Ok(mut said) = said.try_borrow_mut() {
+            if said.len() == SAID_LINES {
+                said.pop_front();
+            }
+            said.push_back(text.to_owned());
+        }
+    });
+}
+
+/// The start of an operation in which FFmpeg reads text - a filter graph
+/// built and configured, a codec opened with its options - and whose
+/// failure should carry FFmpeg's own words ([`fail_said`]). Numbers are
+/// made to read as FFmpeg expects first ([`keep_c_numbers`]).
+pub(crate) fn begin() {
+    init();
+    keep_c_numbers();
+    let _ = SAID.try_with(|said| {
+        if let Ok(mut said) = said.try_borrow_mut() {
+            said.clear();
+        }
+    });
+}
+
+/// [`fail`] with what FFmpeg said since the operation [`begin`]: its error
+/// code alone is "Invalid argument", and the line before it is the one
+/// that names the option it could not read.
+pub(crate) fn fail_said(operation: &'static str, path: &Path, error: ffmpeg::Error) -> Error {
+    let lines = SAID
+        .try_with(|said| {
+            said.try_borrow_mut()
+                .map(|mut said| said.drain(..).collect::<Vec<_>>().join("; "))
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    Error::Ffi {
+        operation,
+        path: path.to_path_buf(),
+        detail: if lines.is_empty() {
+            error.to_string()
+        } else {
+            format!("{error} · {lines}")
+        },
+    }
+}
+
+/// `struct lconv` as far as its first field, which is all that is read of
+/// it. The `libc` crate has no `localeconv` for Windows; the UCRT exports
+/// it, and the field order is the C standard's everywhere.
+#[cfg(windows)]
+#[repr(C)]
+struct Lconv {
+    decimal_point: *mut c_char,
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    fn localeconv() -> *mut Lconv;
+}
+
+#[cfg(unix)]
+use libc::localeconv;
+
+/// Puts the C runtime's number format back to C's when something loaded
+/// into the process has switched it, and says whether it had to.
+///
+/// FFmpeg reads every fractional value in a filter graph or an option -
+/// `atempo=1.500000`, `volume=0.5` - with the C runtime's `strtod`, which
+/// reads the decimal point the current `LC_NUMERIC` names. Under one that
+/// writes decimals with a comma, every such value is refused and the graph
+/// fails with "Invalid argument": a clip at any speed but 1x decoded to
+/// nothing (#762). Concat never sets the locale itself; this undoes it
+/// whoever did. One `localeconv` read when nothing is wrong. On Windows
+/// the program and FFmpeg's DLLs share the UCRT's one locale, so setting
+/// it here sets it for them. Android's and iOS's C libraries take the
+/// same calls; Android's has no locale but C's, so there it never acts.
+pub(crate) fn keep_c_numbers() -> bool {
+    #[cfg(any(unix, windows))]
+    {
+        // SAFETY: `localeconv` returns the C runtime's own struct, valid
+        // until the next locale call; the point is copied out at once and
+        // the struct not touched again.
+        let point = unsafe {
+            let conv = localeconv();
+            if conv.is_null() || (*conv).decimal_point.is_null() {
+                return false;
+            }
+            CStr::from_ptr((*conv).decimal_point).to_bytes().to_vec()
+        };
+        if point == b"." {
+            return false;
+        }
+        let found = String::from_utf8_lossy(&point).into_owned();
+        // SAFETY: a constant, NUL-terminated locale name for one category.
+        let set = unsafe { libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr()) };
+        if set.is_null() {
+            log::warn!(
+                target: "ffmpeg",
+                "this process's number format had been switched to {found:?} for decimals by \
+                 something loaded into Concat, and could not be set back: FFmpeg will refuse \
+                 every fractional value"
+            );
+        } else {
+            log::warn!(
+                target: "ffmpeg",
+                "this process's number format had been switched to {found:?} for decimals by \
+                 something loaded into Concat; set back, since FFmpeg would refuse every \
+                 fractional value"
+            );
+        }
+        true
+    }
+    // No C locale to speak of on any other target.
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
     }
 }
 
@@ -243,6 +382,19 @@ pub(crate) fn av_ticks(seconds: Rational) -> i64 {
 /// sound's own stream, and backwards, lands on the packet the cut itself
 /// will keep.
 ///
+/// Matroska is the exception. Its index, the Cues, lists only the
+/// picture's keyframes in a file with both - what FFmpeg, OBS and mkvmerge
+/// all write - so a seek asked on the sound finds no index of its own and
+/// libavformat falls back to reading the file from the top until it
+/// reaches the cut: every packet of a 20-minute recording to reach minute
+/// 18, 0.19 s on a warm cache where the index takes 0.02 s, and seconds to
+/// minutes off a cold disk. A Matroska file is sought on its picture's
+/// index instead, a second short of the cut so the keyframe it lands on
+/// comes before every sample the cut keeps: the demuxer hands its blocks
+/// in time order across the streams, and its sound is never a second
+/// behind its picture. The cut decodes a keyframe interval of sound it
+/// throws away, a matter of milliseconds.
+///
 /// A file whose sound cannot be sought at all - a raw stream with no
 /// timestamps - is read from the top instead, so the cut still comes out
 /// right at the cost of decoding what comes before it; only when even the
@@ -256,6 +408,21 @@ pub(crate) fn seek_audio(
         .stream(stream)
         .map(|stream| stream.time_base())
         .ok_or(ffmpeg::Error::StreamNotFound)?;
+    // A cover picture is one frame with no index to speak of; a file with
+    // only that is sought on its sound like any other.
+    let pictured = input.streams().any(|other| {
+        other.index() != stream
+            && other.parameters().medium() == ffmpeg::media::Type::Video
+            && !other
+                .disposition()
+                .contains(ffmpeg::format::stream::Disposition::ATTACHED_PIC)
+    });
+    if pictured && input.format().name().contains("matroska") {
+        let ticks = ((at - 1.0).max(0.0) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
+        if input.seek(ticks, ..=ticks).is_ok() {
+            return Ok(());
+        }
+    }
     // SAFETY: the input is open for the reader's lifetime, so its format
     // pointer is valid; the stream index was found in that same input, and
     // `AVSEEK_FLAG_BACKWARD` is a plain integer.
@@ -273,6 +440,33 @@ pub(crate) fn seek_audio(
     // The wrapper's fallback: the top of the file, which every demuxer that
     // can seek at all can reach, and which no index is needed to find.
     input.seek(0, ..=0).map_err(|_| ffmpeg::Error::from(done))
+}
+
+/// Tells the demuxer that only stream `keep` will be read, so it hands no
+/// packet of any other. A sound reader reads past every packet of the
+/// picture to reach its own, and for most containers that is nearly all of
+/// the file's bytes: a demuxer told the picture is unwanted skips them -
+/// an MP4 or MOV seeks past each picture sample unread, and the rest at
+/// least never copy them into packets.
+///
+/// Called after the seek, not before it: a demuxer without an index seeks
+/// by reading packets of the stream it seeks on, and finds none of one it
+/// was told to drop.
+pub(crate) fn read_only(input: &mut ffmpeg::format::context::Input, keep: usize) {
+    // SAFETY: the input is open, so its stream array holds `nb_streams`
+    // valid stream pointers; `discard` is a plain field the demuxer reads
+    // on each packet.
+    unsafe {
+        let context = input.as_mut_ptr();
+        for index in 0..(*context).nb_streams as usize {
+            let stream = *(*context).streams.add(index);
+            (*stream).discard = if index == keep {
+                ffmpeg::Discard::Default.into()
+            } else {
+                ffmpeg::Discard::All.into()
+            };
+        }
+    }
 }
 
 /// The rotation a stream asks players to apply before showing its frames,
@@ -376,6 +570,52 @@ pub(crate) fn displayed(
     } else {
         (width, height)
     }
+}
+
+/// The platform's own AAC decoder, where FFmpeg wraps one: Apple's
+/// AudioToolbox and Android's MediaCodec, whose makers license AAC. Windows
+/// and Linux have none in FFmpeg, and decode on FFmpeg's.
+const PLATFORM_AAC: Option<&str> = if cfg!(any(target_os = "macos", target_os = "ios")) {
+    Some("aac_at")
+} else if cfg!(target_os = "android") {
+    Some("aac_mediacodec")
+} else {
+    None
+};
+
+/// Opens the audio decoder for `stream`: for AAC the platform's own (see
+/// [`PLATFORM_AAC`]), and FFmpeg's where there is none or it will not open.
+/// Apple's trims an encoder's priming and ends where FFmpeg's does, to the
+/// sample.
+pub(crate) fn audio_decoder(
+    stream: &ffmpeg::format::stream::Stream,
+) -> std::result::Result<ffmpeg::codec::decoder::Audio, ffmpeg::Error> {
+    begin();
+    if stream.parameters().id() == ffmpeg::codec::Id::AAC
+        && let Some(name) = PLATFORM_AAC
+        && let Some(codec) = ffmpeg::codec::decoder::find_by_name(name)
+    {
+        let mut context = ffmpeg::codec::Context::from_parameters(stream.parameters())?;
+        // MediaCodec counts in microseconds, and converts each packet's
+        // stamp from the stream's clock and back when told it.
+        // SAFETY: the context is not opened yet; a plain rational.
+        unsafe {
+            (*context.as_mut_ptr()).pkt_timebase = stream.time_base().into();
+        }
+        match context
+            .decoder()
+            .open_as(codec)
+            .and_then(|opened| opened.audio())
+        {
+            Ok(decoder) => return Ok(decoder),
+            Err(error) => {
+                log::warn!("{name} would not open: {error}; FFmpeg's AAC decoder instead")
+            }
+        }
+    }
+    ffmpeg::codec::Context::from_parameters(stream.parameters())?
+        .decoder()
+        .audio()
 }
 
 #[cfg(test)]

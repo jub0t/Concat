@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! The activity's entry point. android-activity calls `android_main` on
 //! its own thread once the activity is up; Slint's backend takes the
@@ -89,7 +89,7 @@ mod activity {
                     .lines()
                     .map_while(Result::ok)
                 {
-                    log::warn!("{line}");
+                    log::warn!("stderr: {line}");
                 }
             })
             .ok();
@@ -232,7 +232,9 @@ mod picker {
                 previous(Vec::new());
             }
             if let Err(error) = pick(&app, &kinds) {
-                log::error!("could not show the document picker: {error}");
+                log::error!(
+                    "import: showing the document picker failed: {error}; nothing was picked"
+                );
                 if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
                     pending(Vec::new());
                 }
@@ -299,7 +301,7 @@ mod picker {
         let paths = match read {
             Ok(paths) => paths,
             Err(error) => {
-                log::error!("could not read the picked files: {error}");
+                log::error!("import: reading the picked files failed: {error}; nothing was picked");
                 Vec::new()
             }
         };
@@ -334,12 +336,14 @@ mod publisher {
             Ok(Some(folder)) => folder,
             Ok(None) => {
                 log::info!(
-                    "exports stay in the app's folder: this phone's media store takes no files"
+                    "export: finished exports stay in the app's folder · this phone's media store takes no files"
                 );
                 return;
             }
             Err(error) => {
-                log::warn!("could not ask where exports go: {error}");
+                log::warn!(
+                    "export: asking the phone where exports go failed: {error}; they stay in the app's folder"
+                );
                 return;
             }
         };
@@ -407,7 +411,7 @@ mod publisher {
     }
 
     /// A Java `String[]` as Rust's, a null element as None.
-    fn strings<'local>(
+    pub(super) fn strings<'local>(
         env: &mut jni::Env<'local>,
         answer: jni::objects::JObject<'local>,
     ) -> jni::errors::Result<Vec<Option<String>>> {
@@ -464,7 +468,9 @@ mod microphone {
             .unwrap_or_else(|error| {
                 // Not knowing is not a no: the device is opened, and its
                 // own error, or its silence, says the rest.
-                log::warn!("could not ask for the microphone: {error}");
+                log::warn!(
+                    "voice: asking for the microphone failed: {error}; it is opened all the same"
+                );
                 true
             })
         }));
@@ -508,6 +514,148 @@ mod links {
     }
 }
 
+/// The log, for a report from a phone (#560).
+///
+/// A phone has no folder to show the log in, so Settings › About hands it
+/// to the share sheet, and so does the notice a launch puts up when the
+/// last run died. Which run died is the system's to say: a run on a phone
+/// is almost never closed in order - it is swiped away, or put down in the
+/// background - so a log without its last line proves nothing here. From
+/// Android 11 the system keeps a record of how each process ended, and the
+/// app may mark its own with a few bytes; each run marks itself with its
+/// log's name, so the next one reads which file the record is about.
+#[cfg(target_os = "android")]
+mod log_file {
+    use jni::objects::JString;
+    use jni::{jni_sig, jni_str};
+    use slint::android::AndroidApp;
+
+    /// Hands the window's crate the share sheet, and tells it how the last
+    /// run ended. After the backend, which seeds the JavaVM.
+    pub fn install(app: &AndroidApp) {
+        let sharer = app.clone();
+        concat::install_log_sharer(Box::new(move |paths: &[std::path::PathBuf]| {
+            let joined = paths
+                .iter()
+                .map(|path| path.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let answer = super::java::with_class(&sharer, |env, activity, class| {
+                let joined = env.new_string(&joined)?;
+                let answer = env
+                    .call_static_method(
+                        class,
+                        jni_str!("shareLogs"),
+                        jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;"),
+                        &[activity.into(), (&joined).into()],
+                    )?
+                    .l()?;
+                if answer.is_null() {
+                    return Ok(None);
+                }
+                let answer = env.cast_local::<JString>(answer)?;
+                Ok(Some(answer.mutf8_chars(env)?.to_string()))
+            });
+            match answer {
+                Ok(None) => Ok(()),
+                Ok(Some(why)) => Err(why),
+                Err(error) => Err(format!("could not reach the share sheet: {error}")),
+            }
+        }));
+        read_last_exit(app);
+    }
+
+    /// Asks the system how the last run ended, says so in the log, and
+    /// marks this run with its log's name.
+    fn read_last_exit(app: &AndroidApp) {
+        let this = concat::log_file_name().unwrap_or_default();
+        let answer = super::java::with_class(app, |env, activity, class| {
+            let this = env.new_string(&this)?;
+            let answer = env
+                .call_static_method(
+                    class,
+                    jni_str!("lastExit"),
+                    jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)[Ljava/lang/String;"),
+                    &[activity.into(), (&this).into()],
+                )?
+                .l()?;
+            if answer.is_null() {
+                return Ok(None);
+            }
+            super::publisher::strings(env, answer).map(Some)
+        });
+        match answer.as_ref().map(|answer| answer.as_deref()) {
+            Ok(Some([Some(log), Some(verdict), Some(detail), threads])) => {
+                let died = verdict == "died";
+                let run = if log.is_empty() {
+                    "unmarked"
+                } else {
+                    log.as_str()
+                };
+                if died {
+                    log::warn!("last run: {run} died · the system says: {detail}");
+                } else {
+                    log::info!("last run: {run} ended · the system says: {detail}");
+                }
+                // A hang's threads as the system found them, one entry
+                // under the line above: what the window was doing instead
+                // of answering, frames in Concat's library as offsets in
+                // it (docs/LOGGING.md, "Reading a phone's hang").
+                if let Some(threads) = threads.as_deref().filter(|text| !text.trim().is_empty()) {
+                    log::warn!(
+                        "last run: the threads of {run} when the system gave up on it\n{threads}"
+                    );
+                }
+                concat::note_last_exit(log.clone(), died);
+            }
+            Ok(None) => log::debug!("last run: the system keeps no record of it"),
+            Ok(Some(other)) => log::warn!("last run: the system's record made no sense: {other:?}"),
+            Err(error) => log::warn!("last run: asking the system how it ended failed: {error}"),
+        }
+    }
+}
+
+/// The screen kept on while a job runs - an export, a transcription, a
+/// download - so a phone left on the table does not time out half a
+/// minute in and stop the export with it (#695). The window's flag, which
+/// the activity applies on its own thread.
+///
+/// Through the activity's Java, never `AndroidApp::set_window_flags`: that
+/// takes the app's lock for writing, and the window's thread is inside
+/// `poll_events`, which holds the same lock for reading for as long as an
+/// event is handled - and an event is where a job starts. Called from
+/// Export, the window's thread waited on itself for good, and Android
+/// closed Concat as not responding (#747, #786, #760, #744; 0.2.10 and
+/// 0.2.11, since #695). Off that thread it is no better: a writer waiting
+/// there blocks the next read the window's thread takes inside its event.
+/// The Java posts to the activity's thread and returns.
+#[cfg(target_os = "android")]
+mod awake {
+    use jni::{jni_sig, jni_str};
+    use slint::android::AndroidApp;
+
+    pub fn install(app: &AndroidApp) {
+        let app = app.clone();
+        concat::install_awake(Box::new(move |on| {
+            log::debug!("display: the screen kept on while a job runs: {on}");
+            let asked = super::java::with_class(&app, |env, activity, class| {
+                env.call_static_method(
+                    class,
+                    jni_str!("keepScreenOn"),
+                    jni_sig!("(Landroid/app/Activity;Z)V"),
+                    &[activity.into(), on.into()],
+                )?;
+                Ok(())
+            });
+            if let Err(error) = asked {
+                log::warn!(
+                    "display: could not keep the screen on while a job runs: {error}; it may go dark part way"
+                );
+            }
+        }));
+    }
+}
+
 /// Called by the activity's native glue; the name is the contract.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
@@ -517,7 +665,8 @@ fn android_main(app: slint::android::AndroidApp) {
     activity::open_log();
     log::info!("Concat {} starting", env!("CARGO_PKG_VERSION"));
     if let Err(error) = slint::android::init(app.clone()) {
-        log::error!("could not start the Android backend: {error}");
+        // "could not start" right after the topic: the smoke script looks for it.
+        log::error!("start: could not start the Android backend: {error}; the app closes");
         return;
     }
     // After the backend, which seeds the JavaVM the Java is reached by.
@@ -525,7 +674,9 @@ fn android_main(app: slint::android::AndroidApp) {
     publisher::install(&app);
     microphone::install(&app);
     links::install(&app);
+    awake::install(&app);
+    log_file::install(&app);
     if let Err(error) = concat::run() {
-        log::error!("{error}");
+        log::error!("close: the window ended in an error: {error}; the app closes");
     }
 }

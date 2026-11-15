@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Reverse: the span a clip covers of a media file, written backwards,
 //! once.
@@ -155,6 +155,7 @@ fn span_clip(request: &ReverseRequest, chain: &str) -> AudioClip {
         duration: request.duration,
         source_start: request.start,
         speed: 1.0,
+        tempo: Vec::new(),
         preserve_pitch: true,
         volume: 1.0,
         volume_curve: concat_core::animate::Track::new(Vec::new()),
@@ -348,11 +349,11 @@ fn write_segment(
     }
 }
 
-/// A segment lives minutes and is read once: the fastest preset there is,
-/// at a quality nothing is lost through.
+/// A segment lives minutes and is read once: the working codec at a
+/// quality nothing is lost through.
 fn segment_options() -> EncodeOptions {
     EncodeOptions {
-        codec: VideoCodec::H264,
+        codec: VideoCodec::WORKING,
         preset: "ultrafast".to_owned(),
         crf: 8,
         rate_mode: RateMode::Vbr,
@@ -366,7 +367,9 @@ fn segment_options() -> EncodeOptions {
 }
 
 /// The copy the timeline reads for as long as the project lives:
-/// near-transparent quality, as the enhanced copy is written.
+/// near-transparent quality, as the enhanced copy is written, on the
+/// machine's own encoder as an export is - several times x264's speed at
+/// the same picture.
 fn copy_options() -> EncodeOptions {
     EncodeOptions {
         codec: VideoCodec::H264,
@@ -376,7 +379,7 @@ fn copy_options() -> EncodeOptions {
         bitrate_kbps: 0,
         ten_bit: false,
         color_range: concat_media::ColorRange::Limited,
-        hardware: false,
+        hardware: true,
         threads: 2,
         software_only: false,
     }

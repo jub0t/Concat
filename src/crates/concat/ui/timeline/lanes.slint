@@ -33,6 +33,9 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image
             : kind == ClipKind.text ? Theme.kind-text
             : kind == ClipKind.filter ? Theme.kind-filter
+            : kind == ClipKind.effect ? Theme.kind-effect
+            : kind == ClipKind.adjustment ? Theme.kind-adjustment
+            : kind == ClipKind.transition ? Theme.kind-transition
             : kind == ClipKind.shape ? Theme.kind-shape
             : kind == ClipKind.sound-layer ? Theme.kind-sound-layer
             : Theme.kind-video;
@@ -42,15 +45,27 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image-well
             : kind == ClipKind.text ? Theme.kind-text-well
             : kind == ClipKind.filter ? Theme.kind-filter-well
+            : kind == ClipKind.effect ? Theme.kind-effect-well
+            : kind == ClipKind.adjustment ? Theme.kind-adjustment-well
+            : kind == ClipKind.transition ? Theme.kind-transition-well
             : kind == ClipKind.shape ? Theme.kind-shape-well
             : kind == ClipKind.sound-layer ? Theme.kind-sound-layer-well
             : Theme.kind-video-well;
+    }
+    /// The bars laid over the picture - a look, an effect, a grade, a
+    /// transition - each all bar, with no picture of their own.
+    public pure function over-picture(kind: ClipKind) -> bool {
+        return kind == ClipKind.filter || kind == ClipKind.effect
+            || kind == ClipKind.adjustment || kind == ClipKind.transition;
     }
     public pure function badge(kind: ClipKind) -> Glyph {
         return kind == ClipKind.audio ? Glyph.music
             : kind == ClipKind.image ? Glyph.image
             : kind == ClipKind.text ? Glyph.text-mark
             : kind == ClipKind.filter ? Glyph.filter
+            : kind == ClipKind.effect ? Glyph.sparkle
+            : kind == ClipKind.adjustment ? Glyph.sliders
+            : kind == ClipKind.transition ? Glyph.transition
             : kind == ClipKind.shape ? Glyph.shapes
             : kind == ClipKind.sound-layer ? Glyph.waveform
             : Glyph.film;
@@ -68,6 +83,10 @@ component Ramps inherits Rectangle {
     in property <length> px-per-second;
     /// The wedges' height; they sit at the foot of this element.
     in property <length> ramp-h: root.height;
+    /// A clip's sound fades on a curve - the gain the square of the way
+    /// through, as the mixer plays it - where a layer's strength ramps on a
+    /// line.
+    in property <bool> curved;
 
     if root.fade-in > 0: Rectangle {
         x: 0;
@@ -82,7 +101,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 0 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 Q 0.5 1 0 1 Z" : "M 0 0 L 1 0 L 0 1 Z";
         }
         Path {
             width: parent.width;
@@ -92,7 +111,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 1 L 1 0";
+            commands: root.curved ? "M 0 1 Q 0.5 1 1 0" : "M 0 1 L 1 0";
         }
     }
 
@@ -109,7 +128,7 @@ component Ramps inherits Rectangle {
             viewbox-height: 1;
             fit: fill;
             fill: Theme.fade-shade;
-            commands: "M 0 0 L 1 0 L 1 1 Z";
+            commands: root.curved ? "M 0 0 L 1 0 L 1 1 Q 0.5 1 0 0 Z" : "M 0 0 L 1 0 L 1 1 Z";
         }
         Path {
             width: parent.width;
@@ -119,7 +138,7 @@ component Ramps inherits Rectangle {
             fit: fill;
             stroke: Theme.fade-edge;
             stroke-width: 1px;
-            commands: "M 0 0 L 1 1";
+            commands: root.curved ? "M 0 0 Q 0.5 1 1 1" : "M 0 0 L 1 1";
         }
     }
 }
@@ -151,6 +170,9 @@ component Clip inherits Rectangle {
     /// The volume line dragged to `gain` - linear, 1 being unity, 2 the
     /// top of the band - while the drag lasts.
     callback volume-dragged(gain: float);
+    /// A fade knob dragged: the fade in (`out` false) or out, to `seconds`,
+    /// while the drag lasts.
+    callback fade-dragged(out: bool, seconds: float);
     /// Window-space delta since the press: seconds across, pixels down. Not
     /// lanes down — the lanes differ in height, so which row a drag has
     /// reached is a question only the side holding the heights can answer.
@@ -182,7 +204,7 @@ component Clip inherits Rectangle {
     /// a filter layer's bar, for the same reason: no sound of its own to
     /// draw a wave of.
     property <bool> all-strip: root.item.kind == ClipKind.text
-        || root.item.kind == ClipKind.filter
+        || Paint.over-picture(root.item.kind)
         || root.item.kind == ClipKind.sound-layer
         || root.item.kind == ClipKind.shape;
     property <length> header-h: root.all-strip ? root.height : 17px;
@@ -420,14 +442,16 @@ component Clip inherits Rectangle {
             }
         }
 
-        // The fade ramps, at the foot of the body.
+        // The fade ramps, at the foot of the body: the knobs' while one
+        // is held, so the wedge follows the hand before Rust has answered.
         Ramps {
             x: 0;
             y: 0;
             width: parent.width;
             height: parent.height;
-            fade-in: root.item.fade-in;
-            fade-out: root.item.fade-out;
+            fade-in: root.shown-fade-in;
+            fade-out: root.shown-fade-out;
+            curved: true;
             px-per-second: root.px-per-second;
             ramp-h: root.fade-h;
         }
@@ -472,7 +496,7 @@ component Clip inherits Rectangle {
 
         // A filter layer's ramps run over its whole bar, and a sound
         // layer's; see Ramps.
-        if root.item.kind == ClipKind.filter || root.item.kind == ClipKind.sound-layer: Ramps {
+        if Paint.over-picture(root.item.kind) || root.item.kind == ClipKind.sound-layer: Ramps {
             x: 0;
             y: 0;
             width: parent.width;
@@ -594,7 +618,7 @@ component Clip inherits Rectangle {
                 // a swipe meant to scroll the lanes dragged the clip
                 // instead. Under a finger a press is nothing yet - a tap
                 // selects, a swipe scrolls, and only a hold picks the clip
-                // up to move, as in CapCut. An edge of the selected clip
+                // up to move. An edge of the selected clip
                 // still trims straight away: it was aimed at.
                 if (root.finger && !(self.on-edge && root.item.selected)) {
                     self.held = true;
@@ -678,8 +702,7 @@ component Clip inherits Rectangle {
         out property <bool> lifted;
     }
 
-    // A hold's beat: Android's long press is 400 ms, CapCut's about the
-    // same. Stopped by a swipe or a release before it.
+    // A hold's beat: Android's long press, 400 ms. Stopped by a swipe or a release before it.
     hold := Timer {
         interval: 400ms;
         running: false;
@@ -782,6 +805,128 @@ component Clip inherits Rectangle {
         }
     }
 
+    // ── the fade knobs ────────────────────────────────────────────────────
+    //
+    // A small round knob on each top corner of the fade wedge - at the
+    // clip's edge with no fade - dragged along the clip to set how long
+    // the sound takes to come up or go down, as audio clips have them in
+    // most editors. Shown while the clip is hovered or selected, so a lane of
+    // sounds is not dotted with them. Up to half the clip each, the cap
+    // the inspector's knob has; within a few pixels of the edge it is no
+    // fade at all. The desk's: a phone sets its fades in the Fade sheet,
+    // where a finger has room.
+    property <bool> fadeable: root.sounded && !root.locked && !root.finger
+        && root.sound-h >= 12px && root.width >= 28px;
+    property <bool> fade-live;
+    property <bool> fade-live-out;
+    property <bool> fade-hover;
+    property <bool> fade-hover-out;
+    property <float> drag-fade;
+    property <float> shown-fade-in: root.fade-live && !root.fade-live-out
+        ? root.drag-fade : root.item.fade-in;
+    property <float> shown-fade-out: root.fade-live && root.fade-live-out
+        ? root.drag-fade : root.item.fade-out;
+    property <bool> knobs-shown: root.fadeable
+        && (root.item.selected || touch.has-hover || root.fade-hover || root.fade-live);
+    property <length> knob-r: 4.5px;
+    /// The knobs' centres: on the wedge's top edge, a radius in from the
+    /// clip's ends and never past its middle.
+    property <length> knob-y: root.header-h + root.body-h - root.fade-h + root.knob-r + 1px;
+    property <length> knob-in-x: Math.min(root.width / 2,
+        Math.max(root.knob-r + 2px, root.shown-fade-in * root.px-per-second));
+    property <length> knob-out-x: Math.max(root.width / 2,
+        Math.min(root.width - root.knob-r - 2px,
+            root.width - root.shown-fade-out * root.px-per-second));
+
+    for out[at] in [false, true]: Rectangle {
+        property <length> centre: out ? root.knob-out-x : root.knob-in-x;
+        property <bool> held: root.fade-live && root.fade-live-out == out;
+        x: self.centre - 8px;
+        y: root.knob-y - 8px;
+        width: 16px;
+        height: 16px;
+        visible: root.knobs-shown;
+
+        Rectangle {
+            property <length> r: (grab.has-hover || parent.held) ? root.knob-r + 1.5px : root.knob-r;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: self.r * 2;
+            height: self.r * 2;
+            border-radius: self.r;
+            // White, as the volume line is, with a dark ring so it reads
+            // over a light waveform too.
+            background: Colors.white;
+            border-width: 1px;
+            border-color: #00000080;
+            animate width, height { duration: 90ms; easing: ease-out; }
+        }
+
+        grab := TouchArea {
+            enabled: root.knobs-shown;
+            mouse-cursor: MouseCursor.ew-resize;
+
+            property <length> origin-x;
+            property <float> origin-fade;
+
+            changed has-hover => {
+                root.fade-hover = self.has-hover;
+                if (self.has-hover) {
+                    root.fade-hover-out = out;
+                }
+            }
+
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down
+                    && event.button == PointerEventButton.left) {
+                    self.origin-x = self.absolute-position.x + self.mouse-x;
+                    self.origin-fade = out ? root.item.fade-out : root.item.fade-in;
+                    root.drag-fade = self.origin-fade;
+                    root.fade-live-out = out;
+                    root.fade-live = true;
+                } else if (event.kind == PointerEventKind.up
+                    || event.kind == PointerEventKind.cancel) {
+                    root.fade-live = false;
+                }
+            }
+            moved => {
+                if (root.fade-live && root.px-per-second > 0px) {
+                    // Inward is longer: right for the fade in, left for
+                    // the fade out.
+                    let across = (self.absolute-position.x + self.mouse-x - self.origin-x)
+                        / root.px-per-second;
+                    let wanted = Math.clamp(self.origin-fade + (out ? -across : across),
+                        0, root.item.duration / 2);
+                    root.drag-fade = wanted * root.px-per-second < 4px ? 0 : wanted;
+                    root.fade-dragged(out, root.drag-fade);
+                }
+            }
+        }
+    }
+
+    // How long the fade is, while its knob is held or hovered.
+    if root.knobs-shown && (root.fade-live || root.fade-hover): fade-tip := Rectangle {
+        property <bool> out: root.fade-live ? root.fade-live-out : root.fade-hover-out;
+        property <float> seconds: out ? root.shown-fade-out : root.shown-fade-in;
+        x: Math.clamp((out ? root.knob-out-x : root.knob-in-x) - self.width / 2,
+            0px, Math.max(0px, root.width - self.width));
+        y: Math.max(0px, root.knob-y - root.knob-r - self.height - 3px);
+        width: fade-label.preferred-width + 10px;
+        height: 16px;
+        border-radius: Theme.r-sm;
+        background: Colors.white;
+
+        fade-label := Text {
+            x: 5px;
+            height: parent.height;
+            text: fade-tip.seconds > 0 ? root.format-seconds(fade-tip.seconds) : "0s";
+            color: Colors.black;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+        }
+    }
+
     // ── the transition overlay & cut seam controls ────────────────────────
     //
     // Centered symmetrically across the cut seam (x = 0):
@@ -836,9 +981,14 @@ component Clip inherits Rectangle {
 
         // A press anywhere on the wash picks the transition, not the clip
         // under it: the wash is the transition, drawn. Under the handles
-        // and the seam button, which are declared after it.
+        // and the seam button, which are declared after it. Not when the
+        // clip is already selected: then the press takes hold of the
+        // selection, as one on the clip's body does, and a marquee around a
+        // cut moves as a group (#635) - the seam button and the handles
+        // still pick the transition. Turned off, the wash lets the press
+        // through to the clip under it, which carries the selection.
         TouchArea {
-            enabled: !root.locked;
+            enabled: !root.locked && !root.item.selected;
             mouse-cursor: MouseCursor.pointer;
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
@@ -1130,6 +1280,8 @@ export component Lanes inherits Rectangle {
     in property <float> frame-rate: 30;
     /// Seconds at the left edge of the lanes.
     in property <float> scroll-left;
+    /// Where the cut ends: how far a drag at the edge may scroll the view.
+    in property <float> duration-seconds;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in property <bool> pan-mode: false;
     /// The preview axis: a hairline follows the pointer across the lanes
@@ -1164,6 +1316,9 @@ export component Lanes inherits Rectangle {
     callback hover-ended();
     /// A press on an empty stretch of lane, before the band it may become.
     callback floor-pressed();
+    /// The quick split riding the playhead was clicked: the same cut the
+    /// tray's button and the key make, at the playhead where it already is.
+    callback split-requested();
 
     /// Where the pointer is, for the preview axis, and whether it is here
     /// at all. Every surface reports through `hover-at` - the floor, the
@@ -1199,6 +1354,9 @@ export component Lanes inherits Rectangle {
     callback clip-split(id: string, seconds: float);
     /// A clip's volume line dragged to `gain`.
     callback clip-volume(id: string, gain: float);
+    /// A clip's fade knob dragged: its fade in, or with `out` its fade out,
+    /// to `seconds`.
+    callback clip-fade(id: string, out: bool, seconds: float);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
     /// Right-click on a clip. The caller fills the menu and bumps `menu-token`;
@@ -1337,15 +1495,34 @@ export component Lanes inherits Rectangle {
     /// `scroll-left` when the clip was pressed; see the clip's `dragged`.
     property <float> press-scroll;
     property <length> edge-zone: 40px;
+    /// How far into the edge zone the pointer is, or past it, as 0..1: a
+    /// pointer just inside it creeps, one well past the lanes runs. At one
+    /// speed, a dozen pixels a tick from the zone's first pixel, the view
+    /// ran off with the clip before it could be aimed (#633).
+    property <float> edge-depth: Math.min(1, Math.max(0,
+        (root.pointer-x < root.edge-zone
+            ? root.edge-zone - root.pointer-x
+            : root.pointer-x - (root.width - root.edge-zone)) / (root.edge-zone * 2)));
+    /// The furthest the right edge may scroll: a quarter of a view past the
+    /// cut's end, room to drop a clip after it, and no further - the view
+    /// used to run on into nothing for as long as the button was held.
+    property <float> view-seconds: root.width / 1px * root.seconds-per-pixel;
+    property <float> last-left: Math.max(root.scroll-left,
+        root.duration-seconds - root.view-seconds * 0.75);
+    property <bool> edge-left: root.pointer-x < root.edge-zone && root.scroll-left > 0;
+    property <bool> edge-right: root.pointer-x > root.width - root.edge-zone
+        && root.scroll-left < root.duration-seconds - root.view-seconds * 0.75;
     property <bool> at-edge: (root.scrubbing || root.clip-dragging)
-        && (root.pointer-x < root.edge-zone || root.pointer-x > root.width - root.edge-zone);
+        && (root.edge-left || root.edge-right);
 
     edge-scroll := Timer {
         interval: 16ms;
         running: root.at-edge;
         triggered => {
-            root.scrolled(Math.max(0, root.scroll-left
-                + (root.pointer-x < root.edge-zone ? -12 : 12) * root.seconds-per-pixel));
+            // One pixel a tick at the zone's inner edge, up to two dozen.
+            root.scrolled(Math.min(root.last-left, Math.max(0, root.scroll-left
+                + (root.edge-left ? -1 : 1) * (1 + 23 * root.edge-depth * root.edge-depth)
+                    * root.seconds-per-pixel)));
             if (root.scrubbing) {
                 root.scrubbed(Math.max(0, root.seconds-at(root.pointer-x)));
             } else {
@@ -1617,6 +1794,7 @@ export component Lanes inherits Rectangle {
             finger-swiped(x, y) => { root.finger-moved(x, y, true); }
             finger-let-go(id) => { return root.finger-up(id); }
             volume-dragged(gain) => { root.clip-volume(entry.id, gain); }
+            fade-dragged(out, seconds) => { root.clip-fade(entry.id, out, seconds); }
             // The clip reports its delta from the press; a view that has
             // scrolled since then is added, so the clip stays under the
             // pointer while the edge scrolls it along.
@@ -2034,6 +2212,42 @@ export component Lanes inherits Rectangle {
                 if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                     last-x = 0px;
                 }
+            }
+        }
+
+        // ── the quick split ─────────────────────────────────────────────
+        //
+        // A razor riding the playhead, a few pixels under the ruler. A
+        // rough cut scrubs with the mouse, and the hand that scrubs is not
+        // on ⌘B, so the cut hangs where the eye already is. It asks for the
+        // same split the tray's button makes - the selected clips when there
+        // are any, every unlocked clip under the playhead when there are
+        // none - so button, key and menu stay one verb. Under no finger: a
+        // phone holds the playhead at its middle, where the button would
+        // stand over the clips a tap is aimed at.
+        // https://github.com/jub0t/Concat/issues/468
+        if !root.finger && root.at(root.playhead) >= 0px
+            && root.at(root.playhead) <= root.width: Rectangle {
+            x: root.at(root.playhead) - self.width / 2;
+            y: root.ruler-height + 6px;
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            background: quick-split.has-hover ? Theme.field-hover : Theme.raised;
+            border-width: 1px;
+            border-color: quick-split.has-hover ? Theme.playhead : Theme.line-strong;
+
+            quick-split := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.split-requested(); }
+            }
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.split;
+                size: 12px;
+                tint: quick-split.has-hover ? Theme.playhead : Theme.fg-muted;
             }
         }
 

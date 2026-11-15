@@ -7,9 +7,9 @@ kind = "transition"
 category = "Basic"
 order = 0
 aliases = ["cross-fade"]
-description = "A soft cross-dissolve from one shot into the next."
+description = "One shot melts evenly into the next."
 
 [transition]
-entry = "effect.wgsl"
-xfade = "fade"
 fallback = "cross-fade"
+xfade = "fade"
+entry = "effect.wgsl"

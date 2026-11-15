@@ -14,8 +14,9 @@ name: Build for phones
 # the iOS job on macOS with Xcode - and the two native libraries that
 # cannot be fetched prebuilt for a phone are built from source here and
 # cached: FFmpeg by src/scripts/ffmpeg-mobile.sh, with the platform's
-# hardware codecs, and whisper.cpp by its crate. sherpa-onnx comes prebuilt
-# from k2-fsa through src/scripts/sherpa-mobile.sh.
+# hardware codecs, and whisper.cpp by its crate. ONNX Runtime comes from
+# ort's own downloads, and on Android the C++ runtime it links (and the
+# emulator's ONNX Runtime) from src/scripts/android-libs.sh.
 #
 # src/scripts/mobile-env.sh is the one description of the build
 # environment, here and on a developer's machine.
@@ -79,7 +80,6 @@ on:
     paths-ignore:
       - "**.md"
       - "docs/**"
-      - "audit/**"
       - "scripts/readme/**"
   workflow_dispatch:
 
@@ -166,10 +166,10 @@ jobs:
           path: src/vendor/ffmpeg/${{ matrix.target }}
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - name: sherpa-onnx for Android
-        run: src/scripts/sherpa-mobile.sh ${{ matrix.target }}
+      - name: Android libraries
+        run: src/scripts/android-libs.sh ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: ${{ matrix.target }}
@@ -189,9 +189,16 @@ jobs:
           echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
           echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
 
-      # The build environment first, then the build under it.
+      # The build environment first, then the build under it. Compiled
+      # with line tables, which the APK does not carry: cargo-apk strips
+      # them as it packages (`strip` in concat-android's manifest), and the
+      # library as the linker made it is kept as an artifact below, so a
+      # phone's hang or crash, which names frames in it only as offsets,
+      # can be read back to the line (scripts/symbolize-android.sh).
       - name: Build the APK
         working-directory: src
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
@@ -245,6 +252,51 @@ jobs:
           rm -f "$keystore"
           "$tools/apksigner" verify --print-certs "$apk"
 
+      # The engine's library as the linker made it, with its line tables:
+      # what a trace's offsets are looked up in, by the BuildId the trace
+      # names, which the APK's stripped copy shares. The APK's own copy is
+      # checked for having no debug sections, so the tables never make the
+      # download larger. Not "Concat-*", so a release never publishes it.
+      - name: Keep the engine's symbols
+        if: matrix.ship
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          eval "$(src/scripts/mobile-env.sh "$TARGET")"
+          readelf=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' | head -1)
+          built=src/target/$TARGET/release/libconcat_android.so
+          packed=$(find src/target/release/apk -path '*/lib/*/libconcat_android.so' | head -1)
+          if "$readelf" -S --wide "$packed" | grep -q '\.debug_'; then
+            echo "::error::the APK's libconcat_android.so carries debug sections; it would ship larger"
+            exit 1
+          fi
+          if ! "$readelf" -S --wide "$built" | grep -q '\.debug_line'; then
+            echo "::error::the engine was built without line tables; its symbols would name no lines"
+            exit 1
+          fi
+          id_of() { "$readelf" -n "$1" | sed -n 's/.*Build ID: *\([0-9a-fA-F]*\).*/\1/p' | head -1; }
+          if [ -z "$(id_of "$built")" ]; then
+            echo "::error::the engine has no build ID; no trace could be matched to its symbols"
+            exit 1
+          fi
+          if [ "$(id_of "$built")" != "$(id_of "$packed")" ]; then
+            echo "::error::the kept library and the APK's are not the same build"
+            exit 1
+          fi
+          mkdir symbols
+          cp "$built" "symbols/libconcat_android-$VERSION-$TARGET.so"
+          echo "BuildId $(id_of "$built")"
+          ls -l symbols "$packed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.ship
+        with:
+          name: symbols-concat-${{ steps.version.outputs.version }}-${{ matrix.target }}
+          path: symbols/*
+          retention-days: 90
+          if-no-files-found: error
+
       # A phone with 16 KB pages loads none of a library aligned to less,
       # and the build would not say so.
       - name: Every library is aligned for 16 KB pages
@@ -254,6 +306,7 @@ jobs:
       - name: Build log to the summary (failure only)
         if: failure()
         run: |
+          python3 scripts/ci/annotate.py src/build.log || true
           if [ -f src/build.log ]; then
             {
               echo "### Build failed: Android ${{ matrix.abi }}"
@@ -390,10 +443,7 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - name: sherpa-onnx for iOS
-        run: src/scripts/sherpa-mobile.sh aarch64-apple-ios
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: aarch64-apple-ios
@@ -408,6 +458,7 @@ jobs:
       - name: Build log to the summary (failure only)
         if: failure()
         run: |
+          python3 scripts/ci/annotate.py src/build.log || true
           if [ -f src/build.log ]; then
             {
               echo "### Build failed: iOS arm64"
@@ -417,7 +468,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # The bundle: binary, Info.plist and the sherpa-onnx framework, ad-hoc
+      # The bundle: binary, Info.plist and icon, ad-hoc
       # signed. A developer's identity and provisioning profile go on with
       # codesign before it can be installed on a phone.
       - name: Bundle
@@ -453,10 +504,9 @@ jobs:
 
   # The iPhone build again, for the iOS Simulator on this Mac, bundled the
   # way the device build is and started there; it is never shipped. The
-  # same FFmpeg and sherpa-onnx, for the simulator: ffmpeg-mobile.sh and
-  # ios-app.sh take aarch64-apple-ios-sim, and the xcframework
-  # sherpa-mobile.sh fetches for iOS carries a simulator slice beside the
-  # device one. mobile-env.sh does not know the simulator yet, so the
+  # same FFmpeg, for the simulator: ffmpeg-mobile.sh and ios-app.sh take
+  # aarch64-apple-ios-sim, and ort downloads the simulator's ONNX Runtime
+  # itself. mobile-env.sh does not know the simulator yet, so the
   # build's environment is written out in the build step below.
   ios-simulator:
     name: iOS simulator smoke
@@ -498,28 +548,14 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios-sim
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      # The device's fetch, which brings the whole xcframework; the binary
-      # links against the simulator's slice of it, under the name the
-      # linker looks for, as mobile-env.sh does with the device's slice.
-      - name: sherpa-onnx for the iOS Simulator
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-          src/scripts/sherpa-mobile.sh aarch64-apple-ios
-          framework=$(find src/vendor/sherpa-onnx/ios -maxdepth 2 -name '*.xcframework' | head -1)
-          binary=$PWD/$framework/ios-arm64_x86_64-simulator/SherpaOnnxC.framework/SherpaOnnxC
-          [ -f "$binary" ] || { echo "::error::no simulator slice in $framework"; exit 1; }
-          mkdir -p src/vendor/sherpa-onnx/ios/lib-sim
-          ln -sf "$binary" src/vendor/sherpa-onnx/ios/lib-sim/libsherpa-onnx-c-api.dylib
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         timeout-minutes: 10
         with:
           workspaces: src
           key: aarch64-apple-ios-sim
 
       # What `scripts/mobile-env.sh aarch64-apple-ios` exports, for the
-      # simulator: its FFmpeg, its slice of sherpa-onnx, and the same
+      # simulator: its FFmpeg and the same
       # oldest iOS. whisper.cpp's CMake build is told the simulator's SDK
       # outright (whisper-rs-sys hands it every CMAKE_ variable): left to
       # itself, CMake's iOS platform takes the device's.
@@ -529,7 +565,6 @@ jobs:
         run: |
           set -o pipefail
           export FFMPEG_DIR="$PWD/vendor/ffmpeg/aarch64-apple-ios-sim"
-          export SHERPA_ONNX_LIB_DIR="$PWD/vendor/sherpa-onnx/ios/lib-sim"
           export IPHONEOS_DEPLOYMENT_TARGET=15.0
           export CMAKE_OSX_SYSROOT=iphonesimulator
           cargo build --release -p concat --target aarch64-apple-ios-sim 2>&1 | tee build.log
@@ -538,6 +573,7 @@ jobs:
         if: failure()
         timeout-minutes: 1
         run: |
+          python3 scripts/ci/annotate.py src/build.log || true
           if [ -f src/build.log ]; then
             {
               echo "### Build failed: iOS Simulator"

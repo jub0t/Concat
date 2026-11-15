@@ -94,13 +94,21 @@ fn reveal_order(uv: vec2<f32>) -> f32 {
 "#;
 
 /// An effect's `sample` under the scene-linear contract.
+///
+/// Every `sample` here, and a transition's `from_at` and `to_at`, reads
+/// at level 0 rather than with `textureSample`'s implicit derivatives.
+/// The pictures have one level, so the pixels are the same, but a package
+/// is free to sample in a loop that runs as long as a knob says - a blur's
+/// taps - and Direct3D's FXC refuses a derivative in such a loop
+/// (X3570). Refused, the shader never built on Windows, and the card
+/// cache's trial of it lost the device (#548).
 const EFFECT_SAMPLE_LINEAR: &str = r#"
 /// The layer's colour at `uv`, straight alpha, in the working space as it
 /// is: linear light on Rec. 709 primaries, extended - negative in a channel
 /// outside Rec. 709's gamut, above 1.0 in a highlight - with 1.0 the white
 /// of an SDR picture (203 nits).
 fn sample(uv: vec2<f32>) -> vec4<f32> {
-    return into_space(textureSample(source, source_sampler, uv));
+    return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
 }
 
 /// A colour of the layer as the texture holds it, in the space `sample`
@@ -117,7 +125,7 @@ const EFFECT_SAMPLE_DISPLAY: &str = r#"
 /// (see `to_display`): the picture a look drawn by eye on an SDR display
 /// reads, not clipped at white.
 fn sample(uv: vec2<f32>) -> vec4<f32> {
-    return into_space(textureSample(source, source_sampler, uv));
+    return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
 }
 
 /// A colour of the layer as the texture holds it, in the space `sample`
@@ -133,7 +141,7 @@ const EFFECT_SAMPLE_LOG: &str = r#"
 /// space a table made for ACEScct reads, and where every level of light,
 /// far past white, has a place between 0 and 1.
 fn sample(uv: vec2<f32>) -> vec4<f32> {
-    return into_space(textureSample(source, source_sampler, uv));
+    return into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
 }
 
 /// A colour of the layer as the texture holds it, in the space `sample`
@@ -209,12 +217,12 @@ const TRANSITION_SAMPLE_LINEAR: &str = r#"
 /// The outgoing picture's colour at `uv`, straight alpha, in the working
 /// space as it is (see an effect's `sample`).
 fn from_at(uv: vec2<f32>) -> vec4<f32> {
-    return textureSample(from_texture, from_sampler, uv);
+    return textureSampleLevel(from_texture, from_sampler, uv, 0.0);
 }
 
 /// The incoming picture's colour at `uv`, likewise.
 fn to_at(uv: vec2<f32>) -> vec4<f32> {
-    return textureSample(to_texture, to_sampler, uv);
+    return textureSampleLevel(to_texture, to_sampler, uv, 0.0);
 }
 "#;
 

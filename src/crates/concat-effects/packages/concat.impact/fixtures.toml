@@ -1,0 +1,19 @@
+# A flat picture shaken is the same flat picture: every move, turn, zoom
+# and smear only moves colour that is the same everywhere.
+
+[[probe]]
+name = "default, a flat colour holds"
+input = [0.8, 0.5, 0.3, 1]
+expect = [0.8, 0.5, 0.3, 1]
+
+[[probe]]
+name = "at its least, a flat colour holds"
+at = "min"
+input = [0.05, 0.15, 0.4, 1]
+expect = [0.05, 0.15, 0.4, 1]
+
+[[probe]]
+name = "at its most, a flat colour holds"
+at = "max"
+input = [0.2, 0.6, 0.9, 1]
+expect = [0.2, 0.6, 0.9, 1]

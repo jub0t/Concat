@@ -3,12 +3,14 @@
 
 import { EffectData } from "demo/effects-panel.slint";
 import {
-    AppliedEntryData, AppliedParamData, CatalogueEntryData, ColourKnobData, TransitionChoiceData,
+    AppliedEntryData, AppliedParamData, CatalogueEntryData, ChainChoiceData, ColourKnobData,
+    TransitionChoiceData,
 } from "inspector/clip-inspector.slint";
 import {
     CurveData, CurveGroupData, WheelData, WheelGroupData,
 } from "inspector/grading.slint";
 import { MediaFilter, MediaItemData, TextPresetData } from "workspace/media-pane.slint";
+import { CaptionsSheetData } from "dialogs/captions.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
 import { MenuItemData } from "primitives/context-menu.slint";
@@ -97,6 +99,11 @@ export global Editor {
     callback media-remove(id: int);
     callback media-remove-selected();
     callback media-activate(id: int);
+    /// The phone's Add: what is picked, in the order it was picked, onto
+    /// the main lane at the playhead - or after its last clip, `at-end`.
+    callback media-add-picked(at-end: bool);
+    /// The phone's Media sheet opened: nothing is picked yet.
+    callback media-clear-picks();
     /// Right-click on a card in the bin: Rust fills `menu-items` for the
     /// file and bumps `menu-token`, the same round trip as `clip-context`.
     callback media-context(id: int);
@@ -162,6 +169,8 @@ export global Editor {
     /// The selected words back in the title's own look.
     callback clip-reset-words();
     callback clip-set-colour(field: ClipTextField, value: color);
+    /// A shape's colour; see ShapePanel.set-colour.
+    callback clip-shape-colour(which: int, value: color);
     callback clip-commit();
     /// The families a title can be set in: the bundled face, the user's
     /// own fonts, then the machine's. See `Studio::font_families`.
@@ -211,6 +220,14 @@ export global Editor {
     /// packed into the knob's number, see `Studio::chain_set_colour`.
     in-out property <[ColourKnobData]> visual-colours;
     callback chain-set-colour(index: int, key: string, value: color);
+    /// A colour knob's eyedropper pressed - armed, or put down - and its
+    /// way back to the colour its package finds by itself. While one is
+    /// armed the monitor takes the next press as the pick.
+    callback chain-pick-colour(index: int, key: string);
+    callback chain-auto-colour(index: int, key: string);
+    in-out property <bool> picking-colour;
+    /// The picture chain's choices, a row of segments each.
+    in-out property <[ChainChoiceData]> visual-choices;
     callback curve-point(entry: int, key: string, point: int, x: float, y: float);
     callback curve-remove(entry: int, key: string, point: int);
 
@@ -251,6 +268,10 @@ export global Editor {
     /// The engine's composited frame at the playhead, or an empty image
     /// while one is on its way. Set from Rust; see `Studio::request_preview`.
     in-out property <image> preview-frame;
+    /// The timeline's canvas lets something show through (#456): the
+    /// monitor draws a checker under the frame, so what is clear reads as
+    /// clear rather than as the stage's black.
+    in-out property <bool> see-through;
 
     callback play-toggled();
     callback seek(seconds: float);
@@ -301,8 +322,8 @@ export global Editor {
     callback cutout-clear();
     callback clip-enhance-set(on: bool);
     /// The Enhance section's settings and its preview; see EnhancePanel.
-    /// `index` is 0 Auto, then 1x, 2x and 4x.
-    callback clip-enhance-size(index: int);
+    /// `scale` is times larger, zero for Auto.
+    callback clip-enhance-scale(scale: float);
     callback clip-enhance-strength(strength: float);
     callback clip-enhance-preview();
     callback clip-enhance-run();
@@ -322,6 +343,9 @@ export global Editor {
     /// leave. A remembered preference, which Rust owns; the tray's button
     /// and the Settings switch both show it.
     in-out property <bool> magnetic;
+    /// Linkage: the other lanes follow an edit that closes up or opens
+    /// the main one. The active timeline's, which Rust owns.
+    in-out property <bool> linkage: true;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in-out property <bool> pan-mode: false;
     /// Trim follow: the playhead rides a clip edge while it is dragged. A
@@ -373,6 +397,7 @@ export global Editor {
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
+    callback linkage-changed(on: bool);
     callback pan-changed(on: bool);
     callback trim-follow-changed(on: bool);
     callback meters-shown-changed(on: bool);
@@ -402,6 +427,27 @@ export global Editor {
     in-out property <bool> recording;
     /// Which of the tray's panels are up, so their buttons read as on.
     in-out property <bool> captions-open;
+    /// Captions as the Library's Text & Captions page shows them on a desk:
+    /// the same data and answers as the phone's sheet (see CaptionsForm).
+    in-out property <CaptionsSheetData> captions-sheet;
+    in-out property <[string]> caption-models;
+    in-out property <[string]> caption-languages;
+    /// Bumped when the library should turn to Text & Captions > Captions:
+    /// the tray's Captions button, or Generate captions on a clip's menu.
+    in-out property <int> captions-jump-token;
+    /// The library's Captions page came into view, or went out of it.
+    callback captions-shown(shown: bool);
+    callback captions-voice-toggled(on: bool);
+    callback captions-source-changed(index: int);
+    callback captions-text-edited(text: string);
+    callback captions-model-changed(index: int);
+    callback captions-language-changed(index: int);
+    callback captions-placement-changed(index: int);
+    callback captions-size-changed(index: int);
+    callback captions-begin();
+    callback captions-cancel();
+    callback captions-import-srt();
+    callback captions-export-srt();
     in-out property <bool> speech-open;
     in-out property <bool> voiceover-open;
     /// The microphone while the voiceover panel is open, as positions
@@ -444,6 +490,9 @@ export global Editor {
     /// A clip's volume line on the lanes dragged to `gain`, linear, 1
     /// being unity: written to the clip as the inspector's knob would be.
     callback clip-volume(id: string, gain: float);
+    /// A clip's fade knob on the lanes dragged: its fade in, or with `out`
+    /// its fade out, to `seconds`.
+    callback clip-fade(id: string, out: bool, seconds: float);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
     in-out property <[MenuItemData]> menu-items;
@@ -484,6 +533,11 @@ export global Editor {
     in-out property <int> count-media;
     in-out property <int> count-tracks;
     in-out property <int> count-clips;
+    /// What the project holds and this build cannot show, counted short
+    /// ("2 clips, 1 part"); empty when it shows everything.
+    in-out property <string> unread-count;
+    /// The same, as the sentence the open's notice said.
+    in-out property <string> unread-notice;
     /// The panel's Modify button: open the project sheet.
     callback modify-project();
 

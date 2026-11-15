@@ -58,6 +58,9 @@ use crate::probe;
 /// sixty decodes - comparable to a seek, and exact.
 const ROLL_FORWARD_FRAMES: i64 = 60;
 
+/// The threads a pool reader's codec decodes on; see `Reader::open`.
+const READER_THREADS: u16 = 8;
+
 /// Warm readers one file at one level may hold: enough for the two sides of
 /// a transition within a file and a scrub elsewhere in it, few enough that
 /// a 4K file does not hold a decoder per playback worker.
@@ -180,6 +183,16 @@ impl FrameRequest {
     }
 }
 
+/// What [`ReaderPool::frame_nearest`] found: a picture, and whether it is
+/// the frame asked for or the nearest one at hand.
+#[derive(Clone, Debug)]
+pub struct Nearest {
+    /// The picture, treated as asked.
+    pub frame: Arc<Frame>,
+    /// It is the frame at the instant asked for.
+    pub exact: bool,
+}
+
 /// A source frame's identity: the file, the level it was decoded at, the
 /// frame. The stream is implicit - a file's best video stream is the one
 /// every reader opens.
@@ -246,6 +259,11 @@ impl<K: Hash + Eq + Clone> FrameCache<K> {
         })
     }
 
+    /// Whether `key` is held, without counting as a use of it.
+    fn holds(&self, key: &K) -> bool {
+        self.frames.contains_key(key)
+    }
+
     fn insert(&mut self, key: K, frame: Arc<Frame>) {
         let bytes = frame.pixels().len();
         // A frame larger than the whole budget would evict everything and
@@ -258,7 +276,13 @@ impl<K: Hash + Eq + Clone> FrameCache<K> {
             self.held -= previous.pixels().len();
         }
         self.held += bytes;
-        while self.held > self.budget {
+        self.shrink_to(self.budget);
+    }
+
+    /// Lets the least recently used frames go until at most `keep` bytes
+    /// are held.
+    fn shrink_to(&mut self, keep: usize) {
+        while self.held > keep {
             let Some(oldest) = self
                 .frames
                 .iter()
@@ -389,15 +413,25 @@ impl Reader {
         rate: FrameRate,
         still: bool,
         index: i64,
+        keyframes: bool,
     ) -> Result<Self> {
         // Unpaced, so every source frame comes out with its own timestamp
         // and the index is read from that; a seek lands on the keyframe at
         // or before the target and the pull rolls forward from there.
+        // Four threads, not one a core: each of a frame-threaded decoder's
+        // threads holds its own pictures in flight, and on twelve cores a
+        // 4K reader held 330 MB of them - memory the allocator then kept
+        // after the reader closed. A reader here walks a few frames to the
+        // one the monitor wants, and four do that nearly as fast.
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
             .scaled_to(width, height)
             .in_range(range)
-            .deep(deep);
+            .deep(deep)
+            .threaded(READER_THREADS);
+        if keyframes {
+            options = options.nearest_keyframes();
+        }
         if still {
             // One frame, served for every time, and never sought: a seek
             // on a single-image JPEG leaves FFmpeg's image demuxer with
@@ -442,7 +476,11 @@ impl Reader {
     }
 
     fn seek(&mut self, rate: FrameRate, index: i64) -> Result<()> {
-        self.decoder.seek(rate.time_of_frame(index))?;
+        self.seek_at(rate.time_of_frame(index))
+    }
+
+    fn seek_at(&mut self, at: Rational) -> Result<()> {
+        self.decoder.seek(at)?;
         self.next_index = i64::MIN;
         self.last = None;
         self.ahead = None;
@@ -477,6 +515,10 @@ struct MediaFacts {
     /// The picture's displayed size, for a file with one: what the levels
     /// are halvings of.
     size: Option<(u32, u32)>,
+    /// Where the keyframes are, as the probe found them; see
+    /// [`crate::VideoStream::keyframes`]. Empty for a still and for a
+    /// container with no index.
+    keyframes: Arc<[Rational]>,
 }
 
 impl MediaFacts {
@@ -497,6 +539,9 @@ impl MediaFacts {
 }
 
 /// One reader's identity: the file, the decode size, the baked chains.
+/// A reader's identity: the file, the level, the crop and the chain, the
+/// range, deep, and whether it reads keyframes only - a scrub's, which
+/// never shares a decoder with the readers that walk to an exact frame.
 type ReaderKey = (
     PathBuf,
     u32,
@@ -504,6 +549,7 @@ type ReaderKey = (
     Option<String>,
     Option<String>,
     Option<ColorRange>,
+    bool,
     bool,
 );
 
@@ -533,6 +579,19 @@ struct Readers {
 }
 
 impl Readers {
+    /// The fewest frames a warm reader of `key` would roll forward to reach
+    /// `target`, or `None` when every one of them would have to seek.
+    fn roll(&self, key: &ReaderKey, target: i64) -> Option<i64> {
+        self.warm
+            .iter()
+            .filter(|warm| &warm.key == key)
+            .filter_map(|warm| match plan_access(Some(warm.aim), target) {
+                Access::Roll(frames) => Some(frames),
+                Access::Seek => None,
+            })
+            .min()
+    }
+
     /// The reader of `key` that `target` is just ahead of - the shortest
     /// roll - or a few frames behind, or, when none is and the key already
     /// holds [`READERS_PER_KEY`], its coldest, which will seek. Made the
@@ -598,6 +657,9 @@ impl CacheStats {
 
 #[derive(Default)]
 struct Counters {
+    /// Frames asked for, cached or not: what tells a sweep the pool has
+    /// been idle since it last looked; see [`ReaderPool::asked`].
+    asked: AtomicU64,
     decoded: AtomicU64,
     source_hits: AtomicU64,
     treated_hits: AtomicU64,
@@ -629,8 +691,20 @@ pub struct ReaderPool {
     /// The stand-in for each file that has one; see
     /// [`ReaderPool::adopt_proxy`].
     proxies: Mutex<HashMap<PathBuf, PathBuf>>,
+    /// What a decoded frame of each file has cost a reader walking to an
+    /// exact frame, in seconds, seek included: a running average, which
+    /// [`ReaderPool::frame_nearest`] weighs a walk by.
+    pace: Mutex<HashMap<PathBuf, f64>>,
     counters: Counters,
+    /// How many readers each way of decoding opened; see
+    /// [`ReaderPool::readers_opened`].
+    ways: Mutex<std::collections::BTreeMap<String, u64>>,
 }
+
+/// How long a scrub may wait for the exact frame before it is shown the
+/// nearest one at hand instead: about three of a pointer's reports. A walk
+/// expected to take longer gives way; see [`ReaderPool::frame_nearest`].
+const SCRUB_BUDGET: f64 = 0.05;
 
 /// The stills held in memory, and the order they came in.
 type HeldStills = (
@@ -661,7 +735,9 @@ impl ReaderPool {
             facts: Mutex::new(HashMap::new()),
             memory: Mutex::new((HashMap::new(), std::collections::VecDeque::new())),
             proxies: Mutex::new(HashMap::new()),
+            pace: Mutex::new(HashMap::new()),
             counters: Counters::default(),
+            ways: Mutex::new(std::collections::BTreeMap::new()),
         }
     }
 
@@ -691,22 +767,51 @@ impl ReaderPool {
         Self::new(Self::frame_budget(total_memory), 8)
     }
 
+    /// How many frames have been asked of the pool so far: unchanged
+    /// between two looks, nothing was asked for in between.
+    pub fn asked(&self) -> u64 {
+        self.counters.asked.load(Ordering::Relaxed)
+    }
+
+    /// Lets the frame caches go down to `keep` bytes between them, the
+    /// least recently used first: what a pool nobody is asking frames of
+    /// holds on to. The frames near where the monitor last was are the
+    /// last to go, so a scrub that starts again there is still free.
+    pub fn trim(&self, keep: usize) {
+        if let Ok(mut cache) = self.sources.lock() {
+            cache.shrink_to(keep / 4 * 3);
+        }
+        if let Ok(mut cache) = self.treated.lock() {
+            cache.shrink_to(keep / 4);
+        }
+    }
+
     /// Closes the warm readers nobody has asked for in `idle`, and that no
     /// decode is using now: a decoder holds its own buffers - a 4K one, a
     /// hardware one, a good deal - and eight kept open for files the
     /// playhead left long ago is memory spent on nothing. A reader closed
     /// here is opened again on the next frame wanted from it, at the cost
     /// of one seek. Returns how many went.
+    ///
+    /// The readers are closed after the pool's lock is let go: closing a
+    /// phone's hardware decoder waits on the codec's own thread, a good
+    /// part of a second on a slow one, and every frame asked of the pool
+    /// meanwhile would have waited with it.
     pub fn close_idle(&self, idle: std::time::Duration) -> usize {
-        let Ok(mut readers) = self.readers.lock() else {
-            return 0;
+        let closing: Vec<Warm> = {
+            let Ok(mut readers) = self.readers.lock() else {
+                return 0;
+            };
+            let now = std::time::Instant::now();
+            let (keep, closing): (Vec<Warm>, Vec<Warm>) = std::mem::take(&mut readers.warm)
+                .into_iter()
+                .partition(|warm| {
+                    Arc::strong_count(&warm.reader) > 1 || now.duration_since(warm.touched) < idle
+                });
+            readers.warm = keep;
+            closing
         };
-        let now = std::time::Instant::now();
-        let before = readers.warm.len();
-        readers.warm.retain(|warm| {
-            Arc::strong_count(&warm.reader) > 1 || now.duration_since(warm.touched) < idle
-        });
-        before - readers.warm.len()
+        closing.len()
     }
 
     /// Makes `frame` the still at `path`, a name no file has, until
@@ -734,6 +839,7 @@ impl ReaderPool {
                     still: true,
                     frames: None,
                     size: None,
+                    keyframes: Arc::from([]),
                 }),
             );
         }
@@ -777,6 +883,19 @@ impl ReaderPool {
         let sources = self.sources.lock().map(|cache| cache.held()).unwrap_or(0);
         let treated = self.treated.lock().map(|cache| cache.held()).unwrap_or(0);
         sources + treated
+    }
+
+    /// Each way the pool's readers decoded - which decoder, and on which
+    /// device or in software, as each opened - and how many opened so.
+    pub fn readers_opened(&self) -> Vec<(String, u64)> {
+        self.ways
+            .lock()
+            .map(|ways| {
+                ways.iter()
+                    .map(|(way, count)| (way.clone(), *count))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// What the pool has done so far.
@@ -828,6 +947,7 @@ impl ReaderPool {
     /// reads, its facts, and the key of the frame at the level that covers
     /// the request.
     fn locate(&self, request: &FrameRequest) -> Result<(Arc<MediaFacts>, SourceKey)> {
+        Self::count(&self.counters.asked);
         let mut path = self.path_for(request);
         let facts = match self.facts_for(&path, request.still) {
             Ok(facts) => facts,
@@ -932,6 +1052,208 @@ impl ReaderPool {
         Ok(treated)
     }
 
+    /// [`ReaderPool::frame`] for a scrub: the frame asked for when it can
+    /// be had at once, and otherwise the nearest picture that can - and
+    /// whether it is the one asked for.
+    ///
+    /// The frame at an instant is decoded from the keyframe before it,
+    /// through every frame between: up to a whole group of pictures, a
+    /// second of 4K60 phone footage and four or more of a camera's or a
+    /// stock clip's, at full size. A scrub that waited for that showed a
+    /// few pictures a second on an M5 and fewer on anything slower, and
+    /// dragging backwards paid it on every step (#472). Nearest instead:
+    ///
+    /// - the frame itself, when it is cached;
+    /// - a cached frame closer to it than either keyframe around it is;
+    /// - else the nearer of those two keyframes, decoded on its own by a
+    ///   reader that reads keyframes only - one decode, wherever the scrub
+    ///   goes and whichever way.
+    ///
+    /// Inexact answers are cached under their own frames only, never under
+    /// the instant asked for, so the exact frame asked for once the
+    /// pointer rests is decoded as ever. A still, and a file whose every
+    /// frame is a keyframe, are always exact.
+    pub fn frame_nearest(&self, request: &FrameRequest) -> Result<Nearest> {
+        let (facts, key) = self.locate(request)?;
+        if facts.still || self.sources.lock().is_ok_and(|cache| cache.holds(&key)) {
+            return self.serve(request, &facts, key, true);
+        }
+        let rate = facts.rate;
+        let target = key.index;
+        // The keyframes on either side, as frame indices on the reader's
+        // grid; a container with no index knows of none.
+        let index_of =
+            |at: Rational| rate.frame_at(at + rate.frame_duration() / Rational::from_int(2));
+        let after = facts
+            .keyframes
+            .partition_point(|at| index_of(*at) <= target);
+        let before = after
+            .checked_sub(1)
+            .map(|at| (at, index_of(facts.keyframes[at])));
+        let next = facts.keyframes.get(after).map(|at| (after, index_of(*at)));
+        // On a keyframe: the frame itself is one decode away.
+        if before.is_some_and(|(_, index)| index == target) {
+            return self.serve(request, &facts, key, true);
+        }
+        // The exact frame after all, where the walk to it is short enough:
+        // a warm reader's roll, or a seek and the walk from the keyframe -
+        // on light footage, or on a slow drag, that is a few frames, and
+        // the picture under the pointer is the one to show.
+        let walk = {
+            let exact = (
+                key.path.clone(),
+                key.width,
+                key.height,
+                None,
+                None,
+                key.range,
+                key.deep,
+                false,
+            );
+            let roll = self
+                .readers
+                .lock()
+                .ok()
+                .and_then(|readers| readers.roll(&exact, target));
+            let seek = before.map(|(_, at)| target - at + 1);
+            roll.into_iter().chain(seek).min()
+        };
+        let per = self
+            .pace
+            .lock()
+            .ok()
+            .and_then(|pace| pace.get(&key.path).copied());
+        if let (Some(walk), Some(per)) = (walk, per)
+            && walk as f64 * per <= SCRUB_BUDGET
+        {
+            return self.serve(request, &facts, key, true);
+        }
+        // How far a cached frame may be and still beat decoding a keyframe;
+        // without an index, about a second.
+        let reach = [
+            before.map(|(_, at)| target - at),
+            next.map(|(_, at)| at - target),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or_else(|| rate.fps().ceil().max(1));
+        if let Ok(cache) = self.sources.lock() {
+            let mut near = key.clone();
+            for step in 1..reach {
+                for index in [target - step, target + step] {
+                    near.index = index;
+                    if index >= 0 && cache.holds(&near) {
+                        drop(cache);
+                        return self.serve(request, &facts, near, false);
+                    }
+                }
+            }
+        }
+        // The nearer keyframe, sought by a time between it and the next
+        // one: the index may stamp a keyframe at its decode time, a frame
+        // or two before its picture's, and a seek to exactly that would
+        // land short and go back a whole group to check.
+        let keyframe = match (before, next) {
+            (Some(before), Some(next)) if next.1 - target < target - before.1 => Some(next),
+            (Some(before), _) => Some(before),
+            (None, next) => next,
+        };
+        let seek = match keyframe {
+            Some((at, _)) => {
+                let from = facts.keyframes[at];
+                let to = facts
+                    .keyframes
+                    .get(at + 1)
+                    .copied()
+                    .unwrap_or(from + Rational::from_int(1));
+                from + (to - from) / Rational::from_int(2)
+            }
+            None => rate.time_of_frame(target),
+        };
+        let (index, frame) = self.keyframe(&facts, &key, seek)?;
+        let mut found = key;
+        found.index = index;
+        self.remember_source(found.clone(), Arc::clone(&frame));
+        self.serve(request, &facts, found, index == target)
+    }
+
+    /// The keyframe at or before `seek`, decoded by itself on a reader that
+    /// reads nothing else, and its index.
+    fn keyframe(
+        &self,
+        facts: &MediaFacts,
+        key: &SourceKey,
+        seek: Rational,
+    ) -> Result<(i64, Arc<Frame>)> {
+        let path = key.path.as_path();
+        let aim = facts.rate.frame_at(seek);
+        let shared = self.reader(
+            path, key.width, key.height, None, None, key.range, key.deep, facts, aim, true,
+        )?;
+        let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
+            path: path.to_path_buf(),
+        })?;
+        reader.seek_at(seek)?;
+        let (index, frame, fresh) =
+            reader
+                .next_frame(facts.rate)?
+                .ok_or_else(|| crate::error::Error::NoFrame {
+                    path: path.to_path_buf(),
+                })?;
+        if fresh {
+            Self::count(&self.counters.decoded);
+        }
+        Ok((index, frame))
+    }
+
+    /// The source frame `key` names, treated as `request` asks, cached as
+    /// [`ReaderPool::frame`] caches it.
+    fn serve(
+        &self,
+        request: &FrameRequest,
+        facts: &MediaFacts,
+        key: SourceKey,
+        exact: bool,
+    ) -> Result<Nearest> {
+        let (width, height) = request.size;
+        let plain = request.pre.is_none()
+            && request.chain.is_none()
+            && (request.any_size || (key.width, key.height) == (width, height));
+        let frame = if plain {
+            self.source_frame(facts, &key)?
+        } else {
+            let treated_key = TreatedKey {
+                source: key,
+                width,
+                height,
+                pre: request.pre.clone(),
+                chain: request.chain.clone(),
+                baked: false,
+            };
+            match self.cached_treated(&treated_key) {
+                Some(frame) => {
+                    Self::count(&self.counters.treated_hits);
+                    frame
+                }
+                None => {
+                    let source = self.source_frame(facts, &treated_key.source)?;
+                    let treated = Arc::new(crate::treat::fit(
+                        &source,
+                        request.pre.as_deref(),
+                        width,
+                        height,
+                        request.chain.as_deref(),
+                    )?);
+                    Self::count(&self.counters.treated);
+                    self.remember_treated(treated_key, Arc::clone(&treated));
+                    treated
+                }
+            }
+        };
+        Ok(Nearest { frame, exact })
+    }
+
     /// The frame of `path` on screen at `time` (in the media's own clock),
     /// scaled to `width` x `height`, with `pre` and `chain` baked into the
     /// decoder's own graph: the crop in the file's pixels, the fit, the
@@ -956,6 +1278,7 @@ impl ReaderPool {
         range: Option<ColorRange>,
         deep: bool,
     ) -> Result<Arc<Frame>> {
+        Self::count(&self.counters.asked);
         let chain = chain.filter(|chain| !chain.trim().is_empty());
         let pre = pre.filter(|pre| !pre.trim().is_empty());
         let facts = self.facts_for(path, still)?;
@@ -996,7 +1319,9 @@ impl ReaderPool {
             self.remember_treated(key, Arc::clone(&frame));
             return Ok(frame);
         }
-        let shared = self.reader(path, width, height, chain, pre, range, false, &facts, index)?;
+        let shared = self.reader(
+            path, width, height, chain, pre, range, false, &facts, index, false,
+        )?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -1032,7 +1357,7 @@ impl ReaderPool {
             return Ok(frame);
         }
         let shared = self.reader(
-            path, key.width, key.height, None, None, key.range, key.deep, facts, key.index,
+            path, key.width, key.height, None, None, key.range, key.deep, facts, key.index, false,
         )?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
@@ -1043,15 +1368,26 @@ impl ReaderPool {
             Self::count(&self.counters.source_hits);
             return Ok(frame);
         }
+        let passed = std::cell::Cell::new(0_u32);
         let remember = |at: i64, frame: Arc<Frame>| {
+            passed.set(passed.get() + 1);
             let mut key = key.clone();
             key.index = at;
             self.remember_source(key, frame);
         };
-        self.pull(&mut reader, facts, key.index, &remember)?
-            .ok_or_else(|| crate::error::Error::NoFrame {
-                path: path.to_path_buf(),
-            })
+        let begun = std::time::Instant::now();
+        let found = self.pull(&mut reader, facts, key.index, &remember)?;
+        if passed.get() > 0
+            && let Ok(mut pace) = self.pace.lock()
+        {
+            let per = begun.elapsed().as_secs_f64() / f64::from(passed.get());
+            pace.entry(path.to_path_buf())
+                .and_modify(|average| *average += (per - *average) * 0.3)
+                .or_insert(per);
+        }
+        found.ok_or_else(|| crate::error::Error::NoFrame {
+            path: path.to_path_buf(),
+        })
     }
 
     /// Brings `reader` to `target` and returns the frame there, handing
@@ -1171,6 +1507,7 @@ impl ReaderPool {
                     still: true,
                     frames: None,
                     size: None,
+                    keyframes: Arc::from([]),
                 }
             } else {
                 let info = probe::probe(path)?;
@@ -1199,6 +1536,10 @@ impl ReaderPool {
                     still: false,
                     frames,
                     size,
+                    keyframes: info
+                        .video
+                        .as_ref()
+                        .map_or_else(|| Arc::from([]), |video| Arc::clone(&video.keyframes)),
                 }
             }
         };
@@ -1226,6 +1567,7 @@ impl ReaderPool {
         deep: bool,
         facts: &MediaFacts,
         target: i64,
+        keyframes: bool,
     ) -> Result<Arc<Mutex<Reader>>> {
         let key = (
             path.to_path_buf(),
@@ -1235,6 +1577,7 @@ impl ReaderPool {
             pre.map(str::to_owned),
             range,
             deep,
+            keyframes,
         );
         {
             let mut readers = self
@@ -1251,7 +1594,7 @@ impl ReaderPool {
         // Opened outside the lock: opening a file and seeking it is the slow
         // part, and nobody else needs to wait for it. A decode in flight on
         // an evicted reader finishes on its own handle.
-        let opened = Arc::new(Mutex::new(Reader::open(
+        let reader = Reader::open(
             path,
             width,
             height,
@@ -1262,7 +1605,17 @@ impl ReaderPool {
             facts.rate,
             facts.still,
             target,
-        )?));
+            keyframes,
+        )?;
+        if let Ok(mut ways) = self.ways.lock() {
+            let decoder = &reader.decoder;
+            let way = match decoder.hardware() {
+                Some(device) => format!("{} on {}", decoder.codec_name(), device.label()),
+                None => format!("{} in software", decoder.codec_name()),
+            };
+            *ways.entry(way).or_default() += 1;
+        }
+        let opened = Arc::new(Mutex::new(reader));
         let mut readers = self
             .readers
             .lock()
@@ -1868,5 +2221,186 @@ pub(crate) mod tests {
         }
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A scrub far from any frame decoded is shown the nearest keyframe, at
+    /// once and said to be inexact; the frame itself, asked for exactly
+    /// once the scrub rests, is the true one and not the keyframe cached
+    /// under its instant; and once it is cached a scrub gets it. Where the
+    /// keyframes fall is the encoder's to choose - a VideoToolbox clip has
+    /// one every twelve frames, an OpenH264 one every sixty - so the test
+    /// reads them from the index and scrubs between two of them, nearer
+    /// the first.
+    #[test]
+    fn a_scrub_is_shown_the_nearest_keyframe_and_never_caches_it_as_the_frame() {
+        let path = counting_video("nearest", 64, 120);
+        let pool = ReaderPool::new(64 * 1024 * 1024, 8);
+        let facts = pool.facts_for(&path, false).expect("probes");
+        let keys: Vec<i64> = facts
+            .keyframes
+            .iter()
+            .map(|at| (at.as_f64() * 30.0).round() as i64)
+            .collect();
+        let Some((before, after)) = keys
+            .windows(2)
+            .map(|pair| (pair[0], pair[1]))
+            .find(|(before, after)| after - before >= 8)
+        else {
+            panic!("the index names two keyframes apart: {keys:?}");
+        };
+        let target = before + ((after - before) / 4).max(2);
+        let at = |index: i64| {
+            FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(index), 64, 64)
+                .at_any_size(true)
+        };
+        // Frame n is filled with red 2n.
+        let frame_of = |frame: &Frame| i64::from(frame.pixel(32, 32).expect("inside")[0]) / 2;
+
+        let first = pool.frame_nearest(&at(target)).expect("decodes");
+        assert!(!first.exact, "a walk never timed gives way");
+        assert!(
+            (before - 1..=before + 1).contains(&frame_of(&first.frame)),
+            "keyframe {before} for frame {target}, of {keys:?}: {}",
+            frame_of(&first.frame)
+        );
+
+        // Media Foundation's H.264, Windows' encoder, lets this fixture's
+        // slow fade lag by up to two frames - its frame 15 decodes red 26,
+        // with FFmpeg's own decoder too - so the frame is allowed to read
+        // a little early, as long as it is past the keyframe.
+        let exact = pool.frame(&at(target)).expect("decodes");
+        let read = frame_of(&exact);
+        assert!(
+            (target - 3..=target + 1).contains(&read) && read > before + 1,
+            "the frame itself, {target}, not keyframe {before}: {read}"
+        );
+
+        let again = pool.frame_nearest(&at(target)).expect("cached");
+        assert!(again.exact);
+        assert!(Arc::ptr_eq(&again.frame, &exact));
+        assert!(
+            pool.frame_nearest(&at(after)).expect("decodes").exact,
+            "a keyframe is exact"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// How a scrub feels on real footage: a pointer dragged across ten
+    /// seconds of it in two, the monitor asking for the frame under it,
+    /// waiting, and asking again, as `MonitorPane::request` does - so the
+    /// frames shown a second and how long each was waited for. Forward,
+    /// backward, and jumps about the file, each on a cold pool. Ignored:
+    /// it needs footage. `CONCAT_SCRUB_FOOTAGE=clip.mov cargo test -p
+    /// concat-media --release --lib -- --ignored --nocapture scrub_feel`;
+    /// `CONCAT_SCRUB_SIZE` is the monitor's frame, 960x540 by default -
+    /// Half of a 1080p timeline - and `CONCAT_SCRUB_SOFTWARE` decodes on
+    /// the CPU alone.
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn scrub_feel() {
+        let Some(path) = std::env::var_os("CONCAT_SCRUB_FOOTAGE").map(PathBuf::from) else {
+            return;
+        };
+        let (width, height) = std::env::var("CONCAT_SCRUB_SIZE")
+            .ok()
+            .and_then(|size| {
+                let (width, height) = size.split_once('x')?;
+                Some((width.parse().ok()?, height.parse().ok()?))
+            })
+            .unwrap_or((960, 540));
+        let length = crate::probe(&path)
+            .expect("footage")
+            .duration
+            .map_or(10.0, |duration| duration.as_f64())
+            .min(10.0);
+        // On the platform's decoder, as the window has it, unless
+        // `CONCAT_SCRUB_SOFTWARE` says the CPU's.
+        crate::set_hardware_decode(std::env::var_os("CONCAT_SCRUB_SOFTWARE").is_none());
+        let drag = std::time::Duration::from_secs(2);
+        let rate = crate::probe(&path)
+            .expect("footage")
+            .video
+            .map_or(FrameRate::THIRTY, |video| video.cadence);
+        let report = |name: &str, nearest: bool, under: &dyn Fn(f64) -> f64| {
+            let pool = ReaderPool::with_defaults();
+            // The paused monitor's exact frame where the drag starts, as
+            // the window has shown before any drag.
+            let start = Rational::new((under(0.0) * length * 1000.0).round() as i64, 1000);
+            pool.frame(
+                &FrameRequest::new(&path, start, width, height)
+                    .covering(width, height)
+                    .at_any_size(true),
+            )
+            .expect("decodes");
+            let begun = std::time::Instant::now();
+            let mut waits = Vec::new();
+            let mut off = Vec::new();
+            // The pointer reports sixty times a second, and the monitor
+            // asks again only once the playhead has moved.
+            let tick = std::time::Duration::from_micros(16_667);
+            let mut last = None;
+            while begun.elapsed() < drag {
+                let ticks = begun.elapsed().as_micros() / tick.as_micros();
+                if last == Some(ticks) {
+                    std::thread::sleep(std::time::Duration::from_micros(500));
+                    continue;
+                }
+                last = Some(ticks);
+                let along = (ticks * tick.as_micros()) as f64 / drag.as_micros() as f64;
+                let time = Rational::new((under(along) * length * 1000.0).round() as i64, 1000);
+                let request = FrameRequest::new(&path, time, width, height)
+                    .covering(width, height)
+                    .at_any_size(true);
+                let asked = std::time::Instant::now();
+                if nearest {
+                    let found = pool.frame_nearest(&request).expect("decodes");
+                    // How far the picture shown is from the pointer, in
+                    // frames: its own index against the one asked for.
+                    let wanted = rate.frame_at(time);
+                    let shown = pool
+                        .sources
+                        .lock()
+                        .ok()
+                        .and_then(|cache| {
+                            (wanted - 600..=wanted + 600).find(|index| {
+                                cache.frames.iter().any(|(key, (frame, _))| {
+                                    key.index == *index && Arc::ptr_eq(frame, &found.frame)
+                                })
+                            })
+                        })
+                        .unwrap_or(wanted);
+                    off.push((shown - wanted).abs());
+                } else {
+                    pool.frame(&request).expect("decodes");
+                    off.push(0);
+                }
+                waits.push(asked.elapsed().as_secs_f64() * 1000.0);
+            }
+            let shown = waits.len();
+            let mut sorted = waits.clone();
+            sorted.sort_by(f64::total_cmp);
+            let at = |q: f64| sorted[((sorted.len() - 1) as f64 * q).round() as usize];
+            off.sort_unstable();
+            eprintln!(
+                "{name:>9} {}: {:.1} frames a second; waited {:.0} ms median, {:.0} ms at 90%, \
+                 {:.0} ms at worst; shown {} frames off median, {} at worst",
+                if nearest { "nearest" } else { "exact  " },
+                shown as f64 / drag.as_secs_f64(),
+                at(0.5),
+                at(0.9),
+                at(1.0),
+                off[off.len() / 2],
+                off[off.len() - 1],
+            );
+        };
+        for nearest in [false, true] {
+            report("forward", nearest, &|along| along);
+            report("backward", nearest, &|along| 1.0 - along);
+            // A hand that goes back and forth over a stretch, as one looking
+            // for a moment does.
+            report("searching", nearest, &|along| {
+                0.5 + 0.35 * (along * std::f64::consts::TAU * 2.0).sin()
+            });
+        }
     }
 }

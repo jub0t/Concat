@@ -104,6 +104,22 @@ export component Seat inherits Rectangle {
             importing: Editor.importing;
             filter: Editor.media-filter;
             jump-token: Editor.media-jump-token;
+            captions: Editor.captions-sheet;
+            caption-models: Editor.caption-models;
+            caption-languages: Editor.caption-languages;
+            captions-jump-token: Editor.captions-jump-token;
+            captions-shown(shown) => { Editor.captions-shown(shown); }
+            captions-voice-toggled(on) => { Editor.captions-voice-toggled(on); }
+            captions-source-changed(index) => { Editor.captions-source-changed(index); }
+            captions-text-edited(text) => { Editor.captions-text-edited(text); }
+            captions-model-changed(index) => { Editor.captions-model-changed(index); }
+            captions-language-changed(index) => { Editor.captions-language-changed(index); }
+            captions-placement-changed(index) => { Editor.captions-placement-changed(index); }
+            captions-size-changed(index) => { Editor.captions-size-changed(index); }
+            captions-begin => { Editor.captions-begin(); }
+            captions-cancel => { Editor.captions-cancel(); }
+            captions-import-srt => { Editor.captions-import-srt(); }
+            captions-export-srt => { Editor.captions-export-srt(); }
 
             import-media => { Editor.import-media(); }
             filter-changed(filter) => { Editor.media-filter-changed(filter); }
@@ -181,12 +197,14 @@ export component Seat inherits Rectangle {
             has-picture: Editor.has-picture;
             clip-name: Editor.preview-clip-name;
             frame: Editor.preview-frame;
+            see-through: Editor.see-through && !SourcePreview.open;
             stage-items: SourcePreview.open ? [] : Editor.stage-items;
             stage-guides: Editor.stage-guides;
             stroke-path: Editor.stroke-path;
             stroke-width: Editor.stroke-width;
             stroke-erase: Editor.stroke-erase;
             painting: Editor.painting && Editor.selected-clip.cutout == 2;
+            picking: Editor.picking-colour && !SourcePreview.open;
 
             play-toggled => { Editor.play-toggled(); }
             seek(seconds) => {
@@ -253,7 +271,10 @@ export component Seat inherits Rectangle {
             visual-wheels: Editor.visual-wheels;
             visual-curves: Editor.visual-curves;
             visual-colours: Editor.visual-colours;
+            visual-choices: Editor.visual-choices;
             chain-set-colour(index, key, value) => { Editor.chain-set-colour(index, key, value); }
+            chain-pick-colour(index, key) => { Editor.chain-pick-colour(index, key); }
+            chain-auto-colour(index, key) => { Editor.chain-auto-colour(index, key); }
             curve-point(entry, key, point, x, y) => { Editor.curve-point(entry, key, point, x, y); }
             curve-remove(entry, key, point) => { Editor.curve-remove(entry, key, point); }
             jump-token: Editor.inspector-jump-token;
@@ -276,7 +297,7 @@ export component Seat inherits Rectangle {
             cutout-subject(index) => { Editor.cutout-subject(index); }
             cutout-clear => { Editor.cutout-clear(); }
             clip-enhance-set(on) => { Editor.clip-enhance-set(on); }
-            clip-enhance-size(index) => { Editor.clip-enhance-size(index); }
+            clip-enhance-scale(scale) => { Editor.clip-enhance-scale(scale); }
             clip-enhance-strength(strength) => { Editor.clip-enhance-strength(strength); }
             clip-enhance-preview => { Editor.clip-enhance-preview(); }
             clip-enhance-run => { Editor.clip-enhance-run(); }
@@ -293,6 +314,8 @@ export component Seat inherits Rectangle {
             count-media: Editor.count-media;
             count-tracks: Editor.count-tracks;
             count-clips: Editor.count-clips;
+            unread-count: Editor.unread-count;
+            unread-notice: Editor.unread-notice;
             modify-project => { Editor.modify-project(); }
 
             selected: Editor.selected-clip;
@@ -305,6 +328,7 @@ export component Seat inherits Rectangle {
             clip-select-words(anchor, cursor) => { Editor.clip-select-words(anchor, cursor); }
             clip-reset-words => { Editor.clip-reset-words(); }
             clip-set-colour(field, value) => { Editor.clip-set-colour(field, value); }
+            clip-shape-colour(which, value) => { Editor.clip-shape-colour(which, value); }
             clip-commit => { Editor.clip-commit(); }
             font-families: Editor.font-families;
             import-font => { Editor.import-font(); }
@@ -382,6 +406,7 @@ export component Seat inherits Rectangle {
             tool: Editor.tool;
             snap: Editor.snap;
             magnetic: Editor.magnetic;
+            linkage: Editor.linkage;
             pan-mode: Editor.pan-mode;
             trim-follow: Editor.trim-follow;
             meters-shown: Editor.meters-shown;
@@ -414,6 +439,7 @@ export component Seat inherits Rectangle {
             tool-changed(tool) => { Editor.tool-changed(tool); }
             snap-changed(snap) => { Editor.snap-changed(snap); }
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
+            linkage-changed(on) => { Editor.linkage-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }
             trim-follow-changed(on) => { Editor.trim-follow-changed(on); }
             meters-shown-changed(on) => { Editor.meters-shown-changed(on); }
@@ -447,6 +473,7 @@ export component Seat inherits Rectangle {
             }
             clip-split(id, seconds) => { Editor.clip-split(id, seconds); }
             clip-volume(id, gain) => { Editor.clip-volume(id, gain); }
+            clip-fade(id, out, seconds) => { Editor.clip-fade(id, out, seconds); }
             clip-dragged(seconds, pixels) => { Editor.clip-dragged(seconds, pixels); }
             clip-released => { Editor.clip-released(); }
             menu-items: Editor.menu-items;

@@ -6,17 +6,17 @@ name = "RGB Split"
 kind = "transition"
 category = "Glitch"
 order = 9
-description = "The colour channels pull apart through the cut and snap back together."
+description = "Red, green and blue tear apart through the cut, each switching shots at its own moment, and lock back together."
 
 [[param]]
 key = "spread"
 label = "Spread"
+unit = "%"
 min = 0
 max = 100
-default = 60
 step = 1
-unit = "%"
+default = 60
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"

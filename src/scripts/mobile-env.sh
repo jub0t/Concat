@@ -7,11 +7,11 @@
 #   eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
 #   cargo build -p concat --target aarch64-apple-ios
 #
-# It names what the two fetch scripts left in vendor/ - FFmpeg through
-# FFMPEG_DIR, sherpa-onnx through SHERPA_ONNX_LIB_DIR - and on Android the
-# SDK pieces the build scripts of Slint's backend and whisper.cpp read.
-# Run scripts/ffmpeg-mobile.sh and scripts/sherpa-mobile.sh for the target
-# first.
+# It names what the fetch scripts left in vendor/ - FFmpeg through
+# FFMPEG_DIR, and on Android the libraries the APK carries through
+# CONCAT_ANDROID_LIBS - and on Android the SDK pieces the build scripts of
+# Slint's backend and whisper.cpp read. Run scripts/ffmpeg-mobile.sh for
+# the target first, and on Android scripts/android-libs.sh too.
 set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android, x86_64-linux-android or aarch64-apple-ios}
@@ -24,15 +24,15 @@ case "$target" in
   aarch64-linux-android|x86_64-linux-android)
     abi=arm64-v8a
     [ "$target" = x86_64-linux-android ] && abi=x86_64
-    sherpa=$workspace/vendor/sherpa-onnx/jniLibs/$abi
-    [ -d "$sherpa" ] || { echo "no sherpa-onnx for $target: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
-    echo "export SHERPA_ONNX_LIB_DIR='$sherpa'"
+    libs=$workspace/vendor/android/jniLibs/$abi
+    [ -f "$libs/libc++_shared.so" ] || { echo "no Android libraries for $target: run scripts/android-libs.sh $target" >&2; exit 1; }
+    echo "export CONCAT_ANDROID_LIBS='$libs'"
     # The emulator's x86_64 build: ort publishes no ONNX Runtime for it,
-    # and sherpa-onnx's own (1.27, which serves the API ort asks for) is
-    # beside it, so ort links that one, and the APK carries it with the
-    # rest of the folder.
+    # so ort links Microsoft's (1.28.0, the version ort is built against),
+    # which android-libs.sh put beside libc++, and the APK carries it with
+    # the rest of the folder.
     if [ "$target" = x86_64-linux-android ]; then
-      echo "export ORT_LIB_LOCATION='$sherpa' ORT_PREFER_DYNAMIC_LINK=1"
+      echo "export ORT_LIB_LOCATION='$libs' ORT_PREFER_DYNAMIC_LINK=1"
     fi
 
     sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
@@ -65,9 +65,13 @@ case "$target" in
     # Every library the APK carries is linked for 16 KB pages, as FFmpeg's
     # already is (ffmpeg-mobile.sh): a phone whose kernel uses them refuses
     # a library aligned to 4 KB, and v0.2.8's libconcat_android.so was.
-    # One RUSTFLAGS for both: cargo reads it whole and ignores the
-    # target's own flags when it is set.
-    rustflags='-C link-arg=-Wl,-z,max-page-size=16384'
+    # And it carries a build ID, which rustc does not ask the linker for:
+    # a phone's crash or hang names the library's frames by offset and
+    # BuildId, and without one nothing ties a trace to the symbols CI kept
+    # for it (scripts/symbolize-android.sh). One RUSTFLAGS for all of it:
+    # cargo reads it whole and ignores the target's own flags when it is
+    # set.
+    rustflags='-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1'
     if [ "$(uname -s)" = Darwin ]; then
       shim=$workspace/vendor/shim/$target
       mkdir -p "$shim"
@@ -77,9 +81,6 @@ case "$target" in
     echo "export RUSTFLAGS='$rustflags'"
     ;;
   aarch64-apple-ios)
-    sherpa=$workspace/vendor/sherpa-onnx/ios/lib
-    [ -d "$sherpa" ] || { echo "no sherpa-onnx for $target: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
-    echo "export SHERPA_ONNX_LIB_DIR='$sherpa'"
     echo "export IPHONEOS_DEPLOYMENT_TARGET='${IPHONEOS_DEPLOYMENT_TARGET:-15.0}'"
     ;;
   *)

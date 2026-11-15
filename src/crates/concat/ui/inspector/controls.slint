@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
@@ -7,6 +7,7 @@ import { Fmt, Focus } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
+import { IconButton } from "../primitives/panel.slint";
 import { ClipField, ClipKeyData, Keyframes } from "../timeline/model.slint";
 
 // The clip inspector's controls: a horizontal fader, the Param row that
@@ -325,6 +326,62 @@ export component KeyCluster inherits HorizontalLayout {
     }
 }
 
+// A "?" that explains on hover. The prose is a popover beside the mark, so
+// it never rearranges the panel it sits in, and it goes when the pointer
+// does. The mark has no height of its own: it fills whatever row it is
+// given and sits in the middle of it, which is what keeps it level with a
+// title or a switch rather than floating at the top of the row.
+export component HelpButton inherits Rectangle {
+    /// The sentence or two the popover shows.
+    in property <string> text;
+
+    width: 16px;
+
+    mark := Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: touch.has-hover ? Theme.accent-soft : Theme.field;
+
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+        Text {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            text: "?";
+            color: touch.has-hover ? Theme.accent : Theme.fg-muted;
+            font-size: Theme.fs-xs;
+            font-weight: Theme.weight-title;
+        }
+
+        touch := TouchArea {
+            mouse-cursor: help;
+        }
+
+        Tooltip {
+            Rectangle {
+                width: 260px;
+                background: Theme.raised;
+                border-width: 1px;
+                border-color: Theme.line-strong;
+                border-radius: Theme.r;
+
+                HorizontalLayout {
+                    padding: 10px;
+                    Text {
+                        text: root.text;
+                        color: Theme.fg;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The inspector's repeating unit, on one line: label, a formatted readout
 // (the value in a unit you reason about — "none", "auto", "1.00x"), keys
 // and a raw number field, which scrubs on a drag. Keeping readout and field
@@ -360,6 +417,9 @@ export component Param inherits VerticalLayout {
     /// See KeyCluster: a row keyed by name is handed its key state.
     in property <string> key-name;
     in property <ClipKeyData> key-state: Keyframes.row(root.field);
+    /// A sentence or two behind a "?" beside the label, on hover, for a
+    /// knob whose meaning is not in its name.
+    in property <string> help;
 
     callback changed(value: float);
 
@@ -384,6 +444,9 @@ export component Param inherits VerticalLayout {
                 }
             }
         }
+
+        if root.help != "": Rectangle { width: 6px; }
+        if root.help != "": HelpButton { text: root.help; }
 
         Rectangle { horizontal-stretch: 1; }
 
@@ -599,62 +662,6 @@ export component SwitchRow inherits HorizontalLayout {
     }
 }
 
-// A "?" that explains on hover. The prose is a popover beside the mark, so
-// it never rearranges the panel it sits in, and it goes when the pointer
-// does. The mark has no height of its own: it fills whatever row it is
-// given and sits in the middle of it, which is what keeps it level with a
-// title or a switch rather than floating at the top of the row.
-export component HelpButton inherits Rectangle {
-    /// The sentence or two the popover shows.
-    in property <string> text;
-
-    width: 16px;
-
-    mark := Rectangle {
-        x: 0;
-        y: (parent.height - self.height) / 2;
-        width: 16px;
-        height: 16px;
-        border-radius: 8px;
-        background: touch.has-hover ? Theme.accent-soft : Theme.field;
-
-        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-        Text {
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            text: "?";
-            color: touch.has-hover ? Theme.accent : Theme.fg-muted;
-            font-size: Theme.fs-xs;
-            font-weight: Theme.weight-title;
-        }
-
-        touch := TouchArea {
-            mouse-cursor: help;
-        }
-
-        Tooltip {
-            Rectangle {
-                width: 260px;
-                background: Theme.raised;
-                border-width: 1px;
-                border-color: Theme.line-strong;
-                border-radius: Theme.r;
-
-                HorizontalLayout {
-                    padding: 10px;
-                    Text {
-                        text: root.text;
-                        color: Theme.fg;
-                        font-size: Theme.fs-sm;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-        }
-    }
-}
-
 // Put a section back the way it was found.
 //
 // Sits in a SectionHeader's action slot beside the help disclosure, and is
@@ -815,32 +822,58 @@ export component SearchField inherits Rectangle {
 // The swatch opens the picker - the square, the strips, the hex, the
 // channels and the shelf, see primitives/color-picker.slint. The hex is
 // shown beside the swatch too, so the row can be read without opening it.
+//
+// A row may also take its colour off the picture: the eyedropper beside
+// the swatch arms the monitor, and the next press there picks the colour
+// under it (see Studio::chain_pick_colour). And a knob whose package finds
+// the colour by itself - a key's screen - says so in place of the hex,
+// with a way back to it once a colour has been picked.
 export component ColourField inherits HorizontalLayout {
     in property <string> label;
     in property <color> value;
     /// The colour carries an alpha of its own; see ColorPicker.
     in property <bool> alpha: false;
+    /// The eyedropper is offered, and whether it is armed now.
+    in property <bool> pickable: false;
+    in property <bool> picking: false;
+    /// The colour is found by the package rather than set, and whether it
+    /// can be: the knob's default is the colour no colour at all.
+    in property <bool> automatic: false;
+    in property <bool> can-automatic: false;
 
     callback changed(value: color);
+    /// The eyedropper pressed: armed, or put down again.
+    callback pick();
+    /// Back to the colour the package finds by itself.
+    callback automate();
 
     /// The digits being typed, held apart from `value` for the reason
     /// the dialog's Field holds its draft: a TextInput writes to whatever
     /// it is bound to, and a republish mid-edit must not yank the caret.
     property <string> draft;
     function seed() {
-        root.draft = Fmt.hex-digits(root.value);
+        root.draft = root.automatic ? "" : Fmt.hex-digits(root.value);
     }
     /// What was typed, taken as a colour - "fff" and "cbf53f" alike, and
     /// the value kept when it is neither - with the alpha it already had:
     /// the field is six digits, and an opacity has a dial of its own.
     function adopt() {
+        // Nothing typed over a found colour leaves it found.
+        if (root.automatic && root.draft == "") {
+            return;
+        }
         root.changed(Fmt.color-of("#" + root.draft, root.value)
-            .with-alpha(root.value.to-hsv().alpha));
+            .with-alpha(root.alpha ? root.value.to-hsv().alpha : 1));
         root.seed();
     }
 
     init => { root.seed(); }
     changed value => {
+        if (!input.has-focus) {
+            root.seed();
+        }
+    }
+    changed automatic => {
         if (!input.has-focus) {
             root.seed();
         }
@@ -910,6 +943,19 @@ export component ColourField inherits HorizontalLayout {
                         clicked => { input.focus(); }
                     }
 
+                    // A found colour has no digits to show: the word for
+                    // it stands where they would, until some are typed.
+                    if root.automatic && root.draft == "" && !input.has-focus: Text {
+                        x: 8px;
+                        width: parent.width - 16px;
+                        height: parent.height;
+                        text: I18n.t("clipInspector.autoColour");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
                     input := TextInput {
                         x: 8px;
                         y: (parent.height - self.height) / 2;
@@ -935,6 +981,27 @@ export component ColourField inherits HorizontalLayout {
         }
     }
 
+    // Back to the colour found by itself, once one has been set.
+    if root.can-automatic && !root.automatic: VerticalLayout {
+        alignment: center;
+        IconButton {
+            glyph: Glyph.sparkle;
+            label: I18n.t("clipInspector.findColour");
+            clicked => { root.automate(); }
+        }
+    }
+
+    // The eyedropper: lit while the monitor waits for the press that picks.
+    if root.pickable: VerticalLayout {
+        alignment: center;
+        IconButton {
+            glyph: Glyph.pipette;
+            label: I18n.t("clipInspector.pickColour");
+            checked: root.picking;
+            clicked => { root.pick(); }
+        }
+    }
+
     // The swatch: a square the height of the field, and the button that
     // opens the picker.
     VerticalLayout {
@@ -956,17 +1023,34 @@ export component ColourField inherits HorizontalLayout {
                     y: Math.mod(cell, 3) * 8px;
                     width: 8px;
                     height: 8px;
-                    background: Math.mod(cell + Math.floor(cell / 3), 2) == 0 ? #c8c8c8 : #7a7a7a;
+                    background: Math.mod(Math.floor(cell / 3) + Math.mod(cell, 3), 2) == 0 ? #c8c8c8 : #7a7a7a;
                 }
             }
             if !root.alpha: Rectangle { background: Theme.fg-dim; }
-            Rectangle {
+            if !root.automatic: Rectangle {
                 x: 1px;
                 y: 1px;
                 width: parent.width - 2px;
                 height: parent.height - 2px;
                 border-radius: Theme.r-sm - 1px;
                 background: root.value;
+            }
+            // A found colour is the package's to find: the mark for it, on
+            // the field's own ground, in place of a colour.
+            if root.automatic: Rectangle {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                border-radius: Theme.r-sm - 1px;
+                background: Theme.field;
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.sparkle;
+                    size: 12px;
+                    tint: Theme.fg-muted;
+                }
             }
 
             touch := TouchArea {

@@ -1,0 +1,61 @@
+format = 2
+
+[effect]
+id = "concat.beat-shake"
+name = "Beat Shake"
+kind = "effect"
+category = "Shake"
+order = 6
+intensity = "amount"
+description = "A hit on every beat at the tempo you set, each knocked a different way, from the moment the clip or layer starts."
+
+[[param]]
+key = "bpm"
+label = "Tempo"
+unit = "BPM"
+min = 40
+max = 240
+step = 1
+default = 120
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[[param]]
+key = "length"
+label = "Hit Length"
+unit = "%"
+min = 10
+max = 100
+step = 1
+default = 60
+
+[[param]]
+key = "punch"
+label = "Zoom Punch"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 30
+
+[[param]]
+key = "blur"
+label = "Motion Blur"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[wgsl]
+entry = "effect.wgsl"
+
+[card]
+moment = 0.04

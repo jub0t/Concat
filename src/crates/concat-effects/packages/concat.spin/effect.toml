@@ -6,16 +6,16 @@ name = "Spin"
 kind = "transition"
 category = "Spin"
 order = 6
-description = "The outgoing shot spins away as the incoming one spins into place."
+description = "The frame whirls round, blurring as it turns, and the next shot spins out of the turn and comes to rest."
 
 [[param]]
 key = "turns"
 label = "Turns"
 min = 0.5
 max = 2
-default = 1
 step = 0.25
+default = 1
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"

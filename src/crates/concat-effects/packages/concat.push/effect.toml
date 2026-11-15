@@ -6,18 +6,19 @@ name = "Push"
 kind = "transition"
 category = "Slide"
 order = 5
-description = "The incoming shot pushes the outgoing one off the frame."
+aliases = ["push"]
+description = "The next shot shoves the last one out of frame, both moving as one, with a streak of motion blur at full speed."
 
 [[param]]
 key = "direction"
 label = "Direction"
 type = "enum"
-min = 0
-max = 3
-default = 0
 values = [0, 1, 2, 3]
 labels = ["Left", "Right", "Up", "Down"]
+default = 0
+min = 0
+max = 3
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
@@ -29,7 +29,7 @@ export component PhoneSheet inherits Rectangle {
     /// How far the header has been dragged down, while it is held: the
     /// sheet follows the finger, and past `dismiss-at` on release it is
     /// closed, as a phone's sheets are. Zero when nothing is held.
-    property <length> drag;
+    out property <length> drag;
     property <length> dismiss-at: 80px;
 
     visible: root.open;

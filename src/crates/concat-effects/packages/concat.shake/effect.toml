@@ -1,0 +1,59 @@
+format = 2
+
+[effect]
+id = "concat.shake"
+name = "Shake"
+kind = "effect"
+category = "Shake"
+order = 4
+intensity = "amount"
+description = "A camera that will not keep still: a handheld drift, a nervous jitter or a quake, with a turn and a smear of its own."
+
+[[param]]
+key = "style"
+label = "Style"
+type = "enum"
+values = [0, 1, 2]
+labels = ["Handheld", "Jitter", "Quake"]
+default = 0
+min = 0
+max = 2
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[[param]]
+key = "speed"
+label = "Speed"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[[param]]
+key = "rotation"
+label = "Rotation"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 40
+
+[[param]]
+key = "blur"
+label = "Motion Blur"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 40
+
+[wgsl]
+entry = "effect.wgsl"

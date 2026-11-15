@@ -16,7 +16,7 @@ gain automation and fades. Removed source ranges remain removed. Timeline
 gaps remain silence. Track mute is retained on the track rather than baked
 into the WAV; individually muted clips contribute silence. No pictures or GPU
 compositor are needed. Audio duration uses the 48 kHz sample clock, without
-the video merge's frame-grid and lower-picture-layer restrictions.
+the video merge's lower-picture-layer restrictions.
 
 Timeline sound layers stay separate and continue to process the mix after
 replacement. They are not baked into the selected clips' WAV, which would
@@ -47,23 +47,19 @@ Regression tests added for:
 - Replacement type/duration validation, exact timeline span, no double gain or
   fades, persistence and Undo/Redo. Existing video regression tests remain.
 
-The original branch's automated tests passed on Linux and Windows, and
-macOS compilation passed, in [fork CI run 40026640497](https://github.com/D3monX/Concat/actions/runs/40026640497).
-That run used the old head `26249a51`; it does not validate this updated branch.
-Its locale inventory failure was also present on its unchanged upstream base.
+Historical automated validation passed on Linux and Windows, with macOS
+compilation, in [fork CI run 40098157962](https://github.com/D3monX/Concat/actions/runs/40098157962)
+for `d777c147`. Those results do not validate the updated head.
 
-The branch is now rebased onto upstream main `971ad1d9214e85755c05edc8777c05b4d4e255dc`.
-Additional regressions cover short first decoded frames, sound starting after
-the selected span, and keeping sound layers live through planning, replacement,
-Undo/Redo and persistence. These Rust regressions have not been run after the
-rebase. Read-only locale and model inventory checks and Git whitespace checks
-passed after the update. The locale inventory has no missing or stale keys;
-existing English fallback translations remain. Upstream's shared audio graph,
-channel-layout handling, muxing and all 21 existing audio tests were retained.
-No build, workflow or push was started for this update. Rust formatting,
-Clippy and executable tests still need verification on this new head.
+The branch now includes upstream main `020d8caddb8219c77a0bab809c73bc5ca7351509`.
+The compatibility update preserves upstream's Opus output, platform AAC
+encoders (including Android), continuous speed-curve timing, and video
+consolidation of subframe cuts. The short-first-frame regression also covers
+the source-time mapping used by tempo steps. All upstream tests remain.
 
-Before publishing, run the normal Rust checks on the updated branch and
-manually compare edited playback before/after merging. Also test cancellation,
-save/reopen, a muted track, mixed sources, sound layers and video merge.
-Use a copied project for manual tests.
+Local checks cover Rust formatting of the resolved files, Git whitespace,
+and locale/model inventories. No local compilation or executable tests were
+run. The current head needs CI verification and manual comparison of edited
+playback before/after merging, cancellation, save/reopen, a muted track, mixed
+sources, sound layers, speed curves and existing video merge behavior. Use a
+copied project for manual tests.

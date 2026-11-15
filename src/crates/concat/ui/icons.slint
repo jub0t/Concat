@@ -47,6 +47,9 @@ export enum Glyph {
     /// three dots in a row: a menu of more
     more,
     check,
+    /// an exclamation mark alone, for a mark that already sits in a
+    /// disc of its own: a notice's warning
+    alert,
     chevron-down,
     chevron-left,
     /// the Stickers page: a peeling square with a face
@@ -58,12 +61,30 @@ export enum Glyph {
     /// heart and a star
     mask-linear,
     mask-mirror,
+    /// an outline's place on a shape's edge: the edge drawn thin, the
+    /// outline as a band across it, inside it or outside it
+    stroke-centre,
+    stroke-inside,
+    stroke-outside,
+    /// an outline's line: unbroken, dashes, dots
+    line-solid,
+    line-dashed,
+    line-dotted,
+    /// a clip's speed: one rate the whole way, or a curve over it
+    speed-constant,
+    speed-curve,
+    /// a curve's joins: bent smoothly through its points, or straight
+    /// lines meeting at them
+    bend-smooth,
+    bend-straight,
     mask-circle,
     mask-rectangle,
     mask-heart,
     mask-star,
     chevron-right,
     sparkle,
+    /// the eyedropper: a colour taken off the picture
+    pipette,
     eye,
     lock,
     frame,
@@ -124,6 +145,7 @@ export enum Glyph {
     trash,
     magnet,
     fold,
+    link,
     /// the preview axis: a hairline with the pointer beside it
     axis,
     /// trim follow: the playhead between two arrows pulling an edge
@@ -214,6 +236,20 @@ component Filled inherits Path {
     viewbox-width: 24;
     viewbox-height: 24;
     fill: root.tint;
+}
+
+// An outline's band in a stroke-position glyph: a square ring, filled
+// part-way so the edge drawn over it reads as the shape's own.
+component Band inherits Path {
+    in property <length> size: 14px;
+    in property <brush> tint: Theme.fg-muted;
+    width: root.size;
+    height: root.size;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: root.tint;
+    fill-rule: evenodd;
+    opacity: 0.45;
 }
 
 export component Icon inherits Rectangle {
@@ -346,6 +382,12 @@ export component Icon inherits Rectangle {
         commands: "M20 6 9 17l-5-5";
     }
 
+    // lucide/circle-alert's mark without its circle
+    if root.glyph == Glyph.alert: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 6v7.5 M12 18h.01";
+    }
+
     // lucide/chevron-down
     if root.glyph == Glyph.chevron-down: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
@@ -373,6 +415,53 @@ export component Icon inherits Rectangle {
     // The mask shapes. A line with the side it keeps marked above it;
     // two lines, the band a mirror keeps; then lucide's circle, a wide
     // lucide-style rounded rectangle, lucide/heart and lucide/star.
+    // The outline's place: the shape's edge is the square 6-18; the band
+    // is the outline, three units wide, centred on the edge, inside it or
+    // outside it.
+    if root.glyph == Glyph.stroke-centre: Rectangle {
+        Band { size: root.size; tint: root.tint; commands: "M4.5 4.5H19.5V19.5H4.5Z M7.5 7.5H16.5V16.5H7.5Z"; }
+        Stroked { size: root.size; tint: root.tint; weight: 1.4; commands: "M6 6H18V18H6Z"; }
+    }
+    if root.glyph == Glyph.stroke-inside: Rectangle {
+        Band { size: root.size; tint: root.tint; commands: "M6 6H18V18H6Z M9 9H15V15H9Z"; }
+        Stroked { size: root.size; tint: root.tint; weight: 1.4; commands: "M6 6H18V18H6Z"; }
+    }
+    if root.glyph == Glyph.stroke-outside: Rectangle {
+        Band { size: root.size; tint: root.tint; commands: "M3 3H21V21H3Z M6 6H18V18H6Z"; }
+        Stroked { size: root.size; tint: root.tint; weight: 1.4; commands: "M6 6H18V18H6Z"; }
+    }
+    if root.glyph == Glyph.line-solid: Stroked {
+        size: root.size; tint: root.tint; weight: 2.6;
+        commands: "M3 12H21";
+    }
+    if root.glyph == Glyph.line-dashed: Stroked {
+        size: root.size; tint: root.tint; weight: 2.6;
+        commands: "M3 12H7 M10 12H14 M17 12H21";
+    }
+    if root.glyph == Glyph.line-dotted: Stroked {
+        size: root.size; tint: root.tint; weight: 3.2;
+        commands: "M3.5 12h.01 M7.75 12h.01 M12 12h.01 M16.25 12h.01 M20.5 12h.01";
+    }
+    // One rate: a level line, the clip's ends marked.
+    if root.glyph == Glyph.speed-constant: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M4 12H20 M4 8v8 M20 8v8";
+    }
+    // A rate that changes: slow, a rise, then fast.
+    if root.glyph == Glyph.speed-curve: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 18C9 18 9 6 15 6H21";
+    }
+    // A hump through three points, bent round its top...
+    if root.glyph == Glyph.bend-smooth: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 18C8 18 8 6 12 6S16 18 21 18";
+    }
+    // ...and the same three points met by straight lines.
+    if root.glyph == Glyph.bend-straight: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 18L12 6L21 18";
+    }
     if root.glyph == Glyph.mask-linear: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M3 14h18 M8 9l4-4l4 4 M12 5v6";
@@ -436,6 +525,15 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.sliders: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M21 4H14 M10 4H3 M21 12H12 M8 12H3 M21 20H16 M12 20H3 M14 2V6 M8 10V14 M16 18V22";
+    }
+
+    // lucide/pipette
+    if root.glyph == Glyph.pipette: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414"
+            + "A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"
+            + " M18 9 l.4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"
+            + " M2 22 l.414-.414";
     }
 
     // lucide/sparkles
@@ -754,6 +852,14 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M2 12h6 M22 12h-6 M12 2v2 M12 8v2 M12 14v2 M12 20v2"
             + " M19 9l-3 3 3 3 M5 15l3-3-3-3";
+    }
+
+    // lucide/link: two links of a chain, for linkage - the lanes held to
+    // the main one.
+    if root.glyph == Glyph.link: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"
+            + " M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
     }
 
     // The preview axis: a hairline down the lanes and the pointer beside

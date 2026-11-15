@@ -57,6 +57,9 @@ pub enum SettingsMsg {
     PlayheadStopsChanged(bool),
     /// The proxies switch: whether large files get a smaller copy to play.
     ProxiesChanged(bool),
+    /// The remember-layout switch: whether a launch opens on the last
+    /// session's panels and window size.
+    RememberLayoutChanged(bool),
     /// The GPU switch: on, the window and the compositor draw on the GPU;
     /// off, in software. Read at the next launch.
     GpuChanged(bool),
@@ -76,6 +79,16 @@ pub enum SettingsMsg {
     ModelDownload(String),
     ModelCancel(String),
     ModelRemove(String),
+    /// A failed download's way round: open the model's first source in
+    /// the browser, which the network may let through where it did not
+    /// let Concat ...
+    ModelOpenLink(String),
+    /// ... and install the file that browser saved, once it is picked.
+    ModelChooseFile(String),
+    ModelChosen {
+        id: String,
+        path: std::path::PathBuf,
+    },
     /// A download's worker reporting where it is.
     ModelProgress {
         id: String,
@@ -130,6 +143,9 @@ pub struct ModelState {
     /// Megabytes fetched so far while a download runs.
     pub fetched: Option<f32>,
     pub unpacking: bool,
+    /// Why the last download failed, when it failed for a reason the row
+    /// can say and offer a way round.
+    pub failure: Option<concat_host::models::Failure>,
 }
 
 impl ModelState {
@@ -161,7 +177,46 @@ impl ModelState {
                 .into()
             },
             eta: SharedString::new(),
+            problem: self
+                .failure
+                .as_ref()
+                .map(failure_line)
+                .unwrap_or_default()
+                .into(),
+            manual: self.failure.is_some() && model_sources(&self.id).is_some(),
         }
+    }
+}
+
+/// What model `id` is called as a file and where it is downloaded from,
+/// whichever list it is on; `None` for one that cannot be installed from
+/// a single file.
+fn model_sources(id: &str) -> Option<(String, Vec<String>)> {
+    concat_speech::Transcriber::model_sources(id)
+        .or_else(|| concat_speech::Speech::model_sources(id))
+}
+
+/// A failed download, as the row under the model says it.
+fn failure_line(failure: &concat_host::models::Failure) -> String {
+    use concat_host::models::Failure;
+    use concat_host::net::Cause;
+
+    match failure {
+        Failure::NotTheFile => t("settings.notTheModelFile"),
+        Failure::Unreachable { cause, proxy } => match cause {
+            Cause::Blocked => t("settings.downloadBlocked"),
+            Cause::Offline => t("settings.downloadOffline"),
+            Cause::Dns => t("settings.downloadDns"),
+            Cause::Proxy => tf(
+                "settings.downloadProxy",
+                &[&proxy.as_deref().unwrap_or_default()],
+            ),
+            Cause::Certificate => t("settings.downloadCertificate"),
+            Cause::Reset => t("settings.downloadReset"),
+            Cause::Refused | Cause::Timeout => t("settings.downloadNoAnswer"),
+            Cause::Status(code) => tf("settings.downloadStatus", &[code]),
+            Cause::Other => t("settings.downloadFailed"),
+        },
     }
 }
 
@@ -262,6 +317,7 @@ impl SettingsPane {
             }
             SettingsMsg::ShortcutCapture(id) => self.capturing = Some(id),
             SettingsMsg::ShortcutReset(id) => {
+                log::info!("settings: Shortcuts {id} reset");
                 self.capturing = None;
                 let lost = keymap::reset(&mut studio.prefs, &id);
                 studio.prefs.save(&studio.host.dirs);
@@ -272,10 +328,19 @@ impl SettingsPane {
                 }
             }
             SettingsMsg::ShortcutResetAll => {
+                log::info!("settings: Shortcuts all reset");
                 self.capturing = None;
                 keymap::reset_all(&mut studio.prefs);
                 studio.prefs.save(&studio.host.dirs);
             }
+            // A phone has no folder to show: the log goes to its share sheet.
+            #[cfg(target_os = "android")]
+            SettingsMsg::ShowLog => {
+                if let Err(error) = platform::share_log() {
+                    studio.notify(&i18n::tf("settings.couldNotShareLog", &[&error]), true);
+                }
+            }
+            #[cfg(not(target_os = "android"))]
             SettingsMsg::ShowLog => {
                 // The file this run is writing, when there is one, so the
                 // manager opens with it selected; the folder when there is
@@ -290,6 +355,7 @@ impl SettingsPane {
             SettingsMsg::LanguageChanged(index) => {
                 let index = index.max(0) as usize;
                 if let Some(language) = studio.languages.get(index).cloned() {
+                    log::info!("settings: Language {}", language.code);
                     self.language = index;
                     studio.prefs.locale = Some(language.code.clone());
                     // The words change on the publish that follows: Rust's
@@ -303,6 +369,10 @@ impl SettingsPane {
                 let Some(level) = LOG_LEVELS.get(index.max(0) as usize) else {
                     return;
                 };
+                log::info!(
+                    "settings: Log level {}",
+                    LOG_LEVEL_NAMES[index.max(0) as usize]
+                );
                 studio.prefs.log_level = Some(concat_host::logs::level_name(*level).to_owned());
                 studio.prefs.save(&studio.host.dirs);
                 // Applied now, whatever the environment said: a person at
@@ -310,6 +380,7 @@ impl SettingsPane {
                 concat_host::logs::set_level(*level);
             }
             SettingsMsg::PlayheadStopsChanged(on) => {
+                log::info!("settings: Playhead stops at the end {}", on_off(on));
                 self.playhead_stops = on;
                 studio.prefs.playhead_stops_at_end = on;
                 studio.prefs.save(&studio.host.dirs);
@@ -319,37 +390,63 @@ impl SettingsPane {
                 studio.seek(at);
             }
             SettingsMsg::ProxiesChanged(on) => {
+                log::info!("settings: Proxies {}", on_off(on));
                 studio.prefs.proxies = on;
                 studio.prefs.save(&studio.host.dirs);
                 // On, the media already in the project gets its proxies
                 // straight away (refresh_art's stamp holds the switch);
                 // off, playback reads the files from the next frame.
             }
+            SettingsMsg::RememberLayoutChanged(on) => {
+                log::info!("settings: Remember layout {}", on_off(on));
+                studio.prefs.remember_layout = Some(on);
+                // Off forgets what was kept, so turning it on again starts
+                // from the arrangement on screen then, not a stale one.
+                if on {
+                    studio.prefs.save(&studio.host.dirs);
+                    studio.remember_layout_soon();
+                } else {
+                    studio.prefs.layout = None;
+                    studio.prefs.save(&studio.host.dirs);
+                }
+            }
             SettingsMsg::GpuChanged(on) => {
+                log::info!(
+                    "settings: Draw on the GPU {} · from the next start",
+                    on_off(on)
+                );
                 studio.prefs.software_gpu = !on;
                 studio.prefs.software_after_crash = None;
                 studio.prefs.save(&studio.host.dirs);
-                studio.notify(&t("settings.gpuNextStart"), false);
+                // Read only at launch: offered as a restart now, which
+                // saves and reopens the project, or later.
+                studio.confirm = Some(crate::studio::Confirm::Restart);
             }
             SettingsMsg::MagneticChanged(on) => {
+                log::info!("settings: Magnetic timeline {}", on_off(on));
                 studio.prefs.set_magnetic(on);
                 studio.prefs.save(&studio.host.dirs);
             }
             SettingsMsg::DownloadSourceChanged(index) => {
                 let index = (index.max(0) as usize).min(SourcePreference::ALL.len() - 1);
                 self.download_source = index;
+                log::info!("settings: Downloads {}", DOWNLOAD_SOURCE_NAMES[index]);
                 studio.prefs.download_source = Some(SourcePreference::ALL[index].name().to_owned());
                 studio.prefs.save(&studio.host.dirs);
                 Self::apply_download_source(studio);
             }
             SettingsMsg::DownloadBaseEdited(text) => {
                 let base = text.trim().to_owned();
+                // Each keystroke lands here, and a mirror's address can
+                // carry a key: neither is the story.
+                log::debug!("settings: Downloads custom URL edited");
                 self.download_base = base.clone();
                 studio.prefs.download_base = (!base.is_empty()).then_some(base);
                 studio.prefs.save(&studio.host.dirs);
                 Self::apply_download_source(studio);
             }
             SettingsMsg::ServerEnabledChanged(on) => {
+                log::info!("settings: Scripts and apps {}", on_off(on));
                 studio.prefs.server.enabled = on;
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
@@ -357,35 +454,70 @@ impl SettingsPane {
             SettingsMsg::ServerHostEdited(text) => {
                 let (_, port) = split_listen(&studio.prefs.server.listen);
                 studio.prefs.server.listen = join_listen(&text, port);
+                // A keystroke at a time: detail.
+                log::debug!("settings: Address {}", studio.prefs.server.listen);
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
             SettingsMsg::ServerPortEdited(port) => {
                 let (host, _) = split_listen(&studio.prefs.server.listen);
                 studio.prefs.server.listen = join_listen(&host, port.clamp(0, 65535) as u16);
+                log::debug!("settings: Address {}", studio.prefs.server.listen);
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
             SettingsMsg::ServerTokenEdited(text) => {
+                // Never the token itself.
+                log::debug!("settings: Token edited");
                 studio.prefs.server.token = text.trim().to_owned();
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
             SettingsMsg::ServerTokenGenerated => {
+                log::info!("settings: Token new");
                 studio.prefs.server.token = new_token();
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
             SettingsMsg::ModelActivated(id) => {
                 if self.is_transcriber(&id) {
+                    log::info!("settings: Models {id}");
                     studio.prefs.transcriber_model = Some(id);
                 } else {
+                    log::info!("settings: Voices {id}");
                     studio.prefs.tts_model = Some(id);
                 }
                 studio.prefs.save(&studio.host.dirs);
                 self.refresh(studio);
             }
             SettingsMsg::ModelDownload(id) => self.download(&id, studio),
+            SettingsMsg::ModelOpenLink(id) => {
+                if let Some(url) = model_sources(&id).and_then(|(_, urls)| urls.into_iter().next())
+                    && let Err(error) = platform::open_link(&url)
+                {
+                    studio.notify(&error, true);
+                }
+            }
+            SettingsMsg::ModelChooseFile(id) => {
+                crate::host::pick_files_then(
+                    t("settings.chooseModelFile"),
+                    None,
+                    move |studio, _, _, paths| {
+                        if let Some(path) = paths.into_iter().next() {
+                            studio.handle(Msg::Settings(SettingsMsg::ModelChosen { id, path }));
+                        }
+                    },
+                );
+            }
+            // The file goes the way a download does - into the model's
+            // partial, checked against the digest, unpacked if it is an
+            // archive - so a wrong file is refused the same way.
+            SettingsMsg::ModelChosen { id, path } => {
+                if let Some((file, _)) = model_sources(&id) {
+                    concat_host::models::supply(&file, path);
+                    self.download(&id, studio);
+                }
+            }
             SettingsMsg::ModelCancel(id) => {
                 if self.is_transcriber(&id) {
                     studio.host.transcriber.cancel_download();
@@ -399,8 +531,12 @@ impl SettingsPane {
                 } else {
                     studio.host.speech.delete_model(&studio.host.dirs, &id)
                 };
-                if let Err(error) = result {
-                    studio.notify(&error, true);
+                match result {
+                    Ok(_) => log::info!("models: removed {id}"),
+                    Err(error) => {
+                        log::warn!("models: removing {id} failed: {error}; it stays installed");
+                        studio.notify(&error, true);
+                    }
                 }
                 self.refresh(studio);
             }
@@ -419,9 +555,16 @@ impl SettingsPane {
                 }
             }
             SettingsMsg::ModelFinished { id, result } => {
+                // The host's account of a failed fetch, when it was the
+                // network or the file and not a cancel or the disk.
+                let failure = result.as_ref().err().and_then(|_| {
+                    model_sources(&id)
+                        .and_then(|(file, _)| concat_host::models::last_failure(&file))
+                });
                 if let Some(model) = self.model_mut(&id) {
                     model.fetched = None;
                     model.unpacking = false;
+                    model.failure = failure.clone();
                 }
                 match result {
                     Ok(()) => {
@@ -433,7 +576,10 @@ impl SettingsPane {
                         }
                         studio.prefs.save(&studio.host.dirs);
                     }
-                    Err(error) => studio.notify(&error, true),
+                    Err(error) => match &failure {
+                        Some(failure) => studio.notify(&failure_line(failure), true),
+                        None => studio.notify(&error, true),
+                    },
                 }
                 self.refresh(studio);
             }
@@ -475,19 +621,23 @@ impl SettingsPane {
                 self.install = None;
                 match result {
                     Ok(Installed::InstallerRunning) => {
-                        log::info!("update: the installer for {version} is running; closing");
+                        log::info!(
+                            "update: the installer for {version} is running · Concat closes for it"
+                        );
                         studio.notify(&tf("settings.installerOpened", &[&version]), false);
-                        quit_for_switch(|| {});
+                        quit_for_switch("for an update", || {});
                     }
                     Ok(Installed::Replaced) => {
                         // The bundle on disk is already the new build; what
                         // is left is to start it, and that waits on the
                         // project being saved.
-                        log::info!("update: {version} is in place; starting it");
+                        log::info!("update: {version} is in place · Concat starts it");
                         studio.notify(&tf("settings.versionInstalled", &[&version]), false);
-                        quit_for_switch(|| {
+                        quit_for_switch("for an update", move || {
                             if let Err(error) = updates::relaunch() {
-                                log::warn!("update: could not arrange the start: {error}");
+                                log::warn!(
+                                    "update: wanted {version} started after this one closes, and could not arrange it: {error}; start it by hand"
+                                );
                             }
                         });
                     }
@@ -495,9 +645,13 @@ impl SettingsPane {
                         studio.notify(&tf("settings.packageOpened", &[&version]), false);
                     }
                     // A cancel is a choice, not a failure worth a toast.
-                    Err(_) if self.install_cancel.load(Ordering::Relaxed) => {}
+                    Err(_) if self.install_cancel.load(Ordering::Relaxed) => {
+                        log::info!("update: switching to {version} cancelled");
+                    }
                     Err(error) => {
-                        log::warn!("update: {version} could not be installed: {error}");
+                        log::warn!(
+                            "update: installing {version} failed: {error}; this version stays"
+                        );
                         studio.notify(&tf("settings.couldNotInstall", &[&version, &error]), true);
                     }
                 }
@@ -542,7 +696,7 @@ impl SettingsPane {
         let folder = updates::folder(&studio.host.dirs);
         let version = release.version;
         log::info!(
-            "update: switching to {version} by its {} package",
+            "update: switching to {version} · its {} package",
             kind.key()
         );
         spawn(
@@ -703,6 +857,12 @@ impl SettingsPane {
             .filter(|model| model.fetched.is_some())
             .map(|model| (model.id.clone(), (model.fetched, model.unpacking)))
             .collect();
+        let failed: HashMap<String, concat_host::models::Failure> = self
+            .transcribers
+            .iter()
+            .chain(self.voices.iter())
+            .filter_map(|model| Some((model.id.clone(), model.failure.clone()?)))
+            .collect();
         let chosen_transcriber = studio.prefs.transcriber_model.clone();
         let chosen_voice = studio.prefs.tts_model.clone();
         if let Ok(status) = concat_speech::Transcriber::status(dirs) {
@@ -728,6 +888,7 @@ impl SettingsPane {
                         active: chosen_transcriber.as_deref() == Some(model.id.as_str()),
                         fetched,
                         unpacking,
+                        failure: failed.get(&model.id).cloned(),
                     }
                 })
                 .collect();
@@ -750,6 +911,7 @@ impl SettingsPane {
                         active: chosen_voice.as_deref() == Some(model.id.as_str()),
                         fetched,
                         unpacking,
+                        failure: failed.get(&model.id).cloned(),
                     }
                 })
                 .collect();
@@ -786,10 +948,11 @@ impl SettingsPane {
             return;
         }
         model.fetched = Some(0.0);
+        model.failure = None;
         let id = id.to_owned();
         let dirs = studio.host.dirs.clone();
         let whisper = Arc::clone(&studio.host.transcriber);
-        let kokoro = Arc::clone(&studio.host.speech);
+        let speech = Arc::clone(&studio.host.speech);
         spawn(
             move || {
                 let report = |progress: concat_speech::DownloadProgress| {
@@ -804,7 +967,7 @@ impl SettingsPane {
                 let result = if transcriber {
                     whisper.download_model(&dirs, &id, report)
                 } else {
-                    kokoro.download_model(&dirs, &id, report)
+                    speech.download_model(&dirs, &id, report)
                 };
                 (id, result)
             },
@@ -854,8 +1017,11 @@ impl SettingsPane {
                 .unwrap_or(2) as i32,
             playhead_stops: self.playhead_stops,
             proxies: studio.prefs.proxies,
+            remember_layout: studio.prefs.remembers_layout(),
+            layout_switchable: !crate::platform::phone(),
             gpu: !studio.prefs.draws_in_software(),
-            gpu_switchable: cfg!(any(windows, target_os = "linux")),
+            gpu_switchable: cfg!(any(windows, target_os = "linux", target_os = "macos")),
+            shares_log: cfg!(target_os = "android"),
             magnetic: studio.prefs.magnetic(),
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
@@ -942,9 +1108,24 @@ fn fixed_note(why: Fixed) -> String {
 /// session. Now a failed save starts nothing and quits nothing: the window
 /// stays up with `close_project`'s reason, and the bundle already on disk
 /// can be started by hand.
-fn quit_for_switch(after: impl FnOnce() + Send + 'static) {
+/// Saves, quits and starts Concat again on `project`; see
+/// `updates::restart`. A save that fails keeps the window, as any close.
+pub(crate) fn restart(project: Option<std::path::PathBuf>) {
+    quit_for_switch("restarting for a setting", move || {
+        if let Err(error) = updates::restart(project.as_deref()) {
+            log::warn!(
+                "close: wanted Concat started again after this one closes, and could not arrange it: {error}; start it by hand"
+            );
+        }
+    });
+}
+
+/// Closes the window to make way for another start of Concat - `how`, as
+/// [`crate::closing`] says it - and runs `after` once the project is saved.
+fn quit_for_switch(how: &'static str, after: impl FnOnce() + Send + 'static) {
     on_ui(move |studio, app, models| {
-        log::info!("close: quitting for a version switch");
+        crate::closing(how);
+        studio.save_layout(slint::ComponentHandle::window(app));
         let outcome = close_window(
             || studio.close_project(),
             || {
@@ -954,7 +1135,7 @@ fn quit_for_switch(after: impl FnOnce() + Send + 'static) {
             },
         );
         if let Err(error) = outcome {
-            log::warn!("close: not switching, project could not be saved: {error}");
+            log::debug!("close: not switching, project could not be saved: {error}");
             studio.offer_quit_without_saving(error);
             studio.refresh_art();
             studio.publish(app, models);
@@ -967,6 +1148,24 @@ fn quit_for_switch(after: impl FnOnce() + Send + 'static) {
 /// The log level row's choices, in the order the sheet lists them:
 /// errors only, warnings, normal, debug, everything.
 /// https://github.com/jub0t/Concat/issues/223
+/// [`LOG_LEVELS`] as the sheet names them, for the log's line.
+const LOG_LEVEL_NAMES: [&str; 5] = ["Errors only", "Warnings", "Normal", "Debug", "Everything"];
+
+/// The download sources as the sheet names them, in
+/// [`SourcePreference::ALL`]'s order, for the log's line.
+const DOWNLOAD_SOURCE_NAMES: [&str; 5] = [
+    "Automatic",
+    "Concat's mirror",
+    "hf-mirror.com",
+    "Original source",
+    "Custom URL",
+];
+
+/// A switch's state as the log says it.
+fn on_off(on: bool) -> &'static str {
+    if on { "on" } else { "off" }
+}
+
 const LOG_LEVELS: [log::LevelFilter; 5] = [
     log::LevelFilter::Error,
     log::LevelFilter::Warn,
@@ -1016,11 +1215,60 @@ mod tests {
             active: true,
             fetched: Some(50.0),
             unpacking: false,
+            failure: None,
         };
         let row = model.row();
         assert!(row.downloading);
         assert!(!row.active, "a model that is not installed is not active");
         assert!((row.progress - 0.25).abs() < 1e-6);
+        assert!(row.problem.is_empty() && !row.manual);
+    }
+
+    #[test]
+    fn a_failed_download_says_why_and_offers_the_way_round() {
+        use concat_host::models::Failure;
+        use concat_host::net::Cause;
+
+        let failed = |id: &str, failure| ModelState {
+            id: id.into(),
+            name: id.into(),
+            note: String::new(),
+            megabytes: 75.0,
+            accuracy: 2,
+            installed: false,
+            active: false,
+            fetched: None,
+            unpacking: false,
+            failure: Some(failure),
+        };
+        let blocked = Failure::Unreachable {
+            cause: Cause::Blocked,
+            proxy: None,
+        };
+        let row = failed("tiny", blocked.clone()).row();
+        assert_eq!(row.problem.as_str(), t("settings.downloadBlocked"));
+        assert!(
+            row.manual,
+            "a whisper model is one file, so it can be chosen"
+        );
+        let row = failed("no-such-model", blocked).row();
+        assert!(!row.problem.is_empty());
+        assert!(
+            !row.manual,
+            "nothing to download it from, nothing to choose"
+        );
+        let proxy = Failure::Unreachable {
+            cause: Cause::Proxy,
+            proxy: Some("127.0.0.1:7890".into()),
+        };
+        assert!(failure_line(&proxy).contains("127.0.0.1:7890"));
+        assert!(
+            failure_line(&Failure::Unreachable {
+                cause: Cause::Status(404),
+                proxy: None
+            })
+            .contains("404")
+        );
     }
 
     #[test]
@@ -1035,6 +1283,7 @@ mod tests {
             active: false,
             fetched: None,
             unpacking: false,
+            failure: None,
         };
         let list = [model("a", true), model("b", false), model("c", true)];
         let ids: Vec<&str> = installed(&list).iter().map(|m| m.id.as_str()).collect();

@@ -14,6 +14,7 @@ On the start screen only `Ctrl` + `O`, `Ctrl` + `Q` (Windows/Linux) and `Ctrl` +
 | --- | --- |
 | `Space` | Play / pause |
 | `Home` / `End` | Go to start / end of timeline |
+| `↑` / `↓` | Go to the previous / next cut: the nearest clip start or end on any track |
 | `←` / `→` | Step one frame back / forward |
 | `Shift` + `←` / `→` | Step ten frames back / forward (follows whatever key steps one) |
 
@@ -38,7 +39,7 @@ On the start screen only `Ctrl` + `O`, `Ctrl` + `Q` (Windows/Linux) and `Ctrl` +
 | `M` | Mute / unmute the selected clip |
 | `S` | Toggle preview axis overlay |
 
-`Q` and `W` are CapCut's keys for the same thing. They cut the selected clips the playhead is over, as one undo step; with nothing selected they cut the one clip under the playhead, and ask you to select one when there are several. On a magnetic timeline the gap closes up, and after `Q` the playhead lands on the frame it was showing. Both are also in a clip's right-click menu, which is the **More** menu on a phone.
+`Q` and `W` cut the selected clips the playhead is over, as one undo step; with nothing selected they cut the one clip under the playhead, and ask you to select one when there are several. On a magnetic timeline the gap closes up, and after `Q` the playhead lands on the frame it was showing. Both are also in a clip's right-click menu, which is the **More** menu on a phone.
 
 ## Project and app
 

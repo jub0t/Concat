@@ -173,7 +173,11 @@ log_pid=$!
 # hook writes the standard message into its own line), Objective-C's on an
 # uncaught exception, and the app's own on a start-up it gave up on, on a
 # window whose event loop ended in an error, or on a preview that failed.
-fatal='panicked at|Terminating app due to uncaught exception|Preview failed|(^|: )(preview: |could not start|close: event loop exited [(]ok=false[)])'
+# A line of the app's log is "time LEVEL topic      message  [module, thread]"
+# (docs/LOGGING.md), so a topic is matched as the column it is: its name and
+# the padding after it, and a preview line means trouble only at a warning
+# or worse.
+fatal='panicked at|Terminating app due to uncaught exception|Preview failed|(ERROR|WARN) +preview {2,}|could not start|event loop exited [(]ok=false[)]'
 
 if [ "$smoke" = 1 ]; then
   say "$executable --smoke"
@@ -182,10 +186,13 @@ if [ "$smoke" = 1 ]; then
     > "$out/smoke-run.txt" 2>&1 || status=$?
   tail -n 40 "$out/smoke-run.txt"
   [ "$status" -ne 142 ] || fail "--smoke was still running after 180s"
-  if found=$(grep -E -m 5 "$fatal" "$out/smoke-run.txt"); then
+  # The console is a pty, so the log colours its lines; the checks below read
+  # them without the colour codes, which sat between "smoke" and "ok".
+  sed -E $'s/\x1b\\[[0-9;]*m//g' "$out/smoke-run.txt" > "$out/smoke-run.plain.txt"
+  if found=$(grep -E -m 5 "$fatal" "$out/smoke-run.plain.txt"); then
     fail "--smoke failed: $(head -n 1 <<< "$found")"
   fi
-  grep -q 'smoke: ok' "$out/smoke-run.txt" || fail "--smoke ended without \"smoke: ok\" (simctl exited $status)"
+  grep -E -q ' smoke +ok' "$out/smoke-run.plain.txt" || fail "--smoke ended without \"smoke: ok\" (simctl exited $status)"
   # "smoke: ok" and then a crash on the way out is still a crash: v0.2.7-rc.2's
   # Linux arm64 bundle did exactly that. simctl's --console-pty ends with
   # the app's process; whether its status is the app's own is for the first

@@ -1,0 +1,12 @@
+id = "concat.greek"
+name = "Greek"
+language = "Greek"
+order = 63
+
+[style]
+content = "Γειά σου"
+fontFamily = "Inter"
+fontWeight = 700
+fontSize = 0.09
+strokeWidth = 0.008
+strokeColor = "#000000"

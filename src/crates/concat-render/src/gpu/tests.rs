@@ -130,12 +130,53 @@ fn empty_output_is_opaque_black() {
     assert_eq!(frame.pixel(3, 3), Some([0, 0, 0, 255]));
 }
 
+/// On a see-through canvas the frame comes back with straight alpha, as
+/// the CPU reference makes it: clear where nothing covers it, opaque under
+/// an opaque picture, and half covered under a half-faded one, in that
+/// picture's own colour rather than darkened towards the clear (#456).
+#[test]
+fn a_see_through_canvas_keeps_the_alpha_of_what_covers_it() {
+    let Some(mut gpu) = gpu() else { return };
+    let square = Arc::new(solid(4, 4, [200, 40, 40, 255]));
+    let plan = FramePlan {
+        canvas: [0, 0, 0, 0],
+        layers: vec![PlannedLayer::picture(detached_clip(), square.clone())],
+        ..FramePlan::empty(8, 4)
+    };
+    let frame = gpu.render(&plan);
+    assert_eq!(frame.pixel(0, 2).map(|p| p[3]), Some(0));
+    let pixel = frame.pixel(4, 2).expect("a pixel");
+    assert!(pixel[3] == 255 && pixel[0].abs_diff(200) <= 1, "{pixel:?}");
+
+    let mut faded = PlannedLayer::picture(detached_clip(), square);
+    faded.opacity = 0.5;
+    let frame = gpu.render(&FramePlan {
+        layers: vec![faded],
+        ..plan
+    });
+    let pixel = frame.pixel(4, 2).expect("a pixel");
+    assert!(pixel[3].abs_diff(128) <= 1, "{pixel:?}");
+    assert!(
+        pixel[0].abs_diff(200) <= 2 && pixel[1].abs_diff(40) <= 2,
+        "{pixel:?}"
+    );
+
+    // And an opaque canvas after it is opaque again.
+    let frame = gpu.render(&FramePlan::empty(4, 4));
+    assert_eq!(frame.pixel(1, 1), Some([0, 0, 0, 255]));
+}
+
 /// The canvas colour comes back out as it went in: cleared in linear
 /// light through the upload's gamma and resolved back, within a level.
 #[test]
 fn an_empty_frame_is_the_canvas_colour() {
     let Some(mut gpu) = gpu() else { return };
-    for canvas in [[0, 177, 64], [255, 255, 255], [0, 71, 187], [31, 31, 31]] {
+    for canvas in [
+        [0, 177, 64, 255],
+        [255, 255, 255, 255],
+        [0, 71, 187, 255],
+        [31, 31, 31, 255],
+    ] {
         let frame = gpu.render(&FramePlan {
             canvas,
             ..FramePlan::empty(4, 4)
@@ -348,6 +389,7 @@ fn a_treatment_treats_the_stack_beneath_its_track_only() {
             track: 1,
             effects: vec![package("concat.invert", INVERT, "", &[], 1.0)],
             strength,
+            start: 0.0,
         }],
         ..plan(8, 8, vec![ground.clone(), blue.clone()])
     };
@@ -461,7 +503,7 @@ fn every_kind_of_layer_matches_the_cpu_reference() {
 /// the CPU's definition gives at each pixel's centre.
 #[test]
 fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
-    use concat_core::mask::{MaskShape, ShapeMask};
+    use concat_core::mask::{MaskShape, MaskStack, ShapeMask, StackedMask};
     let Some(mut gpu) = gpu() else { return };
     let mut circle = layer(solid(100, 100, [255, 255, 255, 255]));
     let shape = ShapeMask {
@@ -471,7 +513,9 @@ fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
         feather: 0.4,
         ..ShapeMask::default()
     };
-    circle.shape = Some(shape);
+    circle.masks = MaskStack {
+        masks: vec![StackedMask::adding(shape)],
+    };
     let drawn = working(&mut gpu, &plan(100, 100, vec![circle]));
     let at = |x: usize, y: usize| drawn[y * 100 + x][0];
     let expected = |x: usize, y: usize| {
@@ -508,7 +552,7 @@ fn a_feathered_circle_keeps_its_middle_and_fades_across_its_edge() {
 /// cutout's matte - the masks multiply.
 #[test]
 fn shape_masks_match_the_cpu_reference() {
-    use concat_core::mask::{MaskShape, ShapeMask};
+    use concat_core::mask::{MaskShape, MaskStack, ShapeMask, StackedMask};
     for shape in MaskShape::ALL {
         for invert in [false, true] {
             let mut masked = layer(gradient(64, 48));
@@ -527,17 +571,19 @@ fn shape_masks_match_the_cpu_reference() {
                 tx: 0.02,
                 ty: -0.01,
             };
-            masked.shape = Some(ShapeMask {
-                shape,
-                x: 0.05,
-                y: -0.04,
-                width: 0.7,
-                height: 0.5,
-                rotation: 20.0,
-                roundness: 0.5,
-                feather: 0.15,
-                invert,
-            });
+            masked.masks = MaskStack {
+                masks: vec![StackedMask::adding(ShapeMask {
+                    shape,
+                    x: 0.05,
+                    y: -0.04,
+                    width: 0.7,
+                    height: 0.5,
+                    rotation: 20.0,
+                    roundness: 0.5,
+                    feather: 0.15,
+                    invert,
+                })],
+            };
             let mut matte = Frame::transparent(16, 16);
             for y in 0..16u32 {
                 for x in 0..16u32 {
@@ -555,20 +601,103 @@ fn shape_masks_match_the_cpu_reference() {
     }
 }
 
+/// A stack - a ring cut from a circle, a band intersected with it, a
+/// half-strength subtraction and a grown edge - drawn by the mask pass
+/// matches the CPU's per-pixel definition, over a placed picture carrying
+/// a cutout's matte.
+#[test]
+fn a_mask_stack_matches_the_cpu_reference() {
+    use concat_core::mask::{MaskMode, MaskShape, MaskStack, ShapeMask, StackedMask};
+    let circle = |width: f64, feather: f64| ShapeMask {
+        width,
+        height: width,
+        feather,
+        ..ShapeMask::default()
+    };
+    let stacks = [
+        (
+            "ring",
+            vec![
+                StackedMask::adding(circle(0.8, 0.1)),
+                StackedMask {
+                    mode: MaskMode::Subtract,
+                    ..StackedMask::adding(circle(0.4, 0.05))
+                },
+            ],
+        ),
+        (
+            "band through a circle",
+            vec![
+                StackedMask::adding(circle(0.8, 0.0)),
+                StackedMask {
+                    mode: MaskMode::Intersect,
+                    ..StackedMask::adding(ShapeMask {
+                        shape: MaskShape::Mirror,
+                        rotation: 30.0,
+                        height: 0.3,
+                        feather: 0.2,
+                        ..ShapeMask::default()
+                    })
+                },
+            ],
+        ),
+        (
+            "half a hole, grown",
+            vec![
+                StackedMask {
+                    expand: 0.08,
+                    ..StackedMask::adding(circle(0.5, 0.2))
+                },
+                StackedMask {
+                    mode: MaskMode::Subtract,
+                    opacity: 0.5,
+                    ..StackedMask::adding(ShapeMask {
+                        x: 0.1,
+                        ..circle(0.3, 0.0)
+                    })
+                },
+            ],
+        ),
+    ];
+    for (name, masks) in stacks {
+        let mut masked = layer(gradient(64, 48));
+        masked.transform = Transform {
+            scale: 0.9,
+            rotation: 12.0,
+            ..Transform::default()
+        };
+        masked.masks = MaskStack { masks };
+        let mut matte = Frame::transparent(16, 16);
+        for y in 0..16u32 {
+            for x in 0..16u32 {
+                matte.set_pixel(x, y, [255, 255, 255, if x < 3 { 0 } else { 255 }]);
+            }
+        }
+        masked.mask = Some(Arc::new(matte));
+        assert_parity(
+            name,
+            &plan(64, 48, vec![layer(solid(64, 48, [0, 60, 0, 255])), masked]),
+            0.98,
+        );
+    }
+}
+
 /// A masked picture never counts as covering the frame, and its canvas
 /// background is drawn whole behind it - the mask cuts the picture, not
 /// what stands behind it.
 #[test]
 fn a_masked_pictures_background_is_whole() {
-    use concat_core::mask::ShapeMask;
+    use concat_core::mask::{MaskStack, ShapeMask, StackedMask};
     let mut masked = layer(solid(64, 48, [200, 0, 0, 255]));
     assert!(masked.covers(64, 48, true));
-    masked.shape = Some(ShapeMask::default());
+    masked.masks = MaskStack {
+        masks: vec![StackedMask::adding(ShapeMask::default())],
+    };
     assert!(!masked.covers(64, 48, true));
     let behind = masked
         .backdrop(&Backdrop::Colour([0, 0, 255]), 64, 48, |_| None)
         .expect("a colour always draws");
-    assert!(behind.shape.is_none());
+    assert!(!behind.masks.cuts());
     let Some(mut gpu) = gpu() else { return };
     let frame = gpu.render(&plan(64, 48, vec![behind, masked]));
     let corner = frame.pixel(1, 1).expect("a pixel");
@@ -752,6 +881,71 @@ fn every_shader_package_renders_at_its_defaults() {
     }
 }
 
+/// Every built-in effect's pipeline is one the driver takes - on whatever
+/// adapter there is, software included. The test above is skipped on a
+/// software adapter, which left Windows CI's WARP, the one runner whose
+/// Direct3D 12 compiles with FXC, never building a package: halation
+/// shipped in 0.2.9 refused by FXC, and its Library card took the
+/// preview down with it (#673). A sixteen-pixel trial is cheap anywhere.
+#[test]
+fn every_shader_package_builds_on_this_adapter() {
+    // wgpu's own words - an uncaught error, a lost device's reason - go to
+    // the log; without a logger the failure said only "Validation Error".
+    struct Stderr;
+    impl log::Log for Stderr {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Warn
+        }
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                eprintln!("{} {}: {}", record.level(), record.target(), record.args());
+            }
+        }
+        fn flush(&self) {}
+    }
+    let _ = log::set_logger(&Stderr).map(|()| log::set_max_level(log::LevelFilter::Warn));
+
+    let Some(mut gpu) = gpu() else { return };
+    let canary = package("test.canary", INVERT, "", &[], 1.0);
+    let catalogue = concat_effects::Catalogue::builtin();
+    let mut refused = Vec::new();
+    for package in catalogue.packages() {
+        let Some(shader) = package.shader() else {
+            continue;
+        };
+        let values = package.resolve(&Default::default());
+        let pass = shader.pass(
+            &values,
+            &package.manifest.params,
+            1.0,
+            package.lut().cloned(),
+            None,
+        );
+        if let Err(error) = gpu.trial(&pass, std::time::Duration::from_secs(60)) {
+            refused.push(format!("{}: {error}", package.id()));
+        }
+        // A pass that leaves the device unusable fails every one after it,
+        // each with an error that is not its own: name the one it was, and
+        // go on with a fresh device so the rest are judged for themselves.
+        if let Err(error) = gpu.trial(&canary, std::time::Duration::from_secs(60)) {
+            refused.push(format!(
+                "{}: the device was unusable after it ({error})",
+                package.id()
+            ));
+            let Some(fresh) = WgpuCompositor::new() else {
+                break;
+            };
+            gpu = fresh;
+        }
+    }
+    assert!(
+        refused.is_empty(),
+        "refused on {:?}:\n{}",
+        gpu.adapter_info().backend,
+        refused.join("\n")
+    );
+}
+
 /// A pass reads how long its own clip has been on screen through
 /// `frame.clip_time` - the gap between the frame's own time and where the
 /// clip begins on the timeline, not the timeline's absolute clock. A
@@ -771,6 +965,32 @@ fn a_pass_reads_its_layers_clip_relative_time() {
         &out.pixels()[..3],
         &[0, 255, 0],
         "clip_time should read 3.0"
+    );
+}
+
+/// An effect layer is a clip too: what it runs reads `clip_time` from the
+/// layer's own start, so a one-shot effect dropped on a beat fires there.
+/// A layer from 2s, at 5s, has run for three.
+#[test]
+fn an_effect_layer_times_its_effects_from_its_own_start() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(0.0, select(0.0, 1.0, abs(frame.clip_time - 3.0) < 0.001), select(1.0, 0.0, abs(frame.clip_time - 3.0) < 0.001), 1.0); }";
+    let ground = layer(solid(4, 4, [0, 0, 0, 255]));
+    let mut p = FramePlan {
+        treatments: vec![PlannedTreatment {
+            track: 1,
+            effects: vec![package("test.layertime", body, "", &[], 1.0)],
+            strength: 1.0,
+            start: 2.0,
+        }],
+        ..plan(4, 4, vec![ground])
+    };
+    p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
+    let out = gpu.render(&p);
+    assert_eq!(
+        &out.pixels()[..3],
+        &[0, 255, 0],
+        "the layer's clip_time should read 3.0"
     );
 }
 
@@ -946,7 +1166,7 @@ fn a_transition_kept_on_the_device_matches_the_read_back_one() {
         time: concat_core::time::Rational::new(1, 2),
         width,
         height,
-        canvas: [0, 0, 0],
+        canvas: [0, 0, 0, 255],
         layers: vec![PlannedLayer::picture(
             detached_clip(),
             Arc::new(solid(width, height, colour)),
@@ -1004,7 +1224,7 @@ fn a_frame_drawn_before_is_not_uploaded_again() {
             time: concat_core::time::Rational::new(0, 1),
             width: 64,
             height: 36,
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             layers: vec![PlannedLayer::picture(detached_clip(), Arc::clone(frame))],
             treatments: Vec::new(),
             output: concat_core::frame::Signal::Sdr,
@@ -1045,7 +1265,7 @@ fn the_pool_stays_within_its_limits() {
             time: concat_core::time::Rational::new(0, 1),
             width: 4,
             height: 4,
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             layers: vec![PlannedLayer::picture(detached_clip(), frame)],
             treatments: Vec::new(),
             output: concat_core::frame::Signal::Sdr,
@@ -2382,4 +2602,178 @@ fn a_background_is_wiped_with_its_picture() {
         Some([0, 0, 0, 255]),
         "the edge is the picture's"
     );
+}
+
+/// `CONCAT_GPU_BUDGET` lifts the gates for a driver that misreads its
+/// budget, moves them to a percent, and leaves anything else alone.
+#[test]
+fn the_budget_override_reads_off_and_a_percent_and_refuses_the_rest() {
+    let off = super::parse_budget(" OFF ").expect("off");
+    assert_eq!(
+        (off.for_resource_creation, off.for_device_loss),
+        (None, None)
+    );
+    let at = super::parse_budget("90").expect("90");
+    assert_eq!(
+        (at.for_resource_creation, at.for_device_loss),
+        (Some(90), Some(94))
+    );
+    let top = super::parse_budget("98%").expect("98%");
+    assert_eq!(
+        (top.for_resource_creation, top.for_device_loss),
+        (Some(98), Some(99))
+    );
+    assert!(super::parse_budget("100").is_none());
+    assert!(super::parse_budget("lots").is_none());
+}
+
+/// Chroma Key, drawn: a green screen goes and the red subject on it stays,
+/// and a picture with no screen in it is left whole - the matte's two
+/// answers, both worked out in every pixel since #673. Run on any adapter,
+/// WARP included, small enough for FXC and the CPU.
+#[test]
+fn chroma_key_takes_the_screen_and_leaves_the_rest() {
+    let Some(mut gpu) = gpu() else { return };
+    let catalogue = concat_effects::Catalogue::builtin();
+    let key = catalogue
+        .packages()
+        .find(|package| package.id() == "concat.chroma-key")
+        .expect("Chroma Key is built in");
+    let pass = key.shader().expect("a shader").pass(
+        &key.resolve(&Default::default()),
+        &key.manifest.params,
+        1.0,
+        None,
+        None,
+    );
+    let (width, height) = (96, 96);
+    let mut screen = solid(width, height, [20, 200, 30, 255]);
+    for y in 32..64 {
+        for x in 32..64 {
+            screen.set_pixel(x, y, [220, 40, 40, 255]);
+        }
+    }
+    let mut keyed = layer(screen);
+    keyed.effects = vec![pass.clone()];
+    let frame = gpu.render(&plan(width, height, vec![keyed]));
+    let corner = frame.pixel(6, 6).expect("a pixel");
+    assert!(
+        corner[..3].iter().all(|&c| c < 24),
+        "the screen goes, to the black behind it: {corner:?}"
+    );
+    let middle = frame.pixel(48, 48).expect("a pixel");
+    assert!(
+        middle[0] > 190 && middle[1] < 70 && middle[2] < 70,
+        "the subject stays: {middle:?}"
+    );
+
+    let mut grey = layer(solid(width, height, [128, 128, 128, 255]));
+    grey.effects = vec![pass];
+    let frame = gpu.render(&plan(width, height, vec![grey]));
+    for (x, y) in [(6, 6), (48, 48), (90, 90)] {
+        let pixel = frame.pixel(x, y).expect("a pixel");
+        assert!(
+            pixel[..3].iter().all(|&c| c.abs_diff(128) <= 3),
+            "no screen, nothing keyed at ({x}, {y}): {pixel:?}"
+        );
+    }
+}
+
+/// A device that is lost says why, once, and what it was drawing: the
+/// adapter, what wgpu said, and the frame's layers and effects by kind -
+/// never a file's name. "Unknown" was all a loss ever said (#709).
+#[test]
+fn a_lost_device_says_why_and_what_it_was_drawing() {
+    let Some(mut gpu) = gpu() else { return };
+    let mut video = layer(gradient(64, 36));
+    video.media = std::path::PathBuf::from("holiday-with-grandma.mp4");
+    let mut caption = layer(solid(64, 12, [255, 255, 255, 255]));
+    caption.transform.offset_y = 0.3;
+    caption.effects = vec![package("test.invert", INVERT, "", &[], 1.0)];
+    let plan = plan(32, 18, vec![video, caption.clone(), caption]);
+    assert!(gpu.post_mortem().is_none(), "nothing to say while it draws");
+    gpu.render(&plan);
+    assert!(!gpu.lost());
+
+    gpu.lose_device();
+    let frame = gpu.render(&plan);
+    assert!(gpu.lost(), "the lost device is reported");
+    assert_eq!(frame.pixel(16, 9), Some([0, 0, 0, 255]));
+    let said = gpu.post_mortem().expect("the loss is said").to_owned();
+    let name = gpu.adapter_info().name;
+    assert!(said.contains(&name), "{said}");
+    assert!(said.contains("destroyed by a test"), "{said}");
+    assert!(
+        said.contains("a 32x18 frame of 3 layers: 64x36, 64x12 placed +test.invert x2"),
+        "{said}"
+    );
+    assert!(!said.contains("grandma"), "no file names: {said}");
+    gpu.render(&plan);
+    assert_eq!(gpu.post_mortem(), Some(said.as_str()), "said once");
+}
+
+/// Direct3D 12's reasons for removing a device are named as Microsoft
+/// writes them, so a report can be searched for.
+#[test]
+fn a_removed_reason_is_named() {
+    assert!(removal_name(0x887A_0006).is_some_and(|name| name.contains("DEVICE_HUNG")));
+    assert!(removal_name(0x887A_0007).is_some_and(|name| name.contains("DEVICE_RESET")));
+    assert_eq!(removal_name(0), None);
+}
+
+/// The frame #709 lost its device on, a second into playback on Windows
+/// 10's software renderer: one H.264 clip of 1280x720 and six captions, no
+/// effects, drawn at the monitor's half size for three hundred frames -
+/// twelve seconds at 25 fps, each with a new picture of the clip and the
+/// captions' pictures held, as playback has them. The device must live and
+/// the frames must not be black. Meant for Windows CI, whose WARP is the
+/// software renderer the reports run on; it runs on any software adapter
+/// and is skipped where there is none.
+#[test]
+fn the_709_frame_survives_hundreds_of_frames_on_the_software_adapter() {
+    let Some(mut gpu) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    let captions: Vec<PlannedLayer> = (0..6)
+        .map(|index| {
+            let mut words = Frame::transparent(1280, 720);
+            for y in 560..620 {
+                for x in 200 + index * 20..1080 - index * 20 {
+                    words.set_pixel(x, y, [255, 255, 255, 255]);
+                }
+            }
+            let mut caption = layer(words);
+            caption.track = 1 + index as usize;
+            caption.opacity = if index % 2 == 0 { 1.0 } else { 0.5 };
+            caption.transitions = vec![Transition::FadeTo {
+                colour: [0.0; 3],
+                amount: 0.1 * index as f32,
+            }];
+            caption
+        })
+        .collect();
+    for index in 0..300u32 {
+        let mut clip = gradient(1280, 720);
+        // A new picture each frame, as a playing clip is.
+        clip.set_pixel(index % 1280, 0, [index as u8, 0, 0, 255]);
+        let mut frame_plan = plan(640, 360, vec![layer(clip)]);
+        frame_plan.layers.extend(captions.iter().cloned());
+        frame_plan.time = concat_core::time::Rational::new(i64::from(index), 25);
+        let frame = gpu.render(&frame_plan);
+        assert!(
+            !gpu.lost(),
+            "#709 reproduced: the software adapter lost its device at frame {index}: {:?}",
+            gpu.post_mortem()
+        );
+        let lit = frame
+            .pixels()
+            .chunks_exact(4)
+            .filter(|pixel| pixel[..3].iter().any(|&c| c > 16))
+            .count();
+        assert!(
+            lit > 640 * 360 / 2,
+            "frame {index} is black: {lit} pixels lit"
+        );
+    }
 }

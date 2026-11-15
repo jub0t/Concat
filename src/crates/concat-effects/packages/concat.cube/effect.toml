@@ -4,10 +4,10 @@ format = 2
 id = "concat.cube"
 name = "Cube"
 kind = "transition"
-category = "Light"
+category = "Spin"
 order = 14
-description = "The outgoing shot rotates away like a cube face as the incoming one rotates into view."
+description = "The two shots are neighbouring faces of a box that turns a quarter of the way round, with the turning-away face falling into shade."
 
 [transition]
-entry = "effect.wgsl"
 fallback = "cross-fade"
+entry = "effect.wgsl"

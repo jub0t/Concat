@@ -21,14 +21,20 @@
 //! document model needs serde, and concat-core's zero-dependency rule is worth
 //! more than the adjacency.
 
+pub mod capcut;
 pub mod commands;
+#[cfg(test)]
+mod consolidate_tests;
 pub mod doc;
 pub mod editor;
 pub mod model;
 pub mod placement;
 pub mod runs;
 pub mod speed;
+#[cfg(test)]
+mod speed_curve_tests;
 pub mod srt;
+pub mod unread;
 
 pub use commands::{
     Command, CommandError, Outcome, PlayheadSide, consolidation_clips, delete_to_playhead,
@@ -37,6 +43,7 @@ pub use commands::{
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};
 pub use model::Project;
+pub use unread::UnreadSummary;
 
 #[cfg(test)]
 mod tests {
@@ -164,7 +171,8 @@ mod tests {
         );
     }
 
-    /// A timeline's canvas colour is written as `#rrggbb` and read back;
+    /// A timeline's canvas colour is written as `#rrggbb` (`#rrggbbaa` when
+    /// it is see-through) and read back;
     /// black is not written at all, so a document without one is the
     /// document it always was, and junk reads as black (#456).
     #[test]
@@ -173,7 +181,7 @@ mod tests {
         let black = serde_json::to_value(VideoSettings::default()).unwrap();
         assert!(black.get("canvas").is_none(), "{black}");
         let green = VideoSettings {
-            canvas: [0, 177, 64],
+            canvas: [0, 177, 64, 255],
             ..VideoSettings::default()
         };
         let written = serde_json::to_value(green).unwrap();
@@ -184,7 +192,22 @@ mod tests {
             "width": 1920, "height": 1080, "rateNum": 30, "rateDen": 1, "canvas": "teal"
         }))
         .unwrap();
-        assert_eq!(junk.canvas, [0, 0, 0]);
+        assert_eq!(junk.canvas, [0, 0, 0, 255]);
+        // A see-through canvas carries its alpha, and an opaque one written
+        // with an `ff` alpha reads as the same colour.
+        let clear = VideoSettings {
+            canvas: [0, 0, 0, 0],
+            ..VideoSettings::default()
+        };
+        let written = serde_json::to_value(clear).unwrap();
+        assert_eq!(written["canvas"], "#00000000");
+        let read: VideoSettings = serde_json::from_value(written).unwrap();
+        assert_eq!(read.canvas, [0, 0, 0, 0]);
+        let opaque: VideoSettings = serde_json::from_value(json!({
+            "width": 1920, "height": 1080, "rateNum": 30, "rateDen": 1, "canvas": "#00b140ff"
+        }))
+        .unwrap();
+        assert_eq!(opaque.canvas, [0, 177, 64, 255]);
     }
 
     #[test]
@@ -265,7 +288,7 @@ mod tests {
             height: 1080,
             rate_num: 30,
             rate_den: 1,
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
         }
     }
 
@@ -739,7 +762,11 @@ mod tests {
             .clip(&source_id)
             .expect("clip")
             .clone();
-        like.mask = Some(crate::model::ClipMask::of(crate::model::MaskShape::Linear));
+        like.masks = vec![crate::model::Mask::of(
+            "mask-1",
+            "Line",
+            crate::model::MaskShape::Linear,
+        )];
         like.stabilize = Some(crate::model::Stabilize::default());
         like.opacity = 0.4;
         like.transition_in = Some(crate::model::Transition {
@@ -768,7 +795,7 @@ mod tests {
             .applied;
         assert!(applied);
         let copy = editor.project().active().clip(&copy_id).expect("copy");
-        assert_eq!(copy.mask, like.mask);
+        assert_eq!(copy.masks, like.masks);
         assert_eq!(copy.stabilize, like.stabilize);
         assert_eq!(copy.opacity, 0.4);
         assert_eq!((copy.id.as_str(), copy.start), (copy_id.as_str(), 20.0));
@@ -932,6 +959,74 @@ mod tests {
         assert_eq!(start_of(&editor, &b[0]), 15.0);
     }
 
+    /// A drag hands the engine one shift in f32. Clips laid end to end must
+    /// still butt after it, however late they sit: a run that came back
+    /// overlapping by a hair was refused whole, and the drag did nothing.
+    #[test]
+    fn a_run_laid_end_to_end_late_in_the_timeline_moves_as_one() {
+        use crate::placement::shifted_starts;
+        let (mut editor, _media_id, _first) = fixture();
+        let tracks = editor.project().active().tracks.clone();
+        // Footage cut to lengths no float grid holds, as real takes are,
+        // each clip starting where the last ends.
+        let length = 3.770_433;
+        let media_id = editor
+            .apply(media("/b.mp4", length, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let from: Vec<f64> = (0..8).map(|n| 120.0 + f64::from(n) * length).collect();
+        let ids = lane(&mut editor, &media_id, &tracks[1].id, &from);
+        for pointer in [17.3_f32, 0.1, 33.337, 91.9] {
+            let to = shifted_starts(&from, f64::from(pointer));
+            let outcome = editor
+                .apply(Command::MoveClips {
+                    moves: ids
+                        .iter()
+                        .zip(&to)
+                        .map(|(id, start)| ClipMove {
+                            clip_id: id.clone(),
+                            start: *start,
+                            track_id: tracks[3].id.clone(),
+                        })
+                        .collect(),
+                })
+                .expect("moves");
+            assert!(
+                outcome.applied,
+                "the run stayed put for a shift of {pointer}"
+            );
+            for (id, wanted) in ids.iter().zip(&to) {
+                assert_eq!(start_of(&editor, id), *wanted);
+            }
+            // Back where it began for the next shift.
+            editor
+                .apply(Command::MoveClips {
+                    moves: ids
+                        .iter()
+                        .zip(&from)
+                        .map(|(id, start)| ClipMove {
+                            clip_id: id.clone(),
+                            start: *start,
+                            track_id: tracks[1].id.clone(),
+                        })
+                        .collect(),
+                })
+                .expect("moves back");
+        }
+    }
+
+    #[test]
+    fn a_dragged_group_stops_at_zero_as_a_whole() {
+        use crate::placement::shifted_starts;
+        // Pulled left past the start, the early clip would stop at zero and
+        // the rest would go on: the group keeps its shape instead.
+        assert_eq!(shifted_starts(&[3.0, 13.0, 23.0], -5.0), [0.0, 10.0, 20.0]);
+        assert_eq!(shifted_starts(&[3.0, 13.0], -1.0), [2.0, 12.0]);
+        assert_eq!(shifted_starts(&[3.0, 13.0], 4.0), [7.0, 17.0]);
+        assert!(shifted_starts(&[], 4.0).is_empty());
+    }
+
     #[test]
     fn a_move_whose_clips_would_cover_each_other_stays_put() {
         let (mut editor, media_id, _first) = fixture();
@@ -1008,8 +1103,8 @@ mod tests {
         editor
             .apply(Command::SetClipSpeed {
                 clip_id: first,
-                ripple: false,
                 speed: 0.5,
+                ripple: false,
             })
             .expect("retimes");
         assert_eq!(start_of(&editor, &next[0]), 20.0);
@@ -1017,8 +1112,76 @@ mod tests {
 
     // ── ripple delete: https://github.com/jub0t/Concat/issues/106 ──
 
+    fn unlink(editor: &mut Editor) {
+        let timeline_id = editor.project().active().id.clone();
+        editor
+            .apply(Command::SetTimelineLinkage {
+                timeline_id,
+                on: false,
+            })
+            .expect("unlinks");
+    }
+
+    fn text_at(editor: &mut Editor, start: f64, duration: f64) -> String {
+        editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start,
+                style: None,
+                duration: Some(duration),
+                offset_y: None,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id")
+    }
+
+    /// Linkage: a ripple delete on the main lane pulls the other lanes
+    /// with it. What started inside the footage that went lands where the
+    /// cut is, what is after it moves back by as much, and words wholly
+    /// over the footage that went go with it.
     #[test]
-    fn ripple_delete_closes_the_gap_on_its_own_track_only() {
+    fn ripple_delete_on_the_main_lane_pulls_the_linked_lanes() {
+        let (mut editor, media_id, first) = fixture();
+        let (video, sound) = {
+            let tracks = &editor.project().active().tracks;
+            (tracks[0].id.clone(), tracks[1].id.clone())
+        };
+        let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
+        let other = lane(&mut editor, &media_id, &sound, &[15.0, 25.0]);
+        let over_the_gone = text_at(&mut editor, 12.0, 3.0);
+        let over_the_kept = text_at(&mut editor, 22.0, 3.0);
+        let across = text_at(&mut editor, 8.0, 4.0);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![rest[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &rest[1]), 10.0, "the main lane closes up");
+        assert_eq!(start_of(&editor, &other[0]), 10.0, "started in what went");
+        assert_eq!(start_of(&editor, &other[1]), 15.0, "follows its footage");
+        assert_eq!(
+            start_of(&editor, &over_the_kept),
+            12.0,
+            "follows its footage"
+        );
+        assert_eq!(
+            start_of(&editor, &across),
+            8.0,
+            "runs across the cut: stays"
+        );
+        assert!(
+            editor.project().active().clip(&over_the_gone).is_none(),
+            "words over footage that went go with it"
+        );
+        assert_eq!(start_of(&editor, &first), 0.0);
+    }
+
+    /// With linkage off a ripple delete closes its own lane and no other.
+    #[test]
+    fn ripple_delete_closes_the_gap_on_its_own_track_only_unlinked() {
         let (mut editor, media_id, first) = fixture();
         let (video, sound) = {
             let tracks = &editor.project().active().tracks;
@@ -1026,6 +1189,7 @@ mod tests {
         };
         let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
         let other = lane(&mut editor, &media_id, &sound, &[15.0]);
+        unlink(&mut editor);
 
         let outcome = editor
             .apply(Command::RemoveClips {
@@ -1229,13 +1393,95 @@ mod tests {
             18.0,
             "and the one behind that"
         );
-        assert_eq!(start_of(&editor, &other[0]), 12.0, "another lane stays");
+        assert_eq!(start_of(&editor, &other[0]), 10.0, "a linked lane follows");
 
         editor
             .apply(trim(&first, TrimEdge::End, 3.0, true))
             .expect("lengthens");
         assert_eq!(start_of(&editor, &behind[0]), 11.0, "makes room");
         assert_eq!(start_of(&editor, &behind[1]), 21.0);
+        assert_eq!(start_of(&editor, &other[0]), 13.0, "and follows back");
+
+        unlink(&mut editor);
+        editor
+            .apply(trim(&first, TrimEdge::End, -2.0, true))
+            .expect("shortens");
+        assert_eq!(start_of(&editor, &behind[0]), 9.0);
+        assert_eq!(
+            start_of(&editor, &other[0]),
+            13.0,
+            "unlinked, another lane stays"
+        );
+    }
+
+    /// Only the main lane leads: a ripple on any other lane moves that lane
+    /// alone, so deleting a caption never pulls the next ones off their
+    /// words, and the picture never moves for a sound.
+    #[test]
+    fn a_ripple_on_another_lane_leads_nothing() {
+        let (mut editor, media_id, first) = fixture();
+        let sound = editor.project().active().tracks[1].id.clone();
+        let sounds = lane(&mut editor, &media_id, &sound, &[0.0, 10.0]);
+        let words = text_at(&mut editor, 12.0, 2.0);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![sounds[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &sounds[1]), 0.0, "its own lane closes");
+        assert_eq!(start_of(&editor, &first), 0.0);
+        assert_eq!(start_of(&editor, &words), 12.0, "nothing else moves");
+    }
+
+    /// A freeze on the main lane opens it, and what is after the freeze on
+    /// the other lanes moves along by the hold.
+    #[test]
+    fn a_freeze_on_the_main_lane_moves_the_linked_lanes_along() {
+        let (mut editor, media_id, first) = fixture();
+        let sound = editor.project().active().tracks[1].id.clone();
+        let later = lane(&mut editor, &media_id, &sound, &[6.0]);
+        let earlier = text_at(&mut editor, 1.0, 2.0);
+        let still = NewMedia {
+            path: "/freeze.jpg".into(),
+            name: "freeze.jpg".into(),
+            duration: None,
+            kind: MediaKind::Image,
+            width: Some(1920),
+            height: Some(1080),
+            frame_rate: None,
+            frame_rate_fraction: None,
+            video_codec: None,
+            audio_codec: None,
+            has_audio: false,
+            audio_tracks: Vec::new(),
+            origin: None,
+            color_space: Default::default(),
+        };
+        editor
+            .apply(Command::FreezeFrame {
+                clip_id: first.clone(),
+                time: 4.0,
+                duration: Some(1.0),
+                still: Some(still),
+            })
+            .expect("freezes");
+        assert_eq!(start_of(&editor, &later[0]), 7.0, "after the hold: along");
+        assert_eq!(start_of(&editor, &earlier), 1.0, "before it: stays");
+    }
+
+    /// The document leaves linkage out while it is on, as every timeline
+    /// before it was written, and a timeline read without it is linked.
+    #[test]
+    fn linkage_is_on_unless_written_off() {
+        let (mut editor, _, _) = fixture();
+        let text = serde_json::to_string(editor.project().active()).expect("writes");
+        assert!(!text.contains("linkage"));
+        let read: crate::model::Timeline = serde_json::from_str(&text).expect("reads");
+        assert!(read.linkage);
+        unlink(&mut editor);
+        let text = serde_json::to_string(editor.project().active()).expect("writes");
+        assert!(text.contains("\"linkage\":false"));
     }
 
     #[test]
@@ -1804,7 +2050,7 @@ mod tests {
     }
 
     #[test]
-    fn consolidation_refuses_subframe_spans_that_would_lose_a_rendered_frame() {
+    fn consolidation_accepts_subframe_spans_now_that_both_ends_are_rounded() {
         let (mut editor, media_id, first) = fixture();
         let track = editor.project().active().tracks[0].id.clone();
         let second = lane(&mut editor, &media_id, &track, &[10.0])[0].clone();
@@ -1813,7 +2059,7 @@ mod tests {
             clip.start = start;
             clip.duration = 0.04;
         }
-        assert!(crate::consolidation_clips(editor.project().active(), &[first, second]).is_err());
+        assert!(crate::consolidation_clips(editor.project().active(), &[first, second]).is_ok());
     }
 
     #[test]
@@ -1872,6 +2118,7 @@ mod tests {
                 item: copy,
                 source_start: Some(0.0),
                 enhanced: false,
+                offset: 0.0,
             })
             .expect("replaces");
         assert!(outcome.applied);
@@ -1905,6 +2152,7 @@ mod tests {
                 item: copy.clone(),
                 source_start: None,
                 enhanced: false,
+                offset: 0.0,
             })
             .expect("replaces");
         assert!(outcome.applied);
@@ -1930,6 +2178,7 @@ mod tests {
                 item: copy.clone(),
                 source_start: None,
                 enhanced: false,
+                offset: 0.0,
             })
             .expect("no-op");
         assert!(!again.applied);
@@ -1945,6 +2194,7 @@ mod tests {
                 },
                 source_start: None,
                 enhanced: false,
+                offset: 0.0,
             })
             .expect("no-op");
         assert!(!nobody.applied);
@@ -1978,6 +2228,7 @@ mod tests {
                     item: bad,
                     source_start: None,
                     enhanced: false,
+                    offset: 0.0,
                 })
                 .is_err()
         );
@@ -2052,15 +2303,13 @@ mod tests {
     }
 
     /// A freeze cuts the clip the way a split does, so a curved clip has to
-    /// come out of it the way a split leaves one: each piece with its share
-    /// of the curve, meeting at the frozen source time.
+    /// leave each piece its share of the curve and the footage unbroken.
     #[test]
     fn freeze_frame_on_a_curved_clip_keeps_the_pieces_continuous() {
         let (mut editor, _, clip_id) = fixture();
         editor
             .apply(Command::SetClipSpeedCurve {
                 clip_id: clip_id.clone(),
-                ripple: false,
                 curve: Some(vec![
                     crate::model::SpeedPoint {
                         at: 0.0,
@@ -2073,6 +2322,7 @@ mod tests {
                         slope: None,
                     },
                 ]),
+                ripple: false,
             })
             .expect("curves");
         let freeze_id = editor
@@ -2109,224 +2359,18 @@ mod tests {
             .find(|clip| clip.id != clip_id && clip.id != freeze_id)
             .expect("tail");
         for piece in [head, tail] {
-            assert!(piece.speed_curve.is_some(), "a piece lost its ramp");
-        }
-        assert!(
-            (head.source_start + head.duration * head.speed - tail.source_start).abs() < 1e-9,
-            "the tail picks up where the head ends"
-        );
-    }
-
-    /// The fixture's ten-second clip under a ramp from half speed to double.
-    fn ramped() -> (Editor, String) {
-        let (mut editor, _, clip_id) = fixture();
-        editor
-            .apply(Command::SetClipSpeedCurve {
-                clip_id: clip_id.clone(),
-                ripple: false,
-                curve: Some(vec![
-                    crate::model::SpeedPoint {
-                        at: 0.0,
-                        speed: 0.5,
-                        slope: None,
-                    },
-                    crate::model::SpeedPoint {
-                        at: 1.0,
-                        speed: 2.0,
-                        slope: None,
-                    },
-                ]),
-            })
-            .expect("curves");
-        (editor, clip_id)
-    }
-
-    /// Source seconds `t` seconds into a placed clip, as the engine maps it.
-    fn source_at(clip: &crate::model::Clip, t: f64) -> f64 {
-        match clip.speed_curve.as_deref().and_then(crate::speed::curve_of) {
-            Some(curve) => clip.source_start + clip.duration * curve.consumed(t / clip.duration),
-            None => clip.source_start + t * clip.speed,
-        }
-    }
-
-    #[test]
-    fn a_split_ramp_plays_on_in_both_halves() {
-        let (mut editor, clip_id) = ramped();
-        let whole = editor.project().active().clip(&clip_id).unwrap().clone();
-        let cut = whole.duration * 0.3;
-        editor
-            .apply(Command::SplitClips {
-                clip_ids: vec![clip_id.clone()],
-                time: cut,
-            })
-            .expect("splits");
-        let clips = &editor.project().active().clips;
-        let (head, tail) = (&clips[0], &clips[1]);
-        assert!(head.speed_curve.is_some() && tail.speed_curve.is_some());
-        for t in [0.0, cut / 2.0, cut] {
-            assert!((source_at(head, t) - source_at(&whole, t)).abs() < 1e-9);
-        }
-        for t in [0.0, 1.0, tail.duration] {
-            assert!((source_at(tail, t) - source_at(&whole, cut + t)).abs() < 1e-9);
-        }
-    }
-
-    #[test]
-    fn trimming_a_ramp_cuts_it_rather_than_squeezing_it() {
-        let (mut editor, clip_id) = ramped();
-        let whole = editor.project().active().clip(&clip_id).unwrap().clone();
-        editor
-            .apply(Command::TrimClip {
-                clip_id: clip_id.clone(),
-                edge: TrimEdge::Start,
-                delta: 2.0,
-                ripple: false,
-            })
-            .expect("trims the head");
-        editor
-            .apply(Command::TrimClip {
-                clip_id: clip_id.clone(),
-                edge: TrimEdge::End,
-                delta: -1.0,
-                ripple: false,
-            })
-            .expect("trims the tail");
-        let trimmed = editor.project().active().clip(&clip_id).unwrap();
-        assert!((trimmed.start - 2.0).abs() < 1e-9);
-        // What is left plays exactly what that stretch played before.
-        for t in [0.0, 1.0, trimmed.duration] {
-            assert!((source_at(trimmed, t) - source_at(&whole, 2.0 + t)).abs() < 1e-9);
-        }
-    }
-
-    #[test]
-    fn a_ramp_that_slows_a_clip_moves_the_lane_along() {
-        let (mut editor, _, clip_id) = fixture();
-        let media_id = editor
-            .project()
-            .active()
-            .clip(&clip_id)
-            .unwrap()
-            .media_id
-            .clone();
-        let track_id = editor.project().active().tracks[0].id.clone();
-        let next = editor
-            .apply(Command::AddClip {
-                media_id,
-                track_id,
-                start: 10.0,
-                ripple: false,
-            })
-            .expect("adds")
-            .created_id
-            .expect("id");
-        editor
-            .apply(Command::SetClipSpeedCurve {
-                clip_id: clip_id.clone(),
-                ripple: false,
-                curve: Some(vec![
-                    crate::model::SpeedPoint {
-                        at: 0.0,
-                        speed: 1.0,
-                        slope: None,
-                    },
-                    crate::model::SpeedPoint {
-                        at: 0.5,
-                        speed: 0.25,
-                        slope: None,
-                    },
-                    crate::model::SpeedPoint {
-                        at: 1.0,
-                        speed: 1.0,
-                        slope: None,
-                    },
-                ]),
-            })
-            .expect("curves");
-        let timeline = editor.project().active();
-        let ramped = timeline.clip(&clip_id).unwrap();
-        let next = timeline.clip(&next).unwrap();
-        assert!(ramped.duration > 10.0, "the slow middle lengthens the clip");
-        assert!(
-            next.start >= ramped.start + ramped.duration - 1e-9,
-            "the clip after it is moved along, not covered"
-        );
-    }
-
-    #[test]
-    fn a_magnetic_speed_up_closes_the_lane_behind_it_and_a_plain_one_leaves_the_gap() {
-        for ripple in [true, false] {
-            let (mut editor, _, clip_id) = fixture();
-            let media_id = editor
-                .project()
-                .active()
-                .clip(&clip_id)
-                .unwrap()
-                .media_id
-                .clone();
-            let track_id = editor.project().active().tracks[0].id.clone();
-            let mut add = |start| {
-                editor
-                    .apply(Command::AddClip {
-                        media_id: media_id.clone(),
-                        track_id: track_id.clone(),
-                        start,
-                        ripple: false,
-                    })
-                    .expect("adds")
-                    .created_id
-                    .expect("id")
-            };
-            // One clip touching it, and one past a gap of its own.
-            let next = add(10.0);
-            let later = add(25.0);
-            let before = editor.project().clone();
-            editor
-                .apply(Command::SetClipSpeed {
-                    clip_id: clip_id.clone(),
-                    ripple,
-                    speed: 2.0,
-                })
-                .expect("speeds up");
-            editor
-                .apply(Command::SetClipSpeedCurve {
-                    clip_id: clip_id.clone(),
-                    ripple,
-                    curve: Some(vec![
-                        crate::model::SpeedPoint {
-                            at: 0.0,
-                            speed: 4.0,
-                            slope: Some(0.0),
-                        },
-                        crate::model::SpeedPoint {
-                            at: 1.0,
-                            speed: 1.0,
-                            slope: Some(0.0),
-                        },
-                    ]),
-                })
-                .expect("curves");
-            let timeline = editor.project().active();
-            let ramped = timeline.clip(&clip_id).unwrap();
-            let end = ramped.start + ramped.duration;
-            let (next, later) = (
-                timeline.clip(&next).unwrap().start,
-                timeline.clip(&later).unwrap().start,
+            assert!(
+                piece.speed_curve.is_some(),
+                "each piece keeps its share of the curve"
             );
-            assert!(end < 5.0, "the clip got shorter");
-            if ripple {
-                assert!((next - end).abs() < 1e-9, "the next clip closes up");
-                assert!(
-                    (later - next - 15.0).abs() < 1e-9,
-                    "a gap further down the lane is kept"
-                );
-            } else {
-                assert_eq!((next, later), (10.0, 25.0), "a plain retime leaves the gap");
-            }
-            assert!(editor.undo(), "undoes");
-            assert!(editor.undo(), "undoes");
-            assert_eq!(editor.project(), &before, "undo puts the lane back");
         }
+        let head_curve = crate::speed::engine_curve(head.speed_curve.as_deref().unwrap()).unwrap();
+        let head_end = head.source_start + head.duration * head_curve.consumed(1.0);
+        assert!(
+            (tail.source_start - head_end).abs() < 1e-9,
+            "the tail picks up the footage where the head leaves it: {} against {head_end}",
+            tail.source_start
+        );
     }
 
     #[test]
@@ -2444,8 +2488,8 @@ mod tests {
         for command in [
             Command::SetClipSpeed {
                 clip_id: clip_id.clone(),
-                ripple: false,
                 speed: f64::NAN,
+                ripple: false,
             },
             Command::SplitClips {
                 clip_ids: vec![clip_id.clone()],
@@ -2527,6 +2571,28 @@ mod tests {
             crate::DOCUMENT_VERSION + 1
         );
         assert_eq!(crate::document_version(&serde_json::json!({})), 1);
+    }
+
+    #[test]
+    fn a_version_one_document_opens_and_saves_at_the_current_version() {
+        let (editor, _, _) = fixture();
+        let current = editor.to_document(&settings());
+        assert_eq!(crate::document_version(&current), crate::DOCUMENT_VERSION);
+        const {
+            assert!(
+                crate::DOCUMENT_VERSION >= 2,
+                "0.2.8 reads version 1, and must refuse what it would lose"
+            );
+        }
+        let mut old = current.clone();
+        old["version"] = serde_json::json!(1);
+        let loaded = Editor::from_document(&old).expect("a version 1 document opens");
+        assert_eq!(loaded.project(), editor.project());
+        assert_eq!(
+            crate::document_version(&loaded.to_document(&settings())),
+            crate::DOCUMENT_VERSION,
+            "and is saved at the current version"
+        );
     }
 
     #[test]
@@ -2822,11 +2888,12 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_the_reader_cannot_parse_is_dropped_not_the_document() {
+    fn an_entry_the_reader_cannot_parse_is_held_not_the_document() {
         let document = json!({
             "name": "Mixed", "version": 1,
             "media": [
-                { "id": "m1", "path": "/a.mp4", "kind": "hologram" },
+                { "id": "m1", "path": "/a.mp4" },
+                { "id": "m4", "path": "/d.mp4", "kind": "hologram" },
                 { "id": "m2", "path": "/b.mp4", "kind": "audio", "audioTracks": "nope" },
                 { "path": "/no-id.mp4" }
             ],
@@ -2841,12 +2908,13 @@ mod tests {
         });
         let editor = Editor::from_document(&document).expect("loads");
         let project = editor.project();
-        assert_eq!(project.media.len(), 2, "the entry without an id is dropped");
         assert_eq!(
-            project.media[0].kind,
-            MediaKind::Video,
-            "an unknown kind is video"
+            project.media.len(),
+            2,
+            "the entry without an id and the one of a kind from a newer build are held"
         );
+        assert_eq!(project.unread_summary().media, 2);
+        assert_eq!(project.media[0].kind, MediaKind::Video, "no kind is video");
         assert_eq!(
             project.media[0].name, "/a.mp4",
             "a nameless entry is called by its path"
@@ -2866,7 +2934,7 @@ mod tests {
         let clip = timeline.clip("c1").expect("c1");
         assert!(
             clip.cutout.is_none(),
-            "a cutout that does not parse is no cutout"
+            "a cutout that does not parse is no cutout here, and is held"
         );
         assert!(clip.keys.is_empty());
         assert_eq!(clip.transition_in.as_ref().expect("kept").duration, 1.0);
@@ -3143,8 +3211,8 @@ mod tests {
         editor
             .apply(Command::SetClipSpeed {
                 clip_id: clip_id.clone(),
-                ripple: false,
                 speed: 2.0,
+                ripple: false,
             })
             .expect("ok");
         // 10s of source at 2x occupies 5s of timeline.
@@ -3172,16 +3240,16 @@ mod tests {
         editor
             .apply(Command::SetClipSpeed {
                 clip_id: clip_id.clone(),
-                ripple: false,
                 speed: 100.0,
+                ripple: false,
             })
             .expect("ok");
         assert_eq!(editor.project().active().clips[0].speed, 16.0);
         editor
             .apply(Command::SetClipSpeed {
                 clip_id,
-                ripple: false,
                 speed: 0.0,
+                ripple: false,
             })
             .expect("ok");
         assert_eq!(editor.project().active().clips[0].speed, 0.0625);
@@ -3487,36 +3555,49 @@ mod tests {
         assert_eq!(restored.project(), editor.project());
     }
 
-    /// A clip's mask is an edit like any other: put on and taken off by a
-    /// patch, held to its ranges, its numbers keyed, and every bit of it
-    /// saved and read back as it was.
+    /// A clip's masks are an edit like any other: put on and taken off by a
+    /// patch, held to their ranges, their numbers keyed on the mask itself,
+    /// and every bit of them saved and read back as it was.
     #[test]
-    fn a_mask_and_its_keys_round_trip() {
-        use crate::model::{ClipMask, KeyEase, KeyProperty, MaskShape};
+    fn masks_and_their_keys_round_trip() {
+        use crate::model::{KeyEase, Mask, MaskMode, MaskShape};
         let (mut editor, _, clip_id) = fixture();
-        let mask = ClipMask {
-            roundness: 0.4,
-            feather: 0.25,
-            invert: true,
-            rotation: 30.0,
-            // Past its range: held to it on the way in.
-            width: 9.0,
-            ..ClipMask::of(MaskShape::Rectangle)
+        let mut box_mask = Mask::of("mask-1", "Box", MaskShape::Rectangle);
+        box_mask.set("roundness", 0.4);
+        box_mask.feather = 0.25;
+        box_mask.invert = true;
+        box_mask.rotation = 30.0;
+        // Past its range: held to it on the way in.
+        let crate::model::MaskSource::Shape { width, .. } = &mut box_mask.source;
+        *width = 9.0;
+        let hole = Mask {
+            mode: MaskMode::Subtract,
+            ..Mask::of("mask-1", "Hole", MaskShape::Circle)
         };
         editor
             .apply(Command::UpdateClip {
                 clip_id: clip_id.clone(),
                 patch: ClipPatch {
-                    mask: Some(Some(mask)),
+                    masks: Some(vec![box_mask, hole]),
                     ..ClipPatch::default()
                 },
             })
             .expect("masks");
+        let clip = editor.project().active().clip(&clip_id).expect("clip");
+        assert_eq!(
+            clip.masks
+                .iter()
+                .map(|mask| mask.id.as_str())
+                .collect::<Vec<_>>(),
+            ["mask-1", "mask-2"],
+            "a repeated id is minted anew"
+        );
         for (at, value) in [(0.0, -0.3), (1.0, 0.3)] {
             editor
-                .apply(Command::SetClipKey {
+                .apply(Command::SetMaskKey {
                     clip_id: clip_id.clone(),
-                    property: KeyProperty::MaskX,
+                    mask_id: "mask-1".into(),
+                    number: "x".into(),
                     at,
                     value,
                     ease: KeyEase::LINEAR,
@@ -3525,108 +3606,144 @@ mod tests {
         }
         // A key past the feather's range is held to it, as the field is.
         editor
-            .apply(Command::SetClipKey {
+            .apply(Command::SetMaskKey {
                 clip_id: clip_id.clone(),
-                property: KeyProperty::MaskFeather,
+                mask_id: "mask-1".into(),
+                number: "feather".into(),
                 at: 0.5,
                 value: 7.0,
                 ease: KeyEase::LINEAR,
             })
             .expect("keys");
+        // A mask the clip does not have, or a number a mask has not, is a
+        // no-op.
+        for (mask_id, number) in [("mask-9", "x"), ("mask-1", "colour")] {
+            let outcome = editor
+                .apply(Command::SetMaskKey {
+                    clip_id: clip_id.clone(),
+                    mask_id: mask_id.into(),
+                    number: number.into(),
+                    at: 0.5,
+                    value: 1.0,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("a no-op");
+            assert!(!outcome.applied, "{mask_id} {number}");
+        }
         let clip = editor.project().active().clip(&clip_id).expect("clip");
-        let held = clip.mask.expect("a mask");
-        assert_eq!(held.width, ClipMask::MAX_SIZE);
-        assert_eq!(held.shape, MaskShape::Rectangle);
-        assert!((clip.value_at(KeyProperty::MaskX, 0.5)).abs() < 1e-12);
-        assert!((clip.value_at(KeyProperty::MaskX, 0.75) - 0.15).abs() < 1e-12);
-        assert_eq!(clip.value_at(KeyProperty::MaskFeather, 0.5), 1.0);
+        let held = &clip.masks[0];
+        assert_eq!(held.get("width"), Some(Mask::MAX_SIZE));
+        assert_eq!(held.shape(), Some(MaskShape::Rectangle));
+        assert!(held.value_at("x", 0.5).abs() < 1e-12);
+        assert!((held.value_at("x", 0.75) - 0.15).abs() < 1e-12);
+        assert_eq!(held.value_at("feather", 0.5), 1.0);
         // An unkeyed number is the mask's own.
-        assert_eq!(clip.value_at(KeyProperty::MaskRoundness, 0.5), 0.4);
+        assert_eq!(held.value_at("roundness", 0.5), 0.4);
+        assert!(clip.keys.is_empty(), "the mask's keys are the mask's");
 
         let document = editor.to_document(&settings());
-        let written = &document["timelines"][0]["clips"][0];
-        assert_eq!(written["mask"]["shape"], "rectangle");
-        assert_eq!(written["mask"]["invert"], true);
-        assert!(
-            written["keys"]
-                .as_array()
-                .expect("keys")
-                .iter()
-                .any(|key| key["property"] == "maskX")
-        );
+        let written = &document["timelines"][0]["clips"][0]["masks"];
+        assert_eq!(written[0]["source"]["kind"], "shape");
+        assert_eq!(written[0]["source"]["shape"], "rectangle");
+        assert_eq!(written[0]["invert"], true);
+        assert_eq!(written[1]["mode"], "subtract");
+        assert!(written[0]["keys"]["x"].is_array());
         let restored = Editor::from_document(&document).expect("loads");
         assert_eq!(restored.project(), editor.project());
 
-        // Null takes it off and leaves the rest of the clip alone.
+        // Clearing a number's keys puts it back on its field.
+        editor
+            .apply(Command::ClearMaskKeys {
+                clip_id: clip_id.clone(),
+                mask_id: "mask-1".into(),
+                number: "x".into(),
+            })
+            .expect("clears");
+        let clip = editor.project().active().clip(&clip_id).expect("clip");
+        assert!(!clip.masks[0].is_keyed("x"));
+
+        // An empty list takes them all off and leaves the rest alone.
         editor
             .apply(Command::UpdateClip {
                 clip_id: clip_id.clone(),
                 patch: ClipPatch {
-                    mask: Some(None),
+                    masks: Some(Vec::new()),
                     ..ClipPatch::default()
                 },
             })
             .expect("unmasks");
         let clip = editor.project().active().clip(&clip_id).expect("clip");
-        assert!(clip.mask.is_none());
+        assert!(clip.masks.is_empty());
         assert!(
             !editor.to_document(&settings())["timelines"][0]["clips"][0]
                 .as_object()
                 .expect("a clip")
-                .contains_key("mask")
+                .contains_key("masks")
         );
     }
 
     /// The wire spelling a caller of the API writes: camelCase numbers, a
-    /// lowercase shape, anything left out a new mask's, and a shape this
-    /// build has not heard of a circle rather than a failed clip.
+    /// lowercase shape, anything left out a new mask's - its id minted,
+    /// its box the shape's - and a shape this build has not heard of a
+    /// circle rather than a failed clip.
     #[test]
     fn a_mask_reads_from_its_wire_spelling() {
-        use crate::model::{ClipMask, MaskShape};
-        let patch: ClipPatch =
-            serde_json::from_value(json!({ "mask": { "shape": "heart", "feather": 0.5 } }))
-                .expect("parses");
-        let mask = patch.mask.flatten().expect("a mask");
-        assert_eq!(mask.shape, MaskShape::Heart);
-        assert_eq!(mask.feather, 0.5);
-        assert_eq!(mask.width, ClipMask::of(MaskShape::Circle).width);
-        let odd: ClipMask =
-            serde_json::from_value(json!({ "shape": "blob", "x": 0.2 })).expect("parses");
-        assert_eq!((odd.shape, odd.x), (MaskShape::Circle, 0.2));
-        let cleared: ClipPatch = serde_json::from_value(json!({ "mask": null })).expect("parses");
-        assert_eq!(cleared.mask, Some(None));
+        use crate::model::{Mask, MaskMode, MaskShape};
+        let patch: ClipPatch = serde_json::from_value(json!({
+            "masks": [{ "source": { "kind": "shape", "shape": "heart" }, "feather": 0.5 }]
+        }))
+        .expect("parses");
+        let masks = Mask::tidy_all(patch.masks.expect("masks"));
+        let mask = &masks[0];
+        assert_eq!(mask.id, "mask-1");
+        assert_eq!(mask.shape(), Some(MaskShape::Heart));
+        assert_eq!(mask.mode, MaskMode::Add);
+        assert_eq!((mask.feather, mask.opacity, mask.scale), (0.5, 1.0, 1.0));
+        assert_eq!(
+            mask.get("width"),
+            Mask::of("", "", MaskShape::Heart).get("width")
+        );
+        let odd: Mask = serde_json::from_value(
+            json!({ "source": { "kind": "shape", "shape": "blob" }, "x": 0.2 }),
+        )
+        .expect("parses");
+        assert_eq!((odd.shape(), odd.x), (Some(MaskShape::Circle), 0.2));
+        let bare: Mask = serde_json::from_value(json!({})).expect("parses");
+        assert_eq!(bare.shape(), Some(MaskShape::Circle));
+        let cleared: ClipPatch = serde_json::from_value(json!({ "masks": [] })).expect("parses");
+        assert_eq!(cleared.masks, Some(Vec::new()));
         let untouched: ClipPatch = serde_json::from_value(json!({})).expect("parses");
-        assert_eq!(untouched.mask, None);
+        assert_eq!(untouched.masks, None);
     }
 
-    /// A document from before masks opens with none, and one written by a
-    /// build whose mask this one cannot read opens without it rather than
-    /// without the clip.
+    /// A document without masks opens with none; one whose masks this build
+    /// cannot read, or an older build's single `mask`, opens without them
+    /// rather than without the clip.
     #[test]
-    fn a_document_without_a_mask_opens_maskless() {
+    fn a_document_without_masks_opens_maskless() {
         let (editor, _, clip_id) = fixture();
         let mut document = editor.to_document(&settings());
-        let restored = Editor::from_document(&document).expect("loads");
-        assert!(
-            restored
+        let masks_of = |document: &serde_json::Value| {
+            Editor::from_document(document)
+                .expect("loads")
                 .project()
                 .active()
                 .clip(&clip_id)
                 .expect("clip")
-                .mask
-                .is_none()
-        );
-        document["timelines"][0]["clips"][0]["mask"] = json!("not a mask");
-        let restored = Editor::from_document(&document).expect("loads");
-        assert!(
-            restored
-                .project()
-                .active()
-                .clip(&clip_id)
-                .expect("clip")
-                .mask
-                .is_none()
-        );
+                .masks
+                .clone()
+        };
+        assert!(masks_of(&document).is_empty());
+        document["timelines"][0]["clips"][0]["masks"] = json!("not a list");
+        assert!(masks_of(&document).is_empty());
+        document["timelines"][0]["clips"][0]["masks"] = json!([{ "mode": "sideways" }, {}]);
+        assert_eq!(masks_of(&document).len(), 1, "the one that reads is kept");
+        document["timelines"][0]["clips"][0]
+            .as_object_mut()
+            .expect("a clip")
+            .remove("masks");
+        document["timelines"][0]["clips"][0]["mask"] = json!({ "shape": "heart" });
+        assert!(masks_of(&document).is_empty());
     }
 
     #[test]
@@ -3997,8 +4114,8 @@ mod tests {
                     },
                     Command::SetClipSpeed {
                         clip_id,
-                        ripple: false,
                         speed: 2.0,
+                        ripple: false,
                     },
                 ],
             })
@@ -4264,6 +4381,86 @@ mod tests {
         assert!(
             row(&layer.track_id) > row(&video_track),
             "the layer must sit over the footage, not under it"
+        );
+    }
+
+    /// A transition placed as a clip (#621) goes over the footage like a
+    /// layer, carries its package as its one link, is a second long unless
+    /// told otherwise, and survives the document.
+    #[test]
+    fn a_transition_clip_goes_over_the_footage_and_survives_the_document() {
+        let (mut editor, _, footage) = fixture();
+        let video_track = editor
+            .project()
+            .active()
+            .clip(&footage)
+            .expect("the footage")
+            .track_id
+            .clone();
+        let id = editor
+            .apply(Command::AddTransitionClip {
+                track_id: None,
+                start: 1.5,
+                duration: None,
+                transition_id: "concat.push".into(),
+                name: "Push".into(),
+            })
+            .expect("placed")
+            .created_id
+            .expect("id");
+        let timeline = editor.project().active();
+        let clip = timeline.clip(&id).expect("exists");
+        assert_eq!(clip.kind, ClipKind::Transition);
+        assert_eq!(clip.name, "Push");
+        assert!((clip.duration - 1.0).abs() < 1e-9, "{}", clip.duration);
+        assert_eq!(clip.video_effects.len(), 1);
+        assert_eq!(clip.video_effects[0].id, "concat.push");
+        assert!(clip.media_id.is_empty());
+        let row = |id: &str| timeline.tracks.iter().position(|t| t.id == id);
+        assert!(
+            row(&clip.track_id) > row(&video_track),
+            "a transition acts on what is beneath it"
+        );
+
+        let document = editor.to_document(&settings());
+        assert_eq!(
+            document["timelines"][0]["clips"]
+                .as_array()
+                .expect("clips")
+                .iter()
+                .find(|clip| clip["id"] == id.as_str())
+                .expect("written")["kind"],
+            "transition"
+        );
+        let loaded = Editor::from_document(&document).expect("loads");
+        assert_eq!(loaded.project(), editor.project());
+
+        // Never shorter than a tenth of a second, and nothing that is not a
+        // number.
+        let short = editor
+            .apply(Command::AddTransitionClip {
+                track_id: None,
+                start: 4.0,
+                duration: Some(0.0),
+                transition_id: "concat.cross-fade".into(),
+                name: String::new(),
+            })
+            .expect("placed")
+            .created_id
+            .expect("id");
+        let short = editor.project().active().clip(&short).expect("exists");
+        assert!(short.duration >= crate::model::ranges::MIN_TRANSITION - 1e-9);
+        assert_eq!(short.name, "concat.cross-fade", "named for its package");
+        assert!(
+            editor
+                .apply(Command::AddTransitionClip {
+                    track_id: None,
+                    start: f64::NAN,
+                    duration: None,
+                    transition_id: "concat.push".into(),
+                    name: String::new(),
+                })
+                .is_err()
         );
     }
 
@@ -4564,8 +4761,8 @@ mod tests {
                     },
                     Command::SetClipSpeed {
                         clip_id,
-                        ripple: false,
                         speed: 2.0,
+                        ripple: false,
                     },
                 ],
             })
@@ -5179,8 +5376,8 @@ mod tests {
             },
             Command::SetClipSpeed {
                 clip_id: "c1".to_owned(),
-                ripple: false,
                 speed: 2.0,
+                ripple: false,
             },
             Command::SetClipTransform {
                 clip_id: "c1".to_owned(),
@@ -5500,7 +5697,7 @@ mod tests {
                 track_id: None,
                 start: 0.0,
                 style: Some(ShapeStyle {
-                    size: 40.0,
+                    width: 40.0,
                     stroke_width: -1.0,
                     ..ShapeStyle::default()
                 }),
@@ -5512,7 +5709,7 @@ mod tests {
             .expect("id");
         let clip = editor.project().active().clip(&wild).expect("exists");
         let shape = clip.shape.as_ref().expect("figure");
-        assert_eq!((shape.size, shape.stroke_width), (2.0, 0.0));
+        assert_eq!((shape.width, shape.stroke_width), (4.0, 0.0));
         assert_eq!(
             clip.name, "square",
             "an empty name falls back to the figure's"
@@ -5641,6 +5838,7 @@ mod tests {
                 item: item("/a-enhanced.mp4"),
                 source_start: None,
                 enhanced: true,
+                offset: 0.0,
             })
             .expect("replaces")
             .created_id
@@ -5677,12 +5875,58 @@ mod tests {
         editor.undo();
         assert_eq!(shown(&editor).media_id, original, "one undo step");
 
+        // A copy of a span: it starts 4 s into the original, so the clip's
+        // in-point is 4 s less in it, and switching moves it back and forth
+        // with the same moment on screen.
+        // The head trimmed 6 s in, so the in-point is past the copy's start.
+        editor
+            .apply(Command::TrimClip {
+                clip_id: clip.clone(),
+                edge: crate::commands::TrimEdge::Start,
+                delta: 6.0,
+                ripple: false,
+            })
+            .expect("trims");
+        editor
+            .apply(Command::SetClipEnhanced {
+                clip_id: clip.clone(),
+                on: false,
+            })
+            .expect("off");
+        let original_start = shown(&editor).source_start;
+        assert!(original_start >= 4.0, "{original_start}");
+        editor
+            .apply(Command::ReplaceClipMedia {
+                clip_id: clip.clone(),
+                item: item("/a-span.mp4"),
+                source_start: Some(original_start - 4.0),
+                enhanced: true,
+                offset: 4.0,
+            })
+            .expect("replaces");
+        assert_eq!(shown(&editor).source_start, original_start - 4.0);
+        editor
+            .apply(Command::SetClipEnhanced {
+                clip_id: clip.clone(),
+                on: false,
+            })
+            .expect("off");
+        assert_eq!(shown(&editor).source_start, original_start);
+        editor
+            .apply(Command::SetClipEnhanced {
+                clip_id: clip.clone(),
+                on: true,
+            })
+            .expect("on");
+        assert_eq!(shown(&editor).source_start, original_start - 4.0);
+
         editor
             .apply(Command::ReplaceClipMedia {
                 clip_id: clip.clone(),
                 item: item("/a-reversed.mp4"),
                 source_start: None,
                 enhanced: false,
+                offset: 0.0,
             })
             .expect("replaces");
         assert_eq!(shown(&editor).enhanced, None);

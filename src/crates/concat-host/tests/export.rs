@@ -190,6 +190,7 @@ fn clock_aac(wav: &Path, path: &Path, seconds: u32) {
         duration: f64::from(seconds),
         source_start: 0.0,
         speed: 1.0,
+        tempo: Vec::new(),
         preserve_pitch: true,
         volume: 1.0,
         volume_curve: GainTrack::default(),
@@ -476,7 +477,7 @@ impl Studio {
             video.height,
             video.rate_num,
             video.rate_den,
-            [0, 0, 0],
+            [0, 0, 0, 255],
         )
         .expect("creates the project");
         let session = Session::open_info(&info).expect("opens the project");
@@ -653,7 +654,7 @@ fn effect(id: &str) -> AppliedFilter {
 
 fn video(width: u32, height: u32, rate_num: i64, rate_den: i64) -> VideoSettings {
     VideoSettings {
-        canvas: [0, 0, 0],
+        canvas: [0, 0, 0, 255],
         width,
         height,
         rate_num,
@@ -898,7 +899,7 @@ fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
     ];
     let monitor = |studio: &Studio| {
         let request = concat_export::PreviewFrameRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             time: 1.0,
             width,
             height,
@@ -1109,13 +1110,30 @@ fn fades_and_wipes_reach_the_picture() {
         studio.export(&format!("transition {kind}"))
     };
 
-    // The wipes overlap the two clips for the second centred on the cut.
-    let wiped = with(&mut studio, "wipe-left");
-    wiped.expect_colours(0.5, &[((0.5, 0.5), red)]);
-    wiped.expect_colours(2.0, &[((0.2, 0.5), red), ((0.8, 0.5), blue)]);
-    wiped.expect_colours(2.9, &[((0.5, 0.5), blue)]);
-    let wiped = with(&mut studio, "wipe-right");
-    wiped.expect_colours(2.0, &[((0.2, 0.5), blue), ((0.8, 0.5), red)]);
+    // The wipes overlap the two clips for the second centred on the cut:
+    // halfway, one picture on one side and the other on the other. Which
+    // side is the package's (#621: every transition runs through its
+    // package, and the old names are its aliases); that they are the two
+    // pictures, and not a dissolve of them, is what this pins.
+    let near = |got: [u8; 3], want: [u8; 3]| {
+        got.iter()
+            .zip(want)
+            .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40)
+    };
+    for kind in ["wipe-left", "wipe-right"] {
+        let wiped = with(&mut studio, kind);
+        wiped.expect_colours(0.5, &[((0.5, 0.5), red)]);
+        let (left, right) = (
+            wiped.colour_at_point(2.0, 0.1, 0.5),
+            wiped.colour_at_point(2.0, 0.9, 0.5),
+        );
+        let one_or_other = |got: [u8; 3]| near(got, red) || near(got, blue);
+        assert!(
+            one_or_other(left) && one_or_other(right) && near(left, red) != near(right, red),
+            "{kind} halfway: the two pictures side by side, not {left:?} and {right:?}"
+        );
+        wiped.expect_colours(2.9, &[((0.5, 0.5), blue)]);
+    }
 
     // The fades split the second across the cut, and do not overlap.
     for (kind, colour) in [("fade-black", [0, 0, 0]), ("fade-white", [255, 255, 255])] {
@@ -1160,15 +1178,22 @@ fn an_hlg_clip_exports_through_the_gpu_conversion() {
             threads: 0,
             software_only: false,
         };
-        let mut encoder = Encoder::create_mislabelled_hdr(
+        let encoder = Encoder::create_mislabelled_hdr(
             &path,
             WIDTH,
             HEIGHT,
             FrameRate::THIRTY,
             &options,
             false,
-        )
-        .expect("an HEVC encoder");
+        );
+        let mut encoder = match encoder {
+            Ok(encoder) => encoder,
+            Err(error) if VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                eprintln!("no ten-bit HEVC encoder opens here ({error}); skipped");
+                return;
+            }
+            Err(error) => panic!("an HEVC encoder: {error}"),
+        };
         let mut frame = Frame::black(WIDTH, HEIGHT);
         frame.fill([160, 160, 160, 255]);
         for _ in 0..30 {
@@ -1221,15 +1246,22 @@ fn an_hlg_timeline_exports_as_hdr_or_sdr() {
         software_only: false,
     };
     {
-        let mut encoder = Encoder::create_hdr(
+        let encoder = Encoder::create_hdr(
             &path,
             WIDTH,
             HEIGHT,
             FrameRate::THIRTY,
             &options,
             Signal::Hlg,
-        )
-        .expect("an HEVC encoder");
+        );
+        let mut encoder = match encoder {
+            Ok(encoder) => encoder,
+            Err(error) if VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                eprintln!("no ten-bit HEVC encoder opens here ({error}); skipped");
+                return;
+            }
+            Err(error) => panic!("an HEVC encoder: {error}"),
+        };
         let value = (LEVEL * 65_535.0).round() as u16;
         let pixel: Vec<u8> = [value, value, value, u16::MAX]
             .iter()
@@ -1471,8 +1503,8 @@ fn every_edit_still_exports() {
     // on a curve, then undone back to half speed.
     studio.apply(Command::SetClipSpeed {
         clip_id: tail.clone(),
-        ripple: false,
         speed: 2.0,
+        ripple: false,
     });
     let exported = studio.export("double speed");
     assert!(
@@ -1492,8 +1524,8 @@ fn every_edit_still_exports() {
     });
     studio.apply(Command::SetClipSpeed {
         clip_id: tail.clone(),
-        ripple: false,
         speed: 0.5,
+        ripple: false,
     });
     let exported = studio.export("half speed");
     exported.expect_second(2.25, 2);
@@ -1502,7 +1534,6 @@ fn every_edit_still_exports() {
 
     studio.apply(Command::SetClipSpeedCurve {
         clip_id: tail.clone(),
-        ripple: false,
         curve: Some(vec![
             SpeedPoint {
                 at: 0.0,
@@ -1515,6 +1546,7 @@ fn every_edit_still_exports() {
                 slope: None,
             },
         ]),
+        ripple: false,
     });
     let exported = studio.export("speed curve");
     exported.expect_length(16.0);
@@ -1945,8 +1977,8 @@ fn the_edges_export_too() {
     });
     studio.apply(Command::SetClipSpeed {
         clip_id: clip.clone(),
-        ripple: false,
         speed: 0.125,
+        ripple: false,
     });
     let start = studio.clip(&clip).start;
     let end = studio.end();
@@ -1961,6 +1993,131 @@ fn the_edges_export_too() {
     exported.expect_second(start + 0.5, 3);
     exported.expect_second(end - 0.5, 3);
     exported.expect_tone(start + 4.0);
+}
+
+/// Issue #756: clips split and trimmed between frames, touching with no
+/// gap, played and exported a black frame at the end of a clip, right
+/// before the next began. Each piece's start and length were rounded to
+/// the frame grid apart, so a piece starting a little before a frame and
+/// running a little short of a whole count stopped a frame before the next
+/// piece's start rounded to. Every frame of the monitor and of the file,
+/// at every rate, from footage at its own rate and at another, is footage.
+#[test]
+fn cuts_between_frames_leave_no_black_frame() {
+    let scratch = Scratch::new("cuts-between-frames");
+    let sources = Sources::make(scratch.path());
+    let pool = concat_media::ReaderPool::with_defaults();
+    let mut failures: Vec<String> = Vec::new();
+    for (name, source, seconds) in [("cam", &sources.cam, 4.0), ("silent", &sources.silent, 3.0)] {
+        for (num, den) in [(30, 1), (24, 1), (30000, 1001), (60, 1)] {
+            let label = format!("{name} at {num}/{den}");
+            let mut studio = Studio::new(
+                scratch.path(),
+                &format!("Cuts-{name}-{num}"),
+                video(WIDTH, HEIGHT, num, den),
+            );
+            let media = studio.import(source);
+            let first = studio
+                .apply(Command::AddClipAtFirstFree {
+                    media_id: media,
+                    start: 0.0,
+                })
+                .expect("the clip has an id");
+            // Cuts between frames at every rate here, at fractions of a
+            // frame that round both ways.
+            for at in [0.513, 1.029, 1.546, 2.07, 2.581] {
+                if at < seconds - 0.2 {
+                    studio.apply(Command::SplitClips {
+                        clip_ids: studio.clip_ids(),
+                        time: at,
+                    });
+                }
+            }
+            // A magnetic trim by a part of a frame: every later piece moves
+            // by it, so its start, length and in-point all fall off the
+            // grid by different amounts.
+            studio.apply(Command::TrimClip {
+                clip_id: first,
+                edge: TrimEdge::End,
+                delta: -0.0123,
+                ripple: true,
+            });
+            let clips = studio.project().active().clips.clone();
+            for pair in clips.windows(2) {
+                assert!(
+                    (pair[0].start + pair[0].duration - pair[1].start).abs() < 1e-9,
+                    "{label}: the pieces touch"
+                );
+            }
+
+            // Exported here rather than through `Studio::export`: a save
+            // and reopen can move a fraction of a frame by one ULP, and
+            // that helper holds the reopened clips to exact equality.
+            let output = studio.exports.join(format!("cuts-{name}-{num}.mp4"));
+            let request = export::request(
+                &studio.session,
+                &ExportSpec {
+                    output: output.to_string_lossy().into_owned(),
+                    crf: 16,
+                    preset: "ultrafast".into(),
+                    ..Default::default()
+                },
+                Vec::new(),
+            );
+            export::run(&request, &AtomicBool::new(false), |_| {})
+                .unwrap_or_else(|error| panic!("{label}: the export failed: {error}"));
+            let exported = Exported::read(&label, &output, (num, den));
+            let fps = num as f64 / den as f64;
+            let shown: Vec<Option<u32>> = exported
+                .frames
+                .iter()
+                .map(|frame| {
+                    let [r, g, b, _] = frame
+                        .pixel(frame.width() / 2, frame.height() / 2)
+                        .expect("the middle is inside the frame");
+                    second_of_colour([r, g, b])
+                })
+                .collect();
+            let missing: Vec<usize> = (0..shown.len()).filter(|&i| shown[i].is_none()).collect();
+            if !missing.is_empty() {
+                failures.push(format!(
+                    "{label}: the file's frames {missing:?} of {} are not footage",
+                    shown.len()
+                ));
+            }
+
+            let plan = concat_export::preview_plan(
+                &studio.session.flattened_clips(),
+                WIDTH,
+                HEIGHT,
+                num,
+                den,
+                Default::default(),
+                [0, 0, 0, 255],
+            );
+            let missing: Vec<usize> = (0..exported.frames.len())
+                .filter(|&index| {
+                    let sources = concat_export::preview_sources_of(
+                        &pool,
+                        &plan,
+                        index as f64 / fps,
+                        false,
+                        false,
+                    )
+                    .unwrap_or_else(|error| panic!("{label}: frame {index}: {error}"));
+                    let pixels = sources.pixels(true).expect("the monitor draws the frame");
+                    let at = ((HEIGHT / 2 * WIDTH + WIDTH / 2) * 4) as usize;
+                    second_of_colour([pixels[at], pixels[at + 1], pixels[at + 2]]).is_none()
+                })
+                .collect();
+            if !missing.is_empty() {
+                failures.push(format!(
+                    "{label}: the monitor's frames {missing:?} are not footage"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// Hardware decode preferred, the way the app always sets it: the
@@ -1984,7 +2141,24 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     let scratch = Scratch::new("hardware");
     // HEVC, not the H.264 the other scenarios use: 8-bit H.264 is the one
     // stream the preference leaves on the CPU, which decodes it faster
-    // (concat_media::hardware::hardware_wins).
+    // (concat_media::hardware::hardware_wins). HEVC on the CPU is Kvazaar
+    // since x265 left the builds, which takes sizes in eights only, so on
+    // a machine with no chip for it this clip's 90 rows have no encoder.
+    let can_encode = Encoder::create(
+        scratch.path().join("can-encode.mp4"),
+        WIDTH,
+        HEIGHT,
+        FrameRate::THIRTY,
+        &EncodeOptions {
+            codec: VideoCodec::Hevc,
+            preset: "ultrafast".to_owned(),
+            ..EncodeOptions::default()
+        },
+    );
+    if let Err(error) = can_encode {
+        eprintln!("no HEVC encoder opens at {WIDTH}x{HEIGHT} here ({error}); skipped");
+        return;
+    }
     let sources = Sources::make_in(scratch.path(), VideoCodec::Hevc);
 
     if let Some(device) = HwDevice::platform_default() {
@@ -2045,8 +2219,8 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     // as it does the CPU.
     studio.apply(Command::SetClipSpeed {
         clip_id: clip.clone(),
-        ripple: false,
         speed: 2.0,
+        ripple: false,
     });
     let start = studio.clip(&clip).start;
     let end = studio.end();
@@ -2548,3 +2722,6 @@ fn consolidation_keeps_the_global_frame_grid_at_fractional_starts() {
         );
     }
 }
+
+#[path = "export/consolidate.rs"]
+mod consolidate;

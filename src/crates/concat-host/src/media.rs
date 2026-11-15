@@ -16,6 +16,7 @@ use serde::Serialize;
 use crate::projects;
 
 /// A video stream, as the UI sees it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoStreamInfo {
@@ -42,6 +43,7 @@ pub struct VideoStreamInfo {
 }
 
 /// An audio stream, as the UI sees it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioStreamInfo {
@@ -84,6 +86,7 @@ impl AudioStreamInfo {
 }
 
 /// What [`probe`] hands back.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaSummary {
@@ -500,7 +503,11 @@ fn read_through(
     height: u32,
     tiles: &mut [Option<Frame>],
 ) -> Result<(), String> {
-    let mut options = DecodeOptions::default().scaled_to(width, height);
+    // Tiles a few dozen pixels high: a frame or two from the instant and
+    // no deblocking are invisible there, and halve the work of the pass.
+    let mut options = DecodeOptions::default()
+        .scaled_to(width, height)
+        .at_a_glance();
     if from > 0.0 {
         options = options.starting_at(Rational::approximate(from).unwrap_or(Rational::ZERO));
     }
@@ -996,6 +1003,7 @@ mod tests {
                 cadence: concat_core::time::FrameRate::from_int(25),
                 color_range: None,
                 signal: Signal::Sdr,
+                keyframes: std::sync::Arc::from([]),
             }),
             audio: None,
             audio_streams: Vec::new(),
@@ -1342,7 +1350,7 @@ mod tests {
                 })
                 .expect("places");
             let settings = DocumentSettings {
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 name: name.to_owned(),
                 width: 64,
                 height: 32,

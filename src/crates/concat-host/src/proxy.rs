@@ -186,7 +186,8 @@ pub fn sweep(project: &Path, keep: &HashSet<PathBuf>) -> usize {
 }
 
 /// Writes the proxy of `source`, read as `range`, at `size` to `target`:
-/// H.264, a fast preset, two threads, in software, into a temporary name
+/// the working codec (see [`VideoCodec::WORKING`]), two threads, in
+/// software, into a temporary name
 /// that is moved into place only when whole, so a copy that is there is a
 /// copy that is complete. The copy is tagged video range and converted to
 /// match, so it is read as it is and needs no correction of its own. An
@@ -224,7 +225,7 @@ pub fn write(
         codec: if hdr {
             VideoCodec::Hevc
         } else {
-            VideoCodec::H264
+            VideoCodec::WORKING
         },
         preset: "veryfast".to_owned(),
         crf: 23,
@@ -289,7 +290,7 @@ mod tests {
         let media = dir.join("iphone.mp4");
         let value = (0.6f64 * 65_535.0).round() as u16;
         {
-            let mut encoder = Encoder::create_hdr(
+            let encoder = Encoder::create_hdr(
                 &media,
                 640,
                 360,
@@ -301,8 +302,15 @@ mod tests {
                     ..EncodeOptions::default()
                 },
                 Signal::Hlg,
-            )
-            .expect("encodes");
+            );
+            let mut encoder = match encoder {
+                Ok(encoder) => encoder,
+                Err(error) if VideoCodec::Hevc.ten_bit_only_on_hardware() => {
+                    eprintln!("no ten-bit HEVC encoder opens here ({error}); skipped");
+                    return;
+                }
+                Err(error) => panic!("encodes: {error}"),
+            };
             let pixel: Vec<u8> = [value, value, value, u16::MAX]
                 .iter()
                 .flat_map(|channel| channel.to_le_bytes())

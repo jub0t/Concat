@@ -1,0 +1,12 @@
+id = "concat.thai"
+name = "Thai"
+language = "Thai"
+order = 52
+
+[style]
+content = "สวัสดี"
+fontFamily = "Noto Sans Thai"
+fontWeight = 400
+fontSize = 0.1
+strokeWidth = 0.008
+strokeColor = "#000000"

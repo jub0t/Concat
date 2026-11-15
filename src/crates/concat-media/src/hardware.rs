@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Decoding on the platform's own video hardware.
 //!
@@ -179,11 +179,23 @@ impl HwPolicy {
     /// [`HwPolicy::device`], except that the preference asks only where
     /// the hardware is the faster road; see [`hardware_wins`]. A named
     /// device is asked for whatever the stream.
-    pub fn device_for(self, codec: ffmpeg::codec::Id, format: Pixel) -> Option<HwDevice> {
+    ///
+    /// `single`: the reader decodes keyframes only, one picture at a time,
+    /// where what counts is how soon each comes out and not how many a
+    /// second - and the chip wins that for every codec it has. A 4K H.264
+    /// keyframe took the CPU 100 to 270 ms on one core, frame threads
+    /// being no use to a reader that skips the frames between; the chip
+    /// takes a few. `hardware_wins` is a measure of throughput.
+    pub fn device_for(
+        self,
+        codec: ffmpeg::codec::Id,
+        format: Pixel,
+        single: bool,
+    ) -> Option<HwDevice> {
         match self {
-            HwPolicy::Preference => {
-                hardware_device().filter(|device| hardware_wins(*device, codec, format))
-            }
+            HwPolicy::Preference => hardware_device().filter(|device| {
+                (single && *device != HwDevice::MediaCodec) || hardware_wins(*device, codec, format)
+            }),
             HwPolicy::Software | HwPolicy::Device(_) => self.device(),
         }
     }

@@ -6,18 +6,18 @@ name = "Whip Pan"
 kind = "transition"
 category = "Wipe"
 order = 14
-description = "High-speed directional camera whip with motion blur."
+description = "The camera whips sideways so fast the frame smears, and lands on the next shot."
 
 [[param]]
 key = "speed"
 label = "Speed"
+unit = "%"
 min = 20
 max = 100
-default = 80
 step = 1
-unit = "%"
+default = 80
 
 [transition]
-entry = "effect.wgsl"
-xfade = "slideleft"
 fallback = "slideleft"
+xfade = "slideleft"
+entry = "effect.wgsl"

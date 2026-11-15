@@ -17,14 +17,16 @@ name: Build app
 #
 # - The engine links FFmpeg and compiles whisper.cpp in, so a build needs the
 #   FFmpeg 7+ development libraries (headers and import libraries), cmake, a
-#   C++ toolchain and libclang for bindgen. sherpa-onnx is a prebuilt static
-#   library its crate downloads for the target.
-# - Homebrew's FFmpeg serves on macOS and travels with the app: the dylibs
-#   are copied into the bundle and the binary's load paths rewritten, so the
+#   C++ toolchain and libclang for bindgen.
+# - FFmpeg is LGPL everywhere, with nothing GPL in it: Concat encodes H.264,
+#   HEVC and AAC on the platform's own encoders. On macOS it is built here
+#   from source (src/scripts/ffmpeg-macos.sh) against Homebrew's BSD-licensed
+#   VP9, AV1 and Opus libraries, and travels with the app: the dylibs are
+#   copied into the bundle and the binary's load paths rewritten, so the
 #   .dmg runs on a Mac with nothing installed. Windows and Linux use a BtbN
-#   `shared` build - headers, import libraries and runtime libraries in one
-#   archive - and the runtime libraries ship beside the binary; on Linux the
-#   binary carries an rpath to find them there.
+#   `lgpl-shared` build - headers, import libraries and runtime libraries in
+#   one archive - and the runtime libraries ship beside the binary; on Linux
+#   the binary carries an rpath to find them there.
 # - The app is signed and notarised on macOS when the signing secrets are
 #   set on the repository, and ad-hoc signed when they are not, so a build
 #   from a fork still opens (with Gatekeeper's warning).
@@ -74,8 +76,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # The prebuilt dependencies - BtbN's FFmpeg 8.1 (GPL, shared, one per
-  # arch), ONNX Runtime, sherpa-onnx, nfpm, appimagetool, LLVM for Windows
+  # The prebuilt dependencies - BtbN's FFmpeg 8.1 (LGPL, shared, one per
+  # arch), ONNX Runtime, nfpm, appimagetool, LLVM for Windows
   # and Intel's emulator - are each pinned to one file and its digest in
   # scripts/ci/deps.lock, and fetched through scripts/ci/fetch.sh, which
   # refuses a file whose digest has changed. The versions below are the
@@ -113,18 +115,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `ffmpeg` and `sherpa` name the target the way each project's
+          # `ffmpeg` and `ort` name the target the way each project's
           # release archives do.
           - platform: macos
             arch: arm64
             os: macos-15
             target: aarch64-apple-darwin
-            sherpa: osx-arm64
           - platform: macos
             arch: x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
-            sherpa: osx-x64
             # No `ggml` row: built as 0.2.7 was, with no AVX2. This bundle
             # runs on macOS 12 again, and so on the 2013 Mac Pro, whose Ivy
             # Bridge has AVX and nothing newer; Intel Macs are about one
@@ -137,7 +137,6 @@ jobs:
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             ffmpeg: linux64
-            sherpa: linux-x64
             ort: x64
             nfpm: amd64
             appimage: x86_64
@@ -147,7 +146,6 @@ jobs:
             os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
             ffmpeg: linuxarm64
-            sherpa: linux-aarch64
             ort: aarch64
             nfpm: arm64
             appimage: aarch64
@@ -156,7 +154,6 @@ jobs:
             os: windows-2022
             target: x86_64-pc-windows-msvc
             ffmpeg: win64
-            sherpa: win-x64
             ort: win-x64
             llvm: win64
             vc: x64
@@ -166,7 +163,7 @@ jobs:
           # No Windows on ARM until its program starts: v0.2.7-rc.4's
           # concat.exe died with an access violation on `--version` (#326).
           # Its row was platform windows, arch aarch64, os windows-11-arm,
-          # target aarch64-pc-windows-msvc, ffmpeg winarm64, sherpa and ort
+          # target aarch64-pc-windows-msvc, ffmpeg winarm64, ort
           # win-arm64, llvm woa64, vc and inno and wix arm64.
     runs-on: ${{ matrix.os }}
     # The slowest target is Intel macOS, whose build alone ran past an hour
@@ -266,10 +263,10 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # ONNX Runtime, the cutout models' runtime. Left to itself ort-sys
-      # downloads a static build and links it in; sherpa-onnx links a
-      # static build of its own, and the two carry the same protobuf, which
-      # the linker refuses as duplicate symbols the moment both are pulled
-      # - every Linux link since the cutout arrived. So on Linux ort links
+      # downloads a static build and links it in; sherpa-onnx, which text to
+      # speech used until November 2026, linked a static build of its own,
+      # and the two carried the same protobuf, which the linker refused as
+      # duplicate symbols. So on Linux ort links
       # Microsoft's shared build instead, through ORT_LIB_LOCATION with
       # dynamic linking preferred, and the library ships in lib/ beside
       # FFmpeg's, where the rpath above finds it. The Nix package links
@@ -296,12 +293,40 @@ jobs:
       # of every fallback, so the build never depends on the runner image
       # happening to carry a pkg-config that knows about Homebrew - the
       # arm64 image did not, and the build died in the pkg-config fallback.
+      #
+      # FFmpeg itself is built here, LGPL, against Homebrew's codec
+      # libraries; Homebrew's own FFmpeg is GPL and carries x264 and x265.
+      # The build is cached by the script and by the versions of the
+      # libraries it links, so a Homebrew update rebuilds it rather than
+      # leaving it pointing at a library that is gone.
+      - name: Codec libraries (macOS)
+        id: codecs
+        if: matrix.platform == 'macos'
+        run: |
+          set -euo pipefail
+          brew install cmake dylibbundler pkgconf nasm libvpx svt-av1 opus dav1d
+          echo "versions=$(brew list --versions libvpx svt-av1 opus dav1d | shasum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: FFmpeg for macOS (cached)
+        id: ffmpeg-macos
+        if: matrix.platform == 'macos'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/macos
+          key: ffmpeg-macos-${{ matrix.arch }}-${{ hashFiles('src/scripts/ffmpeg-macos.sh') }}-${{ steps.codecs.outputs.versions }}
+      - name: FFmpeg for macOS
+        if: matrix.platform == 'macos' && steps.ffmpeg-macos.outputs.cache-hit != 'true'
+        run: src/scripts/ffmpeg-macos.sh
+      - name: FFmpeg for macOS (save)
+        if: matrix.platform == 'macos' && steps.ffmpeg-macos.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/macos
+          key: ${{ steps.ffmpeg-macos.outputs.cache-primary-key }}
       - name: FFmpeg development libraries (macOS)
         if: matrix.platform == 'macos'
         run: |
           set -euo pipefail
-          brew install ffmpeg cmake dylibbundler
-          echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> "$GITHUB_ENV"
+          echo "FFMPEG_DIR=$PWD/src/vendor/ffmpeg/macos" >> "$GITHUB_ENV"
           # ggml's Metal code asks `@available(macOS 15, *)` before using
           # residency sets. Below that deployment target the question is
           # answered at run time by ___isPlatformVersionAtLeast, which lives
@@ -416,20 +441,16 @@ jobs:
       # keeps in System32 is too old on many machines, so the program would
       # not start at all ("DMLCreateDevice1 not found", #303).
       #
-      # Why the CPU build and not Microsoft's DirectML one: two runtimes
-      # cannot share a process under one name, and sherpa-onnx's DLL loads
-      # onnxruntime.dll too. sherpa-onnx 1.13.7 is built against ONNX
-      # Runtime 1.27.1 and asks for its API 27 as it loads; ort 2.0.0-rc.13
-      # asks for API 27 as well (its default `api-27` feature). Microsoft
+      # Why the CPU build and not Microsoft's DirectML one: ort 2.0.0-rc.13
+      # asks for API 27 (its default `api-27` feature), and Microsoft
       # stopped publishing the DirectML build at 1.24.4, which serves API
-      # 24 and below, so it can serve neither. 1.28.0 serves both. The cost
+      # 24 and below. 1.28.0 serves it. The cost
       # is that the cutouts and Chatterbox run on the CPU on Windows: the
       # DirectML provider ort asks for is not in this runtime, and ort
       # carries on without it (it logs the failed registration and falls
       # back; error_on_failure is not set). Getting the GPU back means a
       # DirectML (or WebGPU) runtime at API 27 or later that is built for
-      # the baseline - pyke's is neither the one nor shareable with
-      # sherpa-onnx - and no DirectML.dll is shipped until then, since
+      # the baseline - pyke's is not - and no DirectML.dll is shipped until then, since
       # nothing in the bundle imports it.
       #
       # The DLL's folder goes on the path too, so anything the build runs
@@ -450,84 +471,13 @@ jobs:
           "ORT_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$dir\lib" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      # ── sherpa-onnx ────────────────────────────────────────────────────
-      # The prebuilt library the sys crate would otherwise fetch for
-      # itself, fetched here instead and handed over through
-      # SHERPA_ONNX_LIB_DIR. Left to the crate, the download lands inside
-      # target/, where rust-cache's cleanup does not keep it; a restored
-      # cache then replays the build script's answer without the files
-      # it points at, and the crate fails to link the moment anything
-      # makes it recompile. Outside target/, the files are there on every
-      # run. The version is the one the lockfile resolved, and deps.lock
-      # must pin that version's file: a bump to one without the other
-      # stops here, saying so.
-      - name: sherpa-onnx static libraries (macOS and Linux)
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
-          name="sherpa-onnx-${{ matrix.sherpa }}-static-lib"
-          case "$(scripts/ci/fetch.sh --url "$name")" in
-            */v"$version"/*) ;;
-            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
-          esac
-          stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-static-lib"
-          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
-          mkdir -p sherpa
-          tar -xjf sherpa.tar.bz2 -C sherpa
-          test -d "sherpa/$stem/lib"
-          echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
-
-      # On Windows it links shared (see concat-speech's manifest for why
-      # static cannot work there), from a directory holding only the
-      # import libraries. The separation matters: when the sys crate's
-      # build script sees DLLs beside the .lib files it tries to copy them
-      # into the "profile directory", located by searching OUT_DIR's
-      # ancestors for one named after $PROFILE - which panics under the
-      # custom `app` profile, whose directory is not called "release". The
-      # DLLs are kept apart and the packaging step ships them beside the
-      # binary.
-      #
-      # sherpa-onnx's own onnxruntime.dll and its import library are left
-      # out: the bundle carries one ONNX Runtime, the one above, which
-      # serves sherpa-onnx and ort alike (see that step).
-      #
-      # The archive is .tar.bz2, and Windows' own tar has no bzip2 of its
-      # own: it pipes through an external decoder, and on the x64 image
-      # that pipe can hang without a word. Python's tarfile unpacks it
-      # in-process. Each command announces itself, so a stall would name
-      # the culprit.
-      - name: sherpa-onnx shared libraries (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $version = (Select-String -Path src\Cargo.lock -Pattern 'name = "sherpa-onnx-sys"' -Context 0,1).Context.PostContext[0] -replace '.*"(.*)".*', '$1'
-          $name = "sherpa-onnx-${{ matrix.sherpa }}-shared-MT-Release-lib"
-          $stem = "sherpa-onnx-v$version-${{ matrix.sherpa }}-shared-MT-Release-lib"
-          $bash = "$env:ProgramFiles\Git\bin\bash.exe"
-          $url = & $bash scripts/ci/fetch.sh --url $name
-          if ($url -notmatch "/v$([regex]::Escape($version))/") { throw "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" }
-          Write-Host "Downloading $stem"
-          & $bash scripts/ci/fetch.sh $name sherpa.tar.bz2
-          if ($LASTEXITCODE -ne 0) { throw "the sherpa-onnx download failed" }
-          Write-Host "Unpacking"
-          python -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall(**({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
-          if (-not (Test-Path "$stem\lib")) { throw "$stem\lib is not there after unpacking" }
-          New-Item -ItemType Directory -Force sherpa-libs, sherpa-dlls | Out-Null
-          Copy-Item "$stem\lib\sherpa-onnx-*.lib" sherpa-libs\
-          Copy-Item "$stem\lib\sherpa-onnx-*.dll" sherpa-dlls\
-          "SHERPA_ONNX_LIB_DIR=$PWD\sherpa-libs" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "SHERPA_DLL_DIR=$PWD\sherpa-dlls" | Out-File -FilePath $env:GITHUB_ENV -Append
-
       # ── Build ──────────────────────────────────────────────────────────
       # The cache comes after the environment is set, not before: its key
       # is made from the compiler and linker variables in force (RUSTFLAGS,
       # CC, CXX, CMAKE_*, and GGML_* and ORT_* added to the default set),
       # so a change to any of them is a new key rather than a stale
       # target/ served under the old one.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: ${{ matrix.target }}
@@ -540,9 +490,12 @@ jobs:
       # read, but the step summary is public - so on failure the tail of the
       # build goes there, and a red run explains itself to anyone.
       - name: Build
-        # An Intel Mac runner is the slow one: its release build ran past
-        # sixty minutes in v0.2.7-rc.1.
-        timeout-minutes: ${{ matrix.platform == 'macos' && matrix.arch == 'x86_64' && 100 || 60 }}
+        # The Mac runners are the slow ones, with three cores and 7 GB for
+        # a window whose generated UI takes more than that to compile: the
+        # Intel build ran past sixty minutes in v0.2.7-rc.1, and the Apple
+        # silicon one took 57 in v0.2.9 and timed out at sixty in v0.2.10
+        # (run 42935189370) while every other bundle was built in 37.
+        timeout-minutes: ${{ matrix.platform == 'macos' && 100 || 60 }}
         shell: bash
         working-directory: src
         run: |
@@ -646,9 +599,9 @@ jobs:
           fi
 
           # Every library in the bundle against the floor it declares. A
-          # warning for now: Homebrew's FFmpeg is built for the runner's
-          # macOS, so every Mac bundle has some until FFmpeg is built here
-          # for the floor. ONNX Runtime is listed apart, with the macOS it
+          # warning for now: FFmpeg is built here for the floor, but the
+          # codec libraries it links are Homebrew's, built for the runner's
+          # macOS. ONNX Runtime is listed apart, with the macOS it
           # needs: the app reads that same field before loading it, and on
           # an older one the AI features say so instead.
           scripts/ci/check-min-os.sh "$app" "$MACOSX_DEPLOYMENT_TARGET" ${lazy[@]+"${lazy[@]}"}
@@ -954,8 +907,7 @@ jobs:
 
       # ── Package: Windows ───────────────────────────────────────────────
       # The folder the installers are made from: the program, FFmpeg's
-      # DLLs, sherpa-onnx's, ONNX Runtime's (one runtime for both; see its
-      # step above) and the Visual C++ runtime the program and its DLLs
+      # DLLs, ONNX Runtime's (see its step above) and the Visual C++ runtime the program and its DLLs
       # import. The C++ runtime is copied in from Visual Studio's
       # redistributable folder, as Microsoft allows: a clean Windows does
       # not have it, and a machine that does may have an older one.
@@ -971,8 +923,6 @@ jobs:
           New-Item -ItemType Directory -Force $dir | Out-Null
           Copy-Item "src\target\${{ matrix.target }}\app\concat.exe" $dir
           Copy-Item "$env:FFMPEG_DIR\bin\*.dll" $dir
-          # The sherpa-onnx runtime, set aside by the download step above.
-          Copy-Item "$env:SHERPA_DLL_DIR\*.dll" $dir
           Copy-Item "$env:ORT_DIR\lib\*.dll" $dir
           # whisper's DLLs and its CPU modules, one per x86_64 generation
           # (the job's `env` says why), from the bin\ whisper-rs-sys

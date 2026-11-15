@@ -29,6 +29,9 @@ use crate::ffi;
 /// The rate everything is mixed at.
 pub const MIX_RATE: u32 = 48_000;
 
+#[cfg(target_os = "android")]
+mod android_aac;
+
 /// The playback rates the engine supports, as source-seconds per
 /// timeline-second. One definition, shared by preview and export - the two
 /// disagreeing at the extremes is how a preview stops matching its render.
@@ -53,8 +56,17 @@ pub struct AudioClip {
     pub duration: f64,
     /// Seconds into the source file where the clip begins.
     pub source_start: f64,
-    /// Source seconds consumed per timeline second. One is normal.
+    /// Source seconds consumed per timeline second. One is normal. With
+    /// `tempo`, the mean of it.
     pub speed: f64,
+    /// A rate that changes over the clip, as steps `(at, speed)`: from
+    /// `at` seconds into the clip's span it plays at `speed`, until the
+    /// next step. Empty is `speed` throughout. Played through one tempo
+    /// filter whose rate is changed as the source passes each step - see
+    /// [`AudioClip::retime_filters`] - never as pieces each with a tempo
+    /// filter of its own, which starts afresh at every seam and is heard
+    /// as a stutter ten times a second.
+    pub tempo: Vec<(f64, f64)>,
     /// True holds pitch while the rate changes; false is the tape effect.
     pub preserve_pitch: bool,
     /// Linear gain, one being unity. The whole clip's, unless
@@ -74,6 +86,83 @@ pub struct AudioClip {
     pub fade_out: f64,
     /// Extra FFmpeg audio filters, or empty. Validated, not trusted.
     pub filter_chain: String,
+}
+
+impl AudioClip {
+    /// Source seconds from the clip's in-point to `at` seconds into its
+    /// span: `at` times the speed, or the steps' sum.
+    pub fn source_at(&self, at: f64) -> f64 {
+        if self.tempo.is_empty() {
+            return at * clamp_speed(self.speed);
+        }
+        let mut total = 0.0;
+        for (index, &(from, speed)) in self.tempo.iter().enumerate() {
+            if at <= from {
+                break;
+            }
+            let until = self
+                .tempo
+                .get(index + 1)
+                .map_or(f64::INFINITY, |next| next.0);
+            total += (at.min(until) - from) * clamp_speed(speed);
+        }
+        total
+    }
+
+    /// The filters that retime the clip's sound as heard from `from`
+    /// seconds into its span, the stream starting at that point of the
+    /// source with its stamps at zero. `tag` names this clip's filters
+    /// apart from every other's in the same graph.
+    ///
+    /// A changing rate is one `atempo` chain from end to end, its rate set
+    /// again by an `asendcmd` as the source reaches each step, so the stretch
+    /// runs on unbroken. Below a half or above twice, the rate is split
+    /// over as many equal stages as the clip's extreme needs, since one
+    /// `atempo` holds to that range.
+    pub fn retime_filters(&self, from: f64, tag: &str) -> Vec<String> {
+        if self.tempo.is_empty() || !self.preserve_pitch {
+            return speed_filters(self.speed, self.preserve_pitch);
+        }
+        let stages = self
+            .tempo
+            .iter()
+            .map(|&(_, speed)| {
+                let doublings = clamp_speed(speed).log2().abs();
+                (doublings - 1e-9).ceil().max(1.0) as i32
+            })
+            .max()
+            .unwrap_or(1);
+        let factor = |speed: f64| clamp_speed(speed).powf(1.0 / f64::from(stages));
+        let at_from = self
+            .tempo
+            .iter()
+            .rev()
+            .find(|(at, _)| *at <= from)
+            .or(self.tempo.first())
+            .map_or(self.speed, |&(_, speed)| speed);
+        let origin = self.source_at(from);
+        let commands: Vec<String> = self
+            .tempo
+            .iter()
+            .filter(|(at, _)| *at > from)
+            .map(|&(at, speed)| {
+                let f = factor(speed);
+                let each: Vec<String> = (0..stages)
+                    .map(|stage| format!("atempo@{tag}r{stage} tempo {f:.6}"))
+                    .collect();
+                format!("{:.6} {}", self.source_at(at) - origin, each.join(", "))
+            })
+            .collect();
+        // One `asendcmd` a step: a list of them in one would be joined by
+        // `;`, which `validate_chain` keeps out of every chain, and rightly.
+        let mut filters: Vec<String> = commands
+            .iter()
+            .map(|command| format!("asendcmd=c='{command}'"))
+            .collect();
+        let f = factor(at_from);
+        filters.extend((0..stages).map(|stage| format!("atempo@{tag}r{stage}=tempo={f:.6}")));
+        filters
+    }
 }
 
 /// A treatment of the whole mix over a stretch of the timeline: a sound
@@ -202,7 +291,10 @@ pub fn validate_chain(chain: &str) -> Result<()> {
 /// exact whatever the source's rate was, then shifts, then lands back.
 pub fn speed_filters(speed: f64, preserve_pitch: bool) -> Vec<String> {
     let speed = clamp_speed(speed);
-    if (speed - 1.0).abs() < f64::EPSILON {
+    // A millionth off is 1x: a curve's area worked out in floating point
+    // lands a hair from it, and a tempo filter for nothing is work and a
+    // filter's delay for nothing.
+    if (speed - 1.0).abs() < 1e-6 {
         return Vec::new();
     }
     if preserve_pitch {
@@ -364,8 +456,6 @@ fn mix_graph_from(
         let delay_ms = ((clip.start + heard.from - origin) * 1000.0)
             .round()
             .max(0.0) as i64;
-        let speed = clamp_speed(clip.speed);
-
         // Each input is cut to its in-point, restamped from zero, then delayed
         // to where it sits on the timeline. `all=1` applies the delay to
         // every channel; without it only the left channel moves, which is a
@@ -386,7 +476,7 @@ fn mix_graph_from(
             format!("[{index}:a]anull")
         };
 
-        for filter in speed_filters(speed, clip.preserve_pitch) {
+        for filter in clip.retime_filters(heard.from, &format!("c{index}")) {
             stage.push(',');
             stage.push_str(&filter);
         }
@@ -418,13 +508,22 @@ fn mix_graph_from(
             }
             None => {}
         }
+        // A clip's fades are curved: the gain is the square of how far
+        // through the fade it is (`qua`), not a straight line. Loudness
+        // goes as about the 0.6 power of the sound's amplitude (Stevens),
+        // so a straight line in gain is heard as a fade-out that hangs on
+        // and then drops off a cliff at the very end, and a fade-in that
+        // leaps up at once and then barely moves; amplitude as the square
+        // of the time is loudness as nearly a straight line in time - an
+        // even fade. The preview's mixer (`concat_host::playback`) uses
+        // the same square, and the inspector and timeline draw it.
         if clip.fade_in > 0.0 {
-            stage.push_str(&format!(",afade=t=in:st=0:d={:.4}", clip.fade_in));
+            stage.push_str(&format!(",afade=t=in:st=0:d={:.4}:curve=qua", clip.fade_in));
         }
         if clip.fade_out > 0.0 {
             let start = (clip.duration - clip.fade_out).max(0.0);
             stage.push_str(&format!(
-                ",afade=t=out:st={start:.4}:d={:.4}",
+                ",afade=t=out:st={start:.4}:d={:.4}:curve=qua",
                 clip.fade_out
             ));
         }
@@ -542,8 +641,58 @@ impl MixInput {
     }
 }
 
+/// The Opus encoder to mix into and the samples it takes: libopus where it
+/// is linked, which the desktops' builds and Homebrew carry, and FFmpeg's
+/// own otherwise, which every build has - a phone's included. A WebM takes
+/// Opus or Vorbis and nothing else, and Opus is the better of the two.
+fn opus_encoder() -> Result<(&'static str, Sample)> {
+    use ffmpeg::util::format::sample::Type;
+    if encoder::find_by_name("libopus").is_some() {
+        return Ok(("libopus", Sample::F32(Type::Packed)));
+    }
+    if encoder::find_by_name("opus").is_some() {
+        return Ok(("opus", Sample::F32(Type::Planar)));
+    }
+    Err(Error::Missing {
+        what: "encoder",
+        name: "opus".to_owned(),
+    })
+}
+
+/// The AAC encoder to mix into and the samples it takes: the platform's
+/// own where FFmpeg wraps one - Apple's AudioToolbox, Windows' Media
+/// Foundation - whose makers license AAC, so Concat carries no encoder of
+/// its own for it there; FFmpeg's elsewhere, a Linux system's. A phone's
+/// is Android's own, outside FFmpeg (see `android_aac`). Both platform
+/// encoders here take 16-bit samples.
+fn aac_encoder() -> Result<(&'static str, Sample)> {
+    let platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
+        Some("aac_at")
+    } else if cfg!(target_os = "windows") {
+        Some("aac_mf")
+    } else {
+        None
+    };
+    if let Some(name) = platform
+        && encoder::find_by_name(name).is_some()
+    {
+        return Ok((
+            name,
+            Sample::I16(ffmpeg::util::format::sample::Type::Packed),
+        ));
+    }
+    if encoder::find_by_name("aac").is_some() {
+        return Ok(("aac", MIX_FORMAT));
+    }
+    Err(Error::Missing {
+        what: "encoder",
+        name: "aac".to_owned(),
+    })
+}
+
 /// Mixes `clips` into one audio file at `destination`: 16-bit PCM for a
-/// `.wav` destination (case-insensitive), AAC otherwise, at 48 kHz stereo.
+/// `.wav` destination (case-insensitive), Opus for a `.webm`, `.opus`,
+/// `.ogg` or `.mka` one, AAC otherwise, at 48 kHz stereo.
 ///
 /// Every clip's file must contain an audio stream; see [`mix_graph`].
 pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Result<()> {
@@ -557,13 +706,13 @@ pub fn mix_to_file_with(
     duration: f64,
     destination: &Path,
 ) -> Result<()> {
-    let encoding = if destination
+    let extension = destination
         .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"))
-    {
-        MixEncoding::Pcm16
-    } else {
-        MixEncoding::Aac
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
+    let encoding = match extension.as_deref() {
+        Some("wav") => MixEncoding::Pcm16,
+        Some("webm" | "opus" | "ogg" | "mka") => MixEncoding::Opus,
+        _ => MixEncoding::Aac,
     };
     mix_encoded(clips, buses, duration, destination, encoding, |_| true)
 }
@@ -589,6 +738,7 @@ pub fn mix_to_wav(
 
 enum MixEncoding {
     Aac,
+    Opus,
     Pcm16,
     PcmFloat,
 }
@@ -604,7 +754,19 @@ fn mix_encoded(
     if !progress(0.0) {
         return Err(Error::Cancelled);
     }
-    let wav = !matches!(encoding, MixEncoding::Aac);
+    ffi::init();
+    #[cfg(target_os = "android")]
+    if matches!(encoding, MixEncoding::Aac) {
+        for chain in clips
+            .iter()
+            .map(|clip| &clip.filter_chain)
+            .chain(buses.iter().map(|bus| &bus.filter_chain))
+        {
+            validate_chain(chain)?;
+        }
+        return android_aac::mix(clips, buses, duration, destination);
+    }
+    let wav = matches!(encoding, MixEncoding::Pcm16 | MixEncoding::PcmFloat);
     let (codec_name, mix_format) = match encoding {
         MixEncoding::Pcm16 => (
             "pcm_s16le",
@@ -614,9 +776,9 @@ fn mix_encoded(
             "pcm_f32le",
             Sample::F32(ffmpeg::util::format::sample::Type::Packed),
         ),
-        MixEncoding::Aac => ("aac", MIX_FORMAT),
+        MixEncoding::Opus => opus_encoder()?,
+        MixEncoding::Aac => aac_encoder()?,
     };
-    ffi::init();
     // A bad chain is refused before any file is opened.
     for chain in clips
         .iter()
@@ -651,9 +813,15 @@ fn mix_encoded(
     if global_header {
         audio.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
     }
+    // FFmpeg's own Opus encoder is still marked experimental, and opens
+    // only when told that is all right; libopus needs no such word.
+    if codec_name == "opus" {
+        audio.compliance(ffmpeg::codec::Compliance::Experimental);
+    }
+    ffi::begin();
     let mut encoder = audio
         .open()
-        .map_err(|error| ffi::fail("open encoder", destination, error))?;
+        .map_err(|error| ffi::fail_said("open encoder", destination, error))?;
     // PCM accepts variable-size frames. Use blocks rather than one sample
     // per packet; run_mix keeps the final block's exact sample count.
     let frame_size = if wav {
@@ -677,6 +845,12 @@ fn mix_encoded(
         .unwrap_or(ffmpeg::Rational::new(1, MIX_RATE as i32));
 
     let encoder_time_base = ffmpeg::Rational::new(1, MIX_RATE as i32);
+    // The samples the mix feeds, to the last one. A packet reaching past
+    // them is cut to end there, and one wholly past them, padding alone, is
+    // dropped, so the muxer trims the encoder's padding: FFmpeg's AAC
+    // encoder cuts its last packet itself, Apple's does not, and 6 s came
+    // out as 6.036 - a frame more of every video it went in.
+    let samples = (duration.max(0.0) * f64::from(MIX_RATE)).round() as i64;
     let drain = |encoder: &mut encoder::audio::Encoder,
                  output: &mut ffmpeg::format::context::Output|
      -> Result<()> {
@@ -684,6 +858,14 @@ fn mix_encoded(
             let mut packet = ffmpeg::Packet::empty();
             match encoder.receive_packet(&mut packet) {
                 Ok(()) => {
+                    if let Some(pts) = packet.pts() {
+                        if pts >= samples {
+                            continue;
+                        }
+                        if pts + packet.duration() > samples {
+                            packet.set_duration(samples - pts);
+                        }
+                    }
                     packet.set_stream(0);
                     packet.rescale_ts(encoder_time_base, stream_time_base);
                     packet
@@ -818,15 +1000,15 @@ fn run_mix(
     // sources are described by what actually comes out of the decoders.
     let mut inputs: Vec<MixInput> = Vec::with_capacity(members.len());
     let mut first_frames: Vec<Audio> = Vec::with_capacity(members.len());
+    ffi::begin();
     let mut graph = filter::Graph::new();
     for (index, clip) in members.iter().enumerate() {
         if !progress(0.0) {
             return Err(Error::Cancelled);
         }
         let path = clip.path.as_path();
-        let speed = clamp_speed(clip.speed);
         // Where in the source what is heard of the clip begins.
-        let in_point = clip.source_start + heard[index].from * speed;
+        let in_point = clip.source_start + clip.source_at(heard[index].from);
         let mut input =
             ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
         let stream_index =
@@ -841,15 +1023,15 @@ fn run_mix(
         // on the seek, so the in-point is measured from the same instant
         // the picture's is. See `ffi::origin`.
         let start = ffi::origin(&input).as_f64();
-        let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
-            .and_then(|context| context.decoder().audio())
-            .map_err(|error| ffi::fail("open decoder", path, error))?;
+        let decoder = ffi::audio_decoder(&stream)
+            .map_err(|error| ffi::fail_said("open decoder", path, error))?;
         // Near the in-point: the packet of the sound at or before it, on the
         // sound's own timestamps. The graph cuts the rest, by the lead
         // measured off the first frame below.
         if in_point > 0.0 {
             let _ = ffi::seek_audio(&mut input, stream_index, in_point + start);
         }
+        ffi::read_only(&mut input, stream_index);
         let label = format!("{index}:a");
         let mut mix_input = MixInput {
             path: path.to_path_buf(),
@@ -883,9 +1065,8 @@ fn run_mix(
         // sped-up clip covers more source than its timeline length, hence
         // the speed factor. The first frame goes into the graph separately
         // below, so it counts towards the total.
-        let span = heard[index].to - heard[index].from;
-        mix_input.clip_samples =
-            ((span * speed + lead).max(0.0) * f64::from(first.rate())).round() as i64;
+        let span = clip.source_at(heard[index].to) - clip.source_at(heard[index].from);
+        mix_input.clip_samples = ((span + lead).max(0.0) * f64::from(first.rate())).round() as i64;
         first.set_samples(first.samples().min(mix_input.clip_samples.max(0) as usize));
         mix_input.samples_sent = first.samples() as i64;
         // One sample per time-base tick: the PTS we stamp is a plain
@@ -903,7 +1084,7 @@ fn run_mix(
                 &mix_input.label,
                 &args,
             )
-            .map_err(|error| ffi::fail("buffer source", path, error))?;
+            .map_err(|error| ffi::fail_said("buffer source", path, error))?;
         first_frames.push(first);
         inputs.push(mix_input);
     }
@@ -913,7 +1094,7 @@ fn run_mix(
             "sink",
             "",
         )
-        .map_err(|error| ffi::fail("buffer sink", destination, error))?;
+        .map_err(|error| ffi::fail_said("buffer sink", destination, error))?;
 
     // The plan's `[out]` lands on the reader's own format before the sink.
     let graph_spec = mix_graph_from(&members, &heard, from, buses)?;
@@ -922,18 +1103,18 @@ fn run_mix(
     );
     let mut parser = graph
         .input("sink", 0)
-        .map_err(|error| ffi::fail("filter graph", destination, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     for input in &inputs {
         parser = parser
             .output(&input.label, 0)
-            .map_err(|error| ffi::fail("filter graph", destination, error))?;
+            .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     }
     parser
         .parse(&spec)
-        .map_err(|error| ffi::fail("filter graph", destination, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     graph
         .validate()
-        .map_err(|error| ffi::fail("filter graph", destination, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     if let Some(frame_size) = frame_size {
         let mut sink = graph.get("sink").expect("the graph has a sink");
         sink.sink().set_frame_size(frame_size);
@@ -1091,6 +1272,12 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
             .map_err(|error| ffi::fail("add stream", output, error))?;
         stream.set_parameters(video_stream.parameters());
         stream.set_time_base(video_tb);
+        // A WebM's alpha layer is in the packets, but the track only says
+        // it has one in its header: without the word a reader takes the
+        // picture for opaque and never opens the decoder that reads it.
+        if let Some(mode) = video_stream.metadata().get("alpha_mode") {
+            stream.metadata_mut().set("alpha_mode", mode);
+        }
     }
     {
         let mut stream = out
@@ -1099,7 +1286,15 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
         stream.set_parameters(audio_stream.parameters());
         stream.set_time_base(audio_tb);
     }
-    out.write_header_with(ffmpeg::dict! { "movflags" => "+faststart" })
+    // The index up front, as the picture's own file had it - but not for
+    // ProRes, where moving it writes gigabytes a minute again for a file
+    // an editor reads whole.
+    let header = if video_stream.parameters().id() == ffmpeg::codec::Id::PRORES {
+        ffmpeg::Dictionary::new()
+    } else {
+        ffmpeg::dict! { "movflags" => "+faststart" }
+    };
+    out.write_header_with(header)
         .map_err(|error| ffi::fail("write header", output, error))?;
     let out_video_tb = out
         .stream(0)
@@ -1361,6 +1556,9 @@ mod tests {
         let piece = AudioClip {
             start: 0.02,
             duration: 128.0 / f64::from(MIX_RATE),
+            // Exercise the source-span calculation used by speed curves,
+            // even when this short piece lies entirely in a flat step.
+            tempo: vec![(0.0, 1.0)],
             ..clip(source.to_str().unwrap())
         };
         mix_to_wav(&[piece], 0.05, &output, |_| true).unwrap();
@@ -1403,6 +1601,7 @@ mod tests {
             duration: 2.0,
             source_start: 0.0,
             speed: 1.0,
+            tempo: Vec::new(),
             preserve_pitch: true,
             volume: 1.0,
             volume_curve: Track::default(),
@@ -1433,6 +1632,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A changing rate is one tempo chain, its rate stepped by commands
+    /// at the source time each step is reached - not a filter per piece -
+    /// and split into equal stages when it goes past atempo's range.
+    #[test]
+    fn a_changing_rate_is_one_tempo_chain_stepped_by_commands() {
+        let mut clip = AudioClip {
+            path: "a.wav".into(),
+            stream: None,
+            start: 0.0,
+            duration: 3.0,
+            source_start: 0.0,
+            speed: 1.5,
+            tempo: vec![(0.0, 1.0), (1.0, 2.0), (2.0, 0.25)],
+            preserve_pitch: true,
+            volume: 1.0,
+            volume_curve: Track::default(),
+            fade_in: 0.0,
+            fade_out: 0.0,
+            filter_chain: String::new(),
+        };
+        // 1 s at 1x, 1 s at 2x, then a quarter.
+        assert!((clip.source_at(1.0) - 1.0).abs() < 1e-12);
+        assert!((clip.source_at(2.0) - 3.0).abs() < 1e-12);
+        assert!((clip.source_at(3.0) - 3.25).abs() < 1e-12);
+        let filters = clip.retime_filters(0.0, "c0");
+        // A quarter is two doublings: two stages of a half. Each step its
+        // own command filter, every one a chain `validate_chain` allows.
+        assert_eq!(filters.len(), 4, "{filters:?}");
+        assert!(filters[0].starts_with("asendcmd=c='1.000000 atempo@c0r0 tempo 1.414214"));
+        assert!(filters[1].starts_with("asendcmd=c='3.000000 atempo@c0r0 tempo 0.500000"));
+        assert_eq!(filters[2], "atempo@c0r0=tempo=1.000000");
+        assert!(filters.iter().all(|filter| validate_chain(filter).is_ok()));
+        // Heard from inside the 2x step: it starts at 2x, and the next
+        // step comes a source second later.
+        let from = clip.retime_filters(1.5, "c0");
+        assert!(from[0].starts_with("asendcmd=c='1.000000 atempo@c0r0 tempo 0.500000"));
+        assert_eq!(from[1], "atempo@c0r0=tempo=1.414214");
+        // The tape effect has no stretch to keep running: the mean rate.
+        clip.preserve_pitch = false;
+        assert_eq!(clip.retime_filters(0.0, "c0"), speed_filters(1.5, false));
     }
 
     #[test]
@@ -1737,6 +1978,7 @@ mod tests {
             duration,
             source_start,
             speed: 1.0,
+            tempo: Vec::new(),
             preserve_pitch: true,
             volume: 1.0,
             volume_curve: Track::default(),
@@ -1835,7 +2077,7 @@ mod tests {
         assert_eq!((heard.from, heard.to), (0.25, 2.0));
         let graph = mix_graph_from(&[shaped], &[heard], 1.25, &[]).expect("valid");
         assert!(
-            graph.contains("asetpts=PTS-STARTPTS+0.250000/TB,afade=t=in:st=0:d=0.5000,asetpts=PTS-STARTPTS,adelay=0:all=1"),
+            graph.contains("asetpts=PTS-STARTPTS+0.250000/TB,afade=t=in:st=0:d=0.5000:curve=qua,asetpts=PTS-STARTPTS,adelay=0:all=1"),
             "graph was: {graph}"
         );
         assert!(Heard::inside(&clip("a.mp4"), 2.0, 3.0).is_none());
@@ -1932,6 +2174,103 @@ mod tests {
                     .all(|(a, b)| { (i32::from(*a) - i32::from(*b)).abs() <= 2 }),
                 "the saved audio preserves the cut, gain and fades"
             );
+        }
+        std::fs::remove_dir_all(dir).expect("removes test files");
+    }
+
+    /// An overlay with alpha and its sound, joined the way an export joins
+    /// them: a ProRes picture with AAC in a .mov, a VP9 one with Opus in a
+    /// .webm, the only sound a WebM takes besides Vorbis. The joined WebM
+    /// still says it has an alpha layer, so the import reads it with the
+    /// decoder that keeps it.
+    #[test]
+    fn an_overlay_with_alpha_takes_its_sound_in_its_own_container() {
+        use crate::decode::{DecodeOptions, Decoder, FrameSource};
+        use crate::{AudioDecoder, AudioOptions, EncodeOptions, Encoder, FrameSink, VideoCodec};
+        use concat_core::frame::Frame;
+        use concat_core::time::FrameRate;
+
+        let dir = std::env::temp_dir().join(format!("concat-alpha-mux-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("creates a folder");
+        let tone = dir.join("tone.wav");
+        tone_wav(&tone, 1.0);
+        for codec in [VideoCodec::ProRes4444, VideoCodec::Vp9Alpha] {
+            if !codec.available() {
+                eprintln!("{} not in the linked FFmpeg; skipped", codec.label());
+                continue;
+            }
+            let container = codec.container();
+            let webm = container == "webm";
+            let video = dir.join(format!("picture.{container}"));
+            let sound = dir.join(if webm { "sound.webm" } else { "sound.m4a" });
+            let output = dir.join(format!("joined.{container}"));
+
+            // A second of a frame clear on its right half.
+            let mut frame = Frame::transparent(64, 64);
+            for y in 0..64 {
+                for x in 0..32 {
+                    frame.set_pixel(x, y, [200, 40, 40, 255]);
+                }
+            }
+            let options = EncodeOptions {
+                codec,
+                preset: "ultrafast".to_owned(),
+                hardware: false,
+                ..EncodeOptions::default()
+            };
+            let mut encoder =
+                Encoder::create(&video, 64, 64, FrameRate::THIRTY, &options).expect("opens");
+            for _ in 0..30 {
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+            let piece = AudioClip {
+                path: tone.clone(),
+                duration: 1.0,
+                ..clip("")
+            };
+            mix_to_file(&[piece], 1.0, &sound).expect("mixes");
+            mux(&video, &sound, &output).expect("muxes");
+
+            let counts = packets_of(&output);
+            assert_eq!(counts[0], 30, "{}: every picture packet", codec.label());
+            {
+                let input = ffmpeg::format::input(&output).expect("opens");
+                let picture = input
+                    .streams()
+                    .best(ffmpeg::media::Type::Video)
+                    .expect("video");
+                if webm {
+                    assert_eq!(
+                        picture.metadata().get("alpha_mode"),
+                        Some("1"),
+                        "the joined track still says it has alpha"
+                    );
+                }
+                let heard = input
+                    .streams()
+                    .best(ffmpeg::media::Type::Audio)
+                    .expect("audio");
+                let wanted = if webm {
+                    ffmpeg::codec::Id::OPUS
+                } else {
+                    ffmpeg::codec::Id::AAC
+                };
+                assert_eq!(heard.parameters().id(), wanted, "{}", codec.label());
+            }
+            let mut decoder =
+                Decoder::open(&output, &DecodeOptions::default().in_software()).expect("opens");
+            let back = decoder.next_frame().expect("decodes").expect("a frame");
+            let [.., opaque] = back.pixel(16, 32).expect("inside");
+            let [.., clear] = back.pixel(48, 32).expect("inside");
+            assert!(opaque > 250, "{}: opaque came back {opaque}", codec.label());
+            assert!(clear < 8, "{}: clear came back {clear}", codec.label());
+            let mut sound = AudioDecoder::open(&output, &AudioOptions::default()).expect("opens");
+            let mut audible = false;
+            while let Some(samples) = sound.next_i16().expect("decodes") {
+                audible |= samples.iter().any(|sample| i32::from(*sample).abs() > 1000);
+            }
+            assert!(audible, "{}: the tone is heard", codec.label());
         }
         std::fs::remove_dir_all(dir).expect("removes test files");
     }

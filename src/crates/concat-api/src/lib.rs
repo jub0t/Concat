@@ -28,8 +28,12 @@
 //! once and the job reports through the [`EventSink`] the API was made
 //! with, from that thread, which is why the sink must be `Send + Sync`.
 
+#[cfg(feature = "schema")]
+mod contract;
 mod job;
 pub mod message;
+#[cfg(test)]
+mod project_close_tests;
 pub mod rpc;
 
 use std::collections::BTreeMap;
@@ -74,6 +78,11 @@ const CAPABILITIES: &[&str] = &["events"];
 /// what a caller is told about a field is what its maintainer wrote next
 /// to it. Generated, never written by hand: a method or a command field
 /// added to the types is in the schema on the next build.
+#[cfg(feature = "schema")]
+pub use contract::contract_schema;
+
+/// The JSON Schema of [`Request`] alone; see [`contract_schema`] for the
+/// whole contract.
 #[cfg(feature = "schema")]
 pub fn request_schema() -> serde_json::Value {
     serde_json::to_value(schemars::schema_for!(Request)).unwrap_or_default()
@@ -527,7 +536,7 @@ impl Api {
             video.height,
             video.rate_num,
             video.rate_den,
-            [0, 0, 0],
+            video.canvas,
         )
         .map_err(ApiError::failed)?;
         self.adopt(info)
@@ -689,7 +698,9 @@ impl Api {
             None if hdr => export::VideoCodec::Hevc,
             None => export::VideoCodec::H264,
             Some(name) => export::VideoCodec::parse(name).ok_or_else(|| {
-                ApiError::invalid(format!("unknown codec {name:?}: h264, hevc or av1"))
+                ApiError::invalid(format!(
+                    "unknown codec {name:?}: h264, hevc, av1, prores-4444 or vp9-alpha"
+                ))
             })?,
         };
         if hdr && codec == export::VideoCodec::H264 {
@@ -863,6 +874,7 @@ impl Api {
                     proxy: false,
                     color_space: session.video().color_space,
                     canvas: session.video().canvas,
+                    nearest: false,
                 },
             )
             .map_err(ApiError::failed)?;
@@ -1322,7 +1334,7 @@ mod tests {
             location: location.clone(),
             name: "Round trip".to_owned(),
             video: Some(VideoSettings {
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 width: 1080,
                 height: 1920,
                 rate_num: 60,
@@ -1398,11 +1410,12 @@ mod tests {
         let clip_id = placed.project.active().clips[0].id.clone();
         for command in [
             json!({ "op": "updateClip", "clipId": clip_id,
-                    "patch": { "mask": { "shape": "star", "feather": 0.3, "invert": true } } }),
-            json!({ "op": "setClipKey", "clipId": clip_id, "property": "maskWidth",
-                    "at": 0.0, "value": 0.2 }),
-            json!({ "op": "setClipKey", "clipId": clip_id, "property": "maskWidth",
-                    "at": 1.0, "value": 1.2 }),
+                    "patch": { "masks": [{ "source": { "kind": "shape", "shape": "star" },
+                                           "feather": 0.3, "invert": true }] } }),
+            json!({ "op": "setMaskKey", "clipId": clip_id, "maskId": "mask-1",
+                    "number": "width", "at": 0.0, "value": 0.2 }),
+            json!({ "op": "setMaskKey", "clipId": clip_id, "maskId": "mask-1",
+                    "number": "width", "at": 1.0, "value": 1.2 }),
         ] {
             let request: Request = serde_json::from_value(json!({
                 "method": "edit.apply", "path": path, "command": command
@@ -1412,10 +1425,10 @@ mod tests {
         }
         let got = view(ok(api.dispatch(Request::ProjectGet { path })));
         let clip = &got.project.active().clips[0];
-        let mask = clip.mask.expect("a mask");
-        assert_eq!(mask.shape, concat_project::model::MaskShape::Star);
+        let mask = &clip.masks[0];
+        assert_eq!(mask.shape(), Some(concat_project::model::MaskShape::Star));
         assert!(mask.invert && (mask.feather - 0.3).abs() < 1e-12);
-        let width = clip.value_at(concat_project::model::KeyProperty::MaskWidth, 0.5);
+        let width = mask.value_at("width", 0.5);
         assert!((width - 0.7).abs() < 1e-12, "the key rides: {width}");
     }
 

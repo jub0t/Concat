@@ -34,8 +34,8 @@ pub enum StartMsg {
     CustomWidth(f32),
     CustomHeight(f32),
     CustomFps(f32),
-    /// What shows where no picture covers the frame, `[r, g, b]`.
-    CanvasChanged([u8; 3]),
+    /// What shows where no picture covers the frame, `[r, g, b, a]`.
+    CanvasChanged([u8; 4]),
     DismissError,
     /// Pick where the project folder goes.
     Browse,
@@ -46,6 +46,8 @@ pub enum StartMsg {
     Open,
     /// The folder the Open picker answered with.
     OpenChosen(PathBuf),
+    /// Make a project of a CapCut draft, picked from CapCut's drafts.
+    ImportCapcut,
     OpenRecent(String),
     ForgetRecent(String),
     /// Show a project's folder in the file manager.
@@ -108,6 +110,12 @@ pub fn link(name: &str) -> Option<String> {
         "first-edit" => format!("{SITE}/guides/first-edit/"),
         "report" => format!("{SITE}/guides/report-a-problem/"),
         "github" => REPOSITORY.to_owned(),
+        // The gradient card: this version's "What's new" post on the
+        // website's blog, the polished telling of its release notes.
+        "news" => format!(
+            "{SITE}/blog/whats-new-in-{}/",
+            env!("CARGO_PKG_VERSION").replace('.', "-")
+        ),
         // The invite the README carries.
         "discord" => "https://discord.gg/DVuPfpXfqP".to_owned(),
         // The notes for the release this build is, under the tag the
@@ -138,7 +146,7 @@ pub struct StartPane {
     pub custom_rate: (i64, i64),
     /// What shows where no picture covers the frame (#456): black, as
     /// every project before it had.
-    pub canvas: [u8; 3],
+    pub canvas: [u8; 4],
     pub busy: bool,
     pub error: String,
     /// The projects' search, as typed; empty shows them all.
@@ -164,7 +172,7 @@ impl Default for StartPane {
             rate: 3,
             custom_size: (1920, 1080),
             custom_rate: (30, 1),
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             busy: false,
             error: String::new(),
             query: String::new(),
@@ -187,7 +195,9 @@ fn default_location() -> String {
         && !location.is_empty()
         && let Err(error) = std::fs::create_dir_all(&location)
     {
-        log::warn!("could not make {location}: {error}");
+        log::warn!(
+            "project: wanted the new-project folder {location} and could not make it: {error}; the first project makes it"
+        );
     }
     location
 }
@@ -308,7 +318,19 @@ impl StartPane {
             StartMsg::FolderChosen(folder) => self.location = folder,
             StartMsg::Create => self.create(studio),
             StartMsg::Open => self.open(),
-            StartMsg::OpenChosen(folder) => Self::open_chosen(&folder, studio),
+            StartMsg::OpenChosen(folder) => Self::open_chosen(&folder, &self.location, studio),
+            StartMsg::ImportCapcut => {
+                let title = t("start.importCapcut");
+                let drafts = concat_host::capcut::drafts_folder()
+                    .map(|folder| folder.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                crate::host::after_dialog(
+                    move || platform::pick_folder(&title, &drafts),
+                    |studio, _, _, folder| {
+                        studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
+                    },
+                );
+            }
             // Both of the grid's verbs report through the toast, as Open
             // does: the sheet is down while a card is pressed, and a notice
             // inside it would go unseen.
@@ -320,8 +342,7 @@ impl StartPane {
                     studio.recents = projects::recents(&studio.host.dirs.config);
                     return;
                 }
-                if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info))
-                {
+                if let Err(error) = studio.open_project_at(&path) {
                     studio.notify(&error, true);
                 }
             }
@@ -354,7 +375,9 @@ impl StartPane {
                     return;
                 }
                 let Some(url) = link(&name) else {
-                    log::warn!("start: no link is called {name:?}");
+                    log::warn!(
+                        "start: the launch screen asked for a link called {name:?}, which there is none of; nothing opened"
+                    );
                     return;
                 };
                 if let Err(error) = platform::open_link(&url) {
@@ -373,10 +396,13 @@ impl StartPane {
         if self.busy {
             return;
         }
-        if let Some(folder) = paths.iter().find(|path| projects::is_project(path)) {
+        if let Some(folder) = paths
+            .iter()
+            .find(|path| projects::is_project(path) || concat_host::capcut::is_draft(path))
+        {
             self.dropped.clear();
             self.composing = false;
-            Self::open_chosen(folder, studio);
+            Self::open_chosen(folder, &self.location, studio);
             return;
         }
         let media: Vec<PathBuf> = paths.into_iter().filter(|path| path.is_file()).collect();
@@ -412,6 +438,11 @@ impl StartPane {
             return;
         }
         let opened = projects::create(&self.location, &name, width, height, num, den, self.canvas)
+            .inspect_err(|error| {
+                log::error!(
+                    "project: making {name} failed: {error}; the new-project sheet stays up"
+                );
+            })
             .and_then(|info| studio.open_project(info));
         self.busy = false;
         match opened {
@@ -460,15 +491,49 @@ impl StartPane {
         );
     }
 
-    /// The folder Open was answered with: checked, then opened.
-    fn open_chosen(folder: &Path, studio: &mut Studio) {
+    /// The folder Open was answered with: checked, then opened. A CapCut
+    /// draft is made a project of first, under `location` - where a new
+    /// project goes - and the draft itself is left as it was (#477).
+    fn open_chosen(folder: &Path, location: &str, studio: &mut Studio) {
         let path = folder.to_string_lossy().into_owned();
+        if !projects::is_project(folder) && concat_host::capcut::is_draft(folder) {
+            Self::import_capcut(folder, location, studio);
+            return;
+        }
         if !projects::is_project(folder) {
             studio.notify(&tf("start.notConcatProjectFolder", &[&path]), true);
             return;
         }
-        if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info)) {
+        if let Err(error) = studio.open_project_at(&path) {
             studio.notify(&error, true);
+        }
+    }
+
+    /// Makes a project of the CapCut draft in `folder` and opens it, saying
+    /// how much of it came across: what did not is named in the log.
+    fn import_capcut(folder: &Path, location: &str, studio: &mut Studio) {
+        let imported = concat_host::capcut::import(folder, location);
+        match imported {
+            Ok(import) => {
+                let left = import.notes.len();
+                if let Err(error) = studio.open_project(import.project) {
+                    studio.notify(&error, true);
+                    return;
+                }
+                let said = if left == 0 {
+                    t("start.capcutImported")
+                } else {
+                    tf("start.capcutImportedSome", &[&left])
+                };
+                studio.notify(&said, false);
+            }
+            Err(error) => {
+                log::error!(
+                    "project: making a project of the draft {} failed: {error}; nothing was made",
+                    folder.display()
+                );
+                studio.notify(&tf("start.capcutImportFailed", &[&error]), true);
+            }
         }
     }
 
@@ -525,7 +590,12 @@ impl StartPane {
             size: self.size as i32,
             rate: self.rate as i32,
             size_readout: format!("{width} x {height}").into(),
-            canvas: slint::Color::from_rgb_u8(self.canvas[0], self.canvas[1], self.canvas[2]),
+            canvas: slint::Color::from_argb_u8(
+                self.canvas[3],
+                self.canvas[0],
+                self.canvas[1],
+                self.canvas[2],
+            ),
             custom_width: width as f32,
             custom_height: height as f32,
             custom_fps: fps_of(num, den) as f32,
@@ -596,7 +666,7 @@ mod tests {
     fn the_projects_search_and_sort() {
         let recent = |name: &str, path: &str| projects::Recent {
             info: projects::ProjectInfo {
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 path: path.into(),
                 name: name.into(),
                 width: 1920,
@@ -642,6 +712,7 @@ mod tests {
             "report",
             "github",
             "discord",
+            "news",
             "release-notes",
         ] {
             assert!(

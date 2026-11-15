@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! How much memory the machine has, for sizing the caches to it.
 //!
@@ -45,6 +45,56 @@ fn read() -> Option<u64> {
 #[cfg(not(any(unix, windows)))]
 fn read() -> Option<u64> {
     None
+}
+
+/// Hands memory the app has freed back to the system. Every platform's
+/// allocator keeps freed blocks to reuse rather than returning them, and
+/// after a burst - a project opened, a scrub, decoders closed - that was a
+/// hundred megabytes and more the app no longer used but still counted
+/// against it in Activity Monitor and Task Manager. For when the app has
+/// gone quiet; the next allocation after it costs a little more.
+pub fn release_freed() {
+    #[cfg(target_vendor = "apple")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // SAFETY: a null zone asks every zone, and a goal of zero asks for
+        // all it can give; libmalloc takes its own locks.
+        unsafe {
+            malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+        }
+    }
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: glibc's trim takes its arena locks itself.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+    #[cfg(target_os = "android")]
+    {
+        // Bionic's M_PURGE, Android 9 and later: its allocator returns the
+        // pages it can. An older release refuses the option, harmlessly.
+        // Bionic exports mallopt, but the libc crate binds it for glibc and
+        // musl only, so it is declared here.
+        const M_PURGE: libc::c_int = -101;
+        unsafe extern "C" {
+            fn mallopt(param: libc::c_int, value: libc::c_int) -> libc::c_int;
+        }
+        // SAFETY: mallopt takes an option and a value, and refuses one it
+        // does not know.
+        unsafe {
+            mallopt(M_PURGE, 0);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Memory::{GetProcessHeap, HeapCompact};
+        // SAFETY: the process heap lives as long as the process; compacting
+        // it coalesces free blocks and decommits the large ones.
+        unsafe {
+            HeapCompact(GetProcessHeap(), 0);
+        }
+    }
 }
 
 #[cfg(test)]

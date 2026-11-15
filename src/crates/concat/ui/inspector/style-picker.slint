@@ -1,0 +1,223 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+// The style picker: a text preset chosen from a list searched as it is
+// typed into, each row with its sample drawn in its own look - face,
+// weight, fill, stroke and plate - so a style is found by sight before
+// its name is read. The trigger shows the one chosen the same way.
+//
+// The list is narrowed by Rust, as the font picker's is: Slint cannot
+// filter a model, so the query goes out and the presets that match come
+// back as `matches`.
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { SearchField } from "controls.slint";
+import { TextAlignment } from "../timeline/model.slint";
+import { ListView } from "std-widgets.slint";
+
+/// One look a title can be given, as the Text page's Presets shelf shows
+/// it: enough of the style to draw the name in it. Published by Rust from
+/// the preset list; the id is what is placed, and ids are stable for ever
+/// because project files store them.
+export struct TextPresetData {
+    id: string,
+    name: string,
+    /// The writing its face is made for: "Latin", "Japanese", "Hebrew".
+    language: string,
+    /// What the card draws in the look: "Aa", or a word of its own writing.
+    sample: string,
+    family: string,
+    weight: int,
+    italic: bool,
+    fill: color,
+    plate: color,
+    plated: bool,
+    stroke: color,
+    /// as a fraction of the frame; zero for none
+    stroke-width: float,
+    align: TextAlignment,
+}
+
+/// A preset's sample in its look, on the ground the library's cards use.
+export component PresetSwatch inherits Rectangle {
+    in property <TextPresetData> preset;
+    in property <length> size: 28px;
+
+    width: root.size;
+    height: root.size;
+    border-radius: Theme.r-sm;
+    background: Theme.sample-ground;
+    border-width: 1px;
+    border-color: Theme.line;
+    clip: true;
+
+    if root.preset.plated: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: Math.min(parent.width - 4px, sample.preferred-width + 6px);
+        height: sample.preferred-height + 2px;
+        border-radius: Theme.r-xs;
+        background: root.preset.plate;
+    }
+
+    sample := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: Math.min(parent.width - 4px, self.preferred-width);
+        text: root.preset.sample;
+        color: root.preset.fill;
+        font-family: root.preset.family;
+        font-weight: root.preset.weight;
+        font-italic: root.preset.italic;
+        font-size: root.size * 0.46;
+        stroke: root.preset.stroke;
+        stroke-width: root.preset.stroke-width > 0 ? 1px : 0px;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+}
+
+export component StylePicker inherits Rectangle {
+    /// The preset chosen, drawn on the trigger.
+    in property <TextPresetData> current;
+    /// The presets the search lets through, in the library's order.
+    in property <[TextPresetData]> matches;
+    callback query-changed(text: string);
+    callback picked(id: string);
+
+    property <length> row-h: 40px;
+
+    height: 40px;
+    horizontal-stretch: 1;
+    border-radius: Theme.r;
+    background: (touch.has-hover || list.is-open) ? Theme.field-hover : Theme.field;
+    border-width: 1px;
+    border-color: list.is-open ? Theme.accent : Theme.line;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 8px;
+        spacing: 10px;
+
+        VerticalLayout {
+            alignment: center;
+            PresetSwatch { preset: root.current; size: 28px; }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.current.name;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Icon { glyph: Glyph.chevron-down; size: 12px; tint: Theme.fg-muted; }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.query-changed("");
+            list.show();
+        }
+    }
+
+    list := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: Math.max(root.width, 240px);
+        height: 340px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 6px;
+                spacing: 6px;
+
+                SearchField {
+                    placeholder: I18n.t("captions.searchStyles");
+                    esc-passes: true;
+                    edited(text) => { root.query-changed(text); }
+                    init => { self.focus(); }
+                }
+
+                if root.matches.length == 0: Text {
+                    text: I18n.t("captions.noStylesMatch");
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    vertical-stretch: 1;
+                }
+
+                // Virtual: a person's own presets join the shipped ones,
+                // and every row draws its sample in its own face.
+                if root.matches.length > 0: ListView {
+                    vertical-stretch: 1;
+                    for preset in root.matches: Rectangle {
+                        height: root.row-h;
+                        border-radius: Theme.r-sm;
+                        background: row.has-hover ? Theme.field-hover : transparent;
+
+                        HorizontalLayout {
+                            padding-left: 4px;
+                            padding-right: 8px;
+                            spacing: 10px;
+
+                            VerticalLayout {
+                                alignment: center;
+                                PresetSwatch { preset: preset; size: 30px; }
+                            }
+
+                            Text {
+                                horizontal-stretch: 1;
+                                text: preset.name;
+                                color: preset.id == root.current.id ? Theme.accent : Theme.fg;
+                                font-size: Theme.fs;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+
+                            // The writing, for a face made for one other
+                            // than the Latin most of the list is in.
+                            if !(preset.language == "Latin" || preset.language == "latin"): Text {
+                                text: preset.language;
+                                color: Theme.fg-dim;
+                                font-size: Theme.fs-sm;
+                                vertical-alignment: center;
+                            }
+
+                            if preset.id == root.current.id: VerticalLayout {
+                                alignment: center;
+                                Icon { glyph: Glyph.check; size: 13px; tint: Theme.accent; }
+                            }
+                        }
+
+                        row := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.picked(preset.id);
+                                list.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

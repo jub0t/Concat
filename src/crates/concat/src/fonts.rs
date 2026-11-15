@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! The base fonts, lent to the window, and the faces it falls back on for
 //! the scripts they have no glyphs for.
@@ -146,7 +146,7 @@ fn register_fallbacks(
         }
         if registered.is_empty() {
             log::warn!(
-                "fonts: the bundled {} face did not register",
+                "fonts: the bundled {} face would not register; text in its scripts falls back to the system's fonts",
                 fallback.family
             );
         }

@@ -6,18 +6,18 @@ name = "Light Leak"
 kind = "transition"
 category = "Light"
 order = 13
-description = "A warm streak of light sweeps across the cut."
+description = "A wash of warm light flares across the frame and the next shot is left behind it as it passes."
 
 [[param]]
 key = "warmth"
 label = "Warmth"
+unit = "%"
 min = 0
 max = 100
-default = 70
 step = 1
-unit = "%"
+default = 70
 
 [transition]
-entry = "effect.wgsl"
-xfade = "fadewhite"
 fallback = "cross-fade"
+xfade = "fadewhite"
+entry = "effect.wgsl"

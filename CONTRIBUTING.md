@@ -75,21 +75,25 @@ around you; the engine avoids cleverness on purpose.
 
 ## Licensing your contribution
 
-Concat is **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)).
+Concat is published under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)) and
+also licensed on commercial terms by its owner ([`LICENSING.md`](LICENSING.md)).
 
-Contributions are accepted under the agreement in [`CLA.md`](CLA.md). **You
-assign the copyright in your contribution to Concat's owner**, and get a
-licence back to use your own work for anything, plus a promise that it always
-stays open source. Copyright in one place is what makes the AGPL enforceable
-against companies that take the code without honouring it.
+Contributions come in under the terms in [`CLA.md`](CLA.md): **you license
+your contribution under the MIT No Attribution licence (MIT-0)**. You keep
+your copyright and can use your own work for anything; Concat's owner, and
+anyone else, can use it for anything too, commercial terms included, with no
+credit owed.
 
-Sign off your commits to indicate agreement:
+Two things are needed before a pull request can be merged:
 
-```sh
-git commit -s -m "your message"
-```
+1. Every commit is signed off, with your real name and a working email:
 
-Typo and documentation fixes do not need a sign-off.
+   ```sh
+   git commit -s -m "your message"
+   ```
+
+2. On your first pull request, a comment from you confirming you have read the
+   terms and agree to them. The pull request asks for it.
 
 ### File headers
 
@@ -97,7 +101,7 @@ Every source file starts with:
 
 ```rust
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 ```
 
 Use this header as it is, and don't add a copyright line of your own.
@@ -105,9 +109,11 @@ Use this header as it is, and don't add a copyright line of your own.
 ### Third-party code
 
 If your patch brings in code you did not write, say so in the PR: what it is,
-where it came from, and its licence. Anything incompatible with
-AGPL-3.0-or-later cannot be merged, and licence problems are much cheaper to
-catch before a merge than after a release.
+where it came from, and its licence. It has to be under a permissive licence
+(MIT, BSD, Apache-2.0, zlib, ISC or similar), because Concat's commercial
+builds must be able to carry it too; GPL, AGPL, LGPL and other copyleft code
+cannot be merged. Licence problems are much cheaper to catch before a merge
+than after a release.
 
 ## Trademarks
 

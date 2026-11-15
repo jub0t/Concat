@@ -1,0 +1,13 @@
+id = "concat.persian"
+name = "Persian"
+language = "Persian"
+order = 41
+
+[style]
+content = "سلام"
+fontFamily = "Noto Sans Arabic UI"
+fontWeight = 400
+fontSize = 0.1
+color = "#FFE14D"
+strokeWidth = 0.008
+strokeColor = "#1A1A1A"

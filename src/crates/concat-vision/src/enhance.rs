@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! Enhance: a picture restored and enlarged by a model.
 //!
@@ -13,13 +13,14 @@
 //! is a pure function here, tested without a model; only [`Enhancer`]
 //! needs one, and the `infer` feature that brings the runtime.
 //!
-//! Four times is more than a clip usually wants - a phone's 1080p is
-//! plenty at 4K, and 8K is a file nobody can play - so [`factor_for`]
-//! picks two, or one when the picture is already large, and the four-times
-//! answer is averaged down to it. Averaging down from the restored picture
-//! keeps the restoration and drops only the size. The person can ask for a
-//! size of their own instead - see [`factor_of`] - but never one past
-//! [`LONGEST_SIDE`].
+//! Four times is more than a clip wants. Past 2K - 2560 by 1440, what a
+//! consumer machine plays and a phone or laptop screen shows - enlarging
+//! buys time and gigabytes and no picture anybody sees, so nothing is made
+//! larger than [`MAX_LONG`] by [`MAX_SHORT`]. Inside that the size is the
+//! person's, any scale in hundredths - see [`scale_of`] - and Auto is
+//! twice, or as near as fits. The model's four-times answer is averaged
+//! down to the exact size by [`area_resize`], which keeps the restoration
+//! and drops only the pixels.
 //!
 //! The model's answer is also as strong as it is: skin smoothed to wax,
 //! grain scrubbed to plastic, which is the complaint every one-button
@@ -40,9 +41,15 @@ pub const CORE: u32 = 256;
 pub const PAD: u32 = 16;
 /// The square the model actually reads: the tile and its margin.
 pub const WINDOW: u32 = CORE + 2 * PAD;
-/// The longest side Enhance will produce: past this the picture is
+/// The longest side Enhance will make: 2K's. A picture already past it is
 /// restored at its own size rather than enlarged.
-pub const LONGEST_SIDE: u32 = 4096;
+pub const MAX_LONG: u32 = 2560;
+/// The shorter side's limit, 2K's 1440, so an upright phone video is held
+/// to 1440 across as a landscape one is held to 1440 high.
+pub const MAX_SHORT: u32 = 1440;
+/// The smallest step a scale is asked in, so a copy made at one scale is
+/// found again rather than made twice for a slider's rounding.
+pub const SCALE_STEP: f32 = 0.05;
 
 /// One tile: a rectangle of source pixels restored in one run. Every tile
 /// but the last in a row or column is [`CORE`] square.
@@ -79,56 +86,75 @@ pub fn tiles(width: u32, height: u32) -> Vec<Tile> {
     tiles
 }
 
-/// How many times larger a `width` by `height` picture comes out: twice,
-/// unless that would pass [`LONGEST_SIDE`], and then once, restored at
-/// its own size.
-pub fn factor_for(width: u32, height: u32) -> u32 {
-    if fits(width, height, 2) { 2 } else { 1 }
+/// `scale` on the [`SCALE_STEP`] grid, rounded down so it never steps past
+/// the limit it was clamped to.
+fn on_grid(scale: f32) -> f32 {
+    ((scale / SCALE_STEP) + 1e-3).floor() * SCALE_STEP
 }
 
-/// The sizes a person can ask for, in times larger: restored at its own
-/// size, twice, and the model's own four times.
-pub const SIZES: [u32; 3] = [1, 2, 4];
+/// The most a `width` by `height` picture may be enlarged: as far as 2K
+/// on both sides allows, exactly - 1080p's is 1440p's four thirds, off
+/// the grid - never past the model's own four times, and never under
+/// once: a picture already past 2K is restored at its own size.
+pub fn max_scale(width: u32, height: u32) -> f32 {
+    let (long, short) = (width.max(height), width.min(height));
+    if long == 0 || short == 0 {
+        return SCALE as f32;
+    }
+    let most = (MAX_LONG as f32 / long as f32)
+        .min(MAX_SHORT as f32 / short as f32)
+        .min(SCALE as f32);
+    most.max(1.0)
+}
 
-/// Whether a `width` by `height` picture enlarged `factor` times stays
-/// within [`LONGEST_SIDE`]. Once - restored at its own size - always does:
-/// a picture already past the limit is still restored, just not enlarged.
-pub fn fits(width: u32, height: u32, factor: u32) -> bool {
-    factor <= 1 || u64::from(width.max(height)) * u64::from(factor) <= u64::from(LONGEST_SIDE)
+/// Auto: twice, or as much as 2K leaves when that is less.
+pub fn auto_scale(width: u32, height: u32) -> f32 {
+    max_scale(width, height).min(2.0)
 }
 
 /// How many times larger a `width` by `height` picture comes out when the
-/// person asked for `asked`: 0 is Auto, [`factor_for`]; otherwise the
-/// largest of [`SIZES`] no larger than what was asked that [`fits`]. The
-/// ask is a setting that outlives the clip it was made on, so 4x picked
-/// on a small clip and carried to a 4K one comes out once, not at 16K.
-pub fn factor_of(asked: u32, width: u32, height: u32) -> u32 {
-    if asked == 0 {
-        return factor_for(width, height);
+/// person asked for `asked`: zero or less is Auto, [`auto_scale`];
+/// otherwise the ask on the [`SCALE_STEP`] grid, held between once and
+/// [`max_scale`]. The ask is a setting that outlives the clip it was made
+/// on, so 4x picked on a small clip and carried to a 4K one comes out
+/// once, not at 16K.
+pub fn scale_of(asked: f32, width: u32, height: u32) -> f32 {
+    if asked.is_nan() || asked <= 0.0 {
+        return auto_scale(width, height);
     }
-    SIZES
-        .iter()
-        .copied()
-        .filter(|&factor| factor <= asked && fits(width, height, factor))
-        .max()
-        .unwrap_or(1)
+    let most = max_scale(width, height);
+    // The top of the slider is the limit itself, which is off the grid.
+    if asked >= most - SCALE_STEP / 2.0 {
+        return most;
+    }
+    on_grid(asked + 1e-4).clamp(1.0, most)
+}
+
+/// The size a `width` by `height` picture comes out at `scale`: each side
+/// rounded and made even, which a video encoder wants, and never under 2.
+pub fn size_at(width: u32, height: u32, scale: f32) -> (u32, u32) {
+    let side = |length: u32| {
+        let scaled = (length as f32 * scale.max(1.0)).round() as u32;
+        (scaled & !1).max(2)
+    };
+    (side(width), side(height))
 }
 
 /// The rectangle of a `width` by `height` picture, at its centre, that
 /// comes out no larger than `most_width` by `most_height` once enlarged
-/// `factor` times: what a preview restores, so that it shows the model's
+/// `scale` times: what a preview restores, so that it shows the model's
 /// work at full size in seconds rather than the whole frame in minutes.
 /// The whole picture when it is smaller than that.
 pub fn centre_region(
     width: u32,
     height: u32,
-    factor: u32,
+    scale: f32,
     most_width: u32,
     most_height: u32,
 ) -> Tile {
-    let factor = factor.max(1);
-    let w = (most_width / factor).max(1).min(width);
-    let h = (most_height / factor).max(1).min(height);
+    let scale = scale.max(1.0);
+    let w = ((most_width as f32 / scale) as u32).max(1).min(width);
+    let h = ((most_height as f32 / scale) as u32).max(1).min(height);
     Tile {
         x: (width - w) / 2,
         y: (height - h) / 2,
@@ -314,6 +340,80 @@ pub fn paste(out: &mut Frame, tile: Tile, answer: &[f32]) -> Result<(), String> 
     Ok(())
 }
 
+/// For each of `to` output samples along one side of a side `from` long,
+/// the source samples its span covers and how much of each: a box filter
+/// at any ratio, so a shrink averages every pixel it drops. Meant for
+/// shrinking; `to` must not be more than `from`.
+fn spans(from: u32, to: u32) -> Vec<Vec<(usize, f32)>> {
+    let ratio = from as f64 / to.max(1) as f64;
+    (0..to)
+        .map(|i| {
+            let (start, end) = (i as f64 * ratio, (i as f64 + 1.0) * ratio);
+            let mut taps = Vec::new();
+            let mut at = start.floor() as usize;
+            while (at as f64) < end && at < from as usize {
+                let cover = (end.min(at as f64 + 1.0) - start.max(at as f64)) as f32;
+                if cover > 0.0 {
+                    taps.push((at, cover / ratio as f32));
+                }
+                at += 1;
+            }
+            taps
+        })
+        .collect()
+}
+
+/// `frame` shrunk to `width` by `height` by averaging the area each output
+/// pixel covers: the model's four-times answer brought down to any size
+/// without the aliasing a sampling filter leaves. Sides larger than the
+/// frame's are not its job; [`resize`] enlarges.
+pub fn area_resize(frame: &Frame, width: u32, height: u32) -> Frame {
+    let (fw, fh) = (frame.width(), frame.height());
+    if fw == width && fh == height {
+        return frame.clone();
+    }
+    if fw % width.max(1) == 0 && fh % height.max(1) == 0 && fw / width.max(1) == fh / height.max(1)
+    {
+        return downscale(frame, fw / width.max(1));
+    }
+    if fw == 0 || fh == 0 || width == 0 || height == 0 {
+        return Frame::black(width, height);
+    }
+    let (ow, oh, sw) = (width as usize, height as usize, fw as usize);
+    let source = frame.pixels();
+    let across = spans(fw, width);
+    let mut wide = vec![0f32; ow * fh as usize * BYTES_PER_PIXEL];
+    for y in 0..fh as usize {
+        let row = &source[y * sw * BYTES_PER_PIXEL..(y + 1) * sw * BYTES_PER_PIXEL];
+        for (x, taps) in across.iter().enumerate() {
+            let at = (y * ow + x) * BYTES_PER_PIXEL;
+            for &(index, weight) in taps {
+                for c in 0..BYTES_PER_PIXEL {
+                    wide[at + c] += weight * f32::from(row[index * BYTES_PER_PIXEL + c]);
+                }
+            }
+        }
+    }
+    let down = spans(fh, height);
+    let mut pixels = vec![0u8; ow * oh * BYTES_PER_PIXEL];
+    for (y, taps) in down.iter().enumerate() {
+        for x in 0..ow {
+            let mut sum = [0f32; BYTES_PER_PIXEL];
+            for &(index, weight) in taps {
+                let at = (index * ow + x) * BYTES_PER_PIXEL;
+                for c in 0..BYTES_PER_PIXEL {
+                    sum[c] += weight * wide[at + c];
+                }
+            }
+            let at = (y * ow + x) * BYTES_PER_PIXEL;
+            for c in 0..BYTES_PER_PIXEL {
+                pixels[at + c] = (sum[c] + 0.5).clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    Frame::from_rgba(width, height, pixels).expect("sides and bytes agree")
+}
+
 /// `frame` averaged down by `by` in each direction: every `by` by `by`
 /// block becomes one pixel. `by` of 1 is a copy. A picture whose sides
 /// are not multiples of `by` loses the remainder at the right and bottom.
@@ -347,19 +447,57 @@ pub fn downscale(frame: &Frame, by: u32) -> Frame {
     Frame::from_rgba(ow as u32, oh as u32, pixels).expect("sides and bytes agree")
 }
 
-/// The model, loaded once and run tile by tile.
-#[cfg(feature = "infer")]
-pub struct Enhancer {
-    model: std::sync::Mutex<crate::runtime::Model>,
+/// What runs the model over one window: the [`WINDOW`]-square planes
+/// [`window_planes`] cuts, in; the planes [`paste`] takes, [`SCALE`] times
+/// the side, out. ONNX Runtime is one, on the CPU almost everywhere; the
+/// host's GPU upscaler, the same network in compute shaders of our own, is
+/// the other, and the one used wherever a GPU opens.
+pub trait WindowRunner: Send {
+    /// The model's answer for one window.
+    fn run(&mut self, planes: Vec<f32>) -> Result<Vec<f32>, String>;
 }
 
+/// The model through ONNX Runtime.
 #[cfg(feature = "infer")]
+struct Runtime(crate::runtime::Model);
+
+#[cfg(feature = "infer")]
+impl WindowRunner for Runtime {
+    fn run(&mut self, planes: Vec<f32>) -> Result<Vec<f32>, String> {
+        let side = WINDOW as usize;
+        let mut answer = self.0.run(
+            vec![crate::runtime::Input {
+                name: "input",
+                dims: vec![1, 3, side, side],
+                data: planes.into(),
+            }],
+            &["output"],
+        )?;
+        Ok(std::mem::take(&mut answer[0].data))
+    }
+}
+
+/// The model, loaded once and run tile by tile.
+pub struct Enhancer {
+    model: std::sync::Mutex<Box<dyn WindowRunner>>,
+}
+
 impl Enhancer {
-    /// Loads the model from its file; see [`crate::models::ModelId::Enhance`].
+    /// Loads the model from its file into ONNX Runtime; see
+    /// [`crate::models::ModelId::Enhance`].
+    #[cfg(feature = "infer")]
     pub fn load(file: &std::path::Path) -> Result<Enhancer, String> {
-        Ok(Enhancer {
-            model: std::sync::Mutex::new(crate::runtime::Model::from_file(file)?),
-        })
+        let side = i64::from(WINDOW);
+        Ok(Enhancer::with(Box::new(Runtime(
+            crate::runtime::Model::from_file_fixed(file, &[("height", side), ("width", side)])?,
+        ))))
+    }
+
+    /// The model run by `runner`.
+    pub fn with(runner: Box<dyn WindowRunner>) -> Enhancer {
+        Enhancer {
+            model: std::sync::Mutex::new(runner),
+        }
     }
 
     /// `frame` restored at [`SCALE`] times its size.
@@ -386,7 +524,6 @@ impl Enhancer {
             return Err("enhance: an empty picture".to_owned());
         }
         let mut out = Frame::black(region.width * SCALE, region.height * SCALE);
-        let side = WINDOW as usize;
         let mut model = self.model.lock().map_err(|_| "enhance: model poisoned")?;
         let mut times = Vec::new();
         for tile in tiles(region.width, region.height) {
@@ -397,39 +534,38 @@ impl Enhancer {
             };
             let planes = window_planes(frame, placed);
             let started = std::time::Instant::now();
-            let answer = model.run(
-                vec![crate::runtime::Input {
-                    name: "input",
-                    dims: vec![1, 3, side, side],
-                    data: planes.into(),
-                }],
-                &["output"],
-            )?;
+            let answer = model.run(planes)?;
             times.push(started.elapsed());
-            paste(&mut out, tile, &answer[0].data)?;
+            paste(&mut out, tile, &answer)?;
         }
         Ok((out, times))
     }
 
-    /// `frame` restored and enlarged `factor` times, `factor` being 1, 2
-    /// or 4: the model's answer, averaged down to size.
-    pub fn enhance(&self, frame: &Frame, factor: u32) -> Result<Frame, String> {
-        let factor = factor.clamp(1, SCALE);
+    /// `frame` restored and enlarged to exactly `width` by `height`, no
+    /// larger than the model's four times: its answer, averaged down to
+    /// size by [`area_resize`].
+    pub fn enhance(&self, frame: &Frame, width: u32, height: u32) -> Result<Frame, String> {
         let large = self.upscale(frame)?;
-        Ok(downscale(&large, SCALE / factor))
+        Ok(area_resize(
+            &large,
+            width.min(large.width()),
+            height.min(large.height()),
+        ))
     }
 
-    /// [`Enhancer::enhance`] for `region` of `frame` alone, with the time
-    /// each of its tiles took; see [`Enhancer::upscale_region`].
+    /// [`Enhancer::enhance`] for `region` of `frame` alone at `scale`, with
+    /// the time each of its tiles took; see [`Enhancer::upscale_region`].
     pub fn enhance_region(
         &self,
         frame: &Frame,
         region: Tile,
-        factor: u32,
+        scale: f32,
     ) -> Result<(Frame, Vec<std::time::Duration>), String> {
-        let factor = factor.clamp(1, SCALE);
+        let scale = scale.clamp(1.0, SCALE as f32);
         let (large, times) = self.upscale_region(frame, region)?;
-        Ok((downscale(&large, SCALE / factor), times))
+        let width = ((region.width as f32 * scale).round() as u32).clamp(1, large.width());
+        let height = ((region.height as f32 * scale).round() as u32).clamp(1, large.height());
+        Ok((area_resize(&large, width, height), times))
     }
 }
 
@@ -490,13 +626,36 @@ mod tests {
     }
 
     #[test]
-    fn twice_unless_that_would_be_more_than_anyone_can_play() {
-        assert_eq!(factor_for(1920, 1080), 2);
-        assert_eq!(factor_for(1080, 1920), 2);
-        assert_eq!(factor_for(2048, 1152), 2);
-        assert_eq!(factor_for(2049, 1152), 1);
-        assert_eq!(factor_for(3840, 2160), 1);
-        assert_eq!(factor_for(0, 0), 2);
+    fn auto_is_twice_unless_that_passes_2k() {
+        assert_eq!(auto_scale(1280, 720), 2.0);
+        assert_eq!(auto_scale(720, 1280), 2.0);
+        assert_eq!(auto_scale(640, 480), 2.0);
+        // 1080p can only go to 1440p: four thirds, exactly.
+        assert_eq!(size_at(1920, 1080, auto_scale(1920, 1080)), (2560, 1440));
+        assert_eq!(auto_scale(2560, 1440), 1.0);
+        assert_eq!(auto_scale(3840, 2160), 1.0);
+        assert_eq!(auto_scale(0, 0), 2.0);
+    }
+
+    #[test]
+    fn nothing_comes_out_past_2k() {
+        for (w, h) in [
+            (640, 360),
+            (854, 480),
+            (1280, 720),
+            (1920, 1080),
+            (1080, 1920),
+            (500, 500),
+        ] {
+            let most = max_scale(w, h);
+            let (ow, oh) = size_at(w, h, most);
+            assert!(
+                ow.max(oh) <= MAX_LONG && ow.min(oh) <= MAX_SHORT,
+                "{w}x{h} -> {ow}x{oh}"
+            );
+            assert!(most <= 4.0);
+        }
+        assert_eq!(max_scale(320, 180), 4.0);
     }
 
     #[test]
@@ -591,30 +750,43 @@ mod tests {
     }
 
     #[test]
-    fn an_asked_size_is_kept_under_the_limit_and_auto_is_the_old_choice() {
-        // Once always fits, even past the limit: that is restore-only.
-        assert!(fits(8000, 6000, 1));
-        assert!(fits(1024, 768, 4));
-        assert!(!fits(1025, 768, 4));
-        assert!(fits(2048, 1152, 2));
-        assert!(!fits(1920, 1080, 4), "1080p at 4x is 7680 across");
-        // Auto is what Enhance always did.
-        for (w, h) in [(1920, 1080), (3840, 2160), (640, 480), (2049, 10)] {
-            assert_eq!(factor_of(0, w, h), factor_for(w, h), "{w}x{h}");
-        }
-        // An ask that fits is kept.
-        assert_eq!(factor_of(1, 640, 480), 1);
-        assert_eq!(factor_of(2, 640, 480), 2);
-        assert_eq!(factor_of(4, 640, 480), 4);
-        // An ask that does not falls to the largest size that does.
-        assert_eq!(factor_of(4, 1920, 1080), 2);
-        assert_eq!(factor_of(4, 3840, 2160), 1);
-        assert_eq!(factor_of(2, 3840, 2160), 1);
+    fn an_asked_scale_is_kept_on_the_grid_and_under_the_limit() {
+        assert_eq!(scale_of(0.0, 640, 360), auto_scale(640, 360));
+        assert!((scale_of(1.5, 640, 360) - 1.5).abs() < 1e-4);
+        assert!((scale_of(1.53, 640, 360) - 1.5).abs() < 1e-4);
+        assert!((scale_of(1.55, 640, 360) - 1.55).abs() < 1e-4);
+        // Past the limit falls to it; under once is once.
+        assert_eq!(scale_of(4.0, 1920, 1080), max_scale(1920, 1080));
+        assert_eq!(scale_of(3.0, 3840, 2160), 1.0);
+        assert_eq!(scale_of(0.5, 640, 360), 1.0);
+    }
+
+    #[test]
+    fn an_area_shrink_keeps_a_flat_picture_flat_and_averages_detail() {
+        let flat = picture(40, 20, |_, _| [200, 100, 50, 255]);
+        let small = area_resize(&flat, 15, 7);
+        assert_eq!((small.width(), small.height()), (15, 7));
+        assert!(small.pixels().chunks(4).all(|p| p == [200, 100, 50, 255]));
+        // A one-pixel checkerboard at a non-integer ratio comes out grey,
+        // not the stripes a sampling filter leaves.
+        let checks = picture(30, 30, |x, y| {
+            if (x + y) % 2 == 0 {
+                [255, 255, 255, 255]
+            } else {
+                [0, 0, 0, 255]
+            }
+        });
+        let grey = area_resize(&checks, 11, 11);
+        assert!(
+            grey.pixels().chunks(4).all(|p| (100..=156).contains(&p[0])),
+            "{:?}",
+            &grey.pixels()[..16]
+        );
     }
 
     #[test]
     fn a_preview_region_sits_at_the_centre_and_comes_out_no_larger_than_asked() {
-        let region = centre_region(1920, 1080, 2, 640, 360);
+        let region = centre_region(1920, 1080, 2.0, 640, 360);
         assert_eq!(
             region,
             Tile {
@@ -625,10 +797,10 @@ mod tests {
             }
         );
         // At once, more of the picture fits the same output.
-        assert_eq!(centre_region(1920, 1080, 1, 640, 360).width, 640);
+        assert_eq!(centre_region(1920, 1080, 1.0, 640, 360).width, 640);
         // A picture smaller than the region is taken whole.
         assert_eq!(
-            centre_region(200, 100, 2, 640, 360),
+            centre_region(200, 100, 2.0, 640, 360),
             Tile {
                 x: 0,
                 y: 0,
@@ -637,7 +809,7 @@ mod tests {
             }
         );
         let frame = picture(8, 6, |x, y| [x as u8, y as u8, 0, 255]);
-        let region = centre_region(8, 6, 1, 4, 2);
+        let region = centre_region(8, 6, 1.0, 4, 2);
         let piece = cut(&frame, region);
         assert_eq!((piece.width(), piece.height()), (4, 2));
         assert_eq!(piece.pixel(0, 0), Some([2, 2, 0, 255]));
@@ -691,5 +863,66 @@ mod tests {
         let half = mix(enhanced.clone(), &original, 0.5);
         assert_eq!((half.width(), half.height()), (2, 1));
         assert_eq!(half.pixel(0, 0), Some([150, 100, 128, 255]));
+    }
+}
+
+/// A probe, run by hand: the model through CoreML as Apple's newer
+/// MLProgram, its shape fixed so the Neural Engine can take it, timed a
+/// window at a time against what the GPU upscaler does.
+#[cfg(all(test, feature = "infer", target_vendor = "apple"))]
+mod coreml_probe {
+    use ort::ep::coreml::{ComputeUnits, ModelFormat, SpecializationStrategy};
+
+    #[test]
+    #[ignore = "a probe; needs the fetched model"]
+    fn coreml_on_the_neural_engine() {
+        let Some(file) = crate::compact::tests_support::fetched_model() else {
+            eprintln!("no model here");
+            return;
+        };
+        for (units, side) in [
+            (ComputeUnits::CPUAndGPU, 288usize),
+            (ComputeUnits::CPUAndGPU, 544),
+            (ComputeUnits::CPUAndGPU, 1056),
+            (ComputeUnits::All, 544),
+        ] {
+            let ep = ort::ep::CoreML::default()
+                .with_model_format(ModelFormat::MLProgram)
+                .with_static_input_shapes(true)
+                .with_specialization_strategy(SpecializationStrategy::FastPrediction)
+                .with_compute_units(units)
+                .build();
+            let mut session = ort::session::Session::builder()
+                .expect("a builder")
+                .with_dimension_override("height", side as i64)
+                .expect("height")
+                .with_dimension_override("width", side as i64)
+                .expect("width")
+                .with_execution_providers([ep])
+                .expect("coreml")
+                .commit_from_file(&file)
+                .expect("loads");
+            let planes = vec![0.5f32; 3 * side * side];
+            let input = || {
+                ort::value::Tensor::from_array(([1usize, 3, side, side], planes.clone()))
+                    .expect("a tensor")
+            };
+            let started = std::time::Instant::now();
+            session.run(ort::inputs!["input" => input()]).expect("runs");
+            let first = started.elapsed();
+            let runs = 10;
+            let started = std::time::Instant::now();
+            for _ in 0..runs {
+                session.run(ort::inputs!["input" => input()]).expect("runs");
+            }
+            let each = started.elapsed().as_secs_f64() / f64::from(runs);
+            let core = (side - 32) as f64;
+            let windows = (1920.0 / core).ceil() * (1080.0 / core).ceil();
+            eprintln!(
+                "{units:?} {side}: first {first:?}, then {:.1} ms a window = {:.2} s a 1080p frame",
+                each * 1000.0,
+                each * windows
+            );
+        }
     }
 }

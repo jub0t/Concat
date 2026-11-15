@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
@@ -598,6 +598,9 @@ component StageOverlay inherits Rectangle {
     in property <float> stroke-width;
     in property <bool> stroke-erase;
     in property <bool> painting;
+    /// A colour's eyedropper is armed: a press picks the colour under it,
+    /// so the grips stand aside and the pointer is a crosshair.
+    in property <bool> picking;
 
     callback pressed(x: float, y: float, additive: bool);
     callback grip-pressed(id: string, grip: int, x: float, y: float);
@@ -623,7 +626,7 @@ component StageOverlay inherits Rectangle {
         property <bool> panning;
         property <bool> snap;
         mouse-cursor: self.panning ? MouseCursor.grabbing
-            : root.painting ? MouseCursor.crosshair : MouseCursor.default;
+            : root.painting || root.picking ? MouseCursor.crosshair : MouseCursor.default;
 
         pointer-event(event) => {
             // The right button opens the frame's menu and does nothing
@@ -703,7 +706,7 @@ component StageOverlay inherits Rectangle {
         y: 0;
         width: root.width;
         height: root.height;
-        if entry.selected: StageItem {
+        if entry.selected && !root.picking: StageItem {
             x: 0;
             y: 0;
             width: parent.width;
@@ -714,7 +717,7 @@ component StageOverlay inherits Rectangle {
             released => { root.released(); }
         }
         // Over the clip's own box, so a mask grip on its edge wins.
-        if entry.selected && entry.mask >= 0 && !root.painting: MaskItem {
+        if entry.selected && entry.mask >= 0 && !root.painting && !root.picking: MaskItem {
             x: 0;
             y: 0;
             width: parent.width;
@@ -758,6 +761,8 @@ export component PreviewPane inherits Rectangle {
     callback source-closed();
     /// The decoded frame. Drawn fitted to the stage when there is one.
     in property <image> frame;
+    /// The frame lets something show through; see `Editor.see-through`.
+    in property <bool> see-through;
     /// Every picture under the playhead, for the selection drawn over the
     /// frame. See StageOverlay.
     in property <[StageItemData]> stage-items;
@@ -766,6 +771,8 @@ export component PreviewPane inherits Rectangle {
     in property <float> stroke-width;
     in property <bool> stroke-erase;
     in property <bool> painting;
+    /// A colour's eyedropper is armed; see StageOverlay.
+    in property <bool> picking;
     /// The snap lines while one of them is being moved.
     in property <[StageGuideData]> stage-guides;
 
@@ -810,9 +817,10 @@ export component PreviewPane inherits Rectangle {
     /// the button the transport carries.
     public function fit-view() { viewport.fit(); }
 
-    property <[int]> ratios-w: [1920, 3840, 1080, 1080, 1440, 2560];
-    property <[int]> ratios-h: [1080, 2160, 1920, 1080, 1080, 1080];
-    property <[string]> ratio-names: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
+    // `OUTPUTS` in studio.rs, row for row.
+    property <[int]> ratios-w: [1920, 3840, 1080, 1080, 1080, 1080, 1440, 2560];
+    property <[int]> ratios-h: [1080, 2160, 1920, 1080, 1350, 1440, 1080, 1080];
+    property <[string]> ratio-names: ["16:9", "16:9 4K", "9:16", "1:1", "4:5", "3:4", "4:3", "21:9"];
 
     property <float> aspect: root.output-height > 0
         ? root.output-width / root.output-height : 16 / 9;
@@ -1044,6 +1052,18 @@ export component PreviewPane inherits Rectangle {
                     }
                 }
 
+                // Under a see-through frame, the checker every editor draws
+                // where nothing covers it: one tile, repeated.
+                if root.see-through && root.has-picture: Image {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    source: @image-url("../assets/checker.png");
+                    horizontal-tiling: repeat;
+                    vertical-tiling: repeat;
+                }
+
                 // The engine's frame, when one has arrived. It is already
                 // the stage's shape, so `contain` only absorbs a rounding
                 // pixel either way.
@@ -1071,6 +1091,7 @@ export component PreviewPane inherits Rectangle {
                 stroke-width: root.stroke-width;
                 stroke-erase: root.stroke-erase;
                 painting: root.painting;
+                picking: root.picking;
                 pressed(x, y, additive) => { root.stage-pressed(x, y, additive); }
                 grip-pressed(id, grip, x, y) => { root.stage-grip-pressed(id, grip, x, y); }
                 dragged(x, y, snap) => { root.stage-dragged(x, y, snap); }

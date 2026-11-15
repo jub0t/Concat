@@ -188,6 +188,44 @@ export component TimelineTabs inherits Rectangle {
     height: 32px;
     background: Theme.well;
 
+    // The strip scrolls. Every tab is as wide as its name, so a project with
+    // a dozen timelines wants more room than a pane has — and a layout whose
+    // cells cannot shrink does not clip them, it grows: a box layout's
+    // constraints climb into the element that holds it, the pane's column
+    // hands this row the width it asks for, and the row runs on past the
+    // pane's clipped right edge with the last tabs, the add button and the
+    // corner button on it. So the tabs sit in a viewport of their own,
+    // positioned by hand: an explicit `x` is what keeps their width from
+    // climbing (the layout-info merge skips children placed by hand), which
+    // is the rule CategoryPillBar in the library already follows.
+    //
+    // The offset runs negative — the strip is moved left to show the tabs on
+    // the right — and is clamped on read rather than only on write, so a pane
+    // that shrinks under the strip, or a strip that loses a tab, cannot leave
+    // the view parked past the end.
+    property <length> offset;
+    property <length> overflow: Math.max(0px, strip.preferred-width - viewport.width);
+    property <length> at: Math.max(-root.overflow, Math.min(0px, root.offset));
+
+    /// The current tab, where the strip last laid it. The cells are the only
+    /// ones who know where they were put — a repeater cannot be asked for its
+    /// n-th child — so the current one reports in and the strip follows.
+    property <length> current-x;
+    property <length> current-w;
+
+    /// Scroll the current tab into view, and no further: a tab already on
+    /// screen stays where it is, so switching tabs does not shuffle the strip.
+    function reveal() {
+        if (root.current-x + root.at < 0px) {
+            root.offset = -root.current-x;
+        } else if (root.current-x + root.current-w + root.at > viewport.width) {
+            root.offset = viewport.width - root.current-x - root.current-w;
+        }
+    }
+
+    changed current-x => { root.reveal(); }
+    changed current-w => { root.reveal(); }
+
     Rectangle {
         x: 0;
         y: parent.height - 1px;
@@ -196,101 +234,180 @@ export component TimelineTabs inherits Rectangle {
         background: Theme.line;
     }
 
-    HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        // Bottom-aligned: the tabs stand on the strip's edge, and the add
-        // button beside them sits on the same baseline rather than floating.
-        alignment: start;
-        spacing: 2px;
+    // As wide as the tabs when they fit, so the add button stays beside the
+    // last one; as wide as the room leaves when they do not. The room is the
+    // strip less the add button's column and the corner slot, which are
+    // pinned outside the viewport so they can always be reached.
+    viewport := Rectangle {
+        x: 8px;
+        y: 0;
+        width: Math.max(0px, Math.min(strip.preferred-width,
+            root.width - self.x - 2px - adder.width - trailing.preferred-width));
+        height: root.height;
+        clip: true;
 
-        for tab[index] in root.tabs: VerticalLayout {
-            alignment: end;
+        // The room grows from nothing at first layout, so the first reveal
+        // has no width to work against; this re-runs it once there is one.
+        changed width => { root.reveal(); }
 
-            // Source and target both. The DragArea only takes over once
-            // the press has travelled, so the tab keeps its click and its
-            // double-click; the DropArea ignores everything but a drag.
-            slot := Rectangle {
-                width: held.width;
-                height: held.height;
+        // A wheel over the tabs scrolls them: a vertical wheel as well as a
+        // horizontal one, since a row has no vertical travel of its own to
+        // give it to. A scroll the tabs do not handle bubbles up to here;
+        // this is an ancestor of the strip, not a sibling, which is what
+        // makes that work. The tabs keep their clicks, double-clicks and
+        // drags: the inner areas take those first.
+        wheel := TouchArea {
+            scroll-event(event) => {
+                root.offset = root.at + (event.delta-x != 0px ? event.delta-x : event.delta-y);
+                return EventResult.accept;
+            }
 
-                drag := DragArea {
-                    data: Payload.of("tab:\{index}:\{tab.name}");
-                    drag-image: Payload.preview("tab:\{index}:\{tab.name}");
-                    drag-image-offset-x: -8;
-                    drag-image-offset-y: -4;
-                    allow-copy: true;
+            strip := HorizontalLayout {
+                x: root.at;
+                y: 0;
+                width: self.preferred-width;
+                height: parent.height;
+                // Bottom-aligned: the tabs stand on the strip's edge, and the
+                // add button beside them sits on the same baseline rather
+                // than floating.
+                alignment: start;
+                spacing: 2px;
 
-                    held := Tab {
-                        name: tab.name;
-                        current: index == root.current;
-                        closable: root.tabs.length > 1;
-                        // Faded while in the air, as a bin card is.
-                        opacity: drag.dragging ? 0.45 : 1.0;
+                for tab[index] in root.tabs: VerticalLayout {
+                    alignment: end;
 
-                        selected => { root.selected(index); }
-                        renamed(name) => { root.renamed(index, name); }
-                        close-requested => { root.close-requested(index); }
+                    property <bool> current: index == root.current;
+
+                    /// Tell the strip where the current tab is — on becoming
+                    /// current, and again whenever the strip moves it: a
+                    /// rename, a reorder or a closed neighbour shifts it.
+                    function report() {
+                        if (self.current) {
+                            root.current-x = self.x;
+                            root.current-w = self.width;
+                        }
                     }
-                }
 
-                landing := DropArea {
-                    /// The pointer is over the leading half: the tab lands
-                    /// before this one rather than after it.
-                    property <bool> before;
+                    init => { self.report(); }
+                    changed current => { self.report(); }
+                    changed x => { self.report(); }
+                    changed width => { self.report(); }
 
-                    can-drop(event) => {
-                        self.before = event.position.x < self.width / 2;
-                        return Payload.tab-index(Payload.text(event.data)) >= 0
-                            && Payload.tab-index(Payload.text(event.data)) != index
-                            ? DragAction.copy : DragAction.none;
+                    // Source and target both. The DragArea only takes over once
+                    // the press has travelled, so the tab keeps its click and its
+                    // double-click; the DropArea ignores everything but a drag.
+                    slot := Rectangle {
+                        width: held.width;
+                        height: held.height;
+
+                        drag := DragArea {
+                            data: Payload.of("tab:\{index}:\{tab.name}");
+                            drag-image: Payload.preview("tab:\{index}:\{tab.name}");
+                            drag-image-offset-x: -8;
+                            drag-image-offset-y: -4;
+                            allow-copy: true;
+
+                            held := Tab {
+                                name: tab.name;
+                                current: index == root.current;
+                                closable: root.tabs.length > 1;
+                                // Faded while in the air, as a bin card is.
+                                opacity: drag.dragging ? 0.45 : 1.0;
+
+                                selected => { root.selected(index); }
+                                renamed(name) => { root.renamed(index, name); }
+                                close-requested => { root.close-requested(index); }
+                            }
+                        }
+
+                        landing := DropArea {
+                            /// The pointer is over the leading half: the tab lands
+                            /// before this one rather than after it.
+                            property <bool> before;
+
+                            can-drop(event) => {
+                                self.before = event.position.x < self.width / 2;
+                                return Payload.tab-index(Payload.text(event.data)) >= 0
+                                    && Payload.tab-index(Payload.text(event.data)) != index
+                                    ? DragAction.copy : DragAction.none;
+                            }
+
+                            dropped(event) => {
+                                root.moved(Payload.tab-index(Payload.text(event.data)),
+                                    self.before ? index : index + 1);
+                                return DragAction.copy;
+                            }
+                        }
+
+                        // Where it will land: a bar on the side it is about to
+                        // take, in the accent every other target in the window is
+                        // drawn in.
+                        if landing.has-drag: Rectangle {
+                            x: landing.before ? -2px : parent.width;
+                            y: 4px;
+                            width: 2px;
+                            height: parent.height - 8px;
+                            background: Theme.accent;
+                        }
                     }
-
-                    dropped(event) => {
-                        root.moved(Payload.tab-index(Payload.text(event.data)),
-                            self.before ? index : index + 1);
-                        return DragAction.copy;
-                    }
-                }
-
-                // Where it will land: a bar on the side it is about to
-                // take, in the accent every other target in the window is
-                // drawn in.
-                if landing.has-drag: Rectangle {
-                    x: landing.before ? -2px : parent.width;
-                    y: 4px;
-                    width: 2px;
-                    height: parent.height - 8px;
-                    background: Theme.accent;
                 }
             }
         }
 
-        VerticalLayout {
-            alignment: end;
-            padding-left: 2px;
-            padding-bottom: 4px;
+        // Where the strip goes on past the edge, a fade says so: tabs cut
+        // flush at the viewport's side read as the end of the row, and the
+        // ones behind them would be lost all over again. Only on the side
+        // that has something behind it. Not hit-testable, so the tab under
+        // each keeps its click.
+        if root.at < 0px: Rectangle {
+            x: 0;
+            y: 0;
+            width: 14px;
+            height: parent.height - 1px;
+            background: @linear-gradient(90deg, Theme.well 0%, Colors.transparent 100%);
+        }
 
-            add := Rectangle {
-                width: 22px;
-                height: 22px;
-                border-radius: Theme.r-xs;
-                background: plus.has-hover ? Theme.field : Colors.transparent;
+        if root.at > -root.overflow: Rectangle {
+            x: parent.width - self.width;
+            y: 0;
+            width: 14px;
+            height: parent.height - 1px;
+            background: @linear-gradient(90deg, Colors.transparent 0%, Theme.well 100%);
+        }
+    }
 
-                animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    // The add button, pinned to the viewport's trailing edge: beside the last
+    // tab when they all fit, at the pane's edge when they do not. Placed by
+    // hand for the same reason the viewport is.
+    adder := VerticalLayout {
+        x: viewport.x + viewport.width + 2px;
+        y: 0;
+        width: 26px;
+        height: root.height;
+        alignment: end;
+        padding-left: 2px;
+        padding-right: 2px;
+        padding-bottom: 4px;
 
-                Icon {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    glyph: Glyph.plus;
-                    size: 12px;
-                    tint: plus.has-hover ? Theme.fg : Theme.fg-dim;
-                }
+        add := Rectangle {
+            width: 22px;
+            height: 22px;
+            border-radius: Theme.r-xs;
+            background: plus.has-hover ? Theme.field : Colors.transparent;
 
-                plus := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.added(); }
-                }
+            animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.plus;
+                size: 12px;
+                tint: plus.has-hover ? Theme.fg : Theme.fg-dim;
+            }
+
+            plus := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.added(); }
             }
         }
     }
@@ -299,11 +416,12 @@ export component TimelineTabs inherits Rectangle {
     // top bar. A second layer over the strip rather than a child of its
     // layout: that one is start-aligned so the tabs keep their own width, and
     // a start-aligned layout has no spare space to push a trailing child into.
-    // Nothing here is hit-testable, so the tabs underneath keep their clicks.
+    // The viewport stops short of it, so nothing scrolls underneath.
     //
     // End-aligned rather than placed at a coordinate, so whatever is put in it
-    // is asked how wide it is instead of being told.
-    HorizontalLayout {
+    // is asked how wide it is instead of being told — and the viewport above
+    // reads that width back to know where to stop.
+    trailing := HorizontalLayout {
         alignment: end;
         padding-right: 8px;
 

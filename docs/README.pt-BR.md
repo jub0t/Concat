@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Concat</h1>
-<h3 align="center">O substituto do CapCut gratuito, de código aberto e multiplataforma.</h3>
+<h3 align="center">O editor de vídeo gratuito, de código aberto e multiplataforma.</h3>
 
 <div align="center">
 
@@ -12,15 +12,15 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.8-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.8" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
 <p align="center">
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
-  <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://concat.standalones.org/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
+  <a href="https://trendshift.io/repositories/191379?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/191379" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · **🇧🇷 Português (Brasil)** · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
@@ -44,7 +44,7 @@
 
 ## Sobre
 
-O Concat é um editor de vídeo gratuito e de código aberto, uma alternativa ao CapCut para macOS, Windows, Linux e Android. Ele cobre aquilo para que as pessoas realmente abrem o CapCut: legendas automáticas, texto para fala, remoção de fundo, animação por keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
+O Concat é um editor de vídeo gratuito e de código aberto para macOS, Windows, Linux e Android. Ele cobre o que a maioria das edições precisa: legendas automáticas, texto para fala, remoção de fundo, animação por keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
 
 Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instale, solte o material, corte. Os modelos de IA para legendas, vozes e recorte são baixados uma vez nas Configurações e depois funcionam offline. Seu material nunca sai do seu disco.
 
@@ -74,7 +74,7 @@ Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instal
 
 Dois caminhos:
 
-1. **[O site](https://concatenate.pages.dev/#download)** entrega a build certa para a sua máquina. Comece por aqui.
+1. **[O site](https://concat.standalones.org/#download)** entrega a build certa para a sua máquina. Comece por aqui.
 2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** tem todas as builds para todas as plataformas, com instaladores, pacotes e checksums. Para quando você quiser escolher.
 
 O Concat está em **beta**: funciona, e ainda tem arestas. [Conte](https://github.com/jub0t/Concat/issues) quando encontrar uma.
@@ -89,7 +89,7 @@ O Concat está em **beta**: funciona, e ainda tem arestas. [Conte](https://githu
 
 ✅ Suportado · 🚧 Em andamento · 🧪 A testar
 
-Os **requisitos do sistema** e os tamanhos dos modelos opcionais estão no [site](https://concatenate.pages.dev/guides/system-requirements).
+Os **requisitos do sistema** e os tamanhos dos modelos opcionais estão no [site](https://concat.standalones.org/guides/system-requirements).
 
 **[Code signing policy](../CODE_SIGNING.md)**
 
@@ -98,7 +98,7 @@ Os **requisitos do sistema** e os tamanhos dos modelos opcionais estão no [site
 > [!IMPORTANT]
 > A melhor forma de contribuir é pegar uma build na página de [Releases](https://github.com/jub0t/Concat/releases) e usá-la: descubra onde ela quebra e diga onde poderia ser melhor.
 >
-> Pronto para escrever código? O [CONTRIBUTING.md](../CONTRIBUTING.md) cobre a configuração, a organização da árvore, as verificações a rodar e como as contribuições são licenciadas. Controla o Concat a partir de um script, um serviço ou um agente? [A documentação para desenvolvedores](https://concatenate.pages.dev/docs) cobre a API do Concat e seus transportes: JSON-RPC e gRPC. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) é onde o projeto foi anunciado.
+> Pronto para escrever código? O [CONTRIBUTING.md](../CONTRIBUTING.md) cobre a configuração, a organização da árvore, as verificações a rodar e como as contribuições são licenciadas. Controla o Concat a partir de um script, um serviço ou um agente? [A documentação para desenvolvedores](https://concat.standalones.org/docs) cobre a API do Concat e seus transportes: JSON-RPC e gRPC. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) é onde o projeto foi anunciado.
 > 
 > Contribuidores podem ganhar o cargo `@Contributor` no servidor do Discord: basta pedir.
 

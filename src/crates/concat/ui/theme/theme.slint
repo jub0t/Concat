@@ -47,6 +47,11 @@ export global Theme {
     /// the tree is a property read away from it, so the window retones in a
     /// frame without anything being rebuilt.
     in-out property <bool> dark: true;
+    /// Whether a dialog's go-ahead button comes before its Cancel, as on
+    /// Windows, rather than after it, as on macOS and the Linux desktops
+    /// (#681). Set once at start-up from the platform (lib.rs); read by
+    /// `ActionPair`.
+    in-out property <bool> ok-first: false;
     /// Which of the palettes' accents the accent tokens are read from: an
     /// index into `accent-names`, and into each palette's `accents`.
     /// Settings > Appearance picks it (lib.rs, `on_settings_accent_changed`)
@@ -76,10 +81,13 @@ export global Theme {
     /// reason the custom accent is: whoever picked it picked what they see.
     /// Grey until picked, so the dot that offers it reads as a blank.
     in-out property <color> playhead-custom: #808080;
-    /// The playhead wears `playhead-custom` rather than the palette's own.
-    /// Settings > Appearance sets both (lib.rs, `on_settings_playhead_changed`)
-    /// and clears this one to put the palette's back.
-    in-out property <bool> playhead-is-custom: false;
+    /// Which colour the playhead wears: an index into `accent-names`, each
+    /// worn as the palette that is on has it - the first, Lime, is the
+    /// palette's own playhead - or one past them for `playhead-custom`.
+    /// Settings > Appearance sets it (lib.rs, `on_settings_playhead_chosen`).
+    in-out property <int> playhead-choice: 0;
+    /// The playhead wears `playhead-custom` rather than one of the list.
+    out property <bool> playhead-is-custom: playhead-choice >= accent-names.length;
     /// Which interface scale the window is drawn at: an index into the
     /// scales Settings > Appearance lists, 0 being the display's own. Read
     /// off the Theme global the way the theme and the accent are - it is a
@@ -205,6 +213,8 @@ export global Theme {
     out property <color> on-accent: tone.on;
     out property <color> green: dark ? Dark.green : Light.green;
     out property <color> on-green: dark ? Dark.on-green : Light.on-green;
+    /// cautionary: worked, but not as it should
+    out property <color> warn: dark ? Dark.warn : Light.warn;
 
     /// The `index`th accent under the palette that is on, for the row in
     /// Settings that offers them: each is shown as it would be worn, so the
@@ -234,6 +244,12 @@ export global Theme {
     out property <color> kind-text-well: dark ? Dark.kind-text-well : Light.kind-text-well;
     out property <color> kind-filter: dark ? Dark.kind-filter : Light.kind-filter;
     out property <color> kind-filter-well: dark ? Dark.kind-filter-well : Light.kind-filter-well;
+    out property <color> kind-effect: dark ? Dark.kind-effect : Light.kind-effect;
+    out property <color> kind-effect-well: dark ? Dark.kind-effect-well : Light.kind-effect-well;
+    out property <color> kind-adjustment: dark ? Dark.kind-adjustment : Light.kind-adjustment;
+    out property <color> kind-adjustment-well: dark ? Dark.kind-adjustment-well : Light.kind-adjustment-well;
+    out property <color> kind-transition: dark ? Dark.kind-transition : Light.kind-transition;
+    out property <color> kind-transition-well: dark ? Dark.kind-transition-well : Light.kind-transition-well;
     out property <color> kind-shape: dark ? Dark.kind-shape : Light.kind-shape;
     out property <color> kind-shape-well: dark ? Dark.kind-shape-well : Light.kind-shape-well;
     out property <color> kind-sound-layer: dark ? Dark.kind-sound-layer : Light.kind-sound-layer;
@@ -247,7 +263,9 @@ export global Theme {
     /// The palette's own playhead, for the dot in Settings that offers it
     /// back while a picked colour is on.
     out property <color> playhead-default: dark ? Dark.playhead : Light.playhead;
-    out property <color> playhead: playhead-is-custom ? playhead-custom : playhead-default;
+    out property <color> playhead: playhead-is-custom ? playhead-custom
+        : playhead-choice <= 0 ? playhead-default
+        : accent-of(playhead-choice);
     out property <color> wave: dark ? Dark.wave : Light.wave;
     out property <color> wave-video: dark ? Dark.wave-video : Light.wave-video;
     out property <color> wave-hot: dark ? Dark.wave-hot : Light.wave-hot;
@@ -256,6 +274,11 @@ export global Theme {
     /// `wave-hot`. -6 dBFS: a mix that keeps its peaks under it has
     /// headroom, one that crosses it often is on its way to clipping.
     out property <float> wave-hot-line: 0.5012;
+    out property <color> wave-clip: dark ? Dark.wave-clip : Light.wave-clip;
+    /// Where a bar goes red: -1 dBFS, the last decibel under full scale.
+    /// A peak over it is clipping, or one encoder's rounding away from it;
+    /// a bar pushed past the top by the clip's volume is red to the top.
+    out property <float> wave-clip-line: 0.8913;
 
     // clip ink
     out property <color> clip-ink: dark ? Dark.clip-ink : Light.clip-ink;

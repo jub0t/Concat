@@ -52,6 +52,7 @@ import {
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
+import { NewVoiceData, NewVoiceDialog } from "dialogs/new-voice.slint";
 import { AvatarData } from "primitives/avatar.slint";
 import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
@@ -72,13 +73,16 @@ import {
     CatalogueEntryData,
     Library,
     LibraryViewData,
+    ChainChoiceData,
     TransitionChoiceData,
 } from "inspector/clip-inspector.slint";
 import { ParamFormat } from "inspector/controls.slint";
 import { ToastData, ToastLayer } from "primitives/toast.slint";
 import { TooltipLayer } from "primitives/tooltip.slint";
 import { FontSearch } from "inspector/font-picker.slint";
+import { CaptionStyles } from "dialogs/captions.slint";
 import { Meters } from "timeline/vu-meter.slint";
+import { MotionPose, MotionTile, MotionTiles } from "inspector/motion-picker.slint";
 import { Workspace } from "workspace/workspace.slint";
 import {
     Backdrop,
@@ -124,6 +128,7 @@ export {
     Library,
     LibraryViewData,
     ParamFormat,
+    ChainChoiceData,
     TransitionChoiceData,
     DockDivider,
     DockSide,
@@ -131,7 +136,11 @@ export {
     SeatBox,
     EffectData,
     FontSearch,
+    CaptionStyles,
     Meters,
+    MotionPose,
+    MotionTile,
+    MotionTiles,
     MediaFilter,
     MediaItemData,
     MediaKind,
@@ -177,6 +186,7 @@ export {
     SoundCardData,
     Sounds,
     VoiceCardData,
+    NewVoiceData,
 }
 export component App inherits Window {
     title: "Concat";
@@ -230,7 +240,7 @@ export component App inherits Window {
     }
     property <bool> sheet-open: root.export.open || root.settings.open
         || root.project-sheet.open || root.captions.open || root.speech.open
-        || root.start.composing;
+        || root.start.composing || root.new-voice.open;
     changed sheet-open => {
         if (!root.sheet-open) {
             keys.focus();
@@ -270,6 +280,8 @@ export component App inherits Window {
     callback start-create();
     /// Open a project that already exists, picked from disk.
     callback start-open();
+    /// Make a project of a CapCut draft (#477).
+    callback start-import-capcut();
     callback start-open-recent(path: string);
     callback start-forget-recent(path: string);
     callback start-reveal-recent(path: string);
@@ -285,6 +297,8 @@ export component App inherits Window {
     in property <string> app-version;
     /// A file can be dragged in from the system: a desk, not a phone.
     in property <bool> can-drop;
+    /// CapCut keeps drafts on this machine; see `concat_host::capcut`.
+    in property <bool> capcut;
 
     // Title bar. The drag/maximize pair must be handled in main.rs — a window
     // cannot drag itself from inside the scene graph; the rest are seams like
@@ -301,6 +315,18 @@ export component App inherits Window {
     /// area, on a phone and in any window too narrow for it to float as a
     /// card with room around it.
     property <bool> sheets-fill: root.phone || root.width < 600px;
+    /// Where the sheets start. Under the strip wherever the strip carries
+    /// the window's own buttons: a sheet over the whole window covered
+    /// them, and an export left a window that could not be minimised,
+    /// moved or closed until it was done (#751). Over it on a Mac, whose
+    /// traffic lights are the window's and float over any sheet, and on a
+    /// phone, which has no strip.
+    property <length> sheets-top: !root.phone && root.own-window-buttons ? 32px : 0px;
+    /// A sheet is up. The strip keeps the window's buttons and its drag
+    /// then, and nothing that acts on what the sheet covers.
+    property <bool> sheet-up: root.start.composing || root.export.open || root.settings.open
+        || root.project-sheet.open || root.new-voice.open || root.relink.open
+        || root.confirm.open;
     /// Which floating tool card is in front: "captions" or "speech". The
     /// one opened or grabbed last; Escape closes it first.
     property <string> front-tool: "captions";
@@ -374,10 +400,11 @@ export component App inherits Window {
     callback settings-accent-changed(index: int);
     callback settings-accent-custom-changed(colour: color);
     callback settings-playhead-changed(colour: color);
-    callback settings-playhead-reset();
+    callback settings-playhead-chosen(index: int);
     callback settings-scale-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
     callback settings-proxies-changed(on: bool);
+    callback settings-remember-layout-changed(on: bool);
     callback settings-gpu-changed(on: bool);
     callback settings-magnetic-changed(on: bool);
     callback settings-download-source-changed(index: int);
@@ -400,6 +427,8 @@ export component App inherits Window {
     callback model-download(id: string);
     callback model-cancel(id: string);
     callback model-remove(id: string);
+    callback model-open-link(id: string);
+    callback model-choose-file(id: string);
 
     callback open-settings();
     callback export-clicked();
@@ -422,11 +451,13 @@ export component App inherits Window {
     /// is installed, so they are handed over as models.
     in property <CaptionsSheetData> captions;
     in property <[string]> caption-models;
+    in property <[string]> caption-languages;
     callback captions-closed();
     callback captions-voice-toggled(on: bool);
     callback captions-source-changed(index: int);
     callback captions-text-edited(text: string);
     callback captions-model-changed(index: int);
+    callback captions-language-changed(index: int);
     callback captions-placement-changed(index: int);
     callback captions-size-changed(index: int);
     callback captions-begin();
@@ -451,8 +482,6 @@ export component App inherits Window {
     callback speech-voice-changed(index: int);
     callback speech-model-changed(index: int);
     callback speech-speed-changed(value: float);
-    callback speech-quality-changed(index: int);
-    callback speech-pauses-changed(value: float);
     callback speech-reference-start-changed(seconds: float);
     callback speech-use-sample-changed(on: bool);
     callback speech-sample-changed(index: int);
@@ -464,6 +493,16 @@ export component App inherits Window {
     callback speech-pick-picture();
     callback speech-save-voice();
     callback speech-clear-style();
+
+    /// The Voices shelf's New voice sheet: a recording picked to be kept
+    /// as a voice; see NewVoiceDialog.
+    in property <NewVoiceData> new-voice;
+    callback new-voice-closed();
+    callback new-voice-name-edited(name: string);
+    callback new-voice-description-edited(text: string);
+    callback new-voice-start-changed(seconds: float);
+    callback new-voice-pick-picture();
+    callback new-voice-save();
 
     /// The voiceover panel; see VoiceoverPanel. Its meter and clock come
     /// on the Editor global, from a timer.
@@ -504,6 +543,8 @@ export component App inherits Window {
     /// The bottom-right notice: what just happened, said once. Set from Rust
     /// and watched by its token — see ToastLayer, which owns the timing.
     in property <ToastData> toast;
+    /// The notice with this token has gone from the screen.
+    callback toast-gone(int);
 
     // The level feed is a Rust timer, and a property cannot reach across to
     // stop it, so the hover edge is forwarded as a callback: Rust arms the
@@ -625,6 +666,10 @@ export component App inherits Window {
             if (event.text == Key.Escape || event.text == Key.Back) {
                 if (root.confirm.open) { root.confirm-dismissed(); return accept; }
                 if (root.relink.open) { root.relink-dismiss(); return accept; }
+                if (root.new-voice.open) {
+                    if (!root.new-voice.saving) { root.new-voice-closed(); }
+                    return accept;
+                }
                 if (root.project-sheet.open) { root.project-closed(); return accept; }
                 if (root.settings.open) { root.settings-closed(); return accept; }
                 if (root.export.open) {
@@ -713,6 +758,12 @@ export component App inherits Window {
                 }
 
                 own-buttons: root.own-window-buttons;
+                covered: root.sheets-top > 0 && root.sheet-up;
+                // A close goes the way every close does: the project is
+                // saved and a running export is cancelled. One click on the
+                // corner is not a way to lose a long export, so Close
+                // waits for it, as the sheet's own × does.
+                can-close: root.export.phase != ExportPhase.running;
                 maximized: root.window-maximized;
                 begin-drag => { root.titlebar-begin-drag(); }
                 toggle-maximize => { root.titlebar-toggle-maximize(); }
@@ -734,9 +785,11 @@ export component App inherits Window {
                 phone: root.phone;
                 version: root.app-version;
                 can-drop: root.can-drop;
+                capcut: root.capcut;
 
                 compose => { root.start-compose(); }
                 open => { root.start-open(); }
+                import-capcut => { root.start-import-capcut(); }
                 open-settings => { root.open-settings(); }
                 open-recent(path) => { root.start-open-recent(path); }
                 forget-recent(path) => { root.start-forget-recent(path); }
@@ -829,12 +882,14 @@ export component App inherits Window {
             height: root.height;
             data: root.captions;
             models: root.caption-models;
+            languages: root.caption-languages;
 
             closed => { root.captions-closed(); }
             voice-toggled(on) => { root.captions-voice-toggled(on); }
             source-changed(index) => { root.captions-source-changed(index); }
             text-edited(text) => { root.captions-text-edited(text); }
             model-changed(index) => { root.captions-model-changed(index); }
+            language-changed(index) => { root.captions-language-changed(index); }
             placement-changed(index) => { root.captions-placement-changed(index); }
             size-changed(index) => { root.captions-size-changed(index); }
             begin => { root.captions-begin(); }
@@ -875,8 +930,6 @@ export component App inherits Window {
             voice-changed(index) => { root.speech-voice-changed(index); }
             model-changed(index) => { root.speech-model-changed(index); }
             speed-changed(value) => { root.speech-speed-changed(value); }
-            quality-changed(index) => { root.speech-quality-changed(index); }
-            pauses-changed(value) => { root.speech-pauses-changed(value); }
             reference-start-changed(seconds) => { root.speech-reference-start-changed(seconds); }
             use-sample-changed(on) => { root.speech-use-sample-changed(on); }
             sample-changed(index) => { root.speech-sample-changed(index); }
@@ -905,9 +958,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.start;
         phone: root.phone;
         aspects: root.start-aspects;
@@ -935,9 +988,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         phone: root.phone;
         data: root.export;
         preview-frame: Editor.preview-frame;
@@ -961,15 +1014,14 @@ export component App inherits Window {
     }
 
     SettingsDialog {
-        fill: root.sheets-fill;
         inset-top: root.safe-area-insets.top;
         inset-bottom: root.safe-area-insets.bottom;
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         phone: root.phone;
         data: root.settings;
         transcribers: root.transcribers;
@@ -996,10 +1048,11 @@ export component App inherits Window {
         accent-changed(index) => { root.settings-accent-changed(index); }
         accent-custom-changed(colour) => { root.settings-accent-custom-changed(colour); }
         playhead-changed(colour) => { root.settings-playhead-changed(colour); }
-        playhead-reset => { root.settings-playhead-reset(); }
+        playhead-chosen(index) => { root.settings-playhead-chosen(index); }
         scale-changed(index) => { root.settings-scale-changed(index); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         proxies-changed(on) => { root.settings-proxies-changed(on); }
+        remember-layout-changed(on) => { root.settings-remember-layout-changed(on); }
         gpu-changed(on) => { root.settings-gpu-changed(on); }
         magnetic-changed(on) => { root.settings-magnetic-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }
@@ -1017,10 +1070,14 @@ export component App inherits Window {
         model-download(id) => { root.model-download(id); }
         model-cancel(id) => { root.model-cancel(id); }
         model-remove(id) => { root.model-remove(id); }
+        model-open-link(id) => { root.model-open-link(id); }
+        model-choose-file(id) => { root.model-choose-file(id); }
     }
 
     in property <RelinkData> relink;
     callback relink-all();
+    callback relink-locate(id: string);
+    callback relink-remove(id: string);
     callback relink-dismiss();
 
     ProjectDialog {
@@ -1030,9 +1087,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.project-sheet;
 
         closed => { root.project-closed(); }
@@ -1047,14 +1104,42 @@ export component App inherits Window {
         apply => { root.project-apply(); }
     }
 
+    // Over the Audio page it was opened from, and over the tool cards,
+    // which may be open beside the page on a desk.
+    NewVoiceDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: root.sheets-top;
+        width: root.width;
+        height: root.height - root.sheets-top;
+        data: root.new-voice;
+
+        closed => { root.new-voice-closed(); }
+        name-edited(name) => { root.new-voice-name-edited(name); }
+        description-edited(text) => { root.new-voice-description-edited(text); }
+        start-changed(seconds) => { root.new-voice-start-changed(seconds); }
+        pick-picture => { root.new-voice-pick-picture(); }
+        save => { root.new-voice-save(); }
+    }
+
     RelinkDialog {
         fill: root.sheets-fill;
         inset-top: root.safe-area-insets.top;
         inset-bottom: root.safe-area-insets.bottom;
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: root.sheets-top;
+        width: root.width;
+        height: root.height - root.sheets-top;
         data: root.relink;
         relink-all => { root.relink-all(); }
+        locate(id) => { root.relink-locate(id); }
+        remove(id) => { root.relink-remove(id); }
         dismiss => { root.relink-dismiss(); }
     }
 
@@ -1070,12 +1155,33 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.confirm;
         confirmed => { root.confirm-accepted(); }
         dismissed => { root.confirm-dismissed(); }
+    }
+
+    // Over everything but the tooltips and the menus, the sheets included:
+    // an export that failed behind a dialog is exactly the case a notice is
+    // for. Only its card takes events, so covering the window costs the
+    // window nothing; and it is under the tooltip layer so the card's own
+    // close button can be named over it.
+    ToastLayer {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.toast;
+        phone: root.phone;
+        shares-log: root.settings.shares-log;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        gone(token) => { root.toast-gone(token); }
+        // The same action as Settings › About's, by the same callback.
+        show-log => { root.settings-show-log(); }
     }
 
     // Over the workspace and both sheets, under the menus. A tooltip has to
@@ -1108,15 +1214,4 @@ export component App inherits Window {
         neighbour(by) => { root.open-menu-from-keys(Math.mod(root.open-menu + by, 3)); }
     }
 
-    // Last of all, and over everything including the sheets: an export that
-    // failed behind a dialog is exactly the case a notice is for. It takes no
-    // events — there is no TouchArea anywhere in it — so covering the window
-    // costs the window nothing.
-    ToastLayer {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height;
-        data: root.toast;
-    }
 }

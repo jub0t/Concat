@@ -20,9 +20,12 @@
 //! always-correct fallback. Sound is planned by the engine as one FFmpeg
 //! filtergraph and mixed in a single pass.
 
+mod ahead;
 pub mod chains;
 pub mod flatten;
 mod resolve;
+#[cfg(test)]
+mod speed_curve_tests;
 
 use resolve::{
     BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise, quantise_at,
@@ -41,12 +44,11 @@ use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
-use concat_media::{
-    DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
-};
-use concat_project::model::{AppliedFilter, ClipMask, ColorSpace, Cutout};
+use concat_media::{DecodeOptions, EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
+use concat_project::model::{AppliedFilter, ColorSpace, Cutout, Mask};
 use concat_render::{
-    Compositor, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor, plan_frame,
+    Compositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor,
+    plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
@@ -72,6 +74,11 @@ pub enum ClipKind {
     /// no sound of its own; see [`audio_buses`].
     #[serde(rename = "soundLayer")]
     SoundLayer,
+    /// A transition: no pixels of its own, its package in `transition`, run
+    /// over everything beneath its track for its span - across a cut under
+    /// it, from the outgoing picture to the incoming one, and over a single
+    /// shot where there is none. See `resolve_transitions`.
+    Transition,
 }
 
 impl ClipKind {
@@ -79,6 +86,49 @@ impl ClipKind {
     fn is_visual(self) -> bool {
         matches!(self, ClipKind::Video | ClipKind::Image)
     }
+}
+
+/// A clip's sound split by voice isolation: the voice, and everything
+/// else, each a file at a gain of its own. The two files add up to the
+/// recording.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceStems {
+    /// The voice's file.
+    pub voice: String,
+    /// Everything else's file.
+    pub rest: String,
+    /// The voice's gain over the clip's own volume.
+    pub voice_gain: f64,
+    /// Everything else's.
+    pub rest_gain: f64,
+}
+
+/// Where voice isolation keeps stream `stream` (the first when `None`) of
+/// `media_path` split, under `project`: a folder named by a hash of the
+/// path, as the masks' and the stabilizer's are, holding `voice.wav` and
+/// `rest.wav`. The engine's version is in the name, so a better model
+/// makes its parts afresh rather than reading the old ones.
+pub fn voice_stems_dir(
+    project: &Path,
+    media_path: &str,
+    stream: Option<u32>,
+    kind: concat_project::model::VoiceKind,
+) -> PathBuf {
+    // FNV-1a, as concat-vision names its folders.
+    let hash = media_path
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    let stream = stream.map_or_else(|| "a".to_owned(), |index| index.to_string());
+    project.join("cache").join("voice").join(format!(
+        "{hash:016x}-{stream}-{}",
+        match kind {
+            concat_project::model::VoiceKind::Vocals => "spleeter2",
+            concat_project::model::VoiceKind::Speech => "dfn3",
+        }
+    ))
 }
 
 /// One clip, as the frontend's flattener describes it.
@@ -132,10 +182,11 @@ pub struct ExportClip {
     /// clip's length; empty for the constant `speed`. See `SpeedCurve`.
     #[serde(default)]
     pub speed_curve: Vec<(f64, f64)>,
-    /// A slope for each of `speed_curve`'s points when the curve bends
-    /// smoothly between them; empty for straight lines.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub speed_slopes: Vec<f64>,
+    /// The curve's slope at each of `speed_curve`'s points, in speed per
+    /// unit of `at`, when it bends smoothly through them; empty for
+    /// straight lines.
+    #[serde(default)]
+    pub speed_tangents: Vec<f64>,
     /// Keys over the clip's placement and opacity, resolved by the UI from
     /// Empty for none.
     #[serde(default)]
@@ -184,18 +235,28 @@ pub struct ExportClip {
     /// requests from a UI that predates it.
     #[serde(default = "unity")]
     pub opacity: f64,
-    /// The transition into this clip's cut, when the UI put one there. The
-    /// clip before it on the same track is found here, by adjacency - the UI
-    /// only says what it wants, never how to overlap decoders.
+    /// On a [`ClipKind::Transition`], which transition and its knobs. On a
+    /// picture, the transition on the cut into it the old way, which
+    /// `resolve_transitions` makes a transition clip of its own.
     #[serde(default)]
     pub transition: Option<TransitionSpec>,
+    /// Drawn in the stack where this lane is, rather than its own: a stand-in
+    /// for a clip a transition extends past its cut. Set by transition
+    /// resolution, never by the UI.
+    #[serde(skip)]
+    pub stack_at: Option<usize>,
+    /// The transitions this clip is a side of, by span, and which: the
+    /// incoming picture (`true`) or the outgoing one. Set by transition
+    /// resolution, never by the UI; see `transition_stages`.
+    #[serde(skip)]
+    pub roles: Vec<(usize, bool)>,
     /// Video opacity ramp up from the clip's start, in seconds. Set by
     /// transition resolution below, never by the UI directly.
     #[serde(default)]
     pub video_fade_in: f64,
     /// One frame - the one at `source_start` - held for the clip's length.
-    /// Set by transition resolution where the outgoing clip of a cut has no
-    /// footage after its out-point, never by the UI; see [`overlap`].
+    /// Set by transition resolution where a side of a cut has no footage
+    /// to run on into, never by the UI; see `running_on`.
     #[serde(skip)]
     pub hold: bool,
     /// The source's pixel width, when the UI knows it. What makes an
@@ -206,6 +267,12 @@ pub struct ExportClip {
     /// The source's pixel height; see `media_width`.
     #[serde(default)]
     pub media_height: Option<u32>,
+    /// How many times the frame the source is, for a picture drawn for
+    /// the frame at one pixel to one rather than fitted into it: a title
+    /// whose canvas grew past the frame to hold its ink. One for every
+    /// other clip. See `concat_core::timeline::Clip::overscan`.
+    #[serde(default = "unity")]
+    pub overscan: f64,
     /// The source's length in seconds, when the UI knows it: how much
     /// footage lies past the clip's out-point for a transition to run the
     /// clip on into. Absent, a transition holds the clip's last frame
@@ -222,10 +289,14 @@ pub struct ExportClip {
     /// leaves the picture whole.
     #[serde(default)]
     pub cutout: Option<Cutout>,
-    /// The shape that keeps part of the picture, as the document holds
-    /// it; its keyed numbers ride in `animation` as `maskX` and on.
+    /// The shapes that keep part of the picture, top first, as the
+    /// document holds them, each with its own keys.
     #[serde(default)]
-    pub mask: Option<ClipMask>,
+    pub masks: Vec<Mask>,
+    /// The clip's entrance, exit and loop; see the document's
+    /// `Clip::motion`.
+    #[serde(default)]
+    pub motion: Option<concat_project::model::ClipMotion>,
     /// Draw the cutout tinted over the whole picture instead of cutting
     /// it: the view while the clip's brushes are in use. Preview only.
     #[serde(default)]
@@ -244,6 +315,12 @@ pub struct ExportClip {
     /// flattener had no project folder to name it by.
     #[serde(default)]
     pub motion_dir: String,
+    /// The clip's sound as its voice and everything else, each at a level
+    /// of its own (the document's `Clip::voice`), when both parts have
+    /// been worked out; absent, the clip plays its file as recorded. Set
+    /// by the flattener, which knows where the parts are kept.
+    #[serde(default)]
+    pub voice: Option<VoiceStems>,
     /// A title's per-word reveal order, baked at rasterize time and set by
     /// the host - never by the wire format, like `transition_chain`. Every
     /// shader pass over this clip carries it, so a reveal effect can read
@@ -300,11 +377,11 @@ impl ExportBackdrop {
 }
 
 impl ExportClip {
-    /// The engine's curve for the clip's speed, smooth when it carries
-    /// slopes; None for a constant rate.
-    pub fn retime(&self) -> Option<SpeedCurve> {
-        let slopes = (!self.speed_slopes.is_empty()).then_some(self.speed_slopes.as_slice());
-        SpeedCurve::with_slopes(&self.speed_curve, slopes)
+    /// The engine's time map for the clip's speed curve, or None when it
+    /// plays at the constant `speed`.
+    pub fn engine_curve(&self) -> Option<SpeedCurve> {
+        let slopes = (!self.speed_tangents.is_empty()).then_some(self.speed_tangents.as_slice());
+        SpeedCurve::with_tangents(&self.speed_curve, slopes)
     }
 
     /// A clip with nothing set but what places it: no file, unity gain,
@@ -330,7 +407,7 @@ impl ExportClip {
             speed: 1.0,
             preserve_pitch: true,
             speed_curve: Vec::new(),
-            speed_slopes: Vec::new(),
+            speed_tangents: Vec::new(),
             animation: Vec::new(),
             flip_h: false,
             flip_v: false,
@@ -346,17 +423,22 @@ impl ExportClip {
             stretch_y: 1.0,
             opacity: 1.0,
             transition: None,
+            stack_at: None,
+            roles: Vec::new(),
             video_fade_in: 0.0,
             hold: false,
             media_width: None,
             media_height: None,
+            overscan: 1.0,
             media_duration: None,
             has_audio: None,
             cutout: None,
-            mask: None,
+            motion: None,
+            masks: Vec::new(),
             mask_dir: String::new(),
             stabilize: None,
             motion_dir: String::new(),
+            voice: None,
             highlighted: false,
             reveal_map: None,
             backdrop: None,
@@ -368,9 +450,8 @@ impl ExportClip {
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportKey {
-    /// "scale", "offsetX", "offsetY", "rotation", "opacity" or "volume",
-    /// or one of the mask's numbers: "maskX", "maskY", "maskWidth",
-    /// "maskHeight", "maskRotation", "maskRoundness", "maskFeather".
+    /// "scale", "offsetX", "offsetY", "rotation", "opacity" or "volume".
+    /// A mask's keys are the mask's, in `ExportClip::masks`.
     pub property: String,
     /// Where in the clip, `0..=1`.
     pub at: f64,
@@ -415,7 +496,7 @@ fn unity() -> f64 {
 
 /// Everything a full export needs: the destination, the output format, and
 /// the flattened clip list.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     /// The file to write. Siblings named `.{stem}.concat-*` are used as
@@ -433,7 +514,9 @@ pub struct ExportRequest {
     pub crf: u8,
     /// The x264 speed/size preset name, e.g. "medium".
     pub preset: String,
-    /// What to encode to, by name: "h264", "hevc" or "av1". H.264 when a
+    /// What to encode to, by name: "h264", "hevc", "av1", or "prores-4444"
+    /// or "vp9-alpha" to keep the frame's alpha, whose `output` must then
+    /// be a .mov or a .webm (see [`VideoCodec::container`]). H.264 when a
     /// request does not say.
     #[serde(default, deserialize_with = "codec_by_name")]
     pub codec: VideoCodec,
@@ -468,10 +551,14 @@ pub struct ExportRequest {
     /// clocks and keyframe fractions keep their local timing.
     #[serde(default)]
     pub effect_time_offset: f64,
-    /// What shows where no picture covers the frame, `[r, g, b]`; black
-    /// when a request does not say. See `VideoSettings::canvas`.
-    #[serde(default)]
-    pub canvas: [u8; 3],
+    /// What shows where no picture covers the frame, straight
+    /// `[r, g, b, a]`; opaque black when a request does not say. See
+    /// `VideoSettings::canvas`.
+    #[serde(
+        default = "opaque_black",
+        deserialize_with = "concat_project::model::rgba_array"
+    )]
+    pub canvas: [u8; 4],
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
 }
@@ -505,7 +592,9 @@ fn codec_by_name<'de, D: serde::Deserializer<'de>>(
 ) -> Result<VideoCodec, D::Error> {
     let name = String::deserialize(deserializer)?;
     VideoCodec::parse(&name).ok_or_else(|| {
-        serde::de::Error::custom(format!("unknown codec {name:?}: h264, hevc or av1"))
+        serde::de::Error::custom(format!(
+            "unknown codec {name:?}: h264, hevc, av1, prores-4444 or vp9-alpha"
+        ))
     })
 }
 
@@ -610,41 +699,31 @@ pub(crate) fn transitions_at(shapes: &[TransitionShape], frame: i64) -> Vec<Tran
         .collect()
 }
 
-/// Turns per-cut transition requests into things the renderer already knows
-/// how to draw: overlapping clips, opacity ramps, placement keys, and fade
-/// and mask filters. Returns the packaged transitions found along the way,
-/// for the compositor to combine over; every other kind needs nothing more
-/// than what it already baked into the clips themselves.
+/// Turns the transitions on a clip list into what the compositor draws:
+/// one [`TransitionSpan`] each, over the stack beneath its lane.
 ///
-/// Track indices are spread apart first, so an incoming clip gets a lane of
-/// its own directly above the clip it crosses from - stacking against every
-/// other track is preserved, and nothing else occupies the lanes between
-/// two tracks. They are doubled unless transitions follow one another, when
-/// each incoming clip of the chain sits a lane above the last and the
-/// tracks are spread as far as the longest chain climbs (see
-/// [`lane_spacing`]). Cuts are collected before anything mutates, so
-/// resolving one transition cannot unhook the adjacency test of the next,
-/// and resolved in time order, so each clip of a chain has been lifted
-/// before the clip after it is lifted above it.
+/// A transition is a clip of its own, [`ClipKind::Transition`], on a lane
+/// like a layer's, for as long as it runs: it acts on everything beneath
+/// that lane. With a cut under it - two pictures meeting on a lane below,
+/// within its span - it carries the outgoing picture into the incoming one.
+/// With none, it is a hit on the one shot: the package's shader is given
+/// the same picture twice, and a flash, a zoom punch or a glitch plays over
+/// it. Nothing needs two clips.
 ///
-/// Every kind but the fades to a colour is built on one overlap, centred on
-/// the cut the way the timeline draws it: the incoming clip extends
-/// backwards by half the transition's length, on the lane above, showing
-/// the handle before its in-point, and the outgoing one runs on under it by
-/// the other half, past its out-point (see [`overlap`]). What differs is how the two are blended across that overlap - a dissolve
-/// ramps the incoming clip's opacity, a push slides both, a zoom scales
-/// both under a dissolve, a wipe uncovers the incoming one behind a moving
-/// edge. The slides and scales are keys on the clips' animations, which
-/// the plan already plays for the monitor and the export alike; the wipe
-/// and the fades to a colour are [`TransitionShape`]s, which the frame plan
-/// draws at each instant from the clip's own time, the same way for both.
+/// Across a cut both pictures are needed for the whole span, so each side
+/// is extended into it by a stand-in clip on a lane of its own, drawn in
+/// the place of the clip it stands in for: the outgoing clip running on
+/// past the cut into footage the edit left out, the incoming one starting
+/// early from footage before its in-point. A side with no footage to give
+/// holds its frame instead - the last of the outgoing clip, the first of
+/// the incoming one - as every editor does over a cut with no handle. The
+/// stand-ins are silent and drawn only inside the span, in their side's
+/// picture: see `transition_stages`.
 ///
-/// An id the catalogue knows as a transition package gets the same overlap
-/// plus a dissolve ramp, but the returned [`TransitionSpan`] tells the
-/// compositor a shader owns the blend where one can run: see
-/// `combine_transition`. Legacy ids are matched first and never reach this
-/// path, so a project saved before packaged transitions existed renders
-/// exactly as it always did.
+/// A transition still set on a cut the old way, on the clip coming in, is
+/// made a transition clip centred on that cut on a lane of its own just
+/// above, so a document written that way plays the same through this one
+/// path until the editor stops writing it.
 fn resolve_transitions(clips: &mut Vec<ExportClip>, rate: FrameRate) -> Vec<TransitionSpan> {
     resolve_transitions_at(clips, rate, 0.0)
 }
@@ -654,306 +733,263 @@ fn resolve_transitions_at(
     rate: FrameRate,
     origin: f64,
 ) -> Vec<TransitionSpan> {
+    let frame = 1.0 / rate.fps().as_f64();
+    on_their_own_lanes(clips, frame);
+
     let mut spans: Vec<TransitionSpan> = Vec::new();
-
-    let fps = rate.fps().as_f64();
-    let frame = 1.0 / fps;
-
-    // Lanes are only compared for equality here, so the cuts read the same
-    // before the tracks are spread as after.
-    let mut cuts: Vec<Cut> = Vec::new();
-    for (incoming, clip) in clips.iter().enumerate() {
-        let Some(transition) = &clip.transition else {
+    let mut next_lane = clips.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
+    let transitions: Vec<usize> = (0..clips.len())
+        .filter(|&at| clips[at].kind == ClipKind::Transition && !clips[at].hidden)
+        .collect();
+    for at in transitions {
+        let transition = &clips[at];
+        let Some(spec) = transition.transition.clone() else {
             continue;
         };
-        if clip.hidden || !clip.kind.is_visual() {
+        if transition.duration < frame / 2.0 {
             continue;
         }
-        // The outgoing clip is whatever ends where this one starts, on the
-        // same lane. No match - the cut was edited apart - means the
-        // transition is silently orphaned, exactly like the UI treats it.
-        let outgoing = clips.iter().position(|other| {
-            !other.hidden
-                && other.kind.is_visual()
-                && other.track == clip.track
-                && (other.start + other.duration - clip.start).abs() < frame / 2.0
+        let (start, end, lane) = (
+            transition.start,
+            transition.start + transition.duration,
+            transition.track,
+        );
+        let span = spans.len();
+        if let Some((outgoing, incoming)) = cut_under(clips, start, end, lane, frame) {
+            let cut = clips[incoming].start;
+            let outgoing_lane = clips[outgoing].track;
+            clips[outgoing].roles.push((span, false));
+            clips[incoming].roles.push((span, true));
+            if end - cut > frame / 2.0 {
+                let mut after = running_on(&clips[outgoing], cut, end - cut, frame);
+                stand_in(&mut after, outgoing_lane, next_lane, span, false);
+                next_lane += 1;
+                clips.push(after);
+            }
+            if cut - start > frame / 2.0 {
+                let mut before = coming_early(&clips[incoming], start, cut - start, frame);
+                stand_in(&mut before, outgoing_lane, next_lane, span, true);
+                next_lane += 1;
+                clips.push(before);
+            }
+        }
+        let first = quantise_at(start, rate, origin);
+        spans.push(TransitionSpan {
+            start: first,
+            // Its end rounded as a clip's is, so it ends on the frame the
+            // clips it runs over do.
+            end: quantise_at(end, rate, origin),
+            track: lane,
+            id: spec.kind,
+            params: spec.params,
+            from: std::collections::HashSet::new(),
+            to: std::collections::HashSet::new(),
         });
-        match outgoing {
-            Some(outgoing) if outgoing != incoming => cuts.push(Cut {
-                incoming,
-                outgoing,
-                kind: transition.kind.clone(),
-                duration: transition.duration.max(0.0),
-                params: transition.params.clone(),
-            }),
-            _ => {}
-        }
-    }
-    cuts.sort_by(|one, other| {
-        clips[one.incoming]
-            .start
-            .total_cmp(&clips[other.incoming].start)
-    });
-    let spacing = lane_spacing(clips.len(), &cuts);
-    for clip in clips.iter_mut() {
-        clip.track *= spacing;
-    }
-
-    for cut in cuts {
-        match cut.kind.as_str() {
-            "cross-fade" | "push" | "zoom" | "wipe-left" | "wipe-right" => {
-                // The two pictures across the cut: the incoming clip on the
-                // lane above, the outgoing one running on beneath it.
-                let Some(Overlap {
-                    incoming,
-                    length: d,
-                    outgoing_runs,
-                }) = overlap(clips, &cut, frame)
-                else {
-                    continue;
-                };
-
-                // How the two blend across the overlap. A shape that cannot
-                // be applied - a clip the user has already keyed on the
-                // property the shape would ride, or an outgoing picture that
-                // is a held frame rather than the clip a key could move -
-                // falls back to the dissolve rather than half-applying, so
-                // the cut still transitions.
-                let shaped = match cut.kind.as_str() {
-                    // The new picture slides in from the right and shoves the
-                    // old one out to the left, edge to edge: both ride the
-                    // same ease over the same seconds, which is what keeps
-                    // them glued.
-                    "push" => {
-                        outgoing_runs
-                            && rides(clips, cut.outgoing, incoming, "offsetX")
-                            && ride(
-                                &mut clips[incoming],
-                                "offsetX",
-                                1.0,
-                                0.0,
-                                d,
-                                true,
-                                EASE_IN_OUT,
-                            )
-                            && ride(
-                                &mut clips[cut.outgoing],
-                                "offsetX",
-                                0.0,
-                                -1.0,
-                                d,
-                                false,
-                                EASE_IN_OUT,
-                            )
-                    }
-                    // The old picture grows as it dissolves into the new one,
-                    // which settles from a little large to its own size.
-                    "zoom" => {
-                        outgoing_runs
-                            && rides(clips, cut.outgoing, incoming, "scale")
-                            && ride(&mut clips[incoming], "scale", 1.25, 1.0, d, true, EASE_OUT)
-                            && ride(
-                                &mut clips[cut.outgoing],
-                                "scale",
-                                1.0,
-                                1.4,
-                                d,
-                                false,
-                                EASE_IN,
-                            )
-                            && {
-                                clips[incoming].video_fade_in = d;
-                                true
-                            }
-                    }
-                    // A straight edge sweeps across and uncovers the new
-                    // picture behind it, from the clip's new, earlier start.
-                    "wipe-left" | "wipe-right" => {
-                        let frames = ((d * fps).round() as i64).max(1);
-                        clips[incoming]
-                            .transition_shapes
-                            .push(TransitionShape::Wipe {
-                                // A wipe to the left uncovers the new picture
-                                // from the right edge.
-                                from_right: cut.kind == "wipe-left",
-                                frames,
-                            });
-                        true
-                    }
-                    _ => false,
-                };
-                if !shaped {
-                    clips[incoming].video_fade_in = d;
-                }
-            }
-            "fade-black" | "fade-white" => {
-                // Half the duration on each side of the cut, counted in the
-                // timeline's frames, so the fade lands on the frames the
-                // timeline arithmetic says it covers.
-                let colour = if cut.kind == "fade-white" {
-                    [1.0; 3]
-                } else {
-                    [0.0; 3]
-                };
-                let half = cut.duration / 2.0;
-                {
-                    let a = &mut clips[cut.outgoing];
-                    let frames = ((half.min(a.duration) * fps).round() as i64).max(1);
-                    let total = (a.duration * fps).round() as i64;
-                    a.transition_shapes.push(TransitionShape::FadeOut {
-                        colour,
-                        start: (total - frames).max(0),
-                        frames,
-                    });
-                }
-                {
-                    let b = &mut clips[cut.incoming];
-                    let frames = ((half.min(b.duration) * fps).round() as i64).max(1);
-                    b.transition_shapes
-                        .push(TransitionShape::FadeIn { colour, frames });
-                }
-            }
-            // A packaged transition: overlap the incoming clip onto the
-            // outgoing one exactly as a dissolve does - the fallback where the
-            // shader cannot run - and record a span the compositor combines
-            // over with the package's two-input shader. Legacy ids are matched
-            // above first, so an id aliased to a package still takes the
-            // hand-written path saved projects expect.
-            kind if Catalogue::builtin()
-                .get(kind)
-                .is_some_and(|package| package.transition().is_some()) =>
-            {
-                let Some(Overlap {
-                    incoming,
-                    length: d,
-                    ..
-                }) = overlap(clips, &cut, frame)
-                else {
-                    continue;
-                };
-                let b = &mut clips[incoming];
-                // The dissolve a GPU-less path shows; the shader's own blend
-                // overrides it where a GPU runs the transition.
-                b.video_fade_in = d;
-                let start = quantise_at(b.start, rate, origin);
-                let end = start + quantise(d, rate);
-                spans.push(TransitionSpan {
-                    start,
-                    end,
-                    to_track: b.track,
-                    id: cut.kind.clone(),
-                    params: cut.params.clone(),
-                });
-            }
-            // A kind this build does not know renders as a plain cut rather
-            // than failing the export - the same degrade a missing effect
-            // filter must NOT get, because there the user styled the picture.
-            _ => {}
-        }
     }
     spans
 }
 
-/// A cut with a transition on it: which clip comes in, which goes out, and
-/// what the UI asked for across it.
-struct Cut {
-    incoming: usize,
-    outgoing: usize,
-    kind: String,
-    duration: f64,
-    params: BTreeMap<String, f64>,
+/// Makes each transition still set on a cut the old way - on the clip
+/// coming in, `ExportClip::transition` on a picture - a transition clip of
+/// its own, centred on the cut and no longer than either side, on a lane
+/// just above the cut's. The lanes are doubled first when there are any,
+/// so every lane has a free one above it and the stacking against every
+/// other lane is kept. A transition on a clip with nothing ending where it
+/// starts - the cut edited apart - is let go, as the timeline lets it go.
+fn on_their_own_lanes(clips: &mut Vec<ExportClip>, frame: f64) {
+    let cuts: Vec<(usize, usize)> = clips
+        .iter()
+        .enumerate()
+        .filter(|(_, clip)| {
+            clip.kind != ClipKind::Transition && clip.transition.is_some() && !clip.hidden
+        })
+        .filter_map(|(incoming, clip)| {
+            let outgoing = clips.iter().position(|other| {
+                !other.hidden
+                    && other.kind.is_visual()
+                    && other.track == clip.track
+                    && (other.start + other.duration - clip.start).abs() < frame / 2.0
+            })?;
+            (clip.kind.is_visual() && outgoing != incoming).then_some((outgoing, incoming))
+        })
+        .collect();
+    for clip in clips.iter_mut() {
+        if clip.kind != ClipKind::Transition && cuts.is_empty() {
+            clip.transition = None;
+        }
+    }
+    if cuts.is_empty() {
+        return;
+    }
+    for clip in clips.iter_mut() {
+        clip.track *= 2;
+    }
+    for (outgoing, incoming) in cuts {
+        let Some(spec) = clips[incoming].transition.take() else {
+            continue;
+        };
+        let length = spec
+            .duration
+            .min(clips[outgoing].duration)
+            .min(clips[incoming].duration);
+        if length < frame {
+            continue;
+        }
+        let cut = clips[incoming].start;
+        let lane = clips[incoming].track + 1;
+        clips.push(ExportClip {
+            transition: Some(spec),
+            ..ExportClip::blank(ClipKind::Transition, cut - length / 2.0, length, lane)
+        });
+    }
+    for clip in clips.iter_mut() {
+        if clip.kind != ClipKind::Transition {
+            clip.transition = None;
+        }
+    }
 }
 
-/// How many lanes each track is spread across before its cuts are
-/// resolved: its own, and one for each cut of the longest chain on any
-/// track. A transition lifts its incoming clip a lane above the outgoing
-/// one, and in a chain the outgoing clip was itself lifted for the cut
-/// before it, so a chain of n cuts climbs n lanes. With fewer lanes than
-/// that between two tracks, the chain climbs onto the next track's own
-/// lane, and of two pictures on one lane only one is drawn
-/// (`Timeline::clip_on_track_at`). Two, as it always was, where no
-/// transition follows another. `cuts` are in time order, so a clip's
-/// outgoing clip has its depth before the clip itself is reached.
-fn lane_spacing(clips: usize, cuts: &[Cut]) -> usize {
-    let mut depth = vec![0_usize; clips];
-    for cut in cuts {
-        depth[cut.incoming] = depth[cut.outgoing] + 1;
-    }
-    depth.into_iter().max().unwrap_or(0).max(1) + 1
+/// The cut a transition over `[start, end)` on `lane` carries across, as
+/// the outgoing and incoming clips: two pictures meeting on a lane beneath
+/// it within its span, give or take half a frame. The one nearest the
+/// span's middle where there are several, and of two equally near, the
+/// higher lane's - the one on top of the picture.
+fn cut_under(
+    clips: &[ExportClip],
+    start: f64,
+    end: f64,
+    lane: usize,
+    frame: f64,
+) -> Option<(usize, usize)> {
+    let middle = (start + end) / 2.0;
+    let pictures = || {
+        clips
+            .iter()
+            .enumerate()
+            .filter(|(_, clip)| clip.kind.is_visual() && !clip.hidden && clip.track < lane)
+    };
+    pictures()
+        .filter_map(|(incoming, clip)| {
+            let cut = clip.start;
+            if cut < start - frame / 2.0 || cut > end + frame / 2.0 {
+                return None;
+            }
+            let (outgoing, _) = pictures().find(|(at, other)| {
+                *at != incoming
+                    && other.track == clip.track
+                    && (other.start + other.duration - cut).abs() < frame / 2.0
+            })?;
+            Some((outgoing, incoming))
+        })
+        .min_by(|&(_, one), &(_, other)| {
+            let off = |at: usize| (clips[at].start - middle).abs();
+            off(one)
+                .total_cmp(&off(other))
+                .then(clips[other].track.cmp(&clips[one].track))
+        })
 }
 
-/// What [`overlap`] built a transition on.
-struct Overlap {
-    /// The incoming clip, moved to the lane above the outgoing one and
-    /// starting where the overlap does.
-    incoming: usize,
-    /// The overlap's length: the transition's, capped by both clips.
-    length: f64,
-    /// The outgoing clip itself runs on under the overlap. False when a
-    /// held copy of its last frame does instead, which a key on the clip
-    /// cannot move.
-    outgoing_runs: bool,
+/// The outgoing clip carried on past the cut for `length` seconds from
+/// `cut`: its own footage after its out-point where the file has that
+/// much, its last frame held where it has not.
+fn running_on(clip: &ExportClip, cut: f64, length: f64, frame: f64) -> ExportClip {
+    if tail_handle(clip, frame) + frame / 2.0 < length {
+        return last_frame_held(clip, cut, length, frame);
+    }
+    let mut after = last_frame_held(clip, cut, length, frame);
+    after.hold = false;
+    after.speed = clip.speed;
+    if clip.kind != ClipKind::Image {
+        after.source_start = clip.source_start + clip.duration * clip.speed;
+    }
+    after
 }
 
-/// The overlap a transition crosses, centred on the cut the way the
-/// timeline draws it: the incoming clip on the lane above, from half the
-/// transition's length before the cut, over the outgoing one running on
-/// for the other half past it. The length is capped by both clips; `None`
-/// for a cut too short to overlap at all.
-///
-/// Each side is the clip itself, extended with its source clock moved the
-/// same way, into footage the edit left out: before the incoming clip's
-/// in-point, after the outgoing one's out-point - a still has all it needs
-/// either way. Winding a start back without the clock, as this once did,
-/// played everything after the cut early and ran the last of it off the
-/// file's end into black (#236).
-///
-/// Without footage after its out-point, the outgoing clip ends at the cut
-/// and a copy of its last frame is held beneath for the rest: the
-/// "repeated frames" every editor shows over a cut with no handle. The
-/// hold is the clip with no sound, no keys and no fades of its own; a
-/// keyed placement is held where its ride leaves it at the clip's tail.
-/// The incoming side gets no hold, as one there would end at the cut and
-/// leave the clip after it sharing a lane with the outgoing picture: what
-/// it lacks before its in-point moves to after the cut instead, so the
-/// transition leans later rather than freezing.
-fn overlap(clips: &mut Vec<ExportClip>, cut: &Cut, frame: f64) -> Option<Overlap> {
-    let a = &clips[cut.outgoing];
-    let b = &clips[cut.incoming];
-    let length = cut.duration.min(a.duration).min(b.duration);
-    if length < frame {
-        return None;
-    }
-    let mut lead = (length / 2.0).min(head_handle(b));
-    if lead < frame / 2.0 {
-        lead = 0.0;
-    }
-    let tail = length - lead;
-    let a_track = a.track;
-    let a_end = a.start + a.duration;
-    let outgoing_runs = tail_handle(a, frame) + frame / 2.0 >= tail;
-
-    {
-        let b = &mut clips[cut.incoming];
-        extend(b, lead, 0.0);
-        // Sound rides the picture: each side fades across the overlap
-        // rather than arriving or leaving at full level.
-        b.fade_in = b.fade_in.max(length);
-        b.track = a_track + 1;
-    }
-    if outgoing_runs {
-        let a = &mut clips[cut.outgoing];
-        extend(a, 0.0, tail);
-        a.fade_out = a.fade_out.max(length);
+/// The incoming clip started early, `length` seconds before its cut at
+/// `start`: its own footage before its in-point where the file has that
+/// much, its first frame held where it has not.
+fn coming_early(clip: &ExportClip, start: f64, length: f64, frame: f64) -> ExportClip {
+    let mut before = held_at(clip, start, length, true);
+    if head_handle(clip) + frame / 2.0 >= length {
+        before.speed = clip.speed;
+        if clip.kind != ClipKind::Image {
+            before.source_start = (clip.source_start - length * clip.speed).max(0.0);
+        }
     } else {
-        let hold = last_frame_held(&clips[cut.outgoing], a_end, tail, frame);
-        clips.push(hold);
+        before.hold = true;
     }
-    Some(Overlap {
-        incoming: cut.incoming,
-        length,
-        outgoing_runs,
-    })
+    before
+}
+
+/// Makes `clip` a silent stand-in on lane `lane` for the clip on
+/// `stacked_at`, in transition `span`'s outgoing picture or, with
+/// `incoming`, its incoming one.
+fn stand_in(clip: &mut ExportClip, stacked_at: usize, lane: usize, span: usize, incoming: bool) {
+    clip.track = lane;
+    clip.stack_at = Some(stacked_at);
+    clip.roles = vec![(span, incoming)];
+}
+
+/// A copy of `clip`'s last frame held from `start` for `length` seconds:
+/// silent, unkeyed and unfaded, placed where its keys leave it at its tail.
+fn last_frame_held(clip: &ExportClip, start: f64, length: f64, frame: f64) -> ExportClip {
+    let mut hold = held_at(clip, start, length, false);
+    hold.hold = true;
+    if clip.kind != ClipKind::Image {
+        let (played, rate) = match clip.engine_curve() {
+            Some(curve) => (clip.duration * curve.consumed(1.0), curve.speed_at(1.0)),
+            None => (clip.duration * clip.speed, clip.speed),
+        };
+        hold.source_start = clip.source_start + (played - frame * rate).max(0.0);
+    }
+    hold
+}
+
+/// `clip` placed at `start` for `length` seconds with no sound, no fades,
+/// no transitions and no speed of its own, and every property it keys held
+/// where its keys leave it at its head (`head`) or its tail: keys are
+/// absolute and a keyed property's constant is the neutral value, so the
+/// end of each ride becomes the copy's constant.
+fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip {
+    let mut held = clip.clone();
+    held.start = start;
+    held.duration = length;
+    held.speed = 1.0;
+    held.speed_curve.clear();
+    held.speed_tangents.clear();
+    held.muted = true;
+    held.has_audio = Some(false);
+    held.volume = 0.0;
+    held.fade_in = 0.0;
+    held.fade_out = 0.0;
+    held.transition = None;
+    held.video_fade_in = 0.0;
+    held.transition_shapes.clear();
+    held.roles.clear();
+    let ends: Vec<(String, f64)> = ["scale", "offsetX", "offsetY", "rotation", "opacity"]
+        .into_iter()
+        .filter_map(|property| {
+            let keys = held.animation.iter().filter(|key| key.property == property);
+            let end = if head {
+                keys.min_by(|a, b| a.at.total_cmp(&b.at))
+            } else {
+                keys.max_by(|a, b| a.at.total_cmp(&b.at))
+            };
+            end.map(|key| (property.to_owned(), key.value))
+        })
+        .collect();
+    held.animation.clear();
+    for (property, value) in ends {
+        match property.as_str() {
+            "scale" => held.scale = value,
+            "offsetX" => held.offset_x = value,
+            "offsetY" => held.offset_y = value,
+            "rotation" => held.rotation = value,
+            "opacity" => held.opacity = value,
+            _ => {}
+        }
+    }
+    held
 }
 
 /// Footage before `clip`'s in-point, in timeline seconds. A clip whose
@@ -986,132 +1022,6 @@ fn tail_handle(clip: &ExportClip, frame: f64) -> f64 {
     })
 }
 
-/// Lengthens `clip` by `head` seconds before its start and `tail` after
-/// its end, its source clock moved with it. Keys sit at fractions of the
-/// clip, so each is moved to stay at the instant it was at.
-fn extend(clip: &mut ExportClip, head: f64, tail: f64) {
-    if head <= 0.0 && tail <= 0.0 {
-        return;
-    }
-    let old = clip.duration;
-    let new = old + head + tail;
-    if old > 0.0 {
-        for key in &mut clip.animation {
-            key.at = (key.at * old + head) / new;
-        }
-    }
-    clip.start -= head;
-    clip.duration = new;
-    if clip.kind != ClipKind::Image {
-        clip.source_start = (clip.source_start - head * clip.speed).max(0.0);
-    }
-}
-
-/// A copy of `clip`'s last frame held from `start` for `length` seconds,
-/// on its lane: silent, unkeyed and unfaded, placed where its keys leave
-/// it at its tail.
-fn last_frame_held(clip: &ExportClip, start: f64, length: f64, frame: f64) -> ExportClip {
-    let mut hold = clip.clone();
-    hold.hold = true;
-    hold.start = start;
-    hold.duration = length;
-    if clip.kind != ClipKind::Image {
-        let (played, rate) = match SpeedCurve::new(&clip.speed_curve) {
-            Some(curve) => (clip.duration * curve.consumed(1.0), curve.speed_at(1.0)),
-            None => (clip.duration * clip.speed, clip.speed),
-        };
-        hold.source_start = clip.source_start + (played - frame * rate).max(0.0);
-    }
-    hold.speed = 1.0;
-    hold.speed_curve.clear();
-    hold.speed_slopes.clear();
-    hold.muted = true;
-    hold.has_audio = Some(false);
-    hold.volume = 0.0;
-    hold.fade_in = 0.0;
-    hold.fade_out = 0.0;
-    hold.transition = None;
-    hold.video_fade_in = 0.0;
-    hold.transition_shapes.clear();
-    // Keys are absolute and a keyed property's constant is the neutral
-    // value, so the tail of each ride becomes the hold's constant.
-    let tails: Vec<(String, f64)> = ["scale", "offsetX", "offsetY", "rotation", "opacity"]
-        .into_iter()
-        .filter_map(|property| {
-            hold.animation
-                .iter()
-                .filter(|key| key.property == property)
-                .max_by(|a, b| a.at.total_cmp(&b.at))
-                .map(|key| (property.to_owned(), key.value))
-        })
-        .collect();
-    hold.animation.clear();
-    for (property, value) in tails {
-        match property.as_str() {
-            "scale" => hold.scale = value,
-            "offsetX" => hold.offset_x = value,
-            "offsetY" => hold.offset_y = value,
-            "rotation" => hold.rotation = value,
-            "opacity" => hold.opacity = value,
-            _ => {}
-        }
-    }
-    hold
-}
-
-/// The timing functions the transition shapes ride on, as `ExportKey` holds
-/// them: CSS `ease-in-out`, `ease-out` and `ease-in`.
-const EASE_IN_OUT: [f64; 4] = [0.42, 0.0, 0.58, 1.0];
-const EASE_OUT: [f64; 4] = [0.0, 0.0, 0.58, 1.0];
-const EASE_IN: [f64; 4] = [0.42, 0.0, 1.0, 1.0];
-
-/// Whether a transition may key `property` on both sides of a cut: neither
-/// clip carries keys on it already. Two rides on one property is a question
-/// with no good answer, and the ones the user set are the ones they will be
-/// looking at.
-fn rides(clips: &[ExportClip], outgoing: usize, incoming: usize, property: &str) -> bool {
-    let keyed = |clip: &ExportClip| clip.animation.iter().any(|key| key.property == property);
-    !keyed(&clips[outgoing]) && !keyed(&clips[incoming])
-}
-
-/// Keys `property` on `clip` from `from` to `to` over `seconds` at its head
-/// (`at_head`) or its tail, easing into the second key. Values are relative
-/// to the clip's own, as animation keys are: an offset adds, a scale
-/// multiplies. The first key holds before it and the second after, so the
-/// clip rests at `from` until the ride and at `to` past it.
-fn ride(
-    clip: &mut ExportClip,
-    property: &str,
-    from: f64,
-    to: f64,
-    seconds: f64,
-    at_head: bool,
-    ease: [f64; 4],
-) -> bool {
-    if clip.duration <= 0.0 {
-        return false;
-    }
-    let fraction = (seconds / clip.duration).clamp(0.0, 1.0);
-    let (start, end) = if at_head {
-        (0.0, fraction)
-    } else {
-        (1.0 - fraction, 1.0)
-    };
-    clip.animation.push(ExportKey {
-        property: property.to_owned(),
-        at: start,
-        value: from,
-        ease: linear_ease(),
-    });
-    clip.animation.push(ExportKey {
-        property: property.to_owned(),
-        at: end,
-        value: to,
-        ease,
-    });
-    true
-}
-
 /// Renders `request` and returns the path written, drawing on a device of
 /// its own; [`render_on`] draws on one the caller lends.
 pub fn render(request: &ExportRequest, reporter: Reporter<'_>) -> Result<String, String> {
@@ -1135,6 +1045,20 @@ pub fn render_on(
     compositor: Option<WgpuCompositor>,
     mut reporter: Reporter<'_>,
 ) -> Result<String, String> {
+    // A clear canvas bound for a format that keeps no alpha is laid over
+    // black first, as the frame is drawn, rather than having its alpha
+    // dropped by the encoder after: dropped, a soft edge or a glow keeps
+    // its full colour and comes out as a solid halo (#456).
+    let flattened;
+    let request = if request.canvas[3] < 255 && !request.codec.keeps_alpha() {
+        flattened = ExportRequest {
+            canvas: over_black(request.canvas),
+            ..request.clone()
+        };
+        &flattened
+    } else {
+        request
+    };
     if !request.effect_time_offset.is_finite()
         || request.effect_time_offset.abs() > concat_project::model::ranges::MAX_TIME
     {
@@ -1164,6 +1088,24 @@ pub fn render_on(
         ));
     }
     let output = PathBuf::from(&request.output);
+    // An alpha codec's file is only what it says in its own container: a
+    // ProRes picture in a file named .mp4 opens nowhere, and a WebM's
+    // alpha means nothing to a reader that takes the name for an MP4. The
+    // three ordinary codecs keep writing an MP4 under whatever name they
+    // are given, as they always have.
+    if request.codec.keeps_alpha() {
+        let wanted = request.codec.container();
+        let named = output
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(wanted));
+        if !named {
+            return Err(format!(
+                "{} is written to a .{wanted} file, and {} is not one",
+                request.codec.label(),
+                output.display()
+            ));
+        }
+    }
 
     // Transitions become overlaps, ramps and fade filters before anything
     // else reads the clip list, so the picture and sound paths below never
@@ -1227,15 +1169,33 @@ pub fn render_on(
             directory.display()
         ));
     }
-    let silent = directory.join(format!(".{stem}.concat-video.mp4"));
-    let mixed = directory.join(format!(".{stem}.concat-audio.m4a"));
-    let muxed = directory.join(format!(".{stem}.concat-muxed.mp4"));
+    // Each in the container the codec is written in, which the muxers pick
+    // by the extension: a ProRes picture goes in a QuickTime file, and a
+    // WebM's sound is Opus, the one a WebM takes besides Vorbis. A .mov
+    // takes the AAC an MP4 does.
+    let container = request.codec.container();
+    let sound_container = if container == "webm" { "webm" } else { "m4a" };
+    let silent = directory.join(format!(".{stem}.concat-video.{container}"));
+    let mixed = directory.join(format!(".{stem}.concat-audio.{sound_container}"));
+    let muxed = directory.join(format!(".{stem}.concat-muxed.{container}"));
+
+    // The export's one line, written when it ends however it ends: done,
+    // cancelled or failed, with where its time went (see `Spent`). It is
+    // the line a report of a slow or failed export is answered from.
+    let mut op = concat_log::op!("export");
+    let mut spent = Spent {
+        total: total_frames,
+        size: (request.width, request.height),
+        fps: rate.fps().as_f64(),
+        ..Spent::default()
+    };
 
     // The output path is touched once, by the rename at the end, whichever
     // way the file was made. The mux used to write it directly, and a mux
     // that failed - the disk full, a read error - left a truncated file
     // where the previous export had been (audit 2026-10-09, finding 4).
     let result = (|| -> Result<(), String> {
+        op.step("render");
         render_picture(
             request,
             compositor,
@@ -1245,6 +1205,7 @@ pub fn render_on(
             transitions,
             &silent,
             &mut reporter,
+            &mut spent,
         )?;
 
         let finished = if sound.is_empty() {
@@ -1252,6 +1213,7 @@ pub fn render_on(
         } else {
             reporter.cancelled()?;
             reporter.emit(0, total_frames, "mixing audio");
+            op.step("mix audio");
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
             let buses = audio_buses(&resolved);
             audio::mix_to_file_with(&mix, &buses, timeline_end.as_f64(), &mixed)
@@ -1259,12 +1221,23 @@ pub fn render_on(
 
             reporter.cancelled()?;
             reporter.emit(total_frames, total_frames, "muxing");
+            op.step("mux");
             audio::mux(&silent, &mixed, &muxed).map_err(|error| error.to_string())?;
             &muxed
         };
+        op.end_step();
         std::fs::rename(finished, &output)
             .map_err(|error| format!("could not write {}: {error}", output.display()))
     })();
+    spent.note(&mut op);
+    match &result {
+        Ok(()) => {
+            let fps = spent.frames as f64 / op.elapsed().as_secs_f64().max(1e-9);
+            op.done(format_args!("{} frames at {fps:.1} fps", spent.frames));
+        }
+        Err(_) if reporter.cancel.load(Ordering::Relaxed) => op.cancelled(),
+        Err(error) => op.failed(error),
+    }
 
     let _ = std::fs::remove_file(&silent);
     let _ = std::fs::remove_file(&mixed);
@@ -1274,18 +1247,14 @@ pub fn render_on(
 }
 
 /// The timeline's end and how many frames it runs for, on the frame grid the
-/// engine quantises every clip onto: a clip's start and its duration are each
-/// rounded to that grid separately on the way into the timeline, so the
-/// timeline the frames are drawn from can run a frame past - or stop a frame
-/// short of - what the f64 seconds add up to, whose own whole rounding is a
-/// third answer again. A clip starting half a frame in and running a further
-/// half-frame count lost the last frame of the last clip that way; a pair
-/// that rounds down at both ends gained a black one after it. The mix takes
-/// the same end, so the muxer joins two tracks of one length.
+/// engine quantises every clip onto: the last clip's end, rounded to that
+/// grid as `build_timeline` rounds it, so the frames drawn are the
+/// timeline's own - not one past its last clip, nor one short of it. The
+/// mix takes the same end, so the muxer joins two tracks of one length.
 fn timeline_extent(clips: &[ExportClip], rate: FrameRate, origin: f64) -> (Rational, i64) {
     let end = clips
         .iter()
-        .map(|clip| quantise_at(clip.start, rate, origin) + quantise(clip.duration, rate))
+        .map(|clip| resolve::clip_end(clip, rate, origin))
         .max()
         .unwrap_or(Rational::ZERO);
     (end, rate.frames_in(end))
@@ -1379,27 +1348,93 @@ pub fn audio_buses(clips: &[ExportClip]) -> Vec<audio::AudioBus> {
 /// into pieces of constant rate, each at the mean of its stretch of the
 /// curve and starting where the curve says the source had got to.
 pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
+    let Some(stems) = &clip.voice else {
+        return audio_pieces_of(clip, &clip.path, clip.audio_stream, 1.0);
+    };
+    // Each part on its own, from the same place in it as the clip is in
+    // its file: the parts are the whole file's, split. A part turned all
+    // the way down is not read at all.
+    [
+        (&stems.voice, stems.voice_gain),
+        (&stems.rest, stems.rest_gain),
+    ]
+    .into_iter()
+    .filter(|(_, gain)| *gain > 0.0)
+    .flat_map(|(path, gain)| audio_pieces_of(clip, path, None, gain))
+    .collect()
+}
+
+/// [`audio_pieces`] read from `path`'s stream `stream`, `gain` times as
+/// loud as the clip is.
+fn audio_pieces_of(
+    clip: &ExportClip,
+    path: &str,
+    stream: Option<u32>,
+    gain: f64,
+) -> Vec<AudioClip> {
     let chain = clip.filter_chain.clone();
     let track = volume_track(clip);
-    let Some(curve) = clip.retime() else {
+    let Some(curve) = clip.engine_curve().filter(|_| clip.kind != ClipKind::Image) else {
         return vec![AudioClip {
-            path: PathBuf::from(&clip.path),
-            stream: clip.audio_stream.map(|index| index as usize),
+            path: PathBuf::from(path),
+            stream: stream.map(|index| index as usize),
             start: clip.start,
             duration: clip.duration,
             source_start: clip.source_start,
             speed: audio::clamp_speed(clip.speed),
+            tempo: Vec::new(),
             preserve_pitch: clip.preserve_pitch,
-            volume: clip.volume,
+            volume: clip.volume * gain,
             volume_curve: track,
             fade_in: clip.fade_in,
             fade_out: clip.fade_out,
             filter_chain: chain,
         }];
     };
-    // Pieces a tenth of a second long, or eight at least: fine enough that
+    // Steps a tenth of a second long, or eight at least: fine enough that
     // a tempo step is not heard, coarse enough that the graph stays small.
     let count = ((clip.duration / 0.1).ceil() as usize).clamp(8, 400);
+    // Pitch held: one clip, its rate stepped inside one tempo filter that
+    // runs from end to end (see `AudioClip::tempo`). Pieces each with a
+    // filter of their own start it afresh at every seam, and a ramp was
+    // heard as a stutter ten times a second.
+    if clip.preserve_pitch {
+        let mut tempo: Vec<(f64, f64)> = Vec::new();
+        for (x0, _, _, mean) in curve.pieces(count) {
+            let speed = audio::clamp_speed(mean);
+            // A step that changes nothing is no step: a flat stretch is
+            // one rate, and a curve flat throughout needs no filter at all.
+            if tempo
+                .last()
+                .is_none_or(|&(_, held)| (held - speed).abs() > 1e-6)
+            {
+                tempo.push((x0 * clip.duration, speed));
+            }
+        }
+        let speed = audio::clamp_speed(curve.mean());
+        let constant = tempo.len() <= 1;
+        return vec![AudioClip {
+            path: PathBuf::from(path),
+            stream: stream.map(|index| index as usize),
+            start: clip.start,
+            duration: clip.duration,
+            source_start: clip.source_start,
+            speed: if constant {
+                tempo.first().map_or(speed, |&(_, held)| held)
+            } else {
+                speed
+            },
+            tempo: if constant { Vec::new() } else { tempo },
+            preserve_pitch: true,
+            volume: clip.volume * gain,
+            volume_curve: track,
+            fade_in: clip.fade_in,
+            fade_out: clip.fade_out,
+            filter_chain: chain,
+        }];
+    }
+    // Pitch let go - the tape effect - is a resample, which has no state
+    // to start afresh: that stays in pieces of a constant rate.
     curve
         .pieces(count)
         .into_iter()
@@ -1414,14 +1449,15 @@ pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
             let fade_out_from = clip.start + clip.duration - clip.fade_out;
             let fade_out = (piece_end - fade_out_from.max(piece_start)).clamp(0.0, piece_duration);
             AudioClip {
-                path: PathBuf::from(&clip.path),
-                stream: clip.audio_stream.map(|index| index as usize),
+                path: PathBuf::from(path),
+                stream: stream.map(|index| index as usize),
                 start: piece_start,
                 duration: piece_duration,
                 source_start,
                 speed: audio::clamp_speed(mean),
+                tempo: Vec::new(),
                 preserve_pitch: clip.preserve_pitch,
-                volume: clip.volume,
+                volume: clip.volume * gain,
                 volume_curve: track_slice(&track, x0, x1),
                 fade_in: if clip.fade_in > 0.0 { fade_in } else { 0.0 },
                 fade_out: if clip.fade_out > 0.0 { fade_out } else { 0.0 },
@@ -1596,10 +1632,11 @@ const NO_RENDERER: &str = "this device's GPU could not be used to draw with";
 const NO_RENDERER: &str = "no GPU or software renderer is available to draw with";
 
 /// How many times an export's device may die under it before the export
-/// gives up: the first death is answered with a fresh device on the GPU,
-/// which a reset adapter opens again; the next with the software adapter,
-/// which draws the same picture however slowly; a third says the machine
-/// cannot draw this export at all.
+/// gives up: the first death is answered on the GPU again - on the device
+/// the export was lent, where it was lent one, and otherwise a fresh
+/// device, which a reset adapter opens again; the next with the software
+/// adapter, which draws the same picture however slowly; a third says the
+/// machine cannot draw this export at all.
 const DEVICE_LOSSES: u32 = 3;
 
 /// A compositor to go on with after the export's device died, `losses`
@@ -1613,7 +1650,22 @@ const DEVICE_LOSSES: u32 = 3;
 /// already encoded are kept and the next is drawn on the new device. A
 /// device that stops answering for [`concat_render::gpu::DEVICE_WAIT`], or
 /// reports an error under a frame, counts as lost too (#297).
-fn recovered(losses: u32, hdr: bool) -> Result<WgpuCompositor, String> {
+///
+/// `lent` is the dead compositor when the export was lent the window's
+/// device. The first death then goes on in a sibling of it: the same
+/// device, with pools and caches of its own, so whatever the dead one held
+/// is let go. "Lost" is mostly that - a frame out of memory or refused -
+/// and the device itself lives on. A device opened afresh instead is the
+/// second road through the driver that [`render_on`] exists to avoid: on a
+/// laptop with two GPUs it is the discrete one while the window draws on
+/// the other, and the driver ended the app there (#202; audit 2026-10-20,
+/// H7). Where the device itself has died, the sibling's first frame fails
+/// too, and the second death goes to the software adapter as before.
+fn recovered(
+    losses: u32,
+    hdr: bool,
+    lent: Option<&WgpuCompositor>,
+) -> Result<WgpuCompositor, String> {
     if losses >= DEVICE_LOSSES {
         return Err(format!(
             "the GPU device was lost {losses} times part way through the export - reset, \
@@ -1622,10 +1674,10 @@ fn recovered(losses: u32, hdr: bool) -> Result<WgpuCompositor, String> {
             concat_render::gpu::DEVICE_WAIT.as_secs()
         ));
     }
-    let fresh = if losses == 1 {
-        WgpuCompositor::new()
-    } else {
-        WgpuCompositor::software()
+    let fresh = match (losses, lent) {
+        (1, Some(lent)) => Some(lent.sibling()),
+        (1, None) => WgpuCompositor::new(),
+        _ => WgpuCompositor::software(),
     };
     let mut compositor = fresh.ok_or_else(|| {
         format!("the GPU device was lost part way through the export, and {NO_RENDERER}")
@@ -1641,43 +1693,50 @@ fn recovered(losses: u32, hdr: bool) -> Result<WgpuCompositor, String> {
     Ok(compositor)
 }
 
-/// A compositor for the frames drawn without a window: the API's and the
-/// command line's previews. Made once and kept, since making a device is
-/// far slower than drawing one small frame on it.
-fn headless<T>(draw: impl FnOnce(&mut WgpuCompositor) -> T) -> Result<T, String> {
-    static HEADLESS: std::sync::OnceLock<Option<std::sync::Mutex<WgpuCompositor>>> =
+/// The compositor for the frames drawn without a window's device: the
+/// API's and the command line's previews, and the monitor's where the
+/// window draws on the CPU. Made once and kept, since making a device is
+/// far slower than drawing one small frame on it; a device lost under it
+/// is let go and replaced, down to the CPU (see [`concat_render::Ladder`]).
+/// `strict` is the API's: a frame the CPU drew with something left out is
+/// an error saying so, not a picture that is not the frame.
+fn headless<T>(strict: bool, draw: impl FnMut(&mut dyn Compositor) -> T) -> Result<T, String> {
+    static HEADLESS: std::sync::OnceLock<std::sync::Mutex<concat_render::Ladder>> =
         std::sync::OnceLock::new();
-    // A machine with nothing to draw on stays so for the process; why is
-    // in the log above this line, adapter by adapter.
-    let slot = HEADLESS
-        .get_or_init(|| {
-            let made = WgpuCompositor::new();
-            match &made {
-                Some(gpu) => {
-                    let adapter = gpu.adapter_info();
-                    log::info!(
-                        "previews draw on {} ({:?}, {:?})",
-                        adapter.name,
-                        adapter.device_type,
-                        adapter.backend
-                    );
-                }
-                None => log::error!("previews have nothing to draw on: {NO_RENDERER}"),
-            }
-            made.map(std::sync::Mutex::new)
-        })
-        .as_ref()
-        .ok_or_else(|| NO_RENDERER.to_owned())?;
-    let mut gpu = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    // A device that died under an earlier preview is not kept: every
-    // preview after it would be black.
-    if gpu.lost()
-        && let Some(fresh) = WgpuCompositor::new()
-    {
-        log::warn!("previews: the GPU device was lost; drawing on a fresh one");
-        *gpu = fresh;
+    let mut ladder = HEADLESS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let drawn = drawn_on(&mut ladder, strict, draw);
+    PREVIEWS_ON_CPU.store(ladder.on_cpu(), std::sync::atomic::Ordering::Relaxed);
+    drawn
+}
+
+/// Set while [`headless`] draws on the CPU; see [`previews_on_cpu`].
+static PREVIEWS_ON_CPU: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether previews drawn without the window's device are drawn on the
+/// CPU: slower, and without effects. The monitor says so once.
+pub fn previews_on_cpu() -> bool {
+    PREVIEWS_ON_CPU.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// [`headless`] on `ladder`.
+fn drawn_on<T>(
+    ladder: &mut concat_render::Ladder,
+    strict: bool,
+    draw: impl FnMut(&mut dyn Compositor) -> T,
+) -> Result<T, String> {
+    let (made, left_out) = ladder.draw(draw);
+    if strict && left_out {
+        return Err(
+            "this frame has effects or HDR that cannot be drawn now: the graphics \
+             device was lost, and previews are drawn on the CPU without them until Concat \
+             restarts"
+                .to_owned(),
+        );
     }
-    Ok(draw(&mut gpu))
+    Ok(made)
 }
 
 /// Composites every frame of the timeline into a soundless video file.
@@ -1690,8 +1749,12 @@ fn render_picture(
     transitions: Vec<TransitionSpan>,
     destination: &Path,
     reporter: &mut Reporter<'_>,
+    spent: &mut Spent,
 ) -> Result<(), String> {
     let effect_offset = quantise(request.effect_time_offset, rate);
+    // Whether the window lent its device: a death under the export is then
+    // answered on that device again before anything else (see `recovered`).
+    let lent = compositor.is_some();
     let mut compositor = match compositor {
         Some(lent) => lent,
         None => best_compositor()?,
@@ -1704,6 +1767,10 @@ fn render_picture(
         adapter.name,
         adapter.device_type,
         adapter.backend
+    );
+    spent.adapter = format!(
+        "{} ({:?}, {:?})",
+        adapter.name, adapter.device_type, adapter.backend
     );
     // The request was held to the document's ceiling; a phone's GPU can
     // hold less, and a frame past it is said here rather than failed on.
@@ -1747,11 +1814,12 @@ fn render_picture(
     // An HDR file comes out of the compositor as its signal, sixteen bits a
     // channel; anything else, SDR - an HDR timeline's tone-mapped.
     let signal = output_of(request.color_space);
-    let hdr = request.hdr && signal != Signal::Sdr;
+    // The alpha codecs are written SDR alone (see `Encoder::create_hdr`):
+    // an HDR timeline is tone-mapped into one, as it is on a phone that
+    // cannot write ten bits, rather than the export failing.
+    let hdr = request.hdr && signal != Signal::Sdr && !request.codec.keeps_alpha();
     compositor.deliver_hdr(hdr);
 
-    // How many devices have died under this export so far; see `recovered`.
-    let mut losses = 0;
     // A clip whose speed changes, or runs backwards, cannot be followed by a
     // paced decoder: each of its frames is sought by its own source time,
     // through a pool that keeps the reader rolling where it can.
@@ -1768,44 +1836,102 @@ fn render_picture(
         } else {
             "rendering"
         };
-        let mut encoder = if hdr {
-            Encoder::create_hdr(
-                destination,
-                request.width,
-                request.height,
-                rate,
-                &options,
-                signal,
-            )
-        } else {
-            Encoder::create(destination, request.width, request.height, rate, &options)
-        }
-        .map_err(|error| failed_encoding(&error, &options))?;
-        log::info!(
-            "export: encoding with {} ({})",
-            encoder.encoder_name(),
-            if encoder.on_hardware() {
-                "hardware"
-            } else {
-                "software"
-            }
+        let (path, size, settings) = (
+            destination.to_path_buf(),
+            (request.width, request.height),
+            options.clone(),
         );
+        let mut writer = Writer::start(destination, move || {
+            if hdr {
+                Encoder::create_hdr(&path, size.0, size.1, rate, &settings, signal)
+            } else {
+                Encoder::create(&path, size.0, size.1, rate, &settings)
+            }
+        })
+        .map_err(|error| failed_encoding(&error, &options))?;
+        // The encoder's own YUV out of the device where it takes one: the
+        // frame is converted where it was drawn, and comes back at a byte
+        // and a half a pixel rather than four.
+        let planar = writer.takes;
+        compositor.planar(planar);
+        // Each pass is said afresh: a second one starts the file over.
+        spent.pass(&writer.encoder);
 
         // When progress was last said; see `progress_due`.
         let mut said = std::time::Instant::now();
 
-        // One decoder per clip, opened at its in-point the first time the clip is
-        // needed and dropped the moment it leaves the playhead. Every decoder is
-        // opened at `output rate / clip speed`, so pulling exactly one frame per
-        // output frame keeps each of them in step with the plan's source times
-        // without any seeking - including retimed clips.
-        let mut decoders: HashMap<ClipId, Decoder> = HashMap::new();
+        // One decoder per run of a clip, opened at the run's in-point and
+        // dropped the moment it leaves the playhead. Every decoder is opened
+        // at `output rate / clip speed`, so pulling exactly one frame per
+        // output frame keeps each of them in step with the plan's source
+        // times without any seeking - including retimed clips. Each reads on
+        // a thread of its own, ahead of the drawing, and is opened a moment
+        // before its run begins; see `ahead`.
+        let mut feeds = ahead::Feeds::new(read_lead(rate), spent.decoding.clone());
+        let paced = |layer: &PlannedLayer| {
+            // Aspect-correct: decode at the source's fitted size and let
+            // the compositor place it, rather than stretching to the frame
+            // and losing the picture's shape.
+            let (decode_width, decode_height) = decode_sizes
+                .get(&layer.clip)
+                .copied()
+                .unwrap_or((request.width, request.height));
+
+            // A retimed clip advances the source by `speed / fps` seconds
+            // per output frame, so the decoder must emit frames exactly that
+            // far apart: a rate of `fps / speed`. (At 2x, 300 output frames
+            // cover 20s of source - the decoder emits 15 frames per source
+            // second, not 60.)
+            let decode_rate = if layer.speed == Rational::ONE {
+                rate
+            } else {
+                FrameRate::new(rate.fps() / layer.speed)
+            };
+
+            // Deep - an HDR clip in its own signal, converted on the GPU -
+            // unless a cutout has to cut it in eight bits; the decoder keeps
+            // eight bits for a chain itself.
+            let deep = !cutouts.contains_key(&layer.clip);
+            let mut options = DecodeOptions::default()
+                .starting_at(layer.source_time)
+                .scaled_to(decode_width, decode_height)
+                .at_rate(decode_rate)
+                .in_range(ranges.get(&layer.clip).copied())
+                .deep(deep);
+
+            // A still is a one-frame stream. Without looping it would
+            // contribute a single frame and then disappear.
+            if stills.contains(&layer.clip) {
+                options = options.repeating().starting_at(Rational::ZERO);
+            }
+            let bytes = decode_width as usize * decode_height as usize * if deep { 8 } else { 4 };
+            (options, bytes)
+        };
+
+        // Where the pass's time went, said at the export's end: reading the
+        // footage, drawing the frame, and handing it to the encoder.
+        let begun = std::time::Instant::now();
+
+        // The frames on their way back from the device, oldest first, each
+        // with its index and the plan it was drawn from; see `Device`. A
+        // pass begun again starts with none: what the last one left on the
+        // device is for a file nobody will finish.
+        let mut in_flight: std::collections::VecDeque<(i64, FramePlan)> =
+            std::collections::VecDeque::new();
+        while compositor.collect().is_some() {}
 
         for index in 0..total_frames {
             reporter.cancelled()?;
 
+            let reading = std::time::Instant::now();
             let time = rate.time_of_frame(index);
             let plan = plan_frame(&timeline, time);
+            feeds.look_ahead(
+                index,
+                total_frames,
+                |ahead| plan_frame(&timeline, rate.time_of_frame(ahead)),
+                paced,
+            )?;
 
             let mut layers: Vec<PlannedLayer> = Vec::with_capacity(plan.layers.len());
             for layer in &plan.layers {
@@ -1820,6 +1946,7 @@ fn render_picture(
                     // last frame. This path used to drop a failed frame on the
                     // floor, so a reversed or retimed clip whose file had gone
                     // bad exported as a missing layer and nobody was told.
+                    let seeking = std::time::Instant::now();
                     let frame = sought
                         .frame_at(
                             &layer.media,
@@ -1835,6 +1962,8 @@ fn render_picture(
                             !cutouts.contains_key(&layer.clip),
                         )
                         .map_err(|error| error.to_string())?;
+                    spent.seeking += seeking.elapsed();
+                    spent.sought += 1;
                     let frame = cutouts
                         .get(&layer.clip)
                         .and_then(|job| job.cut(&frame, layer.source_time))
@@ -1850,55 +1979,13 @@ fn render_picture(
                     ));
                     continue;
                 }
-                let decoder = match decoders.entry(layer.clip) {
-                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        // Aspect-correct: decode at the source's fitted size and
-                        // let the compositor place it, rather than stretching to
-                        // the frame and losing the picture's shape.
-                        let (decode_width, decode_height) = decode_sizes
-                            .get(&layer.clip)
-                            .copied()
-                            .unwrap_or((request.width, request.height));
-
-                        // A retimed clip advances the source by `speed / fps`
-                        // seconds per output frame, so the decoder must emit
-                        // frames exactly that far apart: a rate of `fps / speed`.
-                        // (At 2x, 300 output frames cover 20s of source - the
-                        // decoder emits 15 frames per source second, not 60.)
-                        let decode_rate = if layer.speed == Rational::ONE {
-                            rate
-                        } else {
-                            FrameRate::new(rate.fps() / layer.speed)
-                        };
-
-                        // Deep - an HDR clip in its own signal, converted on
-                        // the GPU - unless a cutout has to cut it in eight bits;
-                        // the decoder keeps eight bits for a chain itself.
-                        let mut options = DecodeOptions::default()
-                            .starting_at(layer.source_time)
-                            .scaled_to(decode_width, decode_height)
-                            .at_rate(decode_rate)
-                            .in_range(ranges.get(&layer.clip).copied())
-                            .deep(!cutouts.contains_key(&layer.clip));
-
-                        // A still is a one-frame stream. Without looping it would
-                        // contribute a single frame and then disappear.
-                        if stills.contains(&layer.clip) {
-                            options = options.repeating().starting_at(Rational::ZERO);
-                        }
-
-                        entry.insert(
-                            Decoder::open(&layer.media, &options)
-                                .map_err(|error| error.to_string())?,
-                        )
-                    }
-                };
-
                 // A source that has run out contributes nothing rather than
                 // aborting the export - a clip trimmed past its media's end is a
                 // mistake in the edit, not a failure of the renderer.
-                if let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
+                let waiting = std::time::Instant::now();
+                let next = feeds.next(index, layer, paced)?;
+                spent.footage += waiting.elapsed();
+                if let Some(frame) = next {
                     // The cutout, on the decoded picture before it is placed:
                     // the same frame both compositors then draw.
                     let frame = match cutouts
@@ -1920,6 +2007,7 @@ fn render_picture(
                 }
             }
 
+            let seeking = std::time::Instant::now();
             let frame_plan = FramePlan {
                 time,
                 width: request.width,
@@ -1935,52 +2023,76 @@ fn render_picture(
                 treatments: Vec::new(),
                 output: output_of(request.color_space),
             };
-            // The plan is kept for a second drawing: a frame drawn on a device
-            // that died under it is black, and is drawn again on the device
-            // that takes over. Both drawings borrow it - the layers' pictures
-            // were never copied, and now their passes are not either.
-            let mut composed = composite_treated(
-                &mut EffectClock {
-                    inner: &mut compositor,
-                    offset: effect_offset,
-                },
-                &frame_plan,
-                &treatments,
-                &transitions,
-            );
-            while compositor.lost() {
-                losses += 1;
-                let adapter = compositor.adapter_info();
-                log::error!(
-                    "export: the GPU device on {} was lost drawing frame {index} of {total_frames} \
-                 ({:.3}s into the cut); the frame is drawn again on the next device",
-                    adapter.name,
-                    time.as_f64(),
-                );
-                compositor = recovered(losses, hdr)?;
-                composed = composite_treated(
-                    &mut EffectClock {
-                        inner: &mut compositor,
-                        offset: effect_offset,
-                    },
-                    &frame_plan,
-                    &treatments,
-                    &transitions,
-                );
+            let drawing = std::time::Instant::now();
+            spent.seeking += drawing - seeking;
+            spent.reading += drawing - reading;
+            let mut device = Device {
+                compositor: &mut compositor,
+                offset: effect_offset,
+                losses: &mut spent.losses,
+                hdr,
+                lent,
+                total_frames,
+                planar,
+            };
+            // A frame one draw makes goes to the device and is collected a
+            // frame or two later, so the device draws while the next frame's
+            // footage is read; one a transition spans is several draws, and
+            // waits for those ahead of it to come back first.
+            let mut drawn = Vec::new();
+            let mut unsent = Some(frame_plan);
+            if !transitions.iter().any(|span| span.covers(time))
+                && let Some(mut plan) = unsent.take()
+            {
+                plan.treatments = live_treatments(&treatments, time);
+                if in_flight.len() >= IN_FLIGHT {
+                    drawn.extend(device.collect(&mut in_flight)?);
+                }
+                if device.clock().submit(&plan) {
+                    in_flight.push_back((index, plan));
+                } else {
+                    unsent = Some(plan);
+                }
             }
-            if let Err(error) = encoder.write_frame(&composed) {
+            if let Some(frame_plan) = unsent {
+                while !in_flight.is_empty() {
+                    drawn.extend(device.collect(&mut in_flight)?);
+                }
+                // The plan is kept for a second drawing: a frame drawn on a
+                // device that died under it is black, and is drawn again on
+                // the device that takes over. Both drawings borrow it - the
+                // layers' pictures were never copied, and their passes are
+                // not either.
+                drawn.push(Drawn::Rgba(device.surviving(index, time, |clock| {
+                    composite_treated(clock, &frame_plan, &treatments, &transitions)
+                })?));
+            }
+            let queueing = std::time::Instant::now();
+            spent.drawing += queueing - drawing;
+            let taken = drawn.into_iter().all(|frame| writer.write(frame));
+            spent.waiting += queueing.elapsed();
+            if !taken {
                 // The stopped encoder is closed before the file is opened
                 // again, so the chip has its session back.
-                drop(encoder);
-                again_in_software(&error, &mut options, index, total_frames)?;
+                let (written, error) = match writer.finish() {
+                    Err(stopped) => stopped,
+                    Ok(_) => unreachable!("an encoder that refused a frame finished"),
+                };
+                again_in_software(&error, &mut options, written, total_frames)?;
                 reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
                 continue 'pass;
             }
 
-            // Retire decoders whose clip has finished, so a long timeline does not
-            // hold an ffmpeg process open for every clip it has ever passed.
-            let live: Vec<ClipId> = plan.layers.iter().map(|layer| layer.clip).collect();
-            decoders.retain(|clip, _| live.contains(clip));
+            // Retire decoders whose run has finished, so a long timeline does
+            // not hold a decoder open for every clip it has ever passed.
+            feeds.retire(index, &plan);
+            spent.frames = index + 1;
+            spent.picture = begun.elapsed();
+            spent.encoding = writer.encoding();
+            if index % PROGRESS_FRAMES == 0 {
+                spent.sought_decoded = sought.stats().decoded;
+                spent.sought_ways = sought.readers_opened();
+            }
 
             if progress_due(index, said.elapsed()) {
                 reporter.emit(index, total_frames, stage);
@@ -1988,13 +2100,372 @@ fn render_picture(
             }
         }
 
-        match encoder.finish() {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                drop(encoder);
-                again_in_software(&error, &mut options, total_frames, total_frames)?;
+        // The last frames, still on their way back.
+        let mut device = Device {
+            compositor: &mut compositor,
+            offset: effect_offset,
+            losses: &mut spent.losses,
+            hdr,
+            lent,
+            total_frames,
+            planar,
+        };
+        let mut taken = true;
+        while taken && !in_flight.is_empty() {
+            let drawn = device.collect(&mut in_flight)?;
+            taken = drawn.into_iter().all(|frame| writer.write(frame));
+        }
+        if !taken {
+            let (written, error) = match writer.finish() {
+                Err(stopped) => stopped,
+                Ok(_) => unreachable!("an encoder that refused a frame finished"),
+            };
+            again_in_software(&error, &mut options, written, total_frames)?;
+            reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
+            continue 'pass;
+        }
+
+        let finishing = std::time::Instant::now();
+        let finished = writer.finish();
+        spent.waiting += finishing.elapsed();
+        match finished {
+            Ok(encoding) => {
+                spent.encoding = encoding;
+                spent.picture = begun.elapsed();
+                spent.sought_decoded = sought.stats().decoded;
+                spent.sought_ways = sought.readers_opened();
+                return Ok(());
+            }
+            Err((written, error)) => {
+                again_in_software(&error, &mut options, written, total_frames)?;
                 reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
             }
+        }
+    }
+}
+
+/// How many frames before a paced clip's run its decoder is opened: half
+/// a second, so the file is open and sought by the cut.
+///
+/// None on a phone. Its chip has [`concat_media::hardware::MEDIACODEC_READERS`]
+/// decoders to give, and a run opened ahead holds one across the cut
+/// beside the run it follows: two tracks cutting together would want four,
+/// and the fourth clip would decode in software from start to end. Its
+/// runs still read on their own threads, opened at the cut.
+fn read_lead(rate: FrameRate) -> i64 {
+    if cfg!(target_os = "android") {
+        0
+    } else {
+        rate.frame_at(Rational::new(1, 2)).max(1)
+    }
+}
+
+/// Frames a drawn picture may wait for the encoder: enough that a frame
+/// slow to draw or to encode does not hold up the other side, few enough
+/// that the queue is a few hundred megabytes at most - a 4K frame in
+/// sixteen bits a channel is 66 MB.
+const ENCODER_QUEUE: usize = 2;
+
+/// What the encoder's thread is handed.
+enum Job {
+    Frame(Frame),
+    /// A picture already in the encoder's own YUV; see
+    /// [`Encoder::yuv_layout`].
+    Yuv(concat_core::frame::Yuv420),
+    /// Every frame has been handed over: the file is finished.
+    Finish,
+}
+
+/// The encoder on a thread of its own, taking frames through a short
+/// queue: the next frame is read and drawn while this one is converted
+/// and encoded, where they used to wait on each other. The two halves
+/// took a similar share of an export (at 4K on an M5, 3.2 s drawing and
+/// 2.7 s encoding for ten seconds of footage), so overlapping them is
+/// most of a second pass's time back.
+///
+/// Dropped without [`Writer::finish`] - a cancel, a frame that could not
+/// be read - the encoder is closed without finishing its file, and only
+/// once its thread has let go of it, so a hardware encoder's session is
+/// free again before anything opens another.
+struct Writer {
+    jobs: Option<std::sync::mpsc::SyncSender<Job>>,
+    thread: Option<EncoderThread>,
+    /// The YUV the encoder takes as it is, which the compositor is asked
+    /// to hand over in its place; see [`Encoder::yuv_layout`].
+    takes: Option<concat_core::frame::YuvLayout>,
+    /// Which encoder it is, and where it runs: `av1_nvenc (hardware)`.
+    encoder: String,
+    /// The time its thread has spent encoding so far, in nanoseconds:
+    /// read as the export goes, so a cancelled or failed one says it too.
+    busy: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// The encoder's thread: the time it spent encoding, or how many frames it
+/// had written when it stopped and why.
+type EncoderThread =
+    std::thread::JoinHandle<Result<std::time::Duration, (i64, concat_media::Error)>>;
+
+impl Writer {
+    /// Opens the encoder `open` makes on a thread of its own - FFmpeg's
+    /// contexts are not to be moved between threads, and a phone's
+    /// encoder is best talked to from the thread that opened it - and
+    /// says which it is.
+    fn start(
+        path: &Path,
+        open: impl FnOnce() -> Result<Encoder, concat_media::Error> + Send + 'static,
+    ) -> Result<Writer, concat_media::Error> {
+        let (jobs, taken) = std::sync::mpsc::sync_channel::<Job>(ENCODER_QUEUE);
+        let (opened, open_result) = std::sync::mpsc::channel();
+        let busy_so_far = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counting = Arc::clone(&busy_so_far);
+        let thread = std::thread::Builder::new()
+            .name("concat-export-encoder".into())
+            .spawn(move || {
+                let mut encoder = match open() {
+                    Ok(encoder) => {
+                        let which = format!(
+                            "{} ({})",
+                            encoder.encoder_name(),
+                            if encoder.on_hardware() {
+                                "hardware"
+                            } else {
+                                "software"
+                            }
+                        );
+                        log::info!("export: encoding with {which}");
+                        let _ = opened.send(Ok((encoder.yuv_layout(), which)));
+                        encoder
+                    }
+                    Err(error) => {
+                        let _ = opened.send(Err(error));
+                        return Ok(std::time::Duration::ZERO);
+                    }
+                };
+                let mut busy = std::time::Duration::ZERO;
+                let mut written = 0;
+                for job in taken {
+                    let begun = std::time::Instant::now();
+                    match job {
+                        Job::Frame(frame) => {
+                            encoder
+                                .write_frame(&frame)
+                                .map_err(|error| (written, error))?;
+                            written += 1;
+                        }
+                        Job::Yuv(picture) => {
+                            encoder
+                                .write_yuv(&picture)
+                                .map_err(|error| (written, error))?;
+                            written += 1;
+                        }
+                        Job::Finish => {
+                            encoder.finish().map_err(|error| (written, error))?;
+                            return Ok(busy + begun.elapsed());
+                        }
+                    }
+                    let took = begun.elapsed();
+                    busy += took;
+                    counting.fetch_add(
+                        u64::try_from(took.as_nanos()).unwrap_or(u64::MAX),
+                        Ordering::Relaxed,
+                    );
+                }
+                // Let go without a finish: the file is abandoned.
+                Ok(busy)
+            })
+            .expect("a thread for the encoder");
+        let mut writer = Writer {
+            jobs: Some(jobs),
+            thread: Some(thread),
+            takes: None,
+            encoder: String::new(),
+            busy: busy_so_far,
+        };
+        match open_result.recv() {
+            Ok(Ok((takes, encoder))) => {
+                writer.takes = takes;
+                writer.encoder = encoder;
+                Ok(writer)
+            }
+            Ok(Err(error)) => Err(error),
+            // A panic inside FFmpeg's open: an error the window can say,
+            // where this used to be a second panic on the export's thread.
+            Err(_) => Err(concat_media::Error::Ffi {
+                operation: "open the encoder",
+                path: path.to_path_buf(),
+                detail: "the encoder's thread ended before it said whether it opened".into(),
+            }),
+        }
+    }
+
+    /// The time the encoder has spent so far.
+    fn encoding(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.busy.load(Ordering::Relaxed))
+    }
+
+    /// Hands `frame` to the encoder, waiting while the queue is full.
+    /// False when the encoder has stopped; [`Writer::finish`] says why.
+    fn write(&mut self, drawn: Drawn) -> bool {
+        let job = match drawn {
+            Drawn::Rgba(frame) => Job::Frame(frame),
+            Drawn::Yuv(picture) => Job::Yuv(picture),
+        };
+        self.jobs
+            .as_ref()
+            .is_some_and(|jobs| jobs.send(job).is_ok())
+    }
+
+    /// Finishes the file once every frame handed over is encoded: the time
+    /// the encoder spent, or how many frames it wrote before it stopped and
+    /// why.
+    fn finish(mut self) -> Result<std::time::Duration, (i64, concat_media::Error)> {
+        if let Some(jobs) = self.jobs.take() {
+            // A send that fails found the encoder stopped already; its
+            // thread says why.
+            let _ = jobs.send(Job::Finish);
+        }
+        let thread = self.thread.take().expect("finished once");
+        thread
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        self.jobs = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Where an export's time went, said once at its end however it ends -
+/// done, cancelled or failed - on the export's one line (see `render_on`):
+/// what drew it and what encoded it, how far the picture got and how fast,
+/// and the picture's time frame by frame, stage by stage, with how each
+/// kind of footage was decoded and what that cost. A report of a slow
+/// export on a machine nobody here has is answered from this line.
+#[derive(Default)]
+struct Spent {
+    /// The output's size and frames a second.
+    size: (u32, u32),
+    fps: f64,
+    /// The frames the picture has, and how many were drawn.
+    total: i64,
+    frames: i64,
+    /// The adapter the picture was drawn on, as the drivers name it.
+    adapter: String,
+    /// How many times the device died under the export; see `recovered`.
+    losses: u32,
+    /// The encoder, and which pass this is: a second goes again on the
+    /// CPU's encoder after the hardware one stopped (#491).
+    encoder: String,
+    passes: u32,
+    /// The picture pass's wall time, so far.
+    picture: std::time::Duration,
+    /// On the drawing thread: everything before the draw - planning,
+    /// waiting on the footage, seeking - and, within it, the waiting on
+    /// the footage read ahead, and the footage sought frame by frame
+    /// (retimed and held clips, stills, backgrounds).
+    reading: std::time::Duration,
+    footage: std::time::Duration,
+    seeking: std::time::Duration,
+    /// The frames sought, and what the pool's readers decoded for them
+    /// and how: filled in at the pass's end from the pool.
+    sought: u64,
+    sought_decoded: u64,
+    sought_ways: Vec<(String, u64)>,
+    drawing: std::time::Duration,
+    /// On the encoder's own thread, alongside the reading and drawing;
+    /// known once the file is finished.
+    encoding: std::time::Duration,
+    /// The reading and drawing held up by an encoder behind them.
+    waiting: std::time::Duration,
+    /// What the footage's decoders did, on their own threads.
+    decoding: ahead::Decoding,
+}
+
+impl Spent {
+    /// A pass begins, on `encoder`: what the last one spent is for a file
+    /// nobody will finish.
+    fn pass(&mut self, encoder: &str) {
+        *self = Spent {
+            size: self.size,
+            fps: self.fps,
+            total: self.total,
+            adapter: std::mem::take(&mut self.adapter),
+            losses: self.losses,
+            encoder: encoder.to_owned(),
+            passes: self.passes + 1,
+            ..Spent::default()
+        };
+    }
+
+    /// Everything above, as notes on the export's line.
+    fn note(&self, op: &mut concat_log::Op) {
+        use concat_log::span;
+        let (width, height) = self.size;
+        let fps = self.fps;
+        op.note(format_args!(
+            "{width}x{height} at {} fps",
+            if fps.fract() == 0.0 {
+                format!("{fps:.0}")
+            } else {
+                format!("{fps:.2}")
+            }
+        ));
+        if !self.encoder.is_empty() {
+            op.note(format_args!("encoded with {}", self.encoder));
+        }
+        if self.passes > 1 {
+            op.note("started again on the software encoder");
+        }
+        if !self.adapter.is_empty() {
+            op.note(format_args!("drawn on {}", self.adapter));
+        }
+        if self.losses > 0 {
+            op.note(format_args!(
+                "the device was lost {} time{}",
+                self.losses,
+                if self.losses == 1 { "" } else { "s" }
+            ));
+        }
+        let drawn = self.frames as f64 / self.picture.as_secs_f64().max(1e-9);
+        op.note(format_args!(
+            "picture {} of {} frames at {drawn:.1} fps: planning {}, waiting for footage {}, \
+             seeking footage {} for {} frames, drawing {}, waiting for the encoder {}, encoding {} \
+             alongside",
+            self.frames,
+            self.total,
+            span(self.reading.saturating_sub(self.footage + self.seeking)),
+            span(self.footage),
+            span(self.seeking),
+            self.sought,
+            span(self.drawing),
+            span(self.waiting),
+            span(self.encoding),
+        ));
+        let decoded = self.decoding.said();
+        if !decoded.is_empty() {
+            op.note(format_args!("decoding alongside: {}", decoded.join("; ")));
+        }
+        if !self.sought_ways.is_empty() {
+            let ways: Vec<String> = self
+                .sought_ways
+                .iter()
+                .map(|(way, readers)| {
+                    format!(
+                        "{way} ({readers} reader{})",
+                        if *readers == 1 { "" } else { "s" }
+                    )
+                })
+                .collect();
+            op.note(format_args!(
+                "sought footage decoded {} frames: {}",
+                self.sought_decoded,
+                ways.join("; ")
+            ));
         }
     }
 }
@@ -2082,17 +2553,39 @@ struct EffectClock<'a> {
     offset: Rational,
 }
 
-impl Compositor for EffectClock<'_> {
-    fn render(&mut self, plan: &FramePlan) -> Frame {
+impl EffectClock<'_> {
+    /// `plan` on the shader clock: borrowed as it is when the clock is the
+    /// timeline's own.
+    fn shifted<'p>(&self, plan: &'p FramePlan) -> std::borrow::Cow<'p, FramePlan> {
         if self.offset == Rational::ZERO {
-            return self.inner.render(plan);
+            return std::borrow::Cow::Borrowed(plan);
         }
         let mut shifted = plan.clone();
         shifted.time += self.offset;
         for layer in &mut shifted.layers {
             layer.clip_start += self.offset;
         }
-        self.inner.render(&shifted)
+        std::borrow::Cow::Owned(shifted)
+    }
+}
+
+impl Compositor for EffectClock<'_> {
+    fn render(&mut self, plan: &FramePlan) -> Frame {
+        let plan = self.shifted(plan);
+        self.inner.render(&plan)
+    }
+
+    fn submit(&mut self, plan: &FramePlan) -> bool {
+        let plan = self.shifted(plan);
+        self.inner.submit(&plan)
+    }
+
+    fn collect(&mut self) -> Option<Drawn> {
+        self.inner.collect()
+    }
+
+    fn planar(&mut self, layout: Option<concat_core::frame::YuvLayout>) {
+        self.inner.planar(layout);
     }
 
     fn combine(
@@ -2128,78 +2621,252 @@ fn composite_treated(
     transitions: &[TransitionSpan],
 ) -> Frame {
     let time = plan.time;
-    let mut live: Vec<&Treatment> = treatments
-        .iter()
-        .filter(|treatment| treatment.covers(time))
-        .collect();
-    live.sort_by_key(|treatment| treatment.track);
-    let planned: Vec<PlannedTreatment> = live
-        .iter()
-        .map(|treatment| PlannedTreatment {
-            track: treatment.track,
-            effects: treatment.passes_at(time),
-            strength: treatment.strength_at(time),
-        })
-        .collect();
+    let planned = live_treatments(treatments, time);
     // A packaged transition live at this instant combines the outgoing stack
     // with the incoming picture through its shader, and an adjustment layer
     // live over the same frame grades it where it sits: one above the
     // incoming lane grades the combined picture, one below grades the
     // stacks being combined. Leaving the pairing to the dissolve turned
     // every transition under a filter layer into a plain fade.
-    if let Some(span) = transitions.iter().find(|span| span.covers(time))
-        && let Some(frame) = combine_transition(compositor, plan, span, &planned)
-    {
-        return frame;
+    if let Some(span) = transitions.iter().find(|span| span.covers(time)) {
+        return combine_transition(compositor, plan, span, &planned)
+            .unwrap_or_else(|| dissolve_transition(compositor, plan, span, &planned));
     }
+    compositor.render(&with_treatments(plan, planned))
+}
+
+/// The treatments live at `time`, in track order, as a plan carries them.
+fn live_treatments(treatments: &[Treatment], time: Rational) -> Vec<PlannedTreatment> {
+    let mut live: Vec<&Treatment> = treatments
+        .iter()
+        .filter(|treatment| treatment.covers(time))
+        .collect();
+    live.sort_by_key(|treatment| treatment.track);
+    live.iter()
+        .map(|treatment| PlannedTreatment {
+            track: treatment.track,
+            effects: treatment.passes_at(time),
+            strength: treatment.strength_at(time),
+            start: treatment.start.as_f64(),
+        })
+        .collect()
+}
+
+/// `plan` carrying `planned`: borrowed as it is when neither has any.
+fn with_treatments(
+    plan: &FramePlan,
+    planned: Vec<PlannedTreatment>,
+) -> std::borrow::Cow<'_, FramePlan> {
     if planned.is_empty() && plan.treatments.is_empty() {
-        return compositor.render(plan);
+        return std::borrow::Cow::Borrowed(plan);
     }
     let mut plan = plan.clone();
     plan.treatments = planned;
-    compositor.render(&plan)
+    std::borrow::Cow::Owned(plan)
 }
 
-/// The two pictures a packaged transition combines: the outgoing stack,
-/// strictly below the incoming lane, and the incoming picture over that
-/// stack, its own layer at full opacity so the shader - not the dissolve
-/// ramp - owns the blend.
+/// How many frames an export keeps on their way back from the device: the
+/// one being drawn and the one being read back while the next frame's
+/// footage is decoded.
+const IN_FLIGHT: usize = 2;
+
+/// The export's device and what it takes to keep one: the compositor, the
+/// shader clock's offset, and what a device lost under the export needs to
+/// find the next (see `recovered`).
+struct Device<'a> {
+    compositor: &'a mut WgpuCompositor,
+    offset: Rational,
+    losses: &'a mut u32,
+    hdr: bool,
+    lent: bool,
+    total_frames: i64,
+    /// What the compositor hands back where it can; see
+    /// [`Compositor::planar`]. The device that takes over is asked too.
+    planar: Option<concat_core::frame::YuvLayout>,
+}
+
+impl Device<'_> {
+    /// The compositor on the shader clock.
+    fn clock(&mut self) -> EffectClock<'_> {
+        EffectClock {
+            inner: &mut *self.compositor,
+            offset: self.offset,
+        }
+    }
+
+    /// Draws with `draw` until a device survives it: a frame drawn on a
+    /// device that died under it is black, and is drawn again on the one
+    /// that takes over.
+    fn surviving(
+        &mut self,
+        index: i64,
+        time: Rational,
+        mut draw: impl FnMut(&mut dyn Compositor) -> Frame,
+    ) -> Result<Frame, String> {
+        let mut frame = draw(&mut self.clock());
+        while self.compositor.lost() {
+            *self.losses += 1;
+            let adapter = self.compositor.adapter_info();
+            log::error!(
+                "export: the GPU device on {} was lost drawing frame {index} of {} \
+                 ({:.3}s into the cut); the frame is drawn again on the next device",
+                adapter.name,
+                self.total_frames,
+                time.as_f64(),
+            );
+            *self.compositor = recovered(
+                *self.losses,
+                self.hdr,
+                self.lent.then_some(&*self.compositor),
+            )?;
+            self.compositor.planar(self.planar);
+            frame = draw(&mut self.clock());
+        }
+        Ok(frame)
+    }
+
+    /// The oldest frame on its way back, in order. A device lost under it
+    /// takes every frame still in flight with it: each is drawn again, in
+    /// order, on the device that takes over.
+    fn collect(
+        &mut self,
+        in_flight: &mut std::collections::VecDeque<(i64, FramePlan)>,
+    ) -> Result<Vec<Drawn>, String> {
+        let Some(oldest) = in_flight.pop_front() else {
+            return Ok(Vec::new());
+        };
+        let frame = self.compositor.collect();
+        if let Some(frame) = frame
+            && !self.compositor.lost()
+        {
+            return Ok(vec![frame]);
+        }
+        let mut frames = Vec::with_capacity(in_flight.len() + 1);
+        for (index, plan) in std::iter::once(oldest).chain(in_flight.drain(..)) {
+            let frame = self.surviving(index, plan.time, |clock| clock.render(&plan))?;
+            frames.push(Drawn::Rgba(frame));
+        }
+        Ok(frames)
+    }
+}
+
+/// The two pictures a transition combines: the stack beneath its lane as it
+/// is before the cut, the outgoing side's clips in it and the incoming
+/// side's left out, and as it is after, the other way round. Each side's
+/// stand-in is stacked where the clip it extends is (`stack_at`), so the
+/// layers are put back in lane order. With no cut under it, the two are the
+/// same picture.
 fn transition_stages(plan: &FramePlan, span: &TransitionSpan) -> (FramePlan, FramePlan) {
-    let stage = |layers: Vec<PlannedLayer>| FramePlan {
+    let stage = |leave_out: &std::collections::HashSet<concat_core::timeline::ClipId>| {
+        let mut layers: Vec<PlannedLayer> = plan
+            .layers
+            .iter()
+            .filter(|layer| layer.track < span.track && !leave_out.contains(&layer.clip))
+            .cloned()
+            .collect();
+        layers.sort_by_key(|layer| layer.track);
+        FramePlan {
+            time: plan.time,
+            width: plan.width,
+            height: plan.height,
+            canvas: plan.canvas,
+            layers,
+            treatments: Vec::new(),
+            output: plan.output,
+        }
+    };
+    (stage(&span.to), stage(&span.from))
+}
+
+/// The transition's frame where its shader cannot run - no GPU, or a
+/// package this build does not know: the two pictures dissolved into each
+/// other over the span, and whatever is above its lane drawn over that, as
+/// `combine_transition` would.
+fn dissolve_transition(
+    compositor: &mut dyn Compositor,
+    plan: &FramePlan,
+    span: &TransitionSpan,
+    treatments: &[PlannedTreatment],
+) -> Frame {
+    let (below, over): (Vec<PlannedTreatment>, Vec<PlannedTreatment>) = treatments
+        .iter()
+        .cloned()
+        .partition(|treatment| treatment.track < span.track);
+    let (mut from_plan, mut to_plan) = transition_stages(plan, span);
+    from_plan.treatments = below.clone();
+    to_plan.treatments = below;
+    let from = compositor.render(&from_plan);
+    let to = compositor.render(&to_plan);
+    let mixed = mix(&from, &to, span.progress(plan.time) as f32);
+    over_the_lane(compositor, plan, span, mixed, over)
+}
+
+/// `amount` of the way from `from` to `to`, pixel by pixel; `from` where
+/// the two differ in size or depth, which a compositor never makes.
+fn mix(from: &Frame, to: &Frame, amount: f32) -> Frame {
+    use concat_core::frame::Depth;
+    if from.width() != to.width() || from.height() != to.height() || from.depth() != to.depth() {
+        return from.clone();
+    }
+    let mut out = from.clone();
+    let amount = amount.clamp(0.0, 1.0);
+    match from.depth() {
+        Depth::Eight => {
+            for (pixel, other) in out.pixels_mut().iter_mut().zip(to.pixels()) {
+                let (a, b) = (f32::from(*pixel), f32::from(*other));
+                *pixel = (a + (b - a) * amount).round() as u8;
+            }
+        }
+        Depth::Sixteen => {
+            for (pixel, other) in out
+                .pixels_mut()
+                .chunks_exact_mut(2)
+                .zip(to.pixels().chunks_exact(2))
+            {
+                let a = f32::from(u16::from_le_bytes([pixel[0], pixel[1]]));
+                let b = f32::from(u16::from_le_bytes([other[0], other[1]]));
+                pixel.copy_from_slice(&((a + (b - a) * amount).round() as u16).to_le_bytes());
+            }
+        }
+    }
+    out
+}
+
+/// `combined` with everything above the transition's lane drawn over it,
+/// and the treatments above it grading the lot.
+fn over_the_lane(
+    compositor: &mut dyn Compositor,
+    plan: &FramePlan,
+    span: &TransitionSpan,
+    combined: Frame,
+    over: Vec<PlannedTreatment>,
+) -> Frame {
+    let above: Vec<PlannedLayer> = plan
+        .layers
+        .iter()
+        .filter(|layer| layer.track > span.track)
+        .cloned()
+        .collect();
+    if above.is_empty() && over.is_empty() {
+        return combined;
+    }
+    let mut layers = vec![ground_layer(combined)];
+    layers.extend(above);
+    compositor.render(&FramePlan {
         time: plan.time,
         width: plan.width,
         height: plan.height,
         canvas: plan.canvas,
         layers,
-        treatments: Vec::new(),
+        treatments: over,
         output: plan.output,
-    };
-    let from = plan
-        .layers
-        .iter()
-        .filter(|layer| layer.track < span.to_track)
-        .cloned()
-        .collect();
-    let to = plan
-        .layers
-        .iter()
-        .filter(|layer| layer.track <= span.to_track)
-        .cloned()
-        .map(|mut layer| {
-            if layer.track == span.to_track {
-                layer.opacity = 1.0;
-            }
-            layer
-        })
-        .collect();
-    (stage(from), stage(to))
+    })
 }
 
-/// The frame when a packaged transition is live: the outgoing stack
-/// (everything below the incoming lane) combined with the incoming picture
-/// (drawn over that stack at full opacity) through the transition's shader.
-/// `None` when the compositor cannot run the shader or the package is unknown,
-/// and the caller then shows the dissolve the incoming clip already carries.
+/// The frame when a transition is live: its two pictures (see
+/// `transition_stages`) combined through the package's shader, and what is
+/// above its lane over that. `None` when the compositor cannot run the
+/// shader or the package is unknown, and the caller dissolves instead.
 fn combine_transition(
     compositor: &mut dyn Compositor,
     plan: &FramePlan,
@@ -2208,43 +2875,28 @@ fn combine_transition(
 ) -> Option<Frame> {
     let pass =
         Catalogue::builtin().transition_pass(&span.id, &span.params, span.progress(plan.time))?;
-    let (width, height, time, output) = (plan.width, plan.height, plan.time, plan.output);
-    let stage = |layers: Vec<PlannedLayer>, treatments: Vec<PlannedTreatment>| FramePlan {
-        time,
-        width,
-        height,
-        canvas: plan.canvas,
-        layers,
-        treatments,
-        output,
-    };
-    // A layer's track is never the incoming clip's: lanes are spread when
-    // the cuts are resolved, so each side of the incoming lane is clear.
+    // Nothing is ever on the transition's own lane while it runs: the lane
+    // is its, so each treatment is either side of it.
     let (below, over): (Vec<PlannedTreatment>, Vec<PlannedTreatment>) = treatments
         .iter()
         .cloned()
-        .partition(|treatment| treatment.track < span.to_track);
+        .partition(|treatment| treatment.track < span.track);
     let (mut from_plan, mut to_plan) = transition_stages(plan, span);
     from_plan.treatments = below.clone();
     to_plan.treatments = below;
     let from = compositor.render(&from_plan);
     let to = compositor.render(&to_plan);
-    let combined = compositor.combine(width, height, time.as_f64() as f32, &from, &to, &pass)?;
-    // Anything above the incoming lane draws over the combined picture, and
-    // a layer above it grades the lot.
-    let above: Vec<PlannedLayer> = plan
-        .layers
-        .iter()
-        .filter(|layer| layer.track > span.to_track)
-        .cloned()
-        .collect();
-    if above.is_empty() && over.is_empty() {
-        Some(combined)
-    } else {
-        let mut layers = vec![ground_layer(combined)];
-        layers.extend(above);
-        Some(compositor.render(&stage(layers, over)))
-    }
+    let combined = compositor.combine(
+        plan.width,
+        plan.height,
+        plan.time.as_f64() as f32,
+        &from,
+        &to,
+        &pass,
+    )?;
+    // Anything above the transition's lane draws over the combined
+    // picture, and a layer above it grades the lot.
+    Some(over_the_lane(compositor, plan, span, combined, over))
 }
 
 /// One paused-monitor frame: the same clip list the exporter takes, one
@@ -2267,10 +2919,26 @@ pub struct PreviewFrameRequest {
     /// What the timeline is output in; SDR when a request does not say.
     #[serde(default)]
     pub color_space: ColorSpace,
-    /// What shows where no picture covers the frame; black when a request
-    /// does not say.
-    #[serde(default)]
-    pub canvas: [u8; 3],
+    /// What shows where no picture covers the frame; opaque black when a
+    /// request does not say.
+    #[serde(
+        default = "opaque_black",
+        deserialize_with = "concat_project::model::rgba_array"
+    )]
+    pub canvas: [u8; 4],
+}
+
+/// A straight `[r, g, b, a]` canvas laid over opaque black: what a frame
+/// with no alpha to keep shows where nothing covers it.
+fn over_black([r, g, b, a]: [u8; 4]) -> [u8; 4] {
+    let weigh = |level: u8| ((u16::from(level) * u16::from(a) + 127) / 255) as u8;
+    [weigh(r), weigh(g), weigh(b), 255]
+}
+
+/// The canvas of a request that does not name one: what every frame had
+/// before there was a choice. Not `[u8; 4]`'s default, which is clear.
+fn opaque_black() -> [u8; 4] {
+    concat_project::model::OPAQUE_BLACK
 }
 
 /// The signal a timeline of `space` is drawn for (`FramePlan::output`).
@@ -2298,7 +2966,9 @@ pub fn preview_frame(
     // The window composites on its own device through `preview_sources`;
     // this is the API's and the command line's frame, on the shared
     // headless compositor.
-    headless(|gpu| sources.composite(gpu).into_pixels())
+    headless(true, |compositor| {
+        sources.composite(compositor).into_pixels()
+    })
 }
 
 /// The paused monitor's frame, described but not yet drawn: the plan
@@ -2308,9 +2978,17 @@ pub struct PreviewSources {
     plan: FramePlan,
     treatments: Vec<Treatment>,
     transitions: Vec<TransitionSpan>,
+    exact: bool,
 }
 
 impl PreviewSources {
+    /// Whether every picture in the frame is the one at its instant, and
+    /// not the nearest one at hand a scrub was shown instead; see
+    /// [`preview_sources_of`].
+    pub fn exact(&self) -> bool {
+        self.exact
+    }
+
     /// The frame's description, with every treatment that is shaders
     /// alone already in it; a compositor draws this and nothing else. A
     /// treatment that needs FFmpeg is not in it: see
@@ -2340,9 +3018,13 @@ impl PreviewSources {
     }
 
     /// The frame as raw RGBA, drawn on the shared headless compositor: the
-    /// monitor's picture where the window has no device of its own.
-    pub fn pixels(&self) -> Result<Vec<u8>, String> {
-        headless(|gpu| self.composite(gpu).into_pixels())
+    /// monitor's picture where the window has no device of its own. With
+    /// `strict`, a frame drawn with something left out is an error; see
+    /// [`headless`].
+    pub fn pixels(&self, strict: bool) -> Result<Vec<u8>, String> {
+        headless(strict, |compositor| {
+            self.composite(compositor).into_pixels()
+        })
     }
 
     /// The frame drawn whole on the GPU and kept there, when what stops
@@ -2369,7 +3051,7 @@ impl PreviewSources {
             .plan
             .layers
             .iter()
-            .any(|layer| layer.track > span.to_track)
+            .any(|layer| layer.track > span.track)
         {
             return None;
         }
@@ -2387,7 +3069,7 @@ pub fn preview_sources(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<PreviewSources, String> {
-    preview_sources_of(pool, &preview_timeline(request), request.time, false)
+    preview_sources_of(pool, &preview_timeline(request), request.time, false, false)
 }
 
 /// The pool's request for one planned layer: the source frame at the
@@ -2414,12 +3096,17 @@ fn frame_request(
 }
 
 /// [`preview_sources`] for one instant of a plan already built. With
-/// `proxy`, a file with a stand-in is read from it.
+/// `proxy`, a file with a stand-in is read from it. With `nearest` - a
+/// scrub - a picture that would take long to reach is shown by the nearest
+/// one at hand instead (see `ReaderPool::frame_nearest`), and the sources
+/// say whether that happened; the caller asks again without it once the
+/// scrub rests.
 pub fn preview_sources_of(
     pool: &concat_media::ReaderPool,
     plan: &PreviewPlan,
     seconds: f64,
     proxy: bool,
+    nearest: bool,
 ) -> Result<PreviewSources, String> {
     let rate = plan.rate;
     let BuiltTimeline {
@@ -2445,20 +3132,30 @@ pub fn preview_sources_of(
 
     let mut layers: Vec<PlannedLayer> = Vec::with_capacity(plan_at.layers.len());
     let mut failures: Vec<String> = Vec::new();
+    let mut exact = true;
     for layer in &plan_at.layers {
         let (decode_width, decode_height) = decode_sizes
             .get(&layer.clip)
             .copied()
             .unwrap_or((plan.width, plan.height));
-        // A source that fails to decode contributes nothing rather than
-        // blanking the monitor - same grace the exporter extends.
-        match pool.frame(&frame_request(
+        let request = frame_request(
             plan,
             layer,
             (decode_width, decode_height),
             stills.contains(&layer.clip),
             proxy,
-        )) {
+        );
+        let found = if nearest {
+            pool.frame_nearest(&request).map(|found| {
+                exact &= found.exact;
+                found.frame
+            })
+        } else {
+            pool.frame(&request)
+        };
+        // A source that fails to decode contributes nothing rather than
+        // blanking the monitor - same grace the exporter extends.
+        match found {
             Ok(frame) => {
                 let highlighted = highlight == Some(layer.clip);
                 let frame = match cutouts.get(&layer.clip).and_then(|job| {
@@ -2520,6 +3217,7 @@ pub fn preview_sources_of(
             track: treatment.track,
             effects: treatment.passes_at(time),
             strength: treatment.strength_at(time),
+            start: treatment.start.as_f64(),
         })
         .collect();
     frame_plan
@@ -2529,6 +3227,7 @@ pub fn preview_sources_of(
         plan: frame_plan,
         treatments: treatments.clone(),
         transitions: transitions.clone(),
+        exact,
     })
 }
 
@@ -2556,7 +3255,7 @@ pub fn preview_plan(
     rate_num: i64,
     rate_den: i64,
     color_space: ColorSpace,
-    canvas: [u8; 3],
+    canvas: [u8; 4],
 ) -> PreviewPlan {
     // A preview has no error to give, and a picture at the wrong pace beats
     // none; the document opens with a sane rate (VideoSettings::or) anyway.
@@ -2687,6 +3386,99 @@ pub fn preview_moments(
 
 #[cfg(test)]
 mod tests {
+    /// An Animate pick reaches the frame: a clip from the document with a
+    /// Slide Left in and a Fade out is off to the side at its start, at
+    /// rest in the middle and faded at its end, on the path the monitor
+    /// and the export both plan through.
+    #[test]
+    fn an_animate_pick_moves_the_planned_picture() {
+        use concat_project::commands::{ClipPatch, NewMedia};
+        use concat_project::model::{ClipMotion, ClipMove, MediaKind};
+        use concat_project::{Command, Editor};
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(Command::AddMedia {
+                item: NewMedia {
+                    path: "/nowhere/clip.mp4".into(),
+                    name: "clip.mp4".into(),
+                    duration: Some(4.0),
+                    kind: MediaKind::Video,
+                    width: Some(64),
+                    height: Some(36),
+                    frame_rate: None,
+                    frame_rate_fraction: None,
+                    video_codec: None,
+                    audio_codec: None,
+                    has_audio: false,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                    color_space: Default::default(),
+                },
+            })
+            .expect("adds media")
+            .created_id
+            .expect("an id");
+        let track_id = editor.project().timelines[0].tracks[0].id.clone();
+        let clip_id = editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id,
+                start: 0.0,
+                ripple: false,
+            })
+            .expect("adds the clip")
+            .created_id
+            .expect("an id");
+        editor
+            .apply(Command::UpdateClip {
+                clip_id,
+                patch: ClipPatch {
+                    motion: Some(Some(ClipMotion {
+                        enter: Some(ClipMove {
+                            kind: "slide-left".into(),
+                            seconds: 1.0,
+                        }),
+                        exit: Some(ClipMove {
+                            kind: "fade".into(),
+                            seconds: 1.0,
+                        }),
+                        ..ClipMotion::default()
+                    })),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("animates the clip");
+        let clips = flatten::flatten_timeline(editor.project(), None);
+        assert!(
+            clips[0].motion.is_some(),
+            "the motion reaches the flattened clip"
+        );
+        let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+        let at = |seconds: f64| {
+            let time = Rational::approximate(seconds).expect("a time");
+            concat_render::plan::plan_frame(&plan.built.timeline, time).layers[0].clone()
+        };
+        let (start, middle, end) = (at(0.1), at(2.0), at(3.9));
+        eprintln!(
+            "x {} / {} / {}, opacity {} / {} / {}",
+            start.transform.offset_x,
+            middle.transform.offset_x,
+            end.transform.offset_x,
+            start.opacity,
+            middle.opacity,
+            end.opacity
+        );
+        assert!(
+            (start.transform.offset_x - middle.transform.offset_x).abs() > 0.1,
+            "Slide Left has the picture off to the side at the start"
+        );
+        assert!(
+            end.opacity < 0.5,
+            "Fade out has the picture faded at the end"
+        );
+        assert!((middle.opacity - 1.0).abs() < 1e-3, "at rest in the middle");
+    }
+
     /// A treatment on track 1 runs over what track 0 drew and not over what
     /// track 2 draws on top of it, and its strength blends the result back.
     #[test]
@@ -2720,7 +3512,7 @@ mod tests {
                 time,
                 width: 8,
                 height: 8,
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 layers: vec![ground, top],
                 treatments: Vec::new(),
                 output: concat_core::frame::Signal::Sdr,
@@ -2794,23 +3586,40 @@ mod tests {
             frame
         };
         let time = Rational::from_int(1);
-        // Red going out on lane 0, white coming in on lane 2 halfway
-        // through its dissolve ramp, as the resolved cut leaves them. White
-        // stays white through Mono and red does not, so the graded push
-        // keeps two sides where a graded dissolve would have one.
+        // Two clips of one timeline, so their ids differ: the transition's
+        // sides are told apart by id.
+        let (red_id, white_id) = {
+            use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind};
+            let mut timeline = Timeline::new(16, 8, FrameRate::THIRTY);
+            let track = timeline.add_track(Track::new("sides", TrackKind::Video));
+            let mut add = |name: &str, at: i64| {
+                timeline
+                    .add_clip(
+                        track,
+                        Clip::new(MediaRef::new(name), Rational::from_int(at), Rational::ONE),
+                    )
+                    .expect("added")
+            };
+            (add("red", 0), add("white", 1))
+        };
+        // Red going out on lane 0 and white coming in on lane 2, as a
+        // transition clip on lane 3 over their cut leaves them: the
+        // outgoing side is red's, the incoming side white's. White stays
+        // white through Mono and red does not, so the graded push keeps two
+        // sides where a graded dissolve would have one.
         let plan = || {
-            let mut incoming = PlannedLayer::picture(
-                concat_render::detached_clip(),
-                std::sync::Arc::new(solid([255, 255, 255, 255])),
-            );
+            let mut outgoing =
+                PlannedLayer::picture(red_id, std::sync::Arc::new(solid([255, 0, 0, 255])));
+            outgoing.track = 0;
+            let mut incoming =
+                PlannedLayer::picture(white_id, std::sync::Arc::new(solid([255, 255, 255, 255])));
             incoming.track = 2;
-            incoming.opacity = 0.5;
             FramePlan {
                 time,
                 width: 16,
                 height: 8,
-                canvas: [0, 0, 0],
-                layers: vec![ground_layer(solid([255, 0, 0, 255])), incoming],
+                canvas: [0, 0, 0, 255],
+                layers: vec![outgoing, incoming],
                 treatments: Vec::new(),
                 output: concat_core::frame::Signal::Sdr,
             }
@@ -2818,9 +3627,11 @@ mod tests {
         let span = TransitionSpan {
             start: Rational::ZERO,
             end: Rational::from_int(2),
-            to_track: 2,
+            track: 3,
             id: "concat.push".to_owned(),
             params: BTreeMap::new(),
+            from: [red_id].into_iter().collect(),
+            to: [white_id].into_iter().collect(),
         };
         let mono = Treatment {
             start: Rational::ZERO,
@@ -2863,6 +3674,7 @@ mod tests {
     }
 
     use super::*;
+    use concat_media::{Decoder, FrameSource};
 
     fn clip(kind: &str, track: usize, start: f64, duration: f64, source_start: f64) -> ExportClip {
         let kind_of = match kind {
@@ -2877,6 +3689,197 @@ mod tests {
         }
     }
 
+    /// A still - a picture, a title - is read once and held, not paced: its
+    /// layer shows the same source instant all along, so the export takes
+    /// the one frame from the pool every time and the compositor finds it
+    /// already on the device. Paced, a title was decoded, converted and
+    /// uploaded again at every frame it was on (#754).
+    #[test]
+    fn a_still_is_held_rather_than_paced() {
+        let clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("image", 1, 0.0, 2.0, 0.0),
+        ];
+        let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+        for seconds in [0.1, 1.0, 1.9] {
+            let time = Rational::approximate(seconds).expect("a time");
+            let frame = concat_render::plan::plan_frame(&plan.built.timeline, time);
+            let footage = frame.layers.iter().find(|layer| layer.track == 0);
+            let still = frame.layers.iter().find(|layer| layer.track == 1);
+            assert!(
+                footage.expect("the footage is on").paced,
+                "footage is paced"
+            );
+            let still = still.expect("the still is on");
+            assert!(!still.paced, "a still is held at {seconds}");
+            assert_eq!(still.source_time, Rational::ZERO, "at its one picture");
+        }
+    }
+
+    /// A transition clip of `kind`, `duration` long from `start`, on `lane`.
+    fn transition_clip(kind: &str, start: f64, duration: f64, lane: usize) -> ExportClip {
+        ExportClip {
+            transition: spec(kind, duration),
+            ..ExportClip::blank(ClipKind::Transition, start, duration, lane)
+        }
+    }
+
+    /// A transition clip over a cut (#621) takes the clip going out and the
+    /// clip coming in as its sides, and carries each into its span by a
+    /// silent stand-in drawn where that clip is: the outgoing one on past
+    /// its out-point, the incoming one early from before its in-point, from
+    /// their own footage where the files have it.
+    #[test]
+    fn a_transition_clip_over_a_cut_takes_both_sides_into_its_span() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 5.0),
+            transition_clip("concat.push", 1.5, 1.0, 1),
+        ];
+        for footage in &mut clips[..2] {
+            footage.media_duration = Some(10.0);
+        }
+        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
+        assert_eq!(spans.len(), 1);
+        let span = &spans[0];
+        assert!((span.start.as_f64() - 1.5).abs() < 1e-6, "{:?}", span.start);
+        assert!((span.end.as_f64() - 2.5).abs() < 1e-6, "{:?}", span.end);
+        assert_eq!((span.track, span.id.as_str()), (1, "concat.push"));
+        assert_eq!(clips[0].roles, vec![(0, false)], "the outgoing side");
+        assert_eq!(clips[1].roles, vec![(0, true)], "the incoming side");
+
+        let stand_in = |incoming: bool| {
+            clips
+                .iter()
+                .find(|clip| clip.stack_at.is_some() && clip.roles == vec![(0, incoming)])
+                .unwrap_or_else(|| panic!("a stand-in for the {incoming} side"))
+        };
+        let after = stand_in(false);
+        assert_eq!(after.stack_at, Some(0), "drawn where the outgoing clip is");
+        assert!((after.start - 2.0).abs() < 1e-6 && (after.duration - 0.5).abs() < 1e-6);
+        assert!(!after.hold, "the file has footage past the out-point");
+        assert!(
+            (after.source_start - 2.0).abs() < 1e-6,
+            "{}",
+            after.source_start
+        );
+        assert!(after.muted, "a stand-in is silent");
+        let before = stand_in(true);
+        assert_eq!(before.stack_at, Some(0));
+        assert!((before.start - 1.5).abs() < 1e-6 && (before.duration - 0.5).abs() < 1e-6);
+        assert!(!before.hold, "the file has footage before the in-point");
+        assert!(
+            (before.source_start - 4.5).abs() < 1e-6,
+            "{}",
+            before.source_start
+        );
+        assert!(before.muted);
+    }
+
+    /// A clip with nothing past its out-point holds its last frame into the
+    /// span instead.
+    #[test]
+    fn a_side_with_no_footage_to_give_holds_its_frame() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 0.0),
+            transition_clip("concat.push", 1.5, 1.0, 1),
+        ];
+        clips[0].media_duration = Some(2.0);
+        clips[1].media_duration = Some(10.0);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+        let after = clips
+            .iter()
+            .find(|clip| clip.stack_at.is_some() && clip.roles == vec![(0, false)])
+            .expect("the outgoing stand-in");
+        assert!(after.hold, "the outgoing file ends at the cut");
+        let before = clips
+            .iter()
+            .find(|clip| clip.stack_at.is_some() && clip.roles == vec![(0, true)])
+            .expect("the incoming stand-in");
+        assert!(
+            before.hold,
+            "the incoming clip starts at its file's first frame"
+        );
+    }
+
+    /// With no cut under it, a transition clip plays its package over the
+    /// one shot: a span, and no sides or stand-ins.
+    #[test]
+    fn a_transition_clip_over_a_single_shot_has_no_sides() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            transition_clip("concat.zoom-transition", 1.0, 1.0, 1),
+        ];
+        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].track, 1);
+        assert!(clips[0].roles.is_empty());
+        assert_eq!(clips.len(), 2, "no stand-ins");
+    }
+
+    /// A transition clip that is hidden, has no package, or is shorter than
+    /// half a frame makes no span; the clips beneath play as a plain cut.
+    #[test]
+    fn a_hidden_empty_or_vanishing_transition_clip_is_a_plain_cut() {
+        let footage = || {
+            vec![
+                clip("video", 0, 0.0, 2.0, 0.0),
+                clip("video", 0, 2.0, 2.0, 0.0),
+            ]
+        };
+        let mut hidden = transition_clip("concat.push", 1.5, 1.0, 1);
+        hidden.hidden = true;
+        let mut empty = transition_clip("concat.push", 1.5, 1.0, 1);
+        empty.transition = None;
+        let tiny = transition_clip("concat.push", 2.0, 0.001, 1);
+        for one in [hidden, empty, tiny] {
+            let mut clips = footage();
+            clips.push(one);
+            assert!(resolve_transitions(&mut clips, FrameRate::THIRTY).is_empty());
+            assert!(clips.iter().all(|clip| clip.roles.is_empty()));
+        }
+    }
+
+    /// A transition placed in the document as a clip reaches the exporter
+    /// as one, its package, knobs and length intact, on its own lane.
+    #[test]
+    fn a_documents_transition_clip_is_flattened_with_its_package() {
+        use concat_project::{Command, Editor};
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddTransitionClip {
+                track_id: None,
+                start: 3.0,
+                duration: Some(0.8),
+                transition_id: "concat.push".into(),
+                name: "Push".into(),
+            })
+            .expect("placed")
+            .created_id
+            .expect("an id");
+        let lane = {
+            let timeline = editor.project().active();
+            let clip = timeline.clip(&id).expect("exists");
+            timeline
+                .tracks
+                .iter()
+                .position(|track| track.id == clip.track_id)
+                .expect("its lane")
+        };
+        let flat = flatten::flatten_timeline(editor.project(), None);
+        let transition = flat
+            .iter()
+            .find(|clip| clip.kind == ClipKind::Transition)
+            .expect("flattened");
+        assert_eq!(transition.track, lane);
+        assert!((transition.start - 3.0).abs() < 1e-9 && (transition.duration - 0.8).abs() < 1e-9);
+        let spec = transition.transition.as_ref().expect("its package");
+        assert_eq!(spec.kind, "concat.push");
+        assert!((spec.duration - 0.8).abs() < 1e-9);
+        assert!(!transition.hidden && transition.muted);
+    }
+
     fn spec(kind: &str, duration: f64) -> Option<TransitionSpec> {
         Some(TransitionSpec {
             kind: kind.to_owned(),
@@ -2886,10 +3889,11 @@ mod tests {
     }
 
     /// The monitor draws a wipe and a fade to black as the export does:
-    /// halfway through the wipe the old picture on one side and the new on
-    /// the other, and black at the fade's cut. It used to show a dissolve
-    /// for the wipe and nothing at all for the fade, whose filters counted
-    /// decoded frames the monitor's pooled seeks never had.
+    /// halfway through a wipe one picture on one side and the other on the
+    /// other - which side is the package's - and black at the fade's cut.
+    /// It used to show a dissolve for the wipe and nothing at all for the
+    /// fade, whose filters counted decoded frames the monitor's pooled
+    /// seeks never had. The old names reach the packages as aliases.
     #[test]
     fn the_monitor_draws_wipes_and_fades_as_the_export_does() {
         use concat_core::frame::Frame;
@@ -2934,7 +3938,7 @@ mod tests {
                 one.media_height = Some(height);
             }
             let request = PreviewFrameRequest {
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 time,
                 width,
                 height,
@@ -2953,19 +3957,24 @@ mod tests {
                 .zip(want)
                 .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40)
         };
-        for (kind, time, x, want) in [
-            ("wipe-left", 2.0, 0.2, [220, 30, 30]),
-            ("wipe-left", 2.0, 0.8, [30, 30, 220]),
-            ("wipe-right", 2.0, 0.2, [30, 30, 220]),
-            ("wipe-right", 2.0, 0.8, [220, 30, 30]),
-            ("fade-black", 2.0, 0.5, [0, 0, 0]),
-        ] {
-            let got = look(kind, time, x);
+        let (red_px, blue_px) = ([220, 30, 30], [30, 30, 220]);
+        for kind in ["wipe-left", "wipe-right"] {
+            let (left, right) = (look(kind, 2.0, 0.1), look(kind, 2.0, 0.9));
+            let one_or_other = |got: [u8; 3]| near(got, red_px) || near(got, blue_px);
             assert!(
-                near(got, want),
-                "{kind} at {time}s, {x} across: the monitor shows {got:?}, not {want:?}"
+                one_or_other(left) && one_or_other(right),
+                "{kind} halfway: each side is one picture, not a mix: {left:?} {right:?}"
+            );
+            assert!(
+                near(left, red_px) != near(right, red_px),
+                "{kind} halfway: the two sides are the two pictures: {left:?} {right:?}"
             );
         }
+        let got = look("fade-black", 2.0, 0.5);
+        assert!(
+            near(got, [0, 0, 0]),
+            "fade-black at its cut: the monitor shows {got:?}, not black"
+        );
         let _ = std::fs::remove_file(&red);
         let _ = std::fs::remove_file(&blue);
     }
@@ -3050,7 +4059,7 @@ mod tests {
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
         let pixel = |clips: &[ExportClip], time: f64, x: u32, y: u32| -> [u8; 3] {
             let request = PreviewFrameRequest {
-                canvas: [0, 0, 0],
+                canvas: [0, 0, 0, 255],
                 time,
                 width,
                 height,
@@ -3148,7 +4157,7 @@ mod tests {
         request_clip.crop = Some([0.0, 0.5, 0.0, 0.0]);
         request_clip.flip_h = true;
         let request = PreviewFrameRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             time: 0.5,
             width,
             height,
@@ -3214,7 +4223,7 @@ mod tests {
         request_clip.media_width = Some(64);
         request_clip.media_height = Some(64);
         let request = PreviewFrameRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             time: 0.5,
             width: 64,
             height: 64,
@@ -3240,7 +4249,7 @@ mod tests {
         let mut outliving = clip("video", 0, 0.0, 3.0, 0.0);
         outliving.path = path.to_string_lossy().into_owned();
         let late = PreviewFrameRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             time: 2.5,
             width: 64,
             height: 64,
@@ -3265,7 +4274,7 @@ mod tests {
         effected.media_height = Some(64);
         effected.effects = vec![AppliedFilter::new("concat.mono")];
         let filtered = PreviewFrameRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             time: 0.5,
             width: 64,
             height: 64,
@@ -3387,7 +4396,7 @@ mod tests {
 
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
         let request = |clips: Vec<ExportClip>| PreviewFrameRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             time: 1.0,
             width,
             height,
@@ -3477,7 +4486,7 @@ mod tests {
         still.media_width = Some(32);
         still.media_height = Some(64);
         let request = PreviewFrameRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             time: 0.5,
             width: 64,
             height: 64,
@@ -3544,7 +4553,7 @@ mod tests {
         footage.media_height = Some(64);
         let nested = root.join("Movies").join("Concat");
         let request = ExportRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             output: nested.join("out.mp4").to_string_lossy().into_owned(),
             width: 64,
             height: 64,
@@ -3626,7 +4635,7 @@ mod tests {
         footage.media_height = Some(64);
         let output = dir.join("out.mp4");
         let request = ExportRequest {
-            canvas: [0, 0, 0],
+            canvas: [0, 0, 0, 255],
             output: output.to_string_lossy().into_owned(),
             width: 64,
             height: 64,
@@ -3655,19 +4664,239 @@ mod tests {
         result.expect("the export goes on on a fresh device");
     }
 
+    /// An export in an alpha codec writes its own container with its sound
+    /// in it - a .mov of ProRes and AAC, a .webm of VP9 and Opus - and one
+    /// named for another container is refused before a frame is drawn.
+    #[test]
+    fn an_alpha_export_writes_its_own_container_with_its_sound() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        if WgpuCompositor::new().is_none() {
+            eprintln!("nothing to draw on here; skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("concat-export-alpha-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let source = dir.join("source.mp4");
+        let Ok(mut encoder) = Encoder::create(
+            &source,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        ) else {
+            return; // no ffmpeg here
+        };
+        let mut red = Frame::black(64, 64);
+        red.fill([200, 40, 40, 255]);
+        for _ in 0..15 {
+            encoder.write_frame(&red).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        // Half a second of a 440 Hz tone, 16-bit stereo at 48 kHz.
+        let tone = dir.join("tone.wav");
+        {
+            let samples: Vec<u8> = (0..24_000)
+                .flat_map(|index| {
+                    let t = f64::from(index) / 48_000.0;
+                    let value = (0.5 * (std::f64::consts::TAU * 440.0 * t).sin() * 32767.0) as i16;
+                    let [low, high] = value.to_le_bytes();
+                    [low, high, low, high]
+                })
+                .collect();
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"RIFF");
+            bytes.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(b"WAVEfmt ");
+            for (value, width) in [
+                (16u32, 4),
+                (1, 2),
+                (2, 2),
+                (48_000, 4),
+                (192_000, 4),
+                (4, 2),
+                (16, 2),
+            ] {
+                bytes.extend_from_slice(&value.to_le_bytes()[..width]);
+            }
+            bytes.extend_from_slice(b"data");
+            bytes.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&samples);
+            std::fs::write(&tone, bytes).expect("writes the tone");
+        }
+
+        let mut footage = clip("video", 0, 0.0, 0.5, 0.0);
+        footage.path = source.to_string_lossy().into_owned();
+        footage.media_width = Some(64);
+        footage.media_height = Some(64);
+        footage.has_audio = Some(false);
+        // Half the frame's size on a clear canvas: the corners are what
+        // the file has to keep clear, and the middle the picture (#456).
+        footage.scale = 0.5;
+        let mut sound = clip("audio", 1, 0.0, 0.5, 0.0);
+        sound.path = tone.to_string_lossy().into_owned();
+        sound.has_audio = Some(true);
+        let request = |codec: VideoCodec, output: &Path| ExportRequest {
+            canvas: [0, 0, 0, 0],
+            output: output.to_string_lossy().into_owned(),
+            width: 64,
+            height: 64,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 30,
+            preset: "ultrafast".into(),
+            codec,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            clips: vec![footage.clone(), sound.clone()],
+        };
+        let render = |request: &ExportRequest| {
+            let cancel = AtomicBool::new(false);
+            let mut progress = |_: i64, _: i64, _: &'static str| {};
+            let reporter = Reporter {
+                progress: &mut progress,
+                cancel: &cancel,
+            };
+            render_on(request, None, reporter)
+        };
+
+        for (codec, picture, heard) in [
+            (VideoCodec::ProRes4444, "prores", "aac"),
+            (VideoCodec::Vp9Alpha, "vp9", "opus"),
+        ] {
+            if !codec.available() {
+                eprintln!("{} not in the linked FFmpeg; skipped", codec.label());
+                continue;
+            }
+            let misnamed = dir.join("overlay.mp4");
+            let error = render(&request(codec, &misnamed)).expect_err("an .mp4 is refused");
+            assert!(error.contains(codec.container()), "{error}");
+            assert!(!misnamed.exists());
+
+            let output = dir.join(format!("overlay.{}", codec.container()));
+            let written = render(&request(codec, &output))
+                .unwrap_or_else(|error| panic!("{}: {error}", codec.label()));
+            assert_eq!(Path::new(&written), output);
+            let info = concat_media::probe(&output).expect("probes");
+            assert_eq!(info.video.expect("a picture").codec, picture);
+            assert_eq!(info.audio.expect("a sound").codec, heard);
+            let mut decoder = Decoder::open(&output, &DecodeOptions::default()).expect("opens");
+            let frame = decoder.next_frame().expect("decodes").expect("a frame");
+            let corner = frame.pixel(2, 2).expect("a pixel");
+            let middle = frame.pixel(32, 32).expect("a pixel");
+            assert!(
+                corner[3] <= 4,
+                "{}: the corner is {corner:?}",
+                codec.label()
+            );
+            assert!(
+                middle[3] >= 250,
+                "{}: the middle is {middle:?}",
+                codec.label()
+            );
+            assert!(
+                middle[0].abs_diff(200) <= 12 && middle[1].abs_diff(40) <= 12,
+                "{}: the middle is {middle:?}",
+                codec.label()
+            );
+            let leftovers: Vec<_> = std::fs::read_dir(&dir)
+                .expect("lists")
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".concat-"))
+                .collect();
+            assert!(leftovers.is_empty(), "scratch files are removed");
+        }
+
+        // An .mp4 keeps no alpha, so the clear canvas is laid over black as
+        // the frame is drawn: a half-faded picture comes out half way to
+        // black, not at its full colour with the alpha dropped after.
+        let mut faded = footage.clone();
+        faded.opacity = 0.5;
+        let output = dir.join("flat.mp4");
+        render(&ExportRequest {
+            clips: vec![faded],
+            ..request(VideoCodec::H264, &output)
+        })
+        .expect("an .mp4 of a clear canvas renders");
+        let mut decoder = Decoder::open(&output, &DecodeOptions::default()).expect("opens");
+        let frame = decoder.next_frame().expect("decodes").expect("a frame");
+        let middle = frame.pixel(32, 32).expect("a pixel");
+        assert!((130..=170).contains(&middle[0]), "the middle is {middle:?}");
+        let corner = frame.pixel(2, 2).expect("a pixel");
+        assert!(
+            corner[0] <= 8 && corner[3] == 255,
+            "the corner is {corner:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A preview drawn on the CPU, its device gone, is the frame where
+    /// nothing was left out of it; where something was, the API's preview
+    /// is an error saying so and the window's is the picture without it.
+    #[test]
+    fn a_preview_the_cpu_cannot_draw_whole_is_an_error_for_the_api() {
+        let mut ladder = concat_render::Ladder::cpu_only();
+        let mut white = concat_core::frame::Frame::transparent(8, 8);
+        white.fill([255, 255, 255, 255]);
+        let plain = FramePlan {
+            layers: vec![PlannedLayer::picture(
+                concat_render::detached_clip(),
+                Arc::new(white),
+            )],
+            ..FramePlan::empty(8, 8)
+        };
+        let frame = drawn_on(&mut ladder, true, |c| c.render(&plain)).expect("the whole frame");
+        assert_eq!(frame.pixel(4, 4), Some([255, 255, 255, 255]), "not black");
+        let hdr = FramePlan {
+            output: Signal::Pq,
+            ..plain
+        };
+        let error = drawn_on(&mut ladder, true, |c| c.render(&hdr)).expect_err("not the frame");
+        assert!(error.contains("CPU"), "{error}");
+        assert!(drawn_on(&mut ladder, false, |c| c.render(&hdr)).is_ok());
+    }
+
     /// A device that dies under an export is replaced: first by a fresh
     /// one on the GPU, then by the software adapter; the third death ends
     /// the export with a message that says how many there were.
     #[test]
     fn an_export_gives_up_after_enough_device_losses() {
-        let Err(error) = recovered(DEVICE_LOSSES, false) else {
+        let Err(error) = recovered(DEVICE_LOSSES, false, None) else {
             panic!("a third loss gives up");
         };
         assert!(error.contains("lost 3 times"), "{error}");
         assert!(error.contains("not answering"), "{error}");
         if WgpuCompositor::new().is_some() {
-            let fresh = recovered(1, true).expect("a machine that draws opens another device");
+            let fresh =
+                recovered(1, true, None).expect("a machine that draws opens another device");
             assert!(!fresh.lost());
+        }
+    }
+
+    /// An export lent the window's device goes on on that device after the
+    /// first loss - a sibling of the dead compositor, on the same adapter -
+    /// rather than opening another, which on a laptop with two GPUs is the
+    /// other chip (audit 2026-10-20, H7). Losses past it go to the software
+    /// adapter, lent or not.
+    #[test]
+    fn a_lent_device_is_drawn_on_again_after_the_first_loss() {
+        let Some(window) = WgpuCompositor::new() else {
+            eprintln!("no adapter here; skipped");
+            return;
+        };
+        let again = recovered(1, false, Some(&window)).expect("a sibling opens on a live device");
+        assert!(!again.lost());
+        let (was, now) = (window.adapter_info(), again.adapter_info());
+        assert_eq!((was.name, was.backend), (now.name, now.backend));
+        if WgpuCompositor::software().is_some() {
+            let slow = recovered(2, false, Some(&window)).expect("the software adapter opens");
+            assert!(slow.on_software_adapter());
         }
     }
 
@@ -3742,436 +4971,6 @@ mod tests {
         }
     }
 
-    /// Two clips cut at 4 s on one track, the incoming one with two
-    /// seconds of footage before its in-point and the outgoing one with
-    /// six past its out-point, unless a test takes them away.
-    fn cut_with_handles() -> Vec<ExportClip> {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 4.0, 0.0),
-            clip("video", 0, 4.0, 4.0, 2.0),
-        ];
-        clips[0].media_duration = Some(10.0);
-        clips
-    }
-
-    #[test]
-    fn a_cross_fade_is_centred_on_the_cut() {
-        let mut clips = cut_with_handles();
-        clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        let b = &clips[1];
-        assert_eq!(b.start, 3.5, "starts half the transition before the cut");
-        assert_eq!(b.duration, 4.5);
-        assert_eq!(
-            b.source_start, 1.5,
-            "consumes the handle before the in-point"
-        );
-        assert_eq!(b.video_fade_in, 1.0);
-        assert_eq!(b.fade_in, 1.0, "sound rides the picture");
-        assert_eq!(b.track, 1, "incoming sits directly above the outgoing clip");
-
-        let a = &clips[0];
-        assert_eq!(
-            (a.start, a.duration, a.source_start),
-            (0.0, 4.5, 0.0),
-            "runs on half the transition past the cut"
-        );
-        assert_eq!(a.fade_out, 1.0, "and its sound fades out across it");
-        assert_eq!(a.track, 0, "outgoing stays on its doubled lane");
-        assert_eq!(clips.len(), 2, "no hold: both sides have footage");
-    }
-
-    /// A clip lengthened for a transition keeps its keys at the instants
-    /// they were at, although a key's place is a fraction of the clip.
-    #[test]
-    fn an_extended_clip_keeps_its_keys_where_they_were() {
-        let mut clips = cut_with_handles();
-        for (n, at) in [1.0, 0.0].into_iter().enumerate() {
-            clips[n].animation.push(ExportKey {
-                property: "scale".to_owned(),
-                at,
-                value: 2.0,
-                ease: linear_ease(),
-            });
-        }
-        clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(keys_on(&clips[0], "scale"), vec![(4.0 / 4.5, 2.0)]);
-        assert_eq!(keys_on(&clips[1], "scale"), vec![(0.5 / 4.5, 2.0)]);
-    }
-
-    /// A packaged transition's knobs, as set on the cut, reach the span
-    /// the compositor combines with: before, every span was built empty and
-    /// every transition drew at its defaults, whatever the cut held.
-    #[test]
-    fn a_packaged_transitions_knobs_reach_its_span() {
-        let mut clips = cut_with_handles();
-        let mut transition = spec("concat.push", 1.0).expect("a spec");
-        transition.params.insert("direction".to_owned(), 2.0);
-        clips[1].transition = Some(transition);
-        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].params.get("direction"), Some(&2.0));
-    }
-
-    #[test]
-    fn a_packaged_transition_id_overlaps_the_clip_and_emits_a_span() {
-        // A transition named by its package id (not one of the seven legacy
-        // strings) takes the new path: the same overlap a dissolve gets, plus
-        // a `TransitionSpan` for the compositor to combine over.
-        let mut clips = cut_with_handles();
-        clips[1].transition = spec("concat.dissolve", 1.0);
-        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        let b = &clips[1];
-        assert_eq!(b.start, 3.5, "centred on the cut, like a dissolve");
-        assert_eq!(b.duration, 4.5);
-        assert_eq!(b.video_fade_in, 1.0, "the GPU-less fallback dissolve");
-        assert_eq!(b.track, 1);
-        assert_eq!(clips[0].duration, 4.5);
-
-        assert_eq!(spans.len(), 1, "one packaged transition over the cut");
-        let span = &spans[0];
-        assert_eq!(span.id, "concat.dissolve");
-        assert_eq!(span.to_track, 1, "the incoming clip's own lane");
-        assert_eq!(span.start, Rational::new(7, 2));
-        assert_eq!(span.end, Rational::new(9, 2));
-        assert!((span.progress(Rational::new(7, 2)) - 0.0).abs() < 1e-9);
-        assert!((span.progress(Rational::from_int(4)) - 0.5).abs() < 1e-9);
-        assert!((span.progress(Rational::new(9, 2)) - 1.0).abs() < 1e-9);
-    }
-
-    /// An incoming clip with less footage before its in-point than half
-    /// the transition takes what it has - winding the start back further
-    /// without the clock played everything after the cut early and ran the
-    /// end off the file into black (#236) - and the rest of the overlap
-    /// goes after the cut, where the outgoing clip runs on.
-    #[test]
-    fn a_short_handle_leans_the_overlap_after_the_cut() {
-        let mut clips = cut_with_handles();
-        clips[1].source_start = 0.25;
-        clips[1].fade_in = 0.25;
-        clips[1].transition = spec("cross-fade", 2.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        let b = &clips[1];
-        assert_eq!((b.start, b.duration, b.source_start), (3.75, 4.25, 0.0));
-        assert_eq!(b.video_fade_in, 2.0);
-        assert_eq!(b.track, 1);
-        assert_eq!(b.fade_in, 2.0, "the dissolve's sound fade");
-        assert_eq!(clips[0].duration, 5.75, "runs on for the other 1.75 s");
-        assert_eq!(clips.len(), 2, "nothing is held");
-    }
-
-    #[test]
-    fn an_untrimmed_incoming_clip_starts_the_overlap_at_the_cut() {
-        let mut clips = cut_with_handles();
-        clips[1].source_start = 0.0;
-        clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        let b = &clips[1];
-        assert_eq!((b.start, b.duration, b.source_start), (4.0, 4.0, 0.0));
-        assert_eq!(b.track, 1, "above the outgoing clip running on");
-        assert_eq!(b.video_fade_in, 1.0);
-        assert_eq!(clips[0].duration, 5.0);
-    }
-
-    /// An outgoing clip with no footage past its out-point - the file ends
-    /// there, or its length is not known - ends at the cut, and its last
-    /// frame is held beneath the incoming one for the rest of the overlap.
-    #[test]
-    fn an_outgoing_clip_without_footage_past_its_end_is_held() {
-        let mut clips = cut_with_handles();
-        clips[0].media_duration = Some(4.0);
-        clips[1].transition = spec("concat.dissolve", 1.0);
-        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        let a = &clips[0];
-        assert_eq!((a.start, a.duration), (0.0, 4.0), "ends at the cut");
-        assert_eq!(clips.len(), 3, "the hold is a clip of its own");
-        let hold = &clips[2];
-        assert!(hold.hold);
-        assert_eq!((hold.start, hold.duration), (4.0, 0.5));
-        assert_eq!(
-            hold.source_start,
-            4.0 - 1.0 / 30.0,
-            "the frame the clip ends on"
-        );
-        assert_eq!(hold.track, 0, "on the outgoing clip's lane");
-        assert!(hold.muted);
-        assert_eq!(hold.has_audio, Some(false));
-
-        let b = &clips[1];
-        assert_eq!((b.start, b.track), (3.5, 1));
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].start, Rational::new(7, 2));
-        assert_eq!(spans[0].end, Rational::new(9, 2));
-        assert_eq!(spans[0].to_track, 1);
-    }
-
-    /// A push cannot slide a held frame - the hold carries no keys - so
-    /// over an outgoing clip without footage past its end it dissolves;
-    /// a keyed placement on the clip is held where its ride leaves it.
-    #[test]
-    fn a_push_over_a_held_outgoing_frame_becomes_a_dissolve() {
-        let mut clips = cut_with_handles();
-        clips[0].media_duration = None;
-        for (at, value) in [(0.0, 1.0), (1.0, 2.0)] {
-            clips[0].animation.push(ExportKey {
-                property: "scale".to_owned(),
-                at,
-                value,
-                ease: linear_ease(),
-            });
-        }
-        clips[1].transition = spec("push", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        let hold = &clips[2];
-        assert!(hold.animation.is_empty(), "the ride stays on the clip");
-        assert_eq!(hold.scale, 2.0, "held where the ride ends");
-        assert_eq!(clips[1].video_fade_in, 1.0, "falls back to the dissolve");
-        assert!(keys_on(&clips[1], "offsetX").is_empty());
-        assert!(keys_on(&clips[0], "offsetX").is_empty());
-        assert_eq!(
-            keys_on(&clips[0], "scale").len(),
-            2,
-            "the user's keys are untouched"
-        );
-    }
-
-    #[test]
-    fn a_still_needs_no_handle_to_dissolve() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 4.0, 0.0),
-            clip("image", 0, 4.0, 4.0, 0.0),
-        ];
-        clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(clips[1].video_fade_in, 1.0);
-        assert_eq!(
-            clips[1].source_start, 0.0,
-            "a still has no source clock to rewind"
-        );
-    }
-
-    /// The keys a resolved transition put on a clip's property, as
-    /// `(at, value)` pairs.
-    fn keys_on(clip: &ExportClip, property: &str) -> Vec<(f64, f64)> {
-        clip.animation
-            .iter()
-            .filter(|key| key.property == property)
-            .map(|key| (key.at, key.value))
-            .collect()
-    }
-
-    #[test]
-    fn a_push_slides_both_pictures_across_the_overlap() {
-        let mut clips = cut_with_handles();
-        clips[1].transition = spec("push", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        // The overlap is the dissolve's: half a second either side of the
-        // cut, the incoming clip on the lane above, sound fading in with
-        // it - but no picture fade.
-        let b = &clips[1];
-        assert_eq!((b.start, b.duration, b.source_start), (3.5, 4.5, 1.5));
-        assert_eq!(b.track, 1);
-        assert_eq!(b.fade_in, 1.0);
-        assert_eq!(b.video_fade_in, 0.0, "a push does not dissolve");
-        // The incoming picture comes in from a frame's width to the right
-        // over its first second.
-        assert_eq!(keys_on(b, "offsetX"), vec![(0.0, 1.0), (1.0 / 4.5, 0.0)]);
-        // The outgoing one leaves to the left over its last second.
-        assert_eq!(
-            keys_on(&clips[0], "offsetX"),
-            vec![(1.0 - 1.0 / 4.5, 0.0), (1.0, -1.0)]
-        );
-        // Both ride the same ease, which is what keeps them edge to edge.
-        assert_eq!(clips[0].animation[1].ease, clips[1].animation[1].ease);
-        assert_eq!(clips[1].animation[1].ease, EASE_IN_OUT);
-    }
-
-    #[test]
-    fn a_push_over_a_clip_the_user_keyed_becomes_a_dissolve() {
-        let mut clips = cut_with_handles();
-        clips[0].animation.push(ExportKey {
-            property: "offsetX".to_owned(),
-            at: 0.5,
-            value: 0.1,
-            ease: linear_ease(),
-        });
-        clips[1].transition = spec("push", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(clips[1].video_fade_in, 1.0, "falls back to the dissolve");
-        assert!(
-            keys_on(&clips[1], "offsetX").is_empty(),
-            "nothing half-applied"
-        );
-        assert_eq!(
-            keys_on(&clips[0], "offsetX").len(),
-            1,
-            "the user's key is untouched"
-        );
-    }
-
-    #[test]
-    fn a_zoom_scales_both_under_a_dissolve() {
-        let mut clips = cut_with_handles();
-        clips[1].transition = spec("zoom", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(clips[1].video_fade_in, 1.0);
-        assert_eq!(
-            keys_on(&clips[1], "scale"),
-            vec![(0.0, 1.25), (1.0 / 4.5, 1.0)]
-        );
-        assert_eq!(
-            keys_on(&clips[0], "scale"),
-            vec![(1.0 - 1.0 / 4.5, 1.0), (1.0, 1.4)]
-        );
-    }
-
-    #[test]
-    fn a_wipe_is_an_edge_the_plan_draws_until_the_overlap_ends() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 4.0, 0.0),
-            clip("video", 0, 4.0, 4.0, 2.0),
-        ];
-        clips[1].transition = spec("wipe-right", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        let b = &clips[1];
-        assert_eq!((b.start, b.duration), (3.75, 4.25));
-        assert_eq!(b.video_fade_in, 0.0, "the edge does the revealing");
-        assert_eq!(
-            b.transition_shapes,
-            vec![TransitionShape::Wipe {
-                from_right: false,
-                frames: 15
-            }]
-        );
-        assert!(
-            clips[0].transition_shapes.is_empty(),
-            "the outgoing picture is untouched"
-        );
-        // The edge stands at (n + 1) / 15 of the width, as the mask filter
-        // it replaced did, and is gone once the overlap is over.
-        let at = |frame| transitions_at(&clips[1].transition_shapes, frame);
-        assert_eq!(
-            at(0),
-            vec![Transition::Wipe {
-                uncovered: 1.0 / 15.0,
-                from_right: false
-            }]
-        );
-        assert_eq!(
-            at(14),
-            vec![Transition::Wipe {
-                uncovered: 1.0,
-                from_right: false
-            }]
-        );
-        assert!(at(15).is_empty());
-
-        // The other direction uncovers from the right edge.
-        let mut clips = vec![
-            clip("video", 0, 0.0, 4.0, 0.0),
-            clip("video", 0, 4.0, 4.0, 2.0),
-        ];
-        clips[1].transition = spec("wipe-left", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(
-            clips[1].transition_shapes,
-            vec![TransitionShape::Wipe {
-                from_right: true,
-                frames: 15
-            }]
-        );
-    }
-
-    #[test]
-    fn a_fade_to_black_splits_across_the_cut() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 4.0, 0.0),
-            clip("video", 0, 4.0, 4.0, 0.0),
-        ];
-        clips[1].transition = spec("fade-black", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        // Half a second each side at 30fps is 15 frames.
-        let black = [0.0; 3];
-        assert_eq!(
-            clips[0].transition_shapes,
-            vec![TransitionShape::FadeOut {
-                colour: black,
-                start: 105,
-                frames: 15
-            }]
-        );
-        assert_eq!(
-            clips[1].transition_shapes,
-            vec![TransitionShape::FadeIn {
-                colour: black,
-                frames: 15
-            }]
-        );
-        assert_eq!(clips[1].start, 4.0, "nothing moves for an edge fade");
-
-        // Weighed as FFmpeg's fade did: the picture whole at the fade's
-        // first frame out, the colour whole at the first frame in.
-        let fade = |shapes: &[TransitionShape], frame| match transitions_at(shapes, frame)[..] {
-            [Transition::FadeTo { amount, .. }] => Some(amount),
-            _ => None,
-        };
-        assert_eq!(fade(&clips[0].transition_shapes, 104), None);
-        assert_eq!(fade(&clips[0].transition_shapes, 105), Some(0.0));
-        assert_eq!(fade(&clips[0].transition_shapes, 119), Some(14.0 / 15.0));
-        assert_eq!(fade(&clips[1].transition_shapes, 0), Some(1.0));
-        let last = fade(&clips[1].transition_shapes, 14).expect("still fading");
-        assert!((last - 1.0 / 15.0).abs() < 1e-6, "was {last}");
-        assert_eq!(fade(&clips[1].transition_shapes, 15), None);
-    }
-
-    #[test]
-    fn a_fade_to_white_names_its_colour() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 2.0, 0.0),
-            clip("video", 0, 2.0, 2.0, 0.0),
-        ];
-        clips[1].transition = spec("fade-white", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert!(matches!(
-            clips[0].transition_shapes[..],
-            [TransitionShape::FadeOut {
-                colour: [1.0, 1.0, 1.0],
-                ..
-            }]
-        ));
-        assert!(matches!(
-            clips[1].transition_shapes[..],
-            [TransitionShape::FadeIn {
-                colour: [1.0, 1.0, 1.0],
-                ..
-            }]
-        ));
-    }
-
-    #[test]
-    fn transition_fades_leave_the_clips_own_effects_alone() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 2.0, 0.0),
-            clip("video", 0, 2.0, 2.0, 0.0),
-        ];
-        clips[1].effects = vec![AppliedFilter::new("concat.mono")];
-        clips[1].transition = spec("fade-black", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        // The fade is the plan's, drawn over the treated picture; the
-        // clip's effects are as they were.
-        assert_eq!(clips[1].effects, vec![AppliedFilter::new("concat.mono")]);
-        assert_eq!(clips[1].transition_shapes.len(), 1);
-    }
-
     /// The crop and flips are the frame plan's, drawn before the clip's
     /// effects run over the picture; a clip with neither plans none.
     #[test]
@@ -4194,192 +4993,238 @@ mod tests {
         assert_eq!(resolve::planned_geometry(&untouched), None);
     }
 
-    #[test]
-    fn a_transition_with_no_adjacent_clip_is_orphaned_not_fatal() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 2.0, 0.0),
-            clip("video", 0, 5.0, 2.0, 0.0),
-        ];
-        clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(clips[1].start, 5.0);
-        assert_eq!(clips[1].video_fade_in, 0.0);
-    }
-
-    #[test]
-    fn track_indices_are_doubled_for_everyone() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 2.0, 0.0),
-            clip("audio", 3, 0.0, 2.0, 0.0),
-        ];
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(clips[0].track, 0);
-        assert_eq!(clips[1].track, 6);
-    }
-
-    /// No lane holds two pictures at one instant. Where two would, the
-    /// engine draws only the one placed last (`clip_on_track_at`) and the
-    /// other vanishes.
-    fn assert_one_picture_per_lane(clips: &[ExportClip], case: &str) {
-        for (n, one) in clips.iter().enumerate() {
-            for other in &clips[n + 1..] {
-                if one.track != other.track || !one.kind.is_visual() || !other.kind.is_visual() {
-                    continue;
-                }
-                let shared = (one.start + one.duration).min(other.start + other.duration)
-                    - one.start.max(other.start);
-                assert!(
-                    shared < 1e-9,
-                    "{case}: lane {} holds two pictures at once for {shared} s",
-                    one.track
-                );
-            }
-        }
-    }
-
-    /// Two transitions in a row with a logo on the track above. The clip
-    /// after the second cut was lifted one lane above a clip already lifted
-    /// for the first, which is the logo's own lane, and one of the two
-    /// vanished for the whole clip. Every clip of a chain now sits above the
-    /// one it crosses from and beneath the track above.
-    #[test]
-    fn a_chain_of_transitions_stays_beneath_the_track_above() {
-        for (first, second) in [
-            ("concat.dissolve", "concat.whip-pan"),
-            ("cross-fade", "cross-fade"),
-            ("concat.zoom-blur-transition", "push"),
-            ("wipe-left", "concat.dissolve"),
-        ] {
-            let case = format!("{first} then {second}");
-            let mut clips = vec![
-                clip("video", 0, 0.0, 4.0, 0.0),
-                clip("video", 0, 4.0, 4.0, 2.0),
-                clip("video", 0, 8.0, 4.0, 2.0),
-                clip("image", 1, 0.0, 12.0, 0.0),
-            ];
-            for footage in &mut clips[..3] {
-                footage.media_duration = Some(10.0);
-            }
-            clips[1].transition = spec(first, 1.0);
-            clips[2].transition = spec(second, 1.0);
-            let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-            let [a, b, c, logo] = [0, 1, 2, 3].map(|n| clips[n].track);
-            assert!(
-                a < b && b < c,
-                "{case}: each clip sits above the one it crosses from: {a} {b} {c}"
-            );
-            assert!(
-                c < logo,
-                "{case}: the chain stays beneath the logo: {c} {logo}"
-            );
-            assert_one_picture_per_lane(&clips, &case);
-            for span in &spans {
-                assert!(span.to_track < logo, "{case}: a span on the logo's lane");
-            }
-        }
-    }
-
-    /// The cuts of a chain are resolved in time order, whatever order the
-    /// clips are listed in. In list order, a third clip listed before the
-    /// second was lifted before the second was, onto the lane the second
-    /// then took.
-    #[test]
-    fn a_chain_resolves_the_same_whatever_order_its_clips_are_listed_in() {
-        let chain = || {
-            let mut clips = vec![
-                clip("video", 0, 0.0, 4.0, 0.0),
-                clip("video", 0, 4.0, 4.0, 2.0),
-                clip("video", 0, 8.0, 4.0, 2.0),
-            ];
-            for footage in &mut clips {
-                footage.media_duration = Some(10.0);
-            }
-            clips[1].transition = spec("concat.dissolve", 1.0);
-            clips[2].transition = spec("concat.dissolve", 1.0);
-            clips
-        };
-        let mut listed = chain();
-        resolve_transitions(&mut listed, FrameRate::THIRTY);
-        let mut backwards = chain();
-        backwards.reverse();
-        resolve_transitions(&mut backwards, FrameRate::THIRTY);
-        assert_one_picture_per_lane(&backwards, "listed backwards");
-        backwards.reverse();
-        for (one, other) in listed.iter().zip(&backwards) {
-            assert_eq!(
-                (one.start, one.duration, one.track),
-                (other.start, other.duration, other.track)
-            );
-        }
-    }
-
-    /// A long chain climbs a lane for every cut, and the tracks above are
-    /// spread far enough apart to make room for it, in the order they were.
-    #[test]
-    fn the_lanes_spread_as_far_as_the_longest_chain_needs() {
-        let mut clips: Vec<ExportClip> = (0..6)
-            .map(|n| {
-                let mut footage = clip("video", 0, 4.0 * n as f64, 4.0, 2.0);
-                footage.media_duration = Some(10.0);
-                if n > 0 {
-                    footage.transition = spec("concat.dissolve", 1.0);
-                }
-                footage
-            })
-            .collect();
-        clips.push(clip("image", 1, 0.0, 24.0, 0.0));
-        clips.push(clip("image", 2, 0.0, 24.0, 0.0));
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-
-        let chain: Vec<usize> = clips[..6].iter().map(|footage| footage.track).collect();
-        assert!(chain.windows(2).all(|pair| pair[0] < pair[1]), "{chain:?}");
-        let (logo, title) = (clips[6].track, clips[7].track);
-        assert!(chain[5] < logo && logo < title, "{chain:?} {logo} {title}");
-        assert_one_picture_per_lane(&clips, "six clips, five cuts");
-    }
-
-    /// Transitions that never follow one another keep the lanes every
-    /// project has had: doubled, each incoming clip on the odd lane above.
-    #[test]
-    fn single_transitions_keep_the_doubled_lanes() {
-        let mut clips = cut_with_handles();
-        clips[1].transition = spec("concat.dissolve", 1.0);
-        clips.push(clip("image", 1, 0.0, 8.0, 0.0));
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!([clips[0].track, clips[1].track, clips[2].track], [0, 1, 2]);
-    }
-
-    #[test]
-    fn an_unknown_transition_kind_renders_as_a_plain_cut() {
-        let mut clips = vec![
-            clip("video", 0, 0.0, 2.0, 0.0),
-            clip("video", 0, 2.0, 2.0, 0.0),
-        ];
-        // A kind no build knows - the wipes are known now.
-        clips[1].transition = spec("spiral", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY);
-        assert_eq!(clips[1].start, 2.0);
-        assert!(clips[1].transition_shapes.is_empty());
-    }
-
-    /// The exported frame count is the timeline's own, not the f64 seconds'
-    /// rounded whole. A clip's start and its duration are each rounded to the
-    /// frame grid on the way into the timeline, and the sum rounded once
-    /// disagrees a frame either side: half a frame under half a frame lost the
-    /// last frame of the last clip - the engine drew to frame 301, the export
-    /// stopped at 300 - and a pair that rounds down at both ends gained a
-    /// black frame after everything ended.
+    /// The exported frame count is the timeline's own: the last clip's end,
+    /// rounded to the frame grid the way the timeline rounds it. A clip
+    /// starting half a frame in and running a further 296 and a half ends
+    /// on frame 300, and so does one whose ends both round the other way;
+    /// rounding the start and the length apart had them end on 301 and 299.
     #[test]
     fn the_exported_frame_count_is_the_timelines_own() {
-        let half = vec![clip("video", 0, 3.5 / 30.0, 296.5 / 30.0, 0.0)];
-        let (end, frames) = timeline_extent(&half, FrameRate::THIRTY, 0.0);
-        assert_eq!(end, Rational::new(301, 30));
-        assert_eq!(frames, 301, "the last frame of the last clip is drawn");
+        for (label, start, length) in [("half", 3.5, 296.5), ("down", 3.4, 296.4)] {
+            let clips = vec![clip("video", 0, start / 30.0, length / 30.0, 0.0)];
+            let (end, frames) = timeline_extent(&clips, FrameRate::THIRTY, 0.0);
+            assert_eq!(end, Rational::new(300, 30), "{label}");
+            assert_eq!(frames, 300, "{label}");
+            let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+            assert_eq!(
+                plan.built.timeline.duration(),
+                end,
+                "{label}: the timeline's own end"
+            );
+        }
+    }
 
-        let down = vec![clip("video", 0, 3.4 / 30.0, 296.4 / 30.0, 0.0)];
-        let (end, frames) = timeline_extent(&down, FrameRate::THIRTY, 0.0);
-        assert_eq!(end, Rational::new(299, 30));
-        assert_eq!(frames, 299, "no black frame past the end");
+    /// Two clips that touch touch on the frame grid, wherever between
+    /// frames they meet: no frame between them is left black (#756), and
+    /// none is drawn by both.
+    #[test]
+    fn touching_clips_touch_on_the_frame_grid() {
+        let rate = FrameRate::THIRTY;
+        // Starts and cuts at every tenth of a frame, each rounding its own
+        // way.
+        for start in 0..10 {
+            for cut in 0..10 {
+                let start = (3.0 + f64::from(start) / 10.0) / 30.0;
+                let at = start + (30.0 + f64::from(cut) / 10.0) / 30.0;
+                let clips = [
+                    clip("video", 0, start, at - start, 0.0),
+                    clip("video", 0, at, 1.0, 0.0),
+                ];
+                let plan =
+                    preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+                let timeline = &plan.built.timeline;
+                let first = (start * 30.0).round() as i64;
+                for index in first..timeline.frame_count() {
+                    let layers = plan_frame(timeline, rate.time_of_frame(index)).layers.len();
+                    assert_eq!(
+                        layers, 1,
+                        "start {start}, cut {at}: frame {index} has {layers} pictures"
+                    );
+                }
+            }
+        }
+    }
+
+    /// How fast a plain export runs, and where its time goes: ten seconds
+    /// of 1080p30 footage that moves, under a sound, written as the export
+    /// sheet writes H.264. Ignored: it takes as long as an export does.
+    /// `cargo test -p concat-export --release -- --ignored --nocapture
+    /// export_speed`. `CONCAT_SPEED_FOOTAGE` names a file to export in
+    /// place of the made-up footage, `CONCAT_SPEED_SIZE` the frame
+    /// ("3840x2160"), and `CONCAT_SPEED_CODEC` the codec by its name.
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn export_speed() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        struct Said;
+        impl log::Log for Said {
+            fn enabled(&self, metadata: &log::Metadata) -> bool {
+                metadata.level() <= log::Level::Info
+            }
+            fn log(&self, record: &log::Record) {
+                if record.target().starts_with("concat") {
+                    eprintln!("{}", record.args());
+                }
+            }
+            fn flush(&self) {}
+        }
+        let _ = log::set_logger(&Said);
+        log::set_max_level(log::LevelFilter::Info);
+
+        let (width, height, frames) = (1920_u32, 1080_u32, 300_u32);
+        let dir = std::env::temp_dir().join("concat-export-speed");
+        let _ = std::fs::create_dir_all(&dir);
+        let footage_path = dir.join("footage.mp4");
+        if !footage_path.is_file() {
+            let mut encoder = Encoder::create(
+                &footage_path,
+                width,
+                height,
+                FrameRate::THIRTY,
+                &EncodeOptions::default(),
+            )
+            .expect("an encoder");
+            let mut frame = Frame::black(width, height);
+            for index in 0..frames {
+                // A gradient sliding across, and squares crossing it: motion
+                // an encoder has to work for, but not noise.
+                for (y, row) in frame
+                    .pixels_mut()
+                    .chunks_exact_mut(width as usize * 4)
+                    .enumerate()
+                {
+                    for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                        let (x, y, t) = (x as u32, y as u32, index * 7);
+                        let square = ((x + t) / 120 + (y + t / 2) / 120) % 2 == 0;
+                        pixel.copy_from_slice(&[
+                            ((x + t) % 256) as u8,
+                            ((y + t / 3) % 256) as u8,
+                            if square { 220 } else { 40 },
+                            255,
+                        ]);
+                    }
+                }
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+        }
+        let sound_path = dir.join("sound.wav");
+        if !sound_path.is_file() {
+            let rate = 48_000_u32;
+            let samples: Vec<i16> = (0..rate * 10 * 2)
+                .map(|n| {
+                    let t = f64::from(n / 2) / f64::from(rate);
+                    ((t * 440.0 * std::f64::consts::TAU).sin() * 8000.0) as i16
+                })
+                .collect();
+            let bytes = samples.len() as u32 * 2;
+            let mut wav = Vec::new();
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&(36 + bytes).to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            for field in [16_u32, 1 | (2 << 16), rate, rate * 4, 4 | (16 << 16)] {
+                wav.extend_from_slice(&field.to_le_bytes());
+            }
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&bytes.to_le_bytes());
+            for sample in samples {
+                wav.extend_from_slice(&sample.to_le_bytes());
+            }
+            std::fs::write(&sound_path, wav).expect("writes the sound");
+        }
+
+        let footage_path =
+            std::env::var_os("CONCAT_SPEED_FOOTAGE").map_or(footage_path, std::path::PathBuf::from);
+        let footage = concat_media::probe(&footage_path).expect("footage to read");
+        let stream = footage.require_video().expect("a picture");
+        let (width, height) = std::env::var("CONCAT_SPEED_SIZE")
+            .ok()
+            .and_then(|size| {
+                let (width, height) = size.split_once('x')?;
+                Some((width.parse().ok()?, height.parse().ok()?))
+            })
+            .unwrap_or((width, height));
+        let codec = std::env::var("CONCAT_SPEED_CODEC")
+            .ok()
+            .and_then(|name| VideoCodec::parse(&name))
+            .unwrap_or(VideoCodec::H264);
+        // `CONCAT_SPEED_CUTS` cuts the ten seconds into that many clips,
+        // each from another place in the footage, so every cut is a seek;
+        // `CONCAT_SPEED_LAYERS` stacks that many copies, each smaller and
+        // off to the side, so none hides the one under it.
+        let count = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .and_then(|count| count.parse::<usize>().ok())
+                .unwrap_or(1)
+                .max(1)
+        };
+        let (cuts, stacked) = (count("CONCAT_SPEED_CUTS"), count("CONCAT_SPEED_LAYERS"));
+        let length = footage
+            .duration
+            .map_or(10.0, |duration| duration.as_f64())
+            .max(1.0);
+        let piece = 10.0 / cuts as f64;
+        let mut pictures = Vec::new();
+        for layer in 0..stacked {
+            for cut in 0..cuts {
+                // A stride through the file that never runs on from the
+                // last clip's out-point.
+                let from = ((cut * 7 + layer * 3) % cuts) as f64 * (length - piece).max(0.0)
+                    / cuts.max(2) as f64;
+                let mut picture = clip("video", layer + 1, cut as f64 * piece, piece, from);
+                picture.path = footage_path.to_string_lossy().into_owned();
+                picture.media_width = Some(stream.width);
+                picture.media_height = Some(stream.height);
+                picture.media_duration = Some(length);
+                picture.has_audio = Some(false);
+                if layer > 0 {
+                    picture.scale = 0.9_f64.powi(layer as i32);
+                    picture.offset_x = 0.05 * layer as f64;
+                }
+                pictures.push(picture);
+            }
+        }
+        let mut sound = clip("audio", 0, 0.0, 10.0, 0.0);
+        sound.path = sound_path.to_string_lossy().into_owned();
+        sound.media_duration = Some(10.0);
+        sound.has_audio = Some(true);
+        let request = ExportRequest {
+            canvas: [0, 0, 0, 255],
+            output: dir.join("out.mp4").to_string_lossy().into_owned(),
+            width,
+            height,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 23,
+            preset: "veryfast".into(),
+            codec,
+            ten_bit: false,
+            rate_mode: RateMode::Average,
+            bitrate_kbps: 16_000 * (width * height / (1920 * 1080)).max(1),
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            clips: pictures.into_iter().chain([sound]).collect(),
+        };
+        let cancel = AtomicBool::new(false);
+        let mut progress = |_: i64, _: i64, _: &'static str| {};
+        let begun = std::time::Instant::now();
+        let written = render(
+            &request,
+            Reporter {
+                progress: &mut progress,
+                cancel: &cancel,
+            },
+        )
+        .expect("exports");
+        eprintln!(
+            "the whole export: {:.2} s, {} bytes",
+            begun.elapsed().as_secs_f64(),
+            std::fs::metadata(&written).map_or(0, |meta| meta.len())
+        );
     }
 }
