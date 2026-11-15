@@ -792,16 +792,26 @@ impl ReaderPool {
     /// playhead left long ago is memory spent on nothing. A reader closed
     /// here is opened again on the next frame wanted from it, at the cost
     /// of one seek. Returns how many went.
+    ///
+    /// The readers are closed after the pool's lock is let go: closing a
+    /// phone's hardware decoder waits on the codec's own thread, a good
+    /// part of a second on a slow one, and every frame asked of the pool
+    /// meanwhile would have waited with it.
     pub fn close_idle(&self, idle: std::time::Duration) -> usize {
-        let Ok(mut readers) = self.readers.lock() else {
-            return 0;
+        let closing: Vec<Warm> = {
+            let Ok(mut readers) = self.readers.lock() else {
+                return 0;
+            };
+            let now = std::time::Instant::now();
+            let (keep, closing): (Vec<Warm>, Vec<Warm>) = std::mem::take(&mut readers.warm)
+                .into_iter()
+                .partition(|warm| {
+                    Arc::strong_count(&warm.reader) > 1 || now.duration_since(warm.touched) < idle
+                });
+            readers.warm = keep;
+            closing
         };
-        let now = std::time::Instant::now();
-        let before = readers.warm.len();
-        readers.warm.retain(|warm| {
-            Arc::strong_count(&warm.reader) > 1 || now.duration_since(warm.touched) < idle
-        });
-        before - readers.warm.len()
+        closing.len()
     }
 
     /// Makes `frame` the still at `path`, a name no file has, until

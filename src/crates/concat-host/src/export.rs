@@ -64,15 +64,33 @@ pub struct Progress {
 
 /// The session flattened into a request the engine can render.
 pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) -> ExportRequest {
-    let settings = session.settings();
-    let mut clips = session.flattened_clips();
+    request_for(
+        session.project(),
+        std::path::Path::new(session.path()),
+        spec,
+        titles,
+    )
+}
+
+/// [`request`] from a copy of the edit and its folder rather than the
+/// session, for a thread of the export's own: the window hands over a
+/// snapshot and goes on answering while the flattening is done. The
+/// active timeline's frame and rate, as the session's settings are.
+pub fn request_for(
+    project: &concat_project::model::Project,
+    project_dir: &std::path::Path,
+    spec: &ExportSpec,
+    titles: Vec<ExportClip>,
+) -> ExportRequest {
+    let video = project.active().video;
+    let mut clips = concat_export::flatten::flatten_timeline_in(project, None, Some(project_dir));
     clips.extend(titles);
     ExportRequest {
         output: spec.output.clone(),
-        width: settings.width,
-        height: settings.height,
-        rate_num: settings.rate_num,
-        rate_den: settings.rate_den,
+        width: video.width,
+        height: video.height,
+        rate_num: video.rate_num,
+        rate_den: video.rate_den,
         crf: spec.crf,
         preset: spec.preset.clone(),
         codec: spec.codec,
@@ -80,10 +98,10 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         rate_mode: spec.rate_mode,
         bitrate_kbps: spec.bitrate_kbps,
         color_range: spec.color_range,
-        color_space: session.video().color_space,
+        color_space: video.color_space,
         hdr: spec.hdr,
         effect_time_offset: 0.0,
-        canvas: session.video().canvas,
+        canvas: video.canvas,
         clips,
     }
 }

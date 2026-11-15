@@ -19,6 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use concat_core::frame::Frame;
@@ -227,7 +228,24 @@ impl Titles {
     /// each, for a `width` × `height` frame. One that fails to paint is left
     /// out and said once on stderr; the rest of the edit still renders.
     pub fn clips(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
-        self.clips_with(project, width, height, false, true).0
+        self.clips_with(project, width, height, false, true, None)
+            .unwrap_or_default()
+            .0
+    }
+
+    /// [`Titles::clips`] for a job that can be stopped while its titles
+    /// paint - an export: hundreds of captions are seconds of painting on a
+    /// phone. None once `cancel` is set, the paintings finished so far kept
+    /// for the next time they are asked for.
+    pub fn clips_unless(
+        &self,
+        project: &Project,
+        width: u32,
+        height: u32,
+        cancel: &AtomicBool,
+    ) -> Option<Vec<TitleClip>> {
+        self.clips_with(project, width, height, false, true, Some(cancel))
+            .map(|(clips, _)| clips)
     }
 
     /// [`Titles::clips`] without painting: the titles painted already, and
@@ -236,7 +254,8 @@ impl Titles {
     /// and paints what is missing on a thread of its own, drawing what is
     /// there meanwhile.
     pub fn ready(&self, project: &Project, width: u32, height: u32) -> (Vec<TitleClip>, bool) {
-        self.clips_with(project, width, height, false, false)
+        self.clips_with(project, width, height, false, false, None)
+            .unwrap_or_default()
     }
 
     /// [`Titles::clips`] for a monitor showing a change as it is made:
@@ -246,11 +265,14 @@ impl Titles {
     /// touches the disk, which is what makes a drag smooth: a PNG per
     /// pointer step, encoded, written and decoded again, was the lag.
     pub fn clips_live(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
-        self.clips_with(project, width, height, true, true).0
+        self.clips_with(project, width, height, true, true, None)
+            .unwrap_or_default()
+            .0
     }
 
     /// The titles as image clips, and whether every one is there: `paint`
-    /// paints those that are not, and without it they are left out.
+    /// paints those that are not, and without it they are left out. None
+    /// once `cancel` is set.
     fn clips_with(
         &self,
         project: &Project,
@@ -258,14 +280,19 @@ impl Titles {
         height: u32,
         live: bool,
         paint: bool,
-    ) -> (Vec<TitleClip>, bool) {
+        cancel: Option<&AtomicBool>,
+    ) -> Option<(Vec<TitleClip>, bool)> {
+        let stopped = || cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed));
         if live {
             self.live.lock().unwrap_or_else(|e| e.into_inner()).begin();
         }
         let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
         let keys = keys_of(project, width, height, (&plain_text, &plain_shape));
         if paint {
-            self.paint_ahead(project, width, height, live, &keys);
+            self.paint_ahead(project, width, height, live, &keys, &stopped);
+        }
+        if stopped() {
+            return None;
         }
         let timeline = project.active();
         let mut out = Vec::new();
@@ -274,6 +301,9 @@ impl Titles {
             let Some((key, painting)) = key else {
                 continue;
             };
+            if stopped() {
+                return None;
+            }
             if !paint && !live && self.kept_painting(key, width, height).is_none() {
                 complete = false;
                 continue;
@@ -376,7 +406,7 @@ impl Titles {
                 frame,
             });
         }
-        (out, complete)
+        Some((out, complete))
     }
 
     /// One style at one size, painted in memory: the name the monitor is
@@ -545,8 +575,8 @@ impl Titles {
     /// seconds of a window that did not answer.
     ///
     /// The faces are shared by every thread: they are loaded first, with
-    /// the project's own, and only read while the titles paint.
-    ///
+    /// the project's own, and only read while the titles paint. Each
+    /// thread stops at its next title once `stopped` says so.
     fn paint_ahead(
         &self,
         project: &Project,
@@ -554,6 +584,7 @@ impl Titles {
         height: u32,
         live: bool,
         keys: &[Option<(u64, Painting<'_>)>],
+        stopped: &(dyn Fn() -> bool + Sync),
     ) {
         let mut seen = HashSet::new();
         let todo: Vec<(u64, Painting<'_>)> = keys
@@ -591,6 +622,9 @@ impl Titles {
             for _ in 0..threads {
                 scope.spawn(|| {
                     loop {
+                        if stopped() {
+                            return;
+                        }
                         let at = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&(key, painting)) = todo.get(at) else {
                             return;
@@ -1092,6 +1126,46 @@ mod tests {
         let (all, complete) = titles.ready(editor.project(), 640, 360);
         assert_eq!(all.len(), 3);
         assert!(complete);
+        let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
+    }
+
+    /// An export stopped while its titles paint gets nothing back, and
+    /// paints nothing more; one that goes on gets every title, at the size
+    /// it asked for.
+    #[test]
+    fn a_stopped_export_paints_no_titles() {
+        let dirs = scratch("stopped_paint");
+        let mut editor = Editor::new();
+        for start in [0.0, 2.0, 4.0] {
+            editor
+                .apply(Command::AddTextClip {
+                    above: true,
+                    track_id: None,
+                    start,
+                    style: None,
+                    duration: Some(1.5),
+                    offset_y: None,
+                })
+                .expect("a title is added");
+        }
+        let titles = Titles::new(&dirs);
+        let stop = AtomicBool::new(true);
+        assert!(
+            titles
+                .clips_unless(editor.project(), 1280, 720, &stop)
+                .is_none()
+        );
+        let (none, _) = titles.ready(editor.project(), 1280, 720);
+        assert!(none.is_empty(), "nothing was painted once it was stopped");
+        stop.store(false, Ordering::Relaxed);
+        let all = titles
+            .clips_unless(editor.project(), 1280, 720, &stop)
+            .expect("not stopped");
+        assert_eq!(all.len(), 3);
+        assert!(
+            all.iter().all(|title| title.clip.media_width == Some(1280)
+                && title.clip.media_height == Some(720))
+        );
         let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 

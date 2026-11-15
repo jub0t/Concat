@@ -276,6 +276,7 @@
   "export.output": "Output",
   "export.photosNotAllowed": "Concat may not add to Photos; allow it under Settings, Concat, Photos",
   "export.playsEverywhere": "Plays everywhere",
+  "export.preparing": "Preparing…",
   "export.renderingInSoftware": "Rendering again on the slower encoder",
   "export.renderingVideo": "Rendering video",
   "export.replace": "Replace",

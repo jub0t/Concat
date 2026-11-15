@@ -501,6 +501,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         |studio, _, _, families| studio.system_fonts_known(families),
     );
 
+    // Which codecs can be written here, and which by the chip: a phone
+    // finds out only by opening its encoders, two seconds or so on some,
+    // and the export sheet asked on the window's first publish, before
+    // the window answered a touch. Asked on a worker; the sheet offers
+    // what needs no asking meanwhile (H.264, and a desktop's software
+    // encoders), and the publish after this lands brings the rest.
+    host::spawn(concat_media::encode::probe_encoders, |_, _, _, ()| {});
+
     // Handed over once, here, and never replaced: a fresh model is a reset,
     // and a reset rebuilds every row that hangs off it.
     {
