@@ -3062,8 +3062,46 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     let mark = dirs.data.join("startup");
     let mut preferences = prefs::Preferences::load(&dirs);
     let died = concat_host::jobs::Tripwire::tripped(&mark);
-    if preferences.settle_start(died, &concat_host::machine::build()) {
+    let changed = preferences.settle_start(died, &concat_host::machine::build());
+    if changed {
         preferences.save(&dirs);
+    }
+    // Who asked for software, said once: the window's and the compositor's
+    // own lines only say that it is so. A person on a fast GPU drawing on
+    // the CPU, and nothing in the log saying why, could not be told apart
+    // from a driver that would not open.
+    // On Android "software" is OpenGL ES in place of Vulkan, not the CPU.
+    let how = if cfg!(target_os = "android") {
+        "drawing on OpenGL ES in place of Vulkan"
+    } else {
+        "drawing in software"
+    };
+    match std::env::var("CONCAT_GPU") {
+        // Set before Concat started: it wins over the setting either way.
+        Ok(value) if value.trim().eq_ignore_ascii_case("software") => {
+            log::info!("start: {how} · CONCAT_GPU=software was set in the environment");
+        }
+        Ok(value) => {
+            if preferences.draws_in_software() {
+                log::info!(
+                    "start: CONCAT_GPU={} set in the environment wins over the setting that would draw in software",
+                    value.trim()
+                );
+            }
+        }
+        // The setting does not record who turned it off: the switch in
+        // Settings, `--software`, or Concat 0.2.8, which turned it off for
+        // good after any start that failed. So the line says all three.
+        Err(_) if preferences.software_gpu => {
+            log::info!(
+                "start: {how} · the setting that draws on the GPU is off (turned off in Settings, by --software, or by Concat 0.2.8 after a start that failed)"
+            );
+        }
+        // The launch that set it has said so in `settle_start` already.
+        Err(_) if preferences.software_after_crash.is_some() && !changed => {
+            log::warn!("start: {how} · the last launch of this build closed while starting");
+        }
+        Err(_) => {}
     }
     if preferences.draws_in_software() && std::env::var_os("CONCAT_GPU").is_none() {
         // SAFETY: on a desk the process is single-threaded here, as for the

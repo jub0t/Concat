@@ -457,7 +457,7 @@ pub fn select_backend(
     let software = asked || gpu.as_ref().is_some_and(Gpu::is_software);
     if asked {
         log::warn!(
-            "gpu: the window draws on the CPU, as CONCAT_GPU=software asks, and the monitor on a Metal device of its own"
+            "gpu: the window draws on the CPU, as asked at start, and the monitor on a Metal device of its own"
         );
     } else if software {
         log::warn!(

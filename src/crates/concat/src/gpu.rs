@@ -85,9 +85,7 @@ impl Gpu {
         let software = std::env::var("CONCAT_GPU")
             .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
         if software {
-            log::warn!(
-                "gpu: the software rasteriser draws the window, as CONCAT_GPU=software asks, in place of the GPU"
-            );
+            log::warn!("gpu: the software rasteriser draws the window in place of the GPU");
         }
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
