@@ -189,6 +189,24 @@ jobs:
           echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
           echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
 
+      # Compiling the engine with line tables (below) in one codegen unit
+      # needs more memory at its peak than the runner has: without room the
+      # runner itself is killed mid-build ("received a shutdown signal",
+      # exit 143, from f22453d8 on). A swap file on the larger disk gives
+      # the peak room without changing anything that is built.
+      - name: Room for the build's peak memory
+        run: |
+          set -euo pipefail
+          avail_kb() { df --output=avail -k "$1" | tail -1; }
+          dir=/
+          if [ -d /mnt ] && [ "$(avail_kb /mnt)" -gt $((24 * 1024 * 1024)) ]; then dir=/mnt; fi
+          sudo fallocate -l 12G "$dir/build.swap"
+          sudo chmod 600 "$dir/build.swap"
+          sudo mkswap "$dir/build.swap" >/dev/null
+          sudo swapon "$dir/build.swap"
+          free -h
+          df -h / "$dir"
+
       # The build environment first, then the build under it. Compiled
       # with line tables, which the APK does not carry: cargo-apk strips
       # them as it packages (`strip` in concat-android's manifest), and the
