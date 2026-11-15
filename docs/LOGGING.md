@@ -86,6 +86,33 @@ Things worth knowing:
 - A crash in a driver or a library leaves one `FATAL` line naming the library
   and the place in it.
 
+### Reading a phone's hang
+
+When Android closes Concat as not responding (an ANR), the next launch on
+Android 11 and later writes two `last run` warnings: what the system said,
+and under it `the threads of ... when the system gave up on it`, the system's
+own dump of the Java main thread and of every thread standing in Concat's
+library, up to 40 frames each. The window's thread is `android_main`, listed
+first after the main thread. Frames in Concat look like this:
+
+```text
+#06 pc 000000000b739820  libconcat_android.so (BuildId: e21abbfd2b1e...)
+```
+
+The library on the phone is stripped, so the offset after `pc` is all a frame
+says. Every phone build in CI keeps the library before stripping as the
+artifact `symbols-concat-<version>-aarch64-linux-android` of its "Build for
+phones" run, for 90 days. Download the one for the version in the log's
+`build` line, then:
+
+```sh
+scripts/symbolize-android.sh libconcat_android-0.2.12-aarch64-linux-android.so concat-20261115-101500.log
+```
+
+It names each Concat frame's function, file and line, inlined calls included,
+and refuses a library whose BuildId is not the trace's. Tombstones and
+`adb logcat` crash dumps read the same way.
+
 ## Writing a line
 
 The log goes through the `log` crate everywhere: `log::info!("export: started")`.

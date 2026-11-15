@@ -189,9 +189,16 @@ jobs:
           echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
           echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
 
-      # The build environment first, then the build under it.
+      # The build environment first, then the build under it. Compiled
+      # with line tables, which the APK does not carry: cargo-apk strips
+      # them as it packages (`strip` in concat-android's manifest), and the
+      # library as the linker made it is kept as an artifact below, so a
+      # phone's hang or crash, which names frames in it only as offsets,
+      # can be read back to the line (scripts/symbolize-android.sh).
       - name: Build the APK
         working-directory: src
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
@@ -244,6 +251,51 @@ jobs:
             --ks-key-alias "$alias" --key-pass env:KEY_PASSWORD "$apk" < /dev/null
           rm -f "$keystore"
           "$tools/apksigner" verify --print-certs "$apk"
+
+      # The engine's library as the linker made it, with its line tables:
+      # what a trace's offsets are looked up in, by the BuildId the trace
+      # names, which the APK's stripped copy shares. The APK's own copy is
+      # checked for having no debug sections, so the tables never make the
+      # download larger. Not "Concat-*", so a release never publishes it.
+      - name: Keep the engine's symbols
+        if: matrix.ship
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          eval "$(src/scripts/mobile-env.sh "$TARGET")"
+          readelf=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' | head -1)
+          built=src/target/$TARGET/release/libconcat_android.so
+          packed=$(find src/target/release/apk -path '*/lib/*/libconcat_android.so' | head -1)
+          if "$readelf" -S --wide "$packed" | grep -q '\.debug_'; then
+            echo "::error::the APK's libconcat_android.so carries debug sections; it would ship larger"
+            exit 1
+          fi
+          if ! "$readelf" -S --wide "$built" | grep -q '\.debug_line'; then
+            echo "::error::the engine was built without line tables; its symbols would name no lines"
+            exit 1
+          fi
+          id_of() { "$readelf" -n "$1" | sed -n 's/.*Build ID: *\([0-9a-fA-F]*\).*/\1/p' | head -1; }
+          if [ -z "$(id_of "$built")" ]; then
+            echo "::error::the engine has no build ID; no trace could be matched to its symbols"
+            exit 1
+          fi
+          if [ "$(id_of "$built")" != "$(id_of "$packed")" ]; then
+            echo "::error::the kept library and the APK's are not the same build"
+            exit 1
+          fi
+          mkdir symbols
+          cp "$built" "symbols/libconcat_android-$VERSION-$TARGET.so"
+          echo "BuildId $(id_of "$built")"
+          ls -l symbols "$packed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.ship
+        with:
+          name: symbols-concat-${{ steps.version.outputs.version }}-${{ matrix.target }}
+          path: symbols/*
+          retention-days: 90
+          if-no-files-found: error
 
       # A phone with 16 KB pages loads none of a library aligned to less,
       # and the build would not say so.

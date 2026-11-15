@@ -65,9 +65,13 @@ case "$target" in
     # Every library the APK carries is linked for 16 KB pages, as FFmpeg's
     # already is (ffmpeg-mobile.sh): a phone whose kernel uses them refuses
     # a library aligned to 4 KB, and v0.2.8's libconcat_android.so was.
-    # One RUSTFLAGS for both: cargo reads it whole and ignores the
-    # target's own flags when it is set.
-    rustflags='-C link-arg=-Wl,-z,max-page-size=16384'
+    # And it carries a build ID, which rustc does not ask the linker for:
+    # a phone's crash or hang names the library's frames by offset and
+    # BuildId, and without one nothing ties a trace to the symbols CI kept
+    # for it (scripts/symbolize-android.sh). One RUSTFLAGS for all of it:
+    # cargo reads it whole and ignores the target's own flags when it is
+    # set.
+    rustflags='-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1'
     if [ "$(uname -s)" = Darwin ]; then
       shim=$workspace/vendor/shim/$target
       mkdir -p "$shim"
