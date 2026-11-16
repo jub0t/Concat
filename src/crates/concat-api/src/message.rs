@@ -558,7 +558,8 @@ pub enum ErrorCode {
     Invalid,
     /// The project named is not open; open it first.
     NotOpen,
-    /// A job, template or package named does not exist.
+    /// A job, template or package named does not exist, or the
+    /// location a project was to be made in does not.
     NotFound,
     /// The edit layer said no. The message is the sentence the window
     /// would show, and the state is as it was.
@@ -570,6 +571,9 @@ pub enum ErrorCode {
     /// The transport wanted a token and did not get the right one. Never
     /// raised by the API itself.
     Unauthorized,
+    /// The location named is there, but it would not take the write:
+    /// the project's folder could not be made in it.
+    NotWritable,
     /// Everything else: a file that could not be read or written, a decode
     /// that failed, a model that did not download.
     Failed,
@@ -589,6 +593,7 @@ impl ErrorCode {
             ErrorCode::Busy => -32004,
             ErrorCode::Cancelled => -32005,
             ErrorCode::Unauthorized => -32006,
+            ErrorCode::NotWritable => -32007,
         }
     }
 }
