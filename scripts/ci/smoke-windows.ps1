@@ -15,7 +15,8 @@
 #    a machine with nothing else installed. It touches no GPU: it proves
 #    the program and every DLL it loads at start load and initialise.
 # 3. `concat.exe --smoke` exits 0 the same way: the start-up runs through
-#    the first frame of the window, then the program leaves.
+#    the first frame of the window, then the program leaves. Then
+#    `--smoke-export` makes a project of a fixture clip and exports it.
 # 4. With -Sde, `--version` again under Intel's emulator posing as an Ivy
 #    Bridge (AVX, nothing newer), which stops the program at the first
 #    instruction that chip does not have; then `--whisper-cpu`, loading
@@ -172,6 +173,14 @@ Expect-Ok "concat.exe --version" $exe @("--version") $bare 60
 # ── 3. --smoke ─────────────────────────────────────────────────────────
 Say "concat.exe --smoke, with only Windows on the path"
 Expect-Ok "concat.exe --smoke" $exe @("--smoke") $bare 180
+
+# ── 3b. --smoke-export ─────────────────────────────────────────────────
+# A project of a two-second clip from the media fixtures, exported through
+# the Export sheet's own messages; exit 0 once the file is written. A
+# launch alone never reaches an export (#747).
+Say "concat.exe --smoke-export, with only Windows on the path"
+$clip = (Resolve-Path (Join-Path $PSScriptRoot "..\..\src\crates\concat-media\fixtures\picture-starts-late.mov")).Path
+Expect-Ok "concat.exe --smoke-export" $exe @("--smoke-export", $clip) $bare 300
 
 # ── 4. On an emulated Ivy Bridge ───────────────────────────────────────
 if ($Sde) {
