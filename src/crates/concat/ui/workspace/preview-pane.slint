@@ -847,13 +847,10 @@ export component PreviewPane inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 IconButton {
-                    text: I18n.t("previewPane.effects");
-                    wide: true;
-                    checked: !root.effects-bypassed;
+                    glyph: Glyph.effects;
+                    checked: root.effects-bypassed;
                     enabled: root.source-name == "" && root.has-picture;
-                    label: root.effects-bypassed
-                        ? I18n.t("previewPane.restoreEffects")
-                        : I18n.t("previewPane.bypassEffects");
+                    label: I18n.t("previewPane.effects");
                     clicked => { root.effects-toggled(); }
                 }
             }
