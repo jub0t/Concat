@@ -255,12 +255,10 @@ impl Div for Rational {
 impl Neg for Rational {
     type Output = Self;
     fn neg(self) -> Self {
-        Self {
-            // -i64::MIN is not an i64: saturate, for a crash in the render
-            // path is worse than a time at the edge.
-            num: self.num.saturating_neg(),
-            den: self.den,
-        }
+        // -i64::MIN is not an i64: saturate, for a crash in the render
+        // path is worse than a time at the edge. Reduce again, for the
+        // saturated numerator can share a factor with the denominator.
+        Self::reduce(i128::from(self.num.saturating_neg()), i128::from(self.den))
     }
 }
 
@@ -605,6 +603,15 @@ mod tests {
     fn negating_the_bottom_of_i64_saturates() {
         assert_eq!((-Rational::from_int(i64::MIN)).numerator(), i64::MAX);
         assert_eq!((-Rational::from_int(i64::MAX)).numerator(), -i64::MAX);
+    }
+
+    #[test]
+    fn a_saturated_neg_stays_in_lowest_terms() {
+        // i64::MAX is divisible by 7, so a saturated numerator over 7 must
+        // reduce: Eq and Hash are derived on the pair, Ord compares values.
+        let negated = -Rational::new(i64::MIN, 7);
+        assert_eq!(negated, Rational::new(i64::MAX, 7));
+        assert_eq!(negated.denominator(), 1);
     }
 
     #[test]
