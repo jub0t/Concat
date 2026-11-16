@@ -226,34 +226,25 @@ impl Studio {
     // frame under the playhead, so the person can judge both - and see
     // what the whole run will cost - before committing minutes to it.
 
-    /// Writes one clip's sound as it plays - trimmed, at its speed, with its
-    /// level, fades and effects baked in - to a WAV in the project's audio
-    /// folder, and puts the file in the bin under Generated › Processed. A
-    /// copy, not a replacement: the clip keeps its media and its settings,
-    /// and the file is independent of both, so it can be cut, moved and
-    /// exported like any import.
+    /// The clip menu's Export Selected: the clip right-clicked, or the
+    /// selection when it is one of it, exported alone - picture and sound,
+    /// or the sound alone, as the export sheet is set - from the first of
+    /// them, the gaps between them kept, and nothing else on the timeline
+    /// in it. The sheet opens on them; the file it writes goes where the
+    /// person says, and into the bin, selected, to cut with.
     ///
-    /// The export's own audio path does the work, on the clip alone: the
-    /// project is flattened with just this clip on its timeline, the one
-    /// export clip that comes out is moved to the origin, and the mixer
-    /// writes it the way it writes an export's soundtrack.
-    /// The clip's menu: its sound as it plays - trimmed, at its speed, with
-    /// its level, fades and effects baked in - written to a WAV the user
-    /// names, and brought into the bin as a file of its own, selected,
-    /// with the bin showing all its media so the new file is in view.
-    ///
-    /// A plain import, not a Generated › Processed one: the user picked
-    /// where the file goes and what it is called, which makes it theirs
-    /// the way a file dragged in is. On a phone, which has no save dialog,
-    /// it goes in the project's audio folder under the clip's name.
-    pub fn export_clip_audio(&mut self, id: &str) {
-        let Some(clip) = self.clip(id).cloned() else {
+    /// They are rendered as Merge selected clips renders a selection; see
+    /// `concat_host::export::Selected`.
+    pub fn export_selected(&mut self, id: &str) {
+        let ids = self.menu_targets(id);
+        let Some(first) = ids
+            .iter()
+            .filter_map(|id| self.clip(id))
+            .min_by(|a, b| a.start.total_cmp(&b.start))
+            .cloned()
+        else {
             return;
         };
-        if !self.clip_has_sound(&clip) {
-            self.notify(&t("studio.clipHasNoSound"), true);
-            return;
-        }
         let Some(project_dir) = self
             .session
             .as_ref()
@@ -261,26 +252,17 @@ impl Studio {
         else {
             return;
         };
-        let mut alone = self.project().clone();
-        alone.active_mut().clips.retain(|held| held.id == clip.id);
-        let Some(mut piece) =
-            concat_export::flatten::flatten_timeline_in(&alone, None, Some(&project_dir))
-                .into_iter()
-                .next()
+        let Some(selected) = concat_host::export::Selected::of(self.project(), &ids, &project_dir)
         else {
-            self.notify(&t("studio.clipHasNoSound"), true);
             return;
         };
-        piece.start = 0.0;
-        piece.muted = false;
-        let duration = piece.duration;
-        let pieces = concat_export::audio_pieces(&piece);
 
-        // Where it goes: the user's choice, offered under the clip's name
-        // in the project's audio folder; a phone takes the offer.
-        let out_dir = project_dir.join("audio");
-        let slug: String = clip
-            .name
+        // Offered under the clip's name, or for several the project's.
+        let (label, offered) = match ids.len() {
+            1 => (first.name.clone(), first.name.clone()),
+            count => (format!("{count} clips"), self.export.name.clone()),
+        };
+        let name: String = offered
             .chars()
             .map(|c| {
                 if c.is_alphanumeric() || c == ' ' {
@@ -291,78 +273,39 @@ impl Studio {
             })
             .take(60)
             .collect();
-        let suggested = format!("{}.wav", slug.trim());
-        // The dialog on the next turn of the event loop, never from here:
-        // this is reached from a right-click menu's row, which reports
-        // through a timer, and a blocking dialog opened inside a timer's
-        // callback spins the loop back into Slint's timers - "Recursion in
-        // timer code", and the app aborts (on macOS; Windows and Linux
-        // were spared only by their dialogs not pumping the loop). And
-        // with the studio unborrowed, for the timers that borrow it; see
-        // `host::after_dialog`.
-        let name = clip.name.clone();
-        let title = t("lib.exportAudio");
-        let family = t("lib.wavAudio");
-        let ask_in = out_dir.clone();
-        crate::host::after_dialog(
-            move || {
-                if cfg!(any(target_os = "android", target_os = "ios")) {
-                    return Some(ask_in.join(&suggested));
-                }
-                let chosen = crate::platform::save_file(
-                    &title,
-                    &ask_in,
-                    &suggested,
-                    (family.as_str(), &["wav"]),
-                )?;
-                Some(
-                    if chosen
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
-                    {
-                        chosen
-                    } else {
-                        chosen.with_extension("wav")
-                    },
-                )
-            },
-            move |studio, _, _, file| {
-                studio.write_clip_audio(&name, pieces, duration, file, out_dir);
-            },
+        // The count, not the names, which can be the person's own words.
+        log::info!(
+            "export selected: {} clip(s) from {:.3}s",
+            ids.len(),
+            selected.origin
         );
+        self.handle(crate::panes::Msg::Export(
+            crate::panes::export::ExportMsg::OpenSelection(crate::panes::export::Selection {
+                label,
+                name: name.trim().to_owned(),
+                selected,
+            }),
+        ));
     }
 
-    /// Mixes `pieces` - one clip's sound, `duration` seconds of it - into
-    /// `file`, and puts the file in the bin, selected. The second half of
-    /// [`Studio::export_clip_audio`], after the person has said where.
-    fn write_clip_audio(
-        &mut self,
-        // The clip's name, which the log leaves out: it can be the
-        // person's own words.
-        _name: &str,
-        pieces: Vec<concat_media::audio::AudioClip>,
-        duration: f64,
-        file: std::path::PathBuf,
-        out_dir: std::path::PathBuf,
-    ) {
-        let out_dir = file
-            .parent()
-            .map(std::path::Path::to_path_buf)
-            .unwrap_or(out_dir);
-        let written = file.to_string_lossy().into_owned();
-        let file_name = crate::studio::file_name_of(&written);
-        log::info!(
-            "export: a clip's sound to {file_name} · {}",
-            concat_log::span(std::time::Duration::from_secs_f64(duration.max(0.0)))
-        );
-        self.notify(&t("studio.exportingAudio"), false);
+    /// The clip a menu row was asked of, or the selection when it is one of
+    /// it: Delete on one of five selected clips means the five.
+    fn menu_targets(&self, id: &str) -> Vec<String> {
+        if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
+            self.selection.clone()
+        } else {
+            vec![id.to_owned()]
+        }
+    }
+
+    /// Puts `written` - the selection, just exported from the sheet - in
+    /// the bin, selected, with the bin on all its media so it is in view:
+    /// the second half of [`Studio::export_selected`].
+    pub fn bring_in_export(&mut self, written: String) {
         spawn_in_project(
-            move || -> Result<concat_host::media::MediaSummary, String> {
-                std::fs::create_dir_all(&out_dir)
-                    .map_err(|error| format!("could not create {}: {error}", out_dir.display()))?;
-                concat_media::audio::mix_to_file(&pieces, duration, &file)
-                    .map_err(|error| error.to_string())?;
-                concat_host::media::probe(&file.to_string_lossy())
+            {
+                let written = written.clone();
+                move || concat_host::media::probe(&written)
             },
             move |studio, _, _, result| match result {
                 Ok(summary) => {
@@ -384,18 +327,18 @@ impl Studio {
                         studio.media.selected.insert(id);
                     }
                     studio.media_jump += 1;
-                    studio.notify(&tf("studio.audioExported", &[&written]), false);
+                    studio.notify(&tf("studio.selectionExported", &[&written]), false);
                 }
                 Err(error) => {
                     log::warn!(
-                        "export: writing a clip's sound to {file_name} failed: {error}; nothing was added"
+                        "export selected: bringing {} into the bin failed: {error}",
+                        crate::studio::file_name_of(&written)
                     );
-                    studio.notify(&tf("studio.couldNotExportAudio", &[&error]), true);
+                    studio.notify(&tf("studio.couldNotBringIn", &[&error]), true);
                 }
             },
         );
     }
-
     /// The Enhance tick in the inspector, for the one selected clip. It
     /// never starts a run - that is minutes of the machine, and the
     /// button's to ask for. Ticked, the section's settings and button come
