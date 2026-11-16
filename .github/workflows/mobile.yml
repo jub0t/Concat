@@ -213,10 +213,14 @@ jobs:
       # library as the linker made it is kept as an artifact below, so a
       # phone's hang or crash, which names frames in it only as offsets,
       # can be read back to the line (scripts/symbolize-android.sh).
+      # Only the APK that ships has its symbols kept, so only it pays for
+      # the tables: the x86_64 build, which is for the emulators alone, was
+      # still starved off its runner with the swap above (6f04670d), and
+      # built without them it never was.
       - name: Build the APK
         working-directory: src
         env:
-          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_DEBUG: ${{ matrix.ship && 'line-tables-only' || 'false' }}
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
