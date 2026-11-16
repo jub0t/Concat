@@ -1789,15 +1789,13 @@ mod tests {
         let (mut api, scratch, _events) = api();
         let sealed = scratch.path().join("sealed");
         std::fs::create_dir(&sealed).expect("sealed dir");
-        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o555))
-            .expect("seal it");
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o555)).expect("seal it");
         let refused = err(api.dispatch(Request::ProjectCreate {
             location: sealed.to_string_lossy().into_owned(),
             name: "Nope".to_owned(),
             video: None,
         }));
-        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755))
-            .expect("unseal it");
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755)).expect("unseal it");
         assert_eq!(refused.code, ErrorCode::NotWritable);
         assert!(
             refused.message.contains("could not write to"),
