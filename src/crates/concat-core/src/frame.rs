@@ -302,8 +302,9 @@ impl Frame {
 
     /// Iterates over rows, top to bottom.
     pub fn rows(&self) -> impl Iterator<Item = &[u8]> {
+        // A zero-width frame is legal and empty; chunks_exact(0) panics.
         self.pixels
-            .chunks_exact(self.width as usize * BYTES_PER_PIXEL)
+            .chunks_exact((self.width as usize * BYTES_PER_PIXEL).max(1))
     }
 }
 
@@ -458,5 +459,11 @@ mod tests {
         let frame = Frame::black(5, 4);
         assert_eq!(frame.rows().count(), 4);
         assert!(frame.rows().all(|row| row.len() == 20));
+    }
+
+    #[test]
+    fn a_zero_width_frame_has_no_rows_and_does_not_panic() {
+        let frame = Frame::from_rgba(0, 4, Vec::new()).expect("empty is the right size");
+        assert_eq!(frame.rows().count(), 0);
     }
 }
