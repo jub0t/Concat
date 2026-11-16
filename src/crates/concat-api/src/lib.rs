@@ -339,7 +339,7 @@ impl Api {
 
     /// [`Request::ExportStatus`].
     pub fn job_status(&mut self, job: &str) -> Result<JobStatus, ApiError> {
-        self.jobs.reap(&self.book);
+        self.jobs.reap(&self.book, &self.events);
         self.book.status(job).ok_or_else(|| {
             ApiError::new(
                 ErrorCode::NotFound,
@@ -421,20 +421,20 @@ impl Api {
 
     /// How many jobs are still running.
     pub fn running(&mut self) -> usize {
-        self.jobs.reap(&self.book);
+        self.jobs.reap(&self.book, &self.events);
         self.jobs.threads.len()
     }
 
     /// Waits for every running job to end. A transport calls this before
     /// it exits, so an export begun on its last line still finishes.
     pub fn finish(&mut self) {
-        self.jobs.finish();
+        self.jobs.finish(&self.book, &self.events);
     }
 
     /// Runs one request. The response is what the request is worth; a job
     /// it begins reports through the sink from then on.
     pub fn dispatch(&mut self, request: Request) -> Response {
-        self.jobs.reap(&self.book);
+        self.jobs.reap(&self.book, &self.events);
         self.run(request).into()
     }
 
@@ -495,7 +495,15 @@ impl Api {
                 width,
                 height,
             } => {
-                let size = width.zip(height);
+                let size = match (width, height) {
+                    (Some(width), Some(height)) => Some((width, height)),
+                    (None, None) => None,
+                    _ => {
+                        return Err(ApiError::invalid(
+                            "a frame size needs both width and height, or neither",
+                        ));
+                    }
+                };
                 match output {
                     Some(output) => Ok(Reply::Written(self.frame(&path, time, &output, size)?)),
                     None => Ok(Reply::Picture(self.picture(&path, time, size)?)),
@@ -777,7 +785,9 @@ impl Api {
             .name(format!("export {}", started.job))
             .spawn(move || job.run(slot))
             .map_err(|error| {
-                book.abandon(&name);
+                // The caller is told by the error response; the book still
+                // needs the job closed.
+                let _ = book.abandon(&name);
                 ApiError::failed(format!("could not start the export: {error}"))
             })?;
         self.jobs.threads.push((started.job.clone(), thread));
@@ -786,7 +796,7 @@ impl Api {
 
     /// [`Request::ExportCancel`].
     pub fn cancel(&mut self, job: &str) -> Result<(), ApiError> {
-        self.jobs.reap(&self.book);
+        self.jobs.reap(&self.book, &self.events);
         if !self.jobs.threads.iter().any(|(name, _)| name == job) {
             return Err(ApiError::new(
                 ErrorCode::NotFound,
@@ -909,21 +919,27 @@ impl Jobs {
     }
 
     /// Forgets the threads that have ended. One that ended without its
-    /// last event - a panic in the render - is booked as failed.
-    fn reap(&mut self, book: &job::Book) {
+    /// last event - a panic in the render - is booked as failed, and that
+    /// failure goes out on the stream like any job's last event.
+    fn reap(&mut self, book: &job::Book, events: &EventSink) {
         self.threads.retain(|(name, thread)| {
             let ended = thread.is_finished();
-            if ended {
-                book.abandon(name);
+            if ended && let Some(event) = book.abandon(name) {
+                (events)(event);
             }
             !ended
         });
     }
 
-    /// Waits for the rest.
-    fn finish(&mut self) {
-        for (_, thread) in self.threads.drain(..) {
+    /// Waits for the rest. A job that panicked on the transport's last
+    /// line still owes its callers a failure, so whatever ended without a
+    /// word is failed here too.
+    fn finish(&mut self, book: &job::Book, events: &EventSink) {
+        for (name, thread) in self.threads.drain(..) {
             let _ = thread.join();
+            if let Some(event) = book.abandon(&name) {
+                (events)(event);
+            }
         }
     }
 }
@@ -1171,8 +1187,12 @@ fn write_png(output: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<()
         })?;
     }
     let file = std::fs::File::create(output).map_err(|error| could_not(&error))?;
-    encode_png(std::io::BufWriter::new(file), width, height, pixels)
-        .map_err(|error| could_not(&error))
+    encode_png(std::io::BufWriter::new(file), width, height, pixels).map_err(|error| {
+        // A half-written PNG is worse than none: the name is the caller's
+        // to retry, and a gallery shows a broken file.
+        let _ = std::fs::remove_file(output);
+        could_not(&error)
+    })
 }
 
 /// Encodes RGBA pixels as a PNG into `sink`.
@@ -1626,6 +1646,65 @@ mod tests {
         assert_eq!(api.stopper().cancel_all(), 0, "nothing left to stop");
     }
 
+    /// A render panic ends the thread without a last event. The failure
+    /// the book records must reach the stream too, or a caller holding it
+    /// open waits for an export that will never report.
+    #[test]
+    fn a_panicked_job_is_failed_on_the_stream_when_reaped() {
+        let (api, _scratch, events) = api();
+        api.book.start(
+            JobStatus::running("j1", "/p", "/o.mp4"),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let mut jobs = Jobs::default();
+        jobs.threads.push((
+            "j1".to_owned(),
+            std::thread::spawn(|| panic!("as a render panic ends a thread")),
+        ));
+        while !jobs.threads[0].1.is_finished() {
+            std::thread::yield_now();
+        }
+        jobs.reap(&api.book, &api.events);
+        assert!(jobs.threads.is_empty());
+        let sent = events.lock().expect("events");
+        assert_eq!(sent.len(), 1, "the failure is sent once");
+        match &sent[0] {
+            Event::ExportFailed { job, error, .. } => {
+                assert_eq!(job, "j1");
+                assert_eq!(error.code, ErrorCode::Failed);
+            }
+            other => panic!("not a failure: {other:?}"),
+        }
+        drop(sent);
+        assert_eq!(
+            api.book.status("j1").expect("known").state,
+            JobState::Failed
+        );
+    }
+
+    #[test]
+    fn a_panicked_job_is_failed_on_the_stream_when_finished() {
+        let (api, _scratch, events) = api();
+        api.book.start(
+            JobStatus::running("j1", "/p", "/o.mp4"),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let mut jobs = Jobs::default();
+        jobs.threads.push((
+            "j1".to_owned(),
+            std::thread::spawn(|| panic!("as a render panic ends a thread")),
+        ));
+        jobs.finish(&api.book, &api.events);
+        let sent = events.lock().expect("events");
+        assert_eq!(sent.len(), 1, "the failure is sent once");
+        assert!(matches!(&sent[0], Event::ExportFailed { .. }));
+        drop(sent);
+        assert_eq!(
+            api.book.status("j1").expect("known").state,
+            JobState::Failed
+        );
+    }
+
     #[test]
     fn a_frame_comes_back_inline_when_no_output_is_named() {
         let (mut api, scratch, _) = api();
@@ -1724,6 +1803,22 @@ mod tests {
             height: Some(65_535),
         }));
         assert_eq!(refused.code, ErrorCode::Invalid);
+    }
+
+    #[test]
+    fn a_frame_size_needs_both_sides_or_neither() {
+        let (mut api, scratch, _events) = api();
+        let path = project(&mut api, &scratch, "Half");
+        for (width, height) in [(Some(16), None), (None, Some(9))] {
+            let refused = err(api.dispatch(Request::PreviewFrame {
+                path: path.clone(),
+                time: 0.0,
+                output: None,
+                width,
+                height,
+            }));
+            assert_eq!(refused.code, ErrorCode::Invalid);
+        }
     }
 
     #[test]
