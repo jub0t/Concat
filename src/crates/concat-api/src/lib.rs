@@ -1795,7 +1795,8 @@ mod tests {
             name: "Nope".to_owned(),
             video: None,
         }));
-        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755)).expect("unseal it");
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755))
+            .expect("unseal it");
         assert_eq!(refused.code, ErrorCode::NotWritable);
         assert!(
             refused.message.contains("could not write to"),
