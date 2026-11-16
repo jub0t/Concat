@@ -189,11 +189,11 @@ jobs:
           echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
           echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
 
-      # Compiling the engine with line tables (below) in one codegen unit
-      # needs more memory at its peak than the runner has: without room the
-      # runner itself is killed mid-build ("received a shutdown signal",
-      # exit 143, from f22453d8 on). A swap file on the larger disk gives
-      # the peak room without changing anything that is built.
+      # Linking the engine in one codegen unit comes close to the runner's
+      # memory at its peak; with line tables it went over, swap or not, and
+      # the runner itself was killed mid-build (f22453d8 to 3a10dc47). The
+      # swap file on the larger disk is the margin, without changing
+      # anything that is built.
       - name: Room for the build's peak memory
         run: |
           set -euo pipefail
@@ -207,22 +207,16 @@ jobs:
           free -h
           df -h / "$dir"
 
-      # The build environment first, then the build under it. Compiled
-      # with line tables, which the APK does not carry: cargo-apk strips
-      # them as it packages (`strip` in concat-android's manifest), and the
-      # library as the linker made it is kept as an artifact below, so a
-      # phone's hang or crash, which names frames in it only as offsets,
-      # can be read back to the line (scripts/symbolize-android.sh).
-      # Only the APK that ships has its symbols kept, so only it pays for
-      # the tables: the x86_64 build, which is for the emulators alone, was
-      # still starved off its runner with the swap above (6f04670d), and
-      # built without them it never was. That build alone carries the
-      # `smoke` feature, which the emulators' export run drives; the one
-      # that ships never does.
+      # The build environment first, then the build under it. No line
+      # tables: with them the engine's link starved the runner off mid-build
+      # on both targets, swap or not (f22453d8 to 3a10dc47), and without
+      # them it never has. The library keeps its symbol table, and is kept
+      # as an artifact below, so the frames of a phone's hang or crash can
+      # be named by function from its offsets (scripts/symbolize-android.sh). The x86_64 build alone
+      # carries the `smoke` feature, which the emulators' export run
+      # drives; the one that ships never does.
       - name: Build the APK
         working-directory: src
-        env:
-          CARGO_PROFILE_RELEASE_DEBUG: ${{ matrix.ship && 'line-tables-only' || 'false' }}
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
@@ -276,11 +270,11 @@ jobs:
           rm -f "$keystore"
           "$tools/apksigner" verify --print-certs "$apk"
 
-      # The engine's library as the linker made it, with its line tables:
+      # The engine's library as the linker made it, with its symbol table:
       # what a trace's offsets are looked up in, by the BuildId the trace
-      # names, which the APK's stripped copy shares. The APK's own copy is
-      # checked for having no debug sections, so the tables never make the
-      # download larger. Not "Concat-*", so a release never publishes it.
+      # names, which the APK's copy shares. The APK's own copy is checked
+      # for having no debug sections, so they never make the download
+      # larger. Not "Concat-*", so a release never publishes it.
       - name: Keep the engine's symbols
         if: matrix.ship
         env:
@@ -296,8 +290,8 @@ jobs:
             echo "::error::the APK's libconcat_android.so carries debug sections; it would ship larger"
             exit 1
           fi
-          if ! "$readelf" -S --wide "$built" | grep -q '\.debug_line'; then
-            echo "::error::the engine was built without line tables; its symbols would name no lines"
+          if ! "$readelf" -S --wide "$built" | grep -q '\.symtab'; then
+            echo "::error::the engine was linked without a symbol table; its frames could not be named"
             exit 1
           fi
           id_of() { "$readelf" -n "$1" | sed -n 's/.*Build ID: *\([0-9a-fA-F]*\).*/\1/p' | head -1; }

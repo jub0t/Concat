@@ -52,11 +52,10 @@ package = "app.concat.editor"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
 runtime_libs = "../../vendor/android/jniLibs"
-# Every library goes into the APK without its debug information. The
-# phone build in CI compiles with line tables (mobile.yml) and keeps the
-# library as it came out of the linker as an artifact of the run, for
-# naming the frames of a hang or a crash (scripts/symbolize-android.sh);
-# the APK carries the same library less the tables, as it did before.
+# Every library goes into the APK without debug information (cargo-apk's
+# `strip` takes that and leaves the symbol table). The phone build in CI
+# also keeps the library as an artifact of the run, for naming the frames
+# of a hang or a crash (scripts/symbolize-android.sh).
 strip = "strip"
 # The launcher icon, at every density Android asks for (48, 72, 96, 144,
 # 192px); rendered from assets/new_concat_logo_512_rounded_light_theme.svg.

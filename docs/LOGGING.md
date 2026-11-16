@@ -99,9 +99,9 @@ first after the main thread. Frames in Concat look like this:
 #06 pc 000000000b739820  libconcat_android.so (BuildId: e21abbfd2b1e...)
 ```
 
-The library on the phone is stripped, so the offset after `pc` is all a frame
-says. Every phone build in CI keeps the library before stripping as the
-artifact `symbols-concat-<version>-aarch64-linux-android` of its "Build for
+A frame in Concat's library names the offset after `pc`, and the function
+when the trace's unwinder read it. Every phone build in CI keeps the library
+as the artifact `symbols-concat-<version>-aarch64-linux-android` of its "Build for
 phones" run, for 90 days. Download the one for the version in the log's
 `build` line, then:
 
@@ -109,8 +109,8 @@ phones" run, for 90 days. Download the one for the version in the log's
 scripts/symbolize-android.sh libconcat_android-0.2.12-aarch64-linux-android.so concat-20261115-101500.log
 ```
 
-It names each Concat frame's function, file and line, inlined calls included,
-and refuses a library whose BuildId is not the trace's. Tombstones and
+It names the function of each Concat frame (the library carries no line
+tables, which the phone build cannot link with in CI's memory), and refuses a library whose BuildId is not the trace's. Tombstones and
 `adb logcat` crash dumps read the same way.
 
 ## Writing a line
