@@ -9,6 +9,7 @@ import { Button, DialogSection, Field, Progress, Sheet } from "../primitives/mod
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
+import { FocusRing } from "../primitives/focus-ring.slint";
 import { Fmt } from "../util.slint";
 import { Select } from "../primitives/select.slint";
 import { PaneScroll } from "../workspace/pane.slint";
@@ -211,7 +212,7 @@ component ModelMeta inherits HorizontalLayout {
     }
 }
 
-component ModelRow inherits Rectangle {
+export component ModelRow inherits Rectangle {
     in property <ModelData> model;
     /// A narrow sheet: the controls go on a line under the name.
     in property <bool> compact;
@@ -451,12 +452,39 @@ component AccentSwatch inherits Rectangle {
     }
 }
 
-component PageTab inherits Rectangle {
+export component PageTab inherits Rectangle {
     in property <string> label;
     in property <Glyph> glyph;
     in property <bool> current;
 
     callback clicked();
+
+    // A tab to assistive technology: its name, whether it is the page
+    // shown, and the press that shows it. Reached by Tab and pressed with
+    // Space or Return, the ring shown for keyboard focus only.
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.current;
+    accessible-action-default => { root.clicked(); }
+
+    property <bool> ring;
+
+    fs := FocusScope {
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.clicked();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
 
     height: 30px;
     border-radius: Theme.r-sm;
@@ -493,6 +521,11 @@ component PageTab inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
+    }
+
+    FocusRing {
+        active: root.ring;
+        radius: Theme.r-sm;
     }
 }
 

@@ -81,6 +81,21 @@ impl Studio {
                     crate::panes::export::ExportMsg::Overwrite,
                 ));
             }
+            Some(Confirm::ExtrasDownload { ids, .. }) => {
+                self.handle(crate::panes::Msg::Extras(
+                    crate::panes::extras::ExtrasMsg::InstallConfirmed(ids),
+                ));
+            }
+            Some(Confirm::ExtrasUnverified { path, .. }) => {
+                self.handle(crate::panes::Msg::Extras(
+                    crate::panes::extras::ExtrasMsg::InstallFileConfirmed(path),
+                ));
+            }
+            Some(Confirm::ExtrasRemove { id, .. }) => {
+                self.handle(crate::panes::Msg::Extras(
+                    crate::panes::extras::ExtrasMsg::RemoveConfirmed(id),
+                ));
+            }
             Some(Confirm::Restart) => {
                 let project = self
                     .session
@@ -145,6 +160,35 @@ impl Studio {
                 title: t("close.unsavedTitle").into(),
                 message: tf("close.unsavedMessage", &[error]).into(),
                 action: t("close.quitWithoutSaving").into(),
+                ..Default::default()
+            },
+            Confirm::ExtrasDownload { names, size, .. } => crate::ui::ConfirmData {
+                open: true,
+                title: t("extras.bigDownloadTitle").into(),
+                message: tf("extras.bigDownloadMessage", &[names, size]).into(),
+                action: t("extras.download").into(),
+                calm: true,
+                glyph: crate::ui::Glyph::Import,
+                ..Default::default()
+            },
+            Confirm::ExtrasUnverified { name, author, .. } => crate::ui::ConfirmData {
+                open: true,
+                title: t("extras.unverifiedTitle").into(),
+                message: tf("extras.unverifiedMessage", &[name, author]).into(),
+                action: t("extras.installAnyway").into(),
+                glyph: crate::ui::Glyph::Alert,
+                ..Default::default()
+            },
+            Confirm::ExtrasRemove { name, in_use, .. } => crate::ui::ConfirmData {
+                open: true,
+                title: tf("extras.removeTitle", &[name]).into(),
+                message: if in_use.is_empty() {
+                    t("extras.removeMessage")
+                } else {
+                    tf("extras.removeInUseMessage", &[in_use])
+                }
+                .into(),
+                action: t("extras.remove").into(),
                 ..Default::default()
             },
             Confirm::Restart => crate::ui::ConfirmData {

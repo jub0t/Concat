@@ -201,9 +201,25 @@ pub fn builtin() -> Vec<TextPreset> {
 /// The presets in the user's folder. A file that does not parse is
 /// skipped: one broken preset should not empty the page.
 pub fn user(dirs: &AppDirs) -> Vec<TextPreset> {
-    let mut found = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir(dirs)) else {
-        return found;
+    // The user's own folder, as it always was; then each enabled extra's
+    // presets, laid out the same way. An extra's preset with an id already
+    // found is skipped: the user's own win, then the extra installed first.
+    let mut found = presets_in(&dir(dirs));
+    for folder in concat_host::extras::roots(dirs, concat_extras::Kind::TitlePresets) {
+        for preset in presets_in(&folder) {
+            if !found.iter().any(|held: &TextPreset| held.id == preset.id) {
+                found.push(preset);
+            }
+        }
+    }
+    found
+}
+
+/// The presets in one folder: `*.toml` beside each other, or folders with
+/// a `preset.toml` in them.
+fn presets_in(folder: &Path) -> Vec<TextPreset> {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
     };
     let mut paths: Vec<PathBuf> = entries
         .flatten()
@@ -218,12 +234,7 @@ pub fn user(dirs: &AppDirs) -> Vec<TextPreset> {
         })
         .collect();
     paths.sort();
-    for path in paths {
-        if let Some(preset) = read(&path) {
-            found.push(preset);
-        }
-    }
-    found
+    paths.iter().filter_map(|path| read(path)).collect()
 }
 
 fn read(path: &Path) -> Option<TextPreset> {
@@ -323,15 +334,29 @@ pub fn install_font_file(dirs: &AppDirs, source: &Path) -> Option<PathBuf> {
 /// font picker offers beyond the bundled face and the system's, in the
 /// order the files are found. A file that is not a font is passed over.
 pub fn installed_fonts(dirs: &AppDirs) -> Vec<(String, String)> {
-    let Ok(entries) = std::fs::read_dir(fonts_dir(dirs)) else {
-        return Vec::new();
-    };
-    let mut paths: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file())
-        .collect();
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(fonts_dir(dirs))
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.is_file())
+                .collect()
+        })
+        .unwrap_or_default();
     paths.sort();
+    // Then every enabled extra's fonts, wherever under its root they sit.
+    for root in concat_host::extras::roots(dirs, concat_extras::Kind::Fonts) {
+        paths.extend(
+            concat_host::extras::files_under(&root)
+                .into_iter()
+                .filter(|path| {
+                    matches!(
+                        concat_extras::manifest::extension(&path.to_string_lossy()).as_str(),
+                        "ttf" | "otf" | "ttc"
+                    )
+                }),
+        );
+    }
     let mut out = Vec::new();
     for path in paths {
         let file = path.to_string_lossy().into_owned();

@@ -177,7 +177,13 @@ impl Headless {
     /// roots `CONCAT_MCP_ROOTS` names (the platform's path-list syntax),
     /// or the user's home.
     pub fn start() -> Result<Headless, String> {
-        Ok(Headless::with_api(Api::new(Arc::new(|_| {}))?))
+        let api = Api::new(Arc::new(|_| {}))?;
+        // The user's own effect packages and every enabled extra's, as the
+        // window offers them; one that will not load is left out.
+        for error in api.load_installed_packages() {
+            eprintln!("concat mcp: a package was not loaded: {error}");
+        }
+        Ok(Headless::with_api(api))
     }
 
     /// An API made by the caller - a test's, over a scratch folder.

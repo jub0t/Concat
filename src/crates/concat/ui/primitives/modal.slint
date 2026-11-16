@@ -5,6 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Tip } from "tooltip.slint";
+import { FocusRing } from "focus-ring.slint";
 import { Select } from "select.slint";
 
 // The dialog layer this tree did not have.
@@ -398,6 +399,22 @@ export component Button inherits Rectangle {
 
     callback clicked();
 
+    // A button to assistive technology as on screen: its label, whether it
+    // can be pressed, and the press itself, so a screen reader or UI
+    // Automation can work every dialog's actions.
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if (root.enabled) {
+            root.clicked();
+        }
+    }
+
+    /// The ring shows for keyboard focus only (:focus-visible), as on
+    /// IconButton.
+    property <bool> ring;
+
     property <length> gap: (root.glyph == Glyph.none || root.square) ? 0px : 6px;
     property <length> mark: root.glyph == Glyph.none ? 0px : 14px;
     property <bool> lit: touch.has-hover && root.enabled;
@@ -434,6 +451,27 @@ export component Button inherits Rectangle {
         : root.ghost ? (root.lit ? Theme.fg : Theme.fg-muted)
         : Theme.fg;
 
+    // First in the tree, so the TouchArea below sits above it. Reached by
+    // Tab and pressed with Space or Return. A click does not take focus:
+    // the window's keys stay with the window after a dialog's button is
+    // clicked, as they always have.
+    fs := FocusScope {
+        enabled: root.enabled;
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.clicked();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
     HorizontalLayout {
         alignment: center;
         spacing: root.gap;
@@ -467,6 +505,11 @@ export component Button inherits Rectangle {
     if root.square: Tip {
         text: root.label;
         active: touch.has-hover;
+    }
+
+    FocusRing {
+        active: root.ring;
+        radius: Theme.r;
     }
 }
 

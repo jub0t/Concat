@@ -16,6 +16,7 @@
 
 pub mod captions;
 pub mod export;
+pub mod extras;
 pub mod glide;
 pub mod media_bin;
 pub mod monitor;
@@ -34,6 +35,8 @@ pub mod voiceover;
 pub enum Msg {
     /// To the export sheet.
     Export(export::ExportMsg),
+    /// To the Extras sheet.
+    Extras(extras::ExtrasMsg),
     /// To the settings sheet.
     Settings(settings::SettingsMsg),
     /// To the captions sheet.
@@ -85,6 +88,7 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
             | TimelineMsg::Resized(_),
         )
         | Msg::Export(ExportMsg::Progress { .. })
+        | Msg::Extras(extras::ExtrasMsg::Progress { .. })
         | Msg::Captions(CaptionsMsg::Progress(_))
         | Msg::Speech(SpeechMsg::Progress(_))
         | Msg::Settings(SettingsMsg::ModelProgress { .. } | SettingsMsg::InstallProgress { .. }) => {

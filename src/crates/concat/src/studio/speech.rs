@@ -10,7 +10,21 @@ impl Studio {
     /// Packs the open project into the template library.
     /// Where the user's own looks live: one package folder each.
     pub fn looks_dir(dirs: &concat_host::dirs::AppDirs) -> std::path::PathBuf {
-        dirs.config.join("effects")
+        concat_host::extras::user_effects_dir(dirs)
+    }
+
+    /// Every folder effect packages load from: the user's own first, then
+    /// each enabled extra's. The order is the catalogue's, so a package of
+    /// the user's own is the one an id names when an extra repeats it.
+    pub fn effect_roots(dirs: &concat_host::dirs::AppDirs) -> Vec<std::path::PathBuf> {
+        concat_host::extras::effect_roots(dirs)
+    }
+
+    /// What the package watch compares: every effect root, and the install
+    /// database, so an extra switched on or off reloads too.
+    fn packages_stamp(dirs: &concat_host::dirs::AppDirs) -> u64 {
+        concat_effects::packages_stamp(&Self::effect_roots(dirs))
+            ^ concat_extras::Registry::stamp(&concat_host::extras::dir(dirs)).rotate_left(1)
     }
 
     /// Where the effect cards are kept: drawn once, read on every launch.
@@ -104,7 +118,8 @@ impl Studio {
         // it (audit 2026-10-04, #6). A dead one is replaced for the next.
         let monitor = &self.host.monitor;
         let mut trialist = None;
-        let errors = Catalogue::install_with(&dir, &mut |package| {
+        let roots = Self::effect_roots(&self.host.dirs);
+        let errors = Catalogue::install_from(&roots, &mut |package| {
             for pass in package.trial_passes() {
                 if trialist.is_none() {
                     trialist = monitor.sibling();
@@ -132,8 +147,18 @@ impl Studio {
         self.look_art.borrow_mut().clear();
         // The folder as the watch will next see it, cards included, so a
         // reload does not read as a change and set off another.
-        self.packages_seen = concat_effects::package_stamp(&dir);
+        self.packages_seen = Self::packages_stamp(&self.host.dirs);
         self.packages_pending = None;
+        // The monitor's plan resolved each clip's effects against the old
+        // catalogue - a package that was missing was left out of it - and
+        // its frames were drawn from that plan. Both are made again, so an
+        // effect that has just arrived (or gone) shows on the next frame
+        // rather than after the next edit.
+        if self.session.is_some() {
+            self.host.monitor.clear();
+            self.flat = None;
+            self.request_preview();
+        }
         if let Some(first) = errors.first() {
             let message = if errors.len() == 1 {
                 tf("studio.customPackageDidNot", &[first])
@@ -177,7 +202,7 @@ impl Studio {
 
     /// One tick of the watch: whether the catalogue was rebuilt.
     fn poll_packages(&mut self) -> bool {
-        let now = concat_effects::package_stamp(&Self::looks_dir(&self.host.dirs));
+        let now = Self::packages_stamp(&self.host.dirs);
         if now == self.packages_seen {
             self.packages_pending = None;
             return false;

@@ -807,11 +807,16 @@ pub struct Models {
     pub speech_sample_details: Rc<VecModel<SharedString>>,
     /// The Audio page's shelves.
     pub sounds_mine: Rc<VecModel<crate::ui::SoundCardData>>,
+    /// The Audio page's From Extras shelf, and the Stickers page's pictures.
+    pub sounds_extras: Rc<VecModel<crate::ui::SoundCardData>>,
+    pub sticker_pictures: Rc<VecModel<crate::ui::StickerCardData>>,
     pub voices_saved: Rc<VecModel<crate::ui::VoiceCardData>>,
     pub sounds_concat: Rc<VecModel<crate::ui::SoundCardData>>,
     pub voices_builtin: Rc<VecModel<crate::ui::VoiceCardData>>,
     pub voice_styles: Rc<VecModel<crate::ui::VoiceCardData>>,
     pub transcribers: Rc<VecModel<ModelData>>,
+    /// The Extras sheet's rows, narrowed to its page and its search.
+    pub extras_cards: Rc<VecModel<ExtraCardData>>,
     pub voices: Rc<VecModel<ModelData>>,
     /// The Version page's releases, and beside each its day or that it
     /// is this one.
@@ -891,11 +896,14 @@ impl Models {
             speech_sample_waves: Rc::new(VecModel::default()),
             speech_sample_details: Rc::new(VecModel::default()),
             sounds_mine: Rc::new(VecModel::default()),
+            sounds_extras: Rc::new(VecModel::default()),
+            sticker_pictures: Rc::new(VecModel::default()),
             voices_saved: Rc::new(VecModel::default()),
             sounds_concat: Rc::new(VecModel::default()),
             voices_builtin: Rc::new(VecModel::default()),
             voice_styles: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
+            extras_cards: Rc::new(VecModel::default()),
             voices: Rc::new(VecModel::default()),
             versions: Rc::new(VecModel::default()),
             version_details: Rc::new(VecModel::default()),
@@ -1077,6 +1085,8 @@ pub struct Studio {
     // ── the sheets and menus ──
     pub export: crate::panes::export::ExportPane,
     pub settings: crate::panes::settings::SettingsPane,
+    /// The Extras sheet: repositories, installs, the queue.
+    pub extras: crate::panes::extras::ExtrasPane,
     pub relink: crate::panes::relink::RelinkPane,
     /// What the confirmation sheet is asking about, while it is up.
     pub confirm: Option<Confirm>,
@@ -1244,6 +1254,11 @@ pub struct Studio {
     /// project a title is set in one of them registers the file so the
     /// painter finds it. See `presets::installed_fonts`.
     pub installed_fonts: Vec<(String, String)>,
+    /// The pictures the enabled extras bring to the Stickers page.
+    pub extra_stickers: Vec<concat_host::extras::ExtraFile>,
+    /// Each sticker picture as drawn, by its id: read once, not on every
+    /// publish.
+    pub sticker_art: std::cell::RefCell<HashMap<String, slint::Image>>,
     /// The families the machine has, found on a worker after the window is
     /// up - the system's fonts take a moment to read - and empty until then.
     pub system_fonts: Vec<String>,
@@ -2783,7 +2798,7 @@ fn partners_moved(
 /// The effects a project's clips name that no package answers to - retired
 /// ones, or packages not installed here - by name, each once, in the order
 /// they first appear.
-fn retired_effects(project: &Project) -> Vec<String> {
+fn retired_effects(project: &Project, from_extras: &[String]) -> Vec<String> {
     let catalogue = Catalogue::builtin();
     let mut names: Vec<String> = Vec::new();
     for timeline in &project.timelines {
@@ -2792,6 +2807,7 @@ fn retired_effects(project: &Project) -> Vec<String> {
                 if catalogue
                     .packages()
                     .any(|package| package.answers_to(&link.id))
+                    || from_extras.contains(&link.id)
                 {
                     continue;
                 }
@@ -2828,6 +2844,26 @@ pub enum Confirm {
     /// Restarting for a setting that is read only at launch: the project
     /// is saved, and opens again in the new window.
     Restart,
+    /// Downloading extras whose downloads add up to more than
+    /// `concat_host::extras::CONFIRM_ABOVE`: named, with the size.
+    ExtrasDownload {
+        ids: Vec<String>,
+        names: String,
+        size: String,
+    },
+    /// Installing a file no repository's signed index vouches for.
+    ExtrasUnverified {
+        path: std::path::PathBuf,
+        name: String,
+        author: String,
+    },
+    /// Removing an installed extra; `in_use` names what the open project
+    /// uses from it.
+    ExtrasRemove {
+        id: String,
+        name: String,
+        in_use: String,
+    },
     /// The run before this one died, on a phone: said once, at launch,
     /// with its log to share (#560).
     #[cfg(target_os = "android")]
@@ -3041,6 +3077,8 @@ impl Studio {
     /// A window with nothing open: the launch screen, with the recents list
     /// read off disk.
     pub fn new(host: Host) -> Self {
+        // What an install or removal interrupted by a crash left behind.
+        concat_host::extras::sweep(&host.dirs);
         let prefs = Preferences::load(&host.dirs);
         // The panels where the last session left them, while Settings says
         // to; a saved dock this build cannot read is the default instead.
@@ -3106,6 +3144,7 @@ impl Studio {
             monitor: crate::panes::monitor::MonitorPane::default(),
             export: Default::default(),
             settings: crate::panes::settings::SettingsPane::default(),
+            extras: crate::panes::extras::ExtrasPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
             confirm: None,
             transition_selected: None,
@@ -3164,6 +3203,8 @@ impl Studio {
             voiceover: crate::panes::voiceover::VoiceoverPane::default(),
             text_presets,
             installed_fonts: presets::installed_fonts(&host.dirs),
+            extra_stickers: Vec::new(),
+            sticker_art: Default::default(),
             system_fonts: Vec::new(),
             fonts_published: std::cell::Cell::new(None),
             font_query: String::new(),
@@ -3198,6 +3239,9 @@ impl Studio {
         studio.handle(crate::panes::Msg::Settings(
             crate::panes::settings::SettingsMsg::Restore,
         ));
+        // The pictures and sounds the enabled extras bring, for the
+        // Stickers and Audio pages.
+        crate::panes::extras::refresh_extra_content(&mut studio);
         // The effects shelf starts on "All", not whatever a stale default
         // would leave it on.
         studio.library[1].category = "All".to_owned();

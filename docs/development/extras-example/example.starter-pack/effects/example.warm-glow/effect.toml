@@ -1,0 +1,20 @@
+format = 2
+
+[effect]
+id = "example.warm-glow"
+name = "Warm Glow"
+kind = "effect"
+category = "Light"
+description = "The picture warmed toward amber, as late sun warms it."
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 40
+
+[wgsl]
+entry = "effect.wgsl"

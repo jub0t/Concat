@@ -175,10 +175,33 @@ impl Studio {
 
                 // Effects this build no longer has, named once as the project
                 // opens: their links stay in the clips, marked not installed.
+                // Effects an extra brings - one switched off, or one a
+                // repository offers - are named with the extra and Extras,
+                // rather than as retired; the links stay as they are.
+                let from_extras = self
+                    .session
+                    .as_ref()
+                    .map(|session| {
+                        crate::panes::extras::missing_extras(session.project(), &self.host.dirs)
+                    })
+                    .unwrap_or_default();
+                let provided: Vec<String> = from_extras
+                    .iter()
+                    .flat_map(|(_, ids)| ids.iter().cloned())
+                    .collect();
+                if !from_extras.is_empty() {
+                    let names: Vec<String> =
+                        from_extras.iter().map(|(name, _)| name.clone()).collect();
+                    log::info!(
+                        "project: uses effects from extras that are not installed or switched on: {}",
+                        provided.join(", ")
+                    );
+                    self.notify(&tf("extras.projectNeeds", &[&few(&names)]), false);
+                }
                 let retired = self
                     .session
                     .as_ref()
-                    .map(|session| retired_effects(session.project()))
+                    .map(|session| retired_effects(session.project(), &provided))
                     .unwrap_or_default();
                 if !retired.is_empty() {
                     self.notify(&tf("studio.retiredEffects", &[&retired.join(", ")]), false);
@@ -474,6 +497,11 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.settings);
                 pane.update(msg, self);
                 self.settings = pane;
+            }
+            crate::panes::Msg::Extras(msg) => {
+                let mut pane = std::mem::take(&mut self.extras);
+                pane.update(msg, self);
+                self.extras = pane;
             }
             crate::panes::Msg::Captions(msg) => {
                 let mut pane = std::mem::take(&mut self.captions);

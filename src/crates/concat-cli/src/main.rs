@@ -128,7 +128,16 @@ enum Command {
         /// A package folder, or a folder of package folders.
         path: PathBuf,
     },
+
+    /// Make and check extras: signing keys, `.concatpkg` archives and
+    /// signed repositories.
+    Extras {
+        #[command(subcommand)]
+        command: extras::ExtrasCommand,
+    },
 }
+
+mod extras;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // A crash names the module it happened in on standard error, as the
@@ -160,6 +169,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             moment,
         } => preview(&input, &output, &effect, (width, height), progress, moment),
         Command::Check { path } => check(&path),
+        Command::Extras { command } => extras::run(command),
     }
 }
 
@@ -170,8 +180,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 /// the loop goes on. At the end of input the jobs still running - an export
 /// begun on the last line - are waited for, so their events are written
 /// before the process exits.
+/// Says on standard error which installed packages would not load: a
+/// package of the user's own or an extra's with a fault is left out, and
+/// the rest still load.
+fn report_packages(errors: &[String]) {
+    for error in errors {
+        eprintln!("concat-cli: a package was not loaded: {error}");
+    }
+}
+
 fn api(single: Option<String>) -> Result<(), Box<dyn Error>> {
     let mut api = concat_api::Api::new(Arc::new(|event| emit(&Message::Event(event))))?;
+    report_packages(&api.load_installed_packages());
     let mut serve = |line: &str| {
         let (id, response) = match Call::parse(line) {
             Ok(call) => (call.id, api.dispatch(call.request)),
@@ -224,7 +244,13 @@ fn serve(
         // address and token for whoever started it.
         discovery: None,
     };
-    let server = concat_server::Server::start(config, concat_api::Api::new)?;
+    // The user's own effect packages and every enabled extra's, as the
+    // window offers them.
+    let server = concat_server::Server::start(config, |events| {
+        let api = concat_api::Api::new(events)?;
+        report_packages(&api.load_installed_packages());
+        Ok(api)
+    })?;
     if let Some(address) = server.json_addr() {
         println!(
             "Concat API {}: JSON-RPC on {address}",
@@ -279,6 +305,10 @@ fn preview(
     progress: Option<f64>,
     moment: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
+    // An effect of the user's own or an installed extra's draws too.
+    if let Ok(dirs) = concat_host::AppDirs::locate() {
+        report_packages(&concat_host::extras::load_effects(&dirs));
+    }
     let catalogue = concat_effects::Catalogue::builtin();
     let mut package = catalogue
         .get(effect)

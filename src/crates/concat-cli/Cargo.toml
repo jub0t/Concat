@@ -24,6 +24,9 @@ serde_json.workspace = true
 # packages and runs their probes.
 concat-effects.workspace = true
 concat-host.workspace = true
+# `extras`: packing, signing and checking extras.
+concat-extras.workspace = true
+toml = "1.1"
 clap.workspace = true
 
 [features]

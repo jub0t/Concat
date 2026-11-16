@@ -20,6 +20,7 @@ concat-server = { path = "crates/concat-server" }
 concat-mcp = { path = "crates/concat-mcp" }
 concat-speech = { path = "crates/concat-speech" }
 concat-effects = { path = "crates/concat-effects" }
+concat-extras = { path = "crates/concat-extras" }
 concat-text = { path = "crates/concat-text" }
 concat-vision = { path = "crates/concat-vision" }
 concat-log = { path = "crates/concat-log" }

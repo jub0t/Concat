@@ -31,6 +31,7 @@ pub mod cutout;
 pub mod dirs;
 pub mod enhance;
 pub mod export;
+pub mod extras;
 pub mod jobs;
 pub mod lock;
 pub mod logs;

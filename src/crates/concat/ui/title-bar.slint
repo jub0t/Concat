@@ -156,6 +156,7 @@ export component TitleBar inherits Rectangle {
     in property <int> keyboard-menu: -1;
     in property <int> keyboard-token;
     callback open-settings();
+    callback open-extras();
     /// A view was picked from the add-panel list.
     callback add-pane(kind: PaneKind);
     callback export-clicked();
@@ -278,6 +279,20 @@ export component TitleBar inherits Rectangle {
         // application — so the launch screen has no reason to be shut out of
         // it, and every reason not to be: it is now the only way through to
         // the theme.
+        // Extras, beside the gear and for the same reason: what is added
+        // to Concat after installing it is about the application, not the
+        // project, so the launch screen reaches it too.
+        if !root.covered: VerticalLayout {
+            alignment: center;
+            HeaderIconButton {
+                glyph: Glyph.extras;
+                accessible-role: button;
+                accessible-label: I18n.t("extras.title");
+                accessible-action-default => { root.open-extras(); }
+                clicked => { root.open-extras(); }
+            }
+        }
+
         if !root.covered: VerticalLayout {
             alignment: center;
             HeaderIconButton {

@@ -1985,6 +1985,15 @@ impl Studio {
             same_settings,
             |data| app.set_settings(data),
         );
+        // The Extras sheet reads the install database, so it is only
+        // drawn while it is up - and once more as it goes, to close it.
+        if self.extras.open || app.get_extras().open {
+            let data = self.extras.data(self);
+            if app.get_extras() != data {
+                app.set_extras(data);
+            }
+            sync(&models.extras_cards, self.extras.cards(self));
+        }
         sync(&models.transcribers, self.settings.transcriber_rows());
         sync(&models.voices, self.settings.voice_rows());
         sync(&models.versions, self.settings.version_rows());
@@ -2068,6 +2077,8 @@ impl Studio {
         app.set_new_voice(self.speech.new_voice_data());
         // The Audio page.
         sync(&models.sounds_mine, self.sounds.mine());
+        sync(&models.sounds_extras, self.sounds.extra_rows());
+        sync(&models.sticker_pictures, self.sticker_cards());
         sync(&models.sounds_concat, self.sounds.concat_rows());
         {
             use crate::panes::sounds::ConcatState;

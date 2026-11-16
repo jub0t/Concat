@@ -57,8 +57,9 @@ use concat_project::Command;
 use concat_project::model::VideoSettings;
 
 pub use message::{
-    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, JobState, JobStatus,
-    PackageInfo, ParamInfo, Picture, Reply, Request, Response, Started, VersionInfo, Written,
+    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, ExtraInfo, Fill, JobState,
+    JobStatus, PackageInfo, ParamInfo, Picture, Reply, Request, Response, Started, VersionInfo,
+    Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -314,6 +315,16 @@ impl Api {
         }
     }
 
+    /// Loads the user's own effect packages and every enabled extra's into
+    /// the effects catalogue, for a process that has no window to have
+    /// done it: `concat-cli api` and `serve`, the headless MCP server. Not
+    /// done by [`Api::new`] itself, since the window serves this API too,
+    /// over a catalogue it has already loaded and trial-run on its GPU.
+    /// The packages that would not load, each with why.
+    pub fn load_installed_packages(&self) -> Vec<String> {
+        concat_host::extras::load_effects(&self.dirs)
+    }
+
     /// The directories this API works under.
     pub fn dirs(&self) -> &AppDirs {
         &self.dirs
@@ -472,6 +483,7 @@ impl Api {
             }
             Request::MediaImport { path, file } => view(self.import(&path, &file)?),
             Request::CatalogueList { kind } => Ok(Reply::Packages(catalogue(kind.as_deref())?)),
+            Request::ExtrasList => Ok(Reply::Extras(extras(&self.dirs))),
             Request::TemplateList => Ok(Reply::Templates(templates::list(&self.dirs.config))),
             Request::TemplateInstantiate {
                 template,
@@ -1022,6 +1034,33 @@ impl ExportJob {
     }
 }
 
+/// [`Request::ExtrasList`]: the install database, in install order.
+fn extras(dirs: &AppDirs) -> Vec<ExtraInfo> {
+    concat_host::extras::registry(dirs)
+        .records()
+        .iter()
+        .map(|record| {
+            let mut kinds: Vec<String> = record
+                .provides
+                .iter()
+                .map(|provide| provide.kind.key().to_owned())
+                .collect();
+            kinds.dedup();
+            ExtraInfo {
+                id: record.id.clone(),
+                name: record.name.clone(),
+                version: record.version.clone(),
+                author: record.author.clone(),
+                category: record.category.key().to_owned(),
+                enabled: record.enabled,
+                verified: record.origin.verified(),
+                kinds,
+                provides_ids: record.provides_ids.clone(),
+            }
+        })
+        .collect()
+}
+
 /// [`Request::CatalogueList`]: the built-in packages plus whatever
 /// [`Catalogue::install`] added, in id order.
 fn catalogue(kind: Option<&str>) -> Result<Vec<PackageInfo>, ApiError> {
@@ -1214,6 +1253,47 @@ mod tests {
             Arc::new(move |event| sink.lock().expect("events").push(event)),
         );
         (api, scratch, events)
+    }
+
+    /// `extras.list` reads the install database: nothing installed is an
+    /// empty list, and an installed extra comes back with what it brings
+    /// and whether it is switched on and vouched for.
+    #[test]
+    fn extras_list_reports_the_install_database() {
+        let (mut api, scratch, _) = api();
+        let request: Request =
+            serde_json::from_str(r#"{"method": "extras.list"}"#).expect("the method parses");
+        match ok(api.dispatch(request)) {
+            Reply::Extras(extras) => assert!(extras.is_empty()),
+            _ => panic!("not an extras list"),
+        }
+        let folder = scratch.path().join("data").join("extras");
+        std::fs::create_dir_all(&folder).expect("folder");
+        std::fs::write(
+            folder.join("installed.json"),
+            r#"{"schema": 1, "extras": [{"id": "me.looks", "name": "Looks", "version": "1.2.0",
+                "author": "Me", "category": "effects", "enabled": false,
+                "provides": [{"kind": "effects", "root": "effects"}],
+                "provides_ids": ["me.soft"], "requires": [],
+                "origin": {"from": "file", "verified": false}, "sha256": ""}]}"#,
+        )
+        .expect("registry");
+        match ok(api.dispatch(Request::ExtrasList)) {
+            Reply::Extras(extras) => {
+                assert_eq!(extras.len(), 1);
+                let one = &extras[0];
+                assert_eq!(
+                    (one.id.as_str(), one.version.as_str()),
+                    ("me.looks", "1.2.0")
+                );
+                assert!(!one.enabled && !one.verified);
+                assert_eq!(one.kinds, ["effects"]);
+                assert_eq!(one.provides_ids, ["me.soft"]);
+                let json = serde_json::to_value(one).expect("JSON");
+                assert_eq!(json["providesIds"][0], "me.soft");
+            }
+            _ => panic!("not an extras list"),
+        }
     }
 
     fn ok(response: Response) -> Reply {

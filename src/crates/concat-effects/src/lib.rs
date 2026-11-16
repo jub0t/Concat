@@ -37,7 +37,9 @@ mod builtins {
     include!(concat!(env!("OUT_DIR"), "/builtins.rs"));
 }
 
-pub use catalogue::{At, Catalogue, Fixture, Package, Probe, package_folders, package_stamp};
+pub use catalogue::{
+    At, Catalogue, Fixture, Package, Probe, package_folders, package_stamp, packages_stamp,
+};
 pub use manifest::{CardSettings, FORMAT, Kind, Manifest, Param, ParamType, Space};
 pub use shader::{Contract, Shader, TransitionShader};
 
@@ -667,6 +669,65 @@ mod tests {
         std::fs::write(dir.join("hank.other").join("effect.toml"), TINT).expect("write");
         assert_ne!(package_stamp(&dir), third, "a folder was added");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The user's folder and each installed extra's load side by side; an
+    /// id the first already gave is refused from the second, and the
+    /// stamp over both moves when either changes or the list does.
+    #[test]
+    fn packages_load_from_several_folders_and_a_repeat_is_refused() {
+        let mine = scratch(
+            "ivy.mine",
+            &[("effect.toml", &TINT.replace("alice.tint", "ivy.mine"))],
+        );
+        let extra = scratch(
+            "ivy.extra",
+            &[("effect.toml", &TINT.replace("alice.tint", "ivy.extra"))],
+        );
+        // The same id again, beside the extra: refused from there.
+        let extra_dir = extra.parent().unwrap().to_path_buf();
+        let mine_dir = mine.parent().unwrap().to_path_buf();
+        std::fs::create_dir_all(extra_dir.join("ivy.mine")).unwrap();
+        std::fs::write(
+            extra_dir.join("ivy.mine").join("effect.toml"),
+            TINT.replace("alice.tint", "ivy.mine"),
+        )
+        .unwrap();
+
+        let dirs = vec![
+            mine_dir.clone(),
+            extra_dir.clone(),
+            mine_dir.join("not-there"),
+        ];
+        let (catalogue, errors) = Catalogue::assemble(&dirs, &mut |_| Ok(()));
+        assert!(catalogue.get("ivy.mine").is_some() && catalogue.get("ivy.extra").is_some());
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].to_string().contains("ivy.mine"), "{errors:?}");
+        assert_eq!(
+            catalogue.get("ivy.mine").unwrap().folder.as_deref(),
+            Some(mine.as_path()),
+            "the user's own wins"
+        );
+
+        let (_, refused) = Catalogue::assemble(&dirs, &mut |package| {
+            if package.id() == "ivy.extra" {
+                Err("too slow".to_owned())
+            } else {
+                Ok(())
+            }
+        });
+        assert!(
+            refused
+                .iter()
+                .any(|error| error.to_string().contains("too slow"))
+        );
+
+        let both = packages_stamp(&dirs);
+        assert_ne!(both, 0);
+        assert_ne!(packages_stamp(&dirs[..1]), both, "a folder fewer");
+        assert_eq!(packages_stamp(&[mine_dir.join("none")]), 0);
+        let _ = std::fs::remove_dir_all(&mine_dir);
+        let _ = std::fs::remove_dir_all(&extra_dir);
     }
 
     #[test]

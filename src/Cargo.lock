@@ -1164,6 +1164,7 @@ dependencies = [
  "concat-core",
  "concat-effects",
  "concat-export",
+ "concat-extras",
  "concat-host",
  "concat-log",
  "concat-mcp",
@@ -1232,11 +1233,13 @@ dependencies = [
  "concat-api",
  "concat-core",
  "concat-effects",
+ "concat-extras",
  "concat-host",
  "concat-media",
  "concat-render",
  "concat-server",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -1271,12 +1274,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "concat-extras"
+version = "0.2.11"
+dependencies = [
+ "flate2",
+ "log",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.20",
+ "toml",
+]
+
+[[package]]
 name = "concat-host"
 version = "0.2.11"
 dependencies = [
  "concat-core",
  "concat-effects",
  "concat-export",
+ "concat-extras",
  "concat-log",
  "concat-media",
  "concat-project",
@@ -1295,6 +1316,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "toml",
  "ureq 2.12.1",
  "webpki-roots 0.26.11",
  "windows-sys 0.61.2",

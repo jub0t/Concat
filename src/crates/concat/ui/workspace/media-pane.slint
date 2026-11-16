@@ -1687,6 +1687,116 @@ export component ShapeGrid inherits Rectangle {
     }
 }
 
+/// One picture an installed extra brings to the Stickers page.
+export struct StickerCardData {
+    /// `<extra id>/<path>`: what a press hands back to be placed.
+    id: string,
+    name: string,
+    /// the extra it came with
+    extra: string,
+    picture: image,
+}
+
+/// The Stickers page's pictures: every PNG, JPEG and WebP the enabled
+/// extras bring, and the press that places one at the playhead.
+export global Stickers {
+    in property <[StickerCardData]> pictures;
+    callback place(id: string);
+}
+
+// A picture sticker: the picture on a tile, its name under it. A press
+// places it at the playhead, over the picture, as a shape is placed.
+component PictureCard inherits Rectangle {
+    in property <StickerCardData> card;
+
+    callback placed();
+
+    accessible-role: button;
+    accessible-label: root.card.name;
+    accessible-description: root.card.extra;
+    accessible-action-default => { root.placed(); }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.placed(); }
+
+        tile := Rectangle {
+            y: 0;
+            height: root.width;
+            border-radius: Theme.r;
+            background: Theme.field;
+            border-width: 1px;
+            border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+            clip: true;
+
+            Image {
+                x: 6px;
+                y: 6px;
+                width: parent.width - 12px;
+                height: parent.height - 12px;
+                source: root.card.picture;
+                image-fit: contain;
+            }
+
+            if touch.has-hover: Rectangle {
+                x: parent.width - self.width - 4px;
+                y: parent.height - self.height - 4px;
+                width: 20px;
+                height: 20px;
+                border-radius: Theme.r-xs;
+                background: Theme.scrim;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.plus;
+                    size: 11px;
+                    tint: Theme.on-scrim;
+                }
+            }
+        }
+
+        Text {
+            x: 0;
+            y: tile.height + 4px;
+            width: root.width;
+            height: 14px;
+            text: root.card.name;
+            color: Theme.fg-muted;
+            font-size: Theme.fs-xs;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// The Pictures shelf: the same auto-fill arithmetic as ShapeGrid.
+export component PictureGrid inherits Rectangle {
+    in property <[StickerCardData]> cards;
+
+    callback placed(id: string);
+
+    property <length> gap: 8px;
+    property <length> min-card: 88px;
+    property <int> cols: Math.max(1,
+        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    property <length> card-h: root.card-w + 4px + 14px;
+    property <int> rows: Math.ceil(root.cards.length / root.cols);
+
+    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
+
+    for entry[index] in root.cards: PictureCard {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        card: entry;
+
+        placed => { root.placed(entry.id); }
+    }
+}
+
 // ── the pane ─────────────────────────────────────────────────────────────────
 
 // Centred placeholder for a page with nothing on it.
@@ -1868,6 +1978,8 @@ export component MediaPane inherits Rectangle {
     /// 0 = Styles, 1 = Languages, 2 = Captions
     property <int> text-category;
     property <bool> stickers-open: true;
+    /// 0 = Shapes, 1 = Pictures (from Extras)
+    property <int> stickers-category;
     property <bool> transitions-open: true;
     property <bool> effects-open: true;
     property <bool> filters-open: true;
@@ -2216,6 +2328,14 @@ export component MediaPane inherits Rectangle {
                             current: root.audio-category == 0;
                             clicked => { root.audio-category = 0; }
                         }
+                        // The sounds installed extras bring.
+                        if root.sounds-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("sounds.fromExtras");
+                            count: Sounds.extras.length;
+                            current: root.audio-category == 1;
+                            clicked => { root.audio-category = 1; }
+                        }
                         CategoryHeading {
                             height: 26px;
                             title: I18n.t("voices.voices");
@@ -2274,9 +2394,8 @@ export component MediaPane inherits Rectangle {
                         }
                     }
 
-                    // Stickers: the one shelf there is, Shapes, so its row
-                    // is always the current one. Pictures and animated
-                    // stickers are shelves for another day.
+                    // Stickers: the shapes, drawn by Concat, and the pictures
+                    // installed extras bring.
                     if root.tab == 2: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
@@ -2288,7 +2407,15 @@ export component MediaPane inherits Rectangle {
                         if root.stickers-open: CategoryRow {
                             height: 24px;
                             label: I18n.t("mediaPane.shapes");
-                            current: true;
+                            current: root.stickers-category == 0;
+                            clicked => { root.stickers-category = 0; }
+                        }
+                        if root.stickers-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("mediaPane.pictures");
+                            count: Stickers.pictures.length;
+                            current: root.stickers-category == 1;
+                            clicked => { root.stickers-category = 1; }
                         }
                     }
 
@@ -2643,6 +2770,22 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
+                // The sounds extras bring: heard, added and dragged as
+                // the user's own are, never removed from here - that is
+                // the Extras sheet's.
+                if root.tab == 8 && root.audio-category == 1 && Sounds.extras.length > 0: VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    SoundList {
+                        items: Sounds.extras;
+                    }
+                }
+                if root.tab == 8 && root.audio-category == 1 && Sounds.extras.length == 0: Empty {
+                    glyph: Glyph.music;
+                    text: I18n.t("sounds.noExtraSounds");
+                }
+
                 if root.tab == 8 && root.audio-category == 0 && Sounds.mine.length == 0: Empty {
                     glyph: Glyph.music;
                     text: I18n.t("sounds.noSoundsYet");
@@ -2683,13 +2826,29 @@ export component MediaPane inherits Rectangle {
 
                 // The figures. Each card is one shape, placed at the
                 // playhead on a click or dragged onto a lane.
-                if root.tab == 2: HorizontalLayout {
+                if root.tab == 2 && root.stickers-category == 0: HorizontalLayout {
                     padding: 8px;
 
                     ShapeGrid {
                         horizontal-stretch: 1;
                         placed(shape, label) => { root.add-shape(shape, label); }
                     }
+                }
+
+                // The pictures extras bring. Each card is placed at the
+                // playhead on a press, copied into the project first.
+                if root.tab == 2 && root.stickers-category == 1 && Stickers.pictures.length > 0: HorizontalLayout {
+                    padding: 8px;
+
+                    PictureGrid {
+                        horizontal-stretch: 1;
+                        cards: Stickers.pictures;
+                        placed(id) => { Stickers.place(id); }
+                    }
+                }
+                if root.tab == 2 && root.stickers-category == 1 && Stickers.pictures.length == 0: Empty {
+                    glyph: Glyph.sticker;
+                    text: I18n.t("mediaPane.noPictures");
                 }
 
                 if root.tab == 3: VerticalLayout {

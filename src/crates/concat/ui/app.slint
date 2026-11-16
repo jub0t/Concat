@@ -25,6 +25,8 @@ import {
     MediaKind,
     SourcePreview,
     TextPresetData,
+    StickerCardData,
+    Stickers,
 } from "workspace/media-pane.slint";
 import {
     SoundCardData,
@@ -43,6 +45,7 @@ import {
     SettingsDialog,
     SystemFactData,
 } from "dialogs/settings.slint";
+import { ExtraCardData, ExtraDetailData, ExtrasData, ExtrasDialog } from "dialogs/extras.slint";
 import { ProjectDialog, ProjectSheetData } from "dialogs/project.slint";
 import {
     RelinkDialog,
@@ -146,6 +149,8 @@ export {
     MediaKind,
     SourcePreview,
     TextPresetData,
+    StickerCardData,
+    Stickers,
     Backdrop,
     BackdropData,
     ClipData,
@@ -174,6 +179,9 @@ export {
     ExportPhase,
     ModelData,
     SettingsData,
+    ExtrasData,
+    ExtraCardData,
+    ExtraDetailData,
     ChipOption,
     RecentProjectData,
     StartData,
@@ -324,7 +332,7 @@ export component App inherits Window {
     property <length> sheets-top: !root.phone && root.own-window-buttons ? 32px : 0px;
     /// A sheet is up. The strip keeps the window's buttons and its drag
     /// then, and nothing that acts on what the sheet covers.
-    property <bool> sheet-up: root.start.composing || root.export.open || root.settings.open
+    property <bool> sheet-up: root.start.composing || root.export.open || root.settings.open || root.extras.open
         || root.project-sheet.open || root.new-voice.open || root.relink.open
         || root.confirm.open;
     /// Which floating tool card is in front: "captions" or "speech". The
@@ -367,6 +375,9 @@ export component App inherits Window {
     // everything.
     in property <ExportData> export;
     in property <SettingsData> settings;
+    /// The Extras sheet, and the rows its page shows.
+    in property <ExtrasData> extras;
+    in property <[ExtraCardData]> extras-cards;
     in property <[ModelData]> transcribers;
     in property <[ModelData]> voices;
     in property <[string]> versions;
@@ -431,6 +442,22 @@ export component App inherits Window {
     callback model-choose-file(id: string);
 
     callback open-settings();
+    callback open-extras();
+    callback extras-closed();
+    callback extras-page-changed(index: int);
+    callback extras-query-edited(text: string);
+    callback extras-refresh();
+    callback extras-install-file();
+    callback extras-open-folder();
+    callback extras-update-all();
+    callback extras-opened(id: string);
+    callback extras-detail-closed();
+    callback extras-install(id: string);
+    callback extras-update(id: string);
+    callback extras-remove(id: string);
+    callback extras-enable(id: string);
+    callback extras-disable(id: string);
+    callback extras-cancel(id: string);
     callback export-clicked();
 
     /// The project sheet, opened from the Details panel.
@@ -770,6 +797,7 @@ export component App inherits Window {
                 minimize => { root.titlebar-minimize(); }
                 close => { root.titlebar-close(); }
                 open-settings => { root.open-settings(); }
+                open-extras => { root.open-extras(); }
                 add-pane(kind) => { Editor.dock-add(kind); }
                 export-clicked => { root.export-clicked(); }
             }
@@ -1011,6 +1039,45 @@ export component App inherits Window {
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }
         again => { root.export-again(); }
+    }
+
+    ExtrasDialog {
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: root.sheets-top;
+        width: root.width;
+        height: root.height - root.sheets-top;
+        phone: root.phone;
+        data: root.extras;
+        cards: root.extras-cards;
+        transcribers: root.transcribers;
+        voices: root.voices;
+
+        closed => { root.extras-closed(); }
+        page-changed(index) => { root.extras-page-changed(index); }
+        query-edited(text) => { root.extras-query-edited(text); }
+        refresh => { root.extras-refresh(); }
+        install-file => { root.extras-install-file(); }
+        open-folder => { root.extras-open-folder(); }
+        update-all => { root.extras-update-all(); }
+        opened(id) => { root.extras-opened(id); }
+        detail-closed => { root.extras-detail-closed(); }
+        install(id) => { root.extras-install(id); }
+        update(id) => { root.extras-update(id); }
+        remove(id) => { root.extras-remove(id); }
+        enable(id) => { root.extras-enable(id); }
+        disable(id) => { root.extras-disable(id); }
+        cancel(id) => { root.extras-cancel(id); }
+        // The AI models page is the Settings rows, and answers as they do.
+        model-activated(id) => { root.model-activated(id); }
+        model-download(id) => { root.model-download(id); }
+        model-cancel(id) => { root.model-cancel(id); }
+        model-remove(id) => { root.model-remove(id); }
+        model-open-link(id) => { root.model-open-link(id); }
+        model-choose-file(id) => { root.model-choose-file(id); }
     }
 
     SettingsDialog {

@@ -1,0 +1,34 @@
+[package]
+name = "concat-extras"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Extras: optional, downloadable content packages - their format, the signed repository index, dependency plans, the install database and the install pipeline. No network and no UI."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+# Manifests are TOML, as an effect's is: the format people hand-write. The
+# index and the install database are JSON, as the project file is.
+toml = "1.1"
+# Versions and the ranges a requirement names.
+semver = "1"
+# Every file's digest, and the archive's.
+sha2 = "0.10"
+# Ed25519, for the repository index's signature. The same ring rustls is
+# built on, so nothing new is compiled.
+ring = "0.17"
+# A .concatpkg is a gzip'd tar: a format every platform's own tools can
+# open and inspect, where a bespoke container could only be read by us.
+# Both crates were already in the tree.
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
+log = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

@@ -1,0 +1,698 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button, Field, Progress, Sheet } from "../primitives/modal.slint";
+import { PaneScroll } from "../workspace/pane.slint";
+import { FocusRing } from "../primitives/focus-ring.slint";
+import { ModelData, ModelRow, PageTab } from "settings.slint";
+
+// Extras: what can be added to Concat after it is installed - effect and
+// transition packs, fonts, title presets, stickers, sounds, and the AI
+// models - in one sheet shaped like Settings: a column of pages down the
+// side, the page beside it. A row is one extra; pressing it opens its page
+// over the list. Rust narrows the rows to the page and the search, so
+// nothing here filters.
+
+/// One extra, as a row shows it.
+export struct ExtraCardData {
+    id: string,
+    name: string,
+    summary: string,
+    /// "A Studio · 1.2.0 · 4.1 MB"
+    meta: string,
+    /// the shelf's name, in the reader's language
+    category: string,
+    /// 0 available, 1 installed, 2 update available, 3 working, 4 failed,
+    /// 5 cannot be used here, 6 installed and switched off
+    state: int,
+    /// what the badge says: "Installed", "Update to 1.3.0", "Downloading 40 %"
+    badge: string,
+    /// 0..1 while working
+    progress: float,
+    /// why the last attempt failed, or why it cannot be used here
+    problem: string,
+    /// a signed index vouches for it
+    verified: bool,
+}
+
+/// The page an extra opens to.
+export struct ExtraDetailData {
+    open: bool,
+    card: ExtraCardData,
+    description: string,
+    /// "Licence CC-BY-4.0 · Installed 1.0.0 · 12 MB on disk"
+    facts: string,
+    /// what it brings, one per line
+    provides: string,
+    /// what it needs, one per line, with whether each is here
+    requires: string,
+    /// where it came from: a repository, a verified file, an unverified one
+    origin: string,
+    changelog: string,
+    homepage: string,
+    can-install: bool,
+    can-update: bool,
+    can-remove: bool,
+    can-enable: bool,
+    can-disable: bool,
+    can-cancel: bool,
+}
+
+export struct ExtrasData {
+    open: bool,
+    /// 0 Discover, 1 Installed, 2 Updates, 3 Downloads, 4..10 the shelves
+    /// (effects, transitions, fonts, titles, stickers, audio, other),
+    /// 11 AI models
+    page: int,
+    query: string,
+    /// the footer: the repositories and when they were read, or why not
+    status: string,
+    /// the footer is a problem, drawn in the warning tone
+    trouble: bool,
+    refreshing: bool,
+    /// how many installed extras have a newer version
+    updates: int,
+    /// how many are downloading or installing
+    working: int,
+    /// what the empty page says, when the rows are none
+    empty: string,
+    detail: ExtraDetailData,
+}
+
+component Badge inherits Rectangle {
+    in property <string> text;
+    in property <int> state;
+
+    height: 20px;
+    width: label.preferred-width + 14px;
+    border-radius: 10px;
+    background: root.state == 1 || root.state == 6 ? Theme.field
+        : root.state == 2 ? Theme.accent-soft
+        : root.state == 4 || root.state == 5 ? Theme.danger-soft
+        : root.state == 3 ? Theme.accent-soft
+        : Colors.transparent;
+    border-width: root.state == 0 ? 1px : 0px;
+    border-color: Theme.line;
+
+    label := Text {
+        x: 7px;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        font-size: Theme.fs-xs;
+        color: root.state == 4 || root.state == 5 ? Theme.danger
+            : root.state == 2 || root.state == 3 ? Theme.accent
+            : Theme.fg-muted;
+    }
+}
+
+// One extra in a list: its mark, its name and line, what it is, and the one
+// button that moves it on - Install, Update, or nothing while it works.
+component ExtraRow inherits Rectangle {
+    in property <ExtraCardData> card;
+    in property <bool> compact;
+
+    callback opened();
+    callback install();
+    callback update();
+    callback cancel();
+
+    height: body.preferred-height;
+    border-radius: Theme.r;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+    background: Theme.raised;
+    accessible-role: button;
+    accessible-label: root.card.name;
+    accessible-description: root.card.summary;
+    accessible-action-default => { root.opened(); }
+
+    // Reached by Tab; Return or Space opens the extra's page, where its
+    // actions are.
+    property <bool> ring;
+    fs := FocusScope {
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.opened();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(); }
+    }
+
+    body := VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            spacing: 10px;
+
+            Rectangle {
+                width: 36px;
+                height: 36px;
+                border-radius: Theme.r;
+                background: Theme.well;
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.extras;
+                    size: 18px;
+                    tint: root.card.state == 1 || root.card.state == 2 ? Theme.accent : Theme.fg-muted;
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 2px;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: root.card.name;
+                        color: Theme.fg;
+                        font-size: Theme.fs;
+                        font-weight: Theme.weight-title;
+                        overflow: elide;
+                    }
+                    if !root.card.verified && root.card.state != 0: Text {
+                        text: I18n.t("extras.unverified");
+                        color: Theme.warn;
+                        font-size: Theme.fs-xs;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                Text {
+                    text: root.card.summary;
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.card.category + " · " + root.card.meta;
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-xs;
+                    overflow: elide;
+                }
+            }
+
+            if !root.compact: VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
+                spacing: 6px;
+                Badge { text: root.card.badge; state: root.card.state; }
+            }
+
+            if !root.compact: VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
+                if root.card.state == 0 || root.card.state == 4: Button {
+                    label: I18n.t("extras.install");
+                    primary: root.card.state == 0;
+                    clicked => { root.install(); }
+                }
+                if root.card.state == 2: Button {
+                    label: I18n.t("extras.update");
+                    primary: true;
+                    clicked => { root.update(); }
+                }
+                if root.card.state == 3: Button {
+                    label: I18n.t("common.cancel");
+                    ghost: true;
+                    clicked => { root.cancel(); }
+                }
+            }
+        }
+
+        if root.card.state == 3: Progress {
+            height: 4px;
+            value: root.card.progress;
+            live: true;
+        }
+        if root.card.problem != "": Text {
+            text: root.card.problem;
+            color: root.card.state == 5 ? Theme.fg-muted : Theme.danger;
+            font-size: Theme.fs-xs;
+            wrap: word-wrap;
+        }
+        if root.compact: HorizontalLayout {
+            spacing: 6px;
+            Badge { text: root.card.badge; state: root.card.state; }
+            Rectangle { horizontal-stretch: 1; }
+            if root.card.state == 0 || root.card.state == 4: Button {
+                label: I18n.t("extras.install");
+                primary: root.card.state == 0;
+                clicked => { root.install(); }
+            }
+            if root.card.state == 2: Button {
+                label: I18n.t("extras.update");
+                primary: true;
+                clicked => { root.update(); }
+            }
+            if root.card.state == 3: Button {
+                label: I18n.t("common.cancel");
+                ghost: true;
+                clicked => { root.cancel(); }
+            }
+        }
+    }
+
+    FocusRing {
+        active: root.ring;
+        radius: Theme.r;
+    }
+}
+
+// A labelled paragraph on an extra's page.
+component Paragraph inherits VerticalLayout {
+    in property <string> label;
+    in property <string> text;
+
+    spacing: 3px;
+
+    Text {
+        text: root.label;
+        color: Theme.fg-dim;
+        font-size: Theme.fs-xs;
+        font-weight: Theme.weight-title;
+    }
+    Text {
+        text: root.text;
+        color: Theme.fg;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+}
+
+// An extra's page: everything known about it, and every action it has.
+component ExtraDetail inherits VerticalLayout {
+    in property <ExtraDetailData> detail;
+
+    callback back();
+    callback install();
+    callback update();
+    callback remove();
+    callback enable();
+    callback disable();
+    callback cancel();
+
+    spacing: 12px;
+
+    HorizontalLayout {
+        alignment: start;
+        Button {
+            label: I18n.t("extras.allExtras");
+            glyph: Glyph.chevron-left;
+            ghost: true;
+            clicked => { root.back(); }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 14px;
+        Rectangle {
+            width: 56px;
+            height: 56px;
+            border-radius: Theme.r-lg;
+            background: Theme.well;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.extras;
+                size: 28px;
+                tint: Theme.accent;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 3px;
+            Text {
+                text: root.detail.card.name;
+                color: Theme.fg;
+                font-size: Theme.fs-xl;
+                font-weight: Theme.weight-display;
+                wrap: word-wrap;
+            }
+            Text {
+                text: root.detail.card.category + " · " + root.detail.card.meta;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: start;
+                Badge { text: root.detail.card.badge; state: root.detail.card.state; }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        if root.detail.can-install: Button {
+            label: I18n.t("extras.install");
+            primary: true;
+            large: true;
+            clicked => { root.install(); }
+        }
+        if root.detail.can-update: Button {
+            label: I18n.t("extras.update");
+            primary: true;
+            large: true;
+            clicked => { root.update(); }
+        }
+        if root.detail.can-cancel: Button {
+            label: I18n.t("common.cancel");
+            large: true;
+            clicked => { root.cancel(); }
+        }
+        if root.detail.can-disable: Button {
+            label: I18n.t("extras.switchOff");
+            large: true;
+            clicked => { root.disable(); }
+        }
+        if root.detail.can-enable: Button {
+            label: I18n.t("extras.switchOn");
+            primary: true;
+            large: true;
+            clicked => { root.enable(); }
+        }
+        if root.detail.can-remove: Button {
+            label: I18n.t("extras.remove");
+            danger: true;
+            large: true;
+            clicked => { root.remove(); }
+        }
+    }
+
+    if root.detail.card.state == 3: Progress {
+        height: 4px;
+        value: root.detail.card.progress;
+        live: true;
+    }
+    if root.detail.card.problem != "": Text {
+        text: root.detail.card.problem;
+        color: root.detail.card.state == 5 ? Theme.fg-muted : Theme.danger;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+
+    Text {
+        text: root.detail.card.summary;
+        color: Theme.fg;
+        font-size: Theme.fs;
+        wrap: word-wrap;
+    }
+    if root.detail.description != "": Paragraph { label: I18n.t("extras.about"); text: root.detail.description; }
+    if root.detail.facts != "": Paragraph { label: I18n.t("extras.details"); text: root.detail.facts; }
+    if root.detail.provides != "": Paragraph { label: I18n.t("extras.provides"); text: root.detail.provides; }
+    if root.detail.requires != "": Paragraph { label: I18n.t("extras.needs"); text: root.detail.requires; }
+    if root.detail.origin != "": Paragraph { label: I18n.t("extras.source"); text: root.detail.origin; }
+    if root.detail.changelog != "": Paragraph { label: I18n.t("extras.whatsNew"); text: root.detail.changelog; }
+    if root.detail.homepage != "": Paragraph { label: I18n.t("extras.homepage"); text: root.detail.homepage; }
+}
+
+export component ExtrasDialog inherits Sheet {
+    in property <ExtrasData> data;
+    in property <[ExtraCardData]> cards;
+    in property <[ModelData]> transcribers;
+    in property <[ModelData]> voices;
+    in property <bool> phone;
+
+    callback page-changed(index: int);
+    callback query-edited(text: string);
+    callback refresh();
+    callback install-file();
+    callback open-folder();
+    callback update-all();
+    callback opened(id: string);
+    callback detail-closed();
+    callback install(id: string);
+    callback update(id: string);
+    callback remove(id: string);
+    callback enable(id: string);
+    callback disable(id: string);
+    callback cancel(id: string);
+    callback model-activated(id: string);
+    callback model-download(id: string);
+    callback model-cancel(id: string);
+    callback model-remove(id: string);
+    callback model-open-link(id: string);
+    callback model-choose-file(id: string);
+
+    property <bool> compact: root.width < 600px;
+
+    property <[{label: string, glyph: Glyph, page: int}]> page-list: [
+        {label: I18n.t("extras.discover"), glyph: Glyph.sparkle, page: 0},
+        {label: I18n.t("extras.installed"), glyph: Glyph.check, page: 1},
+        {label: root.data.updates > 0 ? I18n.t1("extras.updatesCount", root.data.updates) : I18n.t("extras.updates"), glyph: Glyph.reset, page: 2},
+        {label: root.data.working > 0 ? I18n.t1("extras.downloadsCount", root.data.working) : I18n.t("extras.downloads"), glyph: Glyph.import, page: 3},
+        {label: I18n.t("extras.shelfEffects"), glyph: Glyph.wand, page: 4},
+        {label: I18n.t("extras.shelfTransitions"), glyph: Glyph.transition, page: 5},
+        {label: I18n.t("extras.shelfFonts"), glyph: Glyph.text-mark, page: 6},
+        {label: I18n.t("extras.shelfTitles"), glyph: Glyph.frame, page: 7},
+        {label: I18n.t("extras.shelfStickers"), glyph: Glyph.sticker, page: 8},
+        {label: I18n.t("extras.shelfAudio"), glyph: Glyph.music, page: 9},
+        {label: I18n.t("extras.shelfAiModels"), glyph: Glyph.waveform, page: 11},
+        {label: I18n.t("extras.shelfOther"), glyph: Glyph.extras, page: 10},
+    ];
+
+    open: root.data.open;
+    title: I18n.t("extras.title");
+    glyph: Glyph.extras;
+
+    property <length> column: 1080px;
+    property <length> pages: root.compact ? 0px : 200px;
+
+    HorizontalLayout {
+        vertical-stretch: 1;
+        padding-top: root.compact ? 0px : 12px;
+        padding-left: Math.max(0px, (root.width - root.column) / 2);
+        padding-right: Math.max(0px, (root.width - root.column) / 2);
+
+        // The column of pages, or a row of them across the top.
+        if !root.compact: Rectangle {
+            width: root.pages;
+            VerticalLayout {
+                padding: 8px;
+                spacing: 2px;
+                alignment: start;
+                for entry in root.page-list: PageTab {
+                    label: entry.label;
+                    glyph: entry.glyph;
+                    current: root.data.page == entry.page;
+                    clicked => { root.page-changed(entry.page); }
+                }
+            }
+        }
+        if !root.compact: Rectangle {
+            width: 1px;
+            background: Theme.line;
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+
+            if root.compact: Flickable {
+                height: 46px;
+                content-width: Math.max(self.width, tabs.preferred-width);
+                tabs := HorizontalLayout {
+                    padding: 8px;
+                    spacing: 4px;
+                    alignment: start;
+                    for entry in root.page-list: PageTab {
+                        min-width: self.preferred-width;
+                        label: entry.label;
+                        glyph: entry.glyph;
+                        current: root.data.page == entry.page;
+                        clicked => { root.page-changed(entry.page); }
+                    }
+                }
+            }
+
+            // Search and the sheet's own actions.
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 6px;
+                if root.data.page != 11: Field {
+                    value: root.data.query;
+                    placeholder: I18n.t("extras.search");
+                    edited(text) => { root.query-edited(text); }
+                }
+                if root.data.page == 11: Rectangle { horizontal-stretch: 1; }
+                Button {
+                    label: root.data.refreshing ? I18n.t("extras.refreshing") : I18n.t("extras.refresh");
+                    glyph: Glyph.reset;
+                    enabled: !root.data.refreshing;
+                    clicked => { root.refresh(); }
+                }
+                if !root.compact: Button {
+                    label: I18n.t("extras.installFromFile");
+                    glyph: Glyph.import;
+                    clicked => { root.install-file(); }
+                }
+                if !root.compact && !root.phone: Button {
+                    label: I18n.t("extras.openFolder");
+                    glyph: Glyph.folder;
+                    ghost: true;
+                    clicked => { root.open-folder(); }
+                }
+            }
+
+            PaneScroll {
+                vertical-stretch: 1;
+                finger: root.phone;
+
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 16px;
+                    spacing: 8px;
+
+                    // An extra's own page, over the list.
+                    if root.data.detail.open && root.data.page != 11: ExtraDetail {
+                        detail: root.data.detail;
+                        back => { root.detail-closed(); }
+                        install => { root.install(root.data.detail.card.id); }
+                        update => { root.update(root.data.detail.card.id); }
+                        remove => { root.remove(root.data.detail.card.id); }
+                        enable => { root.enable(root.data.detail.card.id); }
+                        disable => { root.disable(root.data.detail.card.id); }
+                        cancel => { root.cancel(root.data.detail.card.id); }
+                    }
+
+                    // The AI models: Concat's own, downloaded as Settings
+                    // downloads them, here beside everything else that is
+                    // added after installing.
+                    if root.data.page == 11: VerticalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: I18n.t("extras.aiModelsNote");
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs-sm;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: I18n.t("common.transcriber");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            font-weight: Theme.weight-title;
+                        }
+                        for model in root.transcribers: ModelRow {
+                            compact: root.compact;
+                            model: model;
+                            activated => { root.model-activated(model.id); }
+                            download => { root.model-download(model.id); }
+                            cancel => { root.model-cancel(model.id); }
+                            remove => { root.model-remove(model.id); }
+                            open-link => { root.model-open-link(model.id); }
+                            choose-file => { root.model-choose-file(model.id); }
+                        }
+                        Text {
+                            text: I18n.t("common.speech");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            font-weight: Theme.weight-title;
+                        }
+                        for model in root.voices: ModelRow {
+                            compact: root.compact;
+                            model: model;
+                            activated => { root.model-activated(model.id); }
+                            download => { root.model-download(model.id); }
+                            cancel => { root.model-cancel(model.id); }
+                            remove => { root.model-remove(model.id); }
+                            open-link => { root.model-open-link(model.id); }
+                            choose-file => { root.model-choose-file(model.id); }
+                        }
+                        Text {
+                            text: I18n.t("extras.aiEngines");
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs-xs;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    if !root.data.detail.open && root.data.page != 11: VerticalLayout {
+                        spacing: 8px;
+
+                        if root.data.page == 2 && root.data.updates > 1: HorizontalLayout {
+                            alignment: end;
+                            Button {
+                                label: I18n.t("extras.updateAll");
+                                primary: true;
+                                clicked => { root.update-all(); }
+                            }
+                        }
+
+                        for card in root.cards: ExtraRow {
+                            card: card;
+                            compact: root.compact;
+                            opened => { root.opened(card.id); }
+                            install => { root.install(card.id); }
+                            update => { root.update(card.id); }
+                            cancel => { root.cancel(card.id); }
+                        }
+
+                        if root.cards.length == 0: VerticalLayout {
+                            padding-top: 48px;
+                            spacing: 8px;
+                            alignment: start;
+                            HorizontalLayout {
+                                alignment: center;
+                                Icon {
+                                    glyph: Glyph.extras;
+                                    size: 32px;
+                                    tint: Theme.fg-dim;
+                                }
+                            }
+                            Text {
+                                text: root.data.empty;
+                                color: Theme.fg-muted;
+                                font-size: Theme.fs;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Where the list came from, or why there is none.
+            Rectangle {
+                height: footer.preferred-height;
+                background: root.data.trouble ? Theme.danger-soft : Colors.transparent;
+                footer := HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.status;
+                        color: root.data.trouble ? Theme.danger : Theme.fg-dim;
+                        font-size: Theme.fs-xs;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}

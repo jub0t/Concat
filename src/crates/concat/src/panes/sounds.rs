@@ -34,6 +34,8 @@ use crate::ui::{SoundCardData, VoiceCardData};
 
 /// The prefix of a card id on the Mine shelf.
 const MINE: &str = "mine-";
+/// A sound an installed extra brings: `extra-<extra id>/<path>`.
+const EXTRA: &str = "extra-";
 /// The prefix of a card id on the Concat shelf.
 const CONCAT: &str = "concat-";
 
@@ -117,6 +119,10 @@ pub struct SoundsPane {
     /// published on every frame of playback, and the path is the one
     /// expensive line of one.
     waves: RefCell<HashMap<String, SharedString>>,
+    /// The sounds the enabled extras bring, with their lengths: the From
+    /// Extras shelf. Read again whenever an extra is installed, removed or
+    /// switched; see `panes::extras`.
+    pub extras: Vec<(concat_host::extras::ExtraFile, f64)>,
 }
 
 impl SoundsPane {
@@ -297,6 +303,12 @@ impl SoundsPane {
     /// The name and the file a card stands for, when it is on disk: a
     /// sound of the user's own, or one of Concat's already downloaded.
     pub fn file_of(&self, card: &str) -> Option<(String, PathBuf)> {
+        if let Some((file, _)) = self.extra(card) {
+            return file
+                .path
+                .is_file()
+                .then(|| (file.name.clone(), file.path.clone()));
+        }
         if let Some(sound) = self.listed(card) {
             let path = sounds::cached_file(self.dirs.as_ref()?, sound);
             return path.is_file().then(|| (sound.name.clone(), path));
@@ -308,6 +320,9 @@ impl SoundsPane {
 
     /// A card as a payload names it, for a drop: its name and its length.
     pub fn summary(&self, card: &str) -> Option<(String, f64)> {
+        if let Some((file, duration)) = self.extra(card) {
+            return Some((file.name.clone(), *duration));
+        }
         if let Some(sound) = self.listed(card) {
             return Some((sound.name.clone(), sound.duration));
         }
@@ -384,6 +399,29 @@ impl SoundsPane {
             .collect()
     }
 
+    /// The extra's sound a card names.
+    fn extra(&self, card: &str) -> Option<&(concat_host::extras::ExtraFile, f64)> {
+        let id = card.strip_prefix(EXTRA)?;
+        self.extras.iter().find(|(file, _)| file.id == id)
+    }
+
+    /// The From Extras shelf's cards.
+    pub fn extra_rows(&self) -> Vec<SoundCardData> {
+        self.extras
+            .iter()
+            .map(|(file, duration)| SoundCardData {
+                id: format!("{EXTRA}{}", file.id).into(),
+                name: file.name.as_str().into(),
+                duration: *duration as f32,
+                wave: SharedString::new(),
+                detail: file.extra.as_str().into(),
+                removable: false,
+                ready: true,
+                progress: -1.0,
+            })
+            .collect()
+    }
+
     /// The Mine shelf's cards.
     pub fn mine(&self) -> Vec<SoundCardData> {
         self.library
@@ -436,6 +474,35 @@ fn display_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+/// Whether the project's copy `held` is the file `source`, of `size` bytes:
+/// the same size and the same bytes. The size alone is not enough - an
+/// extra's update can bring a sound of the same name and length that
+/// sounds different - and a copy that is not the file is never reused or
+/// overwritten: the new one takes a numbered name beside it.
+fn same_contents(held: &Path, source: &Path, size: u64) -> bool {
+    use std::io::Read as _;
+    if std::fs::metadata(held).map(|meta| meta.len()).ok() != Some(size) {
+        return false;
+    }
+    let (Ok(mut a), Ok(mut b)) = (std::fs::File::open(held), std::fs::File::open(source)) else {
+        return false;
+    };
+    let mut left = vec![0u8; 64 * 1024];
+    let mut right = vec![0u8; 64 * 1024];
+    loop {
+        let Ok(n) = a.read(&mut left) else {
+            return false;
+        };
+        if n == 0 {
+            // The held copy is done; so must the source be.
+            return matches!(b.read(&mut right[..1]), Ok(0));
+        }
+        if b.read_exact(&mut right[..n]).is_err() || left[..n] != right[..n] {
+            return false;
+        }
+    }
 }
 
 impl Studio {
@@ -586,15 +653,23 @@ impl Studio {
 
     /// The bin's id for a library sound in this project: its copy in the
     /// project's `audio` folder, made and imported when it is not there
-    /// yet. A file of that name that is not this sound - another size -
-    /// leaves it alone and the copy takes a numbered name.
+    /// yet. A file of that name that is not this sound - another size or
+    /// other bytes - is left alone and the copy takes a numbered name.
     fn adopt_sound(&mut self, name: &str, path: &Path) -> Result<String, String> {
+        self.adopt_file(name, path, "audio")
+    }
+
+    /// [`Studio::adopt_sound`] for any file kept outside the project - a
+    /// library sound, an extra's sound or picture: its copy in the
+    /// project's `folder`, so the project never points into a library an
+    /// extra could be removed from.
+    pub fn adopt_file(&mut self, name: &str, path: &Path, folder: &str) -> Result<String, String> {
         let project = self
             .session
             .as_ref()
             .map(|session| PathBuf::from(session.path()))
             .ok_or_else(|| t("sounds.openProjectFirst"))?;
-        let folder = project.join("audio");
+        let folder = project.join(folder);
         let size = std::fs::metadata(path)
             .map_err(|error| format!("{}: {error}", path.display()))?
             .len();
@@ -608,9 +683,7 @@ impl Studio {
             .unwrap_or_default();
         let mut target = folder.join(format!("{stem}{extension}"));
         let mut n = 2;
-        while target.exists()
-            && std::fs::metadata(&target).map(|meta| meta.len()).ok() != Some(size)
-        {
+        while target.exists() && !same_contents(&target, path, size) {
             target = folder.join(format!("{stem} {n}{extension}"));
             n += 1;
         }
@@ -641,5 +714,28 @@ impl Studio {
                     .map(|item| item.id.clone())
             })
             .ok_or_else(|| tf("sounds.couldNotCopy", &[&name, &"?"]))
+    }
+}
+
+#[cfg(test)]
+mod same_contents_tests {
+    use super::same_contents;
+
+    #[test]
+    fn a_copy_is_the_file_only_when_its_bytes_are() {
+        let root =
+            std::env::temp_dir().join(format!("concat-same-contents-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.wav");
+        let held = root.join("held.wav");
+        std::fs::write(&source, b"RIFF one").unwrap();
+        std::fs::write(&held, b"RIFF one").unwrap();
+        assert!(same_contents(&held, &source, 8));
+        std::fs::write(&held, b"RIFF two").unwrap();
+        assert!(!same_contents(&held, &source, 8), "same size, other bytes");
+        std::fs::write(&held, b"RIFF one more").unwrap();
+        assert!(!same_contents(&held, &source, 8), "another size");
+        assert!(!same_contents(&root.join("gone"), &source, 8));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

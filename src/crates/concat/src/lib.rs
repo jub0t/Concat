@@ -563,6 +563,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.global::<Sounds>()
             .set_mine(ModelRc::from(models.sounds_mine.clone()));
         app.global::<Sounds>()
+            .set_extras(ModelRc::from(models.sounds_extras.clone()));
+        app.global::<crate::ui::Stickers>()
+            .set_pictures(ModelRc::from(models.sticker_pictures.clone()));
+        app.global::<Sounds>()
             .set_voices_saved(ModelRc::from(models.voices_saved.clone()));
         app.global::<Sounds>()
             .set_concat(ModelRc::from(models.sounds_concat.clone()));
@@ -573,6 +577,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         app.set_voiceover_devices(ModelRc::from(models.voiceover_devices.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
+        app.set_extras_cards(ModelRc::from(models.extras_cards.clone()));
         app.set_voices(ModelRc::from(models.voices.clone()));
         app.set_versions(ModelRc::from(models.versions.clone()));
         app.set_version_details(ModelRc::from(models.version_details.clone()));
@@ -2211,6 +2216,64 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_closed(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::Close));
     }));
+
+    // ── the Extras sheet ──
+    {
+        use panes::extras::ExtrasMsg;
+        app.on_open_extras(on_window!(|state| {
+            state.handle(Msg::Extras(ExtrasMsg::Open));
+        }));
+        app.on_extras_closed(on_window!(|state| {
+            state.handle(Msg::Extras(ExtrasMsg::Close));
+        }));
+        app.on_extras_page_changed(on_window!(|state, page: i32| {
+            state.handle(Msg::Extras(ExtrasMsg::PageChanged(page)));
+        }));
+        app.on_extras_query_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::QueryEdited(text.to_string())));
+        }));
+        app.on_extras_refresh(on_window!(|state| {
+            state.handle(Msg::Extras(ExtrasMsg::Refresh));
+        }));
+        app.on_extras_install_file(on_window!(|state| {
+            state.handle(Msg::Extras(ExtrasMsg::InstallFile));
+        }));
+        app.on_extras_open_folder(on_window!(|state| {
+            state.handle(Msg::Extras(ExtrasMsg::OpenFolder));
+        }));
+        app.on_extras_update_all(on_window!(|state| {
+            state.handle(Msg::Extras(ExtrasMsg::UpdateAll));
+        }));
+        app.on_extras_opened(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::Opened(id.to_string())));
+        }));
+        app.on_extras_detail_closed(on_window!(|state| {
+            state.handle(Msg::Extras(ExtrasMsg::DetailClosed));
+        }));
+        app.on_extras_install(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::Install(id.to_string())));
+        }));
+        app.on_extras_update(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::Update(id.to_string())));
+        }));
+        app.on_extras_remove(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::Remove(id.to_string())));
+        }));
+        app.on_extras_enable(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::Enable(id.to_string())));
+        }));
+        app.on_extras_disable(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::Disable(id.to_string())));
+        }));
+        app.on_extras_cancel(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Extras(ExtrasMsg::Cancel(id.to_string())));
+        }));
+        // A picture an extra brings, pressed on the Stickers page.
+        app.global::<crate::ui::Stickers>()
+            .on_place(on_window!(|state, id: SharedString| {
+                state.place_sticker(&id);
+            }));
+    }
     app.on_export_name_edited(on_window!(|state, name: SharedString| {
         state.handle(Msg::Export(ExportMsg::NameEdited(name.to_string())));
     }));

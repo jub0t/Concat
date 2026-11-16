@@ -26,6 +26,11 @@ concat-export.workspace = true
 concat-effects.workspace = true
 # Titles become pictures here; see titles.rs.
 concat-text.workspace = true
+# Extras: the package format, the signed index and the install pipeline;
+# extras.rs fetches and vets, concat-extras decides. TOML for the
+# repositories file a person writes.
+concat-extras.workspace = true
+toml = "1.1"
 # The cutout models and their masks; `infer` because the host is what
 # runs them, and ureq because the host is what fetches them.
 concat-vision = { workspace = true, features = ["infer"] }

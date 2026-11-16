@@ -192,6 +192,8 @@ export enum Glyph {
     move,
     wand,
     sliders,
+    // Extras: a box, drawn for this mark (not from an icon library)
+    extras,
 }
 
 component Stroked inherits Path {
@@ -281,6 +283,11 @@ export component Icon inherits Rectangle {
     }
 
     // lucide/folder
+    if root.glyph == Glyph.extras: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 2.5 20.5 7v10L12 21.5 3.5 17V7Z" + "M3.5 7 12 11.5 20.5 7" + "M12 11.5v10" + "M7.75 4.75 16.25 9.25";
+    }
+
     if root.glyph == Glyph.folder: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9"

@@ -168,6 +168,14 @@ pub enum Request {
         kind: Option<String>,
     },
 
+    /// The extras installed on this machine - optional content packs
+    /// added after Concat was installed - with what each brings and
+    /// whether it is switched on. Read only: installing and removing are
+    /// the Extras sheet's, where a person sees what is being trusted. The
+    /// effects an enabled extra brings are in `catalogue.list` too.
+    #[serde(rename = "extras.list")]
+    ExtrasList,
+
     /// The template library.
     #[serde(rename = "template.list")]
     TemplateList,
@@ -322,6 +330,8 @@ pub enum Reply {
     Media(MediaSummary),
     /// [`Request::CatalogueList`].
     Packages(Vec<PackageInfo>),
+    /// [`Request::ExtrasList`].
+    Extras(Vec<ExtraInfo>),
     /// [`Request::TemplateList`].
     Templates(Vec<TemplateInfo>),
     /// [`Request::TemplateSave`].
@@ -513,6 +523,32 @@ pub struct PackageInfo {
     pub intensity: Option<String>,
     /// The knobs, in the order the inspector shows them.
     pub params: Vec<ParamInfo>,
+}
+
+/// One installed extra, as [`Request::ExtrasList`] reports it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraInfo {
+    /// Its id, `author.name`.
+    pub id: String,
+    /// What the Extras sheet calls it.
+    pub name: String,
+    /// Its version.
+    pub version: String,
+    /// Who made it.
+    pub author: String,
+    /// Its shelf: effects, transitions, fonts, titles, stickers, audio
+    /// or other.
+    pub category: String,
+    /// Switched on: what it brings is offered.
+    pub enabled: bool,
+    /// A repository's signed index vouched for it.
+    pub verified: bool,
+    /// What it brings: effects, fonts, title-presets, stickers, sounds.
+    pub kinds: Vec<String>,
+    /// The ids a project can name that it provides: effect ids.
+    pub provides_ids: Vec<String>,
 }
 
 /// One parameter of a package.

@@ -904,6 +904,20 @@ pub fn package_stamp(dir: &Path) -> u64 {
     hasher.finish().max(1)
 }
 
+/// [`package_stamp`] over several folders: changes when any of them does,
+/// or when the list itself does - an extra installed, removed or switched
+/// off adds or takes away a folder. Every folder missing is 0.
+pub fn packages_stamp(dirs: &[PathBuf]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let stamps: Vec<(&PathBuf, u64)> = dirs.iter().map(|dir| (dir, package_stamp(dir))).collect();
+    if stamps.iter().all(|(_, stamp)| *stamp == 0) {
+        return 0;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    stamps.hash(&mut hasher);
+    hasher.finish().max(1)
+}
+
 /// The package folders directly under `dir`, sorted: every folder with an
 /// `effect.toml` in it. Anything else there is left alone, so a stray file
 /// or a folder of notes beside the packages costs nothing.
@@ -990,12 +1004,35 @@ impl Catalogue {
         dir: &Path,
         vet: &mut dyn FnMut(&Package) -> Result<(), String>,
     ) -> Vec<Error> {
+        Self::install_from(&[dir.to_path_buf()], vet)
+    }
+
+    /// [`Catalogue::install_with`] over several folders, in order: the
+    /// user's own packages first, then each installed extra's. A package
+    /// whose id an earlier folder already gave is refused and reported,
+    /// as a duplicate in one folder is, so two sources never silently
+    /// stand in for each other. A folder that is not there is passed over.
+    pub fn install_from(
+        dirs: &[PathBuf],
+        vet: &mut dyn FnMut(&Package) -> Result<(), String>,
+    ) -> Vec<Error> {
+        let (catalogue, errors) = Self::assemble(dirs, vet);
+        let built: &'static Catalogue = Box::leak(Box::new(catalogue));
+        *CURRENT.write().expect("catalogue lock") = Some(built);
+        errors
+    }
+
+    /// The catalogue [`Catalogue::install_from`] would make, and what it
+    /// would report, without making it the app's.
+    pub fn assemble(
+        dirs: &[PathBuf],
+        vet: &mut dyn FnMut(&Package) -> Result<(), String>,
+    ) -> (Catalogue, Vec<Error>) {
         let mut catalogue = Catalogue::compiled_in();
-        let mut errors = if dir.is_dir() {
-            catalogue.load_dir(dir)
-        } else {
-            Vec::new()
-        };
+        let mut errors = Vec::new();
+        for dir in dirs.iter().filter(|dir| dir.is_dir()) {
+            errors.extend(catalogue.load_dir(dir));
+        }
         let refused: Vec<(String, String)> = catalogue
             .packages
             .iter()
@@ -1006,9 +1043,7 @@ impl Catalogue {
             catalogue.remove(&id);
             errors.push(Error::Invalid { id, message });
         }
-        let built: &'static Catalogue = Box::leak(Box::new(catalogue));
-        *CURRENT.write().expect("catalogue lock") = Some(built);
-        errors
+        (catalogue, errors)
     }
 
     /// Takes a package out, by id, and reindexes what is left.

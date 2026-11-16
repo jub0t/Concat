@@ -1,0 +1,11 @@
+format = 2
+
+[effect]
+id = "example.diagonal-wipe"
+name = "Diagonal Wipe"
+kind = "transition"
+category = "Wipe"
+description = "The next shot sweeps in from the top-left corner, along a soft diagonal edge."
+
+[transition]
+entry = "effect.wgsl"

@@ -1,0 +1,20 @@
+# An example extra: one effect and one transition. Pack it with
+#   concat-cli extras pack docs/development/extras-example/example.starter-pack
+# See docs/development/EXTRAS_PACKAGE_FORMAT.md.
+format = 1
+
+[extra]
+id = "example.starter-pack"
+name = "Starter Pack"
+version = "1.0.0"
+summary = "A warm glow and a diagonal wipe: the smallest useful extra."
+description = "An example extra for anyone making their own. It adds Warm Glow, an effect with one knob, and Diagonal Wipe, a transition. Both are WGSL shaders that Concat's effects catalogue loads like its own."
+author = "Concat contributors"
+licence = "CC0-1.0"
+category = "effects"
+min_app = "0.2.11"
+keywords = ["example", "glow", "wipe", "starter"]
+
+[[provides]]
+kind = "effects"
+root = "effects"
