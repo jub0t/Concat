@@ -14,15 +14,15 @@ use crate::model::{AppliedFilter, Clip, ClipKind, MediaKind, MediaOrigin, Transi
 use crate::{Command, CommandError, Editor, consolidation_clips};
 
 // What a person is told, one sentence per reason.
-const TWO_OR_MORE: &str = "Select two or more distinct video clips to merge.";
+const TWO_OR_MORE: &str = "Select two or more distinct audio or video clips to merge.";
 const GONE: &str = "A selected clip no longer exists.";
-const SAME_LANE: &str = "Select video clips on the same track to merge.";
+const SAME_LANE: &str = "Select only audio clips or only video clips on the same track to merge.";
 const OVERLAP: &str = "Overlapping clips cannot be merged.";
 const DETACHED: &str = "Reattach detached audio before merging its video clips.";
 const WHOLE_SPAN: &str = "Select every clip inside the span to merge.";
 const COVERED: &str = "Clips above other visible content cannot be merged into an opaque video.";
 const TRANSITION: &str = "Include both sides of a transition in the merge.";
-const SHORT_FILE: &str = "The merged video does not cover the selected clips.";
+const SHORT_FILE: &str = "The merged media does not cover the selected clips.";
 
 const CLOSE: f64 = 1e-9;
 
@@ -210,7 +210,7 @@ fn every_selected_clip_must_still_be_on_the_timeline() {
 }
 
 #[test]
-fn only_video_clips_on_one_lane_can_be_merged() {
+fn only_matching_audio_or_video_clips_on_one_lane_can_be_merged() {
     let mut desk = Desk::new();
     let a = desk.place(0, 0.0);
     let b = desk.place(0, 10.0);
@@ -227,8 +227,21 @@ fn only_video_clips_on_one_lane_can_be_merged() {
         assert_eq!(
             desk.refusal(&[&a, &b]),
             SAME_LANE,
-            "{kind:?} is not a video clip"
+            "{kind:?} cannot be merged with a video clip"
         );
+    }
+
+    desk.change(&a, |clip| clip.kind = ClipKind::Audio);
+    desk.change(&b, |clip| clip.kind = ClipKind::Audio);
+    desk.accepts(&[&a, &b]);
+    desk.change(&b, |clip| clip.track_id = upper.clone());
+    assert_eq!(desk.refusal(&[&a, &b]), SAME_LANE, "audio on two lanes");
+    desk.change(&b, |clip| clip.track_id = lower.clone());
+    for kind in [ClipKind::Image, ClipKind::Text] {
+        for id in [&a, &b] {
+            desk.change(id, |clip| clip.kind = kind);
+        }
+        assert_eq!(desk.refusal(&[&a, &b]), SAME_LANE, "two {kind:?} clips");
     }
 }
 

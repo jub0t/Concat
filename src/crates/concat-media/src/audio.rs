@@ -1556,11 +1556,22 @@ mod tests {
         let piece = AudioClip {
             start: 0.02,
             duration: 128.0 / f64::from(MIX_RATE),
-            // Exercise the source-span calculation used by speed curves,
-            // even when this short piece lies entirely in a flat step.
-            tempo: vec![(0.0, 1.0)],
+            // Normal speed, as audio_pieces emits it even for a flat
+            // speed curve. A synthetic atempo=1 step would buffer these
+            // 128 samples rather than testing the decoder's out-point.
             ..clip(source.to_str().unwrap())
         };
+        assert!(piece.retime_filters(0.0, "short").is_empty());
+        {
+            let mut decoder = crate::samples::AudioDecoder::open(
+                &source,
+                &crate::samples::AudioOptions::default(),
+            )
+            .unwrap();
+            let first = decoder.next_i16().unwrap().unwrap();
+            assert!(first.len() > 128 * 2, "the source frame exceeds the cut");
+        }
+        let expected = wav_samples(&source);
         mix_to_wav(&[piece], 0.05, &output, |_| true).unwrap();
         let samples = wav_samples(&output);
         assert_eq!(samples.len(), 2400 * 2);
@@ -1571,6 +1582,16 @@ mod tests {
                 .any(|sample| sample.abs() > 0.1)
         );
         assert!(samples[1088 * 2..].iter().all(|sample| sample.abs() < 1e-6));
+        for (index, (&actual, &expected)) in samples[960 * 2..1088 * 2]
+            .iter()
+            .zip(&expected[..128 * 2])
+            .enumerate()
+        {
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "kept sample {index}: got {actual}, expected {expected}"
+            );
+        }
         std::fs::remove_dir_all(folder).unwrap();
     }
 

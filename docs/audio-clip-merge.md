@@ -54,8 +54,15 @@ for `d777c147`. Those results do not validate the updated head.
 The branch now includes upstream main `020d8caddb8219c77a0bab809c73bc5ca7351509`.
 The compatibility update preserves upstream's Opus output, platform AAC
 encoders (including Android), continuous speed-curve timing, and video
-consolidation of subframe cuts. The short-first-frame regression also covers
-the source-time mapping used by tempo steps. All upstream tests remain.
+consolidation of subframe cuts. The short-first-frame regression keeps a
+128-sample source cut audible, compares every retained stereo sample with
+the decoded source and checks silence outside the cut. It uses the actual
+constant-speed export setup rather than an artificial unity tempo step:
+`atempo=1` buffers a window and can discard an input this short. A separate
+export regression checks that both ordinary unity speed and a flat unity
+speed curve emit no tempo filter. Consolidation tests cover audio and video
+separately, reject mixed kinds and retain their refusal-order and no-edit
+checks. All upstream test cases remain, with audio-aware expectations.
 
 Local checks cover Rust formatting of the resolved files, Git whitespace,
 and locale/model inventories. No local compilation or executable tests were
