@@ -31,6 +31,13 @@ libc = "0.2"
 # there is one JNI in the binary.
 jni = "0.22"
 
+[features]
+# CI's emulator build only, never the APK that ships: a clip pushed to
+# the app's files folder as smoke-export.<extension> is made a project of and exported
+# at start, through the window's own messages, and the app exits when
+# the export ends (scripts/ci/smoke-android.sh --export).
+smoke = []
+
 [build-dependencies]
 # javac and d8 through the SDK, the way Slint's backend compiles its own
 # helper.

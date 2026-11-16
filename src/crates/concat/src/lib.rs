@@ -70,6 +70,7 @@ mod close_gate_tests;
 mod panes;
 mod prefs;
 mod presets;
+mod smoke_export;
 mod source;
 mod speed_ramp;
 mod studio;
@@ -191,7 +192,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
 /// unreadable project leaves the launch screen open with the usual error notice.
 /// Each invocation creates its own window; this does not control another instance.
 pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint::PlatformError> {
-    start(project, false)
+    start(project, Smoke::No)
 }
 
 /// Starts the way [`run`] does, as far as the window's first publish, and
@@ -205,7 +206,28 @@ pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint
 /// No project is opened, so the recents list is not touched; the
 /// preferences are read, and a log file written, as on any launch.
 pub fn smoke() -> Result<(), slint::PlatformError> {
-    start(None, true)
+    start(None, Smoke::Start)
+}
+
+/// Starts the way [`run`] does and then exports a project of `clip`, made
+/// and exported by the messages the launch screen, the media bin and the
+/// Export sheet send, from inside the window's event loop; the process
+/// exits 0 once the file is written and 1 with the reason in the log when
+/// it is not. For CI, where a launch-only run never reaches an export: an
+/// export that froze the window on every phone shipped twice (#747).
+pub fn smoke_export(clip: std::path::PathBuf) -> Result<(), slint::PlatformError> {
+    start(None, Smoke::Export(clip))
+}
+
+/// Which of CI's runs a launch is, if any.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Smoke {
+    /// A person's launch.
+    No,
+    /// [`smoke`]: as far as the first frame.
+    Start,
+    /// [`smoke_export`]: a project of this clip, exported.
+    Export(std::path::PathBuf),
 }
 
 /// Runs one way out of the open project, in the order that keeps the work
@@ -237,7 +259,7 @@ pub(crate) fn close_window(
 /// a few seconds of scrubbing around where the monitor is, at its size.
 const IDLE_FRAMES: usize = 96 * 1024 * 1024;
 
-fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
+fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint::PlatformError> {
     // What Import and a finished export reach on an iPhone. Android's own
     // crate installs its; iOS runs this crate's binary, so it is here.
     // https://github.com/jub0t/Concat/issues/332
@@ -256,7 +278,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
 
     // Not for a smoke run: it exits through `leave`, past the mark's drop,
     // and the mark it left put the next real launch in software for nothing.
-    let (startup_mark, safe) = if smoke { (None, false) } else { safe_start() };
+    let (startup_mark, safe) = if smoke == Smoke::No {
+        safe_start()
+    } else {
+        (None, false)
+    };
 
     // The shell doesn't exist yet - it needs the window the backend is about
     // to help create - but `Shell::with` is a no-op until `Shell::install`
@@ -2827,7 +2853,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // and has been handed to the window. The exit is the one the event
     // loop's end takes below, for the same reason - the engine's threads
     // are not waited on.
-    if smoke {
+    if smoke == Smoke::Start {
         // whisper's CPU kernels, which the x86_64 Windows and Linux bundles
         // carry as modules beside the program, one per CPU generation, for
         // ggml to choose from (#388). A bundle without them starts and
@@ -2850,6 +2876,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         log::info!("smoke: ok");
         leave(0);
     }
+    // An export run goes on into the loop, where its steps run on a timer
+    // held for the loop's life.
+    let _smoke_export = match smoke {
+        Smoke::Export(clip) => Some(smoke_export::drive(clip)),
+        Smoke::No | Smoke::Start => None,
+    };
 
     // Decoders nobody has asked a frame of for ten seconds are closed,
     // looked at every five: each holds buffers of its own, and the playhead

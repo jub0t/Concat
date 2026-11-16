@@ -4,7 +4,7 @@
 # the phone build ever runs what it packages.
 #
 #   smoke-android.sh [--out DIR] [--wait SECS] [--ready REGEX] [--no-install]
-#                    [--package NAME] APK
+#                    [--package NAME] [--export CLIP] APK
 #
 # On whatever device adb talks to (ANDROID_SERIAL picks one of several):
 # waits for it to finish booting; checks the device can run one of the
@@ -46,6 +46,17 @@
 # device's properties. CI uploads that folder. The package is
 # app.concat.editor unless --package names another.
 #
+# --export CLIP needs an APK built with concat-android's `smoke` feature
+# (never the one that ships). The clip is pushed into the app's files
+# folder as smoke-export.<extension>, where that build finds it at start, makes a
+# project of it and exports it through the window's own messages
+# (concat/src/smoke_export.rs). From the window's first frame on, a key the
+# app does nothing with is pressed every two seconds: a key waits on the window's
+# thread, so a thread that has stopped answering is an ANR within ten
+# seconds, which fails the run as above. It passes on the app's
+# "export finished" line, after which the app exits on its own, and fails
+# on its "the export run failed" one; WAIT is 300 by default here.
+#
 # --no-install starts what is already installed, which leaves a device
 # somebody is using as it was apart from the restart of the app. Runs in
 # CI (mobile.yml) and locally against any device adb can see. Needs adb,
@@ -57,19 +68,22 @@ wait_secs=45
 ready=""
 install=1
 package=app.concat.editor
+export_clip=""
+wait_given=""
 
 usage() {
-  echo "usage: $0 [--out DIR] [--wait SECS] [--ready REGEX] [--no-install] [--package NAME] APK" >&2
+  echo "usage: $0 [--out DIR] [--wait SECS] [--ready REGEX] [--no-install] [--package NAME] [--export CLIP] APK" >&2
   exit 2
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) out=${2:?}; shift 2 ;;
-    --wait) wait_secs=${2:?}; shift 2 ;;
+    --wait) wait_secs=${2:?}; wait_given=1; shift 2 ;;
     --ready) ready=${2:?}; shift 2 ;;
     --no-install) install=0; shift ;;
     --package) package=${2:?}; shift 2 ;;
+    --export) export_clip=${2:?}; shift 2 ;;
     -h|--help) usage ;;
     --*) usage ;;
     *) break ;;
@@ -78,6 +92,12 @@ done
 [ $# -eq 1 ] || usage
 apk=$1
 [ -f "$apk" ] || { echo "smoke: no APK at $apk" >&2; exit 2; }
+if [ -n "$export_clip" ]; then
+  [ -f "$export_clip" ] || { echo "smoke: no clip at $export_clip" >&2; exit 2; }
+  [ -n "$wait_given" ] || wait_secs=300
+  # The app's own lines for the export's end, either way.
+  ready=' concat +: ([A-Za-z0-9_:]+: )?smoke: export finished'
+fi
 
 say() { printf '\n== %s\n' "$*"; }
 note() {
@@ -182,6 +202,30 @@ case "$activity" in
   *) fail "no launcher activity for $package (resolve-activity said: $activity)" ;;
 esac
 
+# The clip where the smoke build looks for it: the app's own files folder,
+# as smoke-export.<extension>. A folder of adb's shell's making is one the
+# app may not list, so the folder is the app's, made by starting it once
+# when it is not there yet; the file in it, world-readable, it may read.
+if [ -n "$export_clip" ]; then
+  say "the clip to export"
+  files_dir=/sdcard/Android/data/$package/files
+  if ! adb shell "[ -d $files_dir ]" < /dev/null; then
+    limit 180 adb shell am start -W -n "$activity" < /dev/null > /dev/null 2>&1 || true
+    for _ in $(seq 1 30); do
+      adb shell "[ -d $files_dir ]" < /dev/null && break
+      sleep 1
+    done
+    adb shell am force-stop "$package" < /dev/null || true
+  fi
+  adb shell "[ -d $files_dir ]" < /dev/null || fail "the app never made its files folder, $files_dir"
+  adb shell "rm -rf $files_dir/smoke $files_dir/smoke-export.*" < /dev/null
+  ext=${export_clip##*.}
+  limit 120 adb push "$export_clip" "$files_dir/smoke-export.$ext" < /dev/null \
+    || fail "could not push $export_clip to $files_dir"
+  adb shell chmod 644 "$files_dir/smoke-export.$ext" < /dev/null || true
+  adb shell ls -l "$files_dir/smoke-export.$ext" < /dev/null
+fi
+
 say "start $activity"
 # A cold start: the app stopped, the log emptied and made big enough to
 # hold the whole run, and read into a file from before the launch on, so
@@ -207,7 +251,7 @@ grep -q '^Status: ok' <<< "$started" || fail "am start did not report the launch
 # crash now and then while it settles, and that is not this app failing.
 # The app's lines read "concat  : <module>: <message>".
 fatal='FATAL EXCEPTION|Fatal signal [0-9]+|panicked at|ANR in |Preview failed'
-fatal+='| concat +: ([A-Za-z0-9_:]+: )?(preview: |could not start|close: event loop exited [(]ok=false[)])'
+fatal+='| concat +: ([A-Za-z0-9_:]+: )?(preview: |could not start|close: event loop exited [(]ok=false[)]|smoke: the export run failed)'
 
 # Every process the app has had since the launch: the ones the activity
 # manager reports starting, which a process that dies at once still has,
@@ -278,6 +322,8 @@ untestable_here() {
 
 say "watch for ${wait_secs}s"
 seen_ready=""
+doing="on start"
+[ -z "$export_clip" ] || doing="exporting"
 deadline=$((SECONDS + wait_secs))
 while [ "$SECONDS" -lt "$deadline" ]; do
   sleep 2
@@ -286,7 +332,21 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   if [ -n "$found" ]; then
     printf '%s\n' "$found"
     untestable_here
-    fail "the app failed on start: $(head -n 1 <<< "$found")"
+    fail "the app failed $doing: $(head -n 1 <<< "$found")"
+  fi
+  # The export's end is the run's: the app exits once it has said so.
+  if [ -n "$export_clip" ] && grep -E -q -- "$ready" "$logcat_file"; then
+    seen_ready=1
+    echo "the export finished: $(grep -E -m 1 -- "$ready" "$logcat_file")"
+    break
+  fi
+  # Left shift, which the window takes and does nothing with: delivered
+  # to the window's thread, and waited on by the system for an answer.
+  # From the moment the window is up, not from the export's start: a
+  # window that freezes as the export starts never says it started.
+  if [ -n "$export_clip" ] && [ -n "$running" ] \
+    && grep -E -q ' concat +: ([A-Za-z0-9_:]+: )?(start: done|smoke: exporting)' "$logcat_file"; then
+    adb shell input keyevent KEYCODE_SHIFT_LEFT < /dev/null > /dev/null 2>&1 || true
   fi
   if [ -z "$running" ]; then
     # The log can trail the death by a moment; the reason is worth the wait.
@@ -294,6 +354,11 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     sleep 3
     found=$(fatal_lines)
     [ -z "$found" ] || printf '%s\n' "$found"
+    if [ -z "$found" ] && [ -n "$export_clip" ] && grep -E -q -- "$ready" "$logcat_file"; then
+      seen_ready=1
+      echo "the export finished: $(grep -E -m 1 -- "$ready" "$logcat_file")"
+      break
+    fi
     untestable_here
     fail "the app's process is gone ${gone}s after the launch${found:+: $(head -n 1 <<< "$found")}"
   fi
@@ -307,6 +372,15 @@ done
 say "the outcome"
 collect
 cat "$out/focus.txt" || true
+if [ -n "$export_clip" ]; then
+  [ -n "$seen_ready" ] || fail "the export did not finish within ${wait_secs}s"
+  echo "-- the export --"
+  grep -E ' concat +: ([A-Za-z0-9_:]+: )?(smoke|export): ' "$out/concat.txt" | tail -n 30 || true
+  echo
+  echo "the app made a project of $(basename "$export_clip") and exported it, answering keys throughout; see $out/"
+  say "ok"
+  exit 0
+fi
 # A process can outlive its window: an android_main that returns, on an
 # error it logged as anything else, finishes the activity and leaves the
 # process cached. The activity in front is the app's, or it did not start.

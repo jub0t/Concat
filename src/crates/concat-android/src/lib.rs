@@ -676,7 +676,48 @@ fn android_main(app: slint::android::AndroidApp) {
     links::install(&app);
     awake::install(&app);
     log_file::install(&app);
+    #[cfg(feature = "smoke")]
+    if let Some(clip) = smoke_clip() {
+        if let Err(error) = concat::smoke_export(clip) {
+            log::error!("smoke: could not start: {error}");
+        }
+        return;
+    }
     if let Err(error) = concat::run() {
         log::error!("close: the window ended in an error: {error}; the app closes");
     }
+}
+
+/// The clip CI's export run pushed: `smoke-export.<extension>` in the
+/// app's files folder, which [`activity::name_directories`] made `HOME`.
+/// There and not in a folder of its own: adb's shell may write into the
+/// app's folder, and a folder the shell made is one the app may not list.
+/// None, and the launch is an ordinary one, when there is none.
+#[cfg(all(target_os = "android", feature = "smoke"))]
+fn smoke_clip() -> Option<std::path::PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        log::warn!("smoke: no files folder to look for a clip in");
+        return None;
+    };
+    let folder = std::path::PathBuf::from(home);
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(entries) => entries,
+        Err(error) => {
+            log::warn!(
+                "smoke: could not look for a clip in {}: {error}",
+                folder.display()
+            );
+            return None;
+        }
+    };
+    let clip = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .find(|path| path.is_file() && path.file_stem().is_some_and(|stem| stem == "smoke-export"));
+    if clip.is_none() {
+        log::info!(
+            "smoke: no smoke-export clip in {}; an ordinary launch",
+            folder.display()
+        );
+    }
+    clip
 }
