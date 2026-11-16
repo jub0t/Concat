@@ -44,7 +44,17 @@ name: Build app
 #
 # The six targets are a matrix so one fails without taking the rest down;
 # `fail-fast` is off for the same reason.
+#
+# Started by hand as well, on any ref: every bundle built and started,
+# the export run included, without a tag or a release. Its bundles stay
+# artifacts of the run; nothing is published.
 on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The ref to build (main when empty)
+        type: string
+        default: ""
   workflow_call:
     inputs:
       ref:
@@ -693,7 +703,10 @@ jobs:
           # profile. In lib/ the rpath finds the libraries and
           # concat-speech's `cpu_backend` the modules.
           if [ "${{ matrix.ggml }}" = variants ]; then
-            out=$(ls -dt "src/target/${{ matrix.target }}/app/build"/whisper-rs-sys-*/out/bin | head -1)
+            # Newest first by time, which find does not sort by; the names
+            # are cargo's hashed folders, plain letters and digits.
+            # shellcheck disable=SC2012
+            out=$(ls -dt"src/target/${{ matrix.target }}/app/build"/whisper-rs-sys-*/out/bin | head -1)
             out=${out%/bin}
             echo "whisper's build: $out"
             cp -a "$out"/lib*/libwhisper.so* "$out"/lib*/libggml*.so* "$out"/bin/libggml-cpu-*.so "stage/$name/lib/"
