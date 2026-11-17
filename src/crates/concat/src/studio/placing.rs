@@ -7,6 +7,12 @@ use super::*;
 impl Studio {
     // ── placing things ──
 
+    /// The seam a bottom-first track insertion opens in the top-first UI.
+    pub(super) fn seam_of(&self, index: usize) -> f32 {
+        let heights = self.lane_heights();
+        row_top(&heights, heights.len() as i32 - index as i32)
+    }
+
     /// What a library payload names - "media:12", "text:default:Title" -
     /// before the timeline has decided where to put it.
     pub fn incoming(&self, payload: &str) -> Option<DropPlan> {

@@ -1898,7 +1898,36 @@ export component Lanes inherits Rectangle {
         // `has-drag` as well as on Rust's verdict: a drag that leaves the
         // lanes gets an Exit and no further hover, so without it the ghost
         // would sit there after the pointer had gone.
-        if root.drop.active && landing.has-drag: Rectangle {
+        // A drop that needs another lane is drawn on the seam where that
+        // lane will open, rather than over a lane it will not occupy.
+        if root.drop.active && root.drop.new-lane && landing.has-drag: Rectangle {
+            property <length> seam: root.ruler-height + root.drop.line-y - root.track-scroll;
+            x: 0;
+            y: self.seam - 5px;
+            width: parent.width;
+            height: 10px;
+
+            Rectangle {
+                x: 0;
+                y: 4px;
+                width: parent.width;
+                height: 2px;
+                background: Theme.accent;
+            }
+
+            Rectangle {
+                x: root.at(root.drop.start);
+                y: 1px;
+                width: Math.max(2px, root.drop.duration * root.px-per-second);
+                height: 8px;
+                border-radius: 2px;
+                background: Paint.mark(root.drop.kind).with-alpha(0.85);
+                border-width: 1px;
+                border-color: Theme.accent;
+            }
+        }
+
+        if root.drop.active && !root.drop.new-lane && landing.has-drag: Rectangle {
             x: root.at(root.drop.start);
             y: root.row-y(root.drop.row) + 4px;
             width: Math.max(2px, root.drop.duration * root.px-per-second);

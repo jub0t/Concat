@@ -4,6 +4,24 @@
 
 use super::*;
 
+/// Lanes that had clips and lose every one in `doomed`. The project always
+/// keeps at least one lane, and lanes that were already empty are preserved.
+fn lanes_emptied(lanes: &[&str], clips: &[(&str, &str)], doomed: &[String]) -> Vec<String> {
+    let mut emptied: Vec<String> = lanes
+        .iter()
+        .filter(|&&lane| {
+            let mut on_lane = clips.iter().filter(|(_, track)| *track == lane).peekable();
+            on_lane.peek().is_some()
+                && on_lane.all(|(id, _)| doomed.iter().any(|doomed| doomed == id))
+        })
+        .map(|lane| (*lane).to_owned())
+        .collect();
+    if !emptied.is_empty() && emptied.len() >= lanes.len() {
+        emptied.remove(0);
+    }
+    emptied
+}
+
 impl Studio {
     // ── edits from menus and the tray ──
 
@@ -354,12 +372,37 @@ impl Studio {
             .cloned()
             .collect();
         if !doomed.is_empty() {
-            self.apply(Command::RemoveClips {
-                clip_ids: doomed,
-                ripple,
-            });
+            self.remove_clips(doomed, ripple);
         }
         self.selection.clear();
+    }
+
+    /// Removes clips and the lanes they leave empty in the same undo step.
+    fn remove_clips(&mut self, clip_ids: Vec<String>, ripple: bool) {
+        let timeline = self.timeline();
+        let lanes: Vec<&str> = timeline
+            .tracks
+            .iter()
+            .map(|track| track.id.as_str())
+            .collect();
+        let clips: Vec<(&str, &str)> = timeline
+            .clips
+            .iter()
+            .map(|clip| (clip.id.as_str(), clip.track_id.as_str()))
+            .collect();
+        let emptied = lanes_emptied(&lanes, &clips, &clip_ids);
+        let remove = Command::RemoveClips { clip_ids, ripple };
+        if emptied.is_empty() {
+            self.apply(remove);
+            return;
+        }
+        let mut commands = vec![remove];
+        commands.extend(
+            emptied
+                .into_iter()
+                .map(|track_id| Command::RemoveTrack { track_id }),
+        );
+        self.apply(Command::Batch { commands });
     }
 
     /// A freeze frame at the playhead on a picture clip.
@@ -806,5 +849,32 @@ impl Studio {
                 .is_some_and(|media| media.has_audio),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lanes_emptied;
+
+    #[test]
+    fn deleting_last_clip_removes_its_lane_but_keeps_one() {
+        let lanes = ["bottom", "middle", "top"];
+        let clips = [("a", "bottom"), ("b", "middle"), ("c", "top")];
+        assert_eq!(lanes_emptied(&lanes, &clips, &["b".to_owned()]), ["middle"]);
+        assert_eq!(
+            lanes_emptied(
+                &lanes,
+                &clips,
+                &["a".to_owned(), "b".to_owned(), "c".to_owned()]
+            ),
+            ["middle", "top"]
+        );
+    }
+
+    #[test]
+    fn deleting_from_shared_or_already_empty_lane_keeps_it() {
+        let lanes = ["kept", "empty"];
+        let clips = [("a", "kept"), ("b", "kept")];
+        assert!(lanes_emptied(&lanes, &clips, &["a".to_owned()]).is_empty());
     }
 }
