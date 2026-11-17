@@ -165,6 +165,30 @@ impl Studio {
         }
     }
 
+    /// Keep the opening timeline one edge gap taller until a gutter is moved.
+    pub fn lift_timeline(&mut self) {
+        if self.split_owned {
+            return;
+        }
+        let (showing, aside) = if self.compact {
+            (
+                crate::dock::COMPACT_TOP_SHARE,
+                crate::dock::DEFAULT_TOP_SHARE,
+            )
+        } else {
+            (
+                crate::dock::DEFAULT_TOP_SHARE,
+                crate::dock::COMPACT_TOP_SHARE,
+            )
+        };
+        crate::dock::lift_timeline(&mut self.dock, showing, self.workspace.1);
+        crate::dock::lift_timeline(&mut self.dock_aside, aside, self.workspace.1);
+    }
+
+    pub fn own_split(&mut self) {
+        self.split_owned = true;
+    }
+
     pub fn dock_layout(&self) -> DockLayout {
         let mut out = DockLayout::default();
         let (width, height) = self.workspace;
@@ -228,7 +252,10 @@ impl Studio {
                 .rev()
                 .map(|lane| {
                     let height = self.lane_height(lane);
+                    let first = timeline.clips.iter().find(|clip| clip.track_id == lane.id);
                     let row = TrackData {
+                        typed: first.is_some(),
+                        kind: first.map_or(ClipKind::Video, |clip| kind_of(clip)),
                         id: lane.id.as_str().into(),
                         visible: lane.visible,
                         muted: lane.muted,

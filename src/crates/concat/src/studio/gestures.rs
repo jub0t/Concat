@@ -124,6 +124,7 @@ impl Studio {
                 let shift = seconds + self.snap_shift(&edges, threshold, &moving);
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
+                let groups = self.lane_groups(&moving);
                 // Every start moves by the one shift, in f64 and from the
                 // start the press recorded: `self.clip` is the echo while a
                 // gesture runs and already holds the last shift. Why f64 is
@@ -135,7 +136,13 @@ impl Studio {
                     .zip(landed_at)
                     .filter_map(|(origin, start)| {
                         let clip = self.clip(&origin.clip)?;
-                        let row = (origin.row + rows).clamp(0, count - 1);
+                        let target = (origin.row + rows).clamp(0, count - 1);
+                        let row = zones::toward(
+                            &groups,
+                            target,
+                            origin.row,
+                            zones::Group::of_model(clip.kind),
+                        );
                         let track_id = self
                             .row_track(row)
                             .filter(|track| !self.locked(&track.id))

@@ -14,6 +14,11 @@ pub const SEAT_MIN_H: f32 = 140.0;
 pub const SEAT_MIN_GRAB: f32 = 64.0;
 /// The gutter between the halves of a split, and the margin round the lot.
 pub const SEAT_GAP: f32 = 8.0;
+/// The upper row's opening share in the wide and compact arrangements.
+pub const DEFAULT_TOP_SHARE: f32 = 0.6;
+pub const COMPACT_TOP_SHARE: f32 = 0.5;
+/// Extra opening height reserved for the ground above the lane stack.
+pub const TIMELINE_LIFT: f32 = 64.0;
 
 pub enum Dock {
     /// One view, filling its box.
@@ -268,7 +273,7 @@ pub fn default_dock() -> Dock {
         ratio: 0.78,
         first: Box::new(Dock::Split {
             columns: false,
-            ratio: 0.6,
+            ratio: DEFAULT_TOP_SHARE,
             first: Box::new(Dock::Split {
                 columns: true,
                 ratio: 0.32,
@@ -382,7 +387,7 @@ impl Dock {
 pub fn compact_dock() -> Dock {
     Dock::Split {
         columns: false,
-        ratio: 0.5,
+        ratio: COMPACT_TOP_SHARE,
         first: Dock::leaf(PaneKind::Preview),
         second: Dock::leaf(PaneKind::Timeline),
     }
@@ -402,6 +407,49 @@ pub fn row_at(heights: &[f32], y: f32) -> i32 {
         }
     }
     (heights.len() as i32 - 1).max(0)
+}
+
+/// The rows a band crosses, or none when it lies wholly off the stack.
+pub fn band_rows(heights: &[f32], from_y: f32, to_y: f32) -> Option<(i32, i32)> {
+    let depth: f32 = heights.iter().sum();
+    if heights.is_empty() || to_y < 0.0 || from_y >= depth {
+        return None;
+    }
+    Some((row_at(heights, from_y), row_at(heights, to_y)))
+}
+
+/// Gives the timeline row [`TIMELINE_LIFT`] more pixels than its default.
+pub fn lift_timeline(dock: &mut Dock, base: f32, height: f32) {
+    let usable = height - 3.0 * SEAT_GAP;
+    if usable <= SEAT_MIN_H {
+        return;
+    }
+    fn timeline_split(node: &mut Dock) -> Option<&mut f32> {
+        match node {
+            Dock::Split {
+                columns: false,
+                ratio,
+                first,
+                second,
+            } if second.contains(PaneKind::Timeline) && !first.contains(PaneKind::Timeline) => {
+                Some(ratio)
+            }
+            Dock::Split { first, second, .. } => {
+                timeline_split(first).or_else(|| timeline_split(second))
+            }
+            Dock::Leaf(_) => None,
+        }
+    }
+    let Some(ratio) = timeline_split(dock) else {
+        return;
+    };
+    let floor = SEAT_MIN_H / usable;
+    let lifted = base - TIMELINE_LIFT / usable;
+    *ratio = if floor < 0.5 {
+        lifted.clamp(floor, 1.0 - floor)
+    } else {
+        lifted.max(floor).min(1.0)
+    };
 }
 
 /// The row whose top edge is nearest a point down the stack.

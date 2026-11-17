@@ -1545,6 +1545,9 @@ export component Lanes inherits Rectangle {
     pure function row-y(row: int) -> length {
         return root.ruler-height + root.tracks[row].top - root.track-scroll;
     }
+    property <length> stack-h: root.tracks.length > 0
+        ? root.tracks[root.tracks.length - 1].top + root.tracks[root.tracks.length - 1].height
+        : 0px;
 
     // The ruler's tick ladder, from Rust. Zero means unbound, which draws no
     // ticks rather than dividing by it.
@@ -1552,7 +1555,8 @@ export component Lanes inherits Rectangle {
     property <float> first-tick: root.tick > 0
         ? Math.ceil(root.scroll-left / root.tick) * root.tick : 0;
 
-    background: Theme.lane;
+    // Ground above and below the lane stack.
+    background: Theme.panel;
     clip: true;
 
     // Two fingers pinched, or a trackpad's pinch: the zoom, through the
@@ -1646,6 +1650,13 @@ export component Lanes inherits Rectangle {
             background: Math.mod(row, 2) == 0 ? Theme.lane : Theme.lane-alt;
             visible: self.y + track.height > root.ruler-height && self.y < root.height;
 
+            if row == 0: Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
             Rectangle {
                 x: 0;
                 y: parent.height - 1px;

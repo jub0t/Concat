@@ -34,6 +34,7 @@ impl Studio {
                     }
                     .max(MIN_DURATION),
                     row: 0,
+                    new_lane: None,
                 })
             }
             // A title: the preset's id rides where a file's media id would,
@@ -45,6 +46,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A figure from the Stickers page: the shape's name rides
             // where a file's media id would, and the label is what the
@@ -56,6 +58,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A sound from the Audio page: not in the bin yet, so its card
             // rides in `media` behind `sound:`, and the drop imports it.
@@ -68,6 +71,7 @@ impl Studio {
                     start: 0.0,
                     duration: (duration as f32).max(MIN_DURATION),
                     row: 0,
+                    new_lane: None,
                 })
             }
             // A look dragged from the Filters page: a layer over a span.
@@ -79,6 +83,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A transition dragged from the Transitions page: a clip of its
             // own over the lanes beneath it (#621), drawn as a layer is. The
@@ -91,6 +96,7 @@ impl Studio {
                 start: 0.0,
                 duration: TRANSITION_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A sound effect dragged from the Effects page's sound shelf:
             // a sound layer over a span, treating everything heard there.
@@ -102,6 +108,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             _ => None,
         }
@@ -114,10 +121,20 @@ impl Studio {
         if lanes == 0 {
             return None;
         }
-        plan.row = row.clamp(0, lanes - 1);
-        if self
-            .row_track(plan.row)
-            .is_none_or(|track| self.locked(&track.id))
+        let groups = self.lane_groups(&[]);
+        let group = zones::Group::of_ui(plan.kind);
+        match zones::nearest(&groups, row.clamp(0, lanes - 1), group) {
+            Some(found) => plan.row = found,
+            None => {
+                let index = zones::new_lane_index(&groups, group);
+                plan.new_lane = Some(index);
+                plan.row = (lanes - index as i32).clamp(0, lanes - 1);
+            }
+        }
+        if plan.new_lane.is_none()
+            && self
+                .row_track(plan.row)
+                .is_none_or(|track| self.locked(&track.id))
         {
             return None;
         }
@@ -157,8 +174,9 @@ impl Studio {
         let Some(track_id) = self.row_track(plan.row).map(|track| track.id.clone()) else {
             return;
         };
+        let new_lane = plan.new_lane;
         if let Some(card) = plan.media.strip_prefix("sound:") {
-            self.place_card(card, Some(track_id), f64::from(plan.start));
+            self.place_card(card, Some(track_id), f64::from(plan.start), new_lane);
             return;
         }
         if let Some(transition) = plan.media.strip_prefix("transition:") {
@@ -168,6 +186,7 @@ impl Studio {
                 Some(track_id),
                 f64::from(plan.start),
                 f64::from(plan.duration),
+                new_lane,
             );
             if let Some(id) = created {
                 self.selection = vec![id];
@@ -180,6 +199,7 @@ impl Studio {
                 f64::from(plan.start),
                 f64::from(plan.duration),
                 &plan.media,
+                new_lane,
             )
         } else if plan.kind == ClipKind::Shape {
             self.add_shape(
@@ -188,36 +208,46 @@ impl Studio {
                 f64::from(plan.duration),
                 &plan.media,
                 &plan.label,
+                new_lane,
             )
         } else if matches!(
             plan.kind,
             ClipKind::Filter | ClipKind::Effect | ClipKind::Adjustment | ClipKind::SoundLayer
         ) {
-            self.apply(Command::AddLayerClip {
-                track_id: Some(track_id),
-                start: f64::from(plan.start),
-                duration: Some(f64::from(plan.duration)),
-                effect_id: plan.media.clone(),
-                name: plan.label.clone(),
-                sound: plan.kind == ClipKind::SoundLayer,
-            })
+            self.apply(on_new_track(
+                new_lane,
+                Command::AddLayerClip {
+                    track_id: Some(track_id),
+                    start: f64::from(plan.start),
+                    duration: Some(f64::from(plan.duration)),
+                    effect_id: plan.media.clone(),
+                    name: plan.label.clone(),
+                    sound: plan.kind == ClipKind::SoundLayer,
+                },
+            ))
         } else if let Some(media_ids) = self.dragged_selection(&plan.media) {
             // A card dragged out of a selection in the bin brings the whole
             // selection, laid end to end from the drop, in the bin's order.
             // Only the dragged card used to land (reported on Reddit).
-            self.apply(Command::AddClipsInSequence {
-                media_ids,
-                track_id: Some(track_id),
-                start: f64::from(plan.start),
-                ripple: true,
-            })
+            self.apply(on_new_track(
+                new_lane,
+                Command::AddClipsInSequence {
+                    media_ids,
+                    track_id: Some(track_id),
+                    start: f64::from(plan.start),
+                    ripple: true,
+                },
+            ))
         } else {
-            self.apply(Command::AddClip {
-                media_id: plan.media.clone(),
-                track_id,
-                start: f64::from(plan.start),
-                ripple: true,
-            })
+            self.apply(on_new_track(
+                new_lane,
+                Command::AddClip {
+                    media_id: plan.media.clone(),
+                    track_id,
+                    start: f64::from(plan.start),
+                    ripple: true,
+                },
+            ))
         };
         if let Some(id) = created {
             self.selection = vec![id];
@@ -232,7 +262,7 @@ impl Studio {
         };
         let start = f64::from(self.playhead.max(0.0));
         if let Some(card) = plan.media.strip_prefix("sound:") {
-            self.place_card(card, None, start);
+            self.place_card(card, None, start, None);
             return;
         }
         if let Some(transition) = plan.media.strip_prefix("transition:") {
@@ -242,6 +272,7 @@ impl Studio {
                 None,
                 start,
                 f64::from(plan.duration),
+                None,
             );
             if let Some(id) = created {
                 self.selection = vec![id];
@@ -249,7 +280,7 @@ impl Studio {
             return;
         }
         let created = if plan.kind == ClipKind::Text {
-            self.add_title(None, start, f64::from(plan.duration), &plan.media)
+            self.add_title(None, start, f64::from(plan.duration), &plan.media, None)
         } else if plan.kind == ClipKind::Shape {
             self.add_shape(
                 None,
@@ -257,6 +288,7 @@ impl Studio {
                 f64::from(plan.duration),
                 &plan.media,
                 &plan.label,
+                None,
             )
         } else if matches!(
             plan.kind,
@@ -291,6 +323,7 @@ impl Studio {
         start: f64,
         duration: f64,
         preset: &str,
+        new_lane: Option<usize>,
     ) -> Option<String> {
         let (style, offset_y, font) = match self.text_presets.iter().find(|held| held.id == preset)
         {
@@ -304,14 +337,17 @@ impl Studio {
         // Over the picture, not under it: the first free lane above every
         // occupied one, minted at the top when there is none. A drop onto a
         // lane names its track and is placed there regardless.
-        let add = Command::AddTextClip {
-            track_id,
-            start,
-            style: Some(style),
-            duration: Some(duration),
-            offset_y,
-            above: true,
-        };
+        let add = on_new_track(
+            new_lane,
+            Command::AddTextClip {
+                track_id,
+                start,
+                style: Some(style),
+                duration: Some(duration),
+                offset_y,
+                above: true,
+            },
+        );
         match font {
             Some((family, path)) => self.apply(Command::Batch {
                 commands: vec![Command::AddFont { family, path }, add],
@@ -329,15 +365,19 @@ impl Studio {
         duration: f64,
         shape: &str,
         name: &str,
+        new_lane: Option<usize>,
     ) -> Option<String> {
-        self.apply(Command::AddShapeClip {
-            track_id,
-            above: true,
-            start,
-            style: Some(model::ShapeStyle::preset(shape).unwrap_or_default()),
-            duration: Some(duration),
-            name: name.to_owned(),
-        })
+        self.apply(on_new_track(
+            new_lane,
+            Command::AddShapeClip {
+                track_id,
+                above: true,
+                start,
+                style: Some(model::ShapeStyle::preset(shape).unwrap_or_default()),
+                duration: Some(duration),
+                name: name.to_owned(),
+            },
+        ))
     }
 
     /// The selected clip's id, when exactly one is selected.
@@ -588,7 +628,7 @@ impl Studio {
             },
             Err(_) => f64::from(self.playhead.max(0.0)),
         };
-        if let Some(created) = self.place_transition(id, &label, None, at, duration) {
+        if let Some(created) = self.place_transition(id, &label, None, at, duration, None) {
             self.selection = vec![created];
         }
     }
@@ -605,6 +645,7 @@ impl Studio {
         track_id: Option<String>,
         at: f64,
         duration: f64,
+        new_lane: Option<usize>,
     ) -> Option<String> {
         let duration = duration.max(model::ranges::MIN_TRANSITION);
         let start = match self.nearest_cut(at, duration / 2.0) {
@@ -617,13 +658,16 @@ impl Studio {
                 .nearest_free_start(lane, start, duration, &[]);
             (free - start).abs() < 1e-9
         });
-        self.apply(Command::AddTransitionClip {
-            track_id,
-            start,
-            duration: Some(duration),
-            transition_id: id.to_owned(),
-            name: label.to_owned(),
-        })
+        self.apply(on_new_track(
+            new_lane,
+            Command::AddTransitionClip {
+                track_id,
+                start,
+                duration: Some(duration),
+                transition_id: id.to_owned(),
+                name: label.to_owned(),
+            },
+        ))
     }
 
     /// The cut nearest `at`, within `within` seconds: where a picture ends

@@ -187,6 +187,23 @@ impl Studio {
             .unwrap_or(0)
     }
 
+    /// What each lane holds, top first, excluding clips being moved.
+    pub fn lane_groups(&self, skip: &[&str]) -> Vec<Option<zones::Group>> {
+        let timeline = self.timeline();
+        timeline
+            .tracks
+            .iter()
+            .rev()
+            .map(|track| {
+                timeline
+                    .clips
+                    .iter()
+                    .find(|clip| clip.track_id == track.id && !skip.contains(&clip.id.as_str()))
+                    .map(|clip| zones::Group::of_model(clip.kind))
+            })
+            .collect()
+    }
+
     pub fn locked(&self, track_id: &str) -> bool {
         self.lanes
             .lane_view
@@ -247,6 +264,11 @@ impl Studio {
 
     pub fn row_at(&self, y: f32) -> i32 {
         row_at(&self.lane_heights(), y)
+    }
+
+    /// The rows a selection band crosses, or none when wholly off-stack.
+    pub fn band_rows(&self, from_y: f32, to_y: f32) -> Option<(i32, i32)> {
+        crate::dock::band_rows(&self.lane_heights(), from_y, to_y)
     }
 
     /// Seconds the project runs to, for Fit and for the scroll floor.

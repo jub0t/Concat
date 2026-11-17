@@ -99,6 +99,7 @@ use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::speed_ramp;
 use crate::ui::*;
+use crate::zones;
 
 /// The monitor's output sizes, matching the picker's rows. 4:5 and 3:4
 /// are the upright frames an Instagram post is cut to: its feed and its
@@ -723,6 +724,19 @@ pub struct DropPlan {
     pub start: f32,
     pub duration: f32,
     pub row: i32,
+    /// Where to insert a lane when no existing lane in the category band
+    /// accepts this drop, in the model's bottom-first order.
+    pub new_lane: Option<usize>,
+}
+
+pub(crate) fn on_new_track(new_lane: Option<usize>, command: Command) -> Command {
+    match new_lane {
+        Some(index) => Command::OnNewTrack {
+            index,
+            command: Box::new(command),
+        },
+        None => command,
+    }
 }
 
 /// Every model the window is handed, kept for its lifetime rather than
@@ -1126,6 +1140,8 @@ pub struct Studio {
     pub compact: bool,
     pub workspace: (f32, f32),
     pub divider_press: Option<(usize, f32, f32)>,
+    /// Once a gutter is dragged, resizing preserves the user's split.
+    split_owned: bool,
     pub gesture: Gesture,
     /// The snap lines of a stage move in flight; empty between moves.
     pub stage_guides: Vec<StageGuideData>,
@@ -1988,6 +2004,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::DetachAudio { .. } => "Detach audio",
         Command::ReattachAudio { .. } => "Reattach audio",
         Command::AddTrack { .. } => "Add track",
+        Command::OnNewTrack { command, .. } => command_kind(command),
         Command::RemoveTrack { .. } => "Delete track",
         Command::SetTrackFlag {
             flag: TrackFlag::Visible,
@@ -3136,6 +3153,7 @@ impl Studio {
             compact: false,
             workspace: (0.0, 0.0),
             divider_press: None,
+            split_owned: false,
             gesture: Gesture::None,
             stage_guides: Vec::new(),
             inspector_jump: (0, "", ""),

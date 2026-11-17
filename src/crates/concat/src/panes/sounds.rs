@@ -60,8 +60,8 @@ pub enum ConcatState {
 pub enum Then {
     /// Play it.
     Preview,
-    /// Lay it on this lane, or the first with room, at this moment.
-    Place(Option<String>, f64),
+    /// Lay it on this lane, or a new lane at this model index, at this moment.
+    Place(Option<String>, f64, Option<usize>),
 }
 
 /// Everything that can happen to the Audio page.
@@ -198,8 +198,8 @@ impl SoundsPane {
                 match result {
                     Ok(path) => match then {
                         Then::Preview => studio.preview_file(&card, &name, &path),
-                        Then::Place(track_id, start) => {
-                            studio.place_sound(&name, &path, track_id, start);
+                        Then::Place(track_id, start, new_lane) => {
+                            studio.place_sound(&name, &path, track_id, start, new_lane);
                         }
                     },
                     Err(error) if error == "cancelled" => {}
@@ -261,9 +261,9 @@ impl SoundsPane {
             SoundsMsg::Add(card) => {
                 let start = f64::from(studio.playhead.max(0.0));
                 if let Some((name, path)) = self.file_of(&card) {
-                    studio.place_sound(&name, &path, None, start);
+                    studio.place_sound(&name, &path, None, start, None);
                 } else {
-                    self.fetch(&card, Then::Place(None, start));
+                    self.fetch(&card, Then::Place(None, start, None));
                 }
             }
             SoundsMsg::Remove(card) => {
@@ -546,13 +546,20 @@ impl Studio {
 
     /// A card dropped on a lane, or added at the playhead: see
     /// [`Studio::place_sound`].
-    pub fn place_card(&mut self, card: &str, track_id: Option<String>, start: f64) {
+    pub fn place_card(
+        &mut self,
+        card: &str,
+        track_id: Option<String>,
+        start: f64,
+        new_lane: Option<usize>,
+    ) {
         if let Some((name, path)) = self.sounds.file_of(card) {
-            self.place_sound(&name, &path, track_id, start);
+            self.place_sound(&name, &path, track_id, start, new_lane);
         } else {
             // One of Concat's not downloaded yet: it lands where it was
             // dropped once it is in.
-            self.sounds.fetch(card, Then::Place(track_id, start));
+            self.sounds
+                .fetch(card, Then::Place(track_id, start, new_lane));
         }
     }
 
@@ -560,7 +567,14 @@ impl Studio {
     /// folder and imported into the bin first - once; a second use finds
     /// the copy already there - then cut onto `track_id` at `start`, or at
     /// `start` on the first lane with room. Selects what it made.
-    pub fn place_sound(&mut self, name: &str, path: &Path, track_id: Option<String>, start: f64) {
+    pub fn place_sound(
+        &mut self,
+        name: &str,
+        path: &Path,
+        track_id: Option<String>,
+        start: f64,
+        new_lane: Option<usize>,
+    ) {
         let media_id = match self.adopt_sound(name, path) {
             Ok(id) => id,
             Err(error) => {
@@ -571,12 +585,15 @@ impl Studio {
         // Onto the timeline: the monitor and the speakers go back to it.
         self.close_source();
         let created = match track_id {
-            Some(track_id) => self.apply(Command::AddClip {
-                media_id,
-                track_id,
-                start,
-                ripple: true,
-            }),
+            Some(track_id) => self.apply(crate::studio::on_new_track(
+                new_lane,
+                Command::AddClip {
+                    media_id,
+                    track_id,
+                    start,
+                    ripple: true,
+                },
+            )),
             None => self.apply(Command::AddClipAtFirstFree { media_id, start }),
         };
         if let Some(id) = created {
