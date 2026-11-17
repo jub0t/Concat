@@ -105,6 +105,10 @@ pub struct TimelinePane {
     /// The lanes' width on screen, in logical pixels; zero until Slint has
     /// said, and then every clip is published.
     pub width: f32,
+    /// A project just opened and has not yet been fitted at its final width.
+    fit_pending: bool,
+    /// Keep fitting through the resize caused by desktop maximization.
+    pub fit_hold: bool,
     /// The playhead is held at the middle of the lanes and the cut moves
     /// under it: the phone's timeline, where a finger drags the lanes to
     /// scrub. `scroll_left` is then a fact about the playhead - half a
@@ -125,6 +129,8 @@ impl Default for TimelinePane {
             pan_mode: false,
             lane_view: HashMap::new(),
             width: 0.0,
+            fit_pending: false,
+            fit_hold: false,
             centred: false,
         }
     }
@@ -189,10 +195,8 @@ impl TimelinePane {
                 self.recentre(studio.playhead);
             }
             TimelineMsg::ZoomToFit(width) => {
-                let span = studio.duration().max(1.0) * 1.05;
                 if width > 1.0 {
-                    self.seconds_per_pixel = (span / width).clamp(ZOOM_IN_LIMIT, ZOOM_OUT_LIMIT);
-                    self.scroll_left = 0.0;
+                    self.fit(studio.duration(), width);
                     self.recentre(studio.playhead);
                 }
             }
@@ -207,15 +211,50 @@ impl TimelinePane {
                 self.recentre(studio.playhead);
             }
             TimelineMsg::Resized(width) => {
-                self.width = width.max(0.0);
+                self.resized_to(width, studio.duration());
                 self.recentre(studio.playhead);
             }
             TimelineMsg::Reset => {
-                self.scroll_left = 0.0;
                 self.lane_view.clear();
+                self.opened();
                 self.recentre(studio.playhead);
             }
         }
+    }
+
+    /// Starts a project at the beginning and waits for its real lane width.
+    fn opened(&mut self) {
+        self.scroll_left = 0.0;
+        self.width = 0.0;
+        self.fit_pending = true;
+    }
+
+    /// Records the lane width and performs a pending opening fit.
+    pub fn resized_to(&mut self, width: f32, duration: f32) {
+        self.width = width.max(0.0);
+        self.fit_now(duration);
+    }
+
+    fn fit_now(&mut self, duration: f32) {
+        if self.fit_pending && self.width > 1.0 {
+            self.fit(duration, self.width);
+            if !self.fit_hold {
+                self.fit_pending = false;
+            }
+        }
+    }
+
+    fn fit(&mut self, duration: f32, width: f32) {
+        let span = duration.max(1.0) * 1.05;
+        self.seconds_per_pixel = (span / width).clamp(ZOOM_IN_LIMIT, ZOOM_OUT_LIMIT);
+        self.scroll_left = 0.0;
+    }
+
+    /// Ends the maximize hold with one final fit at the settled width.
+    pub fn end_fit_hold(&mut self, duration: f32) {
+        self.fit_hold = false;
+        self.fit_pending = true;
+        self.fit_now(duration);
     }
 
     /// The lanes scrolled to `seconds` at their left edge. See `Scrolled`.
@@ -393,6 +432,34 @@ mod tests {
         pinch(&mut phone, &[0.8, 0.5], 9.0);
         assert!((phone.seconds_per_pixel - 0.1).abs() < 1e-6);
         assert!(((3.0 - phone.scroll_left) / phone.seconds_per_pixel - 200.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn opening_fits_once_the_lanes_report_their_width() {
+        let mut view = pane(1000.0, 40.0, 0.05);
+        view.opened();
+        assert_eq!(view.width, 0.0);
+        assert!(view.fit_pending);
+        view.resized_to(1000.0, 7200.0);
+        assert!(view.width * view.seconds_per_pixel >= 7200.0);
+        assert_eq!(view.scroll_left, 0.0);
+        let zoom = view.seconds_per_pixel;
+        view.resized_to(800.0, 7200.0);
+        assert_eq!(view.seconds_per_pixel, zoom);
+    }
+
+    #[test]
+    fn a_fit_hold_tracks_maximize_until_released() {
+        let mut view = pane(0.0, 0.0, 0.05);
+        view.opened();
+        view.fit_hold = true;
+        view.resized_to(400.0, 120.0);
+        let before = view.seconds_per_pixel;
+        view.resized_to(800.0, 120.0);
+        assert_ne!(view.seconds_per_pixel, before);
+        view.end_fit_hold(120.0);
+        assert!(!view.fit_pending);
+        assert!(!view.fit_hold);
     }
 
     #[test]

@@ -482,6 +482,7 @@ export component Seat inherits Rectangle {
             clip-context(id) => { Editor.clip-context(id); }
             menu-selected(id) => { Editor.menu-selected(id); }
             band-selected(a, b, c, d, additive) => { Editor.band-selected(a, b, c, d, additive); }
+            lane-selected(y, additive) => { Editor.lane-selected(y, additive); }
             scrolled(seconds) => { Editor.scrolled(seconds); }
             drop: Editor.drop;
             drag-hovered(payload, seconds, row) => {

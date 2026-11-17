@@ -503,6 +503,7 @@ export global Editor {
 
     callback band-selected(from-seconds: float, to-seconds: float,
         from-y: length, to-y: length, additive: bool);
+    callback lane-selected(y: length, additive: bool);
     callback scrolled(seconds: float);
 
     /// A library card dragged onto the lanes. See DropData in the timeline's

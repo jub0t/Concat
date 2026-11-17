@@ -74,6 +74,8 @@ export struct TrackData {
     /// The first clip's category for the header icon; false on an empty lane.
     typed: bool,
     kind: ClipKind,
+    /// Selected by a click on empty lane space, distinct from clips.
+    selected: bool,
 }
 
 /// A media item's filmstrip and the window of it one clip shows.

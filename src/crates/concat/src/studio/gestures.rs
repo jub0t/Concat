@@ -5,8 +5,35 @@
 use super::*;
 use concat_project::placement::shifted_starts;
 
+/// How far a pressed clip must travel before it moves or trims.
+const DRAG_DEAD_ZONE: f32 = 4.0;
+
+fn in_dead_zone(seconds: f32, pixels: f32, seconds_per_pixel: f32) -> bool {
+    seconds.abs() / seconds_per_pixel.max(f32::EPSILON) < DRAG_DEAD_ZONE
+        && pixels.abs() < DRAG_DEAD_ZONE
+}
+
 impl Studio {
     // ── gestures ──
+
+    /// Selects the track under an empty-lane click without seeking.
+    pub fn lane_selected(&mut self, y: f32, additive: bool) {
+        self.flush_commit();
+        let row = self.row_at(y);
+        let Some(track_id) = self.row_track(row).map(|track| track.id.clone()) else {
+            return;
+        };
+        if additive {
+            if !self.selected_tracks.remove(&track_id) {
+                self.selected_tracks.insert(track_id);
+            }
+        } else {
+            self.selected_tracks.clear();
+            self.selected_tracks.insert(track_id);
+        }
+        self.selection.clear();
+        self.transition_selected = None;
+    }
 
     /// A press resolves the selection before anything moves, so a drag that
     /// starts on an already-selected clip carries the whole set.
@@ -22,6 +49,7 @@ impl Studio {
         // change would look for it on the newly selected clip and lose it.
         self.flush_commit();
         self.end_audition();
+        self.selected_tracks.clear();
         // A press on a transition's seam or handles selects the transition,
         // not the clip it rides into; a drag there still sets its length.
         if edge == 2
@@ -64,6 +92,7 @@ impl Studio {
                 start: clip.start as f32,
                 duration: clip.duration as f32,
                 source_start: clip.source_start as f32,
+                started: false,
             };
             return;
         }
@@ -92,17 +121,28 @@ impl Studio {
             primary: id.to_owned(),
             origins,
             lanes: self.lane_heights(),
+            started: false,
         };
     }
 
     /// The pointer moved: the echo follows it.
     pub fn clip_dragged(&mut self, seconds: f32, pixels: f32) {
-        let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
+        let mut gesture = std::mem::replace(&mut self.gesture, Gesture::None);
+        if let Gesture::Move { started, .. } | Gesture::Trim { started, .. } = &mut gesture
+            && !*started
+        {
+            if in_dead_zone(seconds, pixels, self.lanes.seconds_per_pixel) {
+                self.gesture = gesture;
+                return;
+            }
+            *started = true;
+        }
         match &gesture {
             Gesture::Move {
                 primary,
                 origins,
                 lanes,
+                ..
             } => {
                 let Some(anchor) = origins.iter().find(|origin| &origin.clip == primary) else {
                     self.gesture = gesture;
@@ -185,6 +225,7 @@ impl Studio {
                 start,
                 duration,
                 source_start,
+                ..
             } => {
                 let (id, edge) = (clip.clone(), *edge);
                 let (start, duration, source_start) = (*start, *duration, *source_start);
@@ -367,5 +408,18 @@ impl Studio {
                 self.gesture = other;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_dead_zone;
+
+    #[test]
+    fn a_wobbling_click_is_not_a_drag() {
+        let spp = 0.25;
+        assert!(in_dead_zone(3.0 * spp, -3.0, spp));
+        assert!(!in_dead_zone(4.0 * spp, 0.0, spp));
+        assert!(!in_dead_zone(0.0, 4.0, spp));
     }
 }

@@ -122,6 +122,7 @@ export component TimelinePane inherits Rectangle {
 
     callback band-selected(from-seconds: float, to-seconds: float,
         from-y: length, to-y: length, additive: bool);
+    callback lane-selected(y: length, additive: bool);
     callback scrolled(seconds: float);
 
     /// A library card dragged over the lanes, and let go of. See DropData.
@@ -475,6 +476,7 @@ export component TimelinePane inherits Rectangle {
                 band-selected(a, b, c, d, additive) => {
                     root.band-selected(a, b, c, d, additive);
                 }
+                lane-selected(y, additive) => { root.lane-selected(y, additive); }
                 scrolled(seconds) => { root.scrolled(seconds); }
 
                 drop: root.drop;

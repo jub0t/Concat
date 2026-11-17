@@ -221,7 +221,8 @@ component Header inherits Rectangle {
     callback sized(size: TrackSize);
     callback removed();
 
-    background: Math.mod(root.row-index, 2) == 0 ? Theme.lane : Theme.lane-alt;
+    background: root.track.selected ? Theme.accent-soft
+        : Math.mod(root.row-index, 2) == 0 ? Theme.lane : Theme.lane-alt;
 
     if root.row-index == 0: Rectangle {
         x: 0;

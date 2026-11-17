@@ -55,6 +55,37 @@ impl Studio {
         self.publish_lanes(app, models);
         self.publish_chrome(app, models);
         self.publish_dock(app, models);
+        if self.present_maximized.replace(false) {
+            let weak = app.as_weak();
+            // Publishing dirties the preferred size. Maximize on the next
+            // turn, then fit after its resize has reached the lanes.
+            slint::Timer::single_shot(std::time::Duration::from_millis(0), move || {
+                let Some(app) = weak.upgrade() else {
+                    return;
+                };
+                app.window().set_maximized(true);
+                app.set_window_maximized(true);
+                let weak = app.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(0), move || {
+                    let weak = weak.clone();
+                    slint::Timer::single_shot(std::time::Duration::from_millis(0), move || {
+                        if weak.upgrade().is_none() {
+                            return;
+                        }
+                        crate::host::Shell::with(|shell, app| {
+                            {
+                                let mut studio = shell.studio.borrow_mut();
+                                let duration = studio.duration();
+                                let playhead = studio.playhead;
+                                studio.lanes.end_fit_hold(duration);
+                                studio.lanes.recentre(playhead);
+                            }
+                            shell.studio.borrow().publish_lanes(&app, &shell.models);
+                        });
+                    });
+                });
+            });
+        }
     }
 
     /// The project's saved state and the toast, and nothing else: what a
@@ -263,6 +294,7 @@ impl Studio {
                         size: self.lane_size(&lane.id),
                         height,
                         top,
+                        selected: self.selected_tracks.contains(&lane.id),
                     };
                     top += height;
                     row

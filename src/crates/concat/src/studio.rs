@@ -488,6 +488,8 @@ pub enum Gesture {
         /// read live: an `Auto` lane resizes as clips land on it, which
         /// would move the very edges the next event measures against.
         lanes: Vec<f32>,
+        /// The pointer has left the dead zone around the press.
+        started: bool,
     },
     Trim {
         clip: String,
@@ -495,6 +497,8 @@ pub enum Gesture {
         start: f32,
         duration: f32,
         source_start: f32,
+        /// The pointer has left the dead zone around the press.
+        started: bool,
     },
     /// Dragging a transition's duration handle on the timeline.
     TransitionResize {
@@ -1074,6 +1078,8 @@ pub struct Studio {
     /// about a track that the document does not.
     pub lanes: crate::panes::timeline::TimelinePane,
     pub selection: Vec<String>,
+    /// Tracks highlighted by an empty-lane click, distinct from clips.
+    pub selected_tracks: HashSet<String>,
     pub playhead: f32,
     pub playing: bool,
     transport: slint::Timer,
@@ -1120,6 +1126,8 @@ pub struct Studio {
 
     // ── the launch screen ──
     pub on_start: bool,
+    /// Taken by the first publish after a desktop project opens.
+    present_maximized: std::cell::Cell<bool>,
     pub start: crate::panes::start::StartPane,
     pub recents: Vec<projects::Recent>,
     pub posters: HashMap<String, slint::Image>,
@@ -3118,6 +3126,7 @@ impl Studio {
             waves: RefCell::new(HashMap::new()),
             lanes: crate::panes::timeline::TimelinePane::default(),
             selection: Vec::new(),
+            selected_tracks: HashSet::new(),
             playhead: 0.0,
             // ~20px a second: a ten-second cut fits a pane at its default width.
             playing: false,
@@ -3142,6 +3151,7 @@ impl Studio {
             activity_burst: None,
             toast: ToastState::default(),
             on_start: true,
+            present_maximized: std::cell::Cell::new(false),
             start,
             recents,
             posters: HashMap::new(),

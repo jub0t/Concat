@@ -151,9 +151,14 @@ impl Studio {
                 self.project_name = info.name.clone();
                 self.export.name = projects::folder_name(&info.name);
                 self.selection.clear();
+                self.selected_tracks.clear();
                 self.transition_selected = None;
                 self.media.selected.clear();
                 self.playhead = 0.0;
+                if !self.lanes.centred {
+                    self.lanes.fit_hold = true;
+                    self.present_maximized.set(true);
+                }
                 self.handle(crate::panes::Msg::Timeline(
                     crate::panes::timeline::TimelineMsg::Reset,
                 ));
