@@ -8,13 +8,13 @@
 <div align="center">
 
 <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
-
+<br><br> 
 <p align="center">
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
-  <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
-  <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://patch-lime.vercel.app/api/badge?source=ghdownloads&id=jub0t%2Fconcat&label=Downloads&color=0568fd&labelColor=212123&style=solid&logo=github&logoColor=f8f8f8&h=28&font=Inter&fw=600&rad=100&pad=40&fsz=46" alt="Total Downloads" /></a>
+  <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://patch-lime.vercel.app/api/badge?source=ghbuild&id=jub0t%2FConcat%2Fci.yml&label=Build&color=auto&labelColor=000000&style=solid&logo=githubactions&logoColor=f8f8f8&h=28&font=Inter&fw=600&rad=100&pad=40&fsz=46" alt="Build Status" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://patch-lime.vercel.app/api/badge?label=Version&msg=0.2.11&color=0568fd&labelColor=212123&style=solid&logo=semver&logoColor=f8f8f8&h=28&font=Inter&fw=600&rad=100&pad=40&fsz=46" alt="Concat Version 0.2.11" /></a>
+  <a href="https://discord.gg/DVuPfpXfqP"><img src="https://patch-lime.vercel.app/api/badge?label=Discord&msg=Join%20the%20server&color=5865f2&labelColor=000000&style=solid&logo=discord&logoColor=f8f8f8&h=28&font=Inter&fw=600&rad=100&pad=40&fsz=46" alt="Join Concat Discord" /></a>
+  <a href="LICENSE"><img src="https://patch-lime.vercel.app/api/badge?label=License&msg=AGPL%20v3&color=0568fd&labelColor=212123&style=solid&logo=gnu&logoColor=f8f8f8&h=28&font=Inter&fw=600&rad=100&pad=40&fsz=46" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
 <p align="center">
