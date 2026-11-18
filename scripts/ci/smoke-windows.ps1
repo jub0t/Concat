@@ -85,9 +85,24 @@ function Show-Crash($file, $since) {
   Write-Host "  (Windows recorded no Application Error event for $exe)"
 }
 
-# Starts a program with the given PATH and waits for it, up to a limit;
-# fails unless it exits 0. Its output is shown when there is any.
-function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
+# The log Concat wrote for a run that started at $since, whole: the 60
+# lines of output a failure shows end at the failure, and the reason for
+# it can be far above (#824 - the first device loss came before the
+# export's first line).
+function Show-Log($since) {
+  $folder = Join-Path $env:LOCALAPPDATA "app.concat.editor\logs"
+  $log = Get-ChildItem $folder -Filter "concat-*.log" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -ge $since.AddSeconds(-2) } |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if (-not $log) { Write-Host "  (no log of this run in $folder)"; return }
+  Say "the run's log, $($log.Name)"
+  Get-Content $log.FullName -TotalCount 3000 | ForEach-Object { Write-Host "  $_" }
+}
+
+# Starts a program with the given PATH, and the variables in $extra, and
+# waits for it, up to a limit; fails unless it exits 0. Its output is shown
+# when there is any, and on a failure the log of the run too.
+function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds, [hashtable]$extra = @{}) {
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = $file
   foreach ($a in $arguments) { [void]$info.ArgumentList.Add($a) }
@@ -98,12 +113,14 @@ function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
   # in the folder it was started from.
   $info.WorkingDirectory = [IO.Path]::GetTempPath()
   $info.Environment["PATH"] = $path
+  foreach ($name in $extra.Keys) { $info.Environment[$name] = $extra[$name] }
   $started = Get-Date
   $process = [System.Diagnostics.Process]::Start($info)
   $stdout = $process.StandardOutput.ReadToEndAsync()
   $stderr = $process.StandardError.ReadToEndAsync()
   if (-not $process.WaitForExit($seconds * 1000)) {
     $process.Kill($true)
+    Show-Log $started
     Fail "${what}: still running after $seconds s"
   }
   $process.WaitForExit()
@@ -112,6 +129,7 @@ function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
   $code = $process.ExitCode
   if ($code -ne 0) {
     Show-Crash $file $started
+    Show-Log $started
     $meaning = $meanings[[int]$code]
     Fail ("${what}: exited with 0x{0:X8}{1}" -f $code, $(if ($meaning) { " - $meaning" } else { "" }))
   }
@@ -180,7 +198,21 @@ Expect-Ok "concat.exe --smoke" $exe @("--smoke") $bare 180
 # launch alone never reaches an export (#747).
 Say "concat.exe --smoke-export, with only Windows on the path"
 $clip = (Resolve-Path (Join-Path $PSScriptRoot "..\..\src\crates\concat-media\fixtures\picture-starts-late.mov")).Path
-Expect-Ok "concat.exe --smoke-export" $exe @("--smoke-export", $clip) $bare 300
+try {
+  Expect-Ok "concat.exe --smoke-export" $exe @("--smoke-export", $clip) $bare 300
+} catch {
+  $failed = $_
+  # Once more with the graphics API's own checks on (wgpu's validation,
+  # and Direct3D 12's debug layer where the runner has it), to say what a
+  # lost device was doing; the step fails either way.
+  Say "concat.exe --smoke-export once more, with the graphics checks on"
+  try {
+    Expect-Ok "concat.exe --smoke-export (checks on)" $exe @("--smoke-export", $clip) $bare 300 @{
+      WGPU_VALIDATION = "1"; WGPU_DEBUG = "1"; CONCAT_LOG = "debug,wgpu_hal=info"
+    }
+  } catch { Write-Host "  $_" }
+  throw $failed
+}
 
 # ── 4. On an emulated Ivy Bridge ───────────────────────────────────────
 if ($Sde) {
