@@ -218,13 +218,13 @@ if (-not $exportFailed) {
   }
 }
 
-# The same export again under each condition that could decide whether a
-# software adapter's device dies (#824), one line each, whatever the first
-# run did: a run with the one-at-a-time turn off, twice (does it die every
-# time, or only on a first, cold run?), then with it off and one thing
-# changed - the graphics checks, slower logging, no hardware encoders
-# tried, no hardware decoders - and last with the turn on and the checks
-# on. None of these fail the step; only the first run above does.
+# The same export again under each condition that decides whether a
+# software adapter's device lives (#824), one line each, whatever the first
+# run did. The earlier runs showed WARP removing the device whenever the
+# shaders were compiled optimised, and the turn, the debug layer, hardware
+# coding and logging making no difference; these say whether that holds,
+# whether the turn is needed at all, and what the unoptimised shaders cost.
+# None of these fail the step; only the first run above does.
 function Probe-Export($what, [hashtable]$extra) {
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = $exe
@@ -252,21 +252,18 @@ function Probe-Export($what, [hashtable]$extra) {
   $dead = @($lines | Where-Object { $_ -match "already removed|still holds" }).Count
   $cpu = [bool]($lines | Where-Object { $_ -match "going on drawing on the CPU" })
   $verdict = if ($process.ExitCode -ne 0) { "FAILED" } elseif ($cpu) { "finished on the CPU" } else { "ok on the GPU" }
-  Write-Host ("  {0,-34} {1,-20} devices lost: {2}, opened dead: {3}" -f $what, $verdict, $lost, $dead)
+  $done = $lines | Where-Object { $_ -match "export     done in" } | Select-Object -First 1
+  $fps = if ($done -match "frames at ([0-9.]+) fps") { "$($Matches[1]) fps" } else { "-" }
+  Write-Host ("  {0,-34} {1,-20} {2,-10} devices lost: {3}, opened dead: {4}" -f $what, $verdict, $fps, $lost, $dead)
   $first = $lines | Where-Object { $_ -match "gave up its device|already removed" } | Select-Object -First 1
   if ($first) { Write-Host "      first: $($first.Trim())" }
 }
 
 Say "the export again under each condition (#824)"
-$off = @{ CONCAT_GPU_SERIAL = "0" }
-Probe-Export "turn off" $off
-Probe-Export "turn off, again" $off
-Probe-Export "turn off, checks on" ($off + @{ WGPU_VALIDATION = "1" })
-Probe-Export "turn off, debug logging" ($off + @{ CONCAT_LOG = "debug" })
-Probe-Export "turn off, no hardware encoders" ($off + @{ CONCAT_HARDWARE_ENCODE = "0" })
-Probe-Export "turn off, no hardware decoders" ($off + @{ CONCAT_HARDWARE_DECODE = "0" })
-Probe-Export "turn on, again" @{}
-Probe-Export "turn on, checks on" @{ WGPU_VALIDATION = "1"; WGPU_DEBUG = "1" }
+Probe-Export "as shipped, again" @{}
+Probe-Export "turn off" @{ CONCAT_GPU_SERIAL = "0" }
+Probe-Export "shaders optimised" @{ CONCAT_WARP_SHADERS = "optimised" }
+Probe-Export "shaders optimised, WGPU_DEBUG" @{ CONCAT_WARP_SHADERS = "optimised"; WGPU_DEBUG = "1" }
 
 if ($exportFailed) { Fail "$exportFailed" }
 

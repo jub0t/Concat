@@ -385,6 +385,35 @@ pub fn instance_flags() -> wgpu::InstanceFlags {
     (wgpu::InstanceFlags::default() - wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL).with_env()
 }
 
+/// The flags a rung's instance is made with: [`instance_flags`], and on
+/// Windows' software renderer (WARP) shaders compiled without the
+/// compiler's optimisations. Optimised, one of the compositor's shaders
+/// made WARP remove the device on the first frame it drew, every time,
+/// in every build that ships - the tests, built for debugging, compile
+/// unoptimised and never saw it. CI's runner, which has no GPU, showed it:
+/// with the turn, the debug layer, hardware coding and logging each tried
+/// on and off, the export drew on WARP only when the shaders were left
+/// unoptimised (#824). WARP compiles every shader again for the CPU with
+/// its own optimiser, so little is lost. `CONCAT_WARP_SHADERS=optimised`
+/// compiles them as on a GPU, for CI's runs that look for the shader.
+fn rung_flags(software: bool) -> wgpu::InstanceFlags {
+    let flags = instance_flags();
+    if cfg!(windows) && software && !warp_shaders_optimised() {
+        flags | wgpu::InstanceFlags::DEBUG
+    } else {
+        flags
+    }
+}
+
+/// Whether `CONCAT_WARP_SHADERS=optimised` asks for WARP's shaders to be
+/// compiled as a GPU's are; see [`rung_flags`].
+fn warp_shaders_optimised() -> bool {
+    std::env::var("CONCAT_WARP_SHADERS").is_ok_and(|value| {
+        let value = value.trim();
+        value.eq_ignore_ascii_case("optimised") || value.eq_ignore_ascii_case("optimized")
+    })
+}
+
 /// How near its memory budget a device lets Concat go, as Firefox ships it
 /// to every Windows user of WebGPU: past 95% a texture or buffer is refused
 /// with an out-of-memory error, which a composite catches and an export
@@ -1353,7 +1382,7 @@ impl WgpuCompositor {
         let _turn = turn::opening(software);
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
-            flags: instance_flags(),
+            flags: rung_flags(software),
             memory_budget_thresholds: memory_budget(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
@@ -1384,6 +1413,17 @@ impl WgpuCompositor {
                     }
                 };
             let info = adapter.get_info();
+            // A GPU's rung that finds only Windows' software renderer - a
+            // machine with no driver Concat can use - leaves it to the
+            // software rung, which compiles its shaders the way that
+            // renderer survives (see `rung_flags`).
+            if cfg!(windows) && !software && info.device_type == wgpu::DeviceType::Cpu {
+                log::info!(
+                    "compositor: {} is a software renderer; the software rung opens it",
+                    info.name
+                );
+                return None;
+            }
             let (device, queue) =
                 match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                     label: Some("concat compositor"),
