@@ -1345,12 +1345,11 @@ export component PhoneEditor inherits Rectangle {
             }
         }
 
-        // ── effects, with nothing selected ──
+        // ── effects: on the clip if one is selected, else a layer at the playhead ──
         if root.sheet == "effects": VerticalLayout {
             padding: 12px;
             spacing: 8px;
 
-            if !root.has-clip: SheetNote { text: I18n.t("phone.selectClipFirst"); }
             ShelfSearch {
                 shelf: 1;
                 placeholder: I18n.t1("common.searchKind", I18n.t("common.effect"));
@@ -1363,7 +1362,15 @@ export component PhoneEditor inherits Rectangle {
                 entries: Editor.catalogue-effects;
                 glyph: Glyph.sparkle;
                 auditions: false;
-                applied(id, label) => { Editor.library-apply-effect(id); }
+                // On a selected clip: its chain. With none: a layer at the playhead.
+                applied(id, label) => {
+                    if root.has-clip {
+                        Editor.library-apply-effect(id);
+                    } else {
+                        Editor.library-apply-filter(id, label);
+                        root.hide();
+                    }
+                }
             }
         }
 
@@ -1493,12 +1500,11 @@ export component PhoneEditor inherits Rectangle {
             }
         }
 
-        // ── transitions: onto the cut into the selected clip ──
+        // ── transitions: onto the selected cut, or at the playhead ──
         if root.sheet == "transitions": VerticalLayout {
             padding: 12px;
             spacing: 8px;
 
-            if !root.has-clip: SheetNote { text: I18n.t("phone.selectClipFirst"); }
             ShelfSearch {
                 shelf: 3;
                 placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.transition"));
