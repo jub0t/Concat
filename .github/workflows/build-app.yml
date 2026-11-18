@@ -659,7 +659,20 @@ jobs:
             codesign --force --deep -s - "$app"
           fi
 
-          hdiutil create -volname Concat -srcfolder "$app" -ov -format UDZO "$dmg"
+          # hdiutil on GitHub's macOS runners sometimes finds the image
+          # "Resource busy" - Spotlight or XProtect still on the folder - and
+          # that failed a whole bundle run. Tried again, a few seconds apart.
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname Concat -srcfolder "$app" -ov -format UDZO "$dmg"; then
+              break
+            fi
+            if [ "$attempt" = 5 ]; then
+              echo "::error::hdiutil could not make $dmg after $attempt tries"
+              exit 1
+            fi
+            echo "hdiutil failed (try $attempt); again in $((attempt * 5)) s"
+            sleep $((attempt * 5))
+          done
 
           if [ -n "${APPLE_ID}" ] && [ -n "${TEAM_ID}" ] && [ -n "${APP_PASSWORD}" ] && [ -n "${IDENTITY}" ]; then
             codesign --force --timestamp -s "$IDENTITY" "$dmg"
