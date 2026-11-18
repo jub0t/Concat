@@ -745,7 +745,9 @@ export component App inherits Window {
                 project-name: root.project-name;
                 status: root.project-status;
 
-                menu: root.open-menu;
+                // Gate on the popup: click-outside / Escape close it without
+                // clearing Rust's open-menu, so the label would stay lit.
+                menu: appmenu.open ? root.open-menu : -1;
                 keyboard-menu: root.keyboard-menu;
                 keyboard-token: root.keyboard-menu-token;
                 menu-opened(index, at-x, keyboard) => {
