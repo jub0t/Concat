@@ -89,12 +89,15 @@ function Show-Crash($file, $since) {
 # lines of output a failure shows end at the failure, and the reason for
 # it can be far above (#824 - the first device loss came before the
 # export's first line).
-function Show-Log($since) {
+function Find-Log($since) {
   $folder = Join-Path $env:LOCALAPPDATA "app.concat.editor\logs"
-  $log = Get-ChildItem $folder -Filter "concat-*.log" -ErrorAction SilentlyContinue |
+  Get-ChildItem $folder -Filter "concat-*.log" -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -ge $since.AddSeconds(-2) } |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
-  if (-not $log) { Write-Host "  (no log of this run in $folder)"; return }
+}
+function Show-Log($since) {
+  $log = Find-Log $since
+  if (-not $log) { Write-Host "  (no log of this run)"; return }
   Say "the run's log, $($log.Name)"
   Get-Content $log.FullName -TotalCount 3000 | ForEach-Object { Write-Host "  $_" }
 }
@@ -198,21 +201,74 @@ Expect-Ok "concat.exe --smoke" $exe @("--smoke") $bare 180
 # launch alone never reaches an export (#747).
 Say "concat.exe --smoke-export, with only Windows on the path"
 $clip = (Resolve-Path (Join-Path $PSScriptRoot "..\..\src\crates\concat-media\fixtures\picture-starts-late.mov")).Path
+$exportStarted = Get-Date
+$exportFailed = $null
 try {
   Expect-Ok "concat.exe --smoke-export" $exe @("--smoke-export", $clip) $bare 300
-} catch {
-  $failed = $_
-  # Once more with the graphics API's own checks on (wgpu's validation,
-  # and Direct3D 12's debug layer where the runner has it), to say what a
-  # lost device was doing; the step fails either way.
-  Say "concat.exe --smoke-export once more, with the graphics checks on"
-  try {
-    Expect-Ok "concat.exe --smoke-export (checks on)" $exe @("--smoke-export", $clip) $bare 300 @{
-      WGPU_VALIDATION = "1"; WGPU_DEBUG = "1"; CONCAT_LOG = "debug,wgpu_hal=info"
-    }
-  } catch { Write-Host "  $_" }
-  throw $failed
+} catch { $exportFailed = $_ }
+
+# An export that lost its GPU device and finished on the CPU exits 0 - the
+# file a person would get is right - but the device should not have died:
+# here that is a failure still, so the cause stays in sight (#824).
+if (-not $exportFailed) {
+  $log = Find-Log $exportStarted
+  if ($log -and (Select-String -Path $log.FullName -SimpleMatch "going on drawing on the CPU" -Quiet)) {
+    Show-Log $exportStarted
+    $exportFailed = "concat.exe --smoke-export: the GPU device was lost and the export finished on the CPU"
+  }
 }
+
+# The same export again under each condition that could decide whether a
+# software adapter's device dies (#824), one line each, whatever the first
+# run did: a run with the one-at-a-time turn off, twice (does it die every
+# time, or only on a first, cold run?), then with it off and one thing
+# changed - the graphics checks, slower logging, no hardware encoders
+# tried, no hardware decoders - and last with the turn on and the checks
+# on. None of these fail the step; only the first run above does.
+function Probe-Export($what, [hashtable]$extra) {
+  $info = New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName = $exe
+  [void]$info.ArgumentList.Add("--smoke-export")
+  [void]$info.ArgumentList.Add($clip)
+  $info.UseShellExecute = $false
+  $info.RedirectStandardOutput = $true
+  $info.RedirectStandardError = $true
+  $info.WorkingDirectory = [IO.Path]::GetTempPath()
+  $info.Environment["PATH"] = $bare
+  foreach ($name in $extra.Keys) { $info.Environment[$name] = $extra[$name] }
+  $started = Get-Date
+  $process = [System.Diagnostics.Process]::Start($info)
+  $null = $process.StandardOutput.ReadToEndAsync()
+  $null = $process.StandardError.ReadToEndAsync()
+  if (-not $process.WaitForExit(180 * 1000)) {
+    $process.Kill($true)
+    Write-Host ("  {0,-34} still running after 180 s" -f $what)
+    return
+  }
+  $process.WaitForExit()
+  $log = Find-Log $started
+  $lines = if ($log) { Get-Content $log.FullName } else { @() }
+  $lost = @($lines | Where-Object { $_ -match "gave up its device" }).Count
+  $dead = @($lines | Where-Object { $_ -match "already removed|still holds" }).Count
+  $cpu = [bool]($lines | Where-Object { $_ -match "going on drawing on the CPU" })
+  $verdict = if ($process.ExitCode -ne 0) { "FAILED" } elseif ($cpu) { "finished on the CPU" } else { "ok on the GPU" }
+  Write-Host ("  {0,-34} {1,-20} devices lost: {2}, opened dead: {3}" -f $what, $verdict, $lost, $dead)
+  $first = $lines | Where-Object { $_ -match "gave up its device|already removed" } | Select-Object -First 1
+  if ($first) { Write-Host "      first: $($first.Trim())" }
+}
+
+Say "the export again under each condition (#824)"
+$off = @{ CONCAT_GPU_SERIAL = "0" }
+Probe-Export "turn off" $off
+Probe-Export "turn off, again" $off
+Probe-Export "turn off, checks on" ($off + @{ WGPU_VALIDATION = "1" })
+Probe-Export "turn off, debug logging" ($off + @{ CONCAT_LOG = "debug" })
+Probe-Export "turn off, no hardware encoders" ($off + @{ CONCAT_HARDWARE_ENCODE = "0" })
+Probe-Export "turn off, no hardware decoders" ($off + @{ CONCAT_HARDWARE_DECODE = "0" })
+Probe-Export "turn on, again" @{}
+Probe-Export "turn on, checks on" @{ WGPU_VALIDATION = "1"; WGPU_DEBUG = "1" }
+
+if ($exportFailed) { Fail "$exportFailed" }
 
 # ── 4. On an emulated Ivy Bridge ───────────────────────────────────────
 if ($Sde) {
