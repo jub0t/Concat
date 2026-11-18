@@ -2829,3 +2829,64 @@ fn a_device_opened_and_dropped_beside_another_leaves_it_drawing() {
     drop(WgpuCompositor::software().expect("a second device on the same adapter"));
     draw_frames(&mut export, 1920, 1080, 48, "the export");
 }
+
+/// A picture smaller than the frame, drawn up to it on the software
+/// adapter: the monitor's 960x540 of a 32x32 picture, as the app drew when
+/// its device on WARP was lost at the first frame, every device it opened
+/// (#824). Every software-adapter test before this drew a picture the
+/// frame's size or larger.
+#[test]
+fn a_small_picture_drawn_up_survives_on_the_software_adapter() {
+    let Some(mut gpu) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    for index in 0..24u32 {
+        let mut frame_plan = plan(960, 540, vec![layer(gradient(32, 32))]);
+        frame_plan.time = concat_core::time::Rational::new(i64::from(index), 24);
+        let frame = gpu.render(&frame_plan);
+        assert!(
+            !gpu.lost(),
+            "a 32x32 picture drawn up to 960x540 lost the device at frame {index}: {:?}",
+            gpu.post_mortem()
+        );
+        assert!(frame.pixel(480, 270).is_some_and(|p| p[3] == 255));
+    }
+}
+
+/// The export's frames on the software adapter: a square clip drawn up
+/// into a 1920x1080 frame and handed back as the encoder takes it, YUV
+/// planes in each chroma layout. The export smoke run lost its device at
+/// frame 0 on every device it opened, so (#824).
+#[test]
+fn an_exports_planar_frames_survive_on_the_software_adapter() {
+    use concat_core::frame::{Chroma, YuvLayout};
+    let Some(mut gpu) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    for chroma in [Chroma::Nv12, Chroma::I420] {
+        gpu.planar(Some(YuvLayout {
+            chroma,
+            full_range: false,
+        }));
+        for index in 0..12u32 {
+            let mut frame_plan = plan(1920, 1080, vec![layer(gradient(1080, 1080))]);
+            frame_plan.time = concat_core::time::Rational::new(i64::from(index), 24);
+            assert!(
+                gpu.submit(&frame_plan),
+                "a GPU compositor takes frames in flight"
+            );
+            let drawn = gpu.collect();
+            assert!(
+                !gpu.lost(),
+                "{chroma:?} frame {index} lost the device: {:?}",
+                gpu.post_mortem()
+            );
+            assert!(
+                matches!(drawn, Some(crate::Drawn::Yuv(_))),
+                "{chroma:?} frame {index} came back as planes"
+            );
+        }
+    }
+}
