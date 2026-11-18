@@ -450,7 +450,8 @@ impl ExportClip {
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportKey {
-    /// "scale", "offsetX", "offsetY", "rotation", "opacity" or "volume".
+    /// "scale", "offsetX", "offsetY", "rotation", "stretchX", "stretchY",
+    /// "opacity" or "volume".
     /// A mask's keys are the mask's, in `ExportClip::masks`.
     pub property: String,
     /// Where in the clip, `0..=1`.
@@ -966,18 +967,20 @@ fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip
     held.video_fade_in = 0.0;
     held.transition_shapes.clear();
     held.roles.clear();
-    let ends: Vec<(String, f64)> = ["scale", "offsetX", "offsetY", "rotation", "opacity"]
-        .into_iter()
-        .filter_map(|property| {
-            let keys = held.animation.iter().filter(|key| key.property == property);
-            let end = if head {
-                keys.min_by(|a, b| a.at.total_cmp(&b.at))
-            } else {
-                keys.max_by(|a, b| a.at.total_cmp(&b.at))
-            };
-            end.map(|key| (property.to_owned(), key.value))
-        })
-        .collect();
+    let ends: Vec<(String, f64)> = [
+        "scale", "offsetX", "offsetY", "rotation", "stretchX", "stretchY", "opacity",
+    ]
+    .into_iter()
+    .filter_map(|property| {
+        let keys = held.animation.iter().filter(|key| key.property == property);
+        let end = if head {
+            keys.min_by(|a, b| a.at.total_cmp(&b.at))
+        } else {
+            keys.max_by(|a, b| a.at.total_cmp(&b.at))
+        };
+        end.map(|key| (property.to_owned(), key.value))
+    })
+    .collect();
     held.animation.clear();
     for (property, value) in ends {
         match property.as_str() {
@@ -985,6 +988,8 @@ fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip
             "offsetX" => held.offset_x = value,
             "offsetY" => held.offset_y = value,
             "rotation" => held.rotation = value,
+            "stretchX" => held.stretch_x = value,
+            "stretchY" => held.stretch_y = value,
             "opacity" => held.opacity = value,
             _ => {}
         }

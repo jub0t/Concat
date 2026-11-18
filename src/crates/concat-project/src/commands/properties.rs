@@ -268,6 +268,9 @@ pub(super) fn apply(
                 // +24 dB because quiet material needs it, and a key is the
                 // same value at a different instant.
                 KeyProperty::Volume => value.max(0.0),
+                KeyProperty::StretchX | KeyProperty::StretchY => {
+                    value.clamp(MIN_STRETCH, MAX_STRETCH)
+                }
                 KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => value,
             };
             let before = clip.keys.clone();
@@ -563,9 +566,10 @@ pub(super) fn apply(
             clip.write_at(KeyProperty::OffsetX, 0.0, at);
             clip.write_at(KeyProperty::OffsetY, 0.0, at);
             // A stretch is a picture pulled out of its shape, and neither a
-            // fit nor a fill is: both are the picture as it was shot.
-            clip.stretch_x = 1.0;
-            clip.stretch_y = 1.0;
+            // fit nor a fill is: both are the picture as it was shot. A
+            // keyed pull is undone where the playhead is, like the scale.
+            clip.write_at(KeyProperty::StretchX, 1.0, at);
+            clip.write_at(KeyProperty::StretchY, 1.0, at);
             Ok(Outcome {
                 created_id: None,
                 applied: *clip != before,

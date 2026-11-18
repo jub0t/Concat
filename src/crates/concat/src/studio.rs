@@ -1675,6 +1675,8 @@ fn key_field_of(property: model::KeyProperty) -> ClipField {
         model::KeyProperty::OffsetX => ClipField::OffsetX,
         model::KeyProperty::OffsetY => ClipField::OffsetY,
         model::KeyProperty::Rotation => ClipField::Rotation,
+        model::KeyProperty::StretchX => ClipField::StretchX,
+        model::KeyProperty::StretchY => ClipField::StretchY,
         model::KeyProperty::Opacity => ClipField::Opacity,
         model::KeyProperty::Volume => ClipField::Volume,
     }
@@ -1798,6 +1800,7 @@ fn knob_range(property: model::KeyProperty) -> (f64, f64) {
         model::KeyProperty::Scale => (0.05, 8.0),
         model::KeyProperty::OffsetX | model::KeyProperty::OffsetY => (-1.0, 1.0),
         model::KeyProperty::Rotation => (-180.0, 180.0),
+        model::KeyProperty::StretchX | model::KeyProperty::StretchY => (0.1, 4.0),
         model::KeyProperty::Opacity => (0.0, 1.0),
         model::KeyProperty::Volume => (-60.0, 24.0),
     }
@@ -1836,22 +1839,7 @@ fn batch_value(field: ClipField, value: f64, reference: f64, current: f64) -> f6
 /// stops reading the constant the moment a property is keyed, so a knob or
 /// a stage drag that wrote it would change nothing on screen.
 fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: f64) {
-    if clip.is_keyed(property) {
-        let ease = clip
-            .keys_on(property)
-            .rfind(|key| key.at < at)
-            .map_or(model::KeyEase::LINEAR, |key| key.ease);
-        clip.set_key(property, at, value, ease);
-        return;
-    }
-    match property {
-        model::KeyProperty::Scale => clip.scale = value,
-        model::KeyProperty::OffsetX => clip.offset_x = value,
-        model::KeyProperty::OffsetY => clip.offset_y = value,
-        model::KeyProperty::Rotation => clip.rotation = value,
-        model::KeyProperty::Opacity => clip.opacity = value,
-        model::KeyProperty::Volume => clip.volume = value,
-    }
+    clip.write_at(property, value, at);
 }
 
 thread_local! {
@@ -3289,7 +3277,8 @@ mod tests {
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_choices, chain_colours, chain_rows,
         colour_about, custom_frame, custom_rate, fps_of, grading_rows, has_hue, home_folder,
-        key_commands, packed, place_in, shown, wheel_partners, write_keyable,
+        key_commands, key_field_of, knob_range, packed, place_in, shown, wheel_partners,
+        write_keyable,
     };
 
     /// The inspector writes its Voice isolation into the echo, and the
@@ -3842,6 +3831,49 @@ mod tests {
         );
         assert_eq!(place_in(&after, 2.5), 0.25);
         assert_eq!(place_in(&after, 12.0), 1.0, "held to the end");
+    }
+
+    /// Width and height key the way scale does: a knob on an unkeyed pull
+    /// sets the constant, and once it carries keys the knob writes a key
+    /// that the commit carries, while the other axis is left as it was.
+    /// Every keyable property has a field that names it and back, which
+    /// is what lets an inspector row and a Keyframes row find each other.
+    #[test]
+    fn a_pull_is_keyed_like_a_scale() {
+        use concat_project::model::{Clip, ClipKind, KeyEase, KeyProperty};
+        let before = Clip::blank("c1", "t1", ClipKind::Video, "clip", 0.0, 10.0);
+        let mut after = before.clone();
+        write_keyable(&mut after, KeyProperty::StretchX, 1.5, 0.5);
+        assert_eq!(after.stretch_x, 1.5, "no keys: the constant");
+
+        after.set_key(KeyProperty::StretchX, 0.0, 1.0, KeyEase::LINEAR);
+        write_keyable(&mut after, KeyProperty::StretchX, 2.0, 1.0);
+        assert_eq!(after.stretch_x, 1.5, "keyed: the constant is left alone");
+        assert_eq!(shown(&after, KeyProperty::StretchX, 0.5), 1.5);
+        assert_eq!(shown(&after, KeyProperty::StretchY, 0.5), 1.0);
+        let commands = key_commands("c1", &before, &after);
+        assert_eq!(commands.len(), 2, "one per key: {commands:?}");
+        assert!(commands.iter().all(|command| matches!(
+            command,
+            Command::SetClipKey {
+                property: KeyProperty::StretchX,
+                ..
+            }
+        )));
+
+        for property in KeyProperty::ALL {
+            assert_eq!(
+                Studio::key_property_of(key_field_of(property)),
+                Some(property)
+            );
+            let (low, high) = knob_range(property);
+            assert!(low < high, "{property:?}");
+        }
+        assert_eq!(
+            knob_range(KeyProperty::StretchY),
+            (0.1, 4.0),
+            "the inspector's"
+        );
     }
 
     /// A batch level lands on every clip as the inspector commits it - one

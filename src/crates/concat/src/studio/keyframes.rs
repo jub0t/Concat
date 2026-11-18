@@ -15,6 +15,8 @@ impl Studio {
             ClipField::OffsetX => model::KeyProperty::OffsetX,
             ClipField::OffsetY => model::KeyProperty::OffsetY,
             ClipField::Rotation => model::KeyProperty::Rotation,
+            ClipField::StretchX => model::KeyProperty::StretchX,
+            ClipField::StretchY => model::KeyProperty::StretchY,
             ClipField::Opacity => model::KeyProperty::Opacity,
             ClipField::Volume => model::KeyProperty::Volume,
             _ => return None,
@@ -94,7 +96,7 @@ impl Studio {
             .then(|| (clip, local / clip.duration))
     }
 
-    /// The keyframe cluster's six rows, in the order the `Keyframes` global
+    /// The keyframe cluster's eight rows, in the order the `Keyframes` global
     /// indexes them. Empty when nothing can be keyed, which is what greys
     /// every cluster in the inspector at once.
     pub fn key_rows(&self) -> Vec<ClipKeyData> {
@@ -118,7 +120,7 @@ impl Studio {
         rows
     }
 
-    /// The Keyframes pane's rows: the six properties of the selected clip,
+    /// The Keyframes pane's rows: the keyable properties of the selected clip,
     /// and every Adjust knob of it that carries keys, each with its keys
     /// along the clip - where, what value as a fraction of the knob's
     /// range, and the ease into it - what the knob is worth at the
@@ -185,8 +187,23 @@ impl Studio {
                 .map_or(-1, |index| index as i32);
             (ModelRc::new(VecModel::from(marks)), curve, ease_index)
         };
+        // Only a picture or a shape is pulled out of its shape: a title's
+        // glyphs never are, and a sound has no shape. Their Width and
+        // Height rows would key something nothing draws, so they are left
+        // out unless keys already sit on them to be taken off.
+        let pulled = matches!(
+            clip.kind,
+            model::ClipKind::Video | model::ClipKind::Image | model::ClipKind::Shape
+        );
         let mut rows = Vec::new();
         for property in model::KeyProperty::ALL {
+            let pull = matches!(
+                property,
+                model::KeyProperty::StretchX | model::KeyProperty::StretchY
+            );
+            if pull && !pulled && !clip.is_keyed(property) {
+                continue;
+            }
             // The same ranges and units as the inspector's knobs. The level
             // knob speaks decibels, floored where silence is.
             let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
@@ -230,6 +247,29 @@ impl Studio {
                         ParamFormat::Degrees,
                         "°",
                         1.0,
+                    ),
+                    // A pull reads as the inspector's Width and Height
+                    // do: a percentage of the scaled size, 100 % being
+                    // the picture's own shape.
+                    model::KeyProperty::StretchX => (
+                        t("common.width"),
+                        0.1,
+                        4.0,
+                        0.01,
+                        1.0,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::StretchY => (
+                        t("common.height"),
+                        0.1,
+                        4.0,
+                        0.01,
+                        1.0,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
                     ),
                     model::KeyProperty::Opacity => (
                         t("common.opacity"),
@@ -1254,8 +1294,8 @@ impl Studio {
             offset_x: shown(clip, model::KeyProperty::OffsetX, at) as f32,
             offset_y: shown(clip, model::KeyProperty::OffsetY, at) as f32,
             rotation: shown(clip, model::KeyProperty::Rotation, at) as f32,
-            stretch_x: clip.stretch_x as f32,
-            stretch_y: clip.stretch_y as f32,
+            stretch_x: shown(clip, model::KeyProperty::StretchX, at) as f32,
+            stretch_y: shown(clip, model::KeyProperty::StretchY, at) as f32,
             opacity: shown(clip, model::KeyProperty::Opacity, at) as f32,
             volume: shown(clip, model::KeyProperty::Volume, at) as f32,
             audio_track: self

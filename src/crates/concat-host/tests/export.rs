@@ -1683,6 +1683,8 @@ fn every_edit_still_exports() {
         (KeyProperty::Scale, 0.5, 1.0),
         (KeyProperty::Rotation, 0.0, 90.0),
         (KeyProperty::OffsetX, -0.2, 0.2),
+        (KeyProperty::StretchX, 1.0, 2.0),
+        (KeyProperty::StretchY, 0.5, 1.0),
         (KeyProperty::Volume, 1.0, 0.0),
     ] {
         for (at, value) in [(0.0, from), (1.0, to)] {
@@ -1703,6 +1705,8 @@ fn every_edit_still_exports() {
         KeyProperty::Scale,
         KeyProperty::Rotation,
         KeyProperty::OffsetX,
+        KeyProperty::StretchX,
+        KeyProperty::StretchY,
         KeyProperty::Volume,
     ] {
         studio.apply(Command::ClearClipKeys {
