@@ -19,15 +19,16 @@ ffmpeg-linuxarm64   https://github.com/BtbN/FFmpeg-Builds/releases/download/auto
 ffmpeg-win64        https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-win64-lgpl-shared-8.1.zip          3e47bda1607740550141e37c0e49d1e5182b34699f15adfd137ee266d346811a
 ffmpeg-winarm64     https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-winarm64-lgpl-shared-8.1.zip       7674d11915c95c8f65eeec36b329917c3023f6bae5786549cc47aed52cc1cea7
 
-# ONNX Runtime, Microsoft's own builds. 1.28.0 is the version ort
-# 2.0.0-rc.13 is built against (ORT_VERSION in ci.yml and build-app.yml);
-# 1.23.2 is the last Microsoft made for Intel Macs (ORT_INTEL_MAC_VERSION).
-# The Windows ones are the CPU builds; build-app.yml says why.
-onnxruntime-linux-x64       https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-linux-x64-1.28.0.tgz       a3e1b79d7bb1bf09696ce675f49e4064e6c81f6202b8225624fff0e93f8d6407
-onnxruntime-linux-aarch64   https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-linux-aarch64-1.28.0.tgz   e15ff8b5d85afe6c144d97c6fd432254bf76a219daaf17658087d6ecb3e8f0bb
-onnxruntime-win-x64         https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-win-x64-1.28.0.zip         abef733dacbe2f571547a7150b479b5cb9cc0df22f96c24983a42cadb1b4f8bc
-onnxruntime-win-arm64       https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-win-arm64-1.28.0.zip       cbe4547463ece092b505c3581376ed5896d22b5429f39d5e645e425ecdd369ad
-onnxruntime-osx-x86_64      https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-x86_64-1.23.2.tgz      d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6
+# ONNX Runtime, Microsoft's own builds, from its NuGet package: one file
+# with every desktop platform's libraries, which scripts/ci/onnxruntime.sh
+# lays out as the GitHub release archives were (microsoft/onnxruntime has
+# answered 404 since 2026-11-17, its releases with it). 1.28.0 is the
+# version ort 2.0.0-rc.13 is built against (ORT_VERSION in ci.yml and
+# build-app.yml); 1.23.2 is the last Microsoft made for Intel Macs
+# (ORT_INTEL_MAC_VERSION). The Windows ones are the CPU builds;
+# build-app.yml says why.
+onnxruntime-nuget             https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.28.0/microsoft.ml.onnxruntime.1.28.0.nupkg   769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db
+onnxruntime-nuget-intel-mac   https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.23.2/microsoft.ml.onnxruntime.1.23.2.nupkg   25fe172f7fcdf34f2b5b02c8b997f6b88abc282956849d4af4335af23d0c4e4a
 
 # The Android emulator's ONNX Runtime (x86_64), from Microsoft's AAR on
 # Maven Central: ort publishes none for that ABI. src/scripts/android-libs.sh

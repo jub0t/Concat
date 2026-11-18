@@ -132,8 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           stem="onnxruntime-linux-x64-$ORT_VERSION"
-          scripts/ci/fetch.sh onnxruntime-linux-x64 onnxruntime.tgz
-          tar -xzf onnxruntime.tgz
+          scripts/ci/onnxruntime.sh linux-x64
           test -f "$stem/lib/libonnxruntime.so.$ORT_VERSION"
           ln -sf "libonnxruntime.so.$ORT_VERSION" "$stem/lib/libonnxruntime.so"
           {
@@ -337,9 +336,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh onnxruntime-win-x64 onnxruntime.zip
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/onnxruntime.sh win-x64
           if ($LASTEXITCODE -ne 0) { throw "the ONNX Runtime download failed" }
-          Expand-Archive onnxruntime.zip -DestinationPath .
           $lib = "$PWD\onnxruntime-win-x64-$env:ORT_VERSION\lib"
           if (-not (Test-Path "$lib\onnxruntime.lib")) { throw "$lib\onnxruntime.lib is not there" }
           "ORT_LIB_LOCATION=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append
