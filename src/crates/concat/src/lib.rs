@@ -65,6 +65,10 @@ pub use platform::{LinkOpener, install_link_opener};
 pub use platform::{LogSharer, install_log_sharer, log_file_name, note_last_exit};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
+/// What a backend's hooks say of the window, for safe start: it drew a
+/// frame, or the person used it. On a desktop `DropHandler` says it; on
+/// Android, the activity's event listener. See `start_watch`.
+pub use start_watch::{window_drew, window_touched};
 #[cfg(test)]
 mod close_gate_tests;
 mod panes;
@@ -73,6 +77,7 @@ mod presets;
 mod smoke_export;
 mod source;
 mod speed_ramp;
+mod start_watch;
 mod studio;
 mod sysinfo;
 /// Native Wayland file drops, which winit does not report; see the module.
@@ -2926,14 +2931,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         },
     );
 
-    // A launch that has run this long was not killed by its start; the
-    // mark goes, so the next one is not started safe for nothing.
-    let started = startup_mark.as_ref().map(|mark| mark.path().to_owned());
-    slint::Timer::single_shot(SAFE_AFTER, move || {
-        if let Some(path) = started {
-            let _ = std::fs::remove_file(path);
-        }
-    });
+    // A launch whose window drew, or was used, was not killed by its
+    // start: the mark goes then, so the next one is not started safe for
+    // nothing. See `start_watch`.
+    let startup_mark = startup_mark.map(|mark| Rc::new(start_watch::StartWatch::new(mark)));
+    if let Some(watch) = &startup_mark {
+        start_watch::install(watch);
+    }
 
     // The chosen interface scale, as soon as the window is up.
     slint::Timer::single_shot(std::time::Duration::ZERO, || {
@@ -2956,7 +2960,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             "close: the window could not run: {error}; Concat quits, and the next launch starts safe"
         );
         // The mark stays: the next launch starts safe.
-        std::mem::forget(startup_mark);
+        if let Some(watch) = &startup_mark {
+            watch.keep();
+        }
         leave(1);
     }
     // Android ends the loop when it destroys the activity - Back on the
@@ -3066,9 +3072,6 @@ fn stop_exports() {
     }
 }
 
-/// How long a launch runs before it counts as having started.
-const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
-
 /// Safe start: whether this launch draws on the software rasteriser
 /// because the last one died while starting, and the mark that says this
 /// one is starting.
@@ -3076,8 +3079,9 @@ const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 /// Every recent release met a Windows driver that closed the app in its
 /// first seconds - a new one each time (#339, #378, #389, #242) - and a
 /// launch check on a CI machine meets none of them. A launch that dies
-/// before [`SAFE_AFTER`] leaves its mark; the next one finds it, draws on
-/// WARP or lavapipe instead of the GPU, and keeps doing so for that build -
+/// before it counts as started - its window drawing for a few seconds, or
+/// used; see `start_watch` - leaves its mark; the next one finds it, draws
+/// on WARP or lavapipe instead of the GPU, and keeps doing so for that build -
 /// a driver that killed one launch kills the next, and starting on the GPU
 /// every other time would crash every other time. Slower, and it opens.
 /// The next build tries the GPU again: 0.2.8 kept the CPU for good, and a

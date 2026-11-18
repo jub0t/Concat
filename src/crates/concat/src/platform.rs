@@ -286,6 +286,23 @@ impl CustomApplicationHandler for DropHandler {
             self.wayland_tried = true;
             self.wayland = listen_for_wayland_drops(window, &self.arrived);
         }
+        // Safe start's two signs that the launch got its window: Slint
+        // draws the frame as it handles this redraw, and a person presses
+        // only what they can see. Before the match, whose arms may return.
+        match event {
+            WindowEvent::RedrawRequested => crate::window_drew(),
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                ..
+            }
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::Touch(..)
+            | WindowEvent::KeyboardInput {
+                is_synthetic: false,
+                ..
+            } => crate::window_touched(),
+            _ => {}
+        }
         match event {
             WindowEvent::ScaleFactorChanged { .. } => reapply_ui_scale(std::time::Duration::ZERO),
             WindowEvent::DroppedFile(path) => self.pending.push(path.clone()),

@@ -664,7 +664,7 @@ fn android_main(app: slint::android::AndroidApp) {
     activity::name_directories(&app);
     activity::open_log();
     log::info!("Concat {} starting", env!("CARGO_PKG_VERSION"));
-    if let Err(error) = slint::android::init(app.clone()) {
+    if let Err(error) = slint::android::init_with_event_listener(app.clone(), window_events) {
         // "could not start" right after the topic: the smoke script looks for it.
         log::error!("start: could not start the Android backend: {error}; the app closes");
         return;
@@ -683,8 +683,45 @@ fn android_main(app: slint::android::AndroidApp) {
         }
         return;
     }
-    if let Err(error) = concat::run() {
-        log::error!("close: the window ended in an error: {error}; the app closes");
+    // The window's every orderly end leaves the process itself. What comes
+    // back here is a panic, which android-activity would catch, finishing
+    // the activity and leaving the process running: the engine's threads
+    // with it, the sound playing on with no window (#800), and the next
+    // activity starting a second engine in the same process beside the
+    // first, so the sound played twice. A process that panicked is not
+    // one to reuse, so it ends here, its log flushed first.
+    // The status is what Android's record of the exit says next launch,
+    // which the log reads: 0 for a window that ended as it should.
+    let status = match std::panic::catch_unwind(concat::run) {
+        Ok(Ok(())) => 0,
+        Ok(Err(error)) => {
+            log::error!("close: the window ended in an error: {error}; the app closes");
+            1
+        }
+        // The panic hook has logged what and where.
+        Err(_) => {
+            log::error!("close: the window panicked; the app closes");
+            1
+        }
+    };
+    log::logger().flush();
+    std::process::exit(status);
+}
+
+/// The activity's events, after Slint's backend has handled each: safe
+/// start's two signs that the launch got its window. The surface is up and
+/// its first frame drawn on this turn of the loop, or the system asked for
+/// a frame and it was drawn; and the person's input, which only a window
+/// they can see receives. See `concat::window_drew`.
+#[cfg(target_os = "android")]
+fn window_events(event: &slint::android::android_activity::PollEvent<'_>) {
+    use slint::android::android_activity::{MainEvent, PollEvent};
+    match event {
+        PollEvent::Main(MainEvent::InitWindow { .. } | MainEvent::RedrawNeeded { .. }) => {
+            concat::window_drew();
+        }
+        PollEvent::Main(MainEvent::InputAvailable) => concat::window_touched(),
+        _ => {}
     }
 }
 
