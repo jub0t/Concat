@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Wstrzymano",
   "voiceover.permission": "Concat potrzebuje twojej zgody na użycie mikrofonu. Zezwól, gdy pojawi się pytanie, a potem naciśnij Spróbuj ponownie.",
   "voiceover.playheadHeld": "Głowica odtwarzania pozostaje przy nagraniu. Zatrzymaj nagranie, aby ją przesunąć.",
+  "voiceover.putBackMany": "{0} nagrań lektora, które wciąż trwały, gdy ten projekt był ostatnio zamykany, wróciło do Multimediów.",
+  "voiceover.putBackOne": "Nagranie lektora, które wciąż trwało, gdy ten projekt był ostatnio zamykany, wróciło do Multimediów.",
   "voiceover.record": "Nagrywaj",
   "voiceover.recording": "Nagrywanie",
   "voiceover.resume": "Wznów",

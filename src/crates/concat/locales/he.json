@@ -1052,6 +1052,8 @@
   "voiceover.paused": "מושהה",
   "voiceover.permission": "Concat צריך הרשאה להשתמש במיקרופון. יש לאשר כשתופיע הבקשה, ואז ללחוץ על ניסיון חוזר.",
   "voiceover.playheadHeld": "סמן ההפעלה נשאר עם הטייק. עצרו את הטייק כדי להזיז אותו.",
+  "voiceover.putBackMany": "{0} קריינויות שעדיין הוקלטו כשהפרויקט הזה נסגר בפעם האחרונה חזרו למדיה.",
+  "voiceover.putBackOne": "קריינות שעדיין הוקלטה כשהפרויקט הזה נסגר בפעם האחרונה חזרה למדיה.",
   "voiceover.record": "הקלטה",
   "voiceover.recording": "מקליט",
   "voiceover.resume": "המשך",

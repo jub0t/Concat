@@ -1052,6 +1052,8 @@
   "voiceover.paused": "En pausa",
   "voiceover.permission": "Concat necesita tu permiso para usar el micrófono. Concédelo cuando se te pida y luego pulsa Reintentar.",
   "voiceover.playheadHeld": "El cabezal se queda con la toma. Detén la toma para moverlo.",
+  "voiceover.putBackMany": "{0} voces en off que aún se estaban grabando cuando este proyecto se cerró por última vez están de nuevo en Medios.",
+  "voiceover.putBackOne": "Una voz en off que aún se estaba grabando cuando este proyecto se cerró por última vez está de nuevo en Medios.",
   "voiceover.record": "Grabar",
   "voiceover.recording": "Grabando",
   "voiceover.resume": "Reanudar",

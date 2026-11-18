@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Fasilədədir",
   "voiceover.permission": "Concat-ın mikrofondan istifadə etməsi üçün icazənizə ehtiyac var. Soruşulanda icazə verin, sonra Yenidən cəhd et düyməsinə basın.",
   "voiceover.playheadHeld": "Oxutma başlığı çəkilişlə qalır. Onu hərəkət etdirmək üçün çəkilişi dayandırın.",
+  "voiceover.putBackMany": "Bu layihə sonuncu dəfə bağlananda hələ yazılan {0} səsyazma yenidən Media bölməsindədir.",
+  "voiceover.putBackOne": "Bu layihə sonuncu dəfə bağlananda hələ yazılan səsyazma yenidən Media bölməsindədir.",
   "voiceover.record": "Qeyd",
   "voiceover.recording": "Qeyd edilir",
   "voiceover.resume": "Davam",

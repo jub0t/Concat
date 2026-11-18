@@ -1052,6 +1052,8 @@
   "voiceover.paused": "In pausa",
   "voiceover.permission": "Concat ha bisogno del tuo permesso per usare il microfono. Concedilo quando richiesto, poi premi Riprova.",
   "voiceover.playheadHeld": "La testina resta con la ripresa. Interrompi la ripresa per spostarla.",
+  "voiceover.putBackMany": "{0} voci fuori campo ancora in registrazione all'ultima chiusura di questo progetto sono di nuovo in Media.",
+  "voiceover.putBackOne": "Una voce fuori campo ancora in registrazione all'ultima chiusura di questo progetto è di nuovo in Media.",
   "voiceover.record": "Registra",
   "voiceover.recording": "Registrazione in corso",
   "voiceover.resume": "Riprendi",

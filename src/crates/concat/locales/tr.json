@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Duraklatıldı",
   "voiceover.permission": "Concat'in mikrofonu kullanmak için izninize ihtiyacı var. Sorulduğunda izin verin, ardından Yeniden dene'ye basın.",
   "voiceover.playheadHeld": "Oynatma kafası çekimle birlikte kalır. Taşımak için çekimi durdurun.",
+  "voiceover.putBackMany": "Bu proje en son kapandığında hâlâ kaydedilen {0} seslendirme yeniden Medya'da.",
+  "voiceover.putBackOne": "Bu proje en son kapandığında hâlâ kaydedilen seslendirme yeniden Medya'da.",
   "voiceover.record": "Kayıt",
   "voiceover.recording": "Kayıt yapılıyor",
   "voiceover.resume": "Sürdür",

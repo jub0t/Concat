@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Dijeda",
   "voiceover.permission": "Concat memerlukan izin Anda untuk menggunakan mikrofon. Izinkan saat diminta, lalu tekan Coba lagi.",
   "voiceover.playheadHeld": "Playhead tetap mengikuti rekaman. Hentikan rekaman untuk memindahkannya.",
+  "voiceover.putBackMany": "{0} sulih suara yang masih direkam saat proyek ini terakhir ditutup sudah kembali di Media.",
+  "voiceover.putBackOne": "Sulih suara yang masih direkam saat proyek ini terakhir ditutup sudah kembali di Media.",
   "voiceover.record": "Rekam",
   "voiceover.recording": "Merekam",
   "voiceover.resume": "Lanjutkan",

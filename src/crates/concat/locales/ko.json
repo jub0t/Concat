@@ -1052,6 +1052,8 @@
   "voiceover.paused": "일시 정지됨",
   "voiceover.permission": "Concat이 마이크를 사용하려면 권한이 필요합니다. 요청이 나타나면 허용한 뒤 다시 시도를 누르세요.",
   "voiceover.playheadHeld": "재생 헤드는 테이크와 함께 움직입니다. 옮기려면 테이크를 중지하세요.",
+  "voiceover.putBackMany": "이 프로젝트를 마지막으로 닫을 때 녹음 중이던 내레이션 {0}개를 미디어에 다시 넣었습니다.",
+  "voiceover.putBackOne": "이 프로젝트를 마지막으로 닫을 때 녹음 중이던 내레이션을 미디어에 다시 넣었습니다.",
   "voiceover.record": "녹음",
   "voiceover.recording": "녹음 중",
   "voiceover.resume": "계속",

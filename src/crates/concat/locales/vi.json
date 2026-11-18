@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Đã tạm dừng",
   "voiceover.permission": "Concat cần bạn cho phép sử dụng micrô. Hãy cho phép khi được hỏi, rồi nhấn Thử lại.",
   "voiceover.playheadHeld": "Đầu phát đi theo bản thu. Dừng bản thu để di chuyển nó.",
+  "voiceover.putBackMany": "{0} lời thuyết minh vẫn đang ghi khi dự án này đóng lần trước đã trở lại Phương tiện.",
+  "voiceover.putBackOne": "Lời thuyết minh vẫn đang ghi khi dự án này đóng lần trước đã trở lại Phương tiện.",
   "voiceover.record": "Ghi âm",
   "voiceover.recording": "Đang ghi âm",
   "voiceover.resume": "Tiếp tục",

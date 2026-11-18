@@ -1052,6 +1052,8 @@
   "voiceover.paused": "已暂停",
   "voiceover.permission": "Concat 需要你的许可才能使用麦克风。出现询问时请允许，然后按“重试”。",
   "voiceover.playheadHeld": "播放头跟随当前录音。停止录音后才能移动它。",
+  "voiceover.putBackMany": "上次关闭此项目时仍在录制的 {0} 段旁白已放回媒体。",
+  "voiceover.putBackOne": "上次关闭此项目时仍在录制的旁白已放回媒体。",
   "voiceover.record": "录制",
   "voiceover.recording": "正在录制",
   "voiceover.resume": "继续",

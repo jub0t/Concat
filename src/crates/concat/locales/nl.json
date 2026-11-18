@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Gepauzeerd",
   "voiceover.permission": "Concat heeft je toestemming nodig om de microfoon te gebruiken. Sta het toe als erom gevraagd wordt en druk dan op Opnieuw proberen.",
   "voiceover.playheadHeld": "De afspeelkop blijft bij de opname. Stop de opname om hem te verplaatsen.",
+  "voiceover.putBackMany": "{0} voice-overs die nog werden opgenomen toen dit project voor het laatst sloot, staan weer in Media.",
+  "voiceover.putBackOne": "Een voice-over die nog werd opgenomen toen dit project voor het laatst sloot, staat weer in Media.",
   "voiceover.record": "Opnemen",
   "voiceover.recording": "Bezig met opnemen",
   "voiceover.resume": "Hervatten",

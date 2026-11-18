@@ -1052,6 +1052,8 @@
   "voiceover.paused": "En pause",
   "voiceover.permission": "Concat a besoin de votre autorisation pour utiliser le micro. Accordez-la quand elle vous est demandée, puis appuyez sur Réessayer.",
   "voiceover.playheadHeld": "La tête de lecture reste avec la prise. Arrêtez la prise pour la déplacer.",
+  "voiceover.putBackMany": "{0} voix off encore en cours d'enregistrement à la dernière fermeture de ce projet sont de retour dans Médias.",
+  "voiceover.putBackOne": "Une voix off encore en cours d'enregistrement à la dernière fermeture de ce projet est de retour dans Médias.",
   "voiceover.record": "Enregistrer",
   "voiceover.recording": "Enregistrement",
   "voiceover.resume": "Reprendre",

@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Paused",
   "voiceover.permission": "Concat needs your permission to use the microphone. Allow it when asked, then press Try again.",
   "voiceover.playheadHeld": "The playhead stays with the take. Stop the take to move it.",
+  "voiceover.putBackMany": "{0} voiceovers still recording when this project last closed are back in Media.",
+  "voiceover.putBackOne": "A voiceover still recording when this project last closed is back in Media.",
   "voiceover.record": "Record",
   "voiceover.recording": "Recording",
   "voiceover.resume": "Resume",

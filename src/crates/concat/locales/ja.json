@@ -1052,6 +1052,8 @@
   "voiceover.paused": "一時停止中",
   "voiceover.permission": "Concat がマイクを使うには許可が必要です。確認されたら許可し、「再試行」を押してください。",
   "voiceover.playheadHeld": "再生ヘッドはテイクに合わせて動きます。動かすにはテイクを停止してください。",
+  "voiceover.putBackMany": "このプロジェクトを前回閉じたときに録音中だったナレーション{0}件をメディアに戻しました。",
+  "voiceover.putBackOne": "このプロジェクトを前回閉じたときに録音中だったナレーションをメディアに戻しました。",
   "voiceover.record": "録音",
   "voiceover.recording": "録音中",
   "voiceover.resume": "再開",

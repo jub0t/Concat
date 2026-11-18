@@ -1052,6 +1052,8 @@
   "voiceover.paused": "Pauzirano",
   "voiceover.permission": "Concat treba tvoje dopuštenje za korištenje mikrofona. Dopusti kad te pita, a zatim pritisni Pokušaj ponovno.",
   "voiceover.playheadHeld": "Glava reprodukcije ostaje uz snimku. Zaustavite snimku da biste je pomaknuli.",
+  "voiceover.putBackMany": "{0} snimaka glasa koje su se još snimale kad je ovaj projekt zadnji put zatvoren ponovno su u Medijima.",
+  "voiceover.putBackOne": "Snimka glasa koja se još snimala kad je ovaj projekt zadnji put zatvoren ponovno je u Medijima.",
   "voiceover.record": "Snimi",
   "voiceover.recording": "Snimanje",
   "voiceover.resume": "Nastavi",
