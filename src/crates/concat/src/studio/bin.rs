@@ -419,8 +419,9 @@ impl Studio {
     /// whole body, a picture clip's band under its frames; a picture that
     /// is muted, or whose file has no sound, shows the empty band.
     ///
-    /// At unity: the clip's volume scales the drawing in the lane, so a
-    /// volume drag never comes here - see `format::wave_path`.
+    /// At unity and with no floor: the clip's volume scales the drawing in
+    /// the lane, so a volume drag never comes here, and a quiet passage
+    /// turned up keeps its shape - see `format::wave_path`.
     ///
     /// Only the window of the clip that is on screen, and a screen either
     /// side of it, is built: what comes back is the path and where it
@@ -466,6 +467,7 @@ impl Studio {
             window,
             COLUMNS,
             WAVE_BAR,
+            0.0,
         ));
         let mut waves = self.waves.borrow_mut();
         if waves.len() >= 512 {
@@ -521,6 +523,7 @@ impl Studio {
             window,
             columns,
             WAVE_BAR,
+            0.0,
         ));
         let mut waves = self.waves.borrow_mut();
         if waves.len() >= 512 {
