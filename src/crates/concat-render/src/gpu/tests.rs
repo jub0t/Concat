@@ -2777,3 +2777,55 @@ fn the_709_frame_survives_hundreds_of_frames_on_the_software_adapter() {
         );
     }
 }
+
+/// Frames of a clip at `width` x `height`, as the export (full size) and
+/// the monitor (half size) each draw them while an export runs.
+fn draw_frames(gpu: &mut WgpuCompositor, width: u32, height: u32, frames: u32, who: &str) {
+    for index in 0..frames {
+        let mut clip = gradient(1920, 1080);
+        clip.set_pixel(index % 1920, 0, [index as u8, 0, 0, 255]);
+        let mut frame_plan = plan(width, height, vec![layer(clip)]);
+        frame_plan.time = concat_core::time::Rational::new(i64::from(index), 24);
+        gpu.render(&frame_plan);
+        assert!(
+            !gpu.lost(),
+            "{who} lost its device at frame {index} on {}: {:?}",
+            gpu.adapter_info().name,
+            gpu.post_mortem()
+        );
+    }
+}
+
+/// The export and the monitor each open a device on the software adapter
+/// and draw at the same time, as the app does while an export runs. On
+/// Windows both devices are one Direct3D 12 device underneath (it keeps one
+/// per adapter in a process), and the export smoke run lost it at frame 0
+/// (#824). Each test runs in a process of its own, so nothing else ever
+/// had two devices open there.
+#[test]
+fn two_compositors_draw_at_once_on_the_software_adapter() {
+    let (Some(mut export), Some(mut monitor)) =
+        (WgpuCompositor::software(), WgpuCompositor::software())
+    else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    std::thread::scope(|scope| {
+        scope.spawn(|| draw_frames(&mut export, 1920, 1080, 48, "the export"));
+        scope.spawn(|| draw_frames(&mut monitor, 960, 540, 48, "the monitor"));
+    });
+}
+
+/// A device opened beside a drawing one and dropped at once, as the cards
+/// do when they find only a software adapter, leaves the drawing one able
+/// to draw (#824).
+#[test]
+fn a_device_opened_and_dropped_beside_another_leaves_it_drawing() {
+    let Some(mut export) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    draw_frames(&mut export, 1920, 1080, 1, "the export");
+    drop(WgpuCompositor::software().expect("a second device on the same adapter"));
+    draw_frames(&mut export, 1920, 1080, 48, "the export");
+}
