@@ -689,35 +689,54 @@ fn android_main(app: slint::android::AndroidApp) {
 }
 
 /// The clip CI's export run pushed: `smoke-export.<extension>` in the
-/// app's files folder, which [`activity::name_directories`] made `HOME`.
-/// There and not in a folder of its own: adb's shell may write into the
-/// app's folder, and a folder the shell made is one the app may not list.
-/// None, and the launch is an ordinary one, when there is none.
+/// app's files folder, which [`activity::name_directories`] made `HOME`,
+/// or in the app's media folder beside it. adb's shell may write into the
+/// files folder on Android 12 and later; on Android 11 it may not even
+/// look into `Android/data`, but it may write into `Android/media/<app>`,
+/// where what it writes belongs to the app. Not a folder of the shell's
+/// own: one the shell made is one the app may not list. None, and the
+/// launch is an ordinary one, when neither has one.
 #[cfg(all(target_os = "android", feature = "smoke"))]
 fn smoke_clip() -> Option<std::path::PathBuf> {
     let Some(home) = std::env::var_os("HOME") else {
         log::warn!("smoke: no files folder to look for a clip in");
         return None;
     };
-    let folder = std::path::PathBuf::from(home);
-    let entries = match std::fs::read_dir(&folder) {
-        Ok(entries) => entries,
-        Err(error) => {
-            log::warn!(
-                "smoke: could not look for a clip in {}: {error}",
-                folder.display()
-            );
-            return None;
-        }
-    };
-    let clip = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .find(|path| path.is_file() && path.file_stem().is_some_and(|stem| stem == "smoke-export"));
-    if clip.is_none() {
-        log::info!(
-            "smoke: no smoke-export clip in {}; an ordinary launch",
-            folder.display()
-        );
+    let home = std::path::PathBuf::from(home);
+    let folders = [Some(home.clone()), media_folder(&home)];
+    let clip = folders.iter().flatten().find_map(|folder| {
+        let entries = match std::fs::read_dir(folder) {
+            Ok(entries) => entries,
+            Err(error) => {
+                log::info!(
+                    "smoke: could not look for a clip in {}: {error}",
+                    folder.display()
+                );
+                return None;
+            }
+        };
+        entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .find(|path| {
+                path.is_file() && path.file_stem().is_some_and(|stem| stem == "smoke-export")
+            })
+    });
+    match &clip {
+        Some(clip) => log::info!("smoke: exporting {}", clip.display()),
+        None => log::info!(
+            "smoke: no smoke-export clip in {} or the app's media folder; an ordinary launch",
+            home.display()
+        ),
     }
     clip
+}
+
+/// `<storage>/Android/media/<app>` for a files folder at
+/// `<storage>/Android/data/<app>/files`, or `None` for one elsewhere.
+#[cfg(all(target_os = "android", feature = "smoke"))]
+fn media_folder(home: &std::path::Path) -> Option<std::path::PathBuf> {
+    let app = home.parent()?;
+    let data = app.parent()?;
+    let name = app.file_name()?;
+    (data.file_name()? == "data").then(|| data.with_file_name("media").join(name))
 }

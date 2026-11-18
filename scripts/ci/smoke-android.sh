@@ -206,24 +206,36 @@ esac
 # as smoke-export.<extension>. A folder of adb's shell's making is one the
 # app may not list, so the folder is the app's, made by starting it once
 # when it is not there yet; the file in it, world-readable, it may read.
+# Android 11 lets the shell not even look into Android/data; there the
+# clip goes into Android/media/<app>, where a file the shell writes
+# belongs to the app, and the smoke build looks there too.
 if [ -n "$export_clip" ]; then
   say "the clip to export"
   files_dir=/sdcard/Android/data/$package/files
-  if ! adb shell "[ -d $files_dir ]" < /dev/null; then
-    limit 180 adb shell am start -W -n "$activity" < /dev/null > /dev/null 2>&1 || true
-    for _ in $(seq 1 30); do
-      adb shell "[ -d $files_dir ]" < /dev/null && break
-      sleep 1
-    done
-    adb shell am force-stop "$package" < /dev/null || true
+  media_dir=/sdcard/Android/media/$package
+  adb shell "rm -f $media_dir/smoke-export.*" < /dev/null > /dev/null 2>&1 || true
+  if adb shell "ls /sdcard/Android/data" < /dev/null > /dev/null 2>&1; then
+    if ! adb shell "[ -d $files_dir ]" < /dev/null; then
+      limit 180 adb shell am start -W -n "$activity" < /dev/null > /dev/null 2>&1 || true
+      for _ in $(seq 1 30); do
+        adb shell "[ -d $files_dir ]" < /dev/null && break
+        sleep 1
+      done
+      adb shell am force-stop "$package" < /dev/null || true
+    fi
+    adb shell "[ -d $files_dir ]" < /dev/null || fail "the app never made its files folder, $files_dir"
+    adb shell "rm -rf $files_dir/smoke $files_dir/smoke-export.*" < /dev/null
+    clip_dir=$files_dir
+  else
+    echo "the shell may not look into /sdcard/Android/data; the clip goes into $media_dir"
+    adb shell "mkdir -p $media_dir" < /dev/null || fail "could not make $media_dir"
+    clip_dir=$media_dir
   fi
-  adb shell "[ -d $files_dir ]" < /dev/null || fail "the app never made its files folder, $files_dir"
-  adb shell "rm -rf $files_dir/smoke $files_dir/smoke-export.*" < /dev/null
   ext=${export_clip##*.}
-  limit 120 adb push "$export_clip" "$files_dir/smoke-export.$ext" < /dev/null \
-    || fail "could not push $export_clip to $files_dir"
-  adb shell chmod 644 "$files_dir/smoke-export.$ext" < /dev/null || true
-  adb shell ls -l "$files_dir/smoke-export.$ext" < /dev/null
+  limit 120 adb push "$export_clip" "$clip_dir/smoke-export.$ext" < /dev/null \
+    || fail "could not push $export_clip to $clip_dir"
+  adb shell chmod 644 "$clip_dir/smoke-export.$ext" < /dev/null || true
+  adb shell ls -l "$clip_dir/smoke-export.$ext" < /dev/null
 fi
 
 say "start $activity"
