@@ -395,7 +395,12 @@ export component ConfigPane inherits Rectangle {
     /// A mark for each section, in the same order: where the clip sits,
     /// what makes it better, its colour's knobs; its level and its sound's
     /// chain; a layer's own strength, then its colour and its chain.
-    property <[Glyph]> section-icons: root.heading == "Video"
+    ///
+    /// Held with `sections-shown`, not bound (#768): same rebuild-on-play
+    /// path as the Video / Audio / Effects strip (#549).
+    property <[Glyph]> section-icons;
+    pure function section-marks() -> [Glyph] {
+        return root.heading == "Video"
             ? (root.is-shape ? [Glyph.shapes, Glyph.move, Glyph.circle-play]
                 : [Glyph.move, Glyph.wand, Glyph.sliders, Glyph.circle-play])
         : root.heading == "Audio"
@@ -405,8 +410,13 @@ export component ConfigPane inherits Rectangle {
         : root.heading == "Effects" ? [Glyph.sparkle]
         : root.heading == "Text" ? [Glyph.text-mark, Glyph.circle-play]
         : [Glyph.filter, Glyph.sliders, Glyph.sparkle];
-    /// The sections as the dropdown shows them; see `tabs-shown`.
-    property <[string]> sections-shown: root.heading == "Video"
+    }
+    /// The sections as the strip shows them. Held, not bound (#768): see
+    /// `tabs-shown` / #549 — a bound array rebuilt the strip every frame of
+    /// playback, so a click landed on a segment already gone.
+    property <[string]> sections-shown;
+    pure function section-labels() -> [string] {
+        return root.heading == "Video"
             ? (root.is-shape ? [I18n.t("shapePanel.shape"), I18n.t("configPane.basic"), I18n.t("motion.animate")]
                 : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust"),
                     I18n.t("motion.animate")])
@@ -417,6 +427,16 @@ export component ConfigPane inherits Rectangle {
         : root.heading == "Effects" ? [I18n.t("common.effects")]
         : root.heading == "Text" ? [I18n.t("common.text"), I18n.t("motion.animate")]
         : [I18n.t("common.layer"), I18n.t("common.adjust"), I18n.t("common.effects")];
+    }
+    property <string> sections-key: root.heading + ":"
+        + (root.is-shape ? "shape" : "") + ":"
+        + (root.is-sound-layer ? "sound-layer" : "") + ":"
+        + (root.selected.batch-volume ? "batch" : "") + ":"
+        + I18n.t("configPane.basic");
+    changed sections-key => {
+        root.sections-shown = root.section-labels();
+        root.section-icons = root.section-marks();
+    }
 
     // Each tab remembers its own section, so flipping to Audio and back
     // lands on the colour panel you were adjusting. Assigned, never bound,
@@ -471,6 +491,8 @@ export component ConfigPane inherits Rectangle {
     changed jump-token => { root.jump(); }
     init => {
         root.tabs-shown = root.strip-labels();
+        root.sections-shown = root.section-labels();
+        root.section-icons = root.section-marks();
         root.jump();
     }
 
