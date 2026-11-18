@@ -1611,7 +1611,27 @@ fn ground_layer(ground: Frame) -> PlannedLayer {
 /// it has none (see [`WgpuCompositor::new`]). The one error is a machine
 /// with neither, which is said in words a person can act on.
 fn best_compositor() -> Result<WgpuCompositor, String> {
-    WgpuCompositor::new().ok_or_else(|| NO_RENDERER.to_owned())
+    headless_sibling()
+        .or_else(WgpuCompositor::new)
+        .ok_or_else(|| NO_RENDERER.to_owned())
+}
+
+/// A sibling of the previews' device (see [`headless`]): the one device
+/// the process draws with when the window lends none, which an export
+/// shares rather than opening a second (see `concat_render::Ladder::sibling`).
+/// None where the previews draw on the CPU.
+fn headless_sibling() -> Option<WgpuCompositor> {
+    headless_ladder()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .sibling()
+}
+
+/// The ladder [`headless`] draws on, made the first time it is asked for.
+fn headless_ladder() -> &'static std::sync::Mutex<concat_render::Ladder> {
+    static HEADLESS: std::sync::OnceLock<std::sync::Mutex<concat_render::Ladder>> =
+        std::sync::OnceLock::new();
+    HEADLESS.get_or_init(Default::default)
 }
 
 /// What an export or a preview says on a machine that offers no GPU and no
@@ -1651,20 +1671,30 @@ const DEVICE_LOSSES: u32 = 3;
 /// device that stops answering for [`concat_render::gpu::DEVICE_WAIT`], or
 /// reports an error under a frame, counts as lost too (#297).
 ///
-/// `lent` is the dead compositor when the export was lent the window's
-/// device. The first death then goes on in a sibling of it: the same
-/// device, with pools and caches of its own, so whatever the dead one held
-/// is let go. "Lost" is mostly that - a frame out of memory or refused -
-/// and the device itself lives on. A device opened afresh instead is the
-/// second road through the driver that [`render_on`] exists to avoid: on a
-/// laptop with two GPUs it is the discrete one while the window draws on
-/// the other, and the driver ended the app there (#202; audit 2026-10-20,
-/// H7). Where the device itself has died, the sibling's first frame fails
-/// too, and the second death goes to the software adapter as before.
+/// `dead` is the compositor whose device died; `lent`, whether it was the
+/// window's device, lent to the export. The first death then goes on in a
+/// sibling of it: the same device, with pools and caches of its own, so
+/// whatever the dead one held is let go. "Lost" is mostly that - a frame
+/// out of memory or refused - and the device itself lives on. A device
+/// opened afresh instead is the second road through the driver that
+/// [`render_on`] exists to avoid: on a laptop with two GPUs it is the
+/// discrete one while the window draws on the other, and the driver ended
+/// the app there (#202; audit 2026-10-20, H7). Where the device itself has
+/// died, the sibling's first frame fails too, and the second death goes to
+/// the software adapter as before.
+///
+/// Every other road lets go of `dead` before it asks for anything, and
+/// asks the previews' device ([`headless_sibling`]) first, which lets go
+/// of a dead device of its own the same way. Direct3D 12 keeps one device
+/// per adapter in a process, so while anything still holds the dead one, a
+/// device asked for on that adapter is the dead one again: on Windows'
+/// software renderer the export and the previews each held theirs, and
+/// after the first loss nothing on that adapter would open (#824).
 fn recovered(
     losses: u32,
     hdr: bool,
-    lent: Option<&WgpuCompositor>,
+    dead: WgpuCompositor,
+    lent: bool,
 ) -> Result<WgpuCompositor, String> {
     if losses >= DEVICE_LOSSES {
         return Err(format!(
@@ -1674,10 +1704,16 @@ fn recovered(
             concat_render::gpu::DEVICE_WAIT.as_secs()
         ));
     }
-    let fresh = match (losses, lent) {
-        (1, Some(lent)) => Some(lent.sibling()),
-        (1, None) => WgpuCompositor::new(),
-        _ => WgpuCompositor::software(),
+    let fresh = if losses == 1 && lent {
+        Some(dead.sibling())
+    } else {
+        drop(dead);
+        match (losses, lent) {
+            // Lent the window's device, which still holds it: the software
+            // adapter, another adapter than the window's GPU.
+            (_, true) => WgpuCompositor::software(),
+            (_, false) => headless_sibling().or_else(WgpuCompositor::software),
+        }
     };
     let mut compositor = fresh.ok_or_else(|| {
         format!("the GPU device was lost part way through the export, and {NO_RENDERER}")
@@ -1701,10 +1737,7 @@ fn recovered(
 /// `strict` is the API's: a frame the CPU drew with something left out is
 /// an error saying so, not a picture that is not the frame.
 fn headless<T>(strict: bool, draw: impl FnMut(&mut dyn Compositor) -> T) -> Result<T, String> {
-    static HEADLESS: std::sync::OnceLock<std::sync::Mutex<concat_render::Ladder>> =
-        std::sync::OnceLock::new();
-    let mut ladder = HEADLESS
-        .get_or_init(Default::default)
+    let mut ladder = headless_ladder()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let drawn = drawn_on(&mut ladder, strict, draw);
@@ -1755,10 +1788,10 @@ fn render_picture(
     // Whether the window lent its device: a death under the export is then
     // answered on that device again before anything else (see `recovered`).
     let lent = compositor.is_some();
-    let mut compositor = match compositor {
+    let mut compositor = Held(Some(match compositor {
         Some(lent) => lent,
         None => best_compositor()?,
-    };
+    }));
     // Which chip and API the file is drawn on: the first thing a report of
     // an export gone wrong needs to say, and until now could not (#202).
     let adapter = compositor.adapter_info();
@@ -2670,11 +2703,30 @@ fn with_treatments(
 /// footage is decoded.
 const IN_FLIGHT: usize = 2;
 
+/// The export's compositor, empty only while [`Device::surviving`] swaps a
+/// dead one for the next: the dead one is let go before the next is asked
+/// for (see [`recovered`]).
+struct Held(Option<WgpuCompositor>);
+
+impl std::ops::Deref for Held {
+    type Target = WgpuCompositor;
+
+    fn deref(&self) -> &WgpuCompositor {
+        self.0.as_ref().expect("the export's compositor is held")
+    }
+}
+
+impl std::ops::DerefMut for Held {
+    fn deref_mut(&mut self) -> &mut WgpuCompositor {
+        self.0.as_mut().expect("the export's compositor is held")
+    }
+}
+
 /// The export's device and what it takes to keep one: the compositor, the
 /// shader clock's offset, and what a device lost under the export needs to
 /// find the next (see `recovered`).
 struct Device<'a> {
-    compositor: &'a mut WgpuCompositor,
+    compositor: &'a mut Held,
     offset: Rational,
     losses: &'a mut u32,
     hdr: bool,
@@ -2689,7 +2741,7 @@ impl Device<'_> {
     /// The compositor on the shader clock.
     fn clock(&mut self) -> EffectClock<'_> {
         EffectClock {
-            inner: &mut *self.compositor,
+            inner: &mut **self.compositor,
             offset: self.offset,
         }
     }
@@ -2714,11 +2766,12 @@ impl Device<'_> {
                 self.total_frames,
                 time.as_f64(),
             );
-            *self.compositor = recovered(
-                *self.losses,
-                self.hdr,
-                self.lent.then_some(&*self.compositor),
-            )?;
+            let dead = self
+                .compositor
+                .0
+                .take()
+                .expect("the export's compositor is held");
+            self.compositor.0 = Some(recovered(*self.losses, self.hdr, dead, self.lent)?);
             self.compositor.planar(self.planar);
             frame = draw(&mut self.clock());
         }
@@ -4867,16 +4920,19 @@ mod tests {
     /// the export with a message that says how many there were.
     #[test]
     fn an_export_gives_up_after_enough_device_losses() {
-        let Err(error) = recovered(DEVICE_LOSSES, false, None) else {
+        let Some(dead) = WgpuCompositor::new() else {
+            eprintln!("no adapter here; skipped");
+            return;
+        };
+        let Err(error) = recovered(DEVICE_LOSSES, false, dead, false) else {
             panic!("a third loss gives up");
         };
         assert!(error.contains("lost 3 times"), "{error}");
         assert!(error.contains("not answering"), "{error}");
-        if WgpuCompositor::new().is_some() {
-            let fresh =
-                recovered(1, true, None).expect("a machine that draws opens another device");
-            assert!(!fresh.lost());
-        }
+        let dead = WgpuCompositor::new().expect("it opened a moment ago");
+        let fresh =
+            recovered(1, true, dead, false).expect("a machine that draws opens another device");
+        assert!(!fresh.lost());
     }
 
     /// An export lent the window's device goes on on that device after the
@@ -4890,14 +4946,41 @@ mod tests {
             eprintln!("no adapter here; skipped");
             return;
         };
-        let again = recovered(1, false, Some(&window)).expect("a sibling opens on a live device");
+        let again =
+            recovered(1, false, window.sibling(), true).expect("a sibling opens on a live device");
         assert!(!again.lost());
         let (was, now) = (window.adapter_info(), again.adapter_info());
         assert_eq!((was.name, was.backend), (now.name, now.backend));
         if WgpuCompositor::software().is_some() {
-            let slow = recovered(2, false, Some(&window)).expect("the software adapter opens");
+            let slow =
+                recovered(2, false, window.sibling(), true).expect("the software adapter opens");
             assert!(slow.on_software_adapter());
         }
+    }
+
+    /// An export the window lent no device draws on the previews' device,
+    /// and after that device is lost under it, on the previews' next one:
+    /// the dead device let go by the export and by the previews before the
+    /// next is asked for, so the process never holds two (#824). The
+    /// previews draw on the new one too.
+    #[test]
+    fn an_unlent_export_and_the_previews_go_on_together_after_a_loss() {
+        let Ok(first) = best_compositor() else {
+            eprintln!("no adapter here; skipped");
+            return;
+        };
+        first.lose_device();
+        let next = recovered(1, false, first, false).expect("the previews' next device opens");
+        assert!(!next.lost(), "the export draws on a live device");
+        let plan = concat_render::FramePlan::empty(32, 18);
+        assert!(
+            headless(true, |compositor| compositor.render(&plan)).is_ok(),
+            "the previews draw on the GPU after the loss"
+        );
+        assert!(
+            !previews_on_cpu(),
+            "not stepped down to the CPU by one loss"
+        );
     }
 
     /// A slow export still moves: a frame that took over a second is
