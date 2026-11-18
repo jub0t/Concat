@@ -1373,6 +1373,7 @@ dependencies = [
  "concat-vision",
  "half",
  "log",
+ "parking_lot",
  "pollster",
  "wgpu",
 ]

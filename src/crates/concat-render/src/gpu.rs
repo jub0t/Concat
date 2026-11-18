@@ -42,6 +42,7 @@ use concat_core::timeline::Blend;
 
 use crate::compositor::Compositor;
 use crate::plan::{FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading};
+use crate::turn;
 
 /// Bytes per row must be a multiple of this for a texture-to-buffer copy.
 const ROW_ALIGN: usize = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
@@ -789,6 +790,17 @@ pub struct ShaderForge {
     lut_layout: wgpu::BindGroupLayout,
     reveal_layout: wgpu::BindGroupLayout,
     pictures: HashMap<usize, wgpu::BindGroupLayout>,
+    /// The device is on a software adapter, where every call into it
+    /// takes its turn; see [`crate::turn`].
+    software: bool,
+    /// Holds the turn until the last field is let go; see `Drop`.
+    released: turn::UntilDropped,
+}
+
+impl Drop for ShaderForge {
+    fn drop(&mut self) {
+        self.released.hold(self.software);
+    }
 }
 
 /// One pass compiled by a [`ShaderForge`], for [`WgpuCompositor::adopt`]:
@@ -805,6 +817,7 @@ impl ShaderForge {
     /// on - rather than reaching wgpu's uncaptured-error handler, which
     /// ends the process (audit 2026-09-23, #7).
     pub fn compile(&self, pass: &ShaderPass) -> ForgedShader {
+        let _turn = turn::take(self.software);
         let refused = || ForgedShader {
             key: pass.key.clone(),
             compiled: None,
@@ -1226,6 +1239,20 @@ pub struct WgpuCompositor {
     /// The planes a YUV frame is drawn into before it is copied out, for
     /// one size and layout: luma, then the chroma.
     planes: Option<(u32, u32, concat_core::frame::Chroma, Vec<wgpu::Texture>)>,
+    /// The device is on a software adapter (WARP, lavapipe), where every
+    /// call into it takes its turn; see [`crate::turn`].
+    software: bool,
+    /// Holds the turn `Drop` takes until every field above is let go, the
+    /// device among them. The last field, so the last let go.
+    released: turn::UntilDropped,
+}
+
+impl Drop for WgpuCompositor {
+    fn drop(&mut self) {
+        // Pipelines, textures, buffers and the device itself are let go
+        // after this returns: the turn is held through them all.
+        self.released.hold(self.software);
+    }
 }
 
 impl WgpuCompositor {
@@ -1321,6 +1348,9 @@ impl WgpuCompositor {
     /// opens no device there.
     pub fn on_rung(rung: Rung) -> Option<Self> {
         let Rung { backends, software } = rung;
+        // Declared first, so let go last: after the instance and the
+        // adapter, which hold a device of their own on Direct3D 12.
+        let _turn = turn::opening(software);
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
             flags: instance_flags(),
@@ -1373,6 +1403,22 @@ impl WgpuCompositor {
                         return None;
                     }
                 };
+            // Direct3D 12 hands back the device it already has for an
+            // adapter, and one it removed is still that device while
+            // anything in the process holds it: such a device dies at its
+            // first frame. Asked here, it is never drawn on (#824).
+            if let Some(reason) = removed(&device) {
+                log::error!(
+                    "compositor: {} ({:?}, {:?}) handed back a device Direct3D 12 had already \
+                     removed ({reason}): something in this process still holds the dead one, \
+                     and no new device opens on that adapter until it lets go; this one is not \
+                     drawn on",
+                    info.name,
+                    info.device_type,
+                    info.backend
+                );
+                return None;
+            }
             let work = work_format(&adapter);
             if work != WORK {
                 log::warn!(
@@ -1436,6 +1482,21 @@ impl WgpuCompositor {
         self.device.adapter_info().device_type == wgpu::DeviceType::Cpu
     }
 
+    /// The turn a call into this compositor's device takes: on a software
+    /// adapter, one thread at a time; on a GPU, nothing. See [`crate::turn`].
+    fn turn(&self) -> turn::Turn {
+        turn::take(self.software)
+    }
+
+    /// This compositor as though its device were on a software adapter,
+    /// or as though it were not, for the tests of the turn on a machine
+    /// that has only the one kind.
+    #[cfg(test)]
+    pub(crate) fn treated_as_software(mut self, software: bool) -> Self {
+        self.software = software;
+        self
+    }
+
     /// Whether this compositor's device is unusable: a readback failed, or
     /// the device said it was lost.
     fn dead(&self) -> bool {
@@ -1462,6 +1523,14 @@ impl WgpuCompositor {
         } else {
             format!("driver {driver}")
         };
+        // A software adapter's device that Direct3D 12 removed is gone for
+        // every compositor on it, not only this one: said where they all
+        // look (`gone`), so the previews let go of it at once rather than
+        // hand the export a sibling of the dead device, and none of them
+        // holds it while the next is asked for (#824).
+        if self.software && removed(&self.device).is_some() {
+            self.gone.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let api = removal_of(&self.device)
             .unwrap_or_else(|| format!("{:?} gives no reason of its own", info.backend));
         let wgpu = self
@@ -1492,6 +1561,7 @@ impl WgpuCompositor {
     /// device, and it is marked lost as its lost callback marks it.
     #[doc(hidden)]
     pub fn lose_device(&self) {
+        let _turn = self.turn();
         self.device.destroy();
         if let Ok(mut reason) = self.lost_reason.lock() {
             *reason = Some("destroyed by a test".to_owned());
@@ -1537,7 +1607,15 @@ impl WgpuCompositor {
     /// [`WORK_FALLBACK`] where the device cannot draw into that.
     fn drawing_in(device: wgpu::Device, queue: wgpu::Queue, work: wgpu::TextureFormat) -> Self {
         // Read before the device moves into the compositor below.
-        let budget = pool_budget_for(device.adapter_info().device_type);
+        let kind = device.adapter_info().device_type;
+        let budget = pool_budget_for(kind);
+        // Every pipeline, layout and sampler below is a call into the
+        // device: on a software adapter, in its turn (#824).
+        let software = kind == wgpu::DeviceType::Cpu;
+        if software {
+            turn::say_once();
+        }
+        let _turn = turn::take(software);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat compositor"),
             source: wgpu::ShaderSource::Wgsl(format!("{MASK_WGSL}{SHADER}").into()),
@@ -1980,6 +2058,8 @@ impl WgpuCompositor {
             planar: None,
             yuv_pipelines: HashMap::new(),
             planes: None,
+            software,
+            released: turn::UntilDropped::default(),
         }
     }
 
@@ -1994,6 +2074,7 @@ impl WgpuCompositor {
     /// handed back is drawn, without reading it back. False when the
     /// device did not answer, or not within [`DEVICE_WAIT`].
     pub fn finish(&self) -> bool {
+        let _turn = self.turn();
         self.wait().is_ok()
     }
 
@@ -2439,6 +2520,7 @@ impl WgpuCompositor {
     /// is dead; the caller then falls back to [`Compositor::render`] on a
     /// CPU compositor.
     pub fn render_texture(&mut self, plan: &FramePlan) -> Option<wgpu::Texture> {
+        let _turn = self.turn();
         if self.dead() {
             self.say_why(|| plan.summary());
             return None;
@@ -2475,6 +2557,7 @@ impl WgpuCompositor {
         side: u32,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
+        let _turn = self.turn();
         if self.dead() {
             return Err("the GPU device is dead".to_owned());
         }
@@ -2536,6 +2619,7 @@ impl WgpuCompositor {
         side: u32,
         seconds: f32,
     ) -> Option<[f32; 4]> {
+        let _turn = self.turn();
         // The probe writes and reads half floats: on the eight-bit fallback
         // it has nothing to say, and the caller treats it as untested.
         if self.dead() || self.work != WORK {
@@ -2561,6 +2645,7 @@ impl WgpuCompositor {
         side: u32,
         seconds: f32,
     ) -> Option<[f32; 4]> {
+        let _turn = self.turn();
         if self.dead() || self.work != WORK {
             return None;
         }
@@ -2793,6 +2878,7 @@ impl WgpuCompositor {
     /// the picture sits still. A scrub back over what was let go uploads
     /// it again from the frame cache, which is quick.
     pub fn shrink_pool(&mut self, share: f64) {
+        let _turn = self.turn();
         let keep = (self.pool_budget as f64 * share.clamp(0.0, 1.0)) as u64;
         while self.pool_bytes > keep {
             let oldest = self
@@ -3296,6 +3382,7 @@ impl WgpuCompositor {
     /// drawing, every effect's first frame - a look previewed from the
     /// Library under the pointer - waited that long.
     pub fn forge(&mut self, passes: &[ShaderPass]) -> ShaderForge {
+        let _turn = self.turn();
         let pictures = passes
             .iter()
             .map(|pass| pass.stages.len())
@@ -3312,13 +3399,18 @@ impl WgpuCompositor {
             lut_layout: self.lut_layout.clone(),
             reveal_layout: self.reveal_layout.clone(),
             pictures,
+            software: self.software,
+            released: turn::UntilDropped::default(),
         }
     }
 
     /// Keeps a pass [`ShaderForge::compile`] compiled, or that the driver
     /// refused it, unless this compositor has its own already.
     pub fn adopt(&mut self, forged: ForgedShader) {
+        let _turn = self.turn();
         if self.shaders.contains_key(&forged.key) || self.refused.contains(&forged.key) {
+            // Let go here, in the turn: an argument outlives it otherwise.
+            drop(forged);
             return;
         }
         match forged.compiled {
@@ -3556,6 +3648,7 @@ impl WgpuCompositor {
         to: &FramePlan,
         pass: &TransitionPass,
     ) -> Option<wgpu::Texture> {
+        let _turn = self.turn();
         if self.dead() {
             return None;
         }
@@ -4452,6 +4545,26 @@ fn clear_of([r, g, b, a]: [u8; 4]) -> wgpu::Color {
 /// Direct3D 12's removed reason. `None` from every other API: Vulkan says
 /// only that the device is lost, Metal and OpenGL say less.
 fn removal_of(device: &wgpu::Device) -> Option<String> {
+    Some(match removed_code(device)? {
+        None => "Direct3D 12 says the device was not removed".to_owned(),
+        Some(code) => removal_words(code),
+    })
+}
+
+/// Whether Direct3D 12 has removed `device` - asked of one just opened,
+/// whether it was dead already - and what it says of it if so; `None` for a live device, and on every
+/// other API. Direct3D 12 keeps one device an adapter in a process and
+/// hands that one back however many are asked for, so while anything
+/// still holds a removed device a "new" one is that dead one again, and
+/// dies at its first frame (#824). One question to the device, so cheap
+/// enough to ask after every open.
+pub fn removed(device: &wgpu::Device) -> Option<String> {
+    removed_code(device)?.map(removal_words)
+}
+
+/// Direct3D 12's removed reason for `device`: `Some(None)` while it is
+/// not removed, `Some(Some(code))` once it is, `None` on another API.
+fn removed_code(device: &wgpu::Device) -> Option<Option<u32>> {
     #[cfg(windows)]
     {
         // SAFETY: the raw device is only asked a question, which Direct3D
@@ -4459,16 +4572,7 @@ fn removal_of(device: &wgpu::Device) -> Option<String> {
         // and the guard is dropped before this returns.
         let hal = unsafe { device.as_hal::<wgpu::hal::api::Dx12>() }?;
         let removed = unsafe { hal.raw_device().GetDeviceRemovedReason() };
-        Some(match removed {
-            Ok(()) => "Direct3D 12 says the device was not removed".to_owned(),
-            Err(error) => {
-                let code = error.code().0 as u32;
-                format!(
-                    "Direct3D 12 says {} ({code:#010X})",
-                    removal_name(code).unwrap_or("an unlisted reason")
-                )
-            }
-        })
+        Some(removed.err().map(|error| error.code().0 as u32))
     }
     #[cfg(not(windows))]
     {
@@ -4477,9 +4581,16 @@ fn removal_of(device: &wgpu::Device) -> Option<String> {
     }
 }
 
+/// A removed reason as the log says it: its name and its code.
+fn removal_words(code: u32) -> String {
+    format!(
+        "Direct3D 12 says {} ({code:#010X})",
+        removal_name(code).unwrap_or("an unlisted reason")
+    )
+}
+
 /// The name of a reason Direct3D 12 gives for removing a device, as
 /// Microsoft's documentation writes it.
-#[cfg(any(windows, test))]
 fn removal_name(code: u32) -> Option<&'static str> {
     Some(match code {
         0x887A_0005 => "DXGI_ERROR_DEVICE_REMOVED",
@@ -4494,6 +4605,7 @@ fn removal_name(code: u32) -> Option<&'static str> {
 
 impl Compositor for WgpuCompositor {
     fn render(&mut self, plan: &FramePlan) -> Frame {
+        let _turn = self.turn();
         // A dead device never comes back for this instance. What it hands
         // back is black, never a mid-export panic, and `lost` says so: the
         // export stops with an error rather than write a file of black.
@@ -4545,12 +4657,14 @@ impl Compositor for WgpuCompositor {
     }
 
     fn submit(&mut self, plan: &FramePlan) -> bool {
+        let _turn = self.turn();
         // Never more on their way back than there are buffers for: the
         // oldest is the caller's to collect first.
         self.in_flight.len() < READBACKS && self.submit_plan(plan)
     }
 
     fn collect(&mut self) -> Option<crate::Drawn> {
+        let _turn = self.turn();
         self.collect_oldest()
     }
 
@@ -4575,6 +4689,7 @@ impl Compositor for WgpuCompositor {
         to: &Frame,
         pass: &TransitionPass,
     ) -> Option<Frame> {
+        let _turn = self.turn();
         if self.dead() {
             self.say_why(|| format!("the transition {} at {width}x{height}", pass.key));
             return None;

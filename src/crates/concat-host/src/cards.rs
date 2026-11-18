@@ -420,6 +420,18 @@ pub fn draw_all(
     mut report: impl FnMut(Vec<String>, bool),
 ) {
     const BATCH: usize = 12;
+    // Nothing lent, and every adapter there is to ask a software one - a
+    // safe start, or the machine without a driver, which starts as one:
+    // no device is opened only to be let go, so the software adapter's
+    // one device is not opened on this thread while the previews draw on
+    // it (#824).
+    let required = std::env::var_os("CONCAT_REQUIRE_GPU").is_some();
+    if compositor.is_none() && !required && WgpuCompositor::rungs().iter().all(|rung| rung.software)
+    {
+        log::warn!("cards: a software adapter only; the cards are left undrawn");
+        report(Vec::new(), true);
+        return;
+    }
     let painter = compositor
         .or_else(WgpuCompositor::new)
         .ok_or_else(|| "no GPU or software renderer is available to draw with".to_owned())

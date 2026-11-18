@@ -164,10 +164,20 @@ impl Default for Ladder {
     }
 }
 
-/// The CPU compositor, noting what it leaves out of the frames it draws.
+/// The CPU compositor, noting what it leaves out of the frames it draws
+/// (see [`CpuCompositor::leaves_out`]): the previews' last rung, and what
+/// an export goes on drawing with once no device lasts.
 #[derive(Default)]
-struct CpuRung {
+pub struct CpuRung {
     left_out: bool,
+}
+
+impl CpuRung {
+    /// Whether anything was left out of what was drawn since this was
+    /// last asked: a frame with it is not the frame.
+    pub fn left_out(&mut self) -> bool {
+        std::mem::take(&mut self.left_out)
+    }
 }
 
 impl Compositor for CpuRung {

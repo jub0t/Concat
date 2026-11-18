@@ -1238,7 +1238,15 @@ pub fn render_on(
     match &result {
         Ok(()) => {
             let fps = spent.frames as f64 / op.elapsed().as_secs_f64().max(1e-9);
-            op.done(format_args!("{} frames at {fps:.1} fps", spent.frames));
+            op.done(format_args!(
+                "{} frames at {fps:.1} fps{}",
+                spent.frames,
+                if spent.on_cpu {
+                    ", drawn on the CPU"
+                } else {
+                    ""
+                }
+            ));
         }
         Err(_) if reporter.cancel.load(Ordering::Relaxed) => op.cancelled(),
         Err(error) => op.failed(error),
@@ -1657,16 +1665,16 @@ const NO_RENDERER: &str = "this device's GPU could not be used to draw with";
 const NO_RENDERER: &str = "no GPU or software renderer is available to draw with";
 
 /// How many times an export's device may die under it before the export
-/// gives up: the first death is answered on the GPU again - on the device
-/// the export was lent, where it was lent one, and otherwise a fresh
-/// device, which a reset adapter opens again; the next with the software
-/// adapter, which draws the same picture however slowly; a third says the
-/// machine cannot draw this export at all.
+/// stops asking for another. The first death is answered on the GPU
+/// again: on the device the export was lent, where it was lent one, and
+/// otherwise a fresh device, which a reset adapter opens again. The next
+/// goes to the software adapter, which draws the same picture however
+/// slowly; after the third the CPU draws the rest (see [`recovered`]).
 const DEVICE_LOSSES: u32 = 3;
 
-/// A compositor to go on with after the export's device died, `losses`
-/// deaths in; see [`DEVICE_LOSSES`]. It draws as the dead one did -
-/// delivering HDR or not - and the log says what it is drawing on.
+/// What an export draws with, `losses` deaths of its device in, after the
+/// latest; see [`DEVICE_LOSSES`]. A GPU compositor draws as the dead one
+/// did - delivering HDR or not - and the log says what it is drawing on.
 ///
 /// A device can die under an export: Windows resets an adapter whose
 /// command takes too long, and a card shared with the window, the hardware
@@ -1695,21 +1703,21 @@ const DEVICE_LOSSES: u32 = 3;
 /// device asked for on that adapter is the dead one again: on Windows'
 /// software renderer the export and the previews each held theirs, and
 /// after the first loss nothing on that adapter would open (#824).
-fn recovered(
-    losses: u32,
-    hdr: bool,
-    dead: WgpuCompositor,
-    lent: bool,
-) -> Result<WgpuCompositor, String> {
+///
+/// Once no device opens, or the deaths reach [`DEVICE_LOSSES`], the CPU
+/// draws the rest, as the previews' last rung does: slower, and the
+/// export ends only where a frame has something in it the CPU cannot
+/// draw (see [`Device::surviving`]). A plain cut on a machine whose only
+/// adapter keeps failing was otherwise an export that could not finish.
+fn recovered(losses: u32, hdr: bool, dead: WgpuCompositor, lent: bool) -> Drawer {
     if losses >= DEVICE_LOSSES {
-        return Err(format!(
-            "the GPU device was lost {losses} times part way through the export - reset, \
-             out of memory, or not answering for {} seconds; nothing on this machine can \
-             draw it to the end",
-            concat_render::gpu::DEVICE_WAIT.as_secs()
-        ));
+        drop(dead);
+        return on_the_cpu(losses);
     }
-    let fresh = if losses == 1 && lent {
+    let fresh = if no_device_opens() {
+        drop(dead);
+        None
+    } else if losses == 1 && lent {
         Some(dead.sibling())
     } else {
         drop(dead);
@@ -1720,9 +1728,9 @@ fn recovered(
             (_, false) => headless_sibling().or_else(WgpuCompositor::software),
         }
     };
-    let mut compositor = fresh.ok_or_else(|| {
-        format!("the GPU device was lost part way through the export, and {NO_RENDERER}")
-    })?;
+    let Some(mut compositor) = fresh else {
+        return on_the_cpu(losses);
+    };
     compositor.deliver_hdr(hdr);
     let adapter = compositor.adapter_info();
     log::warn!(
@@ -1731,7 +1739,37 @@ fn recovered(
         adapter.device_type,
         adapter.backend
     );
-    Ok(compositor)
+    Drawer::Gpu(Box::new(compositor))
+}
+
+/// The CPU, for the rest of an export whose device was lost `losses`
+/// times; said in the log, where CI looks for it.
+fn on_the_cpu(losses: u32) -> Drawer {
+    log::warn!(
+        "export: the GPU device was lost {losses} time{}; going on drawing on the CPU",
+        if losses == 1 { "" } else { "s" }
+    );
+    Drawer::Cpu(concat_render::CpuRung::default())
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Set by a test on its own thread: no device opens after a loss, as
+    /// on a machine whose one adapter hands back the dead device.
+    static NO_DEVICE_OPENS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether a test has said no device opens on this thread; never outside
+/// the tests.
+fn no_device_opens() -> bool {
+    #[cfg(test)]
+    {
+        NO_DEVICE_OPENS.get()
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
 }
 
 /// The compositor for the frames drawn without a window's device: the
@@ -1793,13 +1831,13 @@ fn render_picture(
     // Whether the window lent its device: a death under the export is then
     // answered on that device again before anything else (see `recovered`).
     let lent = compositor.is_some();
-    let mut compositor = Held(Some(match compositor {
+    let gpu = match compositor {
         Some(lent) => lent,
         None => best_compositor()?,
-    }));
+    };
     // Which chip and API the file is drawn on: the first thing a report of
     // an export gone wrong needs to say, and until now could not (#202).
-    let adapter = compositor.adapter_info();
+    let adapter = gpu.adapter_info();
     log::info!(
         "export: drawing on {} ({:?}, {:?})",
         adapter.name,
@@ -1812,13 +1850,14 @@ fn render_picture(
     );
     // The request was held to the document's ceiling; a phone's GPU can
     // hold less, and a frame past it is said here rather than failed on.
-    let most = compositor.max_side();
+    let most = gpu.max_side();
     if request.width > most || request.height > most {
         return Err(format!(
             "{}×{} is more than {} can draw; the most it takes is {most} a side",
             request.width, request.height, adapter.name
         ));
     }
+    let mut compositor = Held(Some(Drawer::Gpu(Box::new(gpu))));
     let BuiltTimeline {
         timeline,
         stills,
@@ -1856,7 +1895,7 @@ fn render_picture(
     // an HDR timeline is tone-mapped into one, as it is on a phone that
     // cannot write ten bits, rather than the export failing.
     let hdr = request.hdr && signal != Signal::Sdr && !request.codec.keeps_alpha();
-    compositor.deliver_hdr(hdr);
+    compositor.compositor().deliver_hdr(hdr);
 
     // A clip whose speed changes, or runs backwards, cannot be followed by a
     // paced decoder: each of its frames is sought by its own source time,
@@ -1891,7 +1930,7 @@ fn render_picture(
         // frame is converted where it was drawn, and comes back at a byte
         // and a half a pixel rather than four.
         let planar = writer.takes;
-        compositor.planar(planar);
+        compositor.compositor().planar(planar);
         // Each pass is said afresh: a second one starts the file over.
         spent.pass(&writer.encoder);
 
@@ -1956,7 +1995,7 @@ fn render_picture(
         // device is for a file nobody will finish.
         let mut in_flight: std::collections::VecDeque<(i64, FramePlan)> =
             std::collections::VecDeque::new();
-        while compositor.collect().is_some() {}
+        while compositor.compositor().collect().is_some() {}
 
         for index in 0..total_frames {
             reporter.cancelled()?;
@@ -2068,6 +2107,7 @@ fn render_picture(
                 compositor: &mut compositor,
                 offset: effect_offset,
                 losses: &mut spent.losses,
+                on_cpu: &mut spent.on_cpu,
                 hdr,
                 lent,
                 total_frames,
@@ -2143,6 +2183,7 @@ fn render_picture(
             compositor: &mut compositor,
             offset: effect_offset,
             losses: &mut spent.losses,
+            on_cpu: &mut spent.on_cpu,
             hdr,
             lent,
             total_frames,
@@ -2396,6 +2437,8 @@ struct Spent {
     adapter: String,
     /// How many times the device died under the export; see `recovered`.
     losses: u32,
+    /// The CPU drew the rest after the device was lost; see `recovered`.
+    on_cpu: bool,
     /// The encoder, and which pass this is: a second goes again on the
     /// CPU's encoder after the hardware one stopped (#491).
     encoder: String,
@@ -2434,6 +2477,7 @@ impl Spent {
             total: self.total,
             adapter: std::mem::take(&mut self.adapter),
             losses: self.losses,
+            on_cpu: self.on_cpu,
             encoder: encoder.to_owned(),
             passes: self.passes + 1,
             ..Spent::default()
@@ -2460,7 +2504,14 @@ impl Spent {
             op.note("started again on the software encoder");
         }
         if !self.adapter.is_empty() {
-            op.note(format_args!("drawn on {}", self.adapter));
+            if self.on_cpu {
+                op.note(format_args!(
+                    "drawn on {} until its device was lost, then on the CPU",
+                    self.adapter
+                ));
+            } else {
+                op.note(format_args!("drawn on {}", self.adapter));
+            }
         }
         if self.losses > 0 {
             op.note(format_args!(
@@ -2708,22 +2759,50 @@ fn with_treatments(
 /// footage is decoded.
 const IN_FLIGHT: usize = 2;
 
+/// What an export draws with: the GPU, or the CPU once no device lasts
+/// under it (see [`recovered`]).
+enum Drawer {
+    /// Boxed: a compositor is a large thing to move about, and a box is
+    /// made once a device.
+    Gpu(Box<WgpuCompositor>),
+    Cpu(concat_render::CpuRung),
+}
+
 /// The export's compositor, empty only while [`Device::surviving`] swaps a
 /// dead one for the next: the dead one is let go before the next is asked
 /// for (see [`recovered`]).
-struct Held(Option<WgpuCompositor>);
+struct Held(Option<Drawer>);
 
-impl std::ops::Deref for Held {
-    type Target = WgpuCompositor;
-
-    fn deref(&self) -> &WgpuCompositor {
-        self.0.as_ref().expect("the export's compositor is held")
+impl Held {
+    /// What draws, as any compositor.
+    fn compositor(&mut self) -> &mut dyn Compositor {
+        match self.0.as_mut().expect("the export's compositor is held") {
+            Drawer::Gpu(gpu) => &mut **gpu,
+            Drawer::Cpu(cpu) => cpu,
+        }
     }
-}
 
-impl std::ops::DerefMut for Held {
-    fn deref_mut(&mut self) -> &mut WgpuCompositor {
-        self.0.as_mut().expect("the export's compositor is held")
+    /// The GPU compositor, while the export draws on one.
+    fn gpu(&self) -> Option<&WgpuCompositor> {
+        match self.0.as_ref() {
+            Some(Drawer::Gpu(gpu)) => Some(&**gpu),
+            _ => None,
+        }
+    }
+
+    /// Whether the GPU's device has been lost under the export; never on
+    /// the CPU, which has none to lose.
+    fn lost(&self) -> bool {
+        self.gpu().is_some_and(WgpuCompositor::lost)
+    }
+
+    /// Whether the CPU left anything out of what it drew since this was
+    /// last asked; never on the GPU.
+    fn left_out(&mut self) -> bool {
+        match self.0.as_mut() {
+            Some(Drawer::Cpu(cpu)) => cpu.left_out(),
+            _ => false,
+        }
     }
 }
 
@@ -2734,6 +2813,8 @@ struct Device<'a> {
     compositor: &'a mut Held,
     offset: Rational,
     losses: &'a mut u32,
+    /// Set once the CPU draws in the GPU's place; see [`recovered`].
+    on_cpu: &'a mut bool,
     hdr: bool,
     lent: bool,
     total_frames: i64,
@@ -2746,14 +2827,15 @@ impl Device<'_> {
     /// The compositor on the shader clock.
     fn clock(&mut self) -> EffectClock<'_> {
         EffectClock {
-            inner: &mut **self.compositor,
+            inner: self.compositor.compositor(),
             offset: self.offset,
         }
     }
 
     /// Draws with `draw` until a device survives it: a frame drawn on a
     /// device that died under it is black, and is drawn again on the one
-    /// that takes over.
+    /// that takes over. A frame the CPU drew with something left out of it
+    /// ends the export: never a picture that is not the frame.
     fn surviving(
         &mut self,
         index: i64,
@@ -2761,9 +2843,9 @@ impl Device<'_> {
         mut draw: impl FnMut(&mut dyn Compositor) -> Frame,
     ) -> Result<Frame, String> {
         let mut frame = draw(&mut self.clock());
-        while self.compositor.lost() {
+        while let Some(gpu) = self.compositor.gpu().filter(|gpu| gpu.lost()) {
             *self.losses += 1;
-            let adapter = self.compositor.adapter_info();
+            let adapter = gpu.adapter_info();
             log::error!(
                 "export: the GPU device on {} was lost drawing frame {index} of {} \
                  ({:.3}s into the cut); the frame is drawn again on the next device",
@@ -2771,14 +2853,24 @@ impl Device<'_> {
                 self.total_frames,
                 time.as_f64(),
             );
-            let dead = self
-                .compositor
-                .0
-                .take()
-                .expect("the export's compositor is held");
-            self.compositor.0 = Some(recovered(*self.losses, self.hdr, dead, self.lent)?);
-            self.compositor.planar(self.planar);
+            let Some(Drawer::Gpu(dead)) = self.compositor.0.take() else {
+                unreachable!("a lost device is a GPU's");
+            };
+            let next = recovered(*self.losses, self.hdr, *dead, self.lent);
+            *self.on_cpu |= matches!(next, Drawer::Cpu(_));
+            self.compositor.0 = Some(next);
+            self.compositor.compositor().planar(self.planar);
             frame = draw(&mut self.clock());
+        }
+        if self.compositor.left_out() {
+            return Err(format!(
+                "the GPU device was lost {} time{} part way through the export, and the frame \
+                 at {:.3}s has effects or HDR that only the GPU draws; the export stops rather \
+                 than write it without them",
+                *self.losses,
+                if *self.losses == 1 { "" } else { "s" },
+                time.as_f64()
+            ));
         }
         Ok(frame)
     }
@@ -2793,7 +2885,7 @@ impl Device<'_> {
         let Some(oldest) = in_flight.pop_front() else {
             return Ok(Vec::new());
         };
-        let frame = self.compositor.collect();
+        let frame = self.compositor.compositor().collect();
         if let Some(frame) = frame
             && !self.compositor.lost()
         {
@@ -4920,24 +5012,128 @@ mod tests {
         assert!(drawn_on(&mut ladder, false, |c| c.render(&hdr)).is_ok());
     }
 
+    /// The compositor `drawer` holds, where it is the GPU's.
+    fn on_gpu(drawer: Drawer) -> WgpuCompositor {
+        match drawer {
+            Drawer::Gpu(gpu) => *gpu,
+            Drawer::Cpu(_) => panic!("drawing on the CPU, not on a device"),
+        }
+    }
+
     /// A device that dies under an export is replaced: first by a fresh
-    /// one on the GPU, then by the software adapter; the third death ends
-    /// the export with a message that says how many there were.
+    /// one on the GPU, then by the software adapter; after the third death
+    /// no device is asked for again, and the CPU draws the rest.
     #[test]
-    fn an_export_gives_up_after_enough_device_losses() {
+    fn an_export_goes_on_on_the_cpu_after_enough_device_losses() {
         let Some(dead) = WgpuCompositor::new() else {
             eprintln!("no adapter here; skipped");
             return;
         };
-        let Err(error) = recovered(DEVICE_LOSSES, false, dead, false) else {
-            panic!("a third loss gives up");
-        };
-        assert!(error.contains("lost 3 times"), "{error}");
-        assert!(error.contains("not answering"), "{error}");
+        assert!(
+            matches!(recovered(DEVICE_LOSSES, false, dead, false), Drawer::Cpu(_)),
+            "a third loss goes on on the CPU"
+        );
         let dead = WgpuCompositor::new().expect("it opened a moment ago");
-        let fresh =
-            recovered(1, true, dead, false).expect("a machine that draws opens another device");
-        assert!(!fresh.lost());
+        let fresh = on_gpu(recovered(1, true, dead, false));
+        assert!(!fresh.lost(), "a machine that draws opens another device");
+    }
+
+    /// An export whose device dies and where no other opens - a machine
+    /// whose one adapter hands back the dead device - finishes on the CPU
+    /// when the CPU draws its frames whole, every frame the clip's picture
+    /// and not black. One with an effect the CPU cannot draw stops with an
+    /// error that says so, rather than write the frames without it.
+    #[test]
+    fn an_export_finishes_on_the_cpu_only_where_the_cpu_draws_it_whole() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let Some(dead) = WgpuCompositor::new() else {
+            eprintln!("no adapter here; skipped");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("concat-export-cpu-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let source = dir.join("source.mp4");
+        let Ok(mut encoder) = Encoder::create(
+            &source,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        ) else {
+            return; // no ffmpeg here
+        };
+        let mut red = Frame::black(64, 64);
+        red.fill([200, 40, 40, 255]);
+        for _ in 0..6 {
+            encoder.write_frame(&red).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        let mut footage = clip("video", 0, 0.0, 0.2, 0.0);
+        footage.path = source.to_string_lossy().into_owned();
+        footage.media_width = Some(64);
+        footage.media_height = Some(64);
+        footage.has_audio = Some(false);
+        let request = |clip: ExportClip, output: &Path| ExportRequest {
+            canvas: [0, 0, 0, 255],
+            output: output.to_string_lossy().into_owned(),
+            width: 64,
+            height: 64,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 18,
+            preset: "ultrafast".into(),
+            codec: VideoCodec::H264,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            clips: vec![clip],
+        };
+        let render = |request: &ExportRequest, lent: WgpuCompositor| {
+            let cancel = AtomicBool::new(false);
+            let mut progress = |_: i64, _: i64, _: &'static str| {};
+            let reporter = Reporter {
+                progress: &mut progress,
+                cancel: &cancel,
+            };
+            render_on(request, Some(lent), reporter)
+        };
+        NO_DEVICE_OPENS.set(true);
+
+        // Lent dead, so its first frame is a failed one.
+        dead.lose_device();
+        let output = dir.join("plain.mp4");
+        let written = render(&request(footage.clone(), &output), dead);
+        let written = written.expect("the CPU draws a plain cut to the end");
+        let mut decoder = Decoder::open(&written, &DecodeOptions::default()).expect("opens");
+        let mut frames = 0;
+        while let Some(frame) = decoder.next_frame().expect("decodes") {
+            let middle = frame.pixel(32, 32).expect("a pixel");
+            assert!(
+                middle[0].abs_diff(200) <= 12 && middle[1].abs_diff(40) <= 12,
+                "frame {frames} is {middle:?}, not the clip's red"
+            );
+            frames += 1;
+        }
+        assert_eq!(frames, 6, "every frame written");
+
+        let mut effected = footage;
+        effected.effects = vec![AppliedFilter::new("concat.mono")];
+        let dead = WgpuCompositor::new().expect("it opened a moment ago");
+        dead.lose_device();
+        let output = dir.join("effected.mp4");
+        let error = render(&request(effected, &output), dead)
+            .expect_err("the CPU cannot draw the effect, so the export stops");
+        assert!(error.contains("only the GPU draws"), "{error}");
+        assert!(!output.exists(), "no file of frames without the effect");
+
+        NO_DEVICE_OPENS.set(false);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An export lent the window's device goes on on that device after the
@@ -4951,15 +5147,13 @@ mod tests {
             eprintln!("no adapter here; skipped");
             return;
         };
-        let again =
-            recovered(1, false, window.sibling(), true).expect("a sibling opens on a live device");
-        assert!(!again.lost());
+        let again = on_gpu(recovered(1, false, window.sibling(), true));
+        assert!(!again.lost(), "a sibling opens on a live device");
         let (was, now) = (window.adapter_info(), again.adapter_info());
         assert_eq!((was.name, was.backend), (now.name, now.backend));
         if WgpuCompositor::software().is_some() {
-            let slow =
-                recovered(2, false, window.sibling(), true).expect("the software adapter opens");
-            assert!(slow.on_software_adapter());
+            let slow = on_gpu(recovered(2, false, window.sibling(), true));
+            assert!(slow.on_software_adapter(), "the software adapter opens");
         }
     }
 
@@ -4975,7 +5169,7 @@ mod tests {
             return;
         };
         first.lose_device();
-        let next = recovered(1, false, first, false).expect("the previews' next device opens");
+        let next = on_gpu(recovered(1, false, first, false));
         assert!(!next.lost(), "the export draws on a live device");
         let plan = concat_render::FramePlan::empty(32, 18);
         assert!(

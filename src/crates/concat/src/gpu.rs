@@ -131,6 +131,17 @@ impl Gpu {
             )
         })
         .ok()?;
+        // A device Direct3D 12 had already removed, handed back because
+        // something in the process still holds it, dies at its first
+        // frame: the window opens without one rather than draw on it.
+        if let Some(reason) = concat_render::gpu::removed(&device) {
+            log::error!(
+                "gpu: {} handed back a device Direct3D 12 had already removed ({reason}): \
+                 something in this process still holds the dead one; the window opens without one",
+                info.name
+            );
+            return None;
+        }
         // Said in the log when it dies, with wgpu's reason: the one line a
         // report of "the GPU device was lost" needs, which until now there
         // was none of. https://github.com/jub0t/Concat/issues/223

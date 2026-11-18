@@ -263,6 +263,11 @@ impl Upscaler {
     /// `side` pixels across, on the first GPU that opens - `None` where
     /// there is none, and the caller runs the model the slow way.
     pub fn new(layers: &[ConvLayer], scale: u32, side: u32) -> Option<Upscaler> {
+        // Asking for an adapter opens a device on each one wgpu finds, the
+        // software adapter's among them, which the previews may be drawing
+        // on: in its turn (see `crate::turn`). Declared first, so let go
+        // after the adapter. The upscaler itself never draws on one.
+        let _turn = crate::turn::opening(false);
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
