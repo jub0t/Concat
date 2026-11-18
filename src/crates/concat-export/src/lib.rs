@@ -2017,25 +2017,46 @@ fn render_picture(
                     ));
                     continue;
                 }
-                // A source that has run out contributes nothing rather than
-                // aborting the export - a clip trimmed past its media's end is a
-                // mistake in the edit, not a failure of the renderer.
+                // A clip whose sound or trim outlasts its picture stream holds
+                // its last real frame until the cut, as the monitor and the
+                // sought path above do (#790). A run that decoded at least one
+                // frame already holds it in `Feed`; one whose in-point itself
+                // landed past the picture stream asks `sought` to find it.
                 let waiting = std::time::Instant::now();
-                let next = feeds.next(index, layer, paced)?;
+                let mut next = feeds.next(index, layer, paced)?;
                 spent.footage += waiting.elapsed();
+                if next.is_none() {
+                    let (decode_width, decode_height) = decode_sizes
+                        .get(&layer.clip)
+                        .copied()
+                        .unwrap_or((request.width, request.height));
+                    let seeking = std::time::Instant::now();
+                    next = sought
+                        .frame_at(
+                            &layer.media,
+                            layer.source_time,
+                            decode_width,
+                            decode_height,
+                            stills.contains(&layer.clip),
+                            None,
+                            None,
+                            ranges.get(&layer.clip).copied(),
+                            !cutouts.contains_key(&layer.clip),
+                        )
+                        .ok();
+                    spent.seeking += seeking.elapsed();
+                    spent.sought += 1;
+                }
                 if let Some(frame) = next {
                     // The cutout, on the decoded picture before it is placed:
                     // the same frame both compositors then draw.
-                    let frame = match cutouts
+                    let frame = cutouts
                         .get(&layer.clip)
                         .and_then(|job| job.cut(&frame, layer.source_time))
-                    {
-                        Some(cut) => cut,
-                        None => frame,
-                    };
+                        .map_or(frame, std::sync::Arc::new);
                     layers.push(filled(
                         layer,
-                        std::sync::Arc::new(frame),
+                        frame,
                         tracks.get(&layer.clip).copied().unwrap_or(0),
                         passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                         geometry.get(&layer.clip),
@@ -5314,5 +5335,222 @@ mod tests {
             begun.elapsed().as_secs_f64(),
             std::fs::metadata(&written).map_or(0, |meta| meta.len())
         );
+    }
+
+    /// Issue #790: an MP4's AAC stream commonly ends a packet or two after
+    /// its last H.264 frame, so the probed container duration - what an
+    /// imported clip takes - rounds one frame past the picture stream. Two
+    /// such clips placed end to end used to run the first clip's paced feed
+    /// dry on the frame before the cut and draw an empty layer stack there:
+    /// a single-frame black flash at every join, and the same if the tail
+    /// was split into a run of its own. Both hold the outgoing clip's last
+    /// real frame until the incoming clip takes over, as the monitor does.
+    #[test]
+    fn concatenated_clips_whose_sound_outlasts_their_picture_leave_no_black_cut() {
+        use concat_core::frame::Frame;
+        use concat_media::{
+            DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource,
+        };
+
+        if WgpuCompositor::new().is_none() {
+            eprintln!("nothing to draw on here; skipped");
+            return;
+        }
+        let dir =
+            std::env::temp_dir().join(format!("concat-export-cut-tail-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+
+        let wav = dir.join("silence.wav");
+        let rate_hz = 48_000_u32;
+        // 1.05 s of sound over 1.00 s (24 frames) of 24 fps H.264 picture.
+        let samples = (rate_hz as usize * 105) / 100;
+        let pcm = vec![0_u8; samples * 4];
+        let mut wav_bytes = Vec::with_capacity(44 + pcm.len());
+        wav_bytes.extend_from_slice(b"RIFF");
+        wav_bytes.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+        wav_bytes.extend_from_slice(b"WAVEfmt ");
+        wav_bytes.extend_from_slice(&16_u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&1_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&2_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&rate_hz.to_le_bytes());
+        wav_bytes.extend_from_slice(&(rate_hz * 4).to_le_bytes());
+        wav_bytes.extend_from_slice(&4_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&16_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(b"data");
+        wav_bytes.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+        wav_bytes.extend_from_slice(&pcm);
+        std::fs::write(&wav, wav_bytes).expect("writes wav");
+        let aac = dir.join("silence.m4a");
+        concat_media::audio::mix_to_file(
+            &[concat_media::audio::AudioClip {
+                path: wav.clone(),
+                stream: None,
+                start: 0.0,
+                duration: 1.05,
+                source_start: 0.0,
+                speed: 1.0,
+                tempo: Vec::new(),
+                preserve_pitch: true,
+                volume: 1.0,
+                volume_curve: concat_core::animate::Track::default(),
+                fade_in: 0.0,
+                fade_out: 0.0,
+                filter_chain: String::new(),
+            }],
+            1.05,
+            &aac,
+        )
+        .expect("encodes aac");
+
+        let make_shot = |name: &str, rgba: [u8; 4]| -> (std::path::PathBuf, f64) {
+            let picture = dir.join(format!("{name}-video.mp4"));
+            let mut encoder = Encoder::create(
+                &picture,
+                64,
+                64,
+                FrameRate::FILM,
+                &EncodeOptions {
+                    preset: "ultrafast".into(),
+                    crf: 16,
+                    hardware: false,
+                    ..EncodeOptions::default()
+                },
+            )
+            .expect("creates encoder");
+            let mut frame = Frame::black(64, 64);
+            frame.fill(rgba);
+            for _ in 0..24 {
+                encoder.write_frame(&frame).expect("writes frame");
+            }
+            encoder.finish().expect("finishes video");
+            let muxed = dir.join(format!("{name}.mp4"));
+            concat_media::audio::mux(&picture, &aac, &muxed).expect("muxes shot");
+            let probed = concat_media::probe(&muxed)
+                .expect("probes shot")
+                .duration
+                .expect("container duration")
+                .as_f64();
+            assert!(
+                probed > 1.0,
+                "{name}: AAC packet framing extends container past 1.0 s ({probed})"
+            );
+            (muxed, probed)
+        };
+
+        let (red_path, red_len) = make_shot("red", [210, 40, 40, 255]);
+        let (blue_path, blue_len) = make_shot("blue", [40, 60, 210, 255]);
+
+        let shot = |path: &std::path::Path, start: f64, duration: f64, source_start: f64| {
+            let mut item = clip("video", 0, start, duration, source_start);
+            item.path = path.to_string_lossy().into_owned();
+            item.media_width = Some(64);
+            item.media_height = Some(64);
+            item.media_duration = Some(duration + source_start);
+            item.has_audio = Some(true);
+            item
+        };
+
+        // Twelve concatenated 24 fps H.264 + AAC clips at their probed
+        // container duration (~1.0027 s each): by the eighth clip the ~2.7 ms
+        // AAC packet overhang crosses half a frame on the global grid, giving
+        // that clip 25 timeline frames for its 24 source frames.
+        let mut chain = Vec::new();
+        let mut cursor = 0.0;
+        for step in 0..12 {
+            let (path, len) = if step % 2 == 0 {
+                (&red_path, red_len)
+            } else {
+                (&blue_path, blue_len)
+            };
+            chain.push(shot(path, cursor, len, 0.0));
+            cursor += len;
+        }
+
+        // Also a single join whose container/trim outlasts picture by a full
+        // frame directly, both whole and with the sound-only tail split out.
+        let extended = 1.05;
+        let cases = [
+            ("twelve-probed-shots", chain, false),
+            (
+                "extended-tail",
+                vec![
+                    shot(&red_path, 0.0, extended, 0.0),
+                    shot(&blue_path, extended, blue_len, 0.0),
+                ],
+                true,
+            ),
+            (
+                "split-tail",
+                vec![
+                    shot(&red_path, 0.0, 1.0, 0.0),
+                    shot(&red_path, 1.0, extended - 1.0, 1.0),
+                    shot(&blue_path, extended, blue_len, 0.0),
+                ],
+                true,
+            ),
+        ];
+
+        for (case, clips, monotonic) in cases {
+            for rate_num in [24_i64, 30] {
+                let output = dir.join(format!("{case}-{rate_num}.mp4"));
+                let request = ExportRequest {
+                    canvas: [0, 0, 0, 255],
+                    output: output.to_string_lossy().into_owned(),
+                    width: 64,
+                    height: 64,
+                    rate_num,
+                    rate_den: 1,
+                    crf: 16,
+                    preset: "ultrafast".into(),
+                    codec: VideoCodec::H264,
+                    ten_bit: false,
+                    rate_mode: RateMode::Vbr,
+                    bitrate_kbps: 0,
+                    color_range: concat_media::ColorRange::Limited,
+                    color_space: ColorSpace::Sdr,
+                    hdr: false,
+                    effect_time_offset: 0.0,
+                    clips: clips.clone(),
+                };
+                let cancel = AtomicBool::new(false);
+                let mut progress = |_: i64, _: i64, _: &'static str| {};
+                render(
+                    &request,
+                    Reporter {
+                        progress: &mut progress,
+                        cancel: &cancel,
+                    },
+                )
+                .unwrap_or_else(|error| panic!("{case} at {rate_num} fps failed: {error}"));
+
+                let mut decoder =
+                    Decoder::open(&output, &DecodeOptions::default()).expect("opens export");
+                let mut index = 0_usize;
+                let mut saw_red = false;
+                let mut saw_blue = false;
+                while let Some(frame) = decoder.next_frame().expect("decodes export") {
+                    let [r, g, b, _] = frame.pixel(32, 32).expect("centre pixel");
+                    let is_red = r > 140 && b < 100;
+                    let is_blue = b > 140 && r < 100;
+                    assert!(
+                        is_red || is_blue,
+                        "{case} at {rate_num} fps: frame {index} flashed [{r}, {g}, {b}] at the cut"
+                    );
+                    assert!(
+                        !(monotonic && saw_blue && is_red),
+                        "{case} at {rate_num} fps: red reappeared after blue at frame {index}"
+                    );
+                    saw_red |= is_red;
+                    saw_blue |= is_blue;
+                    index += 1;
+                }
+                assert!(
+                    saw_red && saw_blue,
+                    "{case} at {rate_num} fps drew both shots"
+                );
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

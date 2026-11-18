@@ -71,8 +71,11 @@ impl Decoding {
 
 /// One run of one clip, decoded on its own thread.
 pub(crate) struct Feed {
-    frames: Option<Receiver<Result<Option<Frame>, String>>>,
+    frames: Option<Receiver<Result<Option<Arc<Frame>>, String>>>,
     thread: Option<JoinHandle<()>>,
+    /// The last picture this run decoded, held if the clip's span outlives
+    /// its video stream by a frame or more at the tail (#790).
+    last: Option<Arc<Frame>>,
 }
 
 impl Feed {
@@ -103,7 +106,10 @@ impl Feed {
                 let (mut frames, mut took) = (0, Duration::ZERO);
                 loop {
                     let begun = Instant::now();
-                    let next = decoder.next_frame().map_err(|error| error.to_string());
+                    let next = decoder
+                        .next_frame()
+                        .map(|frame| frame.map(Arc::new))
+                        .map_err(|error| error.to_string());
                     took += begun.elapsed();
                     let last = !matches!(next, Ok(Some(_)));
                     frames += u64::from(!last);
@@ -123,16 +129,32 @@ impl Feed {
         Ok(Self {
             frames: Some(frames),
             thread: Some(thread),
+            last: None,
         })
     }
 
-    /// The run's next frame; `None` once its file has run out.
-    fn next(&mut self) -> Result<Option<Frame>, String> {
-        match self.frames.as_ref().map(Receiver::recv) {
-            Some(Ok(next)) => next,
-            // The thread has gone after its last frame or its error.
-            _ => Ok(None),
+    /// The run's next frame; once its picture stream ends cleanly, the last
+    /// frame it decoded, or `None` when the run began past the stream's end.
+    fn next(&mut self) -> Result<Option<Arc<Frame>>, String> {
+        if let Some(frames) = &self.frames {
+            match frames.recv() {
+                Ok(Ok(Some(frame))) => {
+                    self.last = Some(Arc::clone(&frame));
+                    return Ok(Some(frame));
+                }
+                Ok(Err(error)) => {
+                    self.frames = None;
+                    return Err(error);
+                }
+                Ok(Ok(None)) | Err(_) => {
+                    self.frames = None;
+                    if let Some(thread) = self.thread.take() {
+                        let _ = thread.join();
+                    }
+                }
+            }
         }
+        Ok(self.last.as_ref().map(Arc::clone))
     }
 }
 
@@ -224,7 +246,7 @@ impl Feeds {
         index: i64,
         layer: &PlannedLayer,
         open: impl Fn(&PlannedLayer) -> (DecodeOptions, usize),
-    ) -> Result<Option<Frame>, String> {
+    ) -> Result<Option<Arc<Frame>>, String> {
         let ready = self
             .runs
             .get(&layer.clip)

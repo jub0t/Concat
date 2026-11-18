@@ -1445,6 +1445,16 @@ impl ReaderPool {
                 break;
             }
         }
+        // A warm reader rolling onto a tail slot past the last video packet
+        // decodes nothing here, because it already decoded the file's last
+        // frame on the pull before. Answer from `reader.last` rather than
+        // seeking back through the group of pictures at the cut.
+        if latest.is_none()
+            && let Some((before, held)) = &reader.last
+            && *before <= target
+        {
+            latest = Some(Arc::clone(held));
+        }
         // The stream ended short of the target: the last frame is the
         // answer, and it is remembered under the index asked for, so a
         // container that claims a frame more than it holds does not cost a
@@ -2135,6 +2145,95 @@ pub(crate) mod tests {
         assert!(Arc::ptr_eq(&first, &again), "the same remembered frame");
         assert_eq!(pool.stats().since(before).decoded, 0, "no second walk");
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A container whose sound runs a frame past its picture - AAC packet
+    /// framing at the tail of an MP4 - rolls onto that last claimed slot
+    /// during playback with the reader already holding the last real frame.
+    /// Answering from `reader.last` serves it in zero decodes instead of
+    /// seeking thirty frames back and walking the GOP again at the cut.
+    #[test]
+    fn rolling_into_sound_past_the_last_frame_keeps_the_held_picture() {
+        let dir =
+            std::env::temp_dir().join(format!("concat-pool-roll-tail-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let picture = counting_video("roll-tail-picture", 32, 30);
+        let wav = dir.join("tone.wav");
+        let rate_hz = 48_000_u32;
+        // 1.05 s of silence: one clear 30 fps frame past the 30-frame video.
+        let samples = (rate_hz as usize * 105) / 100;
+        let pcm = vec![0_u8; samples * 4];
+        let mut wav_bytes = Vec::with_capacity(44 + pcm.len());
+        wav_bytes.extend_from_slice(b"RIFF");
+        wav_bytes.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+        wav_bytes.extend_from_slice(b"WAVEfmt ");
+        wav_bytes.extend_from_slice(&16_u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&1_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&2_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&rate_hz.to_le_bytes());
+        wav_bytes.extend_from_slice(&(rate_hz * 4).to_le_bytes());
+        wav_bytes.extend_from_slice(&4_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&16_u16.to_le_bytes());
+        wav_bytes.extend_from_slice(b"data");
+        wav_bytes.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+        wav_bytes.extend_from_slice(&pcm);
+        std::fs::write(&wav, wav_bytes).expect("writes wav");
+        let aac = dir.join("tone.m4a");
+        crate::audio::mix_to_file(
+            &[crate::audio::AudioClip {
+                path: wav.clone(),
+                stream: None,
+                start: 0.0,
+                duration: 1.05,
+                source_start: 0.0,
+                speed: 1.0,
+                tempo: Vec::new(),
+                preserve_pitch: true,
+                volume: 1.0,
+                volume_curve: concat_core::animate::Track::default(),
+                fade_in: 0.0,
+                fade_out: 0.0,
+                filter_chain: String::new(),
+            }],
+            1.05,
+            &aac,
+        )
+        .expect("encodes aac");
+        let muxed = dir.join("muxed.mp4");
+        crate::audio::mux(&picture, &aac, &muxed).expect("muxes picture and sound");
+
+        let pool = ReaderPool::new(64 * 1024 * 1024, 2);
+        let rate = FrameRate::THIRTY;
+        let mut prev = None;
+        for index in 0..30 {
+            prev = Some(
+                pool.frame(&FrameRequest::new(
+                    &muxed,
+                    rate.time_of_frame(index),
+                    32,
+                    32,
+                ))
+                .expect("rolls through picture"),
+            );
+        }
+        let last_real = prev.expect("thirty frames");
+        let before = pool.stats();
+        let tail = pool
+            .frame(&FrameRequest::new(&muxed, rate.time_of_frame(30), 32, 32))
+            .expect("the sound tail gets the held last frame");
+        assert!(Arc::ptr_eq(&last_real, &tail), "the held frame itself");
+        assert_eq!(
+            pool.stats().since(before).decoded,
+            0,
+            "rolling into the sound tail must not seek back and re-decode"
+        );
+        let again = pool
+            .frame(&FrameRequest::new(&muxed, rate.time_of_frame(30), 32, 32))
+            .expect("remembered under its index");
+        assert!(Arc::ptr_eq(&tail, &again));
+
+        let _ = std::fs::remove_file(&picture);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A proxy that has gone from disk is forgotten on the first request
