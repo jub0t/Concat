@@ -792,6 +792,7 @@
   "start.reportProblemNote": "Cosa inviare perché si possa correggere",
   "start.safeMode": "L'ultima volta Concat si è chiuso durante l'avvio, quindi ora disegna via software: più lento, ma si apre. Per riprovare con la scheda grafica, attiva Disegna sulla GPU in Impostazioni > Generale.",
   "start.safeModePhone": "Concat si è chiuso una volta durante l'avvio, quindi fino al prossimo aggiornamento disegna in una modalità più lenta e sicura.",
+  "start.noGraphicsDriver": "Concat non ha trovato su questo computer un driver grafico utilizzabile, quindi disegna con il processore, che è molto più lento. Di solito si risolve installando il driver grafico più recente del produttore del computer o della scheda grafica.",
   "start.searchProjects": "Cerca progetti",
   "start.settingsApplyWholeEdit": "Il formato, la frequenza e lo sfondo si possono cambiare in seguito nelle impostazioni del progetto.",
   "start.shape": "Forma",

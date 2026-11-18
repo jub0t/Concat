@@ -792,6 +792,7 @@
   "start.reportProblemNote": "Wat je moet sturen zodat het opgelost kan worden",
   "start.safeMode": "Concat sloot vorige keer tijdens het opstarten, dus het tekent nu in software: trager, maar het opent. Zet Tekenen op de GPU aan in Instellingen > Algemeen om de videokaart opnieuw te proberen.",
   "start.safeModePhone": "Concat sloot een keer tijdens het opstarten, dus tot de volgende update tekent het in een tragere, veiligere modus.",
+  "start.noGraphicsDriver": "Concat heeft op deze computer geen bruikbaar grafisch stuurprogramma gevonden en tekent daarom met de processor, wat veel trager is. Het nieuwste grafische stuurprogramma van de maker van je computer of videokaart installeren lost dit meestal op.",
   "start.searchProjects": "Projecten zoeken",
   "start.settingsApplyWholeEdit": "Het beeld, de framerate en de achtergrond kun je later wijzigen in de projectinstellingen.",
   "start.shape": "Beeldverhouding",

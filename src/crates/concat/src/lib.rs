@@ -425,6 +425,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             i18n::t("start.safeMode")
         };
         studio.notify(&notice, false);
+    } else if platform::no_graphics_driver() {
+        // The machine's own state, not a choice: what makes Concat slow
+        // here, and what fixes it, said once.
+        studio.notify(&i18n::t("start.noGraphicsDriver"), false);
     }
     studio.reload_packages(false);
     studio.watch_packages();

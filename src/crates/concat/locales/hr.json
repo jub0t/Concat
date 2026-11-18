@@ -792,6 +792,7 @@
   "start.reportProblemNote": "Što poslati da se može popraviti",
   "start.safeMode": "Concat se prošli put zatvorio tijekom pokretanja, pa sada crta softverski: sporije, ali se otvara. Da ponovno isprobaš grafičku karticu, uključi Crtaj na GPU-u u Postavke > Općenito.",
   "start.safeModePhone": "Concat se jednom zatvorio tijekom pokretanja, pa do sljedećeg ažuriranja crta u sporijem, sigurnijem načinu.",
+  "start.noGraphicsDriver": "Concat na ovom računalu nije pronašao grafički upravljački program koji može koristiti, pa crta procesorom, što je znatno sporije. Instaliranje najnovijeg grafičkog upravljačkog programa od proizvođača računala ili grafičke kartice obično to rješava.",
   "start.searchProjects": "Pretraži projekte",
   "start.settingsApplyWholeEdit": "Okvir, brzinu i pozadinu možete kasnije promijeniti u postavkama projekta.",
   "start.shape": "Oblik",

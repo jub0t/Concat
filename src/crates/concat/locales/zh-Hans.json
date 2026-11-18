@@ -792,6 +792,7 @@
   "start.reportProblemNote": "需要发送什么才能修复",
   "start.safeMode": "Concat 上次在启动时关闭，因此现在改用软件绘制：较慢，但能打开。要再次尝试使用显卡，请在“设置 > 通用”中打开“使用 GPU 绘制”。",
   "start.safeModePhone": "Concat 曾在启动时关闭，因此在下次更新前改用较慢但更稳妥的方式绘制。",
+  "start.noGraphicsDriver": "Concat 在这台电脑上找不到可用的显卡驱动，因此改用处理器绘制，速度会慢很多。从电脑或显卡制造商处安装最新的显卡驱动，通常就能解决。",
   "start.searchProjects": "搜索项目",
   "start.settingsApplyWholeEdit": "画面、帧率和背景之后都可以在项目设置中更改。",
   "start.shape": "形状",

@@ -792,6 +792,7 @@
   "start.reportProblemNote": "What to send so it can be fixed",
   "start.safeMode": "Concat closed while starting once, so it draws in software until its next update: slower, but it opens. To try the graphics card now, turn on Draw on the GPU in Settings > General.",
   "start.safeModePhone": "Concat closed while starting once, so it draws in a slower, safer mode until its next update.",
+  "start.noGraphicsDriver": "Concat found no graphics driver it can use on this computer, so it draws with the processor instead, which is much slower. Installing the latest graphics driver from your computer's or graphics card's maker usually fixes this.",
   "start.searchProjects": "Search projects",
   "start.settingsApplyWholeEdit": "The frame, the rate and the background can all be changed later in Project settings.",
   "start.shape": "Shape",

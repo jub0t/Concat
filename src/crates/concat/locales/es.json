@@ -792,6 +792,7 @@
   "start.reportProblemNote": "Qué enviar para que se pueda arreglar",
   "start.safeMode": "Concat se cerró al iniciarse la última vez, así que ahora dibuja por software: más lento, pero se abre. Para volver a probar la tarjeta gráfica, activa Dibujar en la GPU en Ajustes > General.",
   "start.safeModePhone": "Concat se cerró una vez al iniciarse, así que dibuja en un modo más lento y seguro hasta su próxima actualización.",
+  "start.noGraphicsDriver": "Concat no encontró en este equipo ningún controlador gráfico que pueda usar, así que dibuja con el procesador, lo que es mucho más lento. Instalar el controlador gráfico más reciente del fabricante de tu equipo o de tu tarjeta gráfica suele solucionarlo.",
   "start.searchProjects": "Buscar proyectos",
   "start.settingsApplyWholeEdit": "El encuadre, la velocidad y el fondo se pueden cambiar más tarde en Ajustes del proyecto.",
   "start.shape": "Forma",

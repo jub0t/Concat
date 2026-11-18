@@ -792,6 +792,7 @@
   "start.reportProblemNote": "Co wysłać, żeby dało się to naprawić",
   "start.safeMode": "Concat zamknął się podczas ostatniego uruchamiania, więc teraz rysuje programowo: wolniej, ale się otwiera. Aby znów spróbować karty graficznej, włącz Rysuj na GPU w Ustawienia > Ogólne.",
   "start.safeModePhone": "Concat raz zamknął się podczas uruchamiania, więc do następnej aktualizacji rysuje w wolniejszym, bezpieczniejszym trybie.",
+  "start.noGraphicsDriver": "Concat nie znalazł na tym komputerze sterownika grafiki, którego mógłby użyć, więc rysuje za pomocą procesora, co jest znacznie wolniejsze. Zwykle pomaga zainstalowanie najnowszego sterownika grafiki od producenta komputera lub karty graficznej.",
   "start.searchProjects": "Szukaj projektów",
   "start.settingsApplyWholeEdit": "Kadr, liczbę klatek i tło można później zmienić w ustawieniach projektu.",
   "start.shape": "Format",

@@ -792,6 +792,7 @@
   "start.reportProblemNote": "Apa yang perlu dikirim agar bisa diperbaiki",
   "start.safeMode": "Concat tertutup saat dimulai terakhir kali, jadi sekarang menggambar secara perangkat lunak: lebih lambat, tetapi bisa terbuka. Untuk mencoba kartu grafis lagi, aktifkan Menggambar dengan GPU di Pengaturan > Umum.",
   "start.safeModePhone": "Concat pernah tertutup saat dimulai, jadi sampai pembaruan berikutnya ia menggambar dalam mode yang lebih lambat dan aman.",
+  "start.noGraphicsDriver": "Concat tidak menemukan driver grafis yang bisa dipakai di komputer ini, jadi Concat menggambar dengan prosesor, yang jauh lebih lambat. Memasang driver grafis terbaru dari pembuat komputer atau kartu grafis Anda biasanya mengatasinya.",
   "start.searchProjects": "Cari proyek",
   "start.settingsApplyWholeEdit": "Bingkai, laju, dan latar dapat diubah nanti di Pengaturan proyek.",
   "start.shape": "Bentuk",

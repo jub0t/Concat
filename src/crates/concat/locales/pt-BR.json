@@ -792,6 +792,7 @@
   "start.reportProblemNote": "O que enviar para que possa ser corrigido",
   "start.safeMode": "O Concat fechou durante a inicialização da última vez, então agora está desenhando por software: mais lento, mas abre. Para tentar a placa de vídeo de novo, ligue Desenhar na GPU em Configurações > Geral.",
   "start.safeModePhone": "O Concat fechou uma vez ao iniciar, então até a próxima atualização ele desenha num modo mais lento e seguro.",
+  "start.noGraphicsDriver": "O Concat não encontrou neste computador um driver de vídeo que possa usar, então desenha com o processador, o que é bem mais lento. Instalar o driver de vídeo mais recente do fabricante do computador ou da placa de vídeo costuma resolver.",
   "start.searchProjects": "Buscar projetos",
   "start.settingsApplyWholeEdit": "O quadro, a taxa e o fundo podem ser alterados depois nas configurações do projeto.",
   "start.shape": "Forma",

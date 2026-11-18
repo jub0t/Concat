@@ -792,6 +792,7 @@
   "start.reportProblemNote": "Düzəldilməsi üçün nə göndərmək lazımdır",
   "start.safeMode": "Concat bir dəfə başlayarkən bağlandı, ona görə növbəti yeniləməyə qədər proqram vasitəsilə çəkir: daha yavaş, lakin açılır. Qrafik kartı indi sınamaq üçün Ayarlar > Ümumi bölməsində GPU-da çək seçimini aktiv edin.",
   "start.safeModePhone": "Concat bir dəfə açılarkən bağlandı, ona görə növbəti yeniləməyə qədər daha yavaş, daha təhlükəsiz rejimdə çəkir.",
+  "start.noGraphicsDriver": "Concat bu kompüterdə istifadə edə biləcəyi qrafik drayveri tapmadı, buna görə prosessorla çəkir və bu, xeyli yavaşdır. Kompüterinizin və ya qrafik kartınızın istehsalçısından ən son qrafik drayverini quraşdırmaq adətən bunu həll edir.",
   "start.searchProjects": "Layihələrdə axtar",
   "start.settingsApplyWholeEdit": "Kadr, sürət və fon sonradan Layihə ayarlarında dəyişdirilə bilər.",
   "start.shape": "Forma",
