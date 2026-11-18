@@ -55,7 +55,7 @@ impl Studio {
         self.cutout_jobs.insert(id.clone(), (false, 0.0));
         let cutouts = Arc::clone(&self.host.cutouts);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = (false, -1.0f32);
                 let reporting = id.clone();
@@ -145,7 +145,7 @@ impl Studio {
         self.stabilize_jobs.insert(media_id.clone(), 0.0);
         let stabilizers = Arc::clone(&self.host.stabilizers);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = -1.0f32;
                 let reporting = media_id.clone();
@@ -356,7 +356,7 @@ impl Studio {
             concat_log::span(std::time::Duration::from_secs_f64(duration.max(0.0)))
         );
         self.notify(&t("studio.exportingAudio"), false);
-        spawn_in_project(
+        spawn_long_in_project(
             move || -> Result<concat_host::media::MediaSummary, String> {
                 std::fs::create_dir_all(&out_dir)
                     .map_err(|error| format!("could not create {}: {error}", out_dir.display()))?;
@@ -557,7 +557,7 @@ impl Studio {
         let enhancers = Arc::clone(&self.host.enhancers);
         let epoch = crate::host::project_epoch();
         let media_id = media.id.clone();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = -1.0f32;
                 let result = enhancers.preview(&request, &mut |progress| {
@@ -684,7 +684,7 @@ impl Studio {
         );
         let enhancers = Arc::clone(&self.host.enhancers);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = (false, -1.0f32);
                 let reporting = clip_id.clone();
@@ -786,7 +786,7 @@ impl Studio {
         self.notify(&tf("studio.reversing", &[&media.name]), false);
         let reversers = Arc::clone(&self.host.reversers);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = -1.0f32;
                 let reporting = clip_id.clone();

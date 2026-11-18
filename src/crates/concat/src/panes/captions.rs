@@ -25,7 +25,7 @@ use concat_project::srt;
 use concat_speech::JobStage;
 use concat_speech::transcribe::Segment;
 
-use crate::host::{on_ui_in_project, spawn_in_project};
+use crate::host::{on_ui_in_project, spawn_long_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::panes::pace::{Pace, Stage, Timings};
@@ -629,7 +629,7 @@ impl CaptionsPane {
         self.running = true;
         self.message.clear();
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 transcriber.transcribe(&dirs, &request, move |stage| {
                     on_ui_in_project(epoch, move |studio, _, _| {

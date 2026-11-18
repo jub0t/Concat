@@ -88,8 +88,8 @@ use crate::grading;
 use crate::host::{
     CachedStrip, Host, MediaArt, MediaPoster, WindowArt, cached_media_art, cached_window_art,
     image_at, image_of, media_peaks, media_poster, media_strip, on_ui_in_project, spawn, spawn_art,
-    spawn_in_project, spawn_poster, spawn_strip, spawn_wave, strip_window, window_art, window_span,
-    window_start,
+    spawn_in_project, spawn_long, spawn_long_in_project, spawn_poster, spawn_strip, spawn_wave,
+    strip_window, window_art, window_span, window_start,
 };
 use crate::i18n::{self, t, tf};
 use crate::keymap;

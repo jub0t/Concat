@@ -22,7 +22,7 @@ use concat_host::updates::{self, Fixed, Installed, Release, Standing, Version};
 use slint::{ModelRc, SharedString, VecModel};
 
 use crate::close_window;
-use crate::host::{on_ui, spawn};
+use crate::host::{on_ui, spawn_long};
 use crate::i18n::{self, t, tf};
 use crate::keymap;
 use crate::panes::Msg;
@@ -667,7 +667,7 @@ impl SettingsPane {
         }
         self.checking = true;
         self.update_status = t("settings.checkingForUpdates");
-        spawn(updates::fetch_releases, |studio, _, _, result| {
+        spawn_long(updates::fetch_releases, |studio, _, _, result| {
             studio.handle(Msg::Settings(SettingsMsg::UpdatesFetched(result)));
         });
     }
@@ -699,7 +699,7 @@ impl SettingsPane {
             "update: switching to {version} · its {} package",
             kind.key()
         );
-        spawn(
+        spawn_long(
             move || {
                 let result = updates::fetch_package(&release, kind)
                     .and_then(|package| {
@@ -953,7 +953,7 @@ impl SettingsPane {
         let dirs = studio.host.dirs.clone();
         let whisper = Arc::clone(&studio.host.transcriber);
         let speech = Arc::clone(&studio.host.speech);
-        spawn(
+        spawn_long(
             move || {
                 let report = |progress: concat_speech::DownloadProgress| {
                     let msg = SettingsMsg::ModelProgress {

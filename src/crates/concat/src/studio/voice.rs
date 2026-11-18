@@ -96,7 +96,7 @@ impl Studio {
         // The job's own line, timed, is the splitter's; this is detail.
         let source = crate::studio::file_name_of(&request.source.to_string_lossy());
         log::debug!("voice: splitting {source} on {workers} worker(s)");
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let stems = concat_speech::isolate::Stems {
                     voice: request.dir.join("voice.wav"),

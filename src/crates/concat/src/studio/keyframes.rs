@@ -1734,7 +1734,7 @@ impl Studio {
         self.cutout_jobs.entry(key.clone()).or_insert((false, 0.0));
         let brushes = Arc::clone(&self.host.brushes);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let reporting = key.clone();
                 let result = brushes.read(&request, &mut |progress| {
