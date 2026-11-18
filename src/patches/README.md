@@ -39,6 +39,24 @@ And one for Android, marked the same way:
 
 Nothing else differs from the published crate.
 
+## i-slint-backend-android-activity 1.18.1
+
+A mouse wheel on an Android phone or tablet - a USB or Bluetooth mouse, a
+desktop mode - closed the app on its first turn (jub0t/concat#800): the
+backend's motion events end in `MotionAction::Scroll => todo!()`, and the
+panic took the activity with it. One change, marked `Concat:` in
+`androidwindowadapter.rs`:
+
+- the scroll is dispatched as `WindowEvent::PointerScrolled` at the
+  pointer, its `AXIS_VSCROLL` and `AXIS_HSCROLL` scaled as the winit
+  backend scales a desktop wheel's line (60 logical pixels a notch, the
+  same signs), so the timeline and the lists scroll with a wheel as they
+  do on a desk.
+
+Slint 1.19.0 and its main branch still have the `todo!()`; drop the copy
+once a release handles the scroll. `Cargo.lock` and the crate's registry
+metadata files are left out.
+
 ## whisper-rs-sys 0.15.0
 
 whisper.cpp's Rust build. The published build script builds whisper and
