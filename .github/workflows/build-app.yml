@@ -706,7 +706,7 @@ jobs:
             # Newest first by time, which find does not sort by; the names
             # are cargo's hashed folders, plain letters and digits.
             # shellcheck disable=SC2012
-            out=$(ls -dt"src/target/${{ matrix.target }}/app/build"/whisper-rs-sys-*/out/bin | head -1)
+            out=$(ls -dt "src/target/${{ matrix.target }}/app/build"/whisper-rs-sys-*/out/bin | head -1)
             out=${out%/bin}
             echo "whisper's build: $out"
             cp -a "$out"/lib*/libwhisper.so* "$out"/lib*/libggml*.so* "$out"/bin/libggml-cpu-*.so "stage/$name/lib/"
