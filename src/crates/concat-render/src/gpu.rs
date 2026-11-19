@@ -2128,6 +2128,41 @@ impl WgpuCompositor {
             .map(drop)
     }
 
+    /// A buffer map's answer, waited for; None when none will come.
+    ///
+    /// The answer is handed over by whichever thread's poll of the device
+    /// serves it, and that need not be this one's: a second compositor on
+    /// the device - an export beside the monitor, the effect cards - can
+    /// take the answer up in its own poll and hand it over a moment after
+    /// this thread's poll has come back with nothing left to do. Looking
+    /// once and finding nothing there was read as a dead device, and the
+    /// monitor drew on the processor, without effects, until Concat was
+    /// started again. So the answer is waited for, the device polled
+    /// between looks in case it is this thread that has to serve it, for
+    /// as long as any wait on the device is given.
+    fn answered(
+        &self,
+        mapped: &std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    ) -> Option<Result<(), wgpu::BufferAsyncError>> {
+        use std::sync::mpsc::RecvTimeoutError;
+        let began = std::time::Instant::now();
+        loop {
+            match mapped.recv_timeout(std::time::Duration::from_millis(1)) {
+                Ok(answer) => return Some(answer),
+                // The map was let go unanswered: its device is gone.
+                Err(RecvTimeoutError::Disconnected) => return None,
+                Err(RecvTimeoutError::Timeout) => {
+                    if self.gone.load(std::sync::atomic::Ordering::Relaxed)
+                        || began.elapsed() >= DEVICE_WAIT
+                    {
+                        return None;
+                    }
+                    let _ = self.device.poll(wgpu::PollType::Poll);
+                }
+            }
+        }
+    }
+
     /// What a pooled texture costs a pixel, in the working format.
     fn work_bytes(&self) -> u64 {
         u64::from(self.work.block_copy_size(None).unwrap_or(8))
@@ -2797,7 +2832,7 @@ impl WgpuCompositor {
             self.dead = true;
             return None;
         }
-        if !matches!(mapped_rx.try_recv(), Ok(Ok(()))) {
+        if !matches!(self.answered(&mapped_rx), Some(Ok(()))) {
             return None;
         }
         let data = slice.get_mapped_range().ok()?;
@@ -4205,13 +4240,13 @@ impl WgpuCompositor {
             );
             return None;
         }
-        match mapped_rx.try_recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
+        match self.answered(&mapped_rx) {
+            Some(Ok(())) => {}
+            Some(Err(error)) => {
                 log::error!("GPU readback: the frame's buffer would not map: {error}");
                 return None;
             }
-            Err(_) => {
+            None => {
                 log::error!("GPU readback: the device finished without answering the map");
                 return None;
             }
@@ -4354,14 +4389,14 @@ impl WgpuCompositor {
             self.dead = true;
             return Some(black());
         }
-        match mapped.try_recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
+        match self.answered(&mapped) {
+            Some(Ok(())) => {}
+            Some(Err(error)) => {
                 log::error!("GPU readback: the frame's buffer would not map: {error}");
                 self.dead = true;
                 return Some(black());
             }
-            Err(_) => {
+            None => {
                 log::error!("GPU readback: the device finished without answering the map");
                 self.dead = true;
                 return Some(black());

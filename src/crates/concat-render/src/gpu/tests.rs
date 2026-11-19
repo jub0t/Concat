@@ -2338,6 +2338,42 @@ fn no_wait_on_the_device_is_unbounded() {
     assert!(DEVICE_WAIT <= std::time::Duration::from_secs(60));
 }
 
+/// Compositors that share a device draw at once, each on its own thread,
+/// as an export, the monitor and the effect cards do. A frame's pixels are
+/// handed back by whichever thread polls the device next, so one thread
+/// could find its own not yet there, and took that for a dead device: the
+/// corpus, run as one process, lost its device to it about one run in
+/// four. None is lost, and every frame is the one drawn.
+#[test]
+fn compositors_sharing_a_device_draw_at_once_and_none_is_lost() {
+    let Some(first) = gpu() else { return };
+    let workers: Vec<_> = (0..6u8)
+        .map(|worker| {
+            let mut gpu = first.sibling();
+            std::thread::spawn(move || {
+                let colour = [40 * worker + 15, 255 - 40 * worker, 90, 255];
+                let plan = plan(64, 36, vec![layer(solid(64, 36, colour))]);
+                for frame in 0..300 {
+                    let drawn = gpu.render(&plan);
+                    assert!(
+                        !gpu.lost(),
+                        "worker {worker} lost the device at frame {frame}"
+                    );
+                    assert_eq!(
+                        drawn.pixel(32, 18),
+                        Some(colour),
+                        "worker {worker}, frame {frame}"
+                    );
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().expect("a worker drew every frame");
+    }
+    assert!(!first.lost());
+}
+
 /// A frame the device refuses part of - here a layer wider than any
 /// texture it can make - is a failed frame, not a wrong one handed on:
 /// the compositor says it is lost, and the export draws the frame again
