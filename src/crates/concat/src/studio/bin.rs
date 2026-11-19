@@ -20,6 +20,8 @@ impl Studio {
     /// that plays another of its media's streams, that stream's waveform
     /// too, so a lane shows the sound it will make.
     pub(crate) fn request_media_art(&mut self) {
+        // A song's beats are heard alongside its waveform; see beats.rs.
+        self.request_beats();
         let Some(session) = self.session.as_ref() else {
             return;
         };

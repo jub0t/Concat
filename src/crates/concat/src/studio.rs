@@ -45,6 +45,7 @@ use concat_project::model::{
 use concat_project::{Command, PlayheadSide};
 
 mod backdrop;
+mod beats;
 mod consolidate;
 use consolidate::MergeJob;
 mod masking;
@@ -1040,6 +1041,11 @@ pub struct Studio {
     pub media: crate::panes::media_bin::MediaBin,
     /// Decoded art by media id, and the ids a worker is decoding for.
     pub peaks: HashMap<String, Arc<Pyramid>>,
+    /// Each sound file's beats by media id, the ids being heard, and those
+    /// that could not be; see `studio::beats`.
+    pub beats: HashMap<String, Arc<concat_speech::beats::Beats>>,
+    pub beats_pending: HashSet<String>,
+    pub beats_failed: HashSet<String>,
     /// Filmstrips by media id: the picture, how many frames are in it, one
     /// frame's width and the strip's height, in the picture's own pixels.
     pub strips: HashMap<String, Strip>,
@@ -3088,6 +3094,9 @@ impl Studio {
             autosave: slint::Timer::default(),
             media: crate::panes::media_bin::MediaBin::default(),
             peaks: HashMap::new(),
+            beats: HashMap::new(),
+            beats_pending: HashSet::new(),
+            beats_failed: HashSet::new(),
             strips: HashMap::new(),
             windows: HashMap::new(),
             art_pending: HashSet::new(),

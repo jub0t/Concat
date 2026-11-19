@@ -326,6 +326,10 @@ impl Studio {
             consider(clip.start as f32);
             consider((clip.start + clip.duration) as f32);
         }
+        // The song's beats, so a cut lands on the beat.
+        for beat in self.timeline_beats() {
+            consider(beat as f32);
+        }
         best
     }
 

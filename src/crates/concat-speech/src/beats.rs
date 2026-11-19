@@ -101,6 +101,11 @@ pub fn analyse_file(
 }
 
 /// The beats of `samples`: mono, at [`RATE`].
+///
+/// One window at a time on every core. Measured on an M5 over three
+/// minutes: 1.47 s so, against 2.30 s with a window held to four threads
+/// and 1.51-1.55 s with two or five windows at once - the attention moves
+/// a gigabyte a window, and several at once contend for memory, not cores.
 pub fn analyse(
     samples: &[f32],
     cancel: &AtomicBool,
@@ -115,12 +120,94 @@ pub fn analyse(
             ..Beats::default()
         });
     }
-    let threads = std::thread::available_parallelism()
-        .map_or(1, |cores| cores.get())
-        .min(4);
-    let mut model = Model::from_bytes_on_cpu(MODEL, threads)?;
-    let (beat, downbeat) = activations(&mut model, &spect, frames, CHUNK, cancel, &mut progress)?;
+    let (beat, downbeat) = activations(&spect, frames, CHUNK, 1, cancel, &mut progress)?;
     Ok(read_beats(&beat, &downbeat, seconds))
+}
+
+impl Beats {
+    /// The cache format: `CBT` and [`VERSION`] as a byte, the seconds and
+    /// tempo (NaN for none) as f64, the count as u32, then each beat as
+    /// its time f64, confidence f32 and a downbeat byte; little-endian.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(24 + self.beats.len() * 13);
+        bytes.extend_from_slice(b"CBT");
+        bytes.push(VERSION as u8);
+        bytes.extend_from_slice(&self.seconds.to_le_bytes());
+        bytes.extend_from_slice(&self.tempo.unwrap_or(f64::NAN).to_le_bytes());
+        bytes.extend_from_slice(&(self.beats.len() as u32).to_le_bytes());
+        for beat in &self.beats {
+            bytes.extend_from_slice(&beat.time.to_le_bytes());
+            bytes.extend_from_slice(&beat.confidence.to_le_bytes());
+            bytes.push(u8::from(beat.downbeat));
+        }
+        bytes
+    }
+
+    /// What [`Beats::encode`] wrote, or `None` for anything else - another
+    /// version's, a cut-short file - which is then listened to again.
+    pub fn decode(bytes: &[u8]) -> Option<Beats> {
+        if bytes.len() < 24 || &bytes[..3] != b"CBT" || bytes[3] != VERSION as u8 {
+            return None;
+        }
+        let f64_at = |at: usize| {
+            bytes
+                .get(at..at + 8)
+                .map(|b| f64::from_le_bytes(b.try_into().expect("8")))
+        };
+        let seconds = f64_at(4)?;
+        let tempo = f64_at(12).filter(|tempo| tempo.is_finite());
+        let count = u32::from_le_bytes(bytes.get(20..24)?.try_into().ok()?) as usize;
+        if bytes.len() != 24 + count * 13 {
+            return None;
+        }
+        let beats = (0..count)
+            .map(|index| {
+                let at = 24 + index * 13;
+                Some(Beat {
+                    time: f64_at(at)?,
+                    confidence: f32::from_le_bytes(bytes.get(at + 8..at + 12)?.try_into().ok()?),
+                    downbeat: bytes[at + 12] != 0,
+                })
+            })
+            .collect::<Option<Vec<Beat>>>()?;
+        Some(Beats {
+            beats,
+            tempo,
+            seconds,
+        })
+    }
+}
+
+// ── the models ──────────────────────────────────────────────────────────
+
+/// Loaded copies of the model, kept for the next song: a load costs
+/// about 170 ms, longer than the features of a whole song. Each is kept
+/// with the threads it was made for.
+static LOADED: std::sync::Mutex<Vec<(usize, Model)>> = std::sync::Mutex::new(Vec::new());
+
+/// A loaded model for `threads`, from those kept or new.
+fn take_model(threads: usize) -> Result<Model, String> {
+    let kept = {
+        let mut loaded = LOADED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        loaded
+            .iter()
+            .position(|(made_for, _)| *made_for == threads)
+            .map(|index| loaded.swap_remove(index).1)
+    };
+    match kept {
+        Some(model) => Ok(model),
+        None => Model::from_bytes_on_cpu(MODEL, threads),
+    }
+}
+
+/// Keeps `model` for the next song: as many as were in use at once.
+fn keep_model(threads: usize, model: Model) {
+    LOADED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .push((threads, model));
 }
 
 /// Decodes `path` to mono at [`RATE`]: both channels at the rate, then
@@ -270,52 +357,110 @@ pub fn log_mel(samples: &[f32]) -> Vec<f32> {
 
 // ── the listening ───────────────────────────────────────────────────────
 
-/// The beat and downbeat activations (logits) of `spect`'s `frames`
-/// frames, listened to in windows of `chunk`.
-fn activations(
+/// One window's frames of `spect` (`frames` of them), zero-filled where it
+/// runs off the song's start and, by up to a border, its end; and its
+/// length.
+fn window_of(spect: &[f32], frames: usize, start: isize, chunk: usize) -> (Vec<f32>, usize) {
+    let left = (-start).max(0) as usize;
+    let from = start.max(0) as usize;
+    let to = ((start + chunk as isize).max(0) as usize).min(frames);
+    let right = ((start + chunk as isize) - frames as isize).clamp(0, BORDER as isize) as usize;
+    let length = left + (to - from) + right;
+    let mut window = vec![0.0_f32; length * MELS];
+    window[left * MELS..(left + to - from) * MELS].copy_from_slice(&spect[from * MELS..to * MELS]);
+    (window, length)
+}
+
+/// One window listened to: its beat and downbeat logits, a frame each.
+fn listen(
     model: &mut Model,
+    window: Vec<f32>,
+    length: usize,
+) -> Result<(Vec<f32>, Vec<f32>), String> {
+    let mut outputs = model.run(
+        vec![Input {
+            name: "spect",
+            dims: vec![1, length, MELS],
+            data: Data::F32(window),
+        }],
+        &["beat", "downbeat"],
+    )?;
+    let down = outputs.pop().ok_or("the listening said nothing")?.data;
+    let up = outputs.pop().ok_or("the listening said nothing")?.data;
+    if up.len() != length || down.len() != length {
+        return Err(format!(
+            "the listening answered {} frames for a window of {length}",
+            up.len()
+        ));
+    }
+    Ok((up, down))
+}
+
+/// The beat and downbeat activations (logits) of `spect`'s `frames`
+/// frames, listened to in windows of `chunk`, `workers` at once. The
+/// result is the same however many: the windows are put together in
+/// order afterwards, the border each side dropped and the earlier
+/// window's frames kept where two overlap.
+fn activations(
     spect: &[f32],
     frames: usize,
     chunk: usize,
+    workers: usize,
     cancel: &AtomicBool,
     progress: &mut impl FnMut(f32),
 ) -> Result<(Vec<f32>, Vec<f32>), String> {
     let starts = window_starts(frames, chunk);
+    let workers = workers.clamp(1, starts.len());
+    let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+    let threads = (cores / workers).clamp(1, cores);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (send, heard) = std::sync::mpsc::channel::<Result<(usize, Vec<f32>, Vec<f32>), String>>();
+    let mut listened: Vec<Option<(Vec<f32>, Vec<f32>)>> = vec![None; starts.len()];
+    std::thread::scope(|scope| -> Result<(), String> {
+        for _ in 0..workers {
+            let (send, next, starts) = (send.clone(), &next, &starts);
+            scope.spawn(move || {
+                let mut model = match take_model(threads) {
+                    Ok(model) => model,
+                    Err(error) => {
+                        let _ = send.send(Err(error));
+                        return;
+                    }
+                };
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    if index >= starts.len() || cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let (window, length) = window_of(spect, frames, starts[index], chunk);
+                    let result =
+                        listen(&mut model, window, length).map(|(up, down)| (index, up, down));
+                    let failed = result.is_err();
+                    if send.send(result).is_err() || failed {
+                        break;
+                    }
+                }
+                keep_model(threads, model);
+            });
+        }
+        drop(send);
+        let mut done = 0;
+        for result in heard {
+            let (index, up, down) = result?;
+            listened[index] = Some((up, down));
+            done += 1;
+            progress(done as f32 / starts.len() as f32);
+        }
+        Ok(())
+    })?;
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled".to_owned());
+    }
     let mut beat = vec![f32::NAN; frames];
     let mut downbeat = vec![f32::NAN; frames];
-    for (done, &start) in starts.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_owned());
-        }
-        // The window, zero-filled where it runs off the song's start, and
-        // at its end by up to a border.
-        let left = (-start).max(0) as usize;
-        let from = start.max(0) as usize;
-        let to = ((start + chunk as isize).max(0) as usize).min(frames);
-        let right = ((start + chunk as isize) - frames as isize).clamp(0, BORDER as isize) as usize;
-        let length = left + (to - from) + right;
-        let mut window = vec![0.0_f32; length * MELS];
-        window[left * MELS..(left + to - from) * MELS]
-            .copy_from_slice(&spect[from * MELS..to * MELS]);
-        let mut outputs = model.run(
-            vec![Input {
-                name: "spect",
-                dims: vec![1, length, MELS],
-                data: Data::F32(window),
-            }],
-            &["beat", "downbeat"],
-        )?;
-        let down = outputs.pop().ok_or("the listening said nothing")?.data;
-        let up = outputs.pop().ok_or("the listening said nothing")?.data;
-        if up.len() != length || down.len() != length {
-            return Err(format!(
-                "the listening answered {} frames for a window of {length}",
-                up.len()
-            ));
-        }
-        // The border each side is dropped; where two windows overlap the
-        // earlier one's frames are kept.
-        for offset in BORDER..length.saturating_sub(BORDER) {
+    for (&start, window) in starts.iter().zip(listened) {
+        let (up, down) = window.ok_or("a window went unheard")?;
+        for offset in BORDER..up.len().saturating_sub(BORDER) {
             let frame = start + offset as isize;
             if frame < 0 || frame as usize >= frames {
                 continue;
@@ -326,7 +471,6 @@ fn activations(
                 downbeat[frame] = down[offset];
             }
         }
-        progress((done + 1) as f32 / starts.len() as f32);
     }
     // A frame no window kept - none, with the starts as they are - reads
     // as no beat.
@@ -545,12 +689,11 @@ mod tests {
     fn the_listening_matches_the_reference() {
         let spect = log_mel(&groove());
         let frames = spect.len() / MELS;
-        let mut model = Model::from_bytes_on_cpu(MODEL, 1).expect("loads");
         let (beat, downbeat) = activations(
-            &mut model,
             &spect,
             frames,
             CHUNK,
+            1,
             &AtomicBool::new(false),
             &mut |_| {},
         )
@@ -615,35 +758,88 @@ mod tests {
     fn three_minutes() {
         let one = groove();
         let song: Vec<f32> = one.iter().copied().cycle().take(one.len() * 9).collect();
-        for threads in [1, 4] {
-            let begun = std::time::Instant::now();
-            let spect = log_mel(&song);
-            let features = begun.elapsed();
-            let frames = spect.len() / MELS;
-            let mut model = Model::from_bytes_on_cpu(MODEL, threads).expect("loads");
-            let loaded = begun.elapsed();
-            let (beat, downbeat) = activations(
-                &mut model,
+        let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+        let spect = log_mel(&song);
+        let frames = spect.len() / MELS;
+        for workers in [1, 2, cores / 2] {
+            // The first run of each count loads its models; the second is
+            // what every later song costs.
+            for run in ["first", "again"] {
+                let begun = std::time::Instant::now();
+                let (beat, downbeat) = activations(
+                    &spect,
+                    frames,
+                    CHUNK,
+                    workers,
+                    &AtomicBool::new(false),
+                    &mut |_| {},
+                )
+                .expect("listens");
+                let found = read_beats(&beat, &downbeat, 180.0);
+                eprintln!(
+                    "{workers} window(s) at once, {run}: {:.0} ms, {} beats",
+                    begun.elapsed().as_secs_f64() * 1e3,
+                    found.beats.len()
+                );
+            }
+        }
+    }
+
+    /// Several windows at once find exactly what one at a time does: the
+    /// windows are put together in order, whoever finished first.
+    #[test]
+    fn windows_at_once_hear_the_same() {
+        let one = groove();
+        let song: Vec<f32> = one.iter().copied().cycle().take(one.len() * 4).collect();
+        let spect = log_mel(&song);
+        let frames = spect.len() / MELS;
+        let hear = |workers| {
+            activations(
                 &spect,
                 frames,
                 CHUNK,
+                workers,
                 &AtomicBool::new(false),
                 &mut |_| {},
             )
-            .expect("listens");
-            let listened = begun.elapsed();
-            let found = read_beats(&beat, &downbeat, 180.0);
-            let total = begun.elapsed();
-            eprintln!(
-                "{threads} thread(s): features {:.0} ms, model load {:.0} ms, listening {:.0} ms, peaks {:.1} ms, total {:.0} ms, {} beats",
-                features.as_secs_f64() * 1e3,
-                (loaded - features).as_secs_f64() * 1e3,
-                (listened - loaded).as_secs_f64() * 1e3,
-                (total - listened).as_secs_f64() * 1e3,
-                total.as_secs_f64() * 1e3,
-                found.beats.len()
-            );
-        }
+            .expect("listens")
+        };
+        let (alone, together) = (hear(1), hear(3));
+        assert_eq!(alone, together);
+        assert!(read_beats(&alone.0, &alone.1, 80.0).beats.len() > 100);
+    }
+
+    /// A result comes back from its cache as it went in; another version's
+    /// or a cut-short one does not come back at all.
+    #[test]
+    fn the_cache_keeps_the_beats() {
+        let beats = Beats {
+            beats: vec![
+                Beat {
+                    time: 0.26,
+                    confidence: 0.75,
+                    downbeat: true,
+                },
+                Beat {
+                    time: 0.76,
+                    confidence: 0.6,
+                    downbeat: false,
+                },
+            ],
+            tempo: Some(120.0),
+            seconds: 20.0,
+        };
+        let bytes = beats.encode();
+        assert_eq!(Beats::decode(&bytes), Some(beats.clone()));
+        assert_eq!(Beats::decode(&bytes[..bytes.len() - 1]), None);
+        let mut other = bytes.clone();
+        other[3] = other[3].wrapping_add(1);
+        assert_eq!(Beats::decode(&other), None);
+        let none = Beats {
+            tempo: None,
+            ..Beats::default()
+        };
+        assert_eq!(Beats::decode(&none.encode()), Some(none));
     }
 
     /// Too short to listen to is no beats, not an error.

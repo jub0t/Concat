@@ -326,6 +326,21 @@ component Clip inherits Rectangle {
             background: Theme.wave-centre;
         }
 
+        // The song's beats: a tick up from the floor at each, a taller one
+        // at the first of a bar. Rust places them in a 1x1 box the clip's
+        // width, through its trim and speed; see studio/beats.rs.
+        if root.item.beats != "" && !root.banded: Path {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            commands: root.item.beats;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            stroke: Theme.beat-mark;
+            stroke-width: 1px;
+        }
+
         // The filmstrip. Tiles are the strip's frames at the body's height,
         // and each tile shows the frame under the midpoint of as much of it
         // as is in the clip: the clip covers `span` of the footage from
