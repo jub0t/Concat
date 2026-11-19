@@ -31,6 +31,7 @@ pub const MIX_RATE: u32 = 48_000;
 
 #[cfg(target_os = "android")]
 mod android_aac;
+mod lead;
 
 /// The playback rates the engine supports, as source-seconds per
 /// timeline-second. One definition, shared by preview and export - the two
@@ -830,12 +831,24 @@ pub fn mix_to_file_with(
     } else {
         encoder.frame_size().max(1)
     };
+    // Silence ahead of the mix, and its packets stamped that much earlier,
+    // for an encoder that keeps no priming of its own (see `lead`): the
+    // mix's first sample is then stamped nought and comes back whole.
+    let lead = lead::of(codec_name, mix_format);
     {
         let mut stream = output
             .add_stream(codec)
             .map_err(|error| ffi::fail("add stream", destination, error))?;
         stream.copy_parameters_from_context(&encoder);
         stream.set_time_base(ffmpeg::Rational::new(1, MIX_RATE as i32));
+        if lead.shift > 0 {
+            // SAFETY: the stream was just added to `output`, which owns it
+            // and outlives this block; its codecpar is allocated by
+            // add_stream. What the encoder did not declare, declared.
+            unsafe {
+                (*(*stream.as_mut_ptr()).codecpar).initial_padding += lead.shift as i32;
+            }
+        }
     }
     output
         .write_header()
@@ -859,6 +872,11 @@ pub fn mix_to_file_with(
             let mut packet = ffmpeg::Packet::empty();
             match encoder.receive_packet(&mut packet) {
                 Ok(()) => {
+                    if lead.shift != 0 {
+                        let (pts, dts) = (packet.pts(), packet.dts());
+                        packet.set_pts(pts.map(|pts| pts - lead.shift));
+                        packet.set_dts(dts.map(|dts| dts - lead.shift));
+                    }
                     if let Some(pts) = packet.pts() {
                         if pts >= samples {
                             continue;
@@ -880,6 +898,18 @@ pub fn mix_to_file_with(
         }
     };
 
+    let silence = vec![0.0f32; frame_size as usize];
+    for fed in (0..lead.silence).step_by(frame_size as usize) {
+        let mut quiet = lead::frame(mix_format, &silence).ok_or_else(|| Error::Missing {
+            what: "sample format",
+            name: mix_format.name().to_owned(),
+        })?;
+        quiet.set_pts(Some(fed));
+        encoder
+            .send_frame(&quiet)
+            .map_err(|error| ffi::fail("encode", destination, error))?;
+        drain(&mut encoder, &mut output)?;
+    }
     run_mix(
         clips,
         buses,
@@ -888,6 +918,11 @@ pub fn mix_to_file_with(
         Some(frame_size),
         destination,
         |mixed| {
+            // The encoder's clock runs on from the silence it was fed.
+            if lead.silence != 0 {
+                let stamp = mixed.pts().map(|pts| pts + lead.silence);
+                mixed.set_pts(stamp);
+            }
             encoder
                 .send_frame(mixed)
                 .map_err(|error| ffi::fail("encode", destination, error))?;
@@ -958,7 +993,7 @@ fn run_mix(
     format: &str,
     frame_size: Option<u32>,
     destination: &Path,
-    mut take: impl FnMut(&Audio) -> Result<()>,
+    mut take: impl FnMut(&mut Audio) -> Result<()>,
 ) -> Result<()> {
     let (from, to) = window;
     let missing = |name: &str| Error::Missing {
@@ -1179,7 +1214,7 @@ fn run_mix(
                     }
                     mixed.set_pts(Some(written_samples));
                     written_samples += mixed.samples() as i64;
-                    take(&mixed)?;
+                    take(&mut mixed)?;
                     if written_samples >= total_samples {
                         break 'mix;
                     }
@@ -2182,6 +2217,82 @@ mod tests {
             assert!(audible);
         }
         std::fs::remove_dir_all(dir).expect("removes test files");
+    }
+
+    /// A half-second tone from the mix's first sample, saved as AAC and
+    /// read back: the left channel of what was saved, and of the mix.
+    fn saved_and_mixed(name: &str) -> (Vec<f64>, Vec<f64>) {
+        use crate::{AudioDecoder, AudioOptions};
+
+        let dir = std::env::temp_dir().join(format!("concat-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("creates a folder");
+        let source = dir.join("tone.wav");
+        tone_wav(&source, 0.5);
+        let clips = [AudioClip {
+            path: source,
+            duration: 0.5,
+            ..clip("")
+        }];
+        let output = dir.join("saved.m4a");
+        mix_to_file(&clips, 0.5, &output).expect("saves AAC");
+        let mut decoder =
+            AudioDecoder::open(&output, &AudioOptions::default()).expect("opens the saved AAC");
+        let mut saved = Vec::new();
+        while let Some(samples) = decoder.next_i16().expect("decodes AAC") {
+            saved.extend(samples.iter().step_by(2).map(|sample| f64::from(*sample)));
+        }
+        let mixed = left(&clips, &[], 0.0, 0.5)
+            .into_iter()
+            .map(f64::from)
+            .collect();
+        std::fs::remove_dir_all(dir).expect("removes test files");
+        (saved, mixed)
+    }
+
+    /// Frame by frame: what differs from the mix, as a share of the mix's
+    /// energy there. A faded frame is off by a third or more, one a frame
+    /// late by more than all of it; a coded one by a hundredth.
+    fn assert_whole_from_the_first_frame(saved: &[f64], mixed: &[f64]) {
+        for frame in 0..8 {
+            let span = frame * 1024..(frame + 1) * 1024;
+            let energy: f64 = mixed[span.clone()].iter().map(|s| s * s).sum();
+            let off: f64 = span
+                .map(|n| (saved.get(n).copied().unwrap_or(0.0) - mixed[n]).powi(2))
+                .sum();
+            assert!(
+                off < 0.1 * energy,
+                "frame {frame} of the saved sound is {:.3} off the mix",
+                off / energy
+            );
+        }
+    }
+
+    /// Windows' own encoder keeps no priming, and a tone from the mix's
+    /// first sample came back faded in over its first frame: 21 ms of every
+    /// export's sound, and a hit on the first frame lost half its length.
+    /// Whichever encoder the platform has, the first frame of what is saved
+    /// is the first frame of the mix.
+    #[test]
+    fn a_sound_on_the_mixs_first_sample_is_whole_in_the_saved_aac() {
+        let (saved, mixed) = saved_and_mixed("aac-start");
+        assert_whole_from_the_first_frame(&saved, &mixed);
+    }
+
+    /// What Windows' encoder is given, given to this machine's: frames of
+    /// silence ahead of the mix and every packet stamped that much earlier.
+    /// The silence is priming, so the file is as long as without it and
+    /// starts on the same sample.
+    #[test]
+    fn silence_fed_ahead_of_a_mix_is_priming_not_sound() {
+        let (plain, _) = saved_and_mixed("aac-plain");
+        lead::FORCED.set(Some(lead::Lead {
+            silence: 2048,
+            shift: 2048,
+        }));
+        let (saved, mixed) = saved_and_mixed("aac-lead");
+        lead::FORCED.set(None);
+        assert_whole_from_the_first_frame(&saved, &mixed);
+        assert_eq!(saved.len(), plain.len(), "as long as with no silence fed");
     }
 
     /// The left channel of `mix_pcm` over `[from, to)`.
