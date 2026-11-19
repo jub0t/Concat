@@ -174,7 +174,14 @@ pub fn read_code(frame: &Frame) -> Option<Code> {
 /// with how cleanly it came through. A code that would not fit there is a
 /// refused read.
 pub fn read_at(frame: &Frame, x: u32, y: u32) -> Reading {
-    if x + WIDTH > frame.width() || y + HEIGHT > frame.height() {
+    read_sized(frame, x, y, BLOCK)
+}
+
+/// [`read_at`] for a picture drawn smaller or larger than it was made:
+/// `block` is the side of one of its blocks as drawn, 8 for a picture at
+/// half its size.
+pub fn read_sized(frame: &Frame, x: u32, y: u32, block: u32) -> Reading {
+    if block < 4 || x + block * COLUMNS > frame.width() || y + block * ROWS > frame.height() {
         return Reading {
             code: None,
             worst: f64::INFINITY,
@@ -187,17 +194,17 @@ pub fn read_at(frame: &Frame, x: u32, y: u32) -> Reading {
     let mut worst: f64 = 0.0;
     let mut clear = true;
     for (at, bit) in bits.iter_mut().enumerate() {
-        // The inner 8 × 8: a quarter of the side in from every edge.
-        let left = x + (at as u32 % COLUMNS) * BLOCK + BLOCK / 4;
-        let top = y + (at as u32 / COLUMNS) * BLOCK + BLOCK / 4;
+        // The inner half: a quarter of the side in from every edge.
+        let left = x + (at as u32 % COLUMNS) * block + block / 4;
+        let top = y + (at as u32 / COLUMNS) * block + block / 4;
         let mut sum = 0.0;
-        for row in top..top + BLOCK / 2 {
-            for column in left..left + BLOCK / 2 {
+        for row in top..top + block / 2 {
+            for column in left..left + block / 2 {
                 let [r, g, b, _] = frame.pixel(column, row).unwrap_or([0; 4]);
                 sum += luma(r, g, b);
             }
         }
-        let mean = sum / f64::from(BLOCK / 2 * BLOCK / 2);
+        let mean = sum / f64::from((block / 2) * (block / 2));
         *bit = mean > midpoint;
         let level = if *bit { HIGH } else { LOW };
         let off = (mean - f64::from(level)).abs();

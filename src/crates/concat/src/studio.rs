@@ -82,7 +82,7 @@ use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
 use crate::format::{
-    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha, rate_label,
+    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha,
     running_time, wave_columns, wave_path, when_phrase,
 };
 use crate::grading;

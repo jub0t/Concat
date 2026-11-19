@@ -1909,13 +1909,7 @@ impl Studio {
                     RecentProjectData {
                         path: project.path.as_str().into(),
                         name: project.name.as_str().into(),
-                        detail: format!(
-                            "{} × {} · {}",
-                            project.width,
-                            project.height,
-                            rate_label(project.rate_num, project.rate_den)
-                        )
-                        .into(),
+                        frame: format!("{} × {}", project.width, project.height).into(),
                         // When it was last worked on, which is what a
                         // person means by recent; when it was last opened
                         // where the file keeps no time.

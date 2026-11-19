@@ -11,11 +11,14 @@
 //! speed and effects mean exactly the same thing here as in the export mix.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::codec::decoder;
 use ffmpeg_the_third::filter;
 use ffmpeg_the_third::format;
+use ffmpeg_the_third::util::channel_layout::{ChannelLayout, ChannelLayoutMask};
+use ffmpeg_the_third::util::format::Sample;
 use ffmpeg_the_third::util::frame::audio::Audio;
 
 use crate::error::{Error, Result};
@@ -67,6 +70,9 @@ pub struct AudioOptions {
     /// the first audio stream in file order, which is also what a file with
     /// one stream has; see `probe::audio_stream_index`.
     pub stream: Option<usize>,
+    /// The window stretched to a time map before `filters`, pitch kept: a
+    /// clip's speed. None plays the window as it is.
+    pub stretch: Option<Stretching>,
 }
 
 impl Default for AudioOptions {
@@ -79,9 +85,35 @@ impl Default for AudioOptions {
             channels: 2,
             format: SampleFormat::I16,
             stream: None,
+            stretch: None,
         }
     }
 }
+
+/// A window of sound stretched to a time map, pitch kept: what a clip at
+/// another speed plays. The stretch comes after the cut and before the
+/// filters, the order the export mix keeps.
+#[derive(Clone)]
+pub struct Stretching {
+    /// The source second, from the window's start, heard at each second of
+    /// output. Never decreasing.
+    pub map: Arc<dyn Fn(f64) -> f64 + Send + Sync>,
+    /// How many seconds of output.
+    pub length: f64,
+}
+
+impl std::fmt::Debug for Stretching {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stretching")
+            .field("length", &self.length)
+            .field("source", &(self.map)(self.length))
+            .finish()
+    }
+}
+
+/// The rate a window is stretched at, whatever it is asked back at.
+pub const STRETCH_RATE: u32 = 48_000;
 
 /// The graph between the codec and the caller, as one string. `origin` is
 /// where the file starts, in seconds: the decoded frames carry it on their
@@ -124,13 +156,19 @@ fn audio_filter(options: &AudioOptions, origin: f64, late: f64) -> String {
             parts.push(format!("atrim=duration={duration:.6}"));
         }
     }
-    parts.extend(
-        options
-            .filters
-            .iter()
-            .filter(|filter| !filter.is_empty())
-            .cloned(),
-    );
+    parts.extend(tail_filters(options));
+    parts.join(",")
+}
+
+/// The filters after the cut: the window's own, then the rate, layout and
+/// format asked for.
+fn tail_filters(options: &AudioOptions) -> Vec<String> {
+    let mut parts: Vec<String> = options
+        .filters
+        .iter()
+        .filter(|filter| !filter.is_empty())
+        .cloned()
+        .collect();
     parts.push(format!("aresample={}", options.rate));
     parts.push(format!(
         "aformat=sample_fmts={}:sample_rates={}:channel_layouts={}",
@@ -142,11 +180,108 @@ fn audio_filter(options: &AudioOptions, origin: f64, late: f64) -> String {
             "stereo"
         }
     ));
-    parts.join(",")
+    parts
 }
 
-/// Decodes a file's audio through libavcodec and libavfilter.
+/// Decodes a file's audio through libavcodec and libavfilter, and through
+/// the stretcher when the window plays at another speed.
 pub struct AudioDecoder {
+    kind: Kind,
+    options: AudioOptions,
+}
+
+enum Kind {
+    Plain(Box<PlainDecoder>),
+    Stretched(Box<StretchedDecoder>),
+}
+
+impl AudioDecoder {
+    /// Opens the audio stream `options.stream` names, or `path`'s first.
+    pub fn open(path: impl AsRef<Path>, options: &AudioOptions) -> Result<Self> {
+        let kind = match &options.stretch {
+            None => Kind::Plain(Box::new(PlainDecoder::open(path, options)?)),
+            Some(stretching) => Kind::Stretched(Box::new(StretchedDecoder::open(
+                path.as_ref(),
+                options,
+                stretching.clone(),
+            )?)),
+        };
+        Ok(Self {
+            kind,
+            options: options.clone(),
+        })
+    }
+
+    /// Samples per second of what comes back.
+    pub fn rate(&self) -> u32 {
+        self.options.rate
+    }
+
+    /// Channels of what comes back.
+    pub fn channels(&self) -> u16 {
+        self.options.channels
+    }
+
+    /// The next frame: interleaved samples at the requested rate and
+    /// layout, or `None` once the window is exhausted.
+    pub fn next_frame(&mut self) -> Result<Option<Audio>> {
+        match &mut self.kind {
+            Kind::Plain(plain) => plain.next_frame(),
+            Kind::Stretched(stretched) => stretched.next_frame(),
+        }
+    }
+
+    /// The interleaved bytes of one frame from the sink: samples times
+    /// channels times the sample width, without the row padding libav adds.
+    pub fn bytes_of(&self, frame: &Audio) -> Vec<u8> {
+        let wanted =
+            frame.samples() * usize::from(self.options.channels) * self.options.format.bytes();
+        let data = frame.data(0);
+        data[..wanted.min(data.len())].to_vec()
+    }
+
+    /// The next frame as interleaved 16-bit samples. Only for decoders
+    /// opened with [`SampleFormat::I16`].
+    pub fn next_i16(&mut self) -> Result<Option<Vec<i16>>> {
+        let Some(frame) = self.next_frame()? else {
+            return Ok(None);
+        };
+        let bytes = self.bytes_of(&frame);
+        Ok(Some(
+            bytes
+                .chunks_exact(2)
+                .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+                .collect(),
+        ))
+    }
+
+    /// The next frame as interleaved floats. Only for decoders opened with
+    /// [`SampleFormat::F32`].
+    pub fn next_f32(&mut self) -> Result<Option<Vec<f32>>> {
+        let Some(frame) = self.next_frame()? else {
+            return Ok(None);
+        };
+        let bytes = self.bytes_of(&frame);
+        Ok(Some(
+            bytes
+                .chunks_exact(4)
+                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .collect(),
+        ))
+    }
+
+    /// Everything left in the window, as interleaved floats.
+    pub fn collect_f32(&mut self) -> Result<Vec<f32>> {
+        let mut all = Vec::new();
+        while let Some(chunk) = self.next_f32()? {
+            all.extend_from_slice(&chunk);
+        }
+        Ok(all)
+    }
+}
+
+/// The decoder of a window played as it is.
+struct PlainDecoder {
     path: PathBuf,
     input: format::context::Input,
     stream: usize,
@@ -165,7 +300,7 @@ pub struct AudioDecoder {
     done: bool,
 }
 
-impl AudioDecoder {
+impl PlainDecoder {
     /// Opens the audio stream `options.stream` names, or `path`'s first.
     pub fn open(path: impl AsRef<Path>, options: &AudioOptions) -> Result<Self> {
         ffi::init();
@@ -224,16 +359,6 @@ impl AudioDecoder {
             flushed: false,
             done: false,
         })
-    }
-
-    /// Samples per second of what comes back.
-    pub fn rate(&self) -> u32 {
-        self.options.rate
-    }
-
-    /// Channels of what comes back.
-    pub fn channels(&self) -> u16 {
-        self.options.channels
     }
 
     fn build_graph(&self, first: &Audio) -> Result<filter::Graph> {
@@ -351,53 +476,224 @@ impl AudioDecoder {
             }
         }
     }
+}
 
-    /// The interleaved bytes of one frame from the sink: samples times
-    /// channels times the sample width, without the row padding libav adds.
-    pub fn bytes_of(&self, frame: &Audio) -> Vec<u8> {
-        let wanted =
-            frame.samples() * usize::from(self.options.channels) * self.options.format.bytes();
-        let data = frame.data(0);
-        data[..wanted.min(data.len())].to_vec()
+/// Frames of stretched sound handed to the filters at a time.
+const STRETCH_BLOCK: usize = 1024;
+
+/// The decoder of a window played at another speed: the window cut and
+/// decoded as it is, at [`STRETCH_RATE`] in stereo floats, stretched to its
+/// time map, then through the window's own filters to the shape asked for.
+struct StretchedDecoder {
+    path: PathBuf,
+    options: AudioOptions,
+    stretch: concat_stretch::Stretch<WindowSource, SecondsMap>,
+    /// What went wrong reading the window, which the stretcher, reading
+    /// through a callback, cannot return itself.
+    failure: Arc<Mutex<Option<Error>>>,
+    /// Output frames in all, and how many have gone to the filters.
+    total: usize,
+    sent: usize,
+    graph: Option<filter::Graph>,
+    flushed: bool,
+    done: bool,
+}
+
+/// A time map in seconds, read in frames at [`STRETCH_RATE`].
+struct SecondsMap(Arc<dyn Fn(f64) -> f64 + Send + Sync>);
+
+impl concat_stretch::TimeMap for SecondsMap {
+    fn source_at(&self, output: f64) -> f64 {
+        let rate = f64::from(STRETCH_RATE);
+        (self.0)(output / rate) * rate
     }
+}
 
-    /// The next frame as interleaved 16-bit samples. Only for decoders
-    /// opened with [`SampleFormat::I16`].
-    pub fn next_i16(&mut self) -> Result<Option<Vec<i16>>> {
-        let Some(frame) = self.next_frame()? else {
-            return Ok(None);
-        };
-        let bytes = self.bytes_of(&frame);
-        Ok(Some(
-            bytes
-                .chunks_exact(2)
-                .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
-                .collect(),
-        ))
-    }
+/// The window, cut and decoded, read by the stretcher.
+struct WindowSource {
+    decoder: PlainDecoder,
+    failure: Arc<Mutex<Option<Error>>>,
+}
 
-    /// The next frame as interleaved floats. Only for decoders opened with
-    /// [`SampleFormat::F32`].
-    pub fn next_f32(&mut self) -> Result<Option<Vec<f32>>> {
-        let Some(frame) = self.next_frame()? else {
-            return Ok(None);
-        };
-        let bytes = self.bytes_of(&frame);
-        Ok(Some(
-            bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect(),
-        ))
-    }
-
-    /// Everything left in the window, as interleaved floats.
-    pub fn collect_f32(&mut self) -> Result<Vec<f32>> {
-        let mut all = Vec::new();
-        while let Some(chunk) = self.next_f32()? {
-            all.extend_from_slice(&chunk);
+impl concat_stretch::Source for WindowSource {
+    fn read(&mut self, into: &mut Vec<f32>) -> bool {
+        match self.decoder.next_frame() {
+            Ok(Some(frame)) => {
+                let wanted = frame.samples() * 2 * 4;
+                let data = frame.data(0);
+                into.extend(
+                    data[..wanted.min(data.len())]
+                        .chunks_exact(4)
+                        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
+                );
+                true
+            }
+            Ok(None) => false,
+            Err(error) => {
+                if let Ok(mut failure) = self.failure.lock() {
+                    failure.get_or_insert(error);
+                }
+                false
+            }
         }
-        Ok(all)
+    }
+}
+
+impl StretchedDecoder {
+    fn open(path: &Path, options: &AudioOptions, stretching: Stretching) -> Result<Self> {
+        for chain in &options.filters {
+            crate::audio::validate_chain(chain)?;
+        }
+        let window = AudioOptions {
+            start: options.start,
+            duration: options.duration,
+            filters: Vec::new(),
+            rate: STRETCH_RATE,
+            channels: 2,
+            format: SampleFormat::F32,
+            stream: options.stream,
+            stretch: None,
+        };
+        let failure = Arc::new(Mutex::new(None));
+        let source = WindowSource {
+            decoder: PlainDecoder::open(path, &window)?,
+            failure: failure.clone(),
+        };
+        // The out-point: nothing past the window is heard, though a grain
+        // reaches over it.
+        let limit = options
+            .duration
+            .map(|duration| (duration.max(0.0) * f64::from(STRETCH_RATE)).round() as u64);
+        let stretch = concat_stretch::Stretch::new(
+            STRETCH_RATE,
+            2,
+            SecondsMap(stretching.map),
+            source,
+            limit,
+        );
+        Ok(Self {
+            path: path.to_path_buf(),
+            options: options.clone(),
+            stretch,
+            failure,
+            total: (stretching.length.max(0.0) * f64::from(STRETCH_RATE)).round() as usize,
+            sent: 0,
+            graph: None,
+            flushed: false,
+            done: false,
+        })
+    }
+
+    fn build_graph(&self) -> Result<filter::Graph> {
+        ffi::begin();
+        let mut graph = filter::Graph::new();
+        let args = format!(
+            "time_base=1/{STRETCH_RATE}:sample_rate={STRETCH_RATE}:sample_fmt=flt:channel_layout=stereo"
+        );
+        let missing = |name: &str| Error::Missing {
+            what: "filter",
+            name: name.to_owned(),
+        };
+        graph
+            .add(
+                &filter::find("abuffer").ok_or_else(|| missing("abuffer"))?,
+                "in",
+                &args,
+            )
+            .map_err(|error| ffi::fail_said("buffer source", &self.path, error))?;
+        graph
+            .add(
+                &filter::find("abuffersink").ok_or_else(|| missing("abuffersink"))?,
+                "out",
+                "",
+            )
+            .map_err(|error| ffi::fail_said("buffer sink", &self.path, error))?;
+        graph
+            .output("in", 0)
+            .and_then(|parser| parser.input("out", 0))
+            .and_then(|parser| parser.parse(&tail_filters(&self.options).join(",")))
+            .map_err(|error| ffi::fail_said("filter graph", &self.path, error))?;
+        graph
+            .validate()
+            .map_err(|error| ffi::fail_said("filter graph", &self.path, error))?;
+        Ok(graph)
+    }
+
+    /// The next block of stretched sound, as a frame the filters take, or
+    /// none once the output's length is reached.
+    fn next_block(&mut self) -> Result<Option<Audio>> {
+        let frames = STRETCH_BLOCK.min(self.total - self.sent);
+        if frames == 0 {
+            return Ok(None);
+        }
+        let mut samples = vec![0.0f32; frames * 2];
+        self.stretch.render(&mut samples);
+        if let Some(error) = self
+            .failure
+            .lock()
+            .ok()
+            .and_then(|mut failure| failure.take())
+        {
+            return Err(error);
+        }
+        let mut frame = Audio::new(
+            Sample::F32(ffmpeg::util::format::sample::Type::Packed),
+            frames,
+            ChannelLayoutMask::STEREO,
+        );
+        frame.set_ch_layout(ChannelLayout::STEREO);
+        frame.set_rate(STRETCH_RATE);
+        let data = frame.data_mut(0);
+        for (bytes, sample) in data.chunks_exact_mut(4).zip(&samples) {
+            bytes.copy_from_slice(&sample.to_le_bytes());
+        }
+        frame.set_pts(Some(self.sent as i64));
+        self.sent += frames;
+        Ok(Some(frame))
+    }
+
+    fn next_frame(&mut self) -> Result<Option<Audio>> {
+        loop {
+            if self.done {
+                return Ok(None);
+            }
+            if let Some(graph) = self.graph.as_mut() {
+                let mut out = Audio::empty();
+                let pulled = {
+                    let mut context = graph.get("out").expect("the graph has an output");
+                    context.sink().frame(&mut out)
+                };
+                match pulled {
+                    Ok(()) => return Ok(Some(out)),
+                    Err(ffmpeg::Error::Eof) => {
+                        self.done = true;
+                        return Ok(None);
+                    }
+                    Err(error) if ffi::is_again(&error) => {}
+                    Err(error) => return Err(ffi::fail("filter output", &self.path, error)),
+                }
+                if self.flushed {
+                    self.done = true;
+                    return Ok(None);
+                }
+            }
+            if self.graph.is_none() {
+                self.graph = Some(self.build_graph()?);
+            }
+            let block = self.next_block()?;
+            let graph = self.graph.as_mut().expect("just built");
+            let mut context = graph.get("in").expect("the graph has an input");
+            match block {
+                Some(frame) => context
+                    .source()
+                    .add(&frame)
+                    .map_err(|error| ffi::fail("filter", &self.path, error))?,
+                None => {
+                    let _ = context.source().flush();
+                    self.flushed = true;
+                }
+            }
+        }
     }
 }
 
@@ -415,6 +711,7 @@ mod tests {
             channels: 1,
             format: SampleFormat::F32,
             stream: None,
+            stretch: None,
         };
         assert_eq!(
             audio_filter(&options, 0.0, 0.0),
@@ -691,6 +988,7 @@ mod tests {
                         channels: 2,
                         format: SampleFormat::I16,
                         stream: None,
+                        stretch: None,
                     };
                     let mut decoder = AudioDecoder::open(path, &options).expect("opens");
                     let mut samples: Vec<i16> = Vec::new();
@@ -801,7 +1099,7 @@ mod probe {
             duration: Some(1.0),
             ..AudioOptions::default()
         };
-        let mut decoder = AudioDecoder::open(path, &options).expect("opens");
+        let mut decoder = PlainDecoder::open(path, &options).expect("opens");
         if old_seek {
             // 0.2.8 read every stream's packets.
             // SAFETY: as in `ffi::read_only`.
@@ -842,7 +1140,7 @@ mod probe {
                 (480.0, 300.0, false),
             ] {
                 let started = Instant::now();
-                let mut decoder = AudioDecoder::open(
+                let mut decoder = PlainDecoder::open(
                     path,
                     &AudioOptions {
                         start: Some(at),
@@ -864,7 +1162,7 @@ mod probe {
                 }
                 let mut bytes = 0usize;
                 while let Some(frame) = decoder.next_frame().expect("decodes") {
-                    bytes += decoder.bytes_of(&frame).len();
+                    bytes += frame.samples() * 2 * 2;
                 }
                 let took = started.elapsed();
                 eprintln!(

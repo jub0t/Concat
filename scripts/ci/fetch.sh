@@ -63,7 +63,21 @@ fi
 
 echo "fetch.sh: $name from $url"
 mkdir -p "$(dirname "$out")"
-curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 -o "$out" "$url"
+# Maven Central's CDN has answered 404 for a file it holds, for minutes at
+# a time, twice on 2026-11-19 (the Android build's ONNX Runtime): retries
+# alone do not outlast it. Google's mirror of Maven Central is tried after
+# it; the digest below decides either way, so a mirror cannot change what
+# is built.
+if ! curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 -o "$out" "$url"; then
+  case "$url" in
+    https://repo1.maven.org/maven2/*)
+      mirror="https://maven-central.storage-download.googleapis.com/maven2/${url#https://repo1.maven.org/maven2/}"
+      echo "fetch.sh: $name did not come from Maven Central; trying its mirror $mirror" >&2
+      curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 -o "$out" "$mirror"
+      ;;
+    *) exit 1 ;;
+  esac
+fi
 
 got=$(digest "$out")
 if [ "$got" != "$want" ]; then

@@ -1,0 +1,32 @@
+{
+  "about": "Clip A trimmed half a second in from its start and left where it ends, so the timeline opens on a gap; clip B after it, trimmed half a second in from its end. Frames 0 to 14 are black, 15 to 59 are A's 15 to 59, and 60 to 104 are B's 0 to 44; A's second 1 pip is heard at 1 s and nothing of A's second 0. A failure means a trim moves the wrong edge, shows frames from before the in-point or past the out-point, shifts the sound against the picture, or a gap is not black.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 }, "as": "clipB" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "trimClip", "clipId": "$clipA", "edge": "start", "delta": 0.5, "ripple": false } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "trimClip", "clipId": "$clipB", "edge": "end", "delta": -0.5, "ripple": false } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 105,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 14] },
+      { "frames": [15, 59], "media": "a", "from": 15, "step": 1 },
+      { "frames": [60, 104], "media": "b", "from": 0, "step": 1 }
+    ],
+    "sound": [
+      { "frames": [15, 59], "media": "a", "from": 0.5 },
+      { "frames": [60, 104], "media": "b", "from": 0 }
+    ]
+  }
+}

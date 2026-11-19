@@ -1337,6 +1337,7 @@ name = "concat-media"
 version = "0.2.12"
 dependencies = [
  "concat-core",
+ "concat-stretch",
  "ffmpeg-the-third",
  "libc",
  "log",
@@ -1429,6 +1430,13 @@ dependencies = [
  "tokenizers",
  "ureq 2.12.1",
  "whisper-rs",
+]
+
+[[package]]
+name = "concat-stretch"
+version = "0.2.12"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

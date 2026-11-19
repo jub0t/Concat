@@ -171,15 +171,6 @@ pub fn running_time(seconds: f64) -> String {
     }
 }
 
-/// A frame rate as a person says it: "30 fps", "29.97 fps", "23.976 fps".
-/// The exact fraction is the project's; this is its name.
-pub fn rate_label(num: i64, den: i64) -> String {
-    let fps = num as f64 / den.max(1) as f64;
-    let text = format!("{fps:.3}");
-    let text = text.trim_end_matches('0').trim_end_matches('.');
-    format!("{text} fps")
-}
-
 pub fn hex_of(colour: slint::Color) -> String {
     format!(
         "#{:02x}{:02x}{:02x}",
@@ -627,9 +618,6 @@ mod tests {
         assert_eq!(running_time(754.0), "12:34");
         assert_eq!(running_time(3725.0), "1:02:05");
         assert_eq!(running_time(f64::NAN), "0:00");
-        assert_eq!(rate_label(30, 1), "30 fps");
-        assert_eq!(rate_label(30000, 1001), "29.97 fps");
-        assert_eq!(rate_label(24000, 1001), "23.976 fps");
     }
 
     #[test]

@@ -1,0 +1,25 @@
+{
+  "about": "A 30000/1001 timeline holding a clip at its own rate and then a 24000/1001 clip. The first 60 frames are the first clip's, one for one; the next 60 show the second clip's frame floor(k × 4 / 5). The file is 120 frames at 30000/1001. A failure means a rate that is not a whole number is rounded somewhere: a frame doubled or dropped where 1001/30000 does not divide evenly, a length a frame off, or a file tagged 30 fps.",
+  "video": { "width": 320, "height": 180, "rateNum": 30000, "rateDen": 1001 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30000, 1001], "frames": 60 },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [24000, 1001], "frames": 48 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2.002 } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30000, 1001],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 },
+      { "frames": [60, 119], "media": "b", "from": 0, "step": 4, "per": 5 }
+    ]
+  }
+}

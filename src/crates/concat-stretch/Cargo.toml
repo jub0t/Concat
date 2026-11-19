@@ -1,0 +1,18 @@
+[package]
+name = "concat-stretch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Sound made longer or shorter without changing its pitch, every grain placed at the source position the clip's time map gives it."
+
+[dependencies]
+
+[build-dependencies]
+# Bungee is C++20 and PFFFT is C; both are compiled here, for whatever
+# target is being built, with the target's own compiler.
+cc = "1.2"
+
+[lints]
+workspace = true

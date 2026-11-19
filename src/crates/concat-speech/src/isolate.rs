@@ -428,6 +428,7 @@ fn decoder(
             channels: channels as u16,
             format: SampleFormat::F32,
             stream,
+            stretch: None,
         },
     )
     .map_err(|error| error.to_string())

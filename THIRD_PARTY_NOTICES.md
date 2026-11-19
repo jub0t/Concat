@@ -194,6 +194,19 @@ carried espeak-ng (GPL-3.0-or-later), with the Kokoro (Apache-2.0) and Pocket
 TTS (CC-BY-4.0) voices; those releases' own notices describe them. No current
 build contains any of them.
 
+## Bungee, Eigen and PFFFT
+
+A clip played at another speed with its pitch kept is stretched by
+Bungee (https://github.com/bungee-audio-stretch/bungee, Copyright (C)
+2020-2026 Parabola Research Limited, MPL-2.0), compiled into the app with
+Eigen (https://gitlab.com/libeigen/eigen, MPL-2.0) and PFFFT
+(https://bitbucket.org/jpommier/pffft, Copyright (c) 2013 Julien Pommier,
+FFTPACK licence, Copyright (c) 2004 the University Corporation for
+Atmospheric Research). Their source, unmodified, with their licence texts
+and the commits it is taken from, is in
+`src/crates/concat-stretch/third_party/`; MPL-2.0's text is at
+https://mozilla.org/MPL/2.0/.
+
 ## ONNX Runtime
 
 The cutout models run on Microsoft's ONNX Runtime

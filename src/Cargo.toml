@@ -11,6 +11,7 @@ license = "AGPL-3.0-or-later"
 [workspace.dependencies]
 concat-core = { path = "crates/concat-core" }
 concat-media = { path = "crates/concat-media" }
+concat-stretch = { path = "crates/concat-stretch" }
 concat-project = { path = "crates/concat-project" }
 concat-render = { path = "crates/concat-render" }
 concat-export = { path = "crates/concat-export" }
@@ -62,6 +63,16 @@ too_many_arguments = "allow"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+# The window's crate, split for the compiler. Its Slint code expands to
+# about 970,000 lines of Rust (81,000 functions, 86 MB), and as one unit
+# that is compiled on one core: 74 of the 76 minutes of CI's iOS build,
+# and growing with every screen. In units it is compiled on every core,
+# and thin LTO still inlines across them. The engine crates, where the
+# frame time is spent, stay one unit each. The app profile's fat LTO
+# merges the units back into one module before optimising.
+[profile.release.package.concat]
+codegen-units = 16
 
 # For trying a change in the window: `cargo dev` (an alias for
 # `cargo run --bin concat --profile quick`, see .cargo/config.toml).

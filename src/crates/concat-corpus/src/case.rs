@@ -16,7 +16,14 @@
 //! start of a string stands for a literal `$`). A step with `"step"` in
 //! place of `"method"` is the harness's own: `closeAndReopen` saves and
 //! closes the project, opens it again and holds the document to what it
-//! was.
+//! was; `removeFile` and `restoreFile` do the same with the named media's
+//! file taken away or put back while the project is closed; and
+//! `spliceDocument` writes into the saved file, while it is closed, things
+//! this build has never heard of, which must be there when it is opened
+//! and stay through every save after. `"bind"` on a request binds names to anything else in its answer:
+//! each to the string or number a JSON pointer finds in the project the
+//! request answered with, `"/project/timelines/0/tracks/0/id"` for the
+//! first track's id.
 //!
 //! The file is read strictly. An unknown field anywhere is an error, as is
 //! a missing expectation, so a typo cannot quietly turn a check off.
@@ -52,7 +59,8 @@ pub struct Case {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Media {
-    /// Silent ProRes 4444 whose every frame carries its own code.
+    /// ProRes 4444 whose every frame carries its own code, silent unless
+    /// `sound`.
     Clock {
         /// The media tag its codes carry, 1 to 7.
         tag: u8,
@@ -64,6 +72,10 @@ pub enum Media {
         rate: [i64; 2],
         /// How many frames.
         frames: u32,
+        /// A soundtrack of the media's pips (see [`crate::sound`]), as
+        /// long as the picture.
+        #[serde(default)]
+        sound: bool,
     },
     /// A PNG carrying its code as frame nought.
     Still {
@@ -74,13 +86,31 @@ pub enum Media {
         /// Picture height.
         height: u32,
     },
+    /// A WAV of the media's pips and nothing else: a song.
+    Pips {
+        /// The media tag its pitch stands for, 1 to 7.
+        tag: u8,
+        /// How long it is.
+        seconds: f64,
+    },
+    /// A WAV of one steady tone at the media's pitch, for how loud a
+    /// sound is where: see [`Expect::level`].
+    Tone {
+        /// The media tag its pitch stands for, 1 to 7.
+        tag: u8,
+        /// How long it is.
+        seconds: f64,
+    },
 }
 
 impl Media {
     /// The media tag the picture's codes carry.
     pub fn tag(&self) -> u8 {
         match self {
-            Media::Clock { tag, .. } | Media::Still { tag, .. } => *tag,
+            Media::Clock { tag, .. }
+            | Media::Still { tag, .. }
+            | Media::Pips { tag, .. }
+            | Media::Tone { tag, .. } => *tag,
         }
     }
 
@@ -89,6 +119,21 @@ impl Media {
         match self {
             Media::Clock { .. } => "mov",
             Media::Still { .. } => "png",
+            Media::Pips { .. } | Media::Tone { .. } => "wav",
+        }
+    }
+
+    /// How many seconds of pips it carries, none for a silent one.
+    pub fn sound_seconds(&self) -> Option<f64> {
+        match self {
+            Media::Clock {
+                frames,
+                rate,
+                sound: true,
+                ..
+            } => Some(f64::from(*frames) * rate[1] as f64 / rate[0] as f64),
+            Media::Pips { seconds, .. } => Some(*seconds),
+            Media::Clock { .. } | Media::Still { .. } | Media::Tone { .. } => None,
         }
     }
 }
@@ -112,6 +157,116 @@ pub struct Expect {
     /// the bars beside a picture that does not fill the frame.
     #[serde(default)]
     pub black: Vec<[u32; 4]>,
+    /// Pictures shown over the runs' own, each smaller than the frame and
+    /// clear of the code under it: a picture in a corner. They need not
+    /// cover every frame.
+    #[serde(default)]
+    pub inset: Vec<Run>,
+    /// Whose pips the sound carries where, as runs over output frames.
+    /// Absent, the sound is not checked; present, a pip anywhere they do
+    /// not put one is an error, as is silence where they do.
+    #[serde(default)]
+    pub sound: Vec<SoundRun>,
+    /// How loud a tone is at instants of the export: fades, volume, a
+    /// clip that should not be heard at all.
+    #[serde(default)]
+    pub level: Vec<Level>,
+}
+
+/// How loud one media's tone must be at one instant of the export.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Level {
+    /// The instant, in seconds from the start of the file.
+    pub at: f64,
+    /// The tone, by its name in [`Case::media`].
+    pub media: String,
+    /// Its amplitude there, of what the file was made at: 1 untouched,
+    /// 0.25 half way through a one-second fade, 0 where it is not heard.
+    pub gain: f64,
+}
+
+/// A step that is the harness's own, not a request.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "step", rename_all = "camelCase", deny_unknown_fields)]
+pub enum Harness {
+    /// Save, close, reopen; the document must be as it was.
+    CloseAndReopen,
+    /// The same, with the media's file gone when the project reopens.
+    RemoveFile {
+        /// The media, by its name in [`Case::media`].
+        media: String,
+    },
+    /// The same, with the media's file back.
+    RestoreFile {
+        /// The media, by its name in [`Case::media`].
+        media: String,
+    },
+    /// Save and close, write into the saved document, reopen: everything
+    /// written must be in the document the project then says it is.
+    SpliceDocument {
+        /// Values added to the end of arrays in the document.
+        #[serde(default)]
+        append: Vec<Splice>,
+        /// Fields added to objects in the document.
+        #[serde(default)]
+        merge: Vec<Splice>,
+    },
+}
+
+/// One thing written into a saved document.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Splice {
+    /// A JSON pointer to the array or the object.
+    pub at: String,
+    /// What is appended to the array, or the fields merged into the object.
+    pub value: Value,
+}
+
+/// A stretch of the export's sound playing one media's pips.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SoundRun {
+    /// The first and last output frame whose span it covers, both
+    /// included.
+    pub frames: [u32; 2],
+    /// The media it plays, by its name in [`Case::media`].
+    pub media: String,
+    /// The source second playing at the run's first instant.
+    pub from: f64,
+    /// Source seconds per output second.
+    #[serde(default = "unit")]
+    pub speed: f64,
+    /// A flaw this run's sound is known to have: its pips may be off by
+    /// up to `within` rather than a millisecond. A run that comes within
+    /// the millisecond fails, so the bound is taken out once the flaw is
+    /// fixed, and never outlives it.
+    #[serde(default)]
+    pub known: Option<Known>,
+}
+
+/// A known flaw, its measured bound and why it is there.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Known {
+    /// How far a pip may be from its place, in seconds.
+    pub within: f64,
+    /// What causes it, and what fixes it.
+    pub why: String,
+}
+
+/// Where a pip must be heard in the export, and whose it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pip {
+    /// Its onset, in seconds from the start of the file.
+    pub at: f64,
+    /// The media tag whose pitch it is.
+    pub tag: u8,
+    /// The source second it starts, for the report.
+    pub second: u32,
+    /// The sound run it is in, by its place in [`Expect::sound`].
+    pub run: usize,
 }
 
 /// A run of output frames showing one media's frames at a steady step.
@@ -120,17 +275,42 @@ pub struct Expect {
 pub struct Run {
     /// The first and last output frame of the run, both included.
     pub frames: [u32; 2],
-    /// The media they show, by its name in [`Case::media`].
-    pub media: String,
+    /// The media they show, by its name in [`Case::media`]. Absent, the
+    /// frames show nothing: a gap in the timeline, black from edge to edge.
+    #[serde(default)]
+    pub media: Option<String>,
     /// The source frame the run's first frame shows.
+    #[serde(default)]
     pub from: u32,
     /// How many source frames each output frame moves on by: 1 at normal
-    /// speed, 0 for a still or a hold.
+    /// speed, 0 for a still or a hold. With [`Run::per`], how many source
+    /// frames every `per` output frames move on by.
+    #[serde(default)]
     pub step: u32,
+    /// The output frames `step` is counted over, 1 unless the speed is a
+    /// fraction: 1.5x is step 3 per 2, half speed step 1 per 2. Output
+    /// frame `k` of the run shows source frame `from + floor(k * step /
+    /// per)`, the frame whose span holds that instant.
+    #[serde(default = "one")]
+    pub per: u32,
     /// Where in the output frame the picture's code is, `[x, y]`: its top
     /// left corner, the origin unless the picture is placed elsewhere.
     #[serde(default)]
     pub at: [u32; 2],
+    /// The side of one block of the code as drawn, 16 unless the picture
+    /// is scaled: 8 at half size.
+    #[serde(default = "block")]
+    pub block: u32,
+}
+
+/// What an output frame must show.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Shows {
+    /// A source frame, by its code, with the code's top left corner here
+    /// and its blocks this many pixels a side.
+    Code(code::Code, [u32; 2], u32),
+    /// Nothing: black from edge to edge.
+    Black,
 }
 
 /// A second project, built from the same steps less some, that must
@@ -145,6 +325,18 @@ pub struct Twin {
     /// The output frames whose previews are compared, each at its own
     /// instant, `frame / fps`.
     pub frames: Vec<u32>,
+}
+
+fn one() -> u32 {
+    1
+}
+
+fn block() -> u32 {
+    code::BLOCK
+}
+
+fn unit() -> f64 {
+    1.0
 }
 
 impl Case {
@@ -166,17 +358,69 @@ impl Case {
         self.expect.rate[0] as f64 / self.expect.rate[1] as f64
     }
 
-    /// The code output frame `frame` must carry and where it sits, by the
-    /// runs.
-    pub fn expected(&self, frame: u32) -> Option<(code::Code, [u32; 2])> {
+    /// What output frame `frame` must show, by the runs.
+    pub fn expected(&self, frame: u32) -> Option<Shows> {
         let run = self
             .expect
             .runs
             .iter()
             .find(|run| (run.frames[0]..=run.frames[1]).contains(&frame))?;
-        let tag = self.media.get(&run.media)?.tag();
-        let index = run.from + (frame - run.frames[0]) * run.step;
-        Some((code::Code { tag, index }, run.at))
+        self.shows(run, frame)
+    }
+
+    /// Every picture output frame `frame` must show over the one the runs
+    /// give it: the insets.
+    pub fn expected_insets(&self, frame: u32) -> Vec<Shows> {
+        self.expect
+            .inset
+            .iter()
+            .filter(|run| (run.frames[0]..=run.frames[1]).contains(&frame))
+            .filter_map(|run| self.shows(run, frame))
+            .collect()
+    }
+
+    fn shows(&self, run: &Run, frame: u32) -> Option<Shows> {
+        let Some(media) = &run.media else {
+            return Some(Shows::Black);
+        };
+        let tag = self.media.get(media)?.tag();
+        let index = run.from + (frame - run.frames[0]) * run.step / run.per;
+        Some(Shows::Code(code::Code { tag, index }, run.at, run.block))
+    }
+
+    /// Every pip the export's sound must carry, in order of onset: each
+    /// whole pip a sound run's stretch holds, of the source seconds its
+    /// media has room for.
+    pub fn expected_pips(&self) -> Vec<Pip> {
+        let fps = self.fps();
+        let pip = crate::sound::PIP_SECONDS;
+        let mut pips = Vec::new();
+        for (index, run) in self.expect.sound.iter().enumerate() {
+            let Some(media) = self.media.get(&run.media) else {
+                continue;
+            };
+            let Some(length) = media.sound_seconds() else {
+                continue;
+            };
+            let start = f64::from(run.frames[0]) / fps;
+            let end = f64::from(run.frames[1] + 1) / fps;
+            let mut second = run.from.ceil();
+            while second + pip <= length {
+                let at = start + (second - run.from) / run.speed;
+                if at + pip / run.speed > end {
+                    break;
+                }
+                pips.push(Pip {
+                    at,
+                    tag: media.tag(),
+                    second: second as u32,
+                    run: index,
+                });
+                second += 1.0;
+            }
+        }
+        pips.sort_by(|a, b| a.at.total_cmp(&b.at));
+        pips
     }
 
     /// The names the steps bind with `"as"`.
@@ -216,6 +460,12 @@ impl Case {
                     (*width, *height)
                 }
                 Media::Still { width, height, .. } => (*width, *height),
+                Media::Pips { seconds, .. } | Media::Tone { seconds, .. } => {
+                    if !seconds.is_finite() || *seconds <= 0.0 {
+                        return Err(format!("media {name}: a song lasts more than nothing"));
+                    }
+                    continue;
+                }
             };
             if width < code::WIDTH || height < code::HEIGHT || width % 2 == 1 || height % 2 == 1 {
                 return Err(format!(
@@ -239,8 +489,20 @@ impl Case {
                     next, run.frames
                 ));
             }
-            if !self.media.contains_key(&run.media) {
-                return Err(format!("expect: no media is called {}", run.media));
+            match &run.media {
+                Some(media) if !self.media.contains_key(media) => {
+                    return Err(format!("expect: no media is called {media}"));
+                }
+                None if run.from != 0 || run.step != 0 => {
+                    return Err(format!(
+                        "expect: the run at {:?} shows no media, so has no from or step",
+                        run.frames
+                    ));
+                }
+                _ => {}
+            }
+            if run.per == 0 {
+                return Err(format!("expect: the run at {:?} has per 0", run.frames));
             }
             next = run.frames[1] + 1;
         }
@@ -249,6 +511,61 @@ impl Case {
                 "expect: the runs cover {next} frames, and the file has {}",
                 expect.frames
             ));
+        }
+        for run in &expect.inset {
+            let known = run
+                .media
+                .as_ref()
+                .is_some_and(|media| self.media.contains_key(media));
+            if !known
+                || run.per == 0
+                || run.frames[1] < run.frames[0]
+                || run.frames[1] >= expect.frames
+            {
+                return Err(format!(
+                    "expect: the inset at {:?} needs a media of the case, frames inside the file and a per over 0",
+                    run.frames
+                ));
+            }
+        }
+        for run in &expect.sound {
+            let Some(media) = self.media.get(&run.media) else {
+                return Err(format!("expect: no media is called {}", run.media));
+            };
+            if media.sound_seconds().is_none() {
+                return Err(format!("expect: {} has no sound to hear", run.media));
+            }
+            if run.frames[1] < run.frames[0] || run.frames[1] >= expect.frames {
+                return Err(format!(
+                    "expect: the sound run at {:?} is not inside the file's frames",
+                    run.frames
+                ));
+            }
+            if let Some(known) = &run.known
+                && !(known.within > 0.0 && known.within < 0.25)
+            {
+                return Err(format!(
+                    "expect: the sound run at {:?} is known off by {} s; a bound is over 0 and under 0.25 s",
+                    run.frames, known.within
+                ));
+            }
+            if !run.speed.is_finite() || run.speed <= 0.0 || run.from < 0.0 {
+                return Err(format!(
+                    "expect: the sound run at {:?} needs a positive speed and a start at or past 0",
+                    run.frames
+                ));
+            }
+        }
+        for level in &expect.level {
+            if !matches!(self.media.get(&level.media), Some(Media::Tone { .. })) {
+                return Err(format!("expect: {} is no tone to measure", level.media));
+            }
+            if !(level.at >= 0.0 && level.gain >= 0.0 && level.gain.is_finite()) {
+                return Err(format!(
+                    "expect: the level of {} at {} s needs an instant and a gain at or past 0",
+                    level.media, level.at
+                ));
+            }
         }
         for rect in &expect.black {
             if rect[0] + rect[2] > expect.width || rect[1] + rect[3] > expect.height {
@@ -283,13 +600,14 @@ impl Case {
                 .ok_or_else(|| format!("step {at} is not an object"))?;
             match (object.get("method"), object.get("step")) {
                 (Some(_), None) => {}
-                (None, Some(Value::String(name))) if name == "closeAndReopen" => {
-                    if object.len() != 1 {
-                        return Err(format!("step {at}: closeAndReopen takes nothing"));
+                (None, Some(_)) => {
+                    let harness: Harness = serde_json::from_value(step.clone())
+                        .map_err(|error| format!("step {at} is no harness step: {error}"))?;
+                    if let Harness::RemoveFile { media } | Harness::RestoreFile { media } = &harness
+                        && !self.media.contains_key(media)
+                    {
+                        return Err(format!("step {at}: no media is called {media}"));
                     }
-                }
-                (None, Some(other)) => {
-                    return Err(format!("step {at}: no harness step is called {other}"));
                 }
                 _ => {
                     return Err(format!(

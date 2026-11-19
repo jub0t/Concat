@@ -1252,6 +1252,12 @@ fn decode_key(spec: &ClipSpec) -> String {
     // this retires every one of them (audit 2026-10-04, #3). The disk
     // budget sweeps the orphans.
     eat(b"origin");
+    // A speed with the pitch kept was atempo's; it is the stretcher's now,
+    // which places every sound where the picture is. Only then, so a span
+    // at its own speed keeps its file.
+    if spec.engine().stretched() {
+        eat(b"stretch-bungee");
+    }
     format!("{hash:016x}")
 }
 
@@ -1306,12 +1312,19 @@ fn decode(
     // A changing rate is told by the source's own clock, so the stamps
     // start at zero where the span does.
     let engine = spec.engine();
-    let mut filters: Vec<String> = if engine.tempo.is_empty() {
+    // A speed with the pitch kept goes through the stretcher, before the
+    // filters, as the export mix stretches it (`AudioClip::stretched`).
+    let stretch = engine
+        .stretched()
+        .then(|| engine.stretching(0.0, spec.duration));
+    let mut filters: Vec<String> = if engine.tempo.is_empty() || stretch.is_some() {
         Vec::new()
     } else {
         vec!["asetpts=PTS-STARTPTS".to_owned()]
     };
-    filters.extend(engine.retime_filters(0.0, "p"));
+    if stretch.is_none() {
+        filters.extend(engine.retime_filters(0.0, "p"));
+    }
     if !spec.chain.is_empty() {
         filters.push(spec.chain.clone());
     }
@@ -1331,6 +1344,7 @@ fn decode(
             channels: 2,
             format: SampleFormat::I16,
             stream: spec.audio_stream.map(|index| index as usize),
+            stretch,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -1865,6 +1879,91 @@ mod tests {
             super::with_sound_layers(vec![tone_spec(path, 0.0, 2.0)], &[idle]).len(),
             1
         );
+    }
+
+    /// A clip at another speed, its pitch kept, plays every sound where its
+    /// picture is: a 20 ms pip at every source second, decoded for the
+    /// preview at half speed and through a speed curve, is heard within a
+    /// millisecond of where the clip's time map puts that second, as the
+    /// export mix's are (the corpus's speed case). FFmpeg's atempo, which
+    /// played these before, put them up to 53 ms early.
+    #[test]
+    fn a_stretched_clip_plays_every_sound_where_its_picture_is() {
+        let dir = std::env::temp_dir().join(format!("concat-pips-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let rate = super::PCM_RATE;
+        let mut data = Vec::new();
+        for index in 0..rate * 6 {
+            let into = index % rate;
+            let value = if into < rate / 50 {
+                let t = f64::from(into) / f64::from(rate);
+                (0.5 * (2.0 * std::f64::consts::PI * 1000.0 * t).sin() * 32767.0) as i16
+            } else {
+                0
+            };
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        let source = dir.join("pips.wav");
+        {
+            let mut file = std::fs::File::create(&source).expect("creates");
+            let mut writer = super::WavWriter::start(&mut file).expect("starts");
+            writer.write(&mut file, &data).expect("writes");
+            writer.finish(&mut file).expect("finishes");
+        }
+        let onsets = |pcm: &super::Pcm| {
+            let mut found = Vec::new();
+            let mut frame = 0i64;
+            while frame < pcm.frames as i64 {
+                if pcm.sample(frame, 0).abs() < 0.02 {
+                    frame += 1;
+                    continue;
+                }
+                let start = frame;
+                let mut peak = 0.0f32;
+                while frame < pcm.frames as i64 && frame < start + i64::from(rate) / 10 {
+                    peak = peak.max(pcm.sample(frame, 0).abs());
+                    frame += 1;
+                }
+                let onset = (start..frame)
+                    .find(|at| pcm.sample(*at, 0).abs() >= 0.3 * peak)
+                    .unwrap_or(start);
+                found.push(onset as f64 / f64::from(rate));
+            }
+            found
+        };
+
+        // Half speed: source second n at 2n.
+        let mut slow = tone_spec(&source, 0.0, 12.0);
+        slow.speed = 0.5;
+        let pcm = super::decode(&slow, &dir, &super::decode_key(&slow), None).expect("decodes");
+        let heard = onsets(&pcm);
+        assert_eq!(heard.len(), 6, "{heard:?}");
+        for (second, at) in heard.iter().enumerate() {
+            let off = (at - 2.0 * second as f64) * 1000.0;
+            assert!(
+                off.abs() <= 1.0,
+                "half speed: second {second} heard {off:+.2} ms off"
+            );
+        }
+
+        // Steps of speed: 1x for 1 s, 4x for 0.5 s (source 1 to 3), 0.5x
+        // after: source seconds 0 to 5 at 0, 1, 1.25, 1.5, 3.5 and 5.5 s.
+        let mut curve = tone_spec(&source, 0.0, 8.0);
+        curve.tempo = vec![(0.0, 1.0), (1.0, 4.0), (1.5, 0.5)];
+        curve.speed = 0.75;
+        let pcm = super::decode(&curve, &dir, &super::decode_key(&curve), None).expect("decodes");
+        let heard = onsets(&pcm);
+        let _ = std::fs::remove_dir_all(&dir);
+        let expected = [0.0, 1.0, 1.25, 1.5, 3.5, 5.5];
+        assert_eq!(heard.len(), expected.len(), "{heard:?}");
+        for (at, want) in heard.iter().zip(expected) {
+            let off = (at - want) * 1000.0;
+            assert!(
+                off.abs() <= 3.0,
+                "the curve: a pip due at {want} s heard {off:+.2} ms off"
+            );
+        }
     }
 
     /// A stretch under a sound layer decodes to the mix with the layer
