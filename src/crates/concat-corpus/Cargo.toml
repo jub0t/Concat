@@ -24,9 +24,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 # Stills in and failed frames out, lossless. Already in the tree for the
 # API's own frames.
-png = "0.17"
+png = "0.18"
 # A preview frame comes back from the API as base64.
-base64 = "0.22"
+base64 = "0.23"
 
 [lints]
 workspace = true
