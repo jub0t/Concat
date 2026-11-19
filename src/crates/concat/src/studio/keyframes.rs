@@ -1859,6 +1859,15 @@ impl Studio {
             );
             sync(&models.audio_groups, groups);
             sync(&models.catalogue_audio, entries);
+            let (_, entries) = shelves(
+                SHELF_KINDS[2],
+                &self.library[2],
+                starred,
+                &self.look_art,
+                &self.card_paths,
+                |package| !TREATMENTS.contains(&package.manifest.effect.id.as_str()),
+            );
+            sync(&models.catalogue_audio_library, entries);
             let (groups, entries) = shelves(
                 SHELF_KINDS[3],
                 &self.library[3],

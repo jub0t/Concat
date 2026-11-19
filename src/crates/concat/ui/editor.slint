@@ -193,6 +193,9 @@ export global Editor {
     /// The adjustment layer's card: the colour panel's package at work.
     in-out property <image> adjustment-art;
     in-out property <[CatalogueEntryData]> catalogue-audio;
+    /// The Library's sound-effect shelf: `catalogue-audio` less the three
+    /// treatments, which live as switches under Basic > Treatments.
+    in-out property <[CatalogueEntryData]> catalogue-audio-library;
     in-out property <[CatalogueEntryData]> catalogue-transitions;
     in-out property <[string]> effect-groups;
     in-out property <[string]> filter-groups;
