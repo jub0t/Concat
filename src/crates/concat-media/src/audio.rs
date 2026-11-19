@@ -1196,6 +1196,16 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
             .map_err(|error| ffi::fail("add stream", output, error))?;
         stream.set_parameters(audio_stream.parameters());
         stream.set_time_base(audio_tb);
+        // The sound's tag is the one its own container gave it - a WAV's
+        // 0x0001 for PCM - which another container's muxer may refuse, as
+        // MOV's does. Nought leaves the tag to the output's muxer, which
+        // knows its own for the codec. The picture keeps its tag: that is
+        // what keeps HEVC hvc1, which Apple's players need.
+        // SAFETY: the stream was just added to `out`, which owns it and
+        // outlives this block; its codecpar is allocated by add_stream.
+        unsafe {
+            (*(*stream.as_mut_ptr()).codecpar).codec_tag = 0;
+        }
     }
     // The index up front, as the picture's own file had it - but not for
     // ProRes, where moving it writes gigabytes a minute again for a file
