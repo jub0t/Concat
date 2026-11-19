@@ -114,6 +114,11 @@ pub enum Error {
         /// Its name.
         name: String,
     },
+
+    /// The caller asked the operation to stop, and it stopped. What it had
+    /// written so far is the caller's to remove.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 impl Error {
