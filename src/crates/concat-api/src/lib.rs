@@ -520,6 +520,30 @@ impl Api {
         }
     }
 
+    /// The location a project is made in, held to the contract both
+    /// `project.create` and `template.instantiate` state: it must be
+    /// there, and it must be a folder. A location that is not there
+    /// gets NotFound, one that is not a folder gets Invalid, and
+    /// neither is silently created. Without this, the only word for
+    /// every failure was the OS's, and a location that exists but
+    /// cannot be written to could report itself as a missing file
+    /// (#598). Kept here rather than in `projects::create`: the start
+    /// screen relies on a missing default folder being created.
+    fn existing_location(&self, location: &str) -> Result<(), ApiError> {
+        match std::fs::metadata(location) {
+            Ok(meta) if !meta.is_dir() => Err(ApiError::new(
+                ErrorCode::Invalid,
+                format!("the location {location} is not a folder"),
+            )),
+            Ok(_) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(ApiError::new(
+                ErrorCode::NotFound,
+                format!("the location {location} does not exist"),
+            )),
+            Err(_) => Ok(()),
+        }
+    }
+
     /// [`Request::ProjectCreate`]: the folder, its manifest, and a session
     /// on it, remembered in recents like a project the window made.
     pub fn create(
@@ -529,6 +553,7 @@ impl Api {
         video: VideoSettings,
     ) -> Result<EditorView, ApiError> {
         self.writable(location)?;
+        self.existing_location(location)?;
         let info = projects::create(
             location,
             name,
@@ -538,7 +563,10 @@ impl Api {
             video.rate_den,
             video.canvas,
         )
-        .map_err(ApiError::failed)?;
+        .map_err(|error| match refused_write(location, name) {
+            Some(refusal) => refusal,
+            None => ApiError::failed(error),
+        })?;
         self.adopt(info)
     }
 
@@ -631,6 +659,7 @@ impl Api {
         fills: Vec<Fill>,
     ) -> Result<EditorView, ApiError> {
         self.writable(location)?;
+        self.existing_location(location)?;
         // Every file is probed before anything is made, so a bad path
         // refuses the whole request rather than leaving a folder behind.
         let fills = fills
@@ -1153,6 +1182,34 @@ fn not_open(path: &str) -> ApiError {
     )
 }
 
+/// Whether a `projects::create` failure was the location refusing the
+/// write, told by the attempt itself: making the project's folder in
+/// the location fails the same way here. It is the attempt create
+/// already made, so a folder it did make reads as no refusal, and only
+/// the refusals a caller can act on earn the code: the write not
+/// allowed, the folder read-only, or a sandbox reporting its block as
+/// a missing path (#598).
+fn refused_write(location: &str, name: &str) -> Option<ApiError> {
+    let root = std::path::Path::new(location).join(projects::folder_name(name));
+    match std::fs::create_dir_all(&root) {
+        Ok(()) => None,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::PermissionDenied
+                    | std::io::ErrorKind::ReadOnlyFilesystem
+            ) =>
+        {
+            Some(ApiError::new(
+                ErrorCode::NotWritable,
+                format!("could not write to {location}: {error}"),
+            ))
+        }
+        Err(_) => None,
+    }
+}
+
 /// The edit layer's no, as the code that says so.
 fn refused(message: String) -> ApiError {
     ApiError::new(ErrorCode::Refused, message)
@@ -1656,6 +1713,97 @@ mod tests {
             height: Some(9),
         }));
         assert_eq!(refused.code, ErrorCode::Invalid);
+    }
+
+    #[test]
+    fn create_names_a_location_that_is_not_there() {
+        let (mut api, scratch, _events) = api();
+        let missing = scratch.path().join("nope").to_string_lossy().into_owned();
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: missing.clone(),
+            name: "Nope".to_owned(),
+            video: None,
+        }));
+        assert_eq!(refused.code, ErrorCode::NotFound);
+        assert!(
+            refused.message.contains("does not exist"),
+            "{}",
+            refused.message
+        );
+        assert!(!scratch.path().join("nope").exists(), "nothing made");
+
+        let file = scratch.path().join("afile");
+        std::fs::write(&file, b"x").expect("file");
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: file.to_string_lossy().into_owned(),
+            name: "Nope".to_owned(),
+            video: None,
+        }));
+        assert_eq!(refused.code, ErrorCode::Invalid);
+        assert!(
+            refused.message.contains("is not a folder"),
+            "{}",
+            refused.message
+        );
+    }
+
+    #[test]
+    fn instantiate_names_a_location_that_is_not_there() {
+        // The same location check as project.create, through the helper
+        // both methods call: it fires before the template is even read.
+        let (mut api, scratch, _events) = api();
+        let missing = scratch.path().join("nope").to_string_lossy().into_owned();
+        let refused = err(api.dispatch(Request::TemplateInstantiate {
+            template: "nope".to_owned(),
+            location: missing,
+            name: "Nope".to_owned(),
+            fills: Vec::new(),
+        }));
+        assert_eq!(refused.code, ErrorCode::NotFound);
+        assert!(
+            refused.message.contains("does not exist"),
+            "{}",
+            refused.message
+        );
+
+        let file = scratch.path().join("afile");
+        std::fs::write(&file, b"x").expect("file");
+        let refused = err(api.dispatch(Request::TemplateInstantiate {
+            template: "nope".to_owned(),
+            location: file.to_string_lossy().into_owned(),
+            name: "Nope".to_owned(),
+            fills: Vec::new(),
+        }));
+        assert_eq!(refused.code, ErrorCode::Invalid);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_names_a_location_that_refuses_the_write() {
+        // A location that is there and is a folder, but will not take
+        // the write, gets its own code, not Failed (#598). Unix only:
+        // the read-only folder is how a refusal is staged here, and
+        // Windows stages it with ACLs instead.
+        use std::os::unix::fs::PermissionsExt;
+
+        let (mut api, scratch, _events) = api();
+        let sealed = scratch.path().join("sealed");
+        std::fs::create_dir(&sealed).expect("sealed dir");
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o555)).expect("seal it");
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: sealed.to_string_lossy().into_owned(),
+            name: "Nope".to_owned(),
+            video: None,
+        }));
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755))
+            .expect("unseal it");
+        assert_eq!(refused.code, ErrorCode::NotWritable);
+        assert!(
+            refused.message.contains("could not write to"),
+            "{}",
+            refused.message
+        );
+        assert!(!sealed.join("Nope").exists(), "nothing made");
     }
 
     #[test]
