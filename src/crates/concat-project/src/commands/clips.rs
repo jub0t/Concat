@@ -763,12 +763,22 @@ pub(super) fn apply(
                 .map(|clip| clip.start + clip.duration)
                 .fold(0.0, f64::max);
             let duration = end - first.start;
-            if item.kind != MediaKind::Video
+            let audio = first.kind == ClipKind::Audio;
+            let expected = if audio {
+                MediaKind::Audio
+            } else {
+                MediaKind::Video
+            };
+            let tolerance = if audio { 1.0 / 48_000.0 } else { 1e-6 };
+            if item.kind != expected
+                || (audio && !item.has_audio)
                 || item.path.is_empty()
-                || item.duration.is_none_or(|length| length + 1e-6 < duration)
+                || item
+                    .duration
+                    .is_none_or(|length| !length.is_finite() || length + tolerance < duration)
             {
                 return Err(CommandError::CannotMerge {
-                    reason: "The merged video does not cover the selected clips.".into(),
+                    reason: "The merged media does not cover the selected clips.".into(),
                 });
             }
             let path = item.path.clone();
@@ -1194,7 +1204,9 @@ pub fn consolidation_clips(
     };
     let selected: HashSet<_> = clip_ids.iter().collect();
     if selected.len() < 2 || selected.len() != clip_ids.len() {
-        return Err(refuse("Select two or more distinct video clips to merge."));
+        return Err(refuse(
+            "Select two or more distinct audio or video clips to merge.",
+        ));
     }
     let mut clips: Vec<Clip> = clip_ids
         .iter()
@@ -1207,11 +1219,14 @@ pub fn consolidation_clips(
         .collect::<Result<_, _>>()?;
     clips.sort_by(|a, b| a.start.total_cmp(&b.start));
     let first = &clips[0];
-    if clips
-        .iter()
-        .any(|clip| clip.kind != ClipKind::Video || clip.track_id != first.track_id)
-    {
-        return Err(refuse("Select video clips on the same track to merge."));
+    if clips.iter().any(|clip| {
+        clip.kind != first.kind
+            || clip.track_id != first.track_id
+            || !matches!(clip.kind, ClipKind::Audio | ClipKind::Video)
+    }) {
+        return Err(refuse(
+            "Select only audio clips or only video clips on the same track to merge.",
+        ));
     }
     if timeline.track(&first.track_id).is_none() {
         return Err(CommandError::TrackGone);
@@ -1242,6 +1257,11 @@ pub fn consolidation_clips(
             && clip.start + clip.duration > first.start + 1e-6
     }) {
         return Err(refuse("Select every clip inside the span to merge."));
+    }
+    // Sound is cut on its sample clock, not the video frame grid. Picture
+    // layers and video transitions cannot obstruct an audio-only render.
+    if first.kind == ClipKind::Audio {
+        return Ok(clips);
     }
     // No rule about the frame grid: the engine rounds both ends of every
     // clip, so pieces touching in seconds touch on the grid, and the span

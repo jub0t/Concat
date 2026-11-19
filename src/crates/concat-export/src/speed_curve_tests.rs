@@ -109,6 +109,34 @@ fn a_flat_stretch_is_one_step_and_a_flat_curve_needs_no_steps() {
 }
 
 #[test]
+fn a_flat_unity_curve_adds_no_tempo_filter_to_128_sample_audio() {
+    let duration = 128.0 / f64::from(concat_media::audio::MIX_RATE);
+    for curve in [Vec::new(), vec![(0.0, 1.0), (1.0, 1.0)]] {
+        let mut clip = ExportClip::blank(ClipKind::Audio, 0.02, duration, 0);
+        clip.path = "/short.wav".into();
+        clip.source_start = 0.1;
+        clip.speed = 1.0;
+        clip.speed_curve = curve;
+        clip.preserve_pitch = true;
+        let pieces = audio_pieces(&clip);
+        assert_eq!(pieces.len(), 1);
+        let sound = &pieces[0];
+        close(sound.start, clip.start, "timeline start");
+        close(sound.duration, duration, "128 samples");
+        close(sound.source_start, clip.source_start, "source in-point");
+        close(sound.source_at(duration), duration, "source span");
+        assert!(
+            sound.tempo.is_empty(),
+            "a constant rate is not a tempo ramp"
+        );
+        assert!(
+            sound.retime_filters(0.0, "short").is_empty(),
+            "unity speed must not add an atempo window to a short clip"
+        );
+    }
+}
+
+#[test]
 fn short_clips_get_eight_steps_and_long_ones_four_hundred() {
     let mut clip = ramped(false);
     clip.duration = 0.3;

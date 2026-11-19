@@ -8,7 +8,7 @@ use std::path::Path;
 
 use concat_export::{ExportRequest, flatten::flatten_timeline_in};
 use concat_project::commands::NewMedia;
-use concat_project::model::{Clip, MediaItem, Project, VideoSettings};
+use concat_project::model::{Clip, ClipKind, MediaItem, Project, VideoSettings};
 use concat_project::{Command, consolidation_clips};
 
 /// The exact clips and media a render reads. Rechecked before replacement so
@@ -40,6 +40,54 @@ impl Consolidation {
             clips,
             media,
         })
+    }
+
+    /// Audio selections use their own sample clock and a WAV output.
+    pub fn is_audio(&self) -> bool {
+        self.clips[0].kind == ClipKind::Audio
+    }
+
+    /// The generated source name, also used by failure/cancel cleanup.
+    pub fn output_name(&self) -> &'static str {
+        if self.is_audio() {
+            "merged.wav"
+        } else {
+            "merged.mp4"
+        }
+    }
+
+    /// Runs the same audio graph as video export, without rendering pictures.
+    pub fn render_audio(
+        &self,
+        request: &ExportRequest,
+        cancel: &std::sync::atomic::AtomicBool,
+        mut progress: impl FnMut(crate::export::Progress),
+    ) -> Result<String, String> {
+        if !self.is_audio() {
+            return Err("An audio selection is required.".into());
+        }
+        let duration = self
+            .clips
+            .iter()
+            .map(|clip| clip.start + clip.duration)
+            .fold(0.0, f64::max)
+            - self.clips[0].start;
+        let mix: Vec<_> = request
+            .clips
+            .iter()
+            .filter(|clip| !clip.muted)
+            .flat_map(concat_export::audio_pieces)
+            .collect();
+        concat_media::audio::mix_to_wav(&mix, duration, Path::new(&request.output), |fraction| {
+            progress(crate::export::Progress {
+                frame: (fraction * 1000.0).round() as i64,
+                total: 1000,
+                stage: "mixing audio",
+            });
+            !cancel.load(std::sync::atomic::Ordering::Relaxed)
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(request.output.clone())
     }
 
     /// The lane the replacement belongs on, for the window's lock check.
@@ -98,7 +146,7 @@ impl Consolidation {
             .map(|clip| clip.start + clip.duration)
             .fold(0.0, f64::max);
         let padded = (end * self.video.rate() - 1e-9).ceil() / self.video.rate();
-        if padded > end + 1e-9 {
+        if !self.is_audio() && padded > end + 1e-9 {
             let mut marker = concat_export::ExportClip::blank(
                 concat_export::ClipKind::Layer,
                 0.0,
@@ -163,6 +211,77 @@ mod tests {
             ids.push(id.to_owned());
         }
         (project, ids)
+    }
+
+    #[test]
+    fn audio_plan_preserves_gain_fades_source_cuts_and_ignores_track_mute() {
+        let (mut project, ids) = selection();
+        project.active_mut().tracks[0].muted = true;
+        for id in &ids {
+            let clip = project.active_mut().clip_mut(id).unwrap();
+            clip.kind = ClipKind::Audio;
+            clip.start += 0.013;
+            clip.fade_in = 0.1;
+            clip.fade_out = 0.2;
+        }
+        let plan = Consolidation::new(&project, &ids).unwrap();
+        assert!(plan.is_audio());
+        assert_eq!(plan.output_name(), "merged.wav");
+        let request = plan.request(&project, Path::new("/project"), Path::new("/merged.wav"));
+        assert_eq!(request.clips.len(), 3, "no video padding marker in audio");
+        for (index, clip) in request.clips.iter().enumerate() {
+            assert!(!clip.muted, "track mute stays on the replacement track");
+            assert_eq!((clip.volume, clip.fade_in, clip.fade_out), (0.5, 0.1, 0.2));
+            assert_eq!(clip.source_start, [0.0, 10.0, 20.0][index]);
+        }
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        assert!(plan.render_audio(&request, &cancel, |_| {}).is_err());
+        let item: NewMedia = serde_json::from_value(serde_json::json!({
+            "path":"/merged.wav", "name":"Merged", "duration":4.0,
+            "kind":"audio", "audioCodec":"pcm_f32le", "hasAudio":true
+        }))
+        .unwrap();
+        assert!(plan.replacement(&project, item.clone()).is_ok());
+        project.active_mut().clip_mut(&ids[0]).unwrap().volume = 0.7;
+        assert!(plan.replacement(&project, item).is_err());
+    }
+
+    #[test]
+    fn audio_plan_leaves_sound_layers_outside_the_baked_selection() {
+        let (mut project, ids) = selection();
+        for id in &ids {
+            project.active_mut().clip_mut(id).unwrap().kind = ClipKind::Audio;
+        }
+        let track = project.active().tracks[1].id.clone();
+        let mut layer = Clip::blank(
+            "sound-layer",
+            &track,
+            ClipKind::SoundLayer,
+            "Telephone",
+            5.0,
+            4.0,
+        );
+        layer
+            .filters
+            .push(concat_project::model::AppliedFilter::new(
+                "concat.telephone",
+            ));
+        layer.opacity = 0.5;
+        layer.fade_in = 0.1;
+        layer.fade_out = 0.2;
+        project.active_mut().clips.push(std::sync::Arc::new(layer));
+        let before = project.clone();
+        let full = flatten_timeline_in(&project, None, Some(Path::new("/project")));
+        assert_eq!(concat_export::audio_buses(&full).len(), 1);
+
+        let plan = Consolidation::new(&project, &ids).unwrap();
+        let request = plan.request(&project, Path::new("/project"), Path::new("/merged.wav"));
+        assert_eq!(request.clips.len(), ids.len());
+        assert!(concat_export::audio_buses(&request.clips).is_empty());
+        assert_eq!(
+            project, before,
+            "the sound layer stays live and is not baked twice"
+        );
     }
 
     #[test]
