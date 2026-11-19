@@ -1,0 +1,36 @@
+{
+  "about": "Two two-second tones end to end, the first turned down to half and the second up to one and a half. Each is at its own volume while it plays and absent while the other does. A failure means a clip's volume is not applied, is applied to the wrong clip, or a clip is heard outside its own span.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "tone", "tag": 1, "seconds": 2 },
+    "b": { "kind": "tone", "tag": 3, "seconds": 2 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 }, "as": "clipB" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clipA", "patch": { "volume": 0.5 } } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clipB", "patch": { "volume": 1.5 } } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 119] }
+    ],
+    "level": [
+      { "at": 1, "media": "a", "gain": 0.5 },
+      { "at": 1, "media": "b", "gain": 0 },
+      { "at": 3, "media": "b", "gain": 1.5 },
+      { "at": 3, "media": "a", "gain": 0 },
+      { "at": 0.1, "media": "a", "gain": 0.5 },
+      { "at": 1.9, "media": "a", "gain": 0.5 },
+      { "at": 2.1, "media": "b", "gain": 1.5 },
+      { "at": 3.9, "media": "b", "gain": 1.5 }
+    ]
+  }
+}

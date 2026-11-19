@@ -63,6 +63,39 @@ pub fn pips(tag: u8, seconds: f64) -> Vec<f32> {
     samples
 }
 
+/// Mono samples at [`RATE`], `seconds` long: media `tag`'s pitch, steady,
+/// at the level a pip is.
+pub fn tone(tag: u8, seconds: f64) -> Vec<f32> {
+    let length = (seconds * f64::from(RATE)).round() as usize;
+    let step = 2.0 * std::f64::consts::PI * pitch(tag) / f64::from(RATE);
+    (0..length)
+        .map(|n| LEVEL * (step * n as f64).sin() as f32)
+        .collect()
+}
+
+/// How loud media `tag`'s tone is in `samples` around `at` seconds, of the
+/// level [`tone`] writes it at: its amplitude over 40 ms, weighted to the
+/// middle, so another media's tone sounding with it does not count and a
+/// fade is read where it is asked for, not averaged along its slope.
+pub fn level(samples: &[f32], rate: u32, at: f64, tag: u8) -> f64 {
+    let half = (0.02 * f64::from(rate)) as i64;
+    let centre = (at * f64::from(rate)).round() as i64;
+    let turn = 2.0 * std::f64::consts::PI * pitch(tag) / f64::from(rate);
+    let (mut real, mut imaginary, mut weight) = (0.0f64, 0.0f64, 0.0f64);
+    for offset in -half..=half {
+        let window = 0.5 + 0.5 * (std::f64::consts::PI * offset as f64 / half as f64).cos();
+        let sample = usize::try_from(centre + offset)
+            .ok()
+            .and_then(|index| samples.get(index))
+            .map_or(0.0, |sample| f64::from(*sample));
+        let angle = turn * (centre + offset) as f64;
+        real += window * sample * angle.cos();
+        imaginary += window * sample * angle.sin();
+        weight += window;
+    }
+    2.0 * real.hypot(imaginary) / weight / f64::from(LEVEL)
+}
+
 /// Writes `samples`, mono at [`RATE`], as 16-bit PCM WAV.
 pub fn write_wav(path: &Path, samples: &[f32]) -> Result<(), String> {
     let data = (samples.len() * 2) as u32;
@@ -184,6 +217,24 @@ mod tests {
                 "tag {tag}: {heard:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_tones_level_is_read_where_it_is_asked_for_and_another_tone_does_not_count() {
+        let mut both = tone(1, 2.0);
+        // Tag 1 fades in over the first second, as the square of the time;
+        // tag 3 sounds over it at a fifth.
+        for (index, (sample, other)) in both.iter_mut().zip(tone(3, 2.0)).enumerate() {
+            let t = (index as f32 / RATE as f32).min(1.0);
+            *sample = *sample * t * t + 0.2 * other;
+        }
+        for (at, gain) in [(0.25, 0.0625), (0.5, 0.25), (0.75, 0.5625), (1.5, 1.0)] {
+            let read = level(&both, RATE, at, 1);
+            assert!((read - gain).abs() < 0.005, "at {at}: {read}, not {gain}");
+            let other = level(&both, RATE, at, 3);
+            assert!((other - 0.2).abs() < 0.005, "tag 3 at {at}: {other}");
+        }
+        assert!(level(&both, RATE, 1.0, 5) < 0.002);
     }
 
     #[test]

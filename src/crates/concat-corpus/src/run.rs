@@ -24,7 +24,7 @@ use concat_core::time::{FrameRate, Rational};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
 use serde_json::{Value, json};
 
-use crate::case::{Case, Media, Shows};
+use crate::case::{Case, Harness, Media, Shows, Splice};
 use crate::code;
 use crate::media;
 use crate::report::Report;
@@ -52,6 +52,12 @@ const BLACK: u8 = 40;
 /// landed: a millisecond, well inside what a person hears as out of sync
 /// and a twentieth of a frame at 50 fps.
 const PIP_TOLERANCE: f64 = 0.001;
+
+/// How far a tone's level may be from the one a case states: a hundredth
+/// of full level, or a twentieth of the level itself where that is more
+/// (0.4 dB). A fade read a frame early or late is off by more than both.
+const LEVEL_TOLERANCE: f64 = 0.01;
+const LEVEL_SHARE: f64 = 0.05;
 
 /// How far from its place a pip is looked for: under half the gap
 /// between two pips at the fastest speed a case uses.
@@ -180,6 +186,7 @@ fn make(path: &Path, spec: &Media) -> Result<(), String> {
         }
         Media::Still { tag, width, height } => media::still(path, *width, *height, *tag),
         Media::Pips { tag, seconds } => sound::write_wav(path, &sound::pips(*tag, *seconds)),
+        Media::Tone { tag, seconds } => sound::write_wav(path, &sound::tone(*tag, *seconds)),
     }
 }
 
@@ -273,12 +280,14 @@ impl Runner<'_> {
                 continue;
             }
             if step.get("step").is_some() {
-                self.round_trip(report, label, &project, &format!("step {at}"))?;
+                let harness: Harness = serde_json::from_value(step.clone())
+                    .map_err(|error| format!("step {at} is no harness step: {error}"))?;
+                self.harness(report, label, &project, at, &harness)?;
                 continue;
             }
             self.script_step(at, step, &mut bindings)?;
         }
-        self.round_trip(report, label, &project, "the end")?;
+        self.round_trip(report, label, &project, "the end", |_| Ok(()))?;
         Ok(project)
     }
 
@@ -381,20 +390,140 @@ impl Runner<'_> {
         Ok(())
     }
 
-    /// Saves, closes and reopens the project and checks the document came
-    /// back as it went.
+    /// One of the harness's own steps.
+    fn harness(
+        &mut self,
+        report: &mut Report,
+        label: &str,
+        project: &str,
+        at: usize,
+        step: &Harness,
+    ) -> Result<(), String> {
+        let when = format!("step {at}");
+        match step {
+            Harness::CloseAndReopen => self.round_trip(report, label, project, &when, |_| Ok(())),
+            Harness::RemoveFile { media } | Harness::RestoreFile { media } => {
+                let file = self
+                    .files
+                    .get(media)
+                    .cloned()
+                    .ok_or_else(|| format!("step {at}: no file was made for {media}"))?;
+                let away = file.with_extension("away");
+                let (from, to, what) = match step {
+                    Harness::RemoveFile { .. } => (file, away, "gone"),
+                    _ => (away, file, "back"),
+                };
+                let when = format!("{when}, with {media}'s file {what}");
+                self.round_trip(report, label, project, &when, |_| {
+                    std::fs::rename(&from, &to).map_err(|error| {
+                        format!(
+                            "could not move {} to {}: {error}",
+                            from.display(),
+                            to.display()
+                        )
+                    })
+                })
+            }
+            Harness::SpliceDocument { append, merge } => {
+                self.splice(report, label, project, &when, append, merge)
+            }
+        }
+    }
+
+    /// Saves and closes the project, writes `append` and `merge` into its
+    /// saved document, reopens it, and checks all of it is in the document
+    /// the project then gives: what this build cannot read, it keeps.
+    fn splice(
+        &mut self,
+        report: &mut Report,
+        label: &str,
+        project: &str,
+        when: &str,
+        append: &[Splice],
+        merge: &[Splice],
+    ) -> Result<(), String> {
+        self.send(Request::ProjectClose {
+            path: project.to_owned(),
+            save: true,
+        })?;
+        let file = Path::new(project).join("concat.json");
+        let text = std::fs::read_to_string(&file)
+            .map_err(|error| format!("could not read {}: {error}", file.display()))?;
+        let mut document: Value = serde_json::from_str(&text)
+            .map_err(|error| format!("{} is not JSON: {error}", file.display()))?;
+        for splice in append {
+            document
+                .pointer_mut(&splice.at)
+                .and_then(Value::as_array_mut)
+                .ok_or_else(|| format!("{when}: {} is no array in the saved document", splice.at))?
+                .push(splice.value.clone());
+        }
+        for splice in merge {
+            let object = document
+                .pointer_mut(&splice.at)
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| {
+                    format!("{when}: {} is no object in the saved document", splice.at)
+                })?;
+            for (key, value) in splice.value.as_object().into_iter().flatten() {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+        let text = serde_json::to_string_pretty(&document)
+            .map_err(|error| format!("the spliced document does not encode: {error}"))?;
+        std::fs::write(&file, text)
+            .map_err(|error| format!("could not write {}: {error}", file.display()))?;
+        self.send(Request::ProjectOpen {
+            path: project.to_owned(),
+        })?;
+        let opened = self.document(project)?;
+        let mut lost = Vec::new();
+        for splice in append {
+            let kept = opened
+                .pointer(&splice.at)
+                .and_then(Value::as_array)
+                .is_some_and(|items| items.contains(&splice.value));
+            if !kept {
+                lost.push(format!("{} lost {}", splice.at, splice.value));
+            }
+        }
+        for splice in merge {
+            for (key, value) in splice.value.as_object().into_iter().flatten() {
+                if opened
+                    .pointer(&splice.at)
+                    .and_then(|object| object.get(key))
+                    != Some(value)
+                {
+                    lost.push(format!("{} lost its {key}", splice.at));
+                }
+            }
+        }
+        report.check(
+            format!(
+                "{label}: what was written into the saved document at {when} is in the opened one"
+            ),
+            lost.is_empty(),
+            named(&lost, &format!("all {} of it", append.len() + merge.len())),
+        );
+        Ok(())
+    }
+
+    /// Saves and closes the project, does `between` to what is on disk,
+    /// reopens it and checks the document came back as it went.
     fn round_trip(
         &mut self,
         report: &mut Report,
         label: &str,
         project: &str,
         when: &str,
+        between: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<(), String> {
         let before = self.document(project)?;
         self.send(Request::ProjectClose {
             path: project.to_owned(),
             save: true,
         })?;
+        between(Path::new(project))?;
         self.send(Request::ProjectOpen {
             path: project.to_owned(),
         })?;
@@ -568,6 +697,10 @@ impl Runner<'_> {
             self.check_sound(report, output)?;
         }
 
+        if !expect.level.is_empty() {
+            self.check_levels(report, output)?;
+        }
+
         if !expect.black.is_empty() {
             let mut grey = Vec::new();
             for (index, frame) in frames.iter().enumerate() {
@@ -702,6 +835,42 @@ impl Runner<'_> {
                     worst * 1000.0
                 ),
             ),
+        );
+        Ok(())
+    }
+
+    /// Holds each tone to how loud the case says it is at each instant.
+    fn check_levels(&mut self, report: &mut Report, output: &Path) -> Result<(), String> {
+        let options = concat_media::AudioOptions {
+            rate: sound::RATE,
+            channels: 1,
+            format: concat_media::SampleFormat::F32,
+            ..concat_media::AudioOptions::default()
+        };
+        let samples = concat_media::AudioDecoder::open(output, &options)
+            .and_then(|mut decoder| decoder.collect_f32())
+            .map_err(|error| format!("the export's sound does not decode: {error}"))?;
+        let mut wrong = Vec::new();
+        let mut worst: f64 = 0.0;
+        for level in &self.case.expect.level {
+            let tag = self.case.media.get(&level.media).map_or(0, Media::tag);
+            let heard = sound::level(&samples, sound::RATE, level.at, tag);
+            let off = (heard - level.gain).abs();
+            worst = worst.max(off);
+            if off > LEVEL_TOLERANCE.max(level.gain * LEVEL_SHARE) {
+                wrong.push(format!(
+                    "{} at {} s is at {heard:.4} of its level, not {}",
+                    level.media, level.at, level.gain
+                ));
+            }
+        }
+        report.check(
+            format!(
+                "the sound is as loud as the case expects at its {} instants",
+                self.case.expect.level.len()
+            ),
+            wrong.is_empty(),
+            named(&wrong, &format!("the furthest {worst:.4} from its level")),
         );
         Ok(())
     }

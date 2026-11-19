@@ -16,7 +16,11 @@
 //! start of a string stands for a literal `$`). A step with `"step"` in
 //! place of `"method"` is the harness's own: `closeAndReopen` saves and
 //! closes the project, opens it again and holds the document to what it
-//! was. `"bind"` on a request binds names to anything else in its answer:
+//! was; `removeFile` and `restoreFile` do the same with the named media's
+//! file taken away or put back while the project is closed; and
+//! `spliceDocument` writes into the saved file, while it is closed, things
+//! this build has never heard of, which must be there when it is opened
+//! and stay through every save after. `"bind"` on a request binds names to anything else in its answer:
 //! each to the string or number a JSON pointer finds in the project the
 //! request answered with, `"/project/timelines/0/tracks/0/id"` for the
 //! first track's id.
@@ -89,13 +93,24 @@ pub enum Media {
         /// How long it is.
         seconds: f64,
     },
+    /// A WAV of one steady tone at the media's pitch, for how loud a
+    /// sound is where: see [`Expect::level`].
+    Tone {
+        /// The media tag its pitch stands for, 1 to 7.
+        tag: u8,
+        /// How long it is.
+        seconds: f64,
+    },
 }
 
 impl Media {
     /// The media tag the picture's codes carry.
     pub fn tag(&self) -> u8 {
         match self {
-            Media::Clock { tag, .. } | Media::Still { tag, .. } | Media::Pips { tag, .. } => *tag,
+            Media::Clock { tag, .. }
+            | Media::Still { tag, .. }
+            | Media::Pips { tag, .. }
+            | Media::Tone { tag, .. } => *tag,
         }
     }
 
@@ -104,7 +119,7 @@ impl Media {
         match self {
             Media::Clock { .. } => "mov",
             Media::Still { .. } => "png",
-            Media::Pips { .. } => "wav",
+            Media::Pips { .. } | Media::Tone { .. } => "wav",
         }
     }
 
@@ -118,7 +133,7 @@ impl Media {
                 ..
             } => Some(f64::from(*frames) * rate[1] as f64 / rate[0] as f64),
             Media::Pips { seconds, .. } => Some(*seconds),
-            Media::Clock { .. } | Media::Still { .. } => None,
+            Media::Clock { .. } | Media::Still { .. } | Media::Tone { .. } => None,
         }
     }
 }
@@ -147,6 +162,61 @@ pub struct Expect {
     /// not put one is an error, as is silence where they do.
     #[serde(default)]
     pub sound: Vec<SoundRun>,
+    /// How loud a tone is at instants of the export: fades, volume, a
+    /// clip that should not be heard at all.
+    #[serde(default)]
+    pub level: Vec<Level>,
+}
+
+/// How loud one media's tone must be at one instant of the export.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Level {
+    /// The instant, in seconds from the start of the file.
+    pub at: f64,
+    /// The tone, by its name in [`Case::media`].
+    pub media: String,
+    /// Its amplitude there, of what the file was made at: 1 untouched,
+    /// 0.25 half way through a one-second fade, 0 where it is not heard.
+    pub gain: f64,
+}
+
+/// A step that is the harness's own, not a request.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "step", rename_all = "camelCase", deny_unknown_fields)]
+pub enum Harness {
+    /// Save, close, reopen; the document must be as it was.
+    CloseAndReopen,
+    /// The same, with the media's file gone when the project reopens.
+    RemoveFile {
+        /// The media, by its name in [`Case::media`].
+        media: String,
+    },
+    /// The same, with the media's file back.
+    RestoreFile {
+        /// The media, by its name in [`Case::media`].
+        media: String,
+    },
+    /// Save and close, write into the saved document, reopen: everything
+    /// written must be in the document the project then says it is.
+    SpliceDocument {
+        /// Values added to the end of arrays in the document.
+        #[serde(default)]
+        append: Vec<Splice>,
+        /// Fields added to objects in the document.
+        #[serde(default)]
+        merge: Vec<Splice>,
+    },
+}
+
+/// One thing written into a saved document.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Splice {
+    /// A JSON pointer to the array or the object.
+    pub at: String,
+    /// What is appended to the array, or the fields merged into the object.
+    pub value: Value,
 }
 
 /// A stretch of the export's sound playing one media's pips.
@@ -361,7 +431,7 @@ impl Case {
                     (*width, *height)
                 }
                 Media::Still { width, height, .. } => (*width, *height),
-                Media::Pips { seconds, .. } => {
+                Media::Pips { seconds, .. } | Media::Tone { seconds, .. } => {
                     if !seconds.is_finite() || *seconds <= 0.0 {
                         return Err(format!("media {name}: a song lasts more than nothing"));
                     }
@@ -441,6 +511,17 @@ impl Case {
                 ));
             }
         }
+        for level in &expect.level {
+            if !matches!(self.media.get(&level.media), Some(Media::Tone { .. })) {
+                return Err(format!("expect: {} is no tone to measure", level.media));
+            }
+            if !(level.at >= 0.0 && level.gain >= 0.0 && level.gain.is_finite()) {
+                return Err(format!(
+                    "expect: the level of {} at {} s needs an instant and a gain at or past 0",
+                    level.media, level.at
+                ));
+            }
+        }
         for rect in &expect.black {
             if rect[0] + rect[2] > expect.width || rect[1] + rect[3] > expect.height {
                 return Err(format!(
@@ -474,13 +555,14 @@ impl Case {
                 .ok_or_else(|| format!("step {at} is not an object"))?;
             match (object.get("method"), object.get("step")) {
                 (Some(_), None) => {}
-                (None, Some(Value::String(name))) if name == "closeAndReopen" => {
-                    if object.len() != 1 {
-                        return Err(format!("step {at}: closeAndReopen takes nothing"));
+                (None, Some(_)) => {
+                    let harness: Harness = serde_json::from_value(step.clone())
+                        .map_err(|error| format!("step {at} is no harness step: {error}"))?;
+                    if let Harness::RemoveFile { media } | Harness::RestoreFile { media } = &harness
+                        && !self.media.contains_key(media)
+                    {
+                        return Err(format!("step {at}: no media is called {media}"));
                     }
-                }
-                (None, Some(other)) => {
-                    return Err(format!("step {at}: no harness step is called {other}"));
                 }
                 _ => {
                     return Err(format!(
