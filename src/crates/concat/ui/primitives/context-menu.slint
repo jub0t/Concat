@@ -59,6 +59,9 @@ export component ContextMenu inherits Rectangle {
     in property <[MenuItemData]> items;
     /// The summed height of `items` plus MenuMetrics.padding.
     in property <length> menu-height;
+    /// Read from the popup rather than tracked here: a click outside closes
+    /// it without telling us, so a hand-rolled flag would go stale.
+    out property <bool> open: surface.is-open;
 
     callback selected(id: string);
     /// Left or right from the keyboard: the menu beside this one, for a

@@ -57,6 +57,10 @@ LITERAL = r'"((?:[^"\\]|\\.)*)"'
 SLINT_CALL = re.compile(r"I18n\.(?:t[12]?|upper)\(\s*" + LITERAL)
 RUST_CALL = re.compile(r"(?<![A-Za-z_])(?:i18n::)?tf?\(\s*" + LITERAL)
 KEY = re.compile(r"^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+$")
+INLINE_TESTS = re.compile(r"#\[cfg\(test\)\]\s*(?:pub(?:\([a-z]+\))?\s+)?mod\s+\w+\s*\{")
+# Files outside the window's crate that hold keys as data, for the window to
+# translate by name: every literal in them shaped like a key is one.
+KEY_TABLES = ["src/crates/concat-project/src/speed.rs"]
 # One entry of i18n.rs's BUILT_IN: `("pt-BR", include_str!("../locales/pt-BR.json")),`.
 BUILT_IN_ENTRY = re.compile(r'\(\s*"([^"]+)",\s*include_str!\("\.\./locales/([^"]+)\.json"\)\s*\)')
 
@@ -95,7 +99,9 @@ def live(text: str, rust: bool):
     """Code only: not the comments that describe a call, and not the tests,
     whose keys are made up."""
     if rust:
-        text = text.split("#[cfg(test)]")[0]
+        # Only an inline test module ends the code. `#[cfg(test)] mod x;`
+        # (a test file, declared near the top) and a test-only `use` do not.
+        text = INLINE_TESTS.split(text)[0]
     return "\n".join("" if line.lstrip().startswith("//") else line for line in text.split("\n"))
 
 
@@ -107,6 +113,9 @@ def code_keys() -> set[str]:
         out.update(unescape(m.group(1)) for m in SLINT_CALL.finditer(live(path.read_text(encoding="utf-8"), False)))
     for path in (CRATE / "src").rglob("*.rs"):
         out.update(unescape(m.group(1)) for m in RUST_CALL.finditer(live(path.read_text(encoding="utf-8"), True)))
+    for table in KEY_TABLES:
+        text = live((ROOT / table).read_text(encoding="utf-8"), True)
+        out.update(unescape(m.group(1)) for m in re.finditer(LITERAL, text) if KEY.match(unescape(m.group(1))))
     # A literal that is only a place to fill - `I18n.t1("{0}", ...)` - is
     # passed through and is not a string to translate.
     return {key for key in out if key.strip("{}0123456789 ")}

@@ -1243,24 +1243,10 @@ pub fn consolidation_clips(
     }) {
         return Err(refuse("Select every clip inside the span to merge."));
     }
-    // Rounding several subframe spans is not always equivalent to rounding
-    // their union. Refuse a span that one ordinary clip could truncate, or
-    // whose pieces overlap after quantisation, instead of losing a frame.
-    let fps = timeline.video.rate();
-    let frame = |seconds: f64| (seconds * fps).round();
-    let rendered_end = clips
-        .iter()
-        .map(|clip| frame(clip.start) + frame(clip.duration))
-        .fold(0.0, f64::max);
-    if rendered_end != frame(first.start) + frame(end - first.start)
-        || clips
-            .windows(2)
-            .any(|pair| frame(pair[1].start) < frame(pair[0].start) + frame(pair[0].duration))
-    {
-        return Err(refuse(
-            "Align clip boundaries to the timeline frame grid before merging.",
-        ));
-    }
+    // No rule about the frame grid: the engine rounds both ends of every
+    // clip, so pieces touching in seconds touch on the grid, and the span
+    // the merged clip takes covers the frames the pieces did, no more and
+    // none fewer, wherever between frames they were cut (#756).
     // MP4 bakes against black and cannot carry the selection's alpha.
     // Refuse a bake that would cover an existing lower-track composite.
     let lane = timeline

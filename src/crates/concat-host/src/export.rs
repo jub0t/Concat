@@ -64,15 +64,33 @@ pub struct Progress {
 
 /// The session flattened into a request the engine can render.
 pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) -> ExportRequest {
-    let settings = session.settings();
-    let mut clips = session.flattened_clips();
+    request_for(
+        session.project(),
+        std::path::Path::new(session.path()),
+        spec,
+        titles,
+    )
+}
+
+/// [`request`] from a copy of the edit and its folder rather than the
+/// session, for a thread of the export's own: the window hands over a
+/// snapshot and goes on answering while the flattening is done. The
+/// active timeline's frame and rate, as the session's settings are.
+pub fn request_for(
+    project: &concat_project::model::Project,
+    project_dir: &std::path::Path,
+    spec: &ExportSpec,
+    titles: Vec<ExportClip>,
+) -> ExportRequest {
+    let video = project.active().video;
+    let mut clips = concat_export::flatten::flatten_timeline_in(project, None, Some(project_dir));
     clips.extend(titles);
     ExportRequest {
         output: spec.output.clone(),
-        width: settings.width,
-        height: settings.height,
-        rate_num: settings.rate_num,
-        rate_den: settings.rate_den,
+        width: video.width,
+        height: video.height,
+        rate_num: video.rate_num,
+        rate_den: video.rate_den,
         crf: spec.crf,
         preset: spec.preset.clone(),
         codec: spec.codec,
@@ -80,10 +98,10 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         rate_mode: spec.rate_mode,
         bitrate_kbps: spec.bitrate_kbps,
         color_range: spec.color_range,
-        color_space: session.video().color_space,
+        color_space: video.color_space,
         hdr: spec.hdr,
         effect_time_offset: 0.0,
-        canvas: session.video().canvas,
+        canvas: video.canvas,
         clips,
     }
 }
@@ -112,21 +130,55 @@ pub fn run_on(
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
 ) -> Result<String, String> {
+    // What a death part way through needs to be read: what was asked for,
+    // which stage it was in, and how far that stage had got. The stages
+    // and every quarter of one are a handful of lines an export.
+    let fps = request.rate_num as f64 / request.rate_den.max(1) as f64;
+    log::info!(
+        "export: {}x{} {fps:.3} fps · {}{} · {} kbps · {} clips",
+        request.width,
+        request.height,
+        request.codec.name(),
+        if request.ten_bit { " 10-bit" } else { "" },
+        request.bitrate_kbps,
+        request.clips.len(),
+    );
+    let mut stage_now = "";
+    let mut quarter = 0;
+    let mut reached = (0, 0);
     let mut report = |frame: i64, total: i64, stage: &'static str| {
+        if stage != stage_now {
+            log::info!("export: {stage} · {total} frames");
+            stage_now = stage;
+            quarter = 0;
+        }
+        let now = if total > 0 { frame * 4 / total } else { 0 };
+        if (1..4).contains(&now) && now > quarter {
+            log::info!("export: {stage} · frame {frame} of {total}");
+            quarter = now;
+        }
+        reached = (frame, total);
         progress(Progress {
             frame,
             total,
             stage,
         });
     };
-    render_on(
+    let result = render_on(
         request,
         compositor,
         Reporter {
             progress: &mut report,
             cancel,
         },
-    )
+    );
+    // How it ended, and where its time went, is the engine's own line
+    // (`render_on`); this adds only how far a stopped one had got.
+    if result.is_err() {
+        let (frame, total) = reached;
+        log::info!("export: stopped in {stage_now} at frame {frame} of {total}");
+    }
+    result
 }
 
 /// The slot for the one export that can run at a time - enforced, not

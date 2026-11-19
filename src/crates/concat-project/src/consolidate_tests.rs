@@ -20,7 +20,6 @@ const SAME_LANE: &str = "Select video clips on the same track to merge.";
 const OVERLAP: &str = "Overlapping clips cannot be merged.";
 const DETACHED: &str = "Reattach detached audio before merging its video clips.";
 const WHOLE_SPAN: &str = "Select every clip inside the span to merge.";
-const FRAME_GRID: &str = "Align clip boundaries to the timeline frame grid before merging.";
 const COVERED: &str = "Clips above other visible content cannot be merged into an opaque video.";
 const TRANSITION: &str = "Include both sides of a transition in the merge.";
 const SHORT_FILE: &str = "The merged video does not cover the selected clips.";
@@ -302,28 +301,58 @@ fn every_clip_inside_the_span_on_the_lane_must_be_selected() {
 }
 
 #[test]
-fn cuts_that_round_to_different_frames_than_the_whole_span_are_refused() {
-    // At 30 fps: 0.05 s rounds to 2 frames, 0.1 s to 3. Two pieces of
-    // 0.05 s would end on frame 4 while their span ends on frame 3.
+fn cuts_between_frames_can_be_merged() {
+    // Each clip's two ends are rounded to the frame grid, so pieces that
+    // touch in seconds touch on the grid and their span is the frames the
+    // pieces cover: no cut between frames can lose or double one. These
+    // were refused when a start and a length were rounded apart.
     let mut desk = Desk::new();
     let a = desk.place(0, 0.0);
     let b = desk.place(0, 10.0);
+
+    // At 30 fps: 0.05 s rounded alone is 2 frames, 0.1 s is 3.
     desk.span(&a, 0.0, 0.05);
     desk.span(&b, 0.05, 0.05);
-    assert_eq!(desk.refusal(&[&a, &b]), FRAME_GRID);
+    desk.accepts(&[&a, &b]);
 
-    // A piece starting at 0.02 s (frame 1) for 0.05 s ends on frame 3,
-    // but the next one, at 0.07 s, starts on frame 2: they would overlap
-    // once drawn, though their seconds only touch.
+    // 0.02 s for 0.05 s, then 0.07 s: a length rounded alone would have
+    // run the first into the second.
     desk.span(&a, 0.02, 0.05);
     desk.span(&b, 0.07, 0.05);
-    assert_eq!(desk.refusal(&[&a, &b]), FRAME_GRID);
+    desk.accepts(&[&a, &b]);
 
-    // Fractional seconds that round the same either way are fine:
-    // 0.5 s is 15 frames, 0.51 s rounds to 15, 1.01 s to 30.
     desk.span(&a, 0.0, 0.5);
     desk.span(&b, 0.5, 0.51);
     desk.accepts(&[&a, &b]);
+}
+
+#[test]
+fn both_halves_of_a_clip_split_between_frames_can_be_merged() {
+    // #756: one video, split, both halves selected - the merge stayed
+    // disabled. At 30 fps a cut at 1 s and half a frame, and one at
+    // 1.02 s in a clip dragged to 0.01 s, are both between frames.
+    for (start, cut) in [(0.0, 1.0 + 1.0 / 60.0), (0.01, 1.02), (0.0, 1.05)] {
+        let mut desk = Desk::new();
+        let whole = desk.place(0, start);
+        desk.editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![whole.clone()],
+                time: cut,
+            })
+            .expect("the clip splits");
+        let ids: Vec<String> = desk
+            .editor
+            .project()
+            .active()
+            .clips
+            .iter()
+            .map(|clip| clip.id.clone())
+            .collect();
+        assert_eq!(ids.len(), 2, "two halves");
+        if let Err(error) = desk.check(&[&ids[0], &ids[1]]) {
+            panic!("a clip at {start} s split at {cut} s cannot be merged: {error}");
+        }
+    }
 }
 
 #[test]

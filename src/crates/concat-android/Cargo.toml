@@ -31,6 +31,13 @@ libc = "0.2"
 # there is one JNI in the binary.
 jni = "0.22"
 
+[features]
+# CI's emulator build only, never the APK that ships: a clip pushed to
+# the app's files folder as smoke-export.<extension> is made a project of and exported
+# at start, through the window's own messages, and the app exits when
+# the export ends (scripts/ci/smoke-android.sh --export).
+smoke = []
+
 [build-dependencies]
 # javac and d8 through the SDK, the way Slint's backend compiles its own
 # helper.
@@ -45,6 +52,11 @@ package = "app.concat.editor"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
 runtime_libs = "../../vendor/android/jniLibs"
+# Every library goes into the APK without debug information (cargo-apk's
+# `strip` takes that and leaves the symbol table). The phone build in CI
+# also keeps the library as an artifact of the run, for naming the frames
+# of a hang or a crash (scripts/symbolize-android.sh).
+strip = "strip"
 # The launcher icon, at every density Android asks for (48, 72, 96, 144,
 # 192px); rendered from assets/new_concat_logo_512_rounded_light_theme.svg.
 resources = "res"

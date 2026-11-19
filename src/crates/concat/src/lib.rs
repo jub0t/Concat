@@ -61,15 +61,23 @@ pub use platform::{
 };
 #[cfg(target_os = "android")]
 pub use platform::{LinkOpener, install_link_opener};
+#[cfg(target_os = "android")]
+pub use platform::{LogSharer, install_log_sharer, log_file_name, note_last_exit};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
+/// What a backend's hooks say of the window, for safe start: it drew a
+/// frame, or the person used it. On a desktop `DropHandler` says it; on
+/// Android, the activity's event listener. See `start_watch`.
+pub use start_watch::{window_drew, window_touched};
 #[cfg(test)]
 mod close_gate_tests;
 mod panes;
 mod prefs;
 mod presets;
+mod smoke_export;
 mod source;
 mod speed_ramp;
+mod start_watch;
 mod studio;
 mod sysinfo;
 /// Native Wayland file drops, which winit does not report; see the module.
@@ -189,7 +197,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
 /// unreadable project leaves the launch screen open with the usual error notice.
 /// Each invocation creates its own window; this does not control another instance.
 pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint::PlatformError> {
-    start(project, false)
+    start(project, Smoke::No)
 }
 
 /// Starts the way [`run`] does, as far as the window's first publish, and
@@ -203,7 +211,28 @@ pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint
 /// No project is opened, so the recents list is not touched; the
 /// preferences are read, and a log file written, as on any launch.
 pub fn smoke() -> Result<(), slint::PlatformError> {
-    start(None, true)
+    start(None, Smoke::Start)
+}
+
+/// Starts the way [`run`] does and then exports a project of `clip`, made
+/// and exported by the messages the launch screen, the media bin and the
+/// Export sheet send, from inside the window's event loop; the process
+/// exits 0 once the file is written and 1 with the reason in the log when
+/// it is not. For CI, where a launch-only run never reaches an export: an
+/// export that froze the window on every phone shipped twice (#747).
+pub fn smoke_export(clip: std::path::PathBuf) -> Result<(), slint::PlatformError> {
+    start(None, Smoke::Export(clip))
+}
+
+/// Which of CI's runs a launch is, if any.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Smoke {
+    /// A person's launch.
+    No,
+    /// [`smoke`]: as far as the first frame.
+    Start,
+    /// [`smoke_export`]: a project of this clip, exported.
+    Export(std::path::PathBuf),
 }
 
 /// Runs one way out of the open project, in the order that keeps the work
@@ -235,7 +264,7 @@ pub(crate) fn close_window(
 /// a few seconds of scrubbing around where the monitor is, at its size.
 const IDLE_FRAMES: usize = 96 * 1024 * 1024;
 
-fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
+fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint::PlatformError> {
     // What Import and a finished export reach on an iPhone. Android's own
     // crate installs its; iOS runs this crate's binary, so it is here.
     // https://github.com/jub0t/Concat/issues/332
@@ -254,7 +283,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
 
     // Not for a smoke run: it exits through `leave`, past the mark's drop,
     // and the mark it left put the next real launch in software for nothing.
-    let (startup_mark, safe) = if smoke { (None, false) } else { safe_start() };
+    let (startup_mark, safe) = if smoke == Smoke::No {
+        safe_start()
+    } else {
+        (None, false)
+    };
 
     // The shell doesn't exist yet - it needs the window the backend is about
     // to help create - but `Shell::with` is a no-op until `Shell::install`
@@ -381,6 +414,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // first thing the window says.
     let mut studio = Studio::new(host);
     studio.set_phone(phone);
+    // A phone whose last run died says so once, now, and offers its log;
+    // the next launch reads this run, which did not (#560).
+    #[cfg(target_os = "android")]
+    if platform::last_run_died() {
+        log::info!("start: the last run died; offering its log");
+        studio.confirm = Some(studio::Confirm::LastRunClosed);
+    }
     if safe {
         // Each key in a call of its own: scripts/locales.py finds a key by
         // the literal inside `t(...)`, and one held in a variable is lost.
@@ -390,6 +430,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             i18n::t("start.safeMode")
         };
         studio.notify(&notice, false);
+    } else if platform::no_graphics_driver() {
+        // The machine's own state, not a choice: what makes Concat slow
+        // here, and what fixes it, said once.
+        studio.notify(&i18n::t("start.noGraphicsDriver"), false);
     }
     studio.reload_packages(false);
     studio.watch_packages();
@@ -492,6 +536,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         |studio, _, _, families| studio.system_fonts_known(families),
     );
 
+    // Which codecs can be written here, and which by the chip: a phone
+    // finds out only by opening its encoders, two seconds or so on some,
+    // and the export sheet asked on the window's first publish, before
+    // the window answered a touch. Asked on a worker; the sheet offers
+    // what needs no asking meanwhile (H.264, and a desktop's software
+    // encoders), and the publish after this lands brings the rest.
+    host::spawn_long(concat_media::encode::probe_encoders, |_, _, _, ()| {});
+
     // Handed over once, here, and never replaced: a fresh model is a reset,
     // and a reset rebuilds every row that hangs off it.
     {
@@ -509,6 +561,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_catalogue_filters(ModelRc::from(models.catalogue_filters.clone()));
         editor.set_catalogue_luts(ModelRc::from(models.catalogue_luts.clone()));
         editor.set_catalogue_audio(ModelRc::from(models.catalogue_audio.clone()));
+        editor.set_catalogue_audio_library(ModelRc::from(models.catalogue_audio_library.clone()));
         editor.set_catalogue_transitions(ModelRc::from(models.catalogue_transitions.clone()));
         editor.set_effect_groups(ModelRc::from(models.effect_groups.clone()));
         editor.set_filter_groups(ModelRc::from(models.filter_groups.clone()));
@@ -2254,6 +2307,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_shortcut_reset_all(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ShortcutResetAll));
     }));
+    // The notice says when it has gone, which is what lets a failure stand
+    // against a confirmation until it has been seen. Nothing on screen
+    // changes, so nothing is published.
+    app.on_toast_gone(|token| {
+        Shell::with(|shell, _app| shell.studio.borrow_mut().toast.gone(token));
+    });
     app.on_settings_show_log(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ShowLog));
     }));
@@ -2744,7 +2803,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     .peaks
                     .get(&plan.media)
                     .filter(|_| plan.kind == ClipKind::Audio)
-                    .map(|peaks| format::wave_path(peaks, 0.0, plan.duration, 32, 0.75))
+                    .map(|peaks| {
+                        format::wave_path(peaks, 0.0, plan.duration, 32, 0.75, format::WAVE_FLOOR)
+                    })
                     .unwrap_or_default();
                 let document = chips::drag_chip_svg(
                     chips::chip_glyph(plan.kind),
@@ -2807,7 +2868,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // and has been handed to the window. The exit is the one the event
     // loop's end takes below, for the same reason - the engine's threads
     // are not waited on.
-    if smoke {
+    if smoke == Smoke::Start {
         // whisper's CPU kernels, which the x86_64 Windows and Linux bundles
         // carry as modules beside the program, one per CPU generation, for
         // ggml to choose from (#388). A bundle without them starts and
@@ -2830,6 +2891,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         log::info!("smoke: ok");
         leave(0);
     }
+    // An export run goes on into the loop, where its steps run on a timer
+    // held for the loop's life.
+    let _smoke_export = match smoke {
+        Smoke::Export(clip) => Some(smoke_export::drive(clip)),
+        Smoke::No | Smoke::Start => None,
+    };
 
     // Decoders nobody has asked a frame of for ten seconds are closed,
     // looked at every five: each holds buffers of its own, and the playhead
@@ -2870,14 +2937,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         },
     );
 
-    // A launch that has run this long was not killed by its start; the
-    // mark goes, so the next one is not started safe for nothing.
-    let started = startup_mark.as_ref().map(|mark| mark.path().to_owned());
-    slint::Timer::single_shot(SAFE_AFTER, move || {
-        if let Some(path) = started {
-            let _ = std::fs::remove_file(path);
-        }
-    });
+    // A launch whose window drew, or was used, was not killed by its
+    // start: the mark goes then, so the next one is not started safe for
+    // nothing. See `start_watch`.
+    let startup_mark = startup_mark.map(|mark| Rc::new(start_watch::StartWatch::new(mark)));
+    if let Some(watch) = &startup_mark {
+        start_watch::install(watch);
+    }
 
     // The chosen interface scale, as soon as the window is up.
     slint::Timer::single_shot(std::time::Duration::ZERO, || {
@@ -2900,7 +2966,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             "close: the window could not run: {error}; Concat quits, and the next launch starts safe"
         );
         // The mark stays: the next launch starts safe.
-        std::mem::forget(startup_mark);
+        if let Some(watch) = &startup_mark {
+            watch.keep();
+        }
         leave(1);
     }
     // Android ends the loop when it destroys the activity - Back on the
@@ -3010,9 +3078,6 @@ fn stop_exports() {
     }
 }
 
-/// How long a launch runs before it counts as having started.
-const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
-
 /// Safe start: whether this launch draws on the software rasteriser
 /// because the last one died while starting, and the mark that says this
 /// one is starting.
@@ -3020,8 +3085,9 @@ const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 /// Every recent release met a Windows driver that closed the app in its
 /// first seconds - a new one each time (#339, #378, #389, #242) - and a
 /// launch check on a CI machine meets none of them. A launch that dies
-/// before [`SAFE_AFTER`] leaves its mark; the next one finds it, draws on
-/// WARP or lavapipe instead of the GPU, and keeps doing so for that build -
+/// before it counts as started - its window drawing for a few seconds, or
+/// used; see `start_watch` - leaves its mark; the next one finds it, draws
+/// on WARP or lavapipe instead of the GPU, and keeps doing so for that build -
 /// a driver that killed one launch kills the next, and starting on the GPU
 /// every other time would crash every other time. Slower, and it opens.
 /// The next build tries the GPU again: 0.2.8 kept the CPU for good, and a
@@ -3050,8 +3116,46 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     let mark = dirs.data.join("startup");
     let mut preferences = prefs::Preferences::load(&dirs);
     let died = concat_host::jobs::Tripwire::tripped(&mark);
-    if preferences.settle_start(died, &concat_host::machine::build()) {
+    let changed = preferences.settle_start(died, &concat_host::machine::build());
+    if changed {
         preferences.save(&dirs);
+    }
+    // Who asked for software, said once: the window's and the compositor's
+    // own lines only say that it is so. A person on a fast GPU drawing on
+    // the CPU, and nothing in the log saying why, could not be told apart
+    // from a driver that would not open.
+    // On Android "software" is OpenGL ES in place of Vulkan, not the CPU.
+    let how = if cfg!(target_os = "android") {
+        "drawing on OpenGL ES in place of Vulkan"
+    } else {
+        "drawing in software"
+    };
+    match std::env::var("CONCAT_GPU") {
+        // Set before Concat started: it wins over the setting either way.
+        Ok(value) if value.trim().eq_ignore_ascii_case("software") => {
+            log::info!("start: {how} · CONCAT_GPU=software was set in the environment");
+        }
+        Ok(value) => {
+            if preferences.draws_in_software() {
+                log::info!(
+                    "start: CONCAT_GPU={} set in the environment wins over the setting that would draw in software",
+                    value.trim()
+                );
+            }
+        }
+        // The setting does not record who turned it off: the switch in
+        // Settings, `--software`, or Concat 0.2.8, which turned it off for
+        // good after any start that failed. So the line says all three.
+        Err(_) if preferences.software_gpu => {
+            log::info!(
+                "start: {how} · the setting that draws on the GPU is off (turned off in Settings, by --software, or by Concat 0.2.8 after a start that failed)"
+            );
+        }
+        // The launch that set it has said so in `settle_start` already.
+        Err(_) if preferences.software_after_crash.is_some() && !changed => {
+            log::warn!("start: {how} · the last launch of this build closed while starting");
+        }
+        Err(_) => {}
     }
     if preferences.draws_in_software() && std::env::var_os("CONCAT_GPU").is_none() {
         // SAFETY: on a desk the process is single-threaded here, as for the
@@ -3110,11 +3214,21 @@ pub fn draw_in_software() {
 /// rest of the run - so a quit after any transcription died of SIGABRT in
 /// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
 /// that way itself when it opts into sudden termination.
+///
+/// And on Android, which Rust does not count as Linux. There `exit`
+/// destroys the system libraries' static mutexes while the runtime's own
+/// threads - binder's, and any thread in Java's file I/O - still take
+/// them: the mutex of libandroidio's AsynchronousCloseMonitor, which every
+/// blocking Java read and write locks, and one of libgui's. The thread
+/// that took one next aborted ("FORTIFY: pthread_mutex_lock called on a
+/// destroyed mutex"), after the export had finished. Those threads are the
+/// system's, not ours to stop first, and Android ends an app's process
+/// with a kill, never an `exit`, so nothing on a phone needs the handlers.
 fn leave(code: i32) -> ! {
     // The log's last line: a run that got here ended in order, whatever
     // its code, and the next run reads the lack of this line as a crash.
     concat_host::logs::end();
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
     {
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -3123,7 +3237,7 @@ fn leave(code: i32) -> ! {
         // this one's is touched after it.
         unsafe { libc::_exit(code) }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "android")))]
     std::process::exit(code);
 }
 

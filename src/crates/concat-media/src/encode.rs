@@ -275,21 +275,34 @@ impl VideoCodec {
     /// it. Linked is not enough on a phone: its FFmpeg carries MediaCodec's
     /// encoder for every codec, and few phones have an AV1 one.
     ///
-    /// The export sheet asks this on its first publish, before the window
-    /// shows, so it opens as little as it can: a linked software encoder
-    /// answers on its own, and nothing is opened at all on a desktop. See
+    /// It opens as little as it can: a linked software encoder answers on
+    /// its own, and nothing is opened at all on a desktop. See
     /// [`encodable_among`] for the rest. A hardware encoder that is asked
-    /// is opened once, at 720p, and the answer kept for the process.
+    /// is opened once, at 720p, and the answer kept for the process - two
+    /// seconds on some phones, so a window asks
+    /// [`VideoCodec::encodable_known`] and has [`probe_encoders`] answer
+    /// this on a worker.
     pub fn encodable(self) -> bool {
-        static KNOWN: [OnceLock<bool>; VideoCodec::ALL.len()] =
-            [const { OnceLock::new() }; VideoCodec::ALL.len()];
         let ask = || encodable_among(self.linked(true, false), |name| opens_here(self, name));
         // MPEG-4 is no export's, and its one encoder is software: nothing
         // is opened to answer.
         match VideoCodec::ALL.iter().position(|codec| *codec == self) {
-            Some(slot) => *KNOWN[slot].get_or_init(ask),
+            Some(slot) => *ENCODABLE[slot].get_or_init(ask),
             None => ask(),
         }
+    }
+
+    /// [`VideoCodec::encodable`] without opening an encoder or waiting on
+    /// one being opened: the answer where it is known, or needs nothing
+    /// opened to be known, and None while a probe has yet to find out.
+    /// For a thread that must not wait - the window's.
+    pub fn encodable_known(self) -> Option<bool> {
+        if let Some(slot) = VideoCodec::ALL.iter().position(|codec| *codec == self)
+            && let Some(known) = ENCODABLE[slot].get()
+        {
+            return Some(*known);
+        }
+        encodable_known_among(self.linked(true, false), probed)
     }
 
     /// Whether it can be written at ten bits here: some linked encoder for
@@ -314,6 +327,19 @@ impl VideoCodec {
         leads_with_hardware(self.linked(hardware, ten_bit), probed, |name| {
             opens_here(self, name)
         })
+    }
+
+    /// [`VideoCodec::hardware_encoded`] without opening anything: None
+    /// while a system encoder it would have to ask has not been asked yet.
+    pub fn hardware_encoded_known(self, hardware: bool, ten_bit: bool) -> Option<bool> {
+        let mut unknown = false;
+        let answer = leads_with_hardware(self.linked(hardware, ten_bit), probed, |name| {
+            probed(name).unwrap_or_else(|| {
+                unknown = true;
+                false
+            })
+        });
+        (!unknown || answer).then_some(answer)
     }
 
     /// Bytes per second relative to H.264 at the same quality, for a size
@@ -666,6 +692,64 @@ fn encodable_among(
         .any(|name| Family::of(name).vendor_driver() || opens(name))
 }
 
+/// What [`VideoCodec::encodable`] has found, by the codec's place in
+/// [`VideoCodec::ALL`].
+static ENCODABLE: [OnceLock<bool>; VideoCodec::ALL.len()] =
+    [const { OnceLock::new() }; VideoCodec::ALL.len()];
+
+/// Asks every question the export sheet asks of the encoders here -
+/// whether each codec can be written, and whether by the chip - so the
+/// answers are known when the sheet looks. Opens a phone's hardware
+/// encoders to find out, a second or two each on some: call it from a
+/// worker, never the window's thread. The sheet shows what is known
+/// meanwhile ([`VideoCodec::encodable_known`]).
+pub fn probe_encoders() {
+    let started = std::time::Instant::now();
+    let mut found = Vec::new();
+    for codec in VideoCodec::ALL {
+        if codec.encodable() {
+            let chip = codec.hardware_encoded(true, false);
+            if codec.ten_bit_available() {
+                codec.hardware_encoded(true, true);
+            }
+            found.push(format!(
+                "{}{}",
+                codec.label(),
+                if chip { " (hardware)" } else { "" }
+            ));
+        }
+    }
+    log::info!(
+        "export: can write {} · asked in {} ms",
+        found.join(", "),
+        started.elapsed().as_millis()
+    );
+}
+
+/// [`encodable_among`] with only what `known` says: None where an encoder
+/// that would have to be opened has not been.
+fn encodable_known_among(
+    names: impl Iterator<Item = &'static str>,
+    known: impl Fn(&str) -> Option<bool>,
+) -> Option<bool> {
+    let names: Vec<&'static str> = names.collect();
+    if names.iter().any(|name| Family::of(name).always_there()) {
+        return Some(true);
+    }
+    let mut unknown = false;
+    for name in names {
+        if Family::of(name).vendor_driver() {
+            return Some(true);
+        }
+        match known(name) {
+            Some(true) => return Some(true),
+            Some(false) => {}
+            None => unknown = true,
+        }
+    }
+    (!unknown).then_some(false)
+}
+
 /// [`VideoCodec::hardware_encoded`] over `names`, the linked encoders best
 /// first: walking them as an export would, whether the one it stops at is
 /// hardware. A system encoder is asked with `opens`; a vendor's is never
@@ -946,7 +1030,14 @@ fn open_video(
             (*context).thread_count = i32::from(options.threads);
         }
     }
-    if global_header {
+    // Not for MediaCodec, which writes its parameter sets into the first
+    // packet instead, where MP4's muxer builds its header from them. Asked
+    // for them up front, FFmpeg's MediaCodec encoder gets them at open by
+    // encoding a dummy frame, ending the stream and flushing the codec, and
+    // Android's own encoder takes input after that and never gives back a
+    // packet: every export on the emulator stalled at its first frame, on
+    // the chip and on the software encoder it went on with alike (#747).
+    if global_header && family != Family::MediaCodec {
         video.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
     }
     if pq {
@@ -1249,9 +1340,10 @@ fn open_video(
             _ => {}
         }
     }
+    ffi::begin();
     let encoder = video
         .open_with(settings)
-        .map_err(|error| ffi::fail("open encoder", path, error))?;
+        .map_err(|error| ffi::fail_said("open encoder", path, error))?;
     Ok((encoder, pixel_format))
 }
 
@@ -2165,9 +2257,10 @@ pub fn jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>> {
     let quality = i32::from(quality.clamp(2, 31));
     video.set_qmin(quality);
     video.set_qmax(quality);
+    ffi::begin();
     let mut encoder = video
         .open()
-        .map_err(|error| ffi::fail("open jpeg encoder", path, error))?;
+        .map_err(|error| ffi::fail_said("open jpeg encoder", path, error))?;
 
     let mut rgba = Video::new(Pixel::RGBA, frame.width(), frame.height());
     {
@@ -2898,6 +2991,36 @@ mod tests {
         assert!(encodable_among(["hevc_nvenc"].into_iter(), |name| panic!(
             "opened {name}"
         )));
+    }
+
+    /// What the window may know without opening anything: a software
+    /// encoder or a vendor's answers yes at once, a phone's system encoder
+    /// is unknown until a probe has asked it, and then known either way.
+    #[test]
+    fn the_window_knows_what_needs_no_opening() {
+        let names = |list: &'static [&'static str]| list.iter().copied();
+        assert_eq!(
+            encodable_known_among(names(&["hevc_mediacodec", "libx265"]), |_| None),
+            Some(true)
+        );
+        assert_eq!(
+            encodable_known_among(names(&["hevc_nvenc"]), |_| None),
+            Some(true)
+        );
+        assert_eq!(
+            encodable_known_among(names(&["hevc_mediacodec"]), |_| None),
+            None
+        );
+        assert_eq!(
+            encodable_known_among(names(&["hevc_mediacodec"]), |_| Some(false)),
+            Some(false)
+        );
+        assert_eq!(
+            encodable_known_among(names(&["h264_mediacodec", "h264_mf"]), |name| {
+                (name == "h264_mf").then_some(true)
+            }),
+            Some(true)
+        );
     }
 
     /// The label opens no vendor's encoder: an NVENC an export has not

@@ -684,8 +684,10 @@ component BarAction inherits Rectangle {
 // Anything on the page that does something when pressed: a pointer's
 // hover and press, Enter or Space once Tab has put the ring on it, and the
 // ring. The look is the caller's, read from `lit`, `down` and `ring`; the
-// content is its children, drawn over the touch area, so a button inside
-// one - a card's Remove - still takes its own press.
+// content is its children, drawn inside the touch area, so a button inside
+// one - a card's Remove - still takes its own press, and the pointer on that
+// button is still on the card: `lit` holds, and nothing shown on hover goes
+// as the pointer reaches it (#748).
 component Pressable inherits Rectangle {
     in property <bool> enabled: true;
     in property <length> radius: Theme.r-lg;
@@ -733,9 +735,9 @@ component Pressable inherits Rectangle {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
-    }
 
-    @children
+        @children
+    }
 
     FocusRing {
         active: root.ring;
@@ -820,8 +822,6 @@ component CreateTile inherits Pressable {
 component PosterAction inherits Rectangle {
     in property <Glyph> glyph;
     in property <string> label;
-    /// The pointer is on the button, which takes it off the card under it.
-    out property <bool> hovered: touch.has-hover;
 
     callback clicked();
 
@@ -872,14 +872,12 @@ component PosterCard inherits Pressable {
     callback revealed();
 
     property <length> inset: 8px;
-    // A button over the poster takes the pointer off the card's own touch
-    // area, so the card stops being lit while one is hovered. Counted in,
-    // or the buttons hid as the pointer reached them, the card lit again
-    // and they came back, over and over (#693).
-    property <bool> over-reveal;
-    property <bool> over-forget;
-    property <bool> actions: root.touchy || root.lit || root.ring || root.project.missing
-        || root.over-reveal || root.over-forget;
+    // The buttons sit inside the card's own touch area, so `lit` holds
+    // while the pointer is on one. Their own hover must not be counted in
+    // here: it reached this through a change handler, which runs after the
+    // `if` below is re-evaluated, so the buttons were destroyed before it
+    // could keep them, came back under the pointer, and went again (#748).
+    property <bool> actions: root.touchy || root.lit || root.ring || root.project.missing;
 
     label: root.project.name;
     clicked => { root.opened(); }
@@ -969,14 +967,12 @@ component PosterCard inherits Pressable {
                 glyph: Glyph.folder;
                 label: I18n.t("start.showInFolder");
                 clicked => { root.revealed(); }
-                changed hovered => { root.over-reveal = self.hovered; }
             }
 
             PosterAction {
                 glyph: Glyph.close;
                 label: I18n.t("start.removeFromList");
                 clicked => { root.forgotten(); }
-                changed hovered => { root.over-forget = self.hovered; }
             }
         }
     }

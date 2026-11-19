@@ -131,6 +131,11 @@ export struct ClipData {
     /// of the clip's, since only the window on screen is built.
     wave-from: float,
     wave-span: float,
+    /// The song's beats along the clip, as vertical ticks in a 1x1 box the
+    /// clip's width: `beats` the plain ones, `bars` the first of each bar.
+    /// As many as the zoom has room for; empty for a clip with none heard.
+    beats: string,
+    bars: string,
     /// Whether the clip has sound: a sound clip, or a video whose file
     /// carries an audio stream. A silent video draws no sound band.
     has-audio: bool,
@@ -279,29 +284,31 @@ export global Keyframes {
         return { field: field, keyed: false, here: false, prev: false, next: false };
     }
 
-    /// This field's row. Slint has no lookup and the list is fifteen
+    /// This field's row. Slint has no lookup and the list is seventeen
     /// long, so the order Rust publishes them in *is* the index; `blank`
     /// covers the moment before the first publish. The mask's rows are
     /// the current mask's.
     pure public function row(field: ClipField) -> ClipKeyData {
-        if (Keyframes.rows.length < 15) {
+        if (Keyframes.rows.length < 17) {
             return Keyframes.blank(field);
         }
         return field == ClipField.scale ? Keyframes.rows[0]
             : field == ClipField.offset-x ? Keyframes.rows[1]
             : field == ClipField.offset-y ? Keyframes.rows[2]
             : field == ClipField.rotation ? Keyframes.rows[3]
-            : field == ClipField.opacity ? Keyframes.rows[4]
-            : field == ClipField.volume ? Keyframes.rows[5]
-            : field == ClipField.mask-x ? Keyframes.rows[6]
-            : field == ClipField.mask-y ? Keyframes.rows[7]
-            : field == ClipField.mask-width ? Keyframes.rows[8]
-            : field == ClipField.mask-height ? Keyframes.rows[9]
-            : field == ClipField.mask-rotation ? Keyframes.rows[10]
-            : field == ClipField.mask-roundness ? Keyframes.rows[11]
-            : field == ClipField.mask-feather ? Keyframes.rows[12]
-            : field == ClipField.mask-expand ? Keyframes.rows[13]
-            : field == ClipField.mask-opacity ? Keyframes.rows[14]
+            : field == ClipField.stretch-x ? Keyframes.rows[4]
+            : field == ClipField.stretch-y ? Keyframes.rows[5]
+            : field == ClipField.opacity ? Keyframes.rows[6]
+            : field == ClipField.volume ? Keyframes.rows[7]
+            : field == ClipField.mask-x ? Keyframes.rows[8]
+            : field == ClipField.mask-y ? Keyframes.rows[9]
+            : field == ClipField.mask-width ? Keyframes.rows[10]
+            : field == ClipField.mask-height ? Keyframes.rows[11]
+            : field == ClipField.mask-rotation ? Keyframes.rows[12]
+            : field == ClipField.mask-roundness ? Keyframes.rows[13]
+            : field == ClipField.mask-feather ? Keyframes.rows[14]
+            : field == ClipField.mask-expand ? Keyframes.rows[15]
+            : field == ClipField.mask-opacity ? Keyframes.rows[16]
             : Keyframes.blank(field);
     }
 }

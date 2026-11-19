@@ -19,6 +19,11 @@ Without the app:
 | macOS | `~/Library/Application Support/app.concat.editor/logs` |
 | Linux | `~/.local/share/app.concat.editor/logs` |
 
+On Android, **Settings › About › Share the log** hands this run's file and the
+one before it to the phone's share sheet (and leaves a copy in
+Download/Concat). When the last run closed on its own, the next launch says so
+and offers the same.
+
 There is one file per run, named for when the run started
 (`concat-20261111-052233.log`, in UTC). The newest ten are kept. When you report
 a problem, attach the file from the run it happened in. If Concat closed on you,
@@ -80,6 +85,33 @@ Things worth knowing:
   much of the middle it dropped.
 - A crash in a driver or a library leaves one `FATAL` line naming the library
   and the place in it.
+
+### Reading a phone's hang
+
+When Android closes Concat as not responding (an ANR), the next launch on
+Android 11 and later writes two `last run` warnings: what the system said,
+and under it `the threads of ... when the system gave up on it`, the system's
+own dump of the Java main thread and of every thread standing in Concat's
+library, up to 40 frames each. The window's thread is `android_main`, listed
+first after the main thread. Frames in Concat look like this:
+
+```text
+#06 pc 000000000b739820  libconcat_android.so (BuildId: e21abbfd2b1e...)
+```
+
+A frame in Concat's library names the offset after `pc`, and the function
+when the trace's unwinder read it. Every phone build in CI keeps the library
+as the artifact `symbols-concat-<version>-aarch64-linux-android` of its "Build for
+phones" run, for 90 days. Download the one for the version in the log's
+`build` line, then:
+
+```sh
+scripts/symbolize-android.sh libconcat_android-0.2.12-aarch64-linux-android.so concat-20261115-101500.log
+```
+
+It names the function of each Concat frame (the library carries no line
+tables, which the phone build cannot link with in CI's memory), and refuses a library whose BuildId is not the trace's. Tombstones and
+`adb logcat` crash dumps read the same way.
 
 ## Writing a line
 

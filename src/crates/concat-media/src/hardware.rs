@@ -171,7 +171,7 @@ impl HwPolicy {
         match self {
             HwPolicy::Preference => hardware_device(),
             HwPolicy::Software => None,
-            HwPolicy::Device(device) => Some(device),
+            HwPolicy::Device(device) => (!decode_switched_off()).then_some(device),
         }
     }
 
@@ -480,12 +480,40 @@ pub fn set_hardware_device(device: Option<HwDevice>) {
     PREFERENCE.store(code, Ordering::Relaxed);
 }
 
-/// The device the preference names, or `None` for software.
+/// The device the preference names, or `None` for software - always,
+/// where the environment switches hardware decode off (see
+/// [`decode_switched_off`]).
 pub fn hardware_device() -> Option<HwDevice> {
+    if decode_switched_off() {
+        return None;
+    }
     match PREFERENCE.load(Ordering::Relaxed) {
         0 => None,
         code => HwDevice::ALL.get(usize::from(code) - 1).copied(),
     }
+}
+
+/// Whether `CONCAT_HARDWARE_DECODE=0` switches hardware decode off for
+/// the process: every reader decodes in software, whatever the
+/// preference or a reader's own policy asks, and no decode device is
+/// created at all. For CI's diagnostic runs, which set it to see whether
+/// a failure goes with the decoder on the graphics chip, and for a
+/// machine whose driver fails when one is opened; it mirrors
+/// `CONCAT_HARDWARE_ENCODE=0`. Read once.
+fn decode_switched_off() -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OFF.get_or_init(|| {
+        let off = switched_off_by(std::env::var_os("CONCAT_HARDWARE_DECODE"));
+        if off {
+            log::warn!("video decode in software alone, as CONCAT_HARDWARE_DECODE=0 asks");
+        }
+        off
+    })
+}
+
+/// [`decode_switched_off`] for the variable's value, `None` when unset.
+fn switched_off_by(value: Option<std::ffi::OsString>) -> bool {
+    value.is_some_and(|value| value.to_string_lossy().trim() == "0")
 }
 
 /// One created device context: a reference to libavutil's
@@ -582,6 +610,9 @@ static DEVICES: Mutex<Option<HashMap<HwDevice, Option<Device>>>> = Mutex::new(No
 /// The process's device of this kind, created on first use, or `None`
 /// when the platform has none to give.
 pub(crate) fn device(kind: HwDevice) -> Option<Device> {
+    if decode_switched_off() {
+        return None;
+    }
     crate::ffi::init();
     let mut guard = DEVICES
         .lock()
@@ -862,6 +893,16 @@ mod tests {
         );
         set_hardware_device(before);
         assert_eq!(hardware_device(), before);
+    }
+
+    /// Only `CONCAT_HARDWARE_DECODE=0` switches hardware decode off.
+    #[test]
+    fn only_zero_switches_hardware_decode_off() {
+        assert!(!switched_off_by(None));
+        assert!(!switched_off_by(Some("1".into())));
+        assert!(!switched_off_by(Some("".into())));
+        assert!(switched_off_by(Some("0".into())));
+        assert!(switched_off_by(Some(" 0\n".into())));
     }
 
     #[test]

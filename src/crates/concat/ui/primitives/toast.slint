@@ -3,13 +3,32 @@
 
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { CopyChip } from "modal.slint";
+import { IconButton } from "panel.slint";
+import { I18n } from "../i18n.slint";
 
 // The bottom-right notice.
 //
-// Rises in, holds, sinks out. One at a time, and the next one replaces the
-// one before it rather than stacking under it: a column of notices is a log,
-// and what this is for is the one sentence about what just happened.
+// A card that rises in, holds, and sinks out. One at a time, and the next
+// one replaces the one before it rather than stacking under it: a column of
+// notices is a log, and what this is for is the one sentence about what just
+// happened. Which notice may replace which is Rust's rule (src/studio/
+// toast.rs) - a confirmation never wipes a failure still up - because it is
+// state and wants a test; the timing is this layer's, because only the
+// window knows where the pointer is.
+
+/// What a notice reports. The icon carries it, and nothing else does: the
+/// sentence is read in the window's own ink whatever it says, because a
+/// paragraph of red is harder to read than the same words in the text
+/// colour, and the red disc has already said it went wrong.
+export enum ToastKind {
+    /// It worked. A glance, and no actions.
+    done,
+    /// It worked, but not as it should: the work goes on, and the log says
+    /// more.
+    warning,
+    /// It did not work.
+    failed,
+}
 
 /// A notice, as Rust hands it down.
 export struct ToastData {
@@ -19,23 +38,73 @@ export struct ToastData {
     /// show the first and swallow the second.
     token: int,
     message: string,
-    /// Failed notices are red and hold long enough to actually be read;
-    /// confirmations only need a glance.
-    failed: bool,
+    kind: ToastKind,
+    /// How long it holds with the pointer away. Worked out in Rust (a
+    /// glance for done; for a problem, longer the more there is to read), so
+    /// the rule is tested where it is written.
+    hold: duration,
+}
+
+/// One of a notice's actions: a word, bare until hovered, a size under the
+/// message so the row reads as secondary to it. Both actions are this one
+/// control, so they share a height, a size and a baseline. Sized from its
+/// own word, never from its parent, whose whole box a Rectangle placed in a
+/// Rectangle otherwise takes.
+component NoticeAction inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+
+    width: word.preferred-width + 16px;
+    height: 24px;
+    border-radius: Theme.r-sm;
+    background: touch.has-hover ? Theme.field : transparent;
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    word := Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: touch.has-hover ? Theme.fg : Theme.fg-muted;
+        font-size: Theme.fs-sm;
+        font-weight: Theme.weight-title;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
 }
 
 export component ToastLayer inherits Rectangle {
     in property <ToastData> data;
+    /// A phone's card is as wide as the screen allows, and pauses while a
+    /// finger is on it rather than under a pointer it does not have.
+    in property <bool> phone;
+    /// The phone's log goes to its share sheet; a desk's is shown in its
+    /// folder. The same action, named as Settings › About names it.
+    in property <bool> shares-log;
+    /// The screen's own edges, on a phone: the card sits 16px inside them.
+    in property <length> inset-bottom;
+    in property <length> inset-left;
+    in property <length> inset-right;
 
-    /// Two holds, which are the reason this is a property at all: an error you
-    /// missed is an error you go looking for.
-    property <duration> hold: root.data.failed ? 6500ms : 3500ms;
-    /// Up and lit. Everything the toast does is this property animating.
+    /// Notice `token` has gone, by running out or by its close button. Rust
+    /// holds a failure up against a confirmation until it hears this.
+    callback gone(token: int);
+    /// The failure's or the warning's "Show the log".
+    callback show-log();
+
+    /// Up and lit. Everything the card does is this property animating.
     property <bool> shown;
-    /// The one frame the risen toast spends at its start position, so the move
-    /// to `shown` animates rather than teleports — Slint gives a property its
-    /// first value without running its animation.
+    /// The one frame the risen card spends at its start position, so the
+    /// move to `shown` animates rather than teleports — Slint gives a
+    /// property its first value without running its animation.
     property <bool> raising;
+    property <bool> problem: root.data.kind != ToastKind.done;
+    /// Held while the pointer rests on the card, or a finger presses it: a
+    /// notice being read, or being reached for, does not leave under the
+    /// reader. A phone's hover is not trusted, since a tap can leave it set.
+    property <bool> held: hover.pressed || (!root.phone && hover.has-hover);
 
     /// Watched instead of `data`, so the trigger is one integer changing and
     /// not a struct comparison.
@@ -45,9 +114,14 @@ export component ToastLayer inherits Rectangle {
         root.raising = true;
     }
 
-    // Nothing here is hit-testable but the copy chip on a failure, and that
-    // is its own few pixels: the layer sits over the whole window without
-    // taking an event from it.
+    function dismiss() {
+        root.shown = false;
+        root.gone(root.data.token);
+    }
+
+    // The layer takes no events: only the card has a TouchArea, and the card
+    // is only visible while it is lit, so the window is not covered by an
+    // invisible box at its corner once the notice has gone.
     background: transparent;
 
     Timer {
@@ -61,16 +135,20 @@ export component ToastLayer inherits Rectangle {
 
     // Stops itself: the trigger clears the flag it is running on. An idle
     // window is left with no timer ticking in it, which is the same rule the
-    // tooltip layer's cooldown follows.
+    // tooltip layer's cooldown follows. A rest on the card stops it, and a
+    // Timer started again starts from nothing: leaving the card gives the
+    // whole hold back, so a notice never vanishes the instant it is left.
+    // There is no bar counting down; a notice that is watched leaving is a
+    // notice that hurries its reader.
     Timer {
-        interval: root.hold;
-        running: root.shown;
-        triggered => { root.shown = false; }
+        interval: root.data.hold;
+        running: root.shown && !root.held;
+        triggered => { root.dismiss(); }
     }
 
-    /// Measured rather than estimated, the way the tooltip's bubble is: a Text
-    /// parked at zero size still reports the width the string wants in the
-    /// real face, so the box can be sized before anything is placed.
+    /// The message's width on one line, measured rather than estimated: a
+    /// Text parked at zero size still reports the width the string wants
+    /// in the real face, so the card can be sized before anything is placed.
     measure := Text {
         x: 0;
         y: 0;
@@ -81,31 +159,70 @@ export component ToastLayer inherits Rectangle {
         visible: false;
     }
 
-    Rectangle {
-        // 16px off both edges. The 12px it is pushed down by when it is away
-        // is the rise.
-        x: root.width - self.width - 16px;
-        y: root.height - self.height - 16px + (root.shown ? 0px : 12px);
-        // Capped, then the label elides: a notice is a sentence, and one long
-        // enough to reach across the window has stopped being one. A failure
-        // keeps room for its copy chip.
-        width: Math.min(root.width - 32px,
-            12px + icon.width + 8px + measure.preferred-width + 12px
-                + (root.data.failed ? 60px : 0px));
-        // 12px by 8px of padding around a 16px line.
-        height: 32px;
+    // ── the card's measures ──
+    // 12px in from its left, the kind's disc, 10px, the text; on the right
+    // the close button sits 6px in, its own 26px box giving it the rest of
+    // the padding. The disc, the first line and the close button share a
+    // centre line 20px down from the card's top.
+    property <length> edge: 16px;
+    property <length> pad: 12px;
+    property <length> disc: 20px;
+    property <length> text-x: root.pad + root.disc + 10px;
+    property <length> close-side: 26px;
+    property <length> text-right: 6px + root.close-side + 4px;
+    property <length> line: one-line.preferred-height;
+    /// The actions' row: 4px under the text, 24px tall, 8px over the
+    /// card's edge - the ghosts' own 8px inside their boxes reads as the
+    /// rest of a 12px margin.
+    property <length> row-gap: 4px;
+    property <length> row-height: 24px;
+    property <length> row-bottom: 8px;
+    /// A sentence is read across, not down: the card widens to fit a short
+    /// one and stops at 480px, past which a line is too long to read in a
+    /// glance, and wraps the rest. Never narrower than 280px, so a two-word
+    /// confirmation is a card and not a chip, and never wider than the
+    /// window keeps clear of its edges. A phone has no width to spare and
+    /// spends all of it.
+    property <length> room: root.width - root.inset-left - root.inset-right - 2 * root.edge;
+    property <length> card-width: root.phone ? root.room
+        : Math.min(root.room,
+            Math.max(280px, Math.min(480px, root.text-x + measure.preferred-width + root.text-right)));
+
+    one-line := Text {
+        visible: false;
+        width: 0px;
+        height: 0px;
+        text: "X";
+        font-size: Theme.fs;
+    }
+
+    card := Rectangle {
+        // 16px off both edges (inside a phone's safe area), and it grows
+        // upwards from that corner as the text wraps. The 12px it is pushed
+        // down by when it is away is the rise.
+        x: root.width - root.inset-right - root.edge - self.width;
+        y: root.height - root.inset-bottom - root.edge - self.height + (root.shown ? 0px : 12px);
+        width: root.card-width;
+        // The text's own height, and under a problem the row of actions.
+        // A confirmation's bottom padding matches its top.
+        height: message.y + message.height
+            + (root.problem ? root.row-gap + root.row-height + root.row-bottom : message.y);
         border-radius: Theme.r-lg;
-        // Elevated and ringed, because it floats over panes that are
-        // themselves `panel` — the same reason the tooltip and the menus are.
-        // Slint has no drop shadow, so the hairline does the lifting alone and
-        // is the strong one for it.
+        // Elevated, ringed and lifted, because it floats over panes that are
+        // themselves `panel`: the hairline draws its edge against a pane of
+        // the same grey, and the shadow puts it above the pane rather than
+        // in it.
         background: Theme.raised;
         border-width: 1px;
         border-color: Theme.line-strong;
+        drop-shadow-blur: 18px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Theme.dark ? #00000066 : #00000024;
         opacity: root.shown ? 1.0 : 0.0;
-        // Never up before there is something to say. Also what keeps the very
-        // first frame of the window from carrying an empty box.
-        visible: root.data.message != "";
+        // Never up before there is something to say, which is also what
+        // keeps the window's first frame from carrying an empty box; and
+        // gone once it has faded, so its TouchArea is gone with it.
+        visible: root.data.message != "" && self.opacity > 0;
 
         // Out is slower than in: a notice arriving should catch the eye, and
         // one leaving should not.
@@ -114,32 +231,113 @@ export component ToastLayer inherits Rectangle {
             easing: ease-out;
         }
 
-        icon := Icon {
-            x: 12px;
-            y: (parent.height - self.height) / 2;
-            glyph: root.data.failed ? Glyph.close : Glyph.check;
-            size: 13px;
-            tint: root.data.failed ? Theme.danger : Theme.green;
-        }
-
-        Text {
-            x: icon.x + icon.width + 8px;
+        // Slint reaches the clipboard through a TextInput and nothing else, so
+        // one rides at a pixel, out of sight and inside the card (so it is
+        // only there while the card is), holding the message, as CopyChip does.
+        clip := TextInput {
+            x: 0;
             y: 0;
-            width: parent.width - self.x - 12px - (root.data.failed ? 60px : 0px);
-            height: parent.height;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
             text: root.data.message;
-            color: root.data.failed ? Theme.danger : Theme.fg;
-            font-size: Theme.fs;
-            vertical-alignment: center;
-            overflow: elide;
+            read-only: true;
         }
 
-        // A failure can be lifted off the screen whole, elided or not: what
-        // the chip copies is the message, not what fitted.
-        if root.data.failed: CopyChip {
-            x: parent.width - self.width - 6px;
-            y: (parent.height - self.height) / 2;
-            text: root.data.message;
+        // Spans the card with everything else inside it, so its hover holds
+        // while the pointer is over a button too: a TouchArea's hover is set
+        // before its children see the event.
+        hover := TouchArea {
+            width: parent.width;
+            height: parent.height;
+
+            Rectangle {
+                x: root.pad;
+                y: root.pad + (root.line - root.disc) / 2;
+                width: root.disc;
+                height: root.disc;
+                border-radius: self.width / 2;
+                background: kind-icon.tint.with-alpha(0.16);
+
+                kind-icon := Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    size: 12px;
+                    // The mark alone is two short strokes where the check
+                    // and the cross are long ones, so it is drawn heavier to
+                    // carry the same weight in the disc.
+                    weight: root.data.kind == ToastKind.warning ? 3.2 : 2.4;
+                    glyph: root.data.kind == ToastKind.failed ? Glyph.close
+                        : root.data.kind == ToastKind.warning ? Glyph.alert
+                        : Glyph.check;
+                    tint: root.data.kind == ToastKind.failed ? Theme.danger
+                        : root.data.kind == ToastKind.warning ? Theme.warn
+                        : Theme.green;
+                }
+            }
+
+            // Wraps at words, and inside one too long for a line — a path
+            // has no spaces to wrap at — up to five lines; past that it
+            // elides, and Copy still takes the whole message.
+            message := Text {
+                x: root.text-x;
+                y: root.pad;
+                width: parent.width - self.x - root.text-right;
+                height: self.preferred-height;
+                text: root.data.message;
+                color: Theme.fg;
+                font-size: Theme.fs;
+                wrap: word-wrap;
+                max-lines: 5;
+                overflow: elide;
+            }
+
+            IconButton {
+                x: parent.width - 6px - self.width;
+                y: root.pad + root.line / 2 - root.close-side / 2;
+                height: root.close-side;
+                glyph: Glyph.close;
+                icon-size: 12px;
+                idle: Theme.fg-dim;
+                label: I18n.t("voiceover.close");
+                clicked => { root.dismiss(); }
+            }
+
+            // Quiet, under the text, the words' left edge on the message's:
+            // an action's word sits 8px inside its box. Nothing under a
+            // confirmation, which has nothing left to do.
+            if root.problem: HorizontalLayout {
+                x: root.text-x - 8px;
+                y: message.y + message.height + root.row-gap;
+                width: parent.width - self.x;
+                height: root.row-height;
+                spacing: 4px;
+                alignment: start;
+
+                NoticeAction {
+                    label: root.shares-log ? I18n.t("settings.shareTheLog") : I18n.t("settings.showTheLog");
+                    clicked => { root.show-log(); }
+                }
+
+                // The whole message, elided or not: what is copied is what
+                // was said, not what fitted.
+                NoticeAction {
+                    label: root.copied ? I18n.t("modal.copied") : I18n.t("common.copy");
+                    clicked => {
+                        clip.select-all();
+                        clip.copy();
+                        root.copied = true;
+                    }
+                }
+            }
         }
+    }
+
+    /// "Copied" for a moment after Copy, so the press is seen to have worked.
+    property <bool> copied;
+    Timer {
+        interval: 1500ms;
+        running: root.copied;
+        triggered => { root.copied = false; }
     }
 }

@@ -13,29 +13,29 @@
 //!    description of the frame.
 //! 2. [`compositor`] takes that plan and nothing else, and draws it.
 //!
-//! Step 2 is the GPU's alone: [`WgpuCompositor`] draws every frame, on the
+//! Step 2 is the GPU's: [`WgpuCompositor`] draws every frame, on the
 //! platform's software adapter where a machine has no GPU. The CPU
-//! compositor that used to be the reference is kept in the tests only, as
-//! the oracle the GPU's parity suite checks it against.
+//! compositor is the oracle the GPU's parity suite checks it against, and
+//! the preview's last rung, for when no device will draw.
 
 pub mod compositor;
 pub mod gpu;
+mod ladder;
+pub mod memory;
 pub mod metrics;
 pub mod plan;
-#[cfg(test)]
 mod reference;
-#[cfg(test)]
 mod transitions;
 pub mod upscale;
 
 pub use compositor::{Compositor, Drawn};
-pub use gpu::{ForgedShader, ShaderForge, WgpuCompositor};
+pub use gpu::{ForgedShader, Rung, ShaderForge, WgpuCompositor};
+pub use ladder::{CpuRung, Ladder};
 pub use metrics::ssim;
 pub use plan::{
     Backdrop, Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition, Warp,
     detached_clip, plan_frame,
 };
-#[cfg(test)]
-pub(crate) use reference::CpuCompositor;
+pub use reference::CpuCompositor;
 /// The wgpu the compositor is built on, for callers that share its device.
 pub use wgpu;

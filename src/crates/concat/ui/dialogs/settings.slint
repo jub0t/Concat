@@ -86,6 +86,9 @@ export struct SettingsData {
     gpu: bool,
     /// there is a software rasteriser to draw on instead: Windows, Linux
     gpu-switchable: bool,
+    /// the log goes to the system's share sheet, not to a folder shown:
+    /// Android
+    shares-log: bool,
     /// the magnetic timeline: deleting and trimming close the gap
     magnetic: bool,
     /// where model downloads look first: automatic, Concat's mirror,
@@ -1697,10 +1700,12 @@ export component SettingsDialog inherits Sheet {
                         // The other half of a report: the block says what
                         // this machine is, the log says what the app did on
                         // it. A run writes one file, and the last ten runs
-                        // are in the folder this opens.
+                        // are in the folder this opens. Android has no
+                        // folder to show, and hands the log to its share
+                        // sheet instead.
                         IconButton {
-                            glyph: Glyph.folder;
-                            label: I18n.t("settings.showTheLog");
+                            glyph: root.data.shares-log ? Glyph.export : Glyph.folder;
+                            label: root.data.shares-log ? I18n.t("settings.shareTheLog") : I18n.t("settings.showTheLog");
                             icon-size: 13px;
                             clicked => { root.show-log(); }
                         }

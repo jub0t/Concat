@@ -399,7 +399,7 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "keyframe_set",
             "Set a keyframe",
-            "Animates a clip: puts a key on `property` (scale, offsetX, offsetY, rotation, opacity, volume; a mask's numbers are `mask_key_set`'s) at `at`, a fraction of the clip's length from 0 (its start) to 1 (its end), holding `value` in the property's own units - the number the inspector shows. A key already within a hair of `at` is replaced. `ease` is how the value is approached: [x1, y1, x2, y2] like a CSS cubic-bezier, linear when absent.",
+            "Animates a clip: puts a key on `property` (scale, offsetX, offsetY, rotation, stretchX, stretchY, opacity, volume; a mask's numbers are `mask_key_set`'s) at `at`, a fraction of the clip's length from 0 (its start) to 1 (its end), holding `value` in the property's own units - the number the inspector shows. A key already within a hair of `at` is replaced. `ease` is how the value is approached: [x1, y1, x2, y2] like a CSS cubic-bezier, linear when absent.",
             "setClipKey",
         ),
         command(

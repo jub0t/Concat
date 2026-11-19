@@ -238,6 +238,11 @@ pub struct Animation {
     pub offset_y: Track,
     /// Added to the clip's rotation, in degrees.
     pub rotation: Track,
+    /// A factor on the clip's pull across, `Transform::stretch_x`; 1 is as
+    /// placed. A factor like the scale's, because both are sizes.
+    pub stretch_x: Track,
+    /// The same for the pull down, `Transform::stretch_y`.
+    pub stretch_y: Track,
     /// A factor on the clip's opacity; 1 is as set.
     pub opacity: Track,
     /// A factor on the clip's gain; 1 is as mixed. Sound rather than
@@ -360,6 +365,8 @@ impl Animation {
             && self.offset_x.is_empty()
             && self.offset_y.is_empty()
             && self.rotation.is_empty()
+            && self.stretch_x.is_empty()
+            && self.stretch_y.is_empty()
             && self.opacity.is_empty()
             && self.volume.is_empty()
     }
@@ -371,8 +378,8 @@ impl Animation {
             offset_x: base.offset_x + self.offset_x.value_at(x, 0.0),
             offset_y: base.offset_y + self.offset_y.value_at(x, 0.0),
             rotation: base.rotation + self.rotation.value_at(x, 0.0),
-            stretch_x: base.stretch_x,
-            stretch_y: base.stretch_y,
+            stretch_x: (base.stretch_x * self.stretch_x.value_at(x, 1.0)).max(0.001),
+            stretch_y: (base.stretch_y * self.stretch_y.value_at(x, 1.0)).max(0.001),
         }
     }
 
@@ -425,6 +432,10 @@ mod tests {
                 key(0.0, 0.5, Ease::LINEAR),
                 key(1.0, 0.0, Ease::LINEAR),
             ]),
+            stretch_x: Track::new(vec![
+                key(0.0, 1.0, Ease::LINEAR),
+                key(1.0, 2.0, Ease::LINEAR),
+            ]),
             opacity: Track::new(vec![
                 key(0.0, 0.0, Ease::LINEAR),
                 key(0.5, 1.0, Ease::LINEAR),
@@ -436,14 +447,17 @@ mod tests {
             offset_x: 0.1,
             offset_y: -0.2,
             rotation: 10.0,
-            stretch_x: 1.0,
-            stretch_y: 1.0,
+            stretch_x: 0.5,
+            stretch_y: 0.8,
         };
         let mid = animation.transform_at(base, 0.5);
         assert!((mid.scale - 1.5).abs() < 1e-12);
         assert!((mid.offset_x - 0.35).abs() < 1e-12);
         assert_eq!(mid.offset_y, -0.2);
         assert_eq!(mid.rotation, 10.0);
+        // A pull is a factor, as the scale is, and each axis rides alone.
+        assert!((mid.stretch_x - 0.75).abs() < 1e-12);
+        assert_eq!(mid.stretch_y, 0.8);
         assert!((animation.opacity_at(0.8, 0.25) - 0.4).abs() < 1e-6);
         assert_eq!(animation.opacity_at(0.8, 0.9), 0.8);
         assert!(!animation.is_empty());

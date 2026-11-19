@@ -111,6 +111,7 @@ fn install(
         );
     }
     if let Some(previous) = &opened.previous {
+        let _ = PREVIOUS.set(previous.clone());
         let name = previous
             .path
             .file_name()
@@ -127,6 +128,15 @@ fn install(
         }
     }
     Ok(opened)
+}
+
+/// The run before this one, as [`open`] found it: kept for the window,
+/// which on a phone says when it died and shares its file.
+static PREVIOUS: std::sync::OnceLock<concat_log::PreviousRun> = std::sync::OnceLock::new();
+
+/// The run before this one, when there was one; see [`concat_log::PreviousRun`].
+pub fn previous() -> Option<&'static concat_log::PreviousRun> {
+    PREVIOUS.get()
 }
 
 /// The person's home folder, which the log writes as `~`. A phone has none
@@ -222,6 +232,21 @@ mod tests {
         // A second call cannot take the facade a second time, and says so
         // rather than pretending.
         assert!(open(&dirs, None).is_err());
+
+        // A panic is in the file, with its message and its place, by the
+        // time the hook hands on to whatever ends the process: with
+        // `panic = "abort"` that is the very next thing.
+        catch_panics();
+        let line = line!() + 1;
+        let _ = std::thread::spawn(|| panic!("the kettle boiled dry")).join();
+        let written = std::fs::read_to_string(&path).expect("reads back");
+        let place = format!("{}:{line}:", file!());
+        assert!(
+            written.lines().any(|text| text.contains(" ERROR panic ")
+                && text.contains("the kettle boiled dry, at ")
+                && text.contains(&place)),
+            "{written}"
+        );
 
         end();
         let written = std::fs::read_to_string(&path).expect("reads back");

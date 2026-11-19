@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.10"
+version = "0.2.12"
 edition = "2024"
 rust-version = "1.93"
 license = "AGPL-3.0-or-later"
@@ -148,8 +148,18 @@ incremental = false
 # bump it with Slint, re-applying the change.
 [patch.crates-io]
 i-slint-renderer-skia = { path = "patches/i-slint-renderer-skia" }
+# Slint's Android backend, as published, with one change: a mouse wheel's
+# scroll scrolls rather than panicking in a `todo!()` (#800; see
+# patches/README.md). 1.18.1 exactly, as the renderer above.
+i-slint-backend-android-activity = { path = "patches/i-slint-backend-android-activity" }
 # whisper.cpp's Rust build, as published, able to build ggml as shared
 # libraries with one CPU backend per x86_64 generation chosen at run time
 # (see patches/README.md, and GGML_BACKEND_DL in build-app.yml). 0.15.0
 # exactly; bump it with whisper-rs, re-applying the change.
 whisper-rs-sys = { path = "patches/whisper-rs-sys" }
+# wgpu's hardware layer, as published, with its Vulkan memory gates reading
+# the heap an allocation lands in: a buffer the CPU writes is no longer
+# refused over a spent BAR the allocator would go past, and the BAR no
+# longer loses the device (#746; see patches/README.md). 30.0.1 exactly;
+# bump it with wgpu, re-applying the change.
+wgpu-hal = { path = "patches/wgpu-hal" }

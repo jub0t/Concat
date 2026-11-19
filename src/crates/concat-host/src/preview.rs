@@ -308,24 +308,44 @@ impl Monitor {
     }
 
     /// The engine-composited frame at one instant, as raw RGBA bytes:
-    /// exactly `width * height * 4` of them.
+    /// exactly `width * height * 4` of them. The API's: a frame that could
+    /// not be drawn whole - its effects left out on the CPU, after the
+    /// device was lost - is an error, never a picture that is not it.
     pub fn frame(
         &self,
         clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
-        self.frame_pixels(clips, settings, spec)
+        self.pixels_of(clips, settings, spec, true)
             .map(|(pixels, _)| pixels)
     }
 
-    /// [`Monitor::frame`], and whether every picture in it is the exact
-    /// one; see [`FrameSpec::nearest`].
+    /// [`Monitor::frame`] for the window, and whether every picture in it
+    /// is the exact one; see [`FrameSpec::nearest`]. A frame drawn on the
+    /// CPU without its effects is shown, and [`Monitor::drawn_slowly`]
+    /// says so.
     pub fn frame_pixels(
         &self,
         clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
         spec: FrameSpec,
+    ) -> Result<(Vec<u8>, bool), String> {
+        self.pixels_of(clips, settings, spec, false)
+    }
+
+    /// Whether [`Monitor::frame_pixels`] draws on the CPU: slower, and
+    /// without effects, since no device would.
+    pub fn drawn_slowly(&self) -> bool {
+        concat_export::previews_on_cpu()
+    }
+
+    fn pixels_of(
+        &self,
+        clips: Arc<Vec<ExportClip>>,
+        settings: &DocumentSettings,
+        spec: FrameSpec,
+        strict: bool,
     ) -> Result<(Vec<u8>, bool), String> {
         let plan = self.plan_for(clips, settings, spec);
         let sources = concat_export::preview_sources_of(
@@ -336,7 +356,7 @@ impl Monitor {
             spec.nearest,
         )?;
         let exact = sources.exact();
-        sources.pixels().map(|pixels| (pixels, exact))
+        sources.pixels(strict).map(|pixels| (pixels, exact))
     }
 
     /// Decode-ahead for the playback stream: hands the scheduler the next

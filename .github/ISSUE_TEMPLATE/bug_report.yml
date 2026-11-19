@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Concat crashed, froze, or did not do what it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. The log is the most useful thing you can give us: with it we can usually see the cause, and without it we usually have to ask.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what Concat did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen again
+      placeholder: |
+        1. Open a project with ...
+        2. Click ...
+        3. ...
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Concat version
+      description: Settings › About. It is also the first line of the log.
+      placeholder: "0.2.11"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where
+      options:
+        - Windows
+        - Android
+        - macOS
+        - Linux
+        - iPhone or iPad
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: The log
+      description: |
+        Desktop: Settings › About › Show the log opens the folder; drag the newest file in here. If Concat closed by itself, start it again first: the log from the run that died is the one before the newest.
+        Android: Settings › About › Share the log.
+        Attach it on github.com: a reply by email drops attachments.
+      placeholder: Drag the log file here
+    validations:
+      required: false
+  - type: textarea
+    id: system
+    attributes:
+      label: Your device
+      description: Settings › About › Copy system information, pasted here. On a phone, the model and Android or iOS version.
+    validations:
+      required: false
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, a screen recording, the kind of footage (phone video, screen recording, 4K 60), whether it happened on an earlier version.
+    validations:
+      required: false

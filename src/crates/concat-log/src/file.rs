@@ -37,6 +37,19 @@ pub const TAIL: u64 = 6 * 1024 * 1024;
 /// What the last line of a run that ended in order says.
 pub(crate) const ENDED: &str = "run ended cleanly";
 
+/// What the end of a run that ended in order said before the marker above
+/// existed: the event loop signing off, which is all a 0.2.8 log closes
+/// with. Only the `ok=true` form is a clean end - the other is the loop
+/// reporting that it failed.
+pub(crate) const ENDED_BEFORE: &str = "event loop exited (ok=true)";
+
+/// Whether a line from the end of a run says the run ended in order, in
+/// either of the wordings above: a run read back after an upgrade may
+/// predate the marker.
+fn says_ended(line: &str) -> bool {
+    line.contains(ENDED) || line.contains(ENDED_BEFORE)
+}
+
 /// The open file, and how much it holds.
 pub(crate) struct RunFile {
     path: PathBuf,
@@ -221,6 +234,20 @@ pub struct PreviousRun {
     pub last_error: Option<String>,
 }
 
+impl PreviousRun {
+    /// Whether the run's own file says it died: it did not end in order,
+    /// and the last thing wrong in it is a crash line or a panic. A run that
+    /// was only stopped - on a phone, swiped away or put down by the system
+    /// in the background - leaves neither.
+    pub fn died(&self) -> bool {
+        !self.ended_cleanly
+            && self
+                .last_error
+                .as_deref()
+                .is_some_and(|line| line.starts_with("FATAL ") || line.contains(" ERROR panic "))
+    }
+}
+
 /// The newest run in `folder`, read before this run's own file is made.
 pub(crate) fn previous(folder: &Path) -> Option<PreviousRun> {
     let path = runs(folder).into_iter().max()?;
@@ -232,12 +259,8 @@ pub(crate) fn previous(folder: &Path) -> Option<PreviousRun> {
     let mut end = Vec::new();
     file.read_to_end(&mut end).ok()?;
     let end = String::from_utf8_lossy(&end);
-    let ended_cleanly = end.lines().rev().take(8).any(|line| line.contains(ENDED));
-    let last_error = end
-        .lines()
-        .rev()
-        .find(|line| line.contains(" ERROR ") || line.starts_with("FATAL "))
-        .map(|line| line.trim().to_owned());
+    let ended_cleanly = end.lines().rev().take(8).any(says_ended);
+    let last_error = last_error_in(&end);
     Some(PreviousRun {
         path,
         ended_cleanly,
@@ -245,9 +268,83 @@ pub(crate) fn previous(folder: &Path) -> Option<PreviousRun> {
     })
 }
 
+/// The last error or crash line in a run's text. Not one of the run's
+/// `last run` lines, which quote the run before it: taken for the run's
+/// own, each run quoted the one before's quote of the one before, and a
+/// phone that kept dying wrote a line longer each launch, 1,400
+/// characters by the tenth. A line's continuation - the rest of an entry
+/// of several lines, indented under its first - belongs with its entry.
+fn last_error_in(text: &str) -> Option<String> {
+    let mut quoting = false;
+    let mut last = None;
+    for line in text.lines() {
+        if line.starts_with(char::is_whitespace) {
+            if quoting {
+                continue;
+            }
+        } else {
+            quoting = about_last_run(line);
+            if quoting {
+                continue;
+            }
+        }
+        if line.contains(" ERROR ") || line.starts_with("FATAL ") {
+            last = Some(line);
+        }
+    }
+    last.map(|line| line.trim().to_owned())
+}
+
+/// Whether a line as the file lays it out - the time, the level, then the
+/// topic - is under the `last run` topic.
+fn about_last_run(line: &str) -> bool {
+    let mut rest = line;
+    for _ in 0..2 {
+        rest = rest
+            .trim_start()
+            .split_once(char::is_whitespace)
+            .map_or("", |(_, after)| after);
+    }
+    rest.trim_start().starts_with("last run ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run's own `last run` line quotes the run before's error, and is
+    /// not taken for an error of its own: the warning a launch writes says
+    /// what went wrong in the run before, never what went wrong three runs
+    /// ago, nested in quotes.
+    #[test]
+    fn a_quote_of_the_run_before_is_not_this_runs_error() {
+        let quoted = "12:00:00.000 WARN  last run   concat-20260101-000000.log did not end cleanly (it crashed, was killed, or the machine went down); the last thing that went wrong in it: 11:00:00.000 ERROR export     failed: no encoder  [concat, main]  [concat_host::logs, main]\n";
+        let threads = "12:00:00.100 WARN  last run   the threads of concat-20260101-000000.log when the system gave up on it  [concat_android, main]\n                             \"main\" prio=5 tid=1 Native\n                               native: #00 pc 0000000000001000  /system/lib64/libc.so (abort+12) ERROR here\n";
+        // A run with nothing wrong of its own has no last error...
+        assert_eq!(last_error_in(&format!("{quoted}{threads}")), None);
+        // ...and one with an error of its own has that one, wherever its
+        // quote of the run before stands.
+        let own = "12:00:05.000 ERROR gpu        device lost  [concat_render::gpu, w]\n";
+        assert_eq!(
+            last_error_in(&format!("{own}{quoted}{threads}")).as_deref(),
+            Some(own.trim())
+        );
+        assert_eq!(
+            last_error_in(&format!("{quoted}{own}{threads}")).as_deref(),
+            Some(own.trim())
+        );
+        // A line under another topic that only mentions the words is not
+        // skipped.
+        let other =
+            "12:00:06.000 ERROR export     the last run of the encoder failed  [concat, main]\n";
+        assert_eq!(
+            last_error_in(&format!("{quoted}{other}")).as_deref(),
+            Some(other.trim())
+        );
+        assert!(about_last_run(quoted));
+        assert!(!about_last_run(other));
+        assert!(!about_last_run("FATAL [main] crash: SIGSEGV at 0x10"));
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let folder = std::env::temp_dir().join(format!("concat-log-{name}-{}", std::process::id()));
@@ -363,6 +460,50 @@ mod tests {
             run.last_error.as_deref(),
             Some("FATAL [main] crash: SIGSEGV at 0x10")
         );
+        assert!(run.died());
+
+        // One that stopped after a panic died too; one that only stopped,
+        // with nothing wrong in it, or with an error it carried on from,
+        // did not.
+        for (text, died) in [
+            (
+                "12:00:00.000 ERROR panic      index out of bounds, at src/a.rs:1:2  [concat_log, w]\n",
+                true,
+            ),
+            (
+                "12:00:00.000 INFO  edit       Split  [concat, main]\n",
+                false,
+            ),
+            (
+                "12:00:00.000 ERROR gpu        device lost  [concat_render::gpu, w]\n",
+                false,
+            ),
+        ] {
+            std::fs::write(folder.join("concat-20260103-000000.log"), text).expect("a log");
+            assert_eq!(previous(&folder).expect("a run").died(), died, "{text}");
+        }
+
+        // A run from before the marker existed: 0.2.8's log closes with the
+        // event loop signing off, and nothing else. That is a clean end,
+        // not a crash - while the same sign-off reporting a failure is not
+        // one.
+        std::fs::write(
+            folder.join("concat-20260104-000000.log"),
+            "08:07:24.151 INFO  [main] concat: close: event loop exited (ok=true)\n",
+        )
+        .expect("a log");
+        let run = previous(&folder).expect("a run");
+        assert!(run.ended_cleanly);
+        assert_eq!(run.last_error, None);
+        assert!(!run.died());
+
+        std::fs::write(
+            folder.join("concat-20260105-000000.log"),
+            "08:07:24.151 ERROR [main] concat: close: event loop exited (ok=false)\n",
+        )
+        .expect("a log");
+        let run = previous(&folder).expect("a run");
+        assert!(!run.ended_cleanly);
         let _ = std::fs::remove_dir_all(&folder);
     }
 }

@@ -58,8 +58,23 @@ use crate::probe;
 /// sixty decodes - comparable to a seek, and exact.
 const ROLL_FORWARD_FRAMES: i64 = 60;
 
-/// The threads a pool reader's codec decodes on; see `Reader::open`.
+/// The most threads a pool reader's codec decodes on; see `Reader::open`.
 const READER_THREADS: u16 = 8;
+
+/// The threads a pool reader's codec decodes on: one a core up to
+/// [`READER_THREADS`]. Each of a frame-threaded decoder's threads holds
+/// pictures of its own, so a reader on more threads than the machine has
+/// cores holds memory and takes cores from the window and the mix with no
+/// core to run on.
+fn reader_threads() -> u16 {
+    static THREADS: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *THREADS.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+        u16::try_from(cores)
+            .unwrap_or(u16::MAX)
+            .clamp(1, READER_THREADS)
+    })
+}
 
 /// Warm readers one file at one level may hold: enough for the two sides of
 /// a transition within a file and a scrub elsewhere in it, few enough that
@@ -418,17 +433,18 @@ impl Reader {
         // Unpaced, so every source frame comes out with its own timestamp
         // and the index is read from that; a seek lands on the keyframe at
         // or before the target and the pull rolls forward from there.
-        // Four threads, not one a core: each of a frame-threaded decoder's
-        // threads holds its own pictures in flight, and on twelve cores a
-        // 4K reader held 330 MB of them - memory the allocator then kept
-        // after the reader closed. A reader here walks a few frames to the
-        // one the monitor wants, and four do that nearly as fast.
+        // One thread a core, eight at most, not one a core on every
+        // machine: each of a frame-threaded decoder's threads holds its own
+        // pictures in flight, and on twelve cores a 4K reader held 330 MB
+        // of them - memory the allocator then kept after the reader closed.
+        // A reader here walks a few frames to the one the monitor wants, and
+        // past eight threads the walk was no faster (scrub_feel).
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
             .scaled_to(width, height)
             .in_range(range)
             .deep(deep)
-            .threaded(READER_THREADS);
+            .threaded(reader_threads());
         if keyframes {
             options = options.nearest_keyframes();
         }
@@ -696,6 +712,9 @@ pub struct ReaderPool {
     /// [`ReaderPool::frame_nearest`] weighs a walk by.
     pace: Mutex<HashMap<PathBuf, f64>>,
     counters: Counters,
+    /// How many readers each way of decoding opened; see
+    /// [`ReaderPool::readers_opened`].
+    ways: Mutex<std::collections::BTreeMap<String, u64>>,
 }
 
 /// How long a scrub may wait for the exact frame before it is shown the
@@ -734,6 +753,7 @@ impl ReaderPool {
             proxies: Mutex::new(HashMap::new()),
             pace: Mutex::new(HashMap::new()),
             counters: Counters::default(),
+            ways: Mutex::new(std::collections::BTreeMap::new()),
         }
     }
 
@@ -788,16 +808,26 @@ impl ReaderPool {
     /// playhead left long ago is memory spent on nothing. A reader closed
     /// here is opened again on the next frame wanted from it, at the cost
     /// of one seek. Returns how many went.
+    ///
+    /// The readers are closed after the pool's lock is let go: closing a
+    /// phone's hardware decoder waits on the codec's own thread, a good
+    /// part of a second on a slow one, and every frame asked of the pool
+    /// meanwhile would have waited with it.
     pub fn close_idle(&self, idle: std::time::Duration) -> usize {
-        let Ok(mut readers) = self.readers.lock() else {
-            return 0;
+        let closing: Vec<Warm> = {
+            let Ok(mut readers) = self.readers.lock() else {
+                return 0;
+            };
+            let now = std::time::Instant::now();
+            let (keep, closing): (Vec<Warm>, Vec<Warm>) = std::mem::take(&mut readers.warm)
+                .into_iter()
+                .partition(|warm| {
+                    Arc::strong_count(&warm.reader) > 1 || now.duration_since(warm.touched) < idle
+                });
+            readers.warm = keep;
+            closing
         };
-        let now = std::time::Instant::now();
-        let before = readers.warm.len();
-        readers.warm.retain(|warm| {
-            Arc::strong_count(&warm.reader) > 1 || now.duration_since(warm.touched) < idle
-        });
-        before - readers.warm.len()
+        closing.len()
     }
 
     /// Makes `frame` the still at `path`, a name no file has, until
@@ -869,6 +899,19 @@ impl ReaderPool {
         let sources = self.sources.lock().map(|cache| cache.held()).unwrap_or(0);
         let treated = self.treated.lock().map(|cache| cache.held()).unwrap_or(0);
         sources + treated
+    }
+
+    /// Each way the pool's readers decoded - which decoder, and on which
+    /// device or in software, as each opened - and how many opened so.
+    pub fn readers_opened(&self) -> Vec<(String, u64)> {
+        self.ways
+            .lock()
+            .map(|ways| {
+                ways.iter()
+                    .map(|(way, count)| (way.clone(), *count))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// What the pool has done so far.
@@ -1567,7 +1610,7 @@ impl ReaderPool {
         // Opened outside the lock: opening a file and seeking it is the slow
         // part, and nobody else needs to wait for it. A decode in flight on
         // an evicted reader finishes on its own handle.
-        let opened = Arc::new(Mutex::new(Reader::open(
+        let reader = Reader::open(
             path,
             width,
             height,
@@ -1579,7 +1622,16 @@ impl ReaderPool {
             facts.still,
             target,
             keyframes,
-        )?));
+        )?;
+        if let Ok(mut ways) = self.ways.lock() {
+            let decoder = &reader.decoder;
+            let way = match decoder.hardware() {
+                Some(device) => format!("{} on {}", decoder.codec_name(), device.label()),
+                None => format!("{} in software", decoder.codec_name()),
+            };
+            *ways.entry(way).or_default() += 1;
+        }
+        let opened = Arc::new(Mutex::new(reader));
         let mut readers = self
             .readers
             .lock()

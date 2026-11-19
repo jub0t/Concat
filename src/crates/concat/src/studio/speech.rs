@@ -247,7 +247,7 @@ impl Studio {
         let path = session.path().to_owned();
         let name = format!("{} template", self.project_name);
         let config = self.host.dirs.config.clone();
-        spawn(
+        spawn_long(
             move || templates::save(&config, &document, &settings, &path, &name),
             |studio, _, _, result| match result {
                 Ok(info) => studio.notify(&tf("studio.savedTemplate", &[&info.name]), false),
