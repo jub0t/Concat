@@ -47,8 +47,8 @@ use concat_media::audio::{self, AudioClip};
 use concat_media::{DecodeOptions, EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
 use concat_project::model::{AppliedFilter, ColorSpace, Cutout, Mask};
 use concat_render::{
-    Compositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor,
-    plan_frame,
+    Compositor, CpuCompositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition,
+    WgpuCompositor, plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
@@ -1742,6 +1742,23 @@ fn recovered(losses: u32, hdr: bool, dead: WgpuCompositor, lent: bool) -> Drawer
     Drawer::Gpu(Box::new(compositor))
 }
 
+/// Whether the CPU draws `plan` in place of `gpu`: where `gpu` is a
+/// software adapter (WARP, lavapipe) and the CPU draws the frame whole -
+/// no effect, treatment, deep picture or HDR, which it would leave out
+/// ([`CpuCompositor::leaves_out`]). Both then draw on the processor, and
+/// ours draws a plain frame several times faster than WARP compiles and
+/// runs the device's shaders: a 1080p clip at 17 fps against 3.4 on CI's
+/// runner (#824). `CONCAT_WARP_DRAWS=all` keeps every frame on the
+/// adapter, for CI's runs that look for the shader WARP dies of.
+fn cpu_draws_instead(gpu: Option<&WgpuCompositor>, plan: &FramePlan) -> bool {
+    static ALL_ON_WARP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let all_on_warp =
+        *ALL_ON_WARP.get_or_init(|| std::env::var("CONCAT_WARP_DRAWS").is_ok_and(|v| v == "all"));
+    !all_on_warp
+        && gpu.is_some_and(WgpuCompositor::on_software_adapter)
+        && !CpuCompositor::leaves_out(plan)
+}
+
 /// The CPU, for the rest of an export whose device was lost `losses`
 /// times; said in the log, where CI looks for it.
 fn on_the_cpu(losses: u32) -> Drawer {
@@ -2123,13 +2140,23 @@ fn render_picture(
                 && let Some(mut plan) = unsent.take()
             {
                 plan.treatments = live_treatments(&treatments, time);
-                if in_flight.len() >= IN_FLIGHT {
-                    drawn.extend(device.collect(&mut in_flight)?);
-                }
-                if device.clock().submit(&plan) {
-                    in_flight.push_back((index, plan));
+                if cpu_draws_instead(device.compositor.gpu(), &plan) {
+                    // The frames ahead of it first, so they are written in
+                    // order; a run of such frames has none in flight.
+                    while !in_flight.is_empty() {
+                        drawn.extend(device.collect(&mut in_flight)?);
+                    }
+                    drawn.push(Drawn::Rgba(CpuCompositor.render(&plan)));
+                    spent.cpu_frames += 1;
                 } else {
-                    unsent = Some(plan);
+                    if in_flight.len() >= IN_FLIGHT {
+                        drawn.extend(device.collect(&mut in_flight)?);
+                    }
+                    if device.clock().submit(&plan) {
+                        in_flight.push_back((index, plan));
+                    } else {
+                        unsent = Some(plan);
+                    }
                 }
             }
             if let Some(frame_plan) = unsent {
@@ -2439,6 +2466,9 @@ struct Spent {
     losses: u32,
     /// The CPU drew the rest after the device was lost; see `recovered`.
     on_cpu: bool,
+    /// Frames the CPU drew in a software adapter's place, being faster
+    /// at them; see [`cpu_draws_instead`].
+    cpu_frames: i64,
     /// The encoder, and which pass this is: a second goes again on the
     /// CPU's encoder after the hardware one stopped (#491).
     encoder: String,
@@ -2512,6 +2542,12 @@ impl Spent {
             } else {
                 op.note(format_args!("drawn on {}", self.adapter));
             }
+        }
+        if self.cpu_frames > 0 {
+            op.note(format_args!(
+                "{} of {} frames drawn on the CPU, faster than that adapter",
+                self.cpu_frames, self.frames
+            ));
         }
         if self.losses > 0 {
             op.note(format_args!(
@@ -5133,6 +5169,116 @@ mod tests {
         assert!(!output.exists(), "no file of frames without the effect");
 
         NO_DEVICE_OPENS.set(false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// On a software adapter a plain frame is drawn by the CPU, faster, and
+    /// a frame with an effect by the adapter, which draws the effect: the
+    /// plain cut comes out the clip's red, the effected one grey. On a GPU,
+    /// and with nothing to draw on, every frame stays where it was.
+    #[test]
+    fn a_software_adapter_leaves_plain_frames_to_the_cpu_and_draws_the_effects() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let plain = concat_render::FramePlan::empty(32, 18);
+        assert!(
+            !cpu_draws_instead(None, &plain),
+            "nothing to draw in place of"
+        );
+        if let Some(gpu) = WgpuCompositor::new().filter(|gpu| !gpu.on_software_adapter()) {
+            assert!(
+                !cpu_draws_instead(Some(&gpu), &plain),
+                "a GPU draws its own"
+            );
+        }
+        let Some(slow) = WgpuCompositor::software() else {
+            eprintln!("no software adapter here; skipped");
+            return;
+        };
+        assert!(cpu_draws_instead(Some(&slow), &plain));
+
+        let dir = std::env::temp_dir().join(format!("concat-export-warp-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let source = dir.join("source.mp4");
+        let Ok(mut encoder) = Encoder::create(
+            &source,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        ) else {
+            return; // no ffmpeg here
+        };
+        let mut red = Frame::black(64, 64);
+        red.fill([200, 40, 40, 255]);
+        for _ in 0..6 {
+            encoder.write_frame(&red).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        let mut footage = clip("video", 0, 0.0, 0.2, 0.0);
+        footage.path = source.to_string_lossy().into_owned();
+        footage.media_width = Some(64);
+        footage.media_height = Some(64);
+        footage.has_audio = Some(false);
+        let request = |clip: ExportClip, output: &Path| ExportRequest {
+            canvas: [0, 0, 0, 255],
+            output: output.to_string_lossy().into_owned(),
+            width: 64,
+            height: 64,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 18,
+            preset: "ultrafast".into(),
+            codec: VideoCodec::H264,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            clips: vec![clip],
+        };
+        let middles = |clip: ExportClip, name: &str, lent: WgpuCompositor| {
+            let cancel = AtomicBool::new(false);
+            let mut progress = |_: i64, _: i64, _: &'static str| {};
+            let reporter = Reporter {
+                progress: &mut progress,
+                cancel: &cancel,
+            };
+            let output = dir.join(name);
+            let written =
+                render_on(&request(clip, &output), Some(lent), reporter).expect("exports");
+            let mut decoder = Decoder::open(&written, &DecodeOptions::default()).expect("opens");
+            let mut middles = Vec::new();
+            while let Some(frame) = decoder.next_frame().expect("decodes") {
+                middles.push(frame.pixel(32, 32).expect("a pixel"));
+            }
+            middles
+        };
+
+        let drawn = middles(footage.clone(), "plain.mp4", slow.sibling());
+        assert_eq!(drawn.len(), 6, "every frame written");
+        for (index, middle) in drawn.iter().enumerate() {
+            assert!(
+                middle[0].abs_diff(200) <= 12 && middle[1].abs_diff(40) <= 12,
+                "plain frame {index} is {middle:?}, not the clip's red"
+            );
+        }
+
+        let mut effected = footage;
+        effected.effects = vec![AppliedFilter::new("concat.mono")];
+        let drawn = middles(effected, "effected.mp4", slow);
+        assert_eq!(drawn.len(), 6, "every frame written");
+        for (index, middle) in drawn.iter().enumerate() {
+            let spread =
+                middle[0].max(middle[1]).max(middle[2]) - middle[0].min(middle[1]).min(middle[2]);
+            assert!(
+                spread <= 12,
+                "effected frame {index} is {middle:?}, not grey"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

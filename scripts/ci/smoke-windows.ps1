@@ -223,9 +223,14 @@ if (-not $exportFailed) {
 # run did. The earlier runs showed WARP removing the device whenever the
 # shaders were compiled optimised, and serialising calls into the device,
 # the debug layer, hardware coding and logging making no difference; these
-# say whether that holds, and what the unoptimised shaders cost.
-# None of these fail the step; only the first run above does.
-function Probe-Export($what, [hashtable]$extra) {
+# say whether that holds, and what the unoptimised shaders cost. A plain
+# frame is drawn by the CPU in WARP's place, being faster
+# (cpu_draws_instead in concat-export); CONCAT_WARP_DRAWS=all keeps every
+# frame on WARP, as the lines that look for the shader need, and as the
+# line to measure the CPU's frames against.
+# Only "every frame on WARP" fails the step, as the first run above does:
+# a frame with an effect is still WARP's, so its device must last.
+function Probe-Export($what, [hashtable]$extra, [switch]$mustLast) {
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = $exe
   [void]$info.ArgumentList.Add("--smoke-export")
@@ -243,6 +248,7 @@ function Probe-Export($what, [hashtable]$extra) {
   if (-not $process.WaitForExit(180 * 1000)) {
     $process.Kill($true)
     Write-Host ("  {0,-34} still running after 180 s" -f $what)
+    if ($mustLast) { $script:exportFailed = "the export with every frame on WARP was still running after 180 s" }
     return
   }
   $process.WaitForExit()
@@ -254,15 +260,20 @@ function Probe-Export($what, [hashtable]$extra) {
   $verdict = if ($process.ExitCode -ne 0) { "FAILED" } elseif ($cpu) { "finished on the CPU" } else { "ok on the GPU" }
   $done = $lines | Where-Object { $_ -match "export     done in" } | Select-Object -First 1
   $fps = if ($done -match "frames at ([0-9.]+) fps") { "$($Matches[1]) fps" } else { "-" }
-  Write-Host ("  {0,-34} {1,-20} {2,-10} devices lost: {3}, opened dead: {4}" -f $what, $verdict, $fps, $lost, $dead)
+  $byCpu = if ($done -match "([0-9]+) of [0-9]+ frames drawn on the CPU") { "$($Matches[1]) by the CPU" } else { "none by the CPU" }
+  Write-Host ("  {0,-34} {1,-20} {2,-10} {3,-18} devices lost: {4}, opened dead: {5}" -f $what, $verdict, $fps, $byCpu, $lost, $dead)
   $first = $lines | Where-Object { $_ -match "gave up its device|already removed" } | Select-Object -First 1
   if ($first) { Write-Host "      first: $($first.Trim())" }
+  if ($mustLast -and $verdict -ne "ok on the GPU") {
+    $script:exportFailed = "the export with every frame on WARP: $verdict (devices lost: $lost) (#824)"
+  }
 }
 
 Say "the export again under each condition (#824)"
 Probe-Export "as shipped, again" @{}
-Probe-Export "shaders optimised" @{ CONCAT_WARP_SHADERS = "optimised" }
-Probe-Export "shaders optimised, WGPU_DEBUG" @{ CONCAT_WARP_SHADERS = "optimised"; WGPU_DEBUG = "1" }
+Probe-Export "every frame on WARP" @{ CONCAT_WARP_DRAWS = "all" } -mustLast
+Probe-Export "shaders optimised" @{ CONCAT_WARP_DRAWS = "all"; CONCAT_WARP_SHADERS = "optimised" }
+Probe-Export "shaders optimised, WGPU_DEBUG" @{ CONCAT_WARP_DRAWS = "all"; CONCAT_WARP_SHADERS = "optimised"; WGPU_DEBUG = "1" }
 
 if ($exportFailed) { Fail "$exportFailed" }
 
