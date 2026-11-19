@@ -157,6 +157,11 @@ pub struct Expect {
     /// the bars beside a picture that does not fill the frame.
     #[serde(default)]
     pub black: Vec<[u32; 4]>,
+    /// Pictures shown over the runs' own, each smaller than the frame and
+    /// clear of the code under it: a picture in a corner. They need not
+    /// cover every frame.
+    #[serde(default)]
+    pub inset: Vec<Run>,
     /// Whose pips the sound carries where, as runs over output frames.
     /// Absent, the sound is not checked; present, a pip anywhere they do
     /// not put one is an error, as is silence where they do.
@@ -292,13 +297,18 @@ pub struct Run {
     /// left corner, the origin unless the picture is placed elsewhere.
     #[serde(default)]
     pub at: [u32; 2],
+    /// The side of one block of the code as drawn, 16 unless the picture
+    /// is scaled: 8 at half size.
+    #[serde(default = "block")]
+    pub block: u32,
 }
 
 /// What an output frame must show.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shows {
-    /// A source frame, by its code, with the code's top left corner here.
-    Code(code::Code, [u32; 2]),
+    /// A source frame, by its code, with the code's top left corner here
+    /// and its blocks this many pixels a side.
+    Code(code::Code, [u32; 2], u32),
     /// Nothing: black from edge to edge.
     Black,
 }
@@ -319,6 +329,10 @@ pub struct Twin {
 
 fn one() -> u32 {
     1
+}
+
+fn block() -> u32 {
+    code::BLOCK
 }
 
 fn unit() -> f64 {
@@ -351,12 +365,27 @@ impl Case {
             .runs
             .iter()
             .find(|run| (run.frames[0]..=run.frames[1]).contains(&frame))?;
+        self.shows(run, frame)
+    }
+
+    /// Every picture output frame `frame` must show over the one the runs
+    /// give it: the insets.
+    pub fn expected_insets(&self, frame: u32) -> Vec<Shows> {
+        self.expect
+            .inset
+            .iter()
+            .filter(|run| (run.frames[0]..=run.frames[1]).contains(&frame))
+            .filter_map(|run| self.shows(run, frame))
+            .collect()
+    }
+
+    fn shows(&self, run: &Run, frame: u32) -> Option<Shows> {
         let Some(media) = &run.media else {
             return Some(Shows::Black);
         };
         let tag = self.media.get(media)?.tag();
         let index = run.from + (frame - run.frames[0]) * run.step / run.per;
-        Some(Shows::Code(code::Code { tag, index }, run.at))
+        Some(Shows::Code(code::Code { tag, index }, run.at, run.block))
     }
 
     /// Every pip the export's sound must carry, in order of onset: each
@@ -482,6 +511,22 @@ impl Case {
                 "expect: the runs cover {next} frames, and the file has {}",
                 expect.frames
             ));
+        }
+        for run in &expect.inset {
+            let known = run
+                .media
+                .as_ref()
+                .is_some_and(|media| self.media.contains_key(media));
+            if !known
+                || run.per == 0
+                || run.frames[1] < run.frames[0]
+                || run.frames[1] >= expect.frames
+            {
+                return Err(format!(
+                    "expect: the inset at {:?} needs a media of the case, frames inside the file and a per over 0",
+                    run.frames
+                ));
+            }
         }
         for run in &expect.sound {
             let Some(media) = self.media.get(&run.media) else {

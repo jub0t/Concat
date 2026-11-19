@@ -657,9 +657,12 @@ impl Runner<'_> {
                 wrong.push(format!("frame {index} is missing"));
                 continue;
             };
-            if let Some(found) = shown_wrong(frame, shows, &mut worst) {
-                wrong.push(format!("frame {index} {found}"));
-                self.save(report, &format!("export-{index:04}.png"), frame);
+            let insets = self.case.expected_insets(index);
+            for shows in std::iter::once(shows).chain(insets) {
+                if let Some(found) = shown_wrong(frame, shows, &mut worst) {
+                    wrong.push(format!("frame {index} {found}"));
+                    self.save(report, &format!("export-{index:04}.png"), frame);
+                }
             }
         }
         report.code_worst = worst;
@@ -682,9 +685,12 @@ impl Runner<'_> {
                 continue;
             };
             let seen = self.preview(project, f64::from(index) / fps)?;
-            if let Some(found) = shown_wrong(&seen, shows, &mut 0.0) {
-                unlike.push(format!("frame {index} {found}"));
-                self.save(report, &format!("monitor-{index:04}.png"), &seen);
+            let insets = self.case.expected_insets(index);
+            for shows in std::iter::once(shows).chain(insets) {
+                if let Some(found) = shown_wrong(&seen, shows, &mut 0.0) {
+                    unlike.push(format!("frame {index} {found}"));
+                    self.save(report, &format!("monitor-{index:04}.png"), &seen);
+                }
             }
         }
         report.check(
@@ -1027,8 +1033,8 @@ fn decode(path: &Path) -> Result<Vec<Frame>, String> {
 /// level.
 fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
     match shows {
-        Shows::Code(code, at) => {
-            let reading = code::read_at(frame, at[0], at[1]);
+        Shows::Code(code, at, block) => {
+            let reading = code::read_sized(frame, at[0], at[1], block);
             *worst = worst.max(reading.worst);
             (reading.code != Some(code))
                 .then(|| format!("should be {code}, and reads as {}", describe(&reading)))

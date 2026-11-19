@@ -51,6 +51,7 @@ corpus_case!(gap);
 corpus_case!(lanes);
 corpus_case!(missing);
 corpus_case!(ntsc);
+corpus_case!(pip);
 corpus_case!(rates);
 corpus_case!(ripple);
 corpus_case!(sound);
