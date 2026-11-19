@@ -96,6 +96,7 @@ fn a_clip_at_another_speed_decodes_under_a_comma_locale() {
         channels: 2,
         format: SampleFormat::I16,
         stream: None,
+        stretch: None,
     };
     let mut decoder = AudioDecoder::open(mkv, &options).expect("opens");
     let mut frames = 0;

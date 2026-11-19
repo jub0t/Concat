@@ -30,6 +30,9 @@ log = "0.4"
 # already brings in, so nothing new is built.
 resvg = "0.48"
 thiserror.workspace = true
+# Speed changes that keep pitch: every grain at the source position the
+# clip's time map gives it. See concat-stretch.
+concat-stretch.workspace = true
 
 # Android's own AAC encoder, through the NDK's MediaCodec: FFmpeg wraps a
 # phone's video encoders and not its audio one. See audio/android_aac.rs.

@@ -37,5 +37,5 @@ pub use peaks::{Peaks, Pyramid};
 pub use pool::{CacheStats, FrameCache, FrameRequest, Nearest, ReaderPool};
 pub use prefetch::{Cursor, Direction, Moment, Prefetcher, Priority};
 pub use probe::{AudioStream, MediaInfo, VideoStream, probe};
-pub use samples::{AudioDecoder, AudioOptions, SampleFormat};
+pub use samples::{AudioDecoder, AudioOptions, STRETCH_RATE, SampleFormat, Stretching};
 pub use treat::{fit, treat, treat_to};

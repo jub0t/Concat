@@ -29,9 +29,9 @@
       { "frames": [150, 189], "media": "c", "from": 0, "step": 3, "per": 2 }
     ],
     "sound": [
-      { "frames": [0, 29], "media": "a", "from": 0, "speed": 2, "known": { "within": 0.025, "why": "FFmpeg's atempo stretches sound in overlapping windows with no care for transients, so a sharp sound in a sped-up or slowed clip starts up to a window early, swinging with the window's phase and never adding up along the clip (measured: up to 53 ms at half speed over 12 s, 17 ms at 2x). A stretcher that keeps transients fixes it." } },
-      { "frames": [30, 149], "media": "b", "from": 0, "speed": 0.5, "known": { "within": 0.065, "why": "FFmpeg's atempo stretches sound in overlapping windows with no care for transients, so a sharp sound in a sped-up or slowed clip starts up to a window early, swinging with the window's phase and never adding up along the clip (measured: up to 53 ms at half speed over 12 s, 17 ms at 2x). A stretcher that keeps transients fixes it." } },
-      { "frames": [150, 189], "media": "c", "from": 0, "speed": 1.5, "known": { "within": 0.025, "why": "FFmpeg's atempo stretches sound in overlapping windows with no care for transients, so a sharp sound in a sped-up or slowed clip starts up to a window early, swinging with the window's phase and never adding up along the clip (measured: up to 53 ms at half speed over 12 s, 17 ms at 2x). A stretcher that keeps transients fixes it." } }
+      { "frames": [0, 29], "media": "a", "from": 0, "speed": 2 },
+      { "frames": [30, 149], "media": "b", "from": 0, "speed": 0.5 },
+      { "frames": [150, 189], "media": "c", "from": 0, "speed": 1.5 }
     ]
   }
 }

@@ -224,6 +224,7 @@ fn decode(path: &Path, stream: Option<usize>, cancel: &AtomicBool) -> Result<Vec
             channels: 2,
             format: SampleFormat::F32,
             stream,
+            stretch: None,
         },
     )
     .map_err(|error| error.to_string())?;

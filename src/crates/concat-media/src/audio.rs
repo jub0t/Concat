@@ -109,6 +109,28 @@ impl AudioClip {
         total
     }
 
+    /// The clip plays at another speed with its pitch kept: its sound goes
+    /// through the stretcher, grain by grain at the source position its
+    /// time map gives, not through FFmpeg's `atempo`, which places a sharp
+    /// sound up to a window early (53 ms at half speed, the corpus's speed
+    /// case). The tape effect, pitch going with the speed, stays a filter.
+    pub fn stretched(&self) -> bool {
+        self.preserve_pitch
+            && (!self.tempo.is_empty() || (clamp_speed(self.speed) - 1.0).abs() >= 1e-6)
+    }
+
+    /// The stretch of the clip's sound heard from `from` seconds into its
+    /// span, for `length` seconds: source seconds from there at each second
+    /// of output, by [`AudioClip::source_at`].
+    pub fn stretching(&self, from: f64, length: f64) -> crate::samples::Stretching {
+        let clip = self.clone();
+        let origin = clip.source_at(from);
+        crate::samples::Stretching {
+            map: std::sync::Arc::new(move |at: f64| clip.source_at(from + at.max(0.0)) - origin),
+            length,
+        }
+    }
+
     /// The filters that retime the clip's sound as heard from `from`
     /// seconds into its span, the stream starting at that point of the
     /// source with its stamps at zero. `tag` names this clip's filters
@@ -476,9 +498,12 @@ fn mix_graph_from(
             format!("[{index}:a]anull")
         };
 
-        for filter in clip.retime_filters(heard.from, &format!("c{index}")) {
-            stage.push(',');
-            stage.push_str(&filter);
+        // A stretched clip's input comes stretched already (`run_mix`).
+        if !clip.stretched() {
+            for filter in clip.retime_filters(heard.from, &format!("c{index}")) {
+                stage.push(',');
+                stage.push_str(&filter);
+            }
         }
 
         // A clip a window cuts into is shaped on its own clock still: its
@@ -607,11 +632,7 @@ const MIX_FORMAT: Sample = Sample::F32(ffmpeg::util::format::sample::Type::Plana
 /// graph its frames go.
 struct MixInput {
     path: std::path::PathBuf,
-    input: ffmpeg::format::context::Input,
-    stream: usize,
-    decoder: ffmpeg::codec::decoder::Audio,
-    /// A packet the codec refused while full; see [`crate::feed`].
-    held: crate::feed::Held<ffmpeg::Packet>,
+    source: MixSource,
     label: String,
     done: bool,
     /// Samples already sent to the graph for this clip.
@@ -620,24 +641,50 @@ struct MixInput {
     clip_samples: i64,
 }
 
+/// Where an input's frames come from.
+enum MixSource {
+    /// The file's own frames, cut and retimed by the graph.
+    Raw {
+        input: ffmpeg::format::context::Input,
+        stream: usize,
+        decoder: ffmpeg::codec::decoder::Audio,
+        /// A packet the codec refused while full; see [`crate::feed`].
+        held: crate::feed::Held<ffmpeg::Packet>,
+    },
+    /// A stretched clip's sound, cut and stretched already, at
+    /// [`MIX_RATE`]; see [`AudioClip::stretched`].
+    Stretched(Box<crate::samples::AudioDecoder>),
+}
+
 impl MixInput {
     /// One decoded frame, or `None` at the end of the file.
     fn next(&mut self) -> Result<Option<Audio>> {
         if self.done {
             return Ok(None);
         }
-        let read = || crate::feed::read_packet(&mut self.input, self.stream);
-        match crate::feed::next_frame(&mut self.decoder, &mut self.held, read) {
-            Ok(Some(mut frame)) => {
-                ffi::name_channels(&mut frame);
-                Ok(Some(frame))
+        let next = match &mut self.source {
+            MixSource::Raw {
+                input,
+                stream,
+                decoder,
+                held,
+            } => {
+                let read = || crate::feed::read_packet(input, *stream);
+                match crate::feed::next_frame(decoder, held, read) {
+                    Ok(Some(mut frame)) => {
+                        ffi::name_channels(&mut frame);
+                        Some(frame)
+                    }
+                    Ok(None) => None,
+                    Err(stall) => return Err(crate::feed::fail(stall, &self.path)),
+                }
             }
-            Ok(None) => {
-                self.done = true;
-                Ok(None)
-            }
-            Err(stall) => Err(crate::feed::fail(stall, &self.path)),
+            MixSource::Stretched(decoder) => decoder.next_frame()?,
+        };
+        if next.is_none() {
+            self.done = true;
         }
+        Ok(next)
     }
 }
 
@@ -939,6 +986,50 @@ fn run_mix(
         let path = clip.path.as_path();
         // Where in the source what is heard of the clip begins.
         let in_point = clip.source_start + clip.source_at(heard[index].from);
+        if clip.stretched() {
+            // Cut exactly and stretched here, at the mix's rate, so the
+            // graph only shapes and places it: no lead to trim.
+            let length = heard[index].to - heard[index].from;
+            let options = crate::samples::AudioOptions {
+                start: Some(in_point),
+                duration: Some(clip.source_at(heard[index].to) - clip.source_at(heard[index].from)),
+                filters: Vec::new(),
+                rate: MIX_RATE,
+                channels: 2,
+                format: crate::samples::SampleFormat::F32,
+                stream: clip.stream,
+                stretch: Some(clip.stretching(heard[index].from, length)),
+            };
+            let mut decoder = crate::samples::AudioDecoder::open(path, &options)?;
+            let mut first = decoder.next_frame()?.ok_or_else(|| Error::NoAudioStream {
+                path: path.to_path_buf(),
+            })?;
+            heard[index].lead = 0.0;
+            first.set_pts(Some(0));
+            let mix_input = MixInput {
+                path: path.to_path_buf(),
+                source: MixSource::Stretched(Box::new(decoder)),
+                label: format!("{index}:a"),
+                done: false,
+                samples_sent: first.samples() as i64,
+                clip_samples: (length.max(0.0) * f64::from(MIX_RATE)).round() as i64,
+            };
+            let args = format!(
+                "time_base=1/{MIX_RATE}:sample_rate={MIX_RATE}:sample_fmt={}:channel_layout={}",
+                first.format().name(),
+                first.ch_layout().description()
+            );
+            graph
+                .add(
+                    &filter::find("abuffer").ok_or_else(|| missing("abuffer"))?,
+                    &mix_input.label,
+                    &args,
+                )
+                .map_err(|error| ffi::fail_said("buffer source", path, error))?;
+            first_frames.push(first);
+            inputs.push(mix_input);
+            continue;
+        }
         let mut input =
             ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
         let stream_index =
@@ -965,10 +1056,12 @@ fn run_mix(
         let label = format!("{index}:a");
         let mut mix_input = MixInput {
             path: path.to_path_buf(),
-            input,
-            stream: stream_index,
-            decoder,
-            held: None,
+            source: MixSource::Raw {
+                input,
+                stream: stream_index,
+                decoder,
+                held: None,
+            },
             label,
             done: false,
             samples_sent: 0,
@@ -1505,17 +1598,24 @@ mod tests {
     }
 
     #[test]
-    fn a_sped_up_clip_retimes_in_the_graph_and_is_cut_by_sample_count() {
+    fn a_sped_up_clip_comes_stretched_and_the_tape_effect_retimes_in_the_graph() {
+        // Pitch kept: the input is cut and stretched before the graph
+        // (`run_mix`), which only shapes and places it.
         let mut fast = clip("a.mp4");
         fast.speed = 2.0;
+        assert!(fast.stretched());
+        let graph = mix_graph(&[fast.clone()]).expect("valid");
+        assert!(graph.contains("[0:a]anull,"), "graph was: {graph}");
+        assert!(!graph.contains("atempo"), "graph was: {graph}");
+        assert!(!graph.contains("atrim=start"), "graph was: {graph}");
+        // The tape effect, pitch going with the speed, is still a filter.
+        fast.preserve_pitch = false;
+        assert!(!fast.stretched());
         let graph = mix_graph(&[fast]).expect("valid");
-        // The out-point is `mix_to_file`'s sample counter, and an input
-        // that landed on its in-point has nothing to cut.
         assert!(
-            graph.contains("[0:a]anull,atempo=2.000000"),
+            graph.contains("asetrate=48000*2.000000"),
             "graph was: {graph}"
         );
-        assert!(!graph.contains("atrim=start"), "graph was: {graph}");
     }
 
     #[test]
