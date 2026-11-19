@@ -25,7 +25,7 @@
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · **🇭🇺 Magyar** · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> Az angol README-ből fordítva 2026. november 5-én. Az angol változat az, amelyet naprakészen tartunk.
+> Az angol README-ből fordítva 2026. november 19-én. Az angol változat az, amelyet naprakészen tartunk.
 
 ## Fizetett szponzorok
 
@@ -44,7 +44,7 @@
 
 ## A projektről
 
-A Concat ingyenes, nyílt forráskódú videovágó macOS-re, Windowsra, Linuxra és Androidra. Lefedi, amire a legtöbb vágáshoz szükség van: automatikus feliratok, szövegfelolvasás, háttér-eltávolítás, kulcskockás animáció, effektek és címek, többsávos vágás, 4K-s exportálás. Nincs apró betű: nincs vízjel, nincs fiók, nincs előfizetés, nincs feltöltés.
+A Concat ingyenes, nyílt forráskódú videovágó macOS-re, Windowsra, Linuxra, Androidra és iOS-re. Lefedi, amire a legtöbb vágáshoz szükség van: automatikus feliratok, hangleválasztás, szövegfelolvasás, háttér-eltávolítás, animációk és kulcskockák, effektek és címek, többsávos vágás, 4K-s exportálás. Nincs apró betű: nincs vízjel, nincs fiók, nincs előfizetés, nincs feltöltés.
 
 Minden helyben fut, egy natív Rust motoron, GPU-s kompozitorral. Telepítsd, húzd be a felvételeket, vágj. A feliratokhoz, hangokhoz és kivágáshoz használt MI-modellek egyszer töltődnek le a Beállításokból, utána offline működnek. A felvételeid sosem hagyják el a lemezedet.
 
@@ -55,20 +55,25 @@ Minden helyben fut, egy natív Rust motoron, GPU-s kompozitorral. Telepítsd, h�
 ## Kiemelt funkciók
 
 - 🚫 **Nincs vízjel. Nincs fiók. Nincs fizetés.** Soha.
-- 🔒 **100%-ban helyi.** Semmi nem töltődik fel. Offline is működik.
-- 💬 **Automatikus feliratok.** Helyi Whisper. Válassz modellméretet, és formázott feliratokat kapsz az idővonalon.
-- 🗣️ **Szövegfelolvasás + hangklónozás.** Ingyenes helyi hangok, vagy bármilyen hang néhány másodpercnyi felvételből.
-- 🧍 **Háttér-eltávolítás.** Személyek, tárgyak, vagy rajzold meg magad a maszkot.
-- 🎞️ **Kulcskockák.** Pozíció, méretarány, forgatás, átlátszatlanság, hangerő, effektparaméterek. Beépített görbeszerkesztő.
-- ✨ **100 effekt, szűrő és áttűnés.** GPU-n renderelve, élőben az előnézetben.
-- ✂️ **Gyors vágás.** Vágás, megvágás, ripple, egyesítés, kimerevítés, sebesség. Mágneses idővonal, ha szeretnéd.
-- 🎚️ **Több sáv, több idővonal.** Több vágás egy projektben. Keverési módok, körbevágás, tükrözés.
-- 📝 **Címek.** Betűtípusok, körvonal, árnyék, háttérdoboz. Sablonok a kezdéshez.
-- 🎙️ **Hangtisztítás egy kapcsolóval.** Zajcsökkentés, hangjavítás, hangosság-normalizálás. Plusz mókus, robot, telefon és társaik.
-- 📤 **Exportálás.** H.264, HEVC, AV1. Akár 4K 60, 10 bites szín.
-- 🦀 **Natív Rust motor.** GPU-s kompozitor, proxyk, hardveres dekódolás. A 4K is akadásmentesen játszható le.
+- 🔒 **100%-ban helyi.** Semmi nem töltődik fel, a MI sem. Offline is működik.
+- 💬 **Automatikus feliratok.** Azon a nyelven, amelyen beszélsz, a saját gépeden készülnek, formázva, egyenesen az idővonalra.
+- 🎤 **Hangleválasztás.** Emeld ki a hangot a zenéből vagy a zajból, vagy vedd ki belőle, mindegyik részt a saját szintjén.
+- 🗣️ **Szövegfelolvasás + hangklónozás.** Ingyenes helyi hang, vagy bármilyen hang néhány másodpercnyi felvételből. Asztali gépen.
+- 🧍 **Háttér-eltávolítás, chroma key és maszkok.** A személyeket és tárgyakat kivágja helyetted, a zöld háttér magától kulcsolódik, és minden klipen maszkok halma lehet, mindegyik saját móddal és kulcskockákkal.
+- 🌀 **Be-, Ki- és Ismétlés-animációk.** Klipekhez, képekhez, címekhez és alakzatokhoz. Mindegyik lejátszódik a kártyáján, mielőtt kiválasztod.
+- ✨ **Több mint 100 effekt, szűrő és áttűnés, 25 hangeffekt.** Filmes megjelenések, rázkódások és becsapódások, retró, törlések, mind élőben az előnézetben. Az áttűnés is klip, amelyet ugyanúgy mozgatsz és vágsz, mint bármelyik másikat.
+- 🎞️ **Kulcskockák.** Pozíció, méretarány, méret, forgatás, átlátszatlanság, hangerő, effektparaméterek. Beépített görbeszerkesztő.
+- 🏃 **Sebességrámpák és -görbék.** Állandó vagy rajzolt, lágy vagy egyenes. Kimerevítés és visszafelé lejátszás.
+- 🪄 **Feljavítás és stabilizálás.** Állítsd helyre a homályos vagy régi felvételeket, akár 2K-ig. Nyugtass meg egy remegő snittet.
+- ✂️ **Gyors vágás, pontos vágás.** Vágás, megvágás, ripple, egyesítés, összekapcsolt feliratok és rétegek, mágneses idővonal, ha szeretnéd. Minden vágás képkockára esik, ugyanúgy az előnézetben és az exportban.
+- 🎚️ **Több sáv, több idővonal.** Videót, állóképeket, címeket és alakzatokat halmozhatsz annyi sávra, amennyire csak szeretnéd. Több vágás egy projektben. Keverési módok, körbevágás, tükrözés.
+- 📝 **Címek és alakzatok.** Betűtípusok, körvonal, árnyék, háttérdobozok, színes emojik, és sablonok arab, kínai, hindi, thai és további nyolc nyelvhez. Alakzatok színátmenettel, csillagok, körvonalak és árnyékok.
+- 🎙️ **Narráció és hangtisztítás egy kapcsolóval.** Vegyél fel hangot a vágásod fölé. Zajcsökkentés, hangjavítás, hangosság-normalizálás. Plusz mókus, robot, telefon és társaik.
+- 📤 **Exportálás.** H.264, HEVC, AV1, a számítógéped saját kódolójával. Akár 4K 60, 10 bites szín.
+- ⚡ **Gyors.** Beépített proxyk, így a 4K is akadásmentesen görgethető. A címek minden processzormagon rajzolódnak, és minden effekt kész, amint megnyílik az ablak.
+- 🛟 **Bármilyen gépen tovább megy.** Ha a grafikus chip feladja, az előnézet akkor is rajzol tovább.
 - 🤖 **Szkriptelhető.** JSON-RPC API, amellyel szkriptek és MI-ügynökök vághatnak videót. A forrásból fordított változat gRPC-t és parancssori eszközt is ad.
-- 🖥️ **macOS, Windows, Linux, Android.** 27 nyelv. Ugyanaz az alkalmazás, ugyanazok a projektfájlok.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 nyelv. Ugyanaz az alkalmazás, ugyanazok a projektfájlok.
 
 ## Letöltés
 
