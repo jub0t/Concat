@@ -23,7 +23,7 @@
   <a href="https://trendshift.io/repositories/191379?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/191379" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · **🇵🇰 اردو** · [🇧🇩 বাংলা](README.bn.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇭🇺 Magyar](README.hu.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · **🇵🇰 اردو** · [🇧🇩 বাংলা](README.bn.md)
 
 > 28 اکتوبر 2026 کو انگریزی README سے ترجمہ کیا گیا۔ انگریزی نسخہ ہی تازہ رکھا جاتا ہے۔
 
@@ -73,7 +73,7 @@ Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر ہے، macOS، 
 - ⚡ **تیز۔** پراکسیز اندر ہی ہیں، اس لیے 4K آسانی سے اسکرب ہوتا ہے۔ ٹائٹلز تمام کورز پر بنتے ہیں، اور ونڈو کھلتے ہی ہر ایفیکٹ تیار ملتا ہے۔
 - 🛟 **ہر مشین پر چلتا رہتا ہے۔** جب گرافکس چپ ہار مان لے، پری ویو تب بھی بنتا رہتا ہے۔
 - 🤖 **اسکرپٹ کے قابل۔** بلٹ ان MCP سرور، جس سے Claude اور دوسرے AI ایجنٹس اس سے ایڈٹ کر سکتے ہیں ([ایک لائن میں سیٹ اپ](MCP.md))، اور اسکرپٹس کے لیے ایک JSON-RPC API۔ سورس سے بلڈ کرنے پر gRPC اور ایک کمانڈ لائن ٹول بھی ملتا ہے۔
-- 🖥️ **macOS، Windows، Linux، Android، iOS۔** 26 زبانیں۔ وہی ایپ، وہی پراجیکٹ فائلیں۔
+- 🖥️ **macOS، Windows، Linux، Android، iOS۔** 27 زبانیں۔ وہی ایپ، وہی پراجیکٹ فائلیں۔
 
 ## ڈاؤن لوڈ
 
