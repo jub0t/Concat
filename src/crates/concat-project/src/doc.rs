@@ -9,25 +9,29 @@
 //!    first, until it has the shape this build writes. A document from a
 //!    later build than this one is refused whole rather than read in part
 //!    and then saved over.
-//! 2. **Parse.** The model's own `serde` derives read it. Every struct
-//!    defaults a missing field, every list keeps the entries that parse and
-//!    drops the rest, and every field this build does not know lands in the
-//!    struct's `extra` map, so it is written back out untouched. See
-//!    `model::wire` for the tolerant readers.
-//! 3. **Settle.** What no derive can decide: a clip whose track or media is
-//!    gone has nowhere to live and is dropped, a timeline with no lanes is
-//!    no timeline, every number is pulled into the range a command holds it
-//!    to ([`Clip::tidy`]), and the active timeline is one that exists.
+//! 2. **Parse.** The model's own `serde` derives read it, a media item, a
+//!    timeline and a clip at a time ([`crate::unread`]). Every struct
+//!    defaults a missing field, and every field this build does not know
+//!    lands in the struct's `extra` map, so it is written back out
+//!    untouched. An entry that does not parse - a clip of a kind from a
+//!    newer build, a keyframe among readable ones - and one with nowhere to
+//!    live - a clip whose lane or media is gone, a timeline with no lanes -
+//!    is not dropped: it is held, as the JSON it was, in
+//!    [`Project::unread`], and written back where it came from.
+//! 3. **Settle.** What no derive can decide: every number is pulled into
+//!    the range a command holds it to ([`Clip::tidy`]), and the active
+//!    timeline is one that exists.
 //!
 //! The standing rule through all three: a hand-edited or older file
-//! degrades to something openable. Nothing short of a document that is not
-//! an object, or that has no timeline in it, fails the load.
+//! degrades to something openable, and what this build cannot read stays
+//! in the file. Nothing short of a document that is not an object, or that
+//! has no timeline this build can read, fails the load.
 //!
-//! Writing is the derives again, plus a mirror of the active timeline in
-//! the flat `tracks` / `clips` / `video` fields that builds from before
-//! multiple timelines read, so a file saved here still opens there.
+//! Writing is the derives again, the held entries put back, plus a mirror
+//! of the active timeline in the flat `tracks` / `clips` / `video` fields
+//! that builds from before multiple timelines read, so a file saved here
+//! still opens there.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
@@ -184,41 +188,29 @@ const WRITER_OWNED: &[&str] = &[
 
 /// Rebuilds a project from a document. Returns None only when there is
 /// nothing to open: a value that is not an object, a document from a later
-/// build, or one with no timeline that has a lane.
+/// build, or one with no timeline this build can read that has a lane.
 pub fn from_document(document: &Value) -> Option<Project> {
-    let document = migrate(document)?;
-    let project: Project = serde_json::from_value(Value::Object(document)).ok()?;
-    settle(project)
+    let migrated = migrate(document)?;
+    settle(crate::unread::read(migrated, document)?)
 }
 
-/// Everything the derives cannot decide about a freshly parsed project;
-/// see the module doc. `None` when no timeline survives.
+/// Everything the derives cannot decide about a freshly read project; see
+/// the module doc. What has nowhere to live was held by the read already.
+/// `None` when no timeline was read.
 fn settle(mut project: Project) -> Option<Project> {
     for key in WRITER_OWNED {
         project.extra.remove(*key);
     }
-    project.media = project
-        .media
+    project.media = std::mem::take(&mut project.media)
         .into_iter()
-        // An empty path is a template's placeholder, not a broken entry.
-        .filter(|item| !item.id.is_empty())
         .map(MediaItem::tidy)
         .collect();
-    let media: Vec<MediaItem> = project.media.clone();
-    project
-        .fonts
-        .retain(|font| !font.family.is_empty() && !font.path.is_empty());
-
-    let mut seen: HashSet<String> = HashSet::new();
-    project.timelines = project
-        .timelines
+    project.timelines = std::mem::take(&mut project.timelines)
         .into_iter()
-        .filter_map(|timeline| {
+        .map(|timeline| {
             let timeline = Arc::try_unwrap(timeline).unwrap_or_else(|shared| (*shared).clone());
-            settle_timeline(timeline, &media)
+            Arc::new(settle_timeline(timeline))
         })
-        .filter(|timeline| seen.insert(timeline.id.clone()))
-        .map(Arc::new)
         .collect();
     if project.timelines.is_empty() {
         return None;
@@ -233,63 +225,33 @@ fn settle(mut project: Project) -> Option<Project> {
     Some(project)
 }
 
-/// One timeline settled: lanes and clips with ids, clips on lanes that
-/// exist and media that is in the bin, every number in range. `None` for
-/// a timeline with no id or no lane.
-fn settle_timeline(mut timeline: Timeline, media: &[MediaItem]) -> Option<Timeline> {
-    if timeline.id.is_empty() {
-        return None;
-    }
+/// One timeline settled: a name, a frame, every clip's numbers in range.
+fn settle_timeline(mut timeline: Timeline) -> Timeline {
     if timeline.name.trim().is_empty() {
         timeline.name = "Timeline".to_owned();
     }
     timeline.video = timeline.video.or(VideoSettings::default());
-    let mut seen: HashSet<String> = HashSet::new();
-    timeline
-        .tracks
-        .retain(|track| !track.id.is_empty() && seen.insert(track.id.clone()));
-    if timeline.tracks.is_empty() {
-        return None;
-    }
-    let tracks = timeline.tracks.clone();
-    timeline.clips = timeline
-        .clips
+    timeline.clips = std::mem::take(&mut timeline.clips)
         .into_iter()
-        .filter_map(|clip| {
+        .map(|clip| {
             let clip = Arc::try_unwrap(clip).unwrap_or_else(|shared| (*shared).clone());
-            settle_clip(clip, &tracks, media)
+            Arc::new(settle_clip(clip))
         })
-        .map(Arc::new)
         .collect();
-    Some(timeline)
+    timeline
 }
 
-/// One clip settled, or `None` for one with nowhere to live: no id, a
-/// track that vanished, or - for the kinds that come from the bin - media
-/// that is gone. Titles and layers have no media and need none.
-fn settle_clip(
-    mut clip: Clip,
-    tracks: &[crate::model::Track],
-    media: &[MediaItem],
-) -> Option<Clip> {
+/// One clip settled: the fields its kind does not have cleared - titles,
+/// layers and shapes have no media - and every number in range.
+fn settle_clip(mut clip: Clip) -> Clip {
     use crate::model::ClipKind;
-    if clip.id.is_empty() {
-        return None;
-    }
-    if !tracks.iter().any(|track| track.id == clip.track_id) {
-        return None;
-    }
     match clip.kind {
         ClipKind::Text
         | ClipKind::Layer
         | ClipKind::SoundLayer
         | ClipKind::Shape
         | ClipKind::Transition => clip.media_id.clear(),
-        ClipKind::Video | ClipKind::Audio | ClipKind::Image => {
-            if !media.iter().any(|item| item.id == clip.media_id) {
-                return None;
-            }
-        }
+        ClipKind::Video | ClipKind::Audio | ClipKind::Image => {}
     }
     if clip.kind != ClipKind::Text {
         clip.text = None;
@@ -297,7 +259,7 @@ fn settle_clip(
     if clip.kind != ClipKind::Shape {
         clip.shape = None;
     }
-    Some(clip.tidy())
+    clip.tidy()
 }
 
 /// Settings the host manages around the edit: the manifest's identity fields.
@@ -341,7 +303,27 @@ impl DocumentSettings {
 
 /// Builds the full `concat.json` document.
 pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
+    fn list(value: Value) -> Vec<Value> {
+        match value {
+            Value::Array(items) => items,
+            _ => Vec::new(),
+        }
+    }
     let active = project.active();
+    let mut media = list(serde_json::to_value(&project.media).expect("serialises"));
+    let mut fonts = list(serde_json::to_value(&project.fonts).expect("serialises"));
+    let mut timelines = list(serde_json::to_value(&project.timelines).expect("serialises"));
+    // What this build could not read, back where it was read from.
+    project
+        .unread
+        .restore(&mut media, &mut fonts, &mut timelines);
+    // The flat mirror of the active timeline, for builds that predate
+    // multiple timelines: the timeline as it is written, held clips and all.
+    let (tracks, clips) = timelines
+        .iter()
+        .find(|timeline| timeline.get("id").and_then(Value::as_str) == Some(active.id.as_str()))
+        .map(|timeline| (timeline["tracks"].clone(), timeline["clips"].clone()))
+        .unwrap_or_else(|| (json!([]), json!([])));
     let mut document = Map::new();
     document.insert("concat".into(), json!("0.1.0"));
     document.insert("version".into(), json!(DOCUMENT_VERSION));
@@ -358,28 +340,11 @@ pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
             "rateDen": active.video.rate_den,
         }),
     );
-    document.insert(
-        "media".into(),
-        serde_json::to_value(&project.media).expect("serialises"),
-    );
-    // The flat mirror of the active timeline, for builds that predate
-    // multiple timelines.
-    document.insert(
-        "tracks".into(),
-        serde_json::to_value(&active.tracks).expect("serialises"),
-    );
-    document.insert(
-        "clips".into(),
-        serde_json::to_value(&active.clips).expect("serialises"),
-    );
-    document.insert(
-        "fonts".into(),
-        serde_json::to_value(&project.fonts).expect("serialises"),
-    );
-    document.insert(
-        "timelines".into(),
-        serde_json::to_value(&project.timelines).expect("serialises"),
-    );
+    document.insert("media".into(), Value::Array(media));
+    document.insert("tracks".into(), tracks);
+    document.insert("clips".into(), clips);
+    document.insert("fonts".into(), Value::Array(fonts));
+    document.insert("timelines".into(), Value::Array(timelines));
     document.insert("activeTimelineId".into(), json!(project.active_timeline_id));
     // Whatever a newer or a different build put at the top level, back
     // where it was; never over a field this writer owns.

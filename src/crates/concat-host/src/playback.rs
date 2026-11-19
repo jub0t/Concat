@@ -639,6 +639,9 @@ struct Reach {
     /// runs - the file, the stream, the speed and the filters - so that two
     /// spans with the same one are the same sound at the same instant.
     source: String,
+    /// The same but for the filters: a span under another treatment of the
+    /// same file at the same speed is the same instant, sounding otherwise.
+    file: String,
     /// Source seconds the span starts and ends at.
     from: f64,
     to: f64,
@@ -661,15 +664,16 @@ impl Reach {
             return None;
         }
         let speed = concat_media::audio::clamp_speed(spec.speed);
+        let file = format!(
+            "{}\0{:?}\0{:016x}\0{}",
+            spec.path,
+            spec.audio_stream,
+            speed.to_bits(),
+            spec.preserve_pitch,
+        );
         Some(Reach {
-            source: format!(
-                "{}\0{:?}\0{:016x}\0{}\0{}",
-                spec.path,
-                spec.audio_stream,
-                speed.to_bits(),
-                spec.preserve_pitch,
-                spec.chain
-            ),
+            source: format!("{file}\0{}", spec.chain),
+            file,
             from: spec.source_start,
             to: spec.source_start + spec.duration * speed,
             speed,
@@ -694,24 +698,32 @@ const HAIR: f64 = 0.5 / PCM_RATE as f64;
 ///
 /// Any span from the same file under the same treatment will do: what is
 /// left of a clip after a split, a trim inwards, an undo, a second use of
-/// the same recording - each is a stretch of a span already mapped. Of
-/// those, the one that covers most of `spec`; past where it reaches, the
-/// stand-in is silent until the decode lands. None for a span already
-/// decoded, a mixed span, or one nothing decoded overlaps.
+/// the same recording - each is a stretch of a span already mapped. Failing
+/// that, a span of the same file at the same speed under another treatment:
+/// a treatment switched on, off or turned is the sound it was until the new
+/// one is decoded, never silence. Of those, the same treatment first, then
+/// the one that covers most of `spec`; past where it reaches, the stand-in
+/// is silent until the decode lands. None for a span already decoded, a
+/// mixed span, or one nothing decoded overlaps.
 fn stand_in<'a>(cache: &'a HashMap<String, CacheEntry>, spec: &ClipSpec) -> Option<(&'a str, i64)> {
     let wanted = Reach::of(spec)?;
     cache
         .iter()
         .filter_map(|(key, entry)| {
             let reach = entry.reach.as_ref()?;
-            if reach.source != wanted.source {
+            if reach.file != wanted.file {
                 return None;
             }
+            let same = reach.source == wanted.source;
             let covered = reach.to.min(wanted.to) - reach.from.max(wanted.from);
-            (covered > HAIR).then_some((key, entry, reach, covered))
+            (covered > HAIR).then_some((key, entry, reach, same, covered))
         })
-        .max_by(|a, b| a.3.total_cmp(&b.3).then(a.1.last_used.cmp(&b.1.last_used)))
-        .map(|(key, _, reach, _)| (key.as_str(), reach.lead_of(&wanted)))
+        .max_by(|a, b| {
+            a.3.cmp(&b.3)
+                .then(a.4.total_cmp(&b.4))
+                .then(a.1.last_used.cmp(&b.1.last_used))
+        })
+        .map(|(key, _, reach, _, _)| (key.as_str(), reach.lead_of(&wanted)))
 }
 
 /// The decoded span whose samples `spec`'s decode would be, stretch for
@@ -1062,17 +1074,20 @@ fn decode_worker(playback: &Arc<Playback>) {
                 // Newest first: pop from the back where set_clips pushes.
                 match jobs.pop_back() {
                     Some(job) => break job,
-                    None => jobs = playback.queue.available.wait(jobs).unwrap(),
+                    None => {
+                        jobs = playback
+                            .queue
+                            .available
+                            .wait(jobs)
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    }
                 }
             }
         };
 
         // A span queued by an edit that has since been edited again is dead
         // weight; skip it before paying for FFmpeg.
-        let wanted = playback
-            .specs
-            .lock()
-            .unwrap()
+        let wanted = locked(&playback.specs)
             .iter()
             .any(|spec| decode_key(spec) == job.key);
         if !wanted {
@@ -2053,14 +2068,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A treatment switched on under a playing clip: the clip plays on, from
+    /// the sound it had, the moment the change is handed over, while the
+    /// treated sound is decoded - never a stretch of silence until it lands.
+    #[test]
+    fn a_changed_treatment_plays_the_sound_it_had_until_its_own_lands() {
+        let dir = std::env::temp_dir().join(format!("concat-engine-treat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let source = rising_tone(&dir);
+        let plain = tone_spec(&source, 0.0, 3.0);
+        let playback = std::sync::Arc::new(idle(cached(&plain, &dir)));
+        playback.set_clips(dir.clone(), vec![plain.clone()]);
+
+        let mut treated = plain.clone();
+        treated.chain = "afftdn=nf=-25".to_owned();
+        playback.set_clips(dir.clone(), vec![treated.clone()]);
+        let playing = super::locked(&playback.last_active).clone();
+        assert_eq!(playing.len(), 1, "the clip still plays");
+        let had = super::locked(&playback.cache)
+            .get(&super::decode_key(&plain))
+            .map(|entry| std::sync::Arc::as_ptr(&entry.pcm));
+        assert_eq!(
+            Some(std::sync::Arc::as_ptr(&playing[0].pcm)),
+            had,
+            "from the sound it had"
+        );
+        assert_eq!(playing[0].lead, 0);
+        assert_eq!(
+            super::locked(&playback.queue.jobs).len(),
+            1,
+            "the treated sound is decoded all the same"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// What may stand in, and what may be copied. The same file under a
     /// filter is the same sound under that filter, so it stands in, but a
     /// filter carries what came before the cut into the stretch after it,
-    /// so it is decoded all the same; another filter, another speed or a
-    /// stretch the span never reached is another sound. A span reaching
-    /// only part of the way plays where it reaches.
+    /// so it is decoded all the same. The same file under another filter
+    /// stands in too - a treatment changed plays the sound it had until the
+    /// new one is decoded, never silence - but the same treatment comes
+    /// first, and neither is copied. Another speed or a stretch the span
+    /// never reached is another instant. A span reaching only part of the
+    /// way plays where it reaches.
     #[test]
-    fn only_the_same_sound_stands_in_and_only_a_plain_one_is_copied() {
+    fn the_same_instant_stands_in_and_only_a_plain_one_is_copied() {
         let dir = std::env::temp_dir().join(format!("concat-stand-in-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a folder");
         let source = rising_tone(&dir);
@@ -2082,7 +2134,25 @@ mod tests {
 
         let mut other = half.clone();
         other.chain = "highpass=f=2000".to_owned();
-        assert!(super::stand_in(&cache, &other).is_none(), "another filter");
+        assert_eq!(
+            super::stand_in(&cache, &other).map(|(_, lead)| lead),
+            Some(48_000),
+            "another filter: the sound it had, not silence"
+        );
+        assert!(
+            super::copy_source(&cache, &other).is_none(),
+            "another filter: decoded"
+        );
+        let mut both = cached(&filtered, &dir);
+        let mut highpassed = filtered.clone();
+        highpassed.chain = other.chain.clone();
+        both.extend(cached(&highpassed, &dir));
+        let own = super::decode_key(&highpassed);
+        assert_eq!(
+            super::stand_in(&both, &other).map(|(key, _)| key.to_owned()),
+            Some(own),
+            "its own treatment first"
+        );
         let mut faster = half.clone();
         faster.speed = 2.0;
         assert!(super::stand_in(&cache, &faster).is_none(), "another speed");

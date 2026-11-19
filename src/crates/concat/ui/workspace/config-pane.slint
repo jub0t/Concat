@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
 import { I18n } from "../i18n.slint";
-import { Theme, SegmentedControl } from "../primitives/primitives.slint";
+import { Theme, SegmentedControl, Tip } from "../primitives/primitives.slint";
 import { SectionTabs } from "../primitives/section-tabs.slint";
 import { Glyph } from "../icons.slint";
 import { Select } from "../primitives/select.slint";
@@ -10,7 +10,7 @@ import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, BackgroundRows, ProcessorRows,
+    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, BackgroundRows, BeatsPanel, ProcessorRows,
     TransitionChoiceData,
     AnimatePanel, CatalogueEntryData, ChainChoiceData, ColourKnobData, EnhancePanel, FilterPanel, PresetStack,
     TransitionPanel, VideoPanel,
@@ -75,6 +75,32 @@ component FactRow inherits HorizontalLayout {
     }
 }
 
+// A FactRow with more to say than fits: the same row, and the whole sentence
+// in a tip while the pointer rests on it. The pointer is the tip's, so this
+// value is not selectable as the others are; a count is nothing to copy.
+component TipFactRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> tip;
+
+    height: row.preferred-height;
+
+    row := FactRow {
+        x: 0;
+        y: 0;
+        width: root.width;
+        label: root.label;
+        value: root.value;
+    }
+
+    touch := TouchArea { }
+
+    Tip {
+        text: root.tip;
+        active: touch.has-hover;
+    }
+}
+
 // "PROJECT", "CONTENTS" — the muted caps that break the facts into groups.
 component FactHeading inherits HorizontalLayout {
     in property <string> title;
@@ -132,6 +158,11 @@ export component ConfigPane inherits Rectangle {
     in property <int> count-media;
     in property <int> count-tracks;
     in property <int> count-clips;
+    /// What the project holds and cannot show, counted short; empty hides
+    /// the row.
+    in property <string> unread-count;
+    /// The whole sentence, behind that row.
+    in property <string> unread-notice;
 
     callback modify-project();
 
@@ -189,6 +220,15 @@ export component ConfigPane inherits Rectangle {
     in property <string> jump-section;
 
     callback chain-add(audio: bool, id: string);
+    /// Audio › Beats; see Editor.beats-shown.
+    in property <bool> beats-shown;
+    in property <string> beats-tempo;
+    in property <string> beats-note;
+    in property <bool> beats-on;
+    in property <int> beats-marks;
+    callback beats-on-changed(on: bool);
+    callback beats-marks-changed(index: int);
+    callback beats-cut();
     callback chain-toggle(audio: bool, index: int);
     callback chain-move-by(audio: bool, index: int, delta: int);
     callback chain-remove(audio: bool, index: int);
@@ -364,7 +404,12 @@ export component ConfigPane inherits Rectangle {
     /// A mark for each section, in the same order: where the clip sits,
     /// what makes it better, its colour's knobs; its level and its sound's
     /// chain; a layer's own strength, then its colour and its chain.
-    property <[Glyph]> section-icons: root.heading == "Video"
+    ///
+    /// Held with `sections-shown`, not bound (#768): same rebuild-on-play
+    /// path as the Video / Audio / Effects strip (#549).
+    property <[Glyph]> section-icons;
+    pure function section-marks() -> [Glyph] {
+        return root.heading == "Video"
             ? (root.is-shape ? [Glyph.shapes, Glyph.move, Glyph.circle-play]
                 : [Glyph.move, Glyph.wand, Glyph.sliders, Glyph.circle-play])
         : root.heading == "Audio"
@@ -374,8 +419,13 @@ export component ConfigPane inherits Rectangle {
         : root.heading == "Effects" ? [Glyph.sparkle]
         : root.heading == "Text" ? [Glyph.text-mark, Glyph.circle-play]
         : [Glyph.filter, Glyph.sliders, Glyph.sparkle];
-    /// The sections as the dropdown shows them; see `tabs-shown`.
-    property <[string]> sections-shown: root.heading == "Video"
+    }
+    /// The sections as the strip shows them. Held, not bound (#768): see
+    /// `tabs-shown` / #549 — a bound array rebuilt the strip every frame of
+    /// playback, so a click landed on a segment already gone.
+    property <[string]> sections-shown;
+    pure function section-labels() -> [string] {
+        return root.heading == "Video"
             ? (root.is-shape ? [I18n.t("shapePanel.shape"), I18n.t("configPane.basic"), I18n.t("motion.animate")]
                 : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust"),
                     I18n.t("motion.animate")])
@@ -386,6 +436,16 @@ export component ConfigPane inherits Rectangle {
         : root.heading == "Effects" ? [I18n.t("common.effects")]
         : root.heading == "Text" ? [I18n.t("common.text"), I18n.t("motion.animate")]
         : [I18n.t("common.layer"), I18n.t("common.adjust"), I18n.t("common.effects")];
+    }
+    property <string> sections-key: root.heading + ":"
+        + (root.is-shape ? "shape" : "") + ":"
+        + (root.is-sound-layer ? "sound-layer" : "") + ":"
+        + (root.selected.batch-volume ? "batch" : "") + ":"
+        + I18n.t("configPane.basic");
+    changed sections-key => {
+        root.sections-shown = root.section-labels();
+        root.section-icons = root.section-marks();
+    }
 
     // Each tab remembers its own section, so flipping to Audio and back
     // lands on the colour panel you were adjusting. Assigned, never bound,
@@ -440,6 +500,8 @@ export component ConfigPane inherits Rectangle {
     changed jump-token => { root.jump(); }
     init => {
         root.tabs-shown = root.strip-labels();
+        root.sections-shown = root.section-labels();
+        root.section-icons = root.section-marks();
         root.jump();
     }
 
@@ -521,6 +583,11 @@ export component ConfigPane inherits Rectangle {
                     FactRow { label: I18n.t("common.media"); value: "\{root.count-media}"; }
                     FactRow { label: I18n.t("configPane.tracks"); value: "\{root.count-tracks}"; }
                     FactRow { label: I18n.t("configPane.clips"); value: "\{root.count-clips}"; }
+                    if root.unread-count != "": TipFactRow {
+                        label: I18n.t("configPane.notShown");
+                        value: root.unread-count;
+                        tip: root.unread-notice;
+                    }
                 }
             }
         }
@@ -835,6 +902,18 @@ export component ConfigPane inherits Rectangle {
                             root.chain-set-param(true, index, key, value);
                         }
                         commit => { root.clip-commit(); }
+                    }
+                    // The file's beats: what was heard, the marks and Cut
+                    // on beats - a song's, or a video's soundtrack. Its own
+                    // switch: another file's beats are another matter.
+                    if root.beats-shown && !root.selected.batch-volume: BeatsPanel {
+                        tempo: root.beats-tempo;
+                        note: root.beats-note;
+                        on: root.beats-on;
+                        marks: root.beats-marks;
+                        on-changed(on) => { root.beats-on-changed(on); }
+                        marks-changed(index) => { root.beats-marks-changed(index); }
+                        cut => { root.beats-cut(); }
                     }
                 }
 

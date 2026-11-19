@@ -20,6 +20,14 @@ import os
 import re
 import sys
 
+# Annotations carry test names and messages, emoji among them; a Windows
+# runner's console is cp1252, which cannot write them.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = "src/"  # cargo runs in src/, annotations name paths from the repository root
 BODY = 18  # lines of each message kept in its annotation
 LEVELS = ["error", "warning", "notice"]

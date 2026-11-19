@@ -123,6 +123,7 @@ fn run(frame: &Frame, spec: &str) -> Result<Frame> {
 fn build(spec: &str, width: u32, height: u32) -> Result<filter::Graph> {
     // The graph has no file behind it; errors name the layer instead.
     let path = Path::new("layer");
+    ffi::begin();
     let mut graph = filter::Graph::new();
     // One thread: the pictures are a frame at a time and already on a
     // worker, and FFmpeg 8's filter thread pool deadlocks on Windows.
@@ -145,22 +146,22 @@ fn build(spec: &str, width: u32, height: u32) -> Result<filter::Graph> {
             "in",
             &args,
         )
-        .map_err(|error| ffi::fail("buffer source", path, error))?;
+        .map_err(|error| ffi::fail_said("buffer source", path, error))?;
     graph
         .add(
             &filter::find("buffersink").ok_or_else(|| missing("buffersink"))?,
             "out",
             "",
         )
-        .map_err(|error| ffi::fail("buffer sink", path, error))?;
+        .map_err(|error| ffi::fail_said("buffer sink", path, error))?;
     graph
         .output("in", 0)
         .and_then(|parser| parser.input("out", 0))
         .and_then(|parser| parser.parse(spec))
-        .map_err(|error| ffi::fail("filter graph", path, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", path, error))?;
     graph
         .validate()
-        .map_err(|error| ffi::fail("filter graph", path, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", path, error))?;
     Ok(graph)
 }
 

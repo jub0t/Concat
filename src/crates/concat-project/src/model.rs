@@ -141,6 +141,24 @@ pub struct MediaChapter {
     pub name: String,
 }
 
+/// Which of a file's beats are marked along its clips, and where Cut on
+/// beats cuts; see [`MediaItem::beats`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BeatMarks {
+    /// As many as the zoom has room for: every beat, or the first of each
+    /// bar, or every fourth bar. Cut on beats cuts at every beat.
+    #[default]
+    Zoom,
+    /// Every beat.
+    Every,
+    /// Every second beat, counted from each bar's first.
+    Second,
+    /// The first beat of each bar.
+    Bar,
+}
+
 /// The levels a media file's picture spans, when the person says so over
 /// whatever the file claims: video range, 16-235, or full range, 0-255.
 /// A screen recording written full and tagged nothing plays grey where it
@@ -231,6 +249,15 @@ pub struct MediaItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub origin: Option<MediaOrigin>,
+    /// The file's beats are wanted: its sound is listened to for them,
+    /// they are marked along its clips at the beats named, and a dragged
+    /// edge, a split or the playhead snaps to them when the timeline
+    /// snaps. Absent, and left out of the document, for a file whose beats
+    /// nobody asked for - most of them, so none is listened to unasked.
+    /// Set with `Command::SetMediaBeats`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub beats: Option<BeatMarks>,
     /// Fields this build does not know, kept so a document written by a
     /// newer or a different build round-trips through this one intact.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
@@ -1305,9 +1332,16 @@ impl Mask {
 
     /// The first id of the form `mask-N` none of `masks` has.
     pub fn next_id(masks: &[Mask]) -> String {
+        Mask::next_id_past(masks, &[])
+    }
+
+    /// [`Mask::next_id`], stepping past `taken` too: the ids of the clip's
+    /// masks this build could not read, which the file still holds
+    /// ([`crate::unread::Unread::mask_ids`]).
+    pub fn next_id_past(masks: &[Mask], taken: &[&str]) -> String {
         (1..)
             .map(|n| format!("mask-{n}"))
-            .find(|id| masks.iter().all(|mask| &mask.id != id))
+            .find(|id| masks.iter().all(|mask| &mask.id != id) && !taken.contains(&id.as_str()))
             .expect("an unbounded range finds one")
     }
 
@@ -1588,12 +1622,12 @@ mod key_runs {
 
 /// Which property a user-set key belongs to.
 ///
-/// Five of the first six are the picture's placement and the sixth is the
-/// mix's; the seven after them are the mask's numbers. They are one
-/// enum because a key is a key - the panel that sets them, the commands that
-/// carry them and the document that stores them do not care which side of
-/// the clip a value ends up on, and only the thing that finally reads them
-/// does.
+/// Six of the eight are the picture's placement, opacity is how much of it
+/// shows, and the level is the mix's. They are one enum because a key is a
+/// key - the panel that sets them, the commands that carry them and the
+/// document that stores them do not care which side of the clip a value
+/// ends up on, and only the thing that finally reads them does. A mask's
+/// numbers are keyed too, but on the mask, by name; see `Mask::keys`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1606,6 +1640,10 @@ pub enum KeyProperty {
     OffsetY,
     /// `Clip::rotation`.
     Rotation,
+    /// `Clip::stretch_x`: the picture's width beyond its scale.
+    StretchX,
+    /// `Clip::stretch_y`: the picture's height beyond its scale.
+    StretchY,
     /// `Clip::opacity`.
     Opacity,
     /// `Clip::volume`.
@@ -1621,6 +1659,8 @@ impl KeyProperty {
             KeyProperty::OffsetX => "offsetX",
             KeyProperty::OffsetY => "offsetY",
             KeyProperty::Rotation => "rotation",
+            KeyProperty::StretchX => "stretchX",
+            KeyProperty::StretchY => "stretchY",
             KeyProperty::Opacity => "opacity",
             KeyProperty::Volume => "volume",
         }
@@ -1633,6 +1673,8 @@ impl KeyProperty {
             "offsetX" => KeyProperty::OffsetX,
             "offsetY" => KeyProperty::OffsetY,
             "rotation" => KeyProperty::Rotation,
+            "stretchX" => KeyProperty::StretchX,
+            "stretchY" => KeyProperty::StretchY,
             "opacity" => KeyProperty::Opacity,
             "volume" => KeyProperty::Volume,
             _ => return None,
@@ -1640,11 +1682,13 @@ impl KeyProperty {
     }
 
     /// Every property that can be keyed, in the order a panel lists them.
-    pub const ALL: [KeyProperty; 6] = [
+    pub const ALL: [KeyProperty; 8] = [
         KeyProperty::Scale,
         KeyProperty::OffsetX,
         KeyProperty::OffsetY,
         KeyProperty::Rotation,
+        KeyProperty::StretchX,
+        KeyProperty::StretchY,
         KeyProperty::Opacity,
         KeyProperty::Volume,
     ];
@@ -3029,6 +3073,9 @@ impl Clip {
                 KeyProperty::OffsetX | KeyProperty::OffsetY => {
                     key.value.clamp(-MAX_OFFSET, MAX_OFFSET)
                 }
+                KeyProperty::StretchX | KeyProperty::StretchY => {
+                    key.value.clamp(MIN_STRETCH, MAX_STRETCH)
+                }
                 KeyProperty::Rotation => key.value,
             };
         }
@@ -3055,6 +3102,8 @@ impl Clip {
             KeyProperty::OffsetX => self.offset_x,
             KeyProperty::OffsetY => self.offset_y,
             KeyProperty::Rotation => self.rotation,
+            KeyProperty::StretchX => self.stretch_x,
+            KeyProperty::StretchY => self.stretch_y,
             KeyProperty::Opacity => self.opacity,
             KeyProperty::Volume => self.volume,
         }
@@ -3112,6 +3161,8 @@ impl Clip {
             KeyProperty::OffsetX => self.offset_x = value,
             KeyProperty::OffsetY => self.offset_y = value,
             KeyProperty::Rotation => self.rotation = value,
+            KeyProperty::StretchX => self.stretch_x = value,
+            KeyProperty::StretchY => self.stretch_y = value,
             KeyProperty::Opacity => self.opacity = value,
             KeyProperty::Volume => self.volume = value,
         }
@@ -3666,6 +3717,13 @@ pub struct Project {
     /// Top-level fields this build does not know, kept so they round-trip.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
+    /// The entries of the document this build could not read or place - a
+    /// clip of a kind from a newer build, a keyframe that does not parse -
+    /// held as they were read and written back where they came from; see
+    /// [`crate::unread`]. Not part of the edit: no command touches it, and
+    /// it is never sent anywhere but the document.
+    #[serde(skip)]
+    pub unread: crate::unread::Unread,
 }
 
 /// A media reference that points to a non-existent file.
@@ -3708,7 +3766,15 @@ impl Project {
                 extra: Map::new(),
             })],
             active_timeline_id: "TL1".to_owned(),
+            unread: crate::unread::Unread::default(),
         }
+    }
+
+    /// How much of the document this project was read from could not be
+    /// read, and is held unchanged for the next save to write back. Empty
+    /// for a document read in full and for a project made here.
+    pub fn unread_summary(&self) -> crate::unread::UnreadSummary {
+        self.unread.summary()
     }
 
     /// The timeline being edited. The active id is maintained by the command

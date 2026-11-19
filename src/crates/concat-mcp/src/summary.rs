@@ -135,6 +135,8 @@ fn clip_of(clip: &Value) -> Value {
         ("offsetX", 0.0),
         ("offsetY", 0.0),
         ("rotation", 0.0),
+        ("stretchX", 1.0),
+        ("stretchY", 1.0),
         ("fadeIn", 0.0),
         ("fadeOut", 0.0),
     ] {

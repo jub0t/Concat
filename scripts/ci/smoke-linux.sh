@@ -8,7 +8,9 @@
 #       The staged folder (DIR/concat beside DIR/lib), on this machine:
 #       every library resolves from the folder alone; `concat --version`
 #       exits 0; `concat --smoke` (start-up through the first frame of the
-#       window, then out) exits 0 under Xvfb, and does not so much as try
+#       window, then out) and `concat --smoke-export` (a project of a
+#       two-second clip, exported through the Export sheet's own messages)
+#       exit 0 under Xvfb, and does not so much as try
 #       to open the NVIDIA driver's CUDA or NVENC libraries, which nothing
 #       should touch before a person asks for a hardware export. With
 #       --sde, `--version` again under Intel's emulator posing as an Ivy
@@ -100,6 +102,15 @@ host() {
     fi
     echo "no CUDA or NVENC library opened at start-up"
   fi
+
+  # The export run's clip: two seconds of picture and sound, from the
+  # media fixtures. A launch alone never reaches an export, and an export
+  # that could not start shipped twice on phones (#747).
+  say "concat --smoke-export"
+  local clip
+  clip=$(cd "$here/../../src/crates/concat-media/fixtures" && pwd)/picture-starts-late.mov
+  HOME=$(fresh_home) expect_ok "concat --smoke-export" 300 \
+    xvfb-run -a -s "-screen 0 1920x1080x24" "$bin" --smoke-export "$clip"
 
   if [ -n "$sde" ]; then
     say "concat --version on an emulated Ivy Bridge"

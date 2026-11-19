@@ -17,7 +17,7 @@ use concat_host::export::{self, ExportSpec};
 use concat_media::ColorRange;
 
 use crate::format::{bytes, eta};
-use crate::host::{on_ui, spawn};
+use crate::host::{on_ui, spawn_long};
 use crate::i18n::{self, t, tf};
 use crate::panes::Msg;
 use crate::platform;
@@ -149,7 +149,7 @@ impl ExportPane {
             // says so under it, and the choice before stands.
             ExportMsg::CodecChanged(index) => {
                 let index = (index.max(0) as usize).min(concat_media::VideoCodec::ALL.len() - 1);
-                if concat_media::VideoCodec::ALL[index].encodable() {
+                if writable(concat_media::VideoCodec::ALL[index]) {
                     self.codec = index;
                 }
             }
@@ -380,7 +380,7 @@ impl ExportPane {
         let wanted = if see_through && !chosen.keeps_alpha() {
             [VideoCodec::ProRes4444, VideoCodec::Vp9Alpha]
                 .into_iter()
-                .find(|codec| codec.encodable())
+                .find(|codec| writable(*codec))
         } else if !see_through && chosen.keeps_alpha() {
             Some(VideoCodec::H264)
         } else {
@@ -422,7 +422,7 @@ impl ExportPane {
             && studio.timeline().video.color_space.is_hdr()
             && !self.sdr
             && deep.ten_bit_available()
-            && deep.encodable()
+            && writable(deep)
     }
 
     /// Whether the file is written at ten bits: HDR always, SDR when the
@@ -494,54 +494,72 @@ impl ExportPane {
             color_range: ColorRange::Limited,
             hdr: self.hdr(studio),
         };
-        let (frame_w, frame_h) = studio.output_size();
-        let titles = studio
-            .host
-            .titles
-            .clips(session.project(), frame_w, frame_h)
-            .into_iter()
-            .map(|title| title.clip)
-            .collect();
-        let mut request = export::request(session, &spec, titles);
+        // What the export's thread needs, taken here and nothing more: a
+        // copy of the edit, its folder, the frame and the rate, and the
+        // handles on the painter and the monitor. Everything that takes
+        // time is done on that thread - the titles painted, which waits
+        // on the fonts a preview worker holds for the whole of its batch;
+        // the edit flattened; the preview's decoders closed; the GPU
+        // chosen - and the window goes on answering: hundreds of captions
+        // are seconds of painting on a phone, and Android closes an app
+        // whose window does not answer a touch for five.
+        let project = session.project().clone();
+        let project_dir = std::path::PathBuf::from(session.path());
         let (width, height) = self.size(studio);
         let (num, den) = self.rate(studio);
-        request.width = width;
-        request.height = height;
-        request.rate_num = num;
-        request.rate_den = den;
+        let titles = std::sync::Arc::clone(&studio.host.titles);
+        let monitor = studio.host.monitor.clone();
 
         studio.pause();
-        // The monitor's readers that sit idle are closed now rather than
-        // ten seconds on by the sweep: on a phone up to three of them hold
-        // MediaCodec decoder sessions, which the chip has few of and its
-        // encoder and the export's own decoders need. A reader comes back
-        // on the next frame the monitor asks of it; the cached frames stay.
-        let closed = concat_host::scheduler()
-            .pool()
-            .close_idle(std::time::Duration::ZERO);
-        if closed > 0 {
-            log::debug!("export: closed {closed} idle preview decoder(s) before starting");
-        }
         self.phase = ExportPhase::Running;
         self.progress = 0.0;
-        self.stage = t("export.renderingVideo");
+        self.stage = t("export.preparing");
         self.message.clear();
         self.written.clear();
         self.started_at = Some(std::time::Instant::now());
 
-        // The export draws on the window's device - a sibling of the
-        // monitor's compositor - not on a second device opened through the
-        // drivers for the export alone, which on Windows laptops with NVIDIA
-        // chips took the whole app down at the first frame with nothing in
-        // the log (issue #202). Not on Vulkan, whose queue the window
-        // submits to from its own thread (#324); see `Monitor::off_thread`.
-        // None there or without a GPU, and the render then opens what it
-        // can.
-        let compositor = studio.host.monitor.off_thread();
-        spawn(
+        spawn_long(
             move || {
                 let job = job;
-                export::run_on(&request, compositor, job.cancel_flag(), |progress| {
+                let cancel = job.cancel_flag();
+                let stopped = || cancel.load(std::sync::atomic::Ordering::Relaxed);
+                // At the export's own frame, not the project's: a 4K export
+                // of an HD edit was its captions painted at HD and scaled
+                // up, soft. The API's export paints them so too.
+                let Some(titles) = titles.clips_unless(&project, width, height, cancel) else {
+                    return Err("export cancelled".to_owned());
+                };
+                let titles = titles.into_iter().map(|title| title.clip).collect();
+                let mut request = export::request_for(&project, &project_dir, &spec, titles);
+                request.width = width;
+                request.height = height;
+                request.rate_num = num;
+                request.rate_den = den;
+                // The monitor's readers that sit idle are closed now rather
+                // than ten seconds on by the sweep: on a phone up to three of
+                // them hold MediaCodec decoder sessions, which the chip has
+                // few of and its encoder and the export's own decoders need.
+                // A reader comes back on the next frame the monitor asks of
+                // it; the cached frames stay.
+                let closed = concat_host::scheduler()
+                    .pool()
+                    .close_idle(std::time::Duration::ZERO);
+                if closed > 0 {
+                    log::debug!("export: closed {closed} idle preview decoder(s) before starting");
+                }
+                if stopped() {
+                    return Err("export cancelled".to_owned());
+                }
+                // The export draws on the window's device - a sibling of the
+                // monitor's compositor - not on a second device opened
+                // through the drivers for the export alone, which on Windows
+                // laptops with NVIDIA chips took the whole app down at the
+                // first frame with nothing in the log (issue #202). Not on
+                // Vulkan, whose queue the window submits to from its own
+                // thread (#324); see `Monitor::off_thread`. None there or
+                // without a GPU, and the render then opens what it can.
+                let compositor = monitor.off_thread();
+                export::run_on(&request, compositor, cancel, |progress| {
                     let fraction = if progress.total > 0 {
                         progress.frame as f32 / progress.total as f32
                     } else {
@@ -631,11 +649,11 @@ impl ExportPane {
                 .iter()
                 .position(|codec| *codec == self.codec(studio))
                 .unwrap_or(0) as i32,
-            h264_encodable: concat_media::VideoCodec::H264.encodable(),
-            hevc_encodable: concat_media::VideoCodec::Hevc.encodable(),
-            av1_encodable: concat_media::VideoCodec::Av1.encodable(),
-            prores_encodable: concat_media::VideoCodec::ProRes4444.encodable(),
-            vp9_alpha_encodable: concat_media::VideoCodec::Vp9Alpha.encodable(),
+            h264_encodable: writable(concat_media::VideoCodec::H264),
+            hevc_encodable: writable(concat_media::VideoCodec::Hevc),
+            av1_encodable: writable(concat_media::VideoCodec::Av1),
+            prores_encodable: writable(concat_media::VideoCodec::ProRes4444),
+            vp9_alpha_encodable: writable(concat_media::VideoCodec::Vp9Alpha),
             see_through: studio.timeline().video.canvas[3] < 255,
             keeps_alpha: self.codec(studio).keeps_alpha(),
             rate_controlled: self.codec(studio).rate_controlled(),
@@ -669,7 +687,10 @@ impl ExportPane {
                         .to_owned(),
                     );
                 }
-                if codec.hardware_encoded(true, self.deep(studio)) {
+                if codec
+                    .hardware_encoded_known(true, self.deep(studio))
+                    .unwrap_or(false)
+                {
                     words.push(format!("· {}", t("export.hardware")));
                 }
                 words.join(" ")
@@ -694,6 +715,19 @@ impl ExportPane {
             empty: clips == 0,
         }
     }
+}
+
+/// Whether `codec` can be written here, as far as is known without
+/// opening an encoder on the window's thread, which on a phone is seconds
+/// of a window that does not answer. Until the start-up probe has found
+/// out (`concat_media::encode::probe_encoders`), H.264 - which every
+/// platform writes, a phone through its own software encoder where its
+/// chip turns the export away - and whatever needs no encoder opened to
+/// know.
+fn writable(codec: concat_media::VideoCodec) -> bool {
+    codec
+        .encodable_known()
+        .unwrap_or(codec == concat_media::VideoCodec::H264)
 }
 
 /// The typed name as the file's, or `None` for one that cannot be: empty

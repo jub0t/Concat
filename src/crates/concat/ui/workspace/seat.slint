@@ -145,7 +145,7 @@ export component Seat inherits Rectangle {
             presets: Editor.style-presets;
             language-presets: Editor.language-presets;
             catalogue-effects: Editor.catalogue-effects;
-            catalogue-audio: Editor.catalogue-audio;
+            catalogue-audio: Editor.catalogue-audio-library;
             catalogue-filters: Editor.catalogue-filters;
             catalogue-luts: Editor.catalogue-luts;
             adjustment-art: Editor.adjustment-art;
@@ -255,6 +255,14 @@ export component Seat inherits Rectangle {
             peak: Editor.peak;
             add-effect(audio) => { Editor.add-effect(audio); }
             remove-effect(id) => { Editor.remove-effect(id); }
+            beats-shown: Editor.beats-shown;
+            beats-tempo: Editor.beats-tempo;
+            beats-note: Editor.beats-note;
+            beats-on: Editor.beats-on;
+            beats-marks: Editor.beats-marks;
+            beats-on-changed(on) => { Editor.beats-on-changed(on); }
+            beats-marks-changed(index) => { Editor.beats-marks-changed(index); }
+            beats-cut => { Editor.beats-cut(); }
 
             catalogue-effects: Editor.catalogue-effects;
             catalogue-audio: Editor.catalogue-audio;
@@ -314,6 +322,8 @@ export component Seat inherits Rectangle {
             count-media: Editor.count-media;
             count-tracks: Editor.count-tracks;
             count-clips: Editor.count-clips;
+            unread-count: Editor.unread-count;
+            unread-notice: Editor.unread-notice;
             modify-project => { Editor.modify-project(); }
 
             selected: Editor.selected-clip;

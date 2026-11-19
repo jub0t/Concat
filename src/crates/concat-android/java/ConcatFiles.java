@@ -5,10 +5,15 @@ package app.concat.editor;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.app.Fragment;
+import android.app.FragmentManager;
 import android.content.ClipData;
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -25,6 +30,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,6 +65,13 @@ public class ConcatFiles extends Fragment {
     private static final int REQUEST_PICK = 0xC0C4;
     private static final int REQUEST_MICROPHONE = 0xC0C5;
     private static final String TAG = "concat-files";
+
+    /**
+     * The pick the native side waits for. A copy still running for an
+     * older pick must not deliver into the new one's callback, so only
+     * this fragment's answer is sent.
+     */
+    private static volatile ConcatFiles current;
 
     /**
      * Where a finished export goes, under the phone's storage: Movies/Concat.
@@ -186,6 +199,28 @@ public class ConcatFiles extends Fragment {
     }
 
     /**
+     * Keeps the screen on while a job runs, or lets it go dark again (#695).
+     * From any thread, and without waiting: the window's flag is set on the
+     * activity's own thread. The native side must not set it through
+     * android-activity, whose lock the window's thread holds while it
+     * handles the event that starts the job.
+     */
+    public static void keepScreenOn(final Activity activity, final boolean on) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (on) {
+                    activity.getWindow().addFlags(
+                            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                } else {
+                    activity.getWindow().clearFlags(
+                            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            }
+        });
+    }
+
+    /**
      * Opens a web address in the browser, or in whichever app claims it -
      * the launch screen's guides, the repository, the Discord invite. Null
      * when it went, or why it could not. Asked straight rather than through
@@ -206,6 +241,535 @@ public class ConcatFiles extends Fragment {
         }
     }
 
+    /**
+     * Hands the log files at {@code paths} - one per line - to the system's
+     * share sheet, so a report can carry them to mail, a chat, a drive.
+     * Nothing else on the phone can read the app's own folder, so from
+     * Android 10 each is copied into Download/Concat as a text file, the
+     * same run's copy written over, and shared by the media store's URI with
+     * a read grant: no permission asked, no file manager needed. Before
+     * Android 10 an app cannot write there without a permission, and the
+     * end of the logs goes as text instead. Null when the sheet went up, or
+     * why it could not. From any thread.
+     */
+    public static String shareLogs(Activity activity, String paths) {
+        try {
+            String[] files = paths.split("\n");
+            ArrayList<Uri> uris = new ArrayList<>();
+            Intent send = new Intent(files.length > 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
+            send.setType("text/plain");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                for (String path : files) {
+                    uris.add(logCopy(activity, new File(path)));
+                }
+                ClipData clip = ClipData.newRawUri(null, uris.get(0));
+                for (int i = 1; i < uris.size(); i++) {
+                    clip.addItem(new ClipData.Item(uris.get(i)));
+                }
+                send.setClipData(clip);
+                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                if (uris.size() > 1) {
+                    send.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                } else {
+                    send.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+                }
+            } else {
+                // A share's extras cross to the other app in one binder
+                // call, which holds about a megabyte: each file's end.
+                StringBuilder text = new StringBuilder();
+                for (String path : files) {
+                    File file = new File(path);
+                    text.append("==== ").append(file.getName()).append(" ====\n");
+                    text.append(tail(file, 120 * 1024)).append('\n');
+                }
+                send.putExtra(Intent.EXTRA_TEXT, text.toString());
+            }
+            activity.startActivity(Intent.createChooser(send, null));
+            return null;
+        } catch (Exception e) {
+            Log.w(TAG, "could not share the log", e);
+            return e.getMessage() == null ? e.toString() : e.getMessage();
+        }
+    }
+
+    /** The log at {@code file}, copied into Download/Concat as text. */
+    private static Uri logCopy(Activity activity, File file) throws IOException {
+        ContentResolver resolver = activity.getContentResolver();
+        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        String folder = Environment.DIRECTORY_DOWNLOADS + "/Concat/";
+        String name = file.getName().replaceFirst("\\.log$", "") + ".txt";
+        Uri uri = null;
+        // The copy an earlier share of this run made, which this one
+        // replaces rather than adding "name (1)" beside it.
+        Cursor cursor = resolver.query(collection, new String[] {MediaStore.MediaColumns._ID},
+                MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
+                        + MediaStore.MediaColumns.RELATIVE_PATH + "=?",
+                new String[] {name, folder}, null);
+        if (cursor != null) {
+            if (cursor.moveToFirst()) {
+                uri = ContentUris.withAppendedId(collection, cursor.getLong(0));
+            }
+            cursor.close();
+        }
+        if (uri == null) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, folder);
+            uri = resolver.insert(collection, values);
+            if (uri == null) {
+                throw new IOException("the media store refused " + name);
+            }
+        }
+        InputStream in = new FileInputStream(file);
+        try {
+            OutputStream out = resolver.openOutputStream(uri, "wt");
+            if (out == null) {
+                throw new IOException("the media store would not open " + name + " for writing");
+            }
+            try {
+                byte[] buffer = new byte[1 << 16];
+                int read;
+                while ((read = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, read);
+                }
+            } finally {
+                out.close();
+            }
+        } finally {
+            in.close();
+        }
+        return uri;
+    }
+
+    /** The last {@code most} bytes of {@code file}, as text. */
+    private static String tail(File file, int most) throws IOException {
+        java.io.RandomAccessFile in = new java.io.RandomAccessFile(file, "r");
+        try {
+            long from = Math.max(0, in.length() - most);
+            byte[] bytes = new byte[(int) (in.length() - from)];
+            in.seek(from);
+            in.readFully(bytes);
+            return new String(bytes, StandardCharsets.UTF_8);
+        } finally {
+            in.close();
+        }
+    }
+
+    /**
+     * How the system says the app's last process ended, read once as the
+     * app starts; Android 11 and on keep a record, and null comes back on
+     * an older phone or when there is none. Four strings: the log file
+     * that process was writing (as {@code log} named it for this one), or
+     * empty; "died" when it ended in a way nobody asked for - a crash, a
+     * hang, killed while on screen - or "ended"; what the system says, for
+     * the log; and, for a hang (ANR), where the threads that matter were
+     * when the system gave up on it, or empty. A native crash brings its
+     * signal, thread, abort message and top frames, read from the crash
+     * report the system kept.
+     *
+     * This run is then marked with {@code log}, so the next run knows which
+     * file this one is.
+     */
+    public static String[] lastExit(Activity activity, String log) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return null;
+        }
+        ActivityManager manager =
+                (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+        String[] answer = null;
+        try {
+            List<ApplicationExitInfo> exits =
+                    manager.getHistoricalProcessExitReasons(null, 0, 1);
+            if (!exits.isEmpty()) {
+                answer = describe(exits.get(0));
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not read how the last run ended", e);
+        }
+        try {
+            manager.setProcessStateSummary(log.getBytes(StandardCharsets.UTF_8));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not mark this run", e);
+        }
+        return answer;
+    }
+
+    private static String[] describe(ApplicationExitInfo exit) {
+        int status = exit.getStatus();
+        boolean seen = exit.getImportance()
+                <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE;
+        String reason;
+        boolean died;
+        switch (exit.getReason()) {
+            case ApplicationExitInfo.REASON_CRASH_NATIVE:
+                reason = "a native crash, signal " + status;
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_CRASH:
+                reason = "an uncaught Java exception";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_ANR:
+                reason = "not responding (ANR)";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE:
+                reason = "a failure to start";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE:
+                reason = "killed for excessive resource use";
+                died = true;
+                break;
+            case ApplicationExitInfo.REASON_LOW_MEMORY:
+                reason = "killed for memory";
+                died = seen;
+                break;
+            case ApplicationExitInfo.REASON_SIGNALED:
+                reason = "killed by signal " + status;
+                died = seen;
+                break;
+            case ApplicationExitInfo.REASON_EXIT_SELF:
+                reason = "its own exit, status " + status;
+                died = status != 0;
+                break;
+            case ApplicationExitInfo.REASON_USER_REQUESTED:
+                reason = "the person (force stop, or swiped away)";
+                died = false;
+                break;
+            default:
+                reason = "reason " + exit.getReason() + ", status " + status;
+                died = false;
+        }
+        StringBuilder detail = new StringBuilder(reason);
+        detail.append(seen ? " · on screen" : " · in the background");
+        if (exit.getPss() > 0) {
+            detail.append(" · ").append(exit.getPss() / 1024).append(" MB in use");
+        }
+        if (exit.getDescription() != null) {
+            detail.append(" · \"").append(exit.getDescription()).append('"');
+        }
+        if (exit.getReason() == ApplicationExitInfo.REASON_CRASH_NATIVE
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                InputStream trace = exit.getTraceInputStream();
+                if (trace != null) {
+                    detail.append(" · ").append(Tombstone.summary(readAll(trace)));
+                }
+            } catch (IOException | RuntimeException e) {
+                detail.append(" · its crash report could not be read: ").append(e);
+            }
+        }
+        // A hang's record carries the system's dump of every thread as it
+        // was when the app was given up on: the one place that says what
+        // the window was doing instead of answering.
+        String threads = "";
+        if (exit.getReason() == ApplicationExitInfo.REASON_ANR) {
+            try {
+                InputStream trace = exit.getTraceInputStream();
+                if (trace != null) {
+                    threads = AnrTrace.threads(new String(readAll(trace), StandardCharsets.UTF_8));
+                } else {
+                    threads = "the system kept no dump of its threads";
+                }
+            } catch (IOException | RuntimeException e) {
+                threads = "its threads' dump could not be read: " + e;
+            }
+        }
+        byte[] mark = exit.getProcessStateSummary();
+        String log = mark == null ? "" : new String(mark, StandardCharsets.UTF_8);
+        return new String[] {log, died ? "died" : "ended", detail.toString(), threads};
+    }
+
+    /**
+     * The threads of an ANR dump worth a log: the Java main thread, and
+     * every thread standing in Concat's own library - the window's thread
+     * among them, which on a NativeActivity is not "main". The dump is the
+     * runtime's text or the system's native one, one block a thread, each
+     * opening with the thread's quoted name, with a blank line after; each
+     * block kept is its first line and its frames, at most
+     * {@link #FRAMES} of them, and all of them together at most
+     * {@link #BUDGET} characters, the main thread first.
+     */
+    static final class AnrTrace {
+        /** The library cargo-apk packages Concat's code as. */
+        static final String LIBRARY = "libconcat_android.so";
+        static final int FRAMES = 40;
+        static final int BUDGET = 12 * 1024;
+
+        static String threads(String dump) {
+            List<String> main = new ArrayList<>();
+            List<String> ours = new ArrayList<>();
+            // A thread's block opens with its quoted name at the start of
+            // a line - straight under "DALVIK THREADS (n):" for the first -
+            // and ends at a blank line.
+            // The process's own id, from the "----- pid N at ... -----" a
+            // dump opens with: a native dump names the main thread after
+            // the process, and only its sysTid, the process's id, says
+            // which it is.
+            String pid = "";
+            StringBuilder block = null;
+            for (String line : (dump + "\n").split("\\r?\\n")) {
+                if (line.startsWith("----- pid ")) {
+                    String[] words = line.split(" ");
+                    pid = words.length > 2 ? words[2] : "";
+                }
+                if (line.startsWith("\"")) {
+                    sort(block, pid, main, ours);
+                    block = new StringBuilder();
+                } else if (line.trim().isEmpty()) {
+                    sort(block, pid, main, ours);
+                    block = null;
+                }
+                if (block != null) {
+                    block.append(line).append('\n');
+                }
+            }
+            sort(block, pid, main, ours);
+            List<String> blocks = new ArrayList<>(main);
+            blocks.addAll(ours);
+            if (blocks.isEmpty()) {
+                return "its threads' dump named neither the main thread nor " + LIBRARY;
+            }
+            StringBuilder out = new StringBuilder();
+            int left = blocks.size();
+            for (String thread : blocks) {
+                if (out.length() + thread.length() > BUDGET) {
+                    out.append(left).append(" more thread(s) left out for length\n");
+                    break;
+                }
+                out.append(thread);
+                left--;
+            }
+            return out.toString().trim();
+        }
+
+        /**
+         * A finished block to the main thread's place, Concat's, or none.
+         * The runtime's dump names the main thread "main"; the system's
+         * native one, which it falls back on when the runtime does not
+         * answer, names it after the process, with the process's id.
+         */
+        private static void sort(
+                StringBuilder block, String pid, List<String> main, List<String> ours) {
+            if (block == null) {
+                return;
+            }
+            String text = block.toString().trim();
+            String name = text.split("\\r?\\n", 2)[0];
+            if (name.startsWith("\"main\"")
+                    || (!pid.isEmpty() && name.endsWith(" sysTid=" + pid))) {
+                main.add(kept(text));
+            } else if (name.startsWith("\"android_main\"")) {
+                // The window's own thread, the one a hang is most likely
+                // in: first of Concat's, whatever the budget leaves out.
+                ours.add(0, kept(text));
+            } else if (text.contains(LIBRARY)) {
+                ours.add(kept(text));
+            }
+        }
+
+        /** One thread's block: its name line, then its frames. */
+        private static String kept(String block) {
+            String[] lines = block.split("\\r?\\n");
+            StringBuilder out = new StringBuilder(lines[0].trim()).append('\n');
+            int frames = 0;
+            int cut = 0;
+            for (int i = 1; i < lines.length; i++) {
+                String line = lines[i].trim();
+                // The runtime's own facts about the thread - its group, its
+                // scheduler, its stack's bounds, how long it took to dump -
+                // are left; the state is in the name line.
+                if (line.isEmpty() || line.startsWith("|") || line.startsWith("DumpLatencyMs")) {
+                    continue;
+                }
+                if (frames < FRAMES) {
+                    // A file by its name alone: the app's folder under
+                    // /data/app is two random names long, and the rest of
+                    // the path says nothing the name does not.
+                    out.append("  ").append(line.replaceAll("(?<=\\s)/\\S*/", "")).append('\n');
+                    frames++;
+                } else {
+                    cut++;
+                }
+            }
+            if (cut > 0) {
+                out.append("  ... ").append(cut).append(" more frame(s)\n");
+            }
+            return out.toString();
+        }
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1 << 16];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+            }
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
+
+    /**
+     * The few fields of a native crash report worth a log line, read from
+     * the system's protobuf (debuggerd's tombstone.proto) by hand: the
+     * signal, the thread it hit, the abort message and the top frames.
+     */
+    static final class Tombstone {
+        private final byte[] data;
+        private int at;
+        private final int end;
+
+        private Tombstone(byte[] data, int from, int end) {
+            this.data = data;
+            this.at = from;
+            this.end = end;
+        }
+
+        static String summary(byte[] data) {
+            Tombstone top = new Tombstone(data, 0, data.length);
+            long tid = -1;
+            String signal = "", abort = "", cause = "";
+            java.util.Map<Long, int[]> threads = new java.util.HashMap<>();
+            while (top.more()) {
+                long key = top.varint();
+                int field = (int) (key >>> 3);
+                if (field == 6 && (key & 7) == 0) {
+                    tid = top.varint();
+                } else if (field == 10 && (key & 7) == 2) {
+                    Tombstone info = top.message();
+                    String name = "", code = "";
+                    while (info.more()) {
+                        long k = info.varint();
+                        if (k >>> 3 == 2 && (k & 7) == 2) name = info.string();
+                        else if (k >>> 3 == 4 && (k & 7) == 2) code = info.string();
+                        else info.skip(k);
+                    }
+                    signal = name + (code.isEmpty() ? "" : " (" + code + ")");
+                } else if (field == 14 && (key & 7) == 2) {
+                    abort = top.string();
+                } else if (field == 15 && (key & 7) == 2 && cause.isEmpty()) {
+                    Tombstone c = top.message();
+                    while (c.more()) {
+                        long k = c.varint();
+                        if (k >>> 3 == 1 && (k & 7) == 2) cause = c.string();
+                        else c.skip(k);
+                    }
+                } else if (field == 16 && (key & 7) == 2) {
+                    // A map entry: the thread's id, and where the thread is.
+                    Tombstone entry = top.message();
+                    long id = -1;
+                    int[] span = null;
+                    while (entry.more()) {
+                        long k = entry.varint();
+                        if (k >>> 3 == 1 && (k & 7) == 0) {
+                            id = entry.varint();
+                        } else if (k >>> 3 == 2 && (k & 7) == 2) {
+                            int length = (int) entry.varint();
+                            span = new int[] {entry.at, entry.at + length};
+                            entry.at += length;
+                        } else {
+                            entry.skip(k);
+                        }
+                    }
+                    if (span != null) threads.put(id, span);
+                } else {
+                    top.skip(key);
+                }
+            }
+            StringBuilder out = new StringBuilder("crash report: ").append(signal);
+            int[] span = threads.get(tid);
+            if (span != null) {
+                Tombstone thread = new Tombstone(data, span[0], span[1]);
+                String name = "";
+                StringBuilder frames = new StringBuilder();
+                int count = 0;
+                while (thread.more()) {
+                    long k = thread.varint();
+                    if (k >>> 3 == 2 && (k & 7) == 2) {
+                        name = thread.string();
+                    } else if (k >>> 3 == 4 && (k & 7) == 2 && count < 12) {
+                        frames.append(" | ").append(frame(thread.message()));
+                        count++;
+                    } else {
+                        thread.skip(k);
+                    }
+                }
+                out.append(" in thread ").append(tid).append(" (").append(name).append(')');
+                if (!cause.isEmpty()) out.append(" · cause: ").append(cause);
+                if (!abort.isEmpty()) out.append(" · abort message: \"").append(abort).append('"');
+                out.append(" · frames").append(frames);
+            } else {
+                if (!cause.isEmpty()) out.append(" · cause: ").append(cause);
+                if (!abort.isEmpty()) out.append(" · abort message: \"").append(abort).append('"');
+            }
+            return out.toString();
+        }
+
+        /** One frame: `libconcat_android.so+0x1a2b3c (function+12)`. */
+        private static String frame(Tombstone frame) {
+            long pc = 0, offset = 0;
+            String file = "", function = "";
+            while (frame.more()) {
+                long k = frame.varint();
+                int field = (int) (k >>> 3);
+                if (field == 1 && (k & 7) == 0) pc = frame.varint();
+                else if (field == 4 && (k & 7) == 2) function = frame.string();
+                else if (field == 5 && (k & 7) == 0) offset = frame.varint();
+                else if (field == 6 && (k & 7) == 2) file = frame.string();
+                else frame.skip(k);
+            }
+            String module = file.substring(file.lastIndexOf('/') + 1);
+            String where = module + "+0x" + Long.toHexString(pc);
+            return function.isEmpty() ? where : where + " (" + function + "+" + offset + ")";
+        }
+
+        private boolean more() {
+            return at < end;
+        }
+
+        private long varint() {
+            long value = 0;
+            for (int shift = 0; shift < 64 && at < end; shift += 7) {
+                byte b = data[at++];
+                value |= (long) (b & 0x7f) << shift;
+                if ((b & 0x80) == 0) {
+                    break;
+                }
+            }
+            return value;
+        }
+
+        private Tombstone message() {
+            int length = (int) varint();
+            Tombstone inner = new Tombstone(data, at, Math.min(end, at + length));
+            at = Math.min(end, at + length);
+            return inner;
+        }
+
+        private String string() {
+            Tombstone inner = message();
+            return new String(data, inner.at, inner.end - inner.at, StandardCharsets.UTF_8);
+        }
+
+        /** Steps over a field this does not read. */
+        private void skip(long key) {
+            switch ((int) (key & 7)) {
+                case 0: varint(); break;
+                case 1: at += 8; break;
+                case 2: message(); break;
+                case 5: at += 4; break;
+                default: at = end;
+            }
+        }
+    }
+
     /** Registered from Rust: the picked files' paths, or none. */
     public static native void filesPicked(String[] paths);
 
@@ -218,12 +782,20 @@ public class ConcatFiles extends Fragment {
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                FragmentManager manager = activity.getFragmentManager();
+                Fragment previous = manager.findFragmentByTag(TAG);
+                if (previous != null) {
+                    // A pick already up is replaced, not stacked: its late
+                    // answer must not reach the new pick's callback.
+                    manager.beginTransaction().remove(previous).commitAllowingStateLoss();
+                    manager.executePendingTransactions();
+                }
                 ConcatFiles fragment = new ConcatFiles();
-                activity.getFragmentManager()
-                        .beginTransaction()
+                current = fragment;
+                manager.beginTransaction()
                         .add(fragment, TAG)
                         .commitAllowingStateLoss();
-                activity.getFragmentManager().executePendingTransactions();
+                manager.executePendingTransactions();
 
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -271,25 +843,43 @@ public class ConcatFiles extends Fragment {
         } catch (Exception ignored) {
         }
         if (activity == null || uris.isEmpty()) {
-            filesPicked(new String[0]);
+            answer(new String[0]);
             return;
         }
         // Off the UI thread: a video is big and the copy takes a while.
         new Thread(new Runnable() {
             @Override
             public void run() {
+                // With no external storage mounted the private folder
+                // stands in; a folder that cannot be made fails the pick
+                // out loud rather than as an empty answer.
+                File base = activity.getExternalFilesDir(null);
+                if (base == null) {
+                    base = activity.getFilesDir();
+                }
+                File dir = new File(base, "Imported");
+                if (!dir.isDirectory() && !dir.mkdirs()) {
+                    Log.w(TAG, "could not make " + dir);
+                    answer(new String[0]);
+                    return;
+                }
                 List<String> paths = new ArrayList<String>();
-                File dir = new File(activity.getExternalFilesDir(null), "Imported");
-                dir.mkdirs();
                 for (Uri uri : uris) {
                     File out = unique(dir, displayName(activity, uri));
                     if (copy(activity, uri, out)) {
                         paths.add(out.getAbsolutePath());
                     }
                 }
-                filesPicked(paths.toArray(new String[0]));
+                answer(paths.toArray(new String[0]));
             }
         }, TAG).start();
+    }
+
+    /** Reports to the native side, unless a newer pick took the slot. */
+    private void answer(String[] paths) {
+        if (current == this) {
+            filesPicked(paths);
+        }
     }
 
     /** The name the picker showed for the file, or one made from the URI. */

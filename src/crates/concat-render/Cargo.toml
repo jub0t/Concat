@@ -19,6 +19,24 @@ pollster.workspace = true
 # The working space's half floats, written and read back as numbers where
 # an effect's probes check them.
 half = "2"
+# Memory figures in the log say sizes as every other line does.
+concat-log.workspace = true
+
+# The memory figures wgpu's budget gates read, asked of each API directly
+# (see memory.rs): the crates and versions wgpu-hal already builds with,
+# so nothing new is compiled or licensed.
+[target.'cfg(any(windows, target_os = "linux", target_os = "android"))'.dependencies]
+ash = "0.38"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", default-features = false, features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D12",
+  "Win32_Graphics_Dxgi",
+] }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice"] }
 
 [dev-dependencies]
 # The pass test compiles a real package shader through the catalogue's

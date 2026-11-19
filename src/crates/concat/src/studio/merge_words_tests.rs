@@ -29,6 +29,7 @@ fn merge_of(path: &str) -> Command {
             audio_codec: Some("aac".to_owned()),
             has_audio: true,
             audio_tracks: Vec::new(),
+            chapters: Vec::new(),
             origin: Some(MediaOrigin::Processed),
             color_space: Default::default(),
         },

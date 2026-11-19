@@ -207,20 +207,23 @@ pub fn hex_of(colour: slint::Color) -> String {
 /// is how many the drawing has room for - the clip's width in pixels, held
 /// to a few thousand - and the path is normalised so the Path that renders
 /// it stretches the box onto the clip's current width.
+///
+/// `floor` is the least a bar is drawn at. A drawing scaled by a volume
+/// afterwards wants none: a floor raised before the scale flattens a quiet
+/// passage into one strip that the volume only makes taller. The lane draws
+/// its silence line apart instead.
 pub fn wave_path(
     peaks: &concat_media::Pyramid,
     source_start: f32,
     duration: f32,
     columns: usize,
     bar: f32,
+    floor: f32,
 ) -> String {
     /// Fewest columns worth drawing, and the most: enough that a clip a
     /// screen wide reads a column a pixel, few enough that the string stays
     /// under a few hundred kilobytes.
     const COLUMNS: std::ops::RangeInclusive<usize> = 8..=4096;
-    /// Silence still draws a sliver: a hairline along the floor of a clip
-    /// rather than a gap in it.
-    const FLOOR: f32 = 0.024;
 
     if duration.is_nan() || duration <= 0.0 || peaks.finest().is_empty() {
         return String::new();
@@ -244,7 +247,7 @@ pub fn wave_path(
             source_start + (left + pitch) * duration,
         );
         let right = left + pitch * bar;
-        push_bar(&mut path, left, right, high.max(-low).max(FLOOR));
+        push_bar(&mut path, left, right, high.max(-low).max(floor));
     }
     path
 }
@@ -272,13 +275,18 @@ pub const WAVE_PITCH: f32 = 3.0;
 /// own; see `media_bin`.
 pub const WAVE_BAR: f32 = 2.0 / 3.0;
 
+/// The least a bar is drawn at where nothing scales the drawing after it:
+/// silence still draws a sliver, a hairline along the floor rather than a
+/// gap.
+pub const WAVE_FLOOR: f32 = 0.024;
+
 /// An envelope already reduced to one peak a bar - a library sound's,
 /// read once at import - drawn the way [`wave_path`] draws a file's: bars
 /// standing on the floor, each the leading `bar` of its pitch, in a 1x1
 /// box.
 pub fn bars_path(bars: &[f32], bar: f32) -> String {
     /// See `wave_path`: silence is a hairline, not a gap.
-    const FLOOR: f32 = 0.024;
+    const FLOOR: f32 = WAVE_FLOOR;
     if bars.is_empty() {
         return String::new();
     }
@@ -456,38 +464,38 @@ mod tests {
             max: vec![0.5; 2000],
             buckets_per_second: 1000.0,
         });
-        let wave = wave_path(&peaks, 0.0, 2.0, 128, WAVE_BAR);
+        let wave = wave_path(&peaks, 0.0, 2.0, 128, WAVE_BAR, WAVE_FLOOR);
         assert_eq!(wave.matches('M').count(), 128);
         // A bar stands on the floor: its top is one less its height.
         assert!(
             wave.contains(" 0.5000 L") && wave.contains(" 1.0000 Z"),
             "half amplitude, floored: {wave}"
         );
-        assert!(wave_path(&peaks, 0.0, 0.0, 128, WAVE_BAR).is_empty());
-        assert!(wave_path(&peaks, 0.0, f32::NAN, 128, WAVE_BAR).is_empty());
+        assert!(wave_path(&peaks, 0.0, 0.0, 128, WAVE_BAR, WAVE_FLOOR).is_empty());
+        assert!(wave_path(&peaks, 0.0, f32::NAN, 128, WAVE_BAR, WAVE_FLOOR).is_empty());
         // The column count is held to what is worth drawing, either way.
         assert_eq!(
-            wave_path(&peaks, 0.0, 2.0, 0, WAVE_BAR)
+            wave_path(&peaks, 0.0, 2.0, 0, WAVE_BAR, WAVE_FLOOR)
                 .matches('M')
                 .count(),
             8
         );
         assert_eq!(
-            wave_path(&peaks, 0.0, 2.0, 1_000_000, WAVE_BAR)
+            wave_path(&peaks, 0.0, 2.0, 1_000_000, WAVE_BAR, WAVE_FLOOR)
                 .matches('M')
                 .count(),
             4096
         );
         // A bar takes `bar` of its pitch; the rest is the gap.
-        let eight = wave_path(&peaks, 0.0, 2.0, 8, 0.75);
+        let eight = wave_path(&peaks, 0.0, 2.0, 8, 0.75, WAVE_FLOOR);
         assert!(eight.contains("M 0.0000 0.5000 L 0.0938 0.5000"), "{eight}");
         assert!(eight.contains("M 0.1250 0.5000 L 0.2188 0.5000"), "{eight}");
-        let thin = wave_path(&peaks, 0.0, 2.0, 8, 0.5);
+        let thin = wave_path(&peaks, 0.0, 2.0, 8, 0.5, WAVE_FLOOR);
         assert!(thin.contains("M 0.0000 0.5000 L 0.0625 0.5000"), "{thin}");
         // Held to a sliver at the least, and never over the pitch.
-        let hair = wave_path(&peaks, 0.0, 2.0, 8, 0.0);
+        let hair = wave_path(&peaks, 0.0, 2.0, 8, 0.0, WAVE_FLOOR);
         assert!(hair.contains("M 0.0000 0.5000 L 0.0125 0.5000"), "{hair}");
-        let solid = wave_path(&peaks, 0.0, 2.0, 8, 7.0);
+        let solid = wave_path(&peaks, 0.0, 2.0, 8, 7.0, WAVE_FLOOR);
         assert!(solid.contains("M 0.0000 0.5000 L 0.1250 0.5000"), "{solid}");
         // Silence is a sliver on the floor, never a gap.
         let silence = concat_media::Pyramid::of(concat_media::Peaks {
@@ -495,9 +503,53 @@ mod tests {
             max: vec![0.0; 100],
             buckets_per_second: 100.0,
         });
-        let flat = wave_path(&silence, 0.0, 1.0, 10, WAVE_BAR);
+        let flat = wave_path(&silence, 0.0, 1.0, 10, WAVE_BAR, WAVE_FLOOR);
         assert_eq!(flat.matches('M').count(), 10);
         assert!(flat.contains(" 0.9760 L"), "{flat}");
+    }
+
+    /// With no floor a quiet passage keeps its shape - the lane scales it
+    /// by the clip's volume afterwards, and a floor raised first would have
+    /// made every bar one height - and silence is no height at all.
+    #[test]
+    fn a_quiet_passage_keeps_its_shape_with_no_floor() {
+        let level = |bucket: usize| {
+            if (bucket / 10).is_multiple_of(2) {
+                0.01
+            } else {
+                0.005
+            }
+        };
+        let quiet = concat_media::Pyramid::of(concat_media::Peaks {
+            min: (0..100).map(|bucket| -level(bucket)).collect(),
+            max: (0..100).map(level).collect(),
+            buckets_per_second: 100.0,
+        });
+        let wave = wave_path(&quiet, 0.0, 1.0, 10, WAVE_BAR, 0.0);
+        let bars: Vec<&str> = wave.split('Z').filter(|bar| bar.contains('M')).collect();
+        assert_eq!(bars.len(), 10);
+        assert!(
+            bars[0].contains(" 0.9900 L") && bars[0].contains(" 1.0000 "),
+            "{wave}"
+        );
+        assert!(
+            bars[1].contains(" 0.9950 L") && bars[1].contains(" 1.0000 "),
+            "{wave}"
+        );
+        let floored = wave_path(&quiet, 0.0, 1.0, 10, WAVE_BAR, WAVE_FLOOR);
+        assert!(
+            !floored.contains(" 0.9900 L"),
+            "the floor flattens it: {floored}"
+        );
+
+        let silence = concat_media::Pyramid::of(concat_media::Peaks {
+            min: vec![0.0; 100],
+            max: vec![0.0; 100],
+            buckets_per_second: 100.0,
+        });
+        let none = wave_path(&silence, 0.0, 1.0, 10, WAVE_BAR, 0.0);
+        assert!(!none.contains(" 0.9760 L"), "{none}");
+        assert!(none.contains(" 1.0000 L"), "{none}");
     }
 
     /// A zoomed-in clip reads the fine buckets: a single loud millisecond
@@ -522,15 +574,15 @@ mod tests {
                 .filter(|bar| bar.contains(" 0.0000 L"))
                 .count()
         };
-        let fine = wave_path(&peaks, 0.0, 1.0, 1000, WAVE_BAR);
+        let fine = wave_path(&peaks, 0.0, 1.0, 1000, WAVE_BAR, WAVE_FLOOR);
         assert_eq!(spikes(&fine), 1, "one column carries the spike: {fine}");
-        let coarse = wave_path(&peaks, 0.0, 1.0, 10, WAVE_BAR);
+        let coarse = wave_path(&peaks, 0.0, 1.0, 10, WAVE_BAR, WAVE_FLOOR);
         assert_eq!(
             spikes(&coarse),
             1,
             "the spike survives the fold, in one column"
         );
-        let trimmed = wave_path(&peaks, 0.6, 0.4, 10, WAVE_BAR);
+        let trimmed = wave_path(&peaks, 0.6, 0.4, 10, WAVE_BAR, WAVE_FLOOR);
         assert!(
             !trimmed.contains(" 0.0000 L"),
             "a trim past the spike does not show it"

@@ -772,9 +772,10 @@ pub fn mix_to_file_with(
     if codec_name == "opus" {
         audio.compliance(ffmpeg::codec::Compliance::Experimental);
     }
+    ffi::begin();
     let mut encoder = audio
         .open()
-        .map_err(|error| ffi::fail("open encoder", destination, error))?;
+        .map_err(|error| ffi::fail_said("open encoder", destination, error))?;
     // PCM accepts variable-size frames. Use blocks rather than one sample
     // per packet; run_mix keeps the final block's exact sample count.
     let frame_size = if wav {
@@ -932,6 +933,7 @@ fn run_mix(
     // sources are described by what actually comes out of the decoders.
     let mut inputs: Vec<MixInput> = Vec::with_capacity(members.len());
     let mut first_frames: Vec<Audio> = Vec::with_capacity(members.len());
+    ffi::begin();
     let mut graph = filter::Graph::new();
     for (index, clip) in members.iter().enumerate() {
         let path = clip.path.as_path();
@@ -951,8 +953,8 @@ fn run_mix(
         // on the seek, so the in-point is measured from the same instant
         // the picture's is. See `ffi::origin`.
         let start = ffi::origin(&input).as_f64();
-        let decoder =
-            ffi::audio_decoder(&stream).map_err(|error| ffi::fail("open decoder", path, error))?;
+        let decoder = ffi::audio_decoder(&stream)
+            .map_err(|error| ffi::fail_said("open decoder", path, error))?;
         // Near the in-point: the packet of the sound at or before it, on the
         // sound's own timestamps. The graph cuts the rest, by the lead
         // measured off the first frame below.
@@ -1011,7 +1013,7 @@ fn run_mix(
                 &mix_input.label,
                 &args,
             )
-            .map_err(|error| ffi::fail("buffer source", path, error))?;
+            .map_err(|error| ffi::fail_said("buffer source", path, error))?;
         first_frames.push(first);
         inputs.push(mix_input);
     }
@@ -1021,7 +1023,7 @@ fn run_mix(
             "sink",
             "",
         )
-        .map_err(|error| ffi::fail("buffer sink", destination, error))?;
+        .map_err(|error| ffi::fail_said("buffer sink", destination, error))?;
 
     // The plan's `[out]` lands on the reader's own format before the sink.
     let graph_spec = mix_graph_from(&members, &heard, from, buses)?;
@@ -1030,18 +1032,18 @@ fn run_mix(
     );
     let mut parser = graph
         .input("sink", 0)
-        .map_err(|error| ffi::fail("filter graph", destination, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     for input in &inputs {
         parser = parser
             .output(&input.label, 0)
-            .map_err(|error| ffi::fail("filter graph", destination, error))?;
+            .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     }
     parser
         .parse(&spec)
-        .map_err(|error| ffi::fail("filter graph", destination, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     graph
         .validate()
-        .map_err(|error| ffi::fail("filter graph", destination, error))?;
+        .map_err(|error| ffi::fail_said("filter graph", destination, error))?;
     if let Some(frame_size) = frame_size {
         let mut sink = graph.get("sink").expect("the graph has a sink");
         sink.sink().set_frame_size(frame_size);

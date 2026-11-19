@@ -103,6 +103,12 @@ impl Studio {
                 return Err(tf("studio.projectOpenElsewhere", &[&pid]));
             }
         }
+        // When the project was last saved, read before anything opening it
+        // can write: what tells a voiceover it lost from one taken out of
+        // it; see `voiceover::lost_takes`.
+        let saved = std::fs::metadata(projects::manifest_path(std::path::Path::new(&info.path)))
+            .and_then(|meta| meta.modified())
+            .ok();
         match Session::open_info(&info) {
             Ok(session) => {
                 if let Err(error) = projects::remember(&self.host.dirs.config, &info) {
@@ -140,6 +146,7 @@ impl Studio {
                 // The relink dialog belongs to the project that opened it;
                 // this project's own check follows below.
                 self.relink = Default::default();
+                self.unread_pending = None;
                 crate::host::next_project_epoch();
                 self.forget_art();
                 self.art_failed.clear();
@@ -216,6 +223,13 @@ impl Studio {
                         false,
                     );
                 }
+                // Parts of the file this build cannot read - from a newer
+                // Concat, or damaged - are kept in it unchanged, and the
+                // person told once, after the other notices of this open.
+                let unread = self
+                    .session
+                    .as_ref()
+                    .and_then(|session| unread_notice(session.unread()));
 
                 // Log missing media to file for debugging
                 if let Some(session) = &self.session {
@@ -237,6 +251,19 @@ impl Studio {
                         ));
                     }
                 }
+                // The relink dialog opening now would hide the notice while
+                // the person deals with it: it waits for the dialog to close.
+                if let Some(notice) = unread {
+                    if self.relink.open {
+                        self.unread_pending = Some(notice);
+                    } else {
+                        self.warn(&notice);
+                    }
+                }
+                // Voiceovers still recording when Concat last let this
+                // project go without them - a crash, a quit without saving
+                // - go back in Media.
+                crate::panes::voiceover::recover_lost_takes(self, saved);
                 Ok(())
             }
             Err(error) => {
@@ -325,6 +352,16 @@ impl Studio {
         log::debug!("project: closing {}", self.project_name);
         // Words still being typed land in the save, not on the floor.
         self.flush_commit();
+        // So does a voiceover still being recorded, or stopped a moment ago
+        // and not landed yet: put in this project's bin and on its
+        // timeline as Stop would, for the save below to keep. Left to
+        // Stop's own way, it was dropped on its way back and its file sat
+        // in the audio folder unseen.
+        if self.voiceover.holds_take() {
+            self.handle(crate::panes::Msg::Voiceover(
+                crate::panes::voiceover::VoiceoverMsg::ProjectClosing,
+            ));
+        }
         self.pause();
         // Saved before the workers are cancelled: a close that cannot be
         // written is not a close, and the jobs it would have stopped are
@@ -399,8 +436,9 @@ impl Studio {
         // find stays up over the launch screen.
         self.relink = Default::default();
         self.source = None;
-        // A take running as the project closes stops, keeping its file;
-        // the next project's speakers are not left silent.
+        // A take running as the project closes without a save - Quit
+        // without saving - stops, keeping its file for the next open to
+        // put back; the next project's speakers are not left silent.
         self.voiceover = Default::default();
         self.host.playback.set_muted(false);
         self.echo = None;
@@ -499,6 +537,13 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.relink);
                 pane.update(msg, self);
                 self.relink = pane;
+                // However the dialog closed - every file found, the last one
+                // removed, dismissed - the notice it held back goes up now.
+                if !self.relink.open
+                    && let Some(notice) = self.unread_pending.take()
+                {
+                    self.warn(&notice);
+                }
             }
             crate::panes::Msg::Project(msg) => {
                 let mut pane = std::mem::take(&mut self.project_sheet);
@@ -527,4 +572,66 @@ impl Studio {
             }
         }
     }
+}
+
+/// What the person is told when part of the project opened cannot be shown,
+/// or None when all of it can.
+pub(super) fn unread_notice(unread: concat_project::UnreadSummary) -> Option<String> {
+    let what: Vec<String> = [
+        match unread.clips {
+            0 => None,
+            1 => Some(t("studio.unreadClipOne")),
+            n => Some(tf("studio.unreadClipsMany", &[&n.to_string()])),
+        },
+        match unread.media {
+            0 => None,
+            1 => Some(t("studio.unreadMediaOne")),
+            n => Some(tf("studio.unreadMediaMany", &[&n.to_string()])),
+        },
+        match unread.timelines {
+            0 => None,
+            1 => Some(t("studio.unreadTimelineOne")),
+            n => Some(tf("studio.unreadTimelinesMany", &[&n.to_string()])),
+        },
+        match unread.parts {
+            0 => None,
+            1 => Some(t("studio.unreadPartOne")),
+            n => Some(tf("studio.unreadPartsMany", &[&n.to_string()])),
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!what.is_empty()).then(|| tf("studio.unreadKept", &[&what.join(", ")]))
+}
+
+/// The Details panel's short count of what the project holds and cannot
+/// show, or empty when it shows everything.
+pub(super) fn unread_count(unread: concat_project::UnreadSummary) -> String {
+    let what: Vec<String> = [
+        match unread.clips {
+            0 => None,
+            1 => Some(t("configPane.notShownClipOne")),
+            n => Some(tf("configPane.notShownClipsMany", &[&n.to_string()])),
+        },
+        match unread.media {
+            0 => None,
+            1 => Some(t("configPane.notShownMediaOne")),
+            n => Some(tf("configPane.notShownMediaMany", &[&n.to_string()])),
+        },
+        match unread.timelines {
+            0 => None,
+            1 => Some(t("configPane.notShownTimelineOne")),
+            n => Some(tf("configPane.notShownTimelinesMany", &[&n.to_string()])),
+        },
+        match unread.parts {
+            0 => None,
+            1 => Some(t("configPane.notShownPartOne")),
+            n => Some(tf("configPane.notShownPartsMany", &[&n.to_string()])),
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    what.join(", ")
 }

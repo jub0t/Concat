@@ -213,6 +213,8 @@ export global Theme {
     out property <color> on-accent: tone.on;
     out property <color> green: dark ? Dark.green : Light.green;
     out property <color> on-green: dark ? Dark.on-green : Light.on-green;
+    /// cautionary: worked, but not as it should
+    out property <color> warn: dark ? Dark.warn : Light.warn;
 
     /// The `index`th accent under the palette that is on, for the row in
     /// Settings that offers them: each is shown as it would be worn, so the
@@ -283,6 +285,14 @@ export global Theme {
     out property <color> clip-body: dark ? Dark.clip-body : Light.clip-body;
     out property <color> clip-chip: dark ? Dark.clip-chip : Light.clip-chip;
     out property <color> wave-centre: dark ? Dark.wave-centre : Light.wave-centre;
+    out property <color> beat-mark: dark ? Dark.beat-mark : Light.beat-mark;
+    /// The first beat of a bar: amber, the colour beat markers usually
+    /// are, and apart from the accent the selection and playhead wear.
+    out property <color> beat-bar: dark ? Dark.beat-bar : Light.beat-bar;
+    /// The strip along a song's clip floor its beat ticks stand on, and
+    /// its height.
+    out property <color> beat-rail-ground: dark ? Dark.beat-rail-ground : Light.beat-rail-ground;
+    out property <length> beat-rail: 9px;
     out property <color> fade-shade: dark ? Dark.fade-shade : Light.fade-shade;
     out property <color> fade-edge: dark ? Dark.fade-edge : Light.fade-edge;
     out property <color> transition-in: dark ? Dark.transition-in : Light.transition-in;

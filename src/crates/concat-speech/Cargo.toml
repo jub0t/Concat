@@ -37,7 +37,8 @@ log = { version = "0.4", features = ["std"] }
 concat-log.workspace = true
 
 # Transcription: whisper.cpp in-process. Built from source by cmake at build
-# time; on macOS with Metal so the encoder runs on the GPU. `raw-api` for
+# time; on macOS with Metal so the encoder runs on Apple silicon's GPU (an
+# Intel Mac's is not used: transcribe.rs, `whisper_gpu`). `raw-api` for
 # ggml's backend registry: where whisper.cpp is a shared build, its CPU
 # kernels are loaded by hand (transcribe.rs, `cpu_backend`).
 whisper-rs = { version = "0.16", features = ["raw-api"] }
@@ -64,6 +65,8 @@ chatterbox = ["dep:ort", "dep:tokenizers", "dep:concat-vision"]
 # Voice isolation: DeepFilterNet 3, carried in the app, run on ONNX Runtime's
 # CPU provider on every platform. See isolate.rs.
 isolate = ["dep:concat-vision", "dep:realfft"]
+# Beats: Beat This! small, carried in the app, on the CPU. See beats.rs.
+beats = ["dep:concat-vision", "dep:realfft"]
 
 [lints]
 workspace = true

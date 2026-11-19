@@ -198,8 +198,8 @@ impl AudioDecoder {
         // picture and the export mix are; without this the preview's sound
         // and a transcript ran ahead of the picture (audit 2026-10-04, #3).
         let origin = ffi::origin(&input).as_f64();
-        let decoder =
-            ffi::audio_decoder(&stream).map_err(|error| ffi::fail("open decoder", path, error))?;
+        let decoder = ffi::audio_decoder(&stream)
+            .map_err(|error| ffi::fail_said("open decoder", path, error))?;
 
         // Near the start, not at it: the graph's atrim does the exact cut,
         // and a seek only saves decoding what comes before.
@@ -245,6 +245,7 @@ impl AudioDecoder {
             .map_or(0.0, |at| {
                 at.as_f64() - self.origin - self.options.start.unwrap_or(0.0)
             });
+        ffi::begin();
         let mut graph = filter::Graph::new();
         let args = format!(
             "time_base={}/{}:sample_rate={}:sample_fmt={}:channel_layout={}",
@@ -264,22 +265,22 @@ impl AudioDecoder {
                 "in",
                 &args,
             )
-            .map_err(|error| ffi::fail("buffer source", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("buffer source", &self.path, error))?;
         graph
             .add(
                 &filter::find("abuffersink").ok_or_else(|| missing("abuffersink"))?,
                 "out",
                 "",
             )
-            .map_err(|error| ffi::fail("buffer sink", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("buffer sink", &self.path, error))?;
         graph
             .output("in", 0)
             .and_then(|parser| parser.input("out", 0))
             .and_then(|parser| parser.parse(&audio_filter(&self.options, self.origin, late)))
-            .map_err(|error| ffi::fail("filter graph", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("filter graph", &self.path, error))?;
         graph
             .validate()
-            .map_err(|error| ffi::fail("filter graph", &self.path, error))?;
+            .map_err(|error| ffi::fail_said("filter graph", &self.path, error))?;
         Ok(graph)
     }
 
@@ -621,6 +622,129 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(plain > 15_000, "the tone is there, at {plain}");
         assert!(filtered < 1_000, "the tone came through at {filtered}");
+    }
+
+    /// A clip at another speed still sounds, for as long as it lasts on the
+    /// timeline (#762). This is the playback cache's decode as
+    /// `concat_host::playback::decode` makes it: the clip's own retiming
+    /// filters, a window of `duration * speed` source seconds, landed on
+    /// 16-bit stereo at 48 kHz. Both directions, the multi-stage tempo
+    /// past 2x, and the tape effect; a 44.1 kHz stereo WAV and an MP2
+    /// fixture, so a rate change on the way in is covered too.
+    #[test]
+    fn a_clip_at_another_speed_still_sounds_for_its_whole_length() {
+        let rate: u32 = 44_100;
+        let mut data = Vec::new();
+        for index in 0..rate * 4 {
+            let t = f64::from(index) / f64::from(rate);
+            let value = (0.5 * (2.0 * std::f64::consts::PI * 440.0 * t).sin() * 32767.0) as i16;
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&rate.to_le_bytes());
+        bytes.extend_from_slice(&(rate * 4).to_le_bytes());
+        bytes.extend_from_slice(&4u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&data);
+        let wav = std::env::temp_dir().join(format!("concat-speed-{}.wav", std::process::id()));
+        std::fs::write(&wav, bytes).expect("writes the wav");
+        let mkv = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/keyframes-3s-apart.mkv"
+        );
+
+        // (file, where the clip starts in it): both inside the tone.
+        let sources = [(wav.clone(), 0.5), (std::path::PathBuf::from(mkv), 1.0)];
+        for (path, source_start) in &sources {
+            for speed in [0.5, 0.75, 1.5, 2.0, 3.0] {
+                for preserve_pitch in [true, false] {
+                    let duration = 1.0;
+                    let clip = crate::audio::AudioClip {
+                        path: path.clone(),
+                        stream: None,
+                        start: 0.0,
+                        duration,
+                        source_start: *source_start,
+                        speed,
+                        tempo: Vec::new(),
+                        preserve_pitch,
+                        volume: 1.0,
+                        volume_curve: concat_core::animate::Track::default(),
+                        fade_in: 0.0,
+                        fade_out: 0.0,
+                        filter_chain: String::new(),
+                    };
+                    let options = AudioOptions {
+                        start: Some(*source_start),
+                        duration: Some(clip.source_at(duration)),
+                        filters: clip.retime_filters(0.0, "p"),
+                        rate: 48_000,
+                        channels: 2,
+                        format: SampleFormat::I16,
+                        stream: None,
+                    };
+                    let mut decoder = AudioDecoder::open(path, &options).expect("opens");
+                    let mut samples: Vec<i16> = Vec::new();
+                    while let Some(frame) = decoder.next_frame().expect("decodes") {
+                        samples.extend(
+                            decoder
+                                .bytes_of(&frame)
+                                .chunks_exact(2)
+                                .map(|b| i16::from_le_bytes([b[0], b[1]])),
+                        );
+                    }
+                    let what = format!(
+                        "{} at {speed}x, pitch held {preserve_pitch}",
+                        path.display()
+                    );
+                    let frames = samples.len() / 2;
+                    assert!(
+                        (frames as f64 - 48_000.0 * duration).abs() < 48_000.0 * 0.05,
+                        "{what}: {frames} frames for a second on the timeline"
+                    );
+                    // Past the filter's first tenth of a second, as above.
+                    let loudest = samples
+                        .iter()
+                        .skip(2 * 4_800)
+                        .map(|sample| i32::from(*sample).abs())
+                        .max()
+                        .unwrap_or(0);
+                    assert!(loudest > 3_000, "{what}: silent, loudest {loudest}");
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&wav);
+    }
+
+    /// A filter graph FFmpeg refuses fails with FFmpeg's own reason in the
+    /// error, not only its code: "Invalid argument" alone never said which
+    /// value it could not read.
+    #[test]
+    fn a_refused_graph_says_what_ffmpeg_said() {
+        let mkv = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/keyframes-3s-apart.mkv"
+        );
+        let options = AudioOptions {
+            filters: vec!["atempo=tempo=banana".to_owned()],
+            ..AudioOptions::default()
+        };
+        let mut decoder = AudioDecoder::open(mkv, &options).expect("opens");
+        let error = decoder
+            .next_frame()
+            .expect_err("the graph is refused")
+            .to_string();
+        assert!(error.contains(" · "), "{error}");
+        assert!(error.contains("banana"), "{error}");
     }
 
     #[test]

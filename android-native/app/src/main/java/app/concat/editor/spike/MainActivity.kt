@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.io.File
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -94,8 +96,10 @@ class MainActivity : ComponentActivity() {
         }
         val media = File(filesDir, "media").apply { mkdirs() }
         val target = File(media, name)
-        contentResolver.openInputStream(uri)!!.use { input ->
-            target.outputStream().use { input.copyTo(it, 1 shl 20) }
+        val input = contentResolver.openInputStream(uri)
+            ?: throw IOException("the provider would not open $uri")
+        input.use { stream ->
+            target.outputStream().use { stream.copyTo(it, 1 shl 20) }
         }
         return target
     }
@@ -143,7 +147,17 @@ private fun Editor(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             val started = SystemClock.elapsedRealtime()
-            val file = withContext(Dispatchers.IO) { copyIn(uri) }
+            val file = try {
+                withContext(Dispatchers.IO) { copyIn(uri) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                // A provider that revokes its grant or will not open the
+                // document is a failed import, not a dead app.
+                message = "import failed: ${error.message}"
+                Log.w(TAG, "could not copy $uri", error)
+                return@launch
+            }
             Log.i(TAG, "copied ${file.name} (${file.length() / 1024} KB) in ${SystemClock.elapsedRealtime() - started} ms")
             importFile(file)
         }

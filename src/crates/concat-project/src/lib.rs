@@ -34,6 +34,7 @@ pub mod speed;
 #[cfg(test)]
 mod speed_curve_tests;
 pub mod srt;
+pub mod unread;
 
 pub use commands::{
     Command, CommandError, Outcome, PlayheadSide, consolidation_clips, delete_to_playhead,
@@ -42,6 +43,7 @@ pub use commands::{
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};
 pub use model::Project;
+pub use unread::UnreadSummary;
 
 #[cfg(test)]
 mod tests {
@@ -702,6 +704,79 @@ mod tests {
         assert_eq!(clip.scale, 1.0, "the constant under the keys is untouched");
     }
 
+    /// A picture's width and height key the way its scale does: by name in
+    /// the document, held to the field's range, ridden between keys, and a
+    /// fill puts the picture back in its shape with a key where the
+    /// playhead is rather than by dropping the ride.
+    #[test]
+    fn a_stretch_keys_like_a_scale() {
+        use crate::model::{Framing, KeyEase, KeyProperty, ranges::MAX_STRETCH};
+        let (mut editor, _, clip_id) = fixture();
+        for (at, value) in [(0.0, 1.0), (1.0, 2.0), (0.25, 99.0)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: clip_id.clone(),
+                    property: KeyProperty::StretchX,
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        editor
+            .apply(Command::ClearClipKey {
+                clip_id: clip_id.clone(),
+                property: KeyProperty::StretchX,
+                at: 0.25,
+            })
+            .expect("clears");
+        let clip = &editor.project().active().clips[0];
+        assert!((clip.value_at(KeyProperty::StretchX, 0.5) - 1.5).abs() < 1e-12);
+        assert_eq!(clip.value_at(KeyProperty::StretchY, 0.5), 1.0, "unkeyed");
+
+        let document = editor.to_document(&settings());
+        let names: Vec<&str> = document["timelines"][0]["clips"][0]["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .filter_map(|key| key["property"].as_str())
+            .collect();
+        assert_eq!(names, ["stretchX", "stretchX"]);
+        let read = Editor::from_document(&document).expect("loads");
+        assert_eq!(read.project().active().clips[0].keys, clip.keys);
+        for property in KeyProperty::ALL {
+            assert_eq!(KeyProperty::from_name(property.name()), Some(property));
+        }
+
+        editor
+            .apply(Command::SetClipKey {
+                clip_id: clip_id.clone(),
+                property: KeyProperty::StretchY,
+                at: 0.5,
+                value: 99.0,
+                ease: KeyEase::LINEAR,
+            })
+            .expect("keys");
+        let clip = &editor.project().active().clips[0];
+        let tall = clip.keys_on(KeyProperty::StretchY).next().expect("a key");
+        assert_eq!(tall.value, MAX_STRETCH, "clamped like the field");
+
+        editor
+            .apply(Command::FrameClip {
+                clip_id: clip_id.clone(),
+                framing: Framing::Fill,
+                at: 0.5,
+            })
+            .expect("fills");
+        let clip = &editor.project().active().clips[0];
+        let wide: Vec<(f64, f64)> = clip
+            .keys_on(KeyProperty::StretchX)
+            .map(|key| (key.at, key.value))
+            .collect();
+        assert_eq!(wide, vec![(0.0, 1.0), (0.5, 1.0), (1.0, 2.0)]);
+        assert_eq!(clip.value_at(KeyProperty::StretchY, 0.5), 1.0);
+    }
+
     /// A turned picture fills further and fits smaller, and a crop is what
     /// is sized: a picture cropped to a square fills a square frame at one.
     #[test]
@@ -956,6 +1031,74 @@ mod tests {
             .expect("moves");
         assert_eq!(start_of(&editor, &a[0]), 10.0);
         assert_eq!(start_of(&editor, &b[0]), 15.0);
+    }
+
+    /// A drag hands the engine one shift in f32. Clips laid end to end must
+    /// still butt after it, however late they sit: a run that came back
+    /// overlapping by a hair was refused whole, and the drag did nothing.
+    #[test]
+    fn a_run_laid_end_to_end_late_in_the_timeline_moves_as_one() {
+        use crate::placement::shifted_starts;
+        let (mut editor, _media_id, _first) = fixture();
+        let tracks = editor.project().active().tracks.clone();
+        // Footage cut to lengths no float grid holds, as real takes are,
+        // each clip starting where the last ends.
+        let length = 3.770_433;
+        let media_id = editor
+            .apply(media("/b.mp4", length, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let from: Vec<f64> = (0..8).map(|n| 120.0 + f64::from(n) * length).collect();
+        let ids = lane(&mut editor, &media_id, &tracks[1].id, &from);
+        for pointer in [17.3_f32, 0.1, 33.337, 91.9] {
+            let to = shifted_starts(&from, f64::from(pointer));
+            let outcome = editor
+                .apply(Command::MoveClips {
+                    moves: ids
+                        .iter()
+                        .zip(&to)
+                        .map(|(id, start)| ClipMove {
+                            clip_id: id.clone(),
+                            start: *start,
+                            track_id: tracks[3].id.clone(),
+                        })
+                        .collect(),
+                })
+                .expect("moves");
+            assert!(
+                outcome.applied,
+                "the run stayed put for a shift of {pointer}"
+            );
+            for (id, wanted) in ids.iter().zip(&to) {
+                assert_eq!(start_of(&editor, id), *wanted);
+            }
+            // Back where it began for the next shift.
+            editor
+                .apply(Command::MoveClips {
+                    moves: ids
+                        .iter()
+                        .zip(&from)
+                        .map(|(id, start)| ClipMove {
+                            clip_id: id.clone(),
+                            start: *start,
+                            track_id: tracks[1].id.clone(),
+                        })
+                        .collect(),
+                })
+                .expect("moves back");
+        }
+    }
+
+    #[test]
+    fn a_dragged_group_stops_at_zero_as_a_whole() {
+        use crate::placement::shifted_starts;
+        // Pulled left past the start, the early clip would stop at zero and
+        // the rest would go on: the group keeps its shape instead.
+        assert_eq!(shifted_starts(&[3.0, 13.0, 23.0], -5.0), [0.0, 10.0, 20.0]);
+        assert_eq!(shifted_starts(&[3.0, 13.0], -1.0), [2.0, 12.0]);
+        assert_eq!(shifted_starts(&[3.0, 13.0], 4.0), [7.0, 17.0]);
+        assert!(shifted_starts(&[], 4.0).is_empty());
     }
 
     #[test]
@@ -1882,7 +2025,7 @@ mod tests {
     }
 
     #[test]
-    fn consolidation_refuses_subframe_spans_that_would_lose_a_rendered_frame() {
+    fn consolidation_accepts_subframe_spans_now_that_both_ends_are_rounded() {
         let (mut editor, media_id, first) = fixture();
         let track = editor.project().active().tracks[0].id.clone();
         let second = lane(&mut editor, &media_id, &track, &[10.0])[0].clone();
@@ -1891,7 +2034,7 @@ mod tests {
             clip.start = start;
             clip.duration = 0.04;
         }
-        assert!(crate::consolidation_clips(editor.project().active(), &[first, second]).is_err());
+        assert!(crate::consolidation_clips(editor.project().active(), &[first, second]).is_ok());
     }
 
     #[test]
@@ -2725,11 +2868,12 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_the_reader_cannot_parse_is_dropped_not_the_document() {
+    fn an_entry_the_reader_cannot_parse_is_held_not_the_document() {
         let document = json!({
             "name": "Mixed", "version": 1,
             "media": [
-                { "id": "m1", "path": "/a.mp4", "kind": "hologram" },
+                { "id": "m1", "path": "/a.mp4" },
+                { "id": "m4", "path": "/d.mp4", "kind": "hologram" },
                 { "id": "m2", "path": "/b.mp4", "kind": "audio", "audioTracks": "nope" },
                 { "path": "/no-id.mp4" }
             ],
@@ -2744,12 +2888,13 @@ mod tests {
         });
         let editor = Editor::from_document(&document).expect("loads");
         let project = editor.project();
-        assert_eq!(project.media.len(), 2, "the entry without an id is dropped");
         assert_eq!(
-            project.media[0].kind,
-            MediaKind::Video,
-            "an unknown kind is video"
+            project.media.len(),
+            2,
+            "the entry without an id and the one of a kind from a newer build are held"
         );
+        assert_eq!(project.unread_summary().media, 2);
+        assert_eq!(project.media[0].kind, MediaKind::Video, "no kind is video");
         assert_eq!(
             project.media[0].name, "/a.mp4",
             "a nameless entry is called by its path"
@@ -2769,7 +2914,7 @@ mod tests {
         let clip = timeline.clip("c1").expect("c1");
         assert!(
             clip.cutout.is_none(),
-            "a cutout that does not parse is no cutout"
+            "a cutout that does not parse is no cutout here, and is held"
         );
         assert!(clip.keys.is_empty());
         assert_eq!(clip.transition_in.as_ref().expect("kept").duration, 1.0);
@@ -3845,6 +3990,74 @@ mod tests {
             Some(ColorRange::Full),
             "undo of the clear brings the range back"
         );
+    }
+
+    /// A file's beats are asked for on that file alone: set, saved as a
+    /// word, left out of the document while off, undone like any edit; an
+    /// unknown item is a no-op.
+    #[test]
+    fn a_files_beats_are_its_own_undoable_edit_that_round_trips() {
+        use crate::model::BeatMarks;
+        let (mut editor, media_id, _clip_id) = fixture();
+        assert_eq!(editor.project().media[0].beats, None);
+        let before = editor.project().clone();
+
+        let on = editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: Some(BeatMarks::Zoom),
+            })
+            .expect("sets");
+        assert!(on.applied);
+        editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: Some(BeatMarks::Bar),
+            })
+            .expect("sets");
+        let saved = editor.to_document(&settings());
+        assert_eq!(saved["media"][0]["beats"], "bar");
+        let reopened = Editor::from_document(&saved).expect("loads");
+        assert_eq!(reopened.project().media[0].beats, Some(BeatMarks::Bar));
+        let untold = crate::doc::to_document(&settings(), &before);
+        assert!(untold["media"][0].get("beats").is_none());
+        let mut odd = saved.clone();
+        odd["media"][0]["beats"] = json!("everyThird");
+        let tolerant = Editor::from_document(&odd).expect("loads");
+        assert_eq!(tolerant.project().media[0].beats, None);
+
+        editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: None,
+            })
+            .expect("clears");
+        assert_eq!(editor.project().media[0].beats, None);
+        let gone = editor
+            .apply(Command::SetMediaBeats {
+                media_id: "m999".to_owned(),
+                marks: Some(BeatMarks::Every),
+            })
+            .expect("an unknown item is a no-op");
+        assert!(!gone.applied);
+        editor.undo();
+        assert_eq!(
+            editor.project().media[0].beats,
+            Some(BeatMarks::Bar),
+            "undo of the switch-off brings the file's marks back"
+        );
+
+        let parsed: Command = serde_json::from_value(json!({
+            "op": "setMediaBeats", "mediaId": "m1", "marks": "second"
+        }))
+        .expect("parses");
+        assert!(matches!(
+            parsed,
+            Command::SetMediaBeats {
+                marks: Some(BeatMarks::Second),
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -5444,6 +5657,7 @@ mod tests {
             chapters: vec![],
             placeholder: false,
             color_range: None,
+            beats: None,
             color_space: Default::default(),
             origin: None,
             extra: Default::default(),
@@ -5484,6 +5698,7 @@ mod tests {
             chapters: vec![],
             placeholder: false,
             color_range: None,
+            beats: None,
             color_space: Default::default(),
             origin: None,
             extra: Default::default(),

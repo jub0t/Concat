@@ -169,7 +169,7 @@ jobs:
       - name: Android libraries
         run: src/scripts/android-libs.sh ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: ${{ matrix.target }}
@@ -189,13 +189,38 @@ jobs:
           echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
           echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
 
-      # The build environment first, then the build under it.
+      # Linking the engine in one codegen unit comes close to the runner's
+      # memory at its peak; with line tables it went over, swap or not, and
+      # the runner itself was killed mid-build (f22453d8 to 3a10dc47). The
+      # swap file on the larger disk is the margin, without changing
+      # anything that is built.
+      - name: Room for the build's peak memory
+        run: |
+          set -euo pipefail
+          avail_kb() { df --output=avail -k "$1" | tail -1; }
+          dir=/
+          if [ -d /mnt ] && [ "$(avail_kb /mnt)" -gt $((24 * 1024 * 1024)) ]; then dir=/mnt; fi
+          sudo fallocate -l 12G "$dir/build.swap"
+          sudo chmod 600 "$dir/build.swap"
+          sudo mkswap "$dir/build.swap" >/dev/null
+          sudo swapon "$dir/build.swap"
+          free -h
+          df -h / "$dir"
+
+      # The build environment first, then the build under it. No line
+      # tables: with them the engine's link starved the runner off mid-build
+      # on both targets, swap or not (f22453d8 to 3a10dc47), and without
+      # them it never has. The library keeps its symbol table, and is kept
+      # as an artifact below, so the frames of a phone's hang or crash can
+      # be named by function from its offsets (scripts/symbolize-android.sh). The x86_64 build alone
+      # carries the `smoke` feature, which the emulators' export run
+      # drives; the one that ships never does.
       - name: Build the APK
         working-directory: src
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh ${{ matrix.target }})"
-          cargo apk build --release -p concat-android --target ${{ matrix.target }} 2>&1 | tee build.log
+          cargo apk build --release -p concat-android --target ${{ matrix.target }} ${{ !matrix.ship && '--features smoke' || '' }} 2>&1 | tee build.log
 
       # A release's APK is signed over again with the repository's key, so
       # it installs over the build before it. Only a release asks (`sign`);
@@ -244,6 +269,51 @@ jobs:
             --ks-key-alias "$alias" --key-pass env:KEY_PASSWORD "$apk" < /dev/null
           rm -f "$keystore"
           "$tools/apksigner" verify --print-certs "$apk"
+
+      # The engine's library as the linker made it, with its symbol table:
+      # what a trace's offsets are looked up in, by the BuildId the trace
+      # names, which the APK's copy shares. The APK's own copy is checked
+      # for having no debug sections, so they never make the download
+      # larger. Not "Concat-*", so a release never publishes it.
+      - name: Keep the engine's symbols
+        if: matrix.ship
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          eval "$(src/scripts/mobile-env.sh "$TARGET")"
+          readelf=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' | head -1)
+          built=src/target/$TARGET/release/libconcat_android.so
+          packed=$(find src/target/release/apk -path '*/lib/*/libconcat_android.so' | head -1)
+          if "$readelf" -S --wide "$packed" | grep -q '\.debug_'; then
+            echo "::error::the APK's libconcat_android.so carries debug sections; it would ship larger"
+            exit 1
+          fi
+          if ! "$readelf" -S --wide "$built" | grep -q '\.symtab'; then
+            echo "::error::the engine was linked without a symbol table; its frames could not be named"
+            exit 1
+          fi
+          id_of() { "$readelf" -n "$1" | sed -n 's/.*Build ID: *\([0-9a-fA-F]*\).*/\1/p' | head -1; }
+          if [ -z "$(id_of "$built")" ]; then
+            echo "::error::the engine has no build ID; no trace could be matched to its symbols"
+            exit 1
+          fi
+          if [ "$(id_of "$built")" != "$(id_of "$packed")" ]; then
+            echo "::error::the kept library and the APK's are not the same build"
+            exit 1
+          fi
+          mkdir symbols
+          cp "$built" "symbols/libconcat_android-$VERSION-$TARGET.so"
+          echo "BuildId $(id_of "$built")"
+          ls -l symbols "$packed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.ship
+        with:
+          name: symbols-concat-${{ steps.version.outputs.version }}-${{ matrix.target }}
+          path: symbols/*
+          retention-days: 90
+          if-no-files-found: error
 
       # A phone with 16 KB pages loads none of a library aligned to less,
       # and the build would not say so.
@@ -300,7 +370,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            src/crates/concat-media/fixtures
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         timeout-minutes: 10
         with:
@@ -323,7 +395,12 @@ jobs:
       # the engine opens an audio stream as it starts. The SDK pieces the
       # action downloads are checked by sdkmanager against Google's own
       # repository digests, not through scripts/ci/deps.lock.
-      - name: Start the APK on an emulator
+      #
+      # Then an export, of a two-second clip made a project of, with keys
+      # pressed all through it: 0.2.10 and 0.2.11 froze the window on every
+      # phone the moment an export started (#747), and a launch alone never
+      # gets that far. The line runs only once the first has passed.
+      - name: Start the APK on an emulator, and export on it
         timeout-minutes: 30
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -337,7 +414,9 @@ jobs:
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: scripts/ci/smoke-android.sh --out smoke-android --wait 60 apk/Concat-*.apk
+          script: |
+            scripts/ci/smoke-android.sh --out smoke-android --wait 60 apk/Concat-*.apk
+            scripts/ci/smoke-android.sh --out smoke-android/export --no-install --export src/crates/concat-media/fixtures/picture-starts-late.mov apk/Concat-*.apk
 
       # The log, the screenshot and the rest, pass or fail.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -391,7 +470,7 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src
           key: aarch64-apple-ios
@@ -496,7 +575,7 @@ jobs:
           path: src/vendor/ffmpeg/aarch64-apple-ios-sim
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         timeout-minutes: 10
         with:
           workspaces: src

@@ -225,6 +225,16 @@ impl Studio {
                 .clip(&id)
                 .map(|clip| place_in(clip, self.playhead))
                 .unwrap_or(0.0);
+            // The ids of this clip's masks the file holds but this build
+            // cannot read: a new mask must not take one.
+            let held: Vec<String> = self
+                .project()
+                .unread
+                .mask_ids(&id)
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let held: Vec<&str> = held.iter().map(String::as_str).collect();
             let Some(clip) = self.echo_clip_mut(&id) else {
                 continue;
             };
@@ -236,7 +246,7 @@ impl Studio {
             match field {
                 ClipField::MaskAdd => {
                     let Some(shape) = shape else { continue };
-                    let id = Mask::next_id(&clip.masks);
+                    let id = Mask::next_id_past(&clip.masks, &held);
                     clip.masks.push(Mask::of(id.clone(), "", shape));
                     refocus = Some(Some(id));
                 }
@@ -277,7 +287,7 @@ impl Studio {
                         }
                         // A shape picked on a clip with no mask puts one on.
                         None => {
-                            let id = Mask::next_id(&clip.masks);
+                            let id = Mask::next_id_past(&clip.masks, &held);
                             clip.masks.push(Mask::of(id.clone(), "", shape));
                             refocus = Some(Some(id));
                         }

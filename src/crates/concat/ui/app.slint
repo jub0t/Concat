@@ -315,6 +315,18 @@ export component App inherits Window {
     /// area, on a phone and in any window too narrow for it to float as a
     /// card with room around it.
     property <bool> sheets-fill: root.phone || root.width < 600px;
+    /// Where the sheets start. Under the strip wherever the strip carries
+    /// the window's own buttons: a sheet over the whole window covered
+    /// them, and an export left a window that could not be minimised,
+    /// moved or closed until it was done (#751). Over it on a Mac, whose
+    /// traffic lights are the window's and float over any sheet, and on a
+    /// phone, which has no strip.
+    property <length> sheets-top: !root.phone && root.own-window-buttons ? 32px : 0px;
+    /// A sheet is up. The strip keeps the window's buttons and its drag
+    /// then, and nothing that acts on what the sheet covers.
+    property <bool> sheet-up: root.start.composing || root.export.open || root.settings.open
+        || root.project-sheet.open || root.new-voice.open || root.relink.open
+        || root.confirm.open;
     /// Which floating tool card is in front: "captions" or "speech". The
     /// one opened or grabbed last; Escape closes it first.
     property <string> front-tool: "captions";
@@ -531,6 +543,8 @@ export component App inherits Window {
     /// The bottom-right notice: what just happened, said once. Set from Rust
     /// and watched by its token — see ToastLayer, which owns the timing.
     in property <ToastData> toast;
+    /// The notice with this token has gone from the screen.
+    callback toast-gone(int);
 
     // The level feed is a Rust timer, and a property cannot reach across to
     // stop it, so the hover edge is forwarded as a callback: Rust arms the
@@ -731,7 +745,9 @@ export component App inherits Window {
                 project-name: root.project-name;
                 status: root.project-status;
 
-                menu: root.open-menu;
+                // Gate on the popup: click-outside / Escape close it without
+                // clearing Rust's open-menu, so the label would stay lit.
+                menu: appmenu.open ? root.open-menu : -1;
                 keyboard-menu: root.keyboard-menu;
                 keyboard-token: root.keyboard-menu-token;
                 menu-opened(index, at-x, keyboard) => {
@@ -744,6 +760,12 @@ export component App inherits Window {
                 }
 
                 own-buttons: root.own-window-buttons;
+                covered: root.sheets-top > 0 && root.sheet-up;
+                // A close goes the way every close does: the project is
+                // saved and a running export is cancelled. One click on the
+                // corner is not a way to lose a long export, so Close
+                // waits for it, as the sheet's own × does.
+                can-close: root.export.phase != ExportPhase.running;
                 maximized: root.window-maximized;
                 begin-drag => { root.titlebar-begin-drag(); }
                 toggle-maximize => { root.titlebar-toggle-maximize(); }
@@ -938,9 +960,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.start;
         phone: root.phone;
         aspects: root.start-aspects;
@@ -968,9 +990,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         phone: root.phone;
         data: root.export;
         preview-frame: Editor.preview-frame;
@@ -999,9 +1021,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         phone: root.phone;
         data: root.settings;
         transcribers: root.transcribers;
@@ -1067,9 +1089,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.project-sheet;
 
         closed => { root.project-closed(); }
@@ -1093,9 +1115,9 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.new-voice;
 
         closed => { root.new-voice-closed(); }
@@ -1112,6 +1134,10 @@ export component App inherits Window {
         inset-bottom: root.safe-area-insets.bottom;
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: root.sheets-top;
+        width: root.width;
+        height: root.height - root.sheets-top;
         data: root.relink;
         relink-all => { root.relink-all(); }
         locate(id) => { root.relink-locate(id); }
@@ -1131,12 +1157,33 @@ export component App inherits Window {
         inset-left: root.safe-area-insets.left;
         inset-right: root.safe-area-insets.right;
         x: 0;
-        y: 0;
+        y: root.sheets-top;
         width: root.width;
-        height: root.height;
+        height: root.height - root.sheets-top;
         data: root.confirm;
         confirmed => { root.confirm-accepted(); }
         dismissed => { root.confirm-dismissed(); }
+    }
+
+    // Over everything but the tooltips and the menus, the sheets included:
+    // an export that failed behind a dialog is exactly the case a notice is
+    // for. Only its card takes events, so covering the window costs the
+    // window nothing; and it is under the tooltip layer so the card's own
+    // close button can be named over it.
+    ToastLayer {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.toast;
+        phone: root.phone;
+        shares-log: root.settings.shares-log;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        gone(token) => { root.toast-gone(token); }
+        // The same action as Settings › About's, by the same callback.
+        show-log => { root.settings-show-log(); }
     }
 
     // Over the workspace and both sheets, under the menus. A tooltip has to
@@ -1169,15 +1216,4 @@ export component App inherits Window {
         neighbour(by) => { root.open-menu-from-keys(Math.mod(root.open-menu + by, 3)); }
     }
 
-    // Last of all, and over everything including the sheets: an export that
-    // failed behind a dialog is exactly the case a notice is for. It takes no
-    // events — there is no TouchArea anywhere in it — so covering the window
-    // costs the window nothing.
-    ToastLayer {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height;
-        data: root.toast;
-    }
 }
