@@ -42,7 +42,6 @@ use concat_core::timeline::Blend;
 
 use crate::compositor::Compositor;
 use crate::plan::{FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading};
-use crate::turn;
 
 /// Bytes per row must be a multiple of this for a texture-to-buffer copy.
 const ROW_ALIGN: usize = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
@@ -391,10 +390,11 @@ pub fn instance_flags() -> wgpu::InstanceFlags {
 /// made WARP remove the device on the first frame it drew, every time,
 /// in every build that ships - the tests, built for debugging, compile
 /// unoptimised and never saw it. CI's runner, which has no GPU, showed it:
-/// with the turn, the debug layer, hardware coding and logging each tried
-/// on and off, the export drew on WARP only when the shaders were left
-/// unoptimised (#824). WARP compiles every shader again for the CPU with
-/// its own optimiser, so little is lost. `CONCAT_WARP_SHADERS=optimised`
+/// with calls into the device one thread at a time, the debug layer,
+/// hardware coding and logging each tried on and off, the export drew on
+/// WARP only when the shaders were left unoptimised (#824). WARP compiles
+/// every shader again for the CPU with its own optimiser, so little is
+/// lost. `CONCAT_WARP_SHADERS=optimised`
 /// compiles them as on a GPU, for CI's runs that look for the shader.
 fn rung_flags(software: bool) -> wgpu::InstanceFlags {
     let flags = instance_flags();
@@ -819,17 +819,6 @@ pub struct ShaderForge {
     lut_layout: wgpu::BindGroupLayout,
     reveal_layout: wgpu::BindGroupLayout,
     pictures: HashMap<usize, wgpu::BindGroupLayout>,
-    /// The device is on a software adapter, where every call into it
-    /// takes its turn; see [`crate::turn`].
-    software: bool,
-    /// Holds the turn until the last field is let go; see `Drop`.
-    released: turn::UntilDropped,
-}
-
-impl Drop for ShaderForge {
-    fn drop(&mut self) {
-        self.released.hold(self.software);
-    }
 }
 
 /// One pass compiled by a [`ShaderForge`], for [`WgpuCompositor::adopt`]:
@@ -846,7 +835,6 @@ impl ShaderForge {
     /// on - rather than reaching wgpu's uncaptured-error handler, which
     /// ends the process (audit 2026-09-23, #7).
     pub fn compile(&self, pass: &ShaderPass) -> ForgedShader {
-        let _turn = turn::take(self.software);
         let refused = || ForgedShader {
             key: pass.key.clone(),
             compiled: None,
@@ -1268,20 +1256,6 @@ pub struct WgpuCompositor {
     /// The planes a YUV frame is drawn into before it is copied out, for
     /// one size and layout: luma, then the chroma.
     planes: Option<(u32, u32, concat_core::frame::Chroma, Vec<wgpu::Texture>)>,
-    /// The device is on a software adapter (WARP, lavapipe), where every
-    /// call into it takes its turn; see [`crate::turn`].
-    software: bool,
-    /// Holds the turn `Drop` takes until every field above is let go, the
-    /// device among them. The last field, so the last let go.
-    released: turn::UntilDropped,
-}
-
-impl Drop for WgpuCompositor {
-    fn drop(&mut self) {
-        // Pipelines, textures, buffers and the device itself are let go
-        // after this returns: the turn is held through them all.
-        self.released.hold(self.software);
-    }
 }
 
 impl WgpuCompositor {
@@ -1377,9 +1351,6 @@ impl WgpuCompositor {
     /// opens no device there.
     pub fn on_rung(rung: Rung) -> Option<Self> {
         let Rung { backends, software } = rung;
-        // Declared first, so let go last: after the instance and the
-        // adapter, which hold a device of their own on Direct3D 12.
-        let _turn = turn::opening(software);
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
             flags: rung_flags(software),
@@ -1522,21 +1493,6 @@ impl WgpuCompositor {
         self.device.adapter_info().device_type == wgpu::DeviceType::Cpu
     }
 
-    /// The turn a call into this compositor's device takes: on a software
-    /// adapter, one thread at a time; on a GPU, nothing. See [`crate::turn`].
-    fn turn(&self) -> turn::Turn {
-        turn::take(self.software)
-    }
-
-    /// This compositor as though its device were on a software adapter,
-    /// or as though it were not, for the tests of the turn on a machine
-    /// that has only the one kind.
-    #[cfg(test)]
-    pub(crate) fn treated_as_software(mut self, software: bool) -> Self {
-        self.software = software;
-        self
-    }
-
     /// Whether this compositor's device is unusable: a readback failed, or
     /// the device said it was lost.
     fn dead(&self) -> bool {
@@ -1568,7 +1524,7 @@ impl WgpuCompositor {
         // look (`gone`), so the previews let go of it at once rather than
         // hand the export a sibling of the dead device, and none of them
         // holds it while the next is asked for (#824).
-        if self.software && removed(&self.device).is_some() {
+        if self.on_software_adapter() && removed(&self.device).is_some() {
             self.gone.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let api = removal_of(&self.device)
@@ -1601,7 +1557,6 @@ impl WgpuCompositor {
     /// device, and it is marked lost as its lost callback marks it.
     #[doc(hidden)]
     pub fn lose_device(&self) {
-        let _turn = self.turn();
         self.device.destroy();
         if let Ok(mut reason) = self.lost_reason.lock() {
             *reason = Some("destroyed by a test".to_owned());
@@ -1647,15 +1602,7 @@ impl WgpuCompositor {
     /// [`WORK_FALLBACK`] where the device cannot draw into that.
     fn drawing_in(device: wgpu::Device, queue: wgpu::Queue, work: wgpu::TextureFormat) -> Self {
         // Read before the device moves into the compositor below.
-        let kind = device.adapter_info().device_type;
-        let budget = pool_budget_for(kind);
-        // Every pipeline, layout and sampler below is a call into the
-        // device: on a software adapter, in its turn (#824).
-        let software = kind == wgpu::DeviceType::Cpu;
-        if software {
-            turn::say_once();
-        }
-        let _turn = turn::take(software);
+        let budget = pool_budget_for(device.adapter_info().device_type);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat compositor"),
             source: wgpu::ShaderSource::Wgsl(format!("{MASK_WGSL}{SHADER}").into()),
@@ -2098,8 +2045,6 @@ impl WgpuCompositor {
             planar: None,
             yuv_pipelines: HashMap::new(),
             planes: None,
-            software,
-            released: turn::UntilDropped::default(),
         }
     }
 
@@ -2114,7 +2059,6 @@ impl WgpuCompositor {
     /// handed back is drawn, without reading it back. False when the
     /// device did not answer, or not within [`DEVICE_WAIT`].
     pub fn finish(&self) -> bool {
-        let _turn = self.turn();
         self.wait().is_ok()
     }
 
@@ -2560,7 +2504,6 @@ impl WgpuCompositor {
     /// is dead; the caller then falls back to [`Compositor::render`] on a
     /// CPU compositor.
     pub fn render_texture(&mut self, plan: &FramePlan) -> Option<wgpu::Texture> {
-        let _turn = self.turn();
         if self.dead() {
             self.say_why(|| plan.summary());
             return None;
@@ -2597,7 +2540,6 @@ impl WgpuCompositor {
         side: u32,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
-        let _turn = self.turn();
         if self.dead() {
             return Err("the GPU device is dead".to_owned());
         }
@@ -2659,7 +2601,6 @@ impl WgpuCompositor {
         side: u32,
         seconds: f32,
     ) -> Option<[f32; 4]> {
-        let _turn = self.turn();
         // The probe writes and reads half floats: on the eight-bit fallback
         // it has nothing to say, and the caller treats it as untested.
         if self.dead() || self.work != WORK {
@@ -2685,7 +2626,6 @@ impl WgpuCompositor {
         side: u32,
         seconds: f32,
     ) -> Option<[f32; 4]> {
-        let _turn = self.turn();
         if self.dead() || self.work != WORK {
             return None;
         }
@@ -2918,7 +2858,6 @@ impl WgpuCompositor {
     /// the picture sits still. A scrub back over what was let go uploads
     /// it again from the frame cache, which is quick.
     pub fn shrink_pool(&mut self, share: f64) {
-        let _turn = self.turn();
         let keep = (self.pool_budget as f64 * share.clamp(0.0, 1.0)) as u64;
         while self.pool_bytes > keep {
             let oldest = self
@@ -3422,7 +3361,6 @@ impl WgpuCompositor {
     /// drawing, every effect's first frame - a look previewed from the
     /// Library under the pointer - waited that long.
     pub fn forge(&mut self, passes: &[ShaderPass]) -> ShaderForge {
-        let _turn = self.turn();
         let pictures = passes
             .iter()
             .map(|pass| pass.stages.len())
@@ -3439,18 +3377,13 @@ impl WgpuCompositor {
             lut_layout: self.lut_layout.clone(),
             reveal_layout: self.reveal_layout.clone(),
             pictures,
-            software: self.software,
-            released: turn::UntilDropped::default(),
         }
     }
 
     /// Keeps a pass [`ShaderForge::compile`] compiled, or that the driver
     /// refused it, unless this compositor has its own already.
     pub fn adopt(&mut self, forged: ForgedShader) {
-        let _turn = self.turn();
         if self.shaders.contains_key(&forged.key) || self.refused.contains(&forged.key) {
-            // Let go here, in the turn: an argument outlives it otherwise.
-            drop(forged);
             return;
         }
         match forged.compiled {
@@ -3688,7 +3621,6 @@ impl WgpuCompositor {
         to: &FramePlan,
         pass: &TransitionPass,
     ) -> Option<wgpu::Texture> {
-        let _turn = self.turn();
         if self.dead() {
             return None;
         }
@@ -4645,7 +4577,6 @@ fn removal_name(code: u32) -> Option<&'static str> {
 
 impl Compositor for WgpuCompositor {
     fn render(&mut self, plan: &FramePlan) -> Frame {
-        let _turn = self.turn();
         // A dead device never comes back for this instance. What it hands
         // back is black, never a mid-export panic, and `lost` says so: the
         // export stops with an error rather than write a file of black.
@@ -4697,14 +4628,12 @@ impl Compositor for WgpuCompositor {
     }
 
     fn submit(&mut self, plan: &FramePlan) -> bool {
-        let _turn = self.turn();
         // Never more on their way back than there are buffers for: the
         // oldest is the caller's to collect first.
         self.in_flight.len() < READBACKS && self.submit_plan(plan)
     }
 
     fn collect(&mut self) -> Option<crate::Drawn> {
-        let _turn = self.turn();
         self.collect_oldest()
     }
 
@@ -4729,7 +4658,6 @@ impl Compositor for WgpuCompositor {
         to: &Frame,
         pass: &TransitionPass,
     ) -> Option<Frame> {
-        let _turn = self.turn();
         if self.dead() {
             self.say_why(|| format!("the transition {} at {width}x{height}", pass.key));
             return None;

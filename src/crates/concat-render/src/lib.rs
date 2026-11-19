@@ -25,7 +25,6 @@ pub mod metrics;
 pub mod plan;
 mod reference;
 mod transitions;
-mod turn;
 pub mod upscale;
 
 pub use compositor::{Compositor, Drawn};

@@ -19,9 +19,6 @@ pollster.workspace = true
 # The working space's half floats, written and read back as numbers where
 # an effect's probes check them.
 half = "2"
-# The turn every call into a software adapter's device takes (see
-# `turn`): reentrant, so a call already holding it goes on.
-parking_lot = "0.12"
 
 [dev-dependencies]
 # The pass test compiles a real package shader through the catalogue's

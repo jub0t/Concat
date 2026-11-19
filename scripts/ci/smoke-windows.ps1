@@ -221,9 +221,9 @@ if (-not $exportFailed) {
 # The same export again under each condition that decides whether a
 # software adapter's device lives (#824), one line each, whatever the first
 # run did. The earlier runs showed WARP removing the device whenever the
-# shaders were compiled optimised, and the turn, the debug layer, hardware
-# coding and logging making no difference; these say whether that holds,
-# whether the turn is needed at all, and what the unoptimised shaders cost.
+# shaders were compiled optimised, and serialising calls into the device,
+# the debug layer, hardware coding and logging making no difference; these
+# say whether that holds, and what the unoptimised shaders cost.
 # None of these fail the step; only the first run above does.
 function Probe-Export($what, [hashtable]$extra) {
   $info = New-Object System.Diagnostics.ProcessStartInfo
@@ -261,7 +261,6 @@ function Probe-Export($what, [hashtable]$extra) {
 
 Say "the export again under each condition (#824)"
 Probe-Export "as shipped, again" @{}
-Probe-Export "turn off" @{ CONCAT_GPU_SERIAL = "0" }
 Probe-Export "shaders optimised" @{ CONCAT_WARP_SHADERS = "optimised" }
 Probe-Export "shaders optimised, WGPU_DEBUG" @{ CONCAT_WARP_SHADERS = "optimised"; WGPU_DEBUG = "1" }
 

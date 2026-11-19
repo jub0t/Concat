@@ -422,9 +422,8 @@ pub fn draw_all(
     const BATCH: usize = 12;
     // Nothing lent, and every adapter there is to ask a software one - a
     // safe start, or the machine without a driver, which starts as one:
-    // no device is opened only to be let go, so the software adapter's
-    // one device is not opened on this thread while the previews draw on
-    // it (#824).
+    // the cards would be left undrawn on it anyway, so no whole device is
+    // opened only to learn that and be thrown away.
     let required = std::env::var_os("CONCAT_REQUIRE_GPU").is_some();
     if compositor.is_none() && !required && WgpuCompositor::rungs().iter().all(|rung| rung.software)
     {
