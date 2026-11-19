@@ -1,0 +1,255 @@
+{
+ "activeTimelineId": "TL1",
+ "clips": [
+  {
+   "duration": 2.0,
+   "fadeIn": 0.0,
+   "fadeOut": 0.0,
+   "filters": [],
+   "id": "c3",
+   "kind": "video",
+   "mediaId": "m1",
+   "name": "a.mov",
+   "offsetX": 0.0,
+   "offsetY": 0.0,
+   "opacity": 1.0,
+   "preservePitch": true,
+   "rotation": 0.0,
+   "scale": 1.0,
+   "sourceStart": 0.0,
+   "speed": 1.0,
+   "start": 0.0,
+   "trackId": "T1",
+   "videoEffects": [],
+   "volume": 1.0
+  },
+  {
+   "duration": 2.0,
+   "fadeIn": 0.0,
+   "fadeOut": 0.0,
+   "filters": [],
+   "id": "c5",
+   "kind": "video",
+   "masks": [
+    {
+     "expand": 0.0,
+     "feather": 0.2,
+     "id": "mask-1",
+     "mode": "add",
+     "name": "Circle",
+     "opacity": 1.0,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "source": {
+      "height": 0.3,
+      "kind": "shape",
+      "roundness": 0.0,
+      "shape": "circle",
+      "width": 0.3
+     },
+     "x": 0.0,
+     "y": 0.0
+    }
+   ],
+   "mediaId": "m2",
+   "name": "b.mov",
+   "offsetX": 0.0,
+   "offsetY": 0.0,
+   "opacity": 1.0,
+   "preservePitch": true,
+   "rotation": 0.0,
+   "scale": 1.0,
+   "sourceStart": 0.0,
+   "speed": 1.0,
+   "start": 0.0,
+   "trackId": "t4",
+   "videoEffects": [
+    {
+     "enabled": true,
+     "id": "concat.mono",
+     "params": {}
+    }
+   ],
+   "volume": 1.0
+  }
+ ],
+ "concat": "0.1.0",
+ "fonts": [],
+ "media": [
+  {
+   "audioCodec": null,
+   "duration": 2.0,
+   "frameRate": 30.0,
+   "frameRateFraction": "30/1",
+   "hasAudio": false,
+   "height": 180,
+   "id": "m1",
+   "kind": "video",
+   "name": "a.mov",
+   "path": "/media/a.mov",
+   "videoCodec": "prores",
+   "width": 320
+  },
+  {
+   "audioCodec": null,
+   "duration": 2.0,
+   "frameRate": 30.0,
+   "frameRateFraction": "30/1",
+   "hasAudio": false,
+   "height": 180,
+   "id": "m2",
+   "kind": "video",
+   "name": "b.mov",
+   "path": "/media/b.mov",
+   "videoCodec": "prores",
+   "width": 320
+  }
+ ],
+ "name": "mask",
+ "timelines": [
+  {
+   "clips": [
+    {
+     "duration": 2.0,
+     "fadeIn": 0.0,
+     "fadeOut": 0.0,
+     "filters": [],
+     "id": "c3",
+     "kind": "video",
+     "mediaId": "m1",
+     "name": "a.mov",
+     "offsetX": 0.0,
+     "offsetY": 0.0,
+     "opacity": 1.0,
+     "preservePitch": true,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "sourceStart": 0.0,
+     "speed": 1.0,
+     "start": 0.0,
+     "trackId": "T1",
+     "videoEffects": [],
+     "volume": 1.0
+    },
+    {
+     "duration": 2.0,
+     "fadeIn": 0.0,
+     "fadeOut": 0.0,
+     "filters": [],
+     "id": "c5",
+     "kind": "video",
+     "masks": [
+      {
+       "expand": 0.0,
+       "feather": 0.2,
+       "id": "mask-1",
+       "mode": "add",
+       "name": "Circle",
+       "opacity": 1.0,
+       "rotation": 0.0,
+       "scale": 1.0,
+       "source": {
+        "height": 0.3,
+        "kind": "shape",
+        "roundness": 0.0,
+        "shape": "circle",
+        "width": 0.3
+       },
+       "x": 0.0,
+       "y": 0.0
+      }
+     ],
+     "mediaId": "m2",
+     "name": "b.mov",
+     "offsetX": 0.0,
+     "offsetY": 0.0,
+     "opacity": 1.0,
+     "preservePitch": true,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "sourceStart": 0.0,
+     "speed": 1.0,
+     "start": 0.0,
+     "trackId": "t4",
+     "videoEffects": [
+      {
+       "enabled": true,
+       "id": "concat.mono",
+       "params": {}
+      }
+     ],
+     "volume": 1.0
+    }
+   ],
+   "id": "TL1",
+   "name": "Timeline 1",
+   "tracks": [
+    {
+     "id": "T1",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T2",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T3",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T4",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "t4",
+     "muted": false,
+     "visible": true
+    }
+   ],
+   "video": {
+    "height": 180,
+    "rateDen": 1,
+    "rateNum": 30,
+    "width": 320
+   }
+  }
+ ],
+ "tracks": [
+  {
+   "id": "T1",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T2",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T3",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T4",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "t4",
+   "muted": false,
+   "visible": true
+  }
+ ],
+ "version": 2,
+ "video": {
+  "height": 180,
+  "rateDen": 1,
+  "rateNum": 30,
+  "width": 320
+ }
+}
