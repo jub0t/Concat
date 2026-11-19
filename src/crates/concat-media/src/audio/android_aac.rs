@@ -204,6 +204,7 @@ pub(super) fn mix(
     buses: &[AudioBus],
     duration: f64,
     destination: &Path,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
     let mut aac = Aac::open(destination)?;
     let mut output = ffmpeg::format::output(destination)
@@ -277,6 +278,9 @@ pub(super) fn mix(
         Some(FRAME as u32),
         destination,
         |mixed| {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
             let bytes = mixed.samples() * CHANNELS * 2;
             aac.feed(&mixed.data(0)[..bytes], false, &mut packets)?;
             write(&mut packets, &mut output)

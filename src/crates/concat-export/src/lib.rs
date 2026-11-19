@@ -1221,8 +1221,16 @@ pub fn render_on(
             op.step("mix audio");
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
             let buses = audio_buses(&resolved);
-            audio::mix_to_file_with(&mix, &buses, timeline_end.as_f64(), &mixed)
-                .map_err(|error| error.to_string())?;
+            // Cancel is asked at every frame of the mix, so a long
+            // timeline's stops within the frame it is on.
+            let cancel = reporter.cancel;
+            audio::mix_to_file_until(&mix, &buses, timeline_end.as_f64(), &mixed, &|| {
+                cancel.load(Ordering::Relaxed)
+            })
+            .map_err(|error| match error {
+                concat_media::Error::Cancelled => "export cancelled".to_owned(),
+                other => other.to_string(),
+            })?;
 
             reporter.cancelled()?;
             reporter.emit(total_frames, total_frames, "muxing");

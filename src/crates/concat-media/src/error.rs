@@ -105,6 +105,11 @@ pub enum Error {
         got_height: u32,
     },
 
+    /// The work was stopped because whoever asked for it said to: not a
+    /// failure, and told apart from one so nobody has to read the words.
+    #[error("cancelled")]
+    Cancelled,
+
     /// The linked FFmpeg was built without something this operation needs -
     /// an encoder, a filter, a muxer.
     #[error("the linked FFmpeg has no {what} {name:?}")]

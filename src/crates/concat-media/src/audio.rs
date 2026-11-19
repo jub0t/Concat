@@ -754,6 +754,36 @@ pub fn mix_to_file_with(
     duration: f64,
     destination: &Path,
 ) -> Result<()> {
+    mix_to_file_until(clips, buses, duration, destination, &|| false)
+}
+
+/// [`mix_to_file_with`] that stops when told to: `cancelled` is asked at
+/// every frame of the mix, 47 times a second of sound, and once it says
+/// yes the mix ends with [`Error::Cancelled`] and what it had written of
+/// `destination` is removed. An export's Cancel used to be looked at only
+/// before the mix and after it, so a long timeline's went on mixing to its
+/// end, for as long as that took, before the export let go.
+pub fn mix_to_file_until(
+    clips: &[AudioClip],
+    buses: &[AudioBus],
+    duration: f64,
+    destination: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
+    let mixed = mix_into(clips, buses, duration, destination, cancelled);
+    if matches!(mixed, Err(Error::Cancelled)) {
+        let _ = std::fs::remove_file(destination);
+    }
+    mixed
+}
+
+fn mix_into(
+    clips: &[AudioClip],
+    buses: &[AudioBus],
+    duration: f64,
+    destination: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
     let extension = destination
         .extension()
         .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
@@ -769,7 +799,7 @@ pub fn mix_to_file_with(
         {
             validate_chain(chain)?;
         }
-        return android_aac::mix(clips, buses, duration, destination);
+        return android_aac::mix(clips, buses, duration, destination, cancelled);
     }
     let (codec_name, mix_format) = if wav {
         (
@@ -937,6 +967,9 @@ pub fn mix_to_file_with(
         Some(frame_size),
         destination,
         |mixed| {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
             // The encoder's clock runs on from the silence it was fed.
             if lead.silence != 0 {
                 let stamp = mixed.pts().map(|pts| pts + lead.silence);
