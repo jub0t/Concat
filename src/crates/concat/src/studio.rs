@@ -493,6 +493,8 @@ pub enum Gesture {
         /// read live: an `Auto` lane resizes as clips land on it, which
         /// would move the very edges the next event measures against.
         lanes: Vec<f32>,
+        /// The pointer has left the dead zone around the press.
+        started: bool,
     },
     Trim {
         clip: String,
@@ -500,6 +502,8 @@ pub enum Gesture {
         start: f32,
         duration: f32,
         source_start: f32,
+        /// The pointer has left the dead zone around the press.
+        started: bool,
     },
     /// Dragging a transition's duration handle on the timeline.
     TransitionResize {
