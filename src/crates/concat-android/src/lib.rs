@@ -664,7 +664,7 @@ fn android_main(app: slint::android::AndroidApp) {
     activity::name_directories(&app);
     activity::open_log();
     log::info!("Concat {} starting", env!("CARGO_PKG_VERSION"));
-    if let Err(error) = slint::android::init(app.clone()) {
+    if let Err(error) = slint::android::init_with_event_listener(app.clone(), window_events) {
         // "could not start" right after the topic: the smoke script looks for it.
         log::error!("start: could not start the Android backend: {error}; the app closes");
         return;
@@ -676,7 +676,111 @@ fn android_main(app: slint::android::AndroidApp) {
     links::install(&app);
     awake::install(&app);
     log_file::install(&app);
-    if let Err(error) = concat::run() {
-        log::error!("close: the window ended in an error: {error}; the app closes");
+    #[cfg(feature = "smoke")]
+    if let Some(clip) = smoke_clip() {
+        if let Err(error) = concat::smoke_export(clip) {
+            log::error!("smoke: could not start: {error}");
+        }
+        return;
     }
+    // The window's every orderly end leaves the process itself. What comes
+    // back here is a panic, which android-activity would catch, finishing
+    // the activity and leaving the process running: the engine's threads
+    // with it, the sound playing on with no window (#800), and the next
+    // activity starting a second engine in the same process beside the
+    // first, so the sound played twice. A process that panicked is not
+    // one to reuse, so it ends here, its log flushed first.
+    // The status is what Android's record of the exit says next launch,
+    // which the log reads: 0 for a window that ended as it should.
+    let status = match std::panic::catch_unwind(concat::run) {
+        Ok(Ok(())) => 0,
+        Ok(Err(error)) => {
+            log::error!("close: the window ended in an error: {error}; the app closes");
+            1
+        }
+        // The panic hook has logged what and where.
+        Err(_) => {
+            log::error!("close: the window panicked; the app closes");
+            1
+        }
+    };
+    log::logger().flush();
+    // `_exit`, not `exit`, as the window's own way out is: `exit` runs the
+    // system libraries' static destructors under the threads still going,
+    // which is a crash of its own (see `leave` in the window's crate). The
+    // log is written a line at a time and flushed above; nothing else is
+    // owed.
+    // SAFETY: `_exit` ends the process there and then; nothing of this
+    // one's is touched after it.
+    unsafe { libc::_exit(status) }
+}
+
+/// The activity's events, after Slint's backend has handled each: safe
+/// start's two signs that the launch got its window. The surface is up and
+/// its first frame drawn on this turn of the loop, or the system asked for
+/// a frame and it was drawn; and the person's input, which only a window
+/// they can see receives. See `concat::window_drew`.
+#[cfg(target_os = "android")]
+fn window_events(event: &slint::android::android_activity::PollEvent<'_>) {
+    use slint::android::android_activity::{MainEvent, PollEvent};
+    match event {
+        PollEvent::Main(MainEvent::InitWindow { .. } | MainEvent::RedrawNeeded { .. }) => {
+            concat::window_drew();
+        }
+        PollEvent::Main(MainEvent::InputAvailable) => concat::window_touched(),
+        _ => {}
+    }
+}
+
+/// The clip CI's export run pushed: `smoke-export.<extension>` in the
+/// app's files folder, which [`activity::name_directories`] made `HOME`,
+/// or in the app's media folder beside it. adb's shell may write into the
+/// files folder on Android 12 and later; on Android 11 it may not even
+/// look into `Android/data`, but it may write into `Android/media/<app>`,
+/// where what it writes belongs to the app. Not a folder of the shell's
+/// own: one the shell made is one the app may not list. None, and the
+/// launch is an ordinary one, when neither has one.
+#[cfg(all(target_os = "android", feature = "smoke"))]
+fn smoke_clip() -> Option<std::path::PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        log::warn!("smoke: no files folder to look for a clip in");
+        return None;
+    };
+    let home = std::path::PathBuf::from(home);
+    let folders = [Some(home.clone()), media_folder(&home)];
+    let clip = folders.iter().flatten().find_map(|folder| {
+        let entries = match std::fs::read_dir(folder) {
+            Ok(entries) => entries,
+            Err(error) => {
+                log::info!(
+                    "smoke: could not look for a clip in {}: {error}",
+                    folder.display()
+                );
+                return None;
+            }
+        };
+        entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .find(|path| {
+                path.is_file() && path.file_stem().is_some_and(|stem| stem == "smoke-export")
+            })
+    });
+    match &clip {
+        Some(clip) => log::info!("smoke: exporting {}", clip.display()),
+        None => log::info!(
+            "smoke: no smoke-export clip in {} or the app's media folder; an ordinary launch",
+            home.display()
+        ),
+    }
+    clip
+}
+
+/// `<storage>/Android/media/<app>` for a files folder at
+/// `<storage>/Android/data/<app>/files`, or `None` for one elsewhere.
+#[cfg(all(target_os = "android", feature = "smoke"))]
+fn media_folder(home: &std::path::Path) -> Option<std::path::PathBuf> {
+    let app = home.parent()?;
+    let data = app.parent()?;
+    let name = app.file_name()?;
+    (data.file_name()? == "data").then(|| data.with_file_name("media").join(name))
 }

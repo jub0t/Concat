@@ -286,6 +286,23 @@ impl CustomApplicationHandler for DropHandler {
             self.wayland_tried = true;
             self.wayland = listen_for_wayland_drops(window, &self.arrived);
         }
+        // Safe start's two signs that the launch got its window: Slint
+        // draws the frame as it handles this redraw, and a person presses
+        // only what they can see. Before the match, whose arms may return.
+        match event {
+            WindowEvent::RedrawRequested => crate::window_drew(),
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                ..
+            }
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::Touch(..)
+            | WindowEvent::KeyboardInput {
+                is_synthetic: false,
+                ..
+            } => crate::window_touched(),
+            _ => {}
+        }
         match event {
             WindowEvent::ScaleFactorChanged { .. } => reapply_ui_scale(std::time::Duration::ZERO),
             WindowEvent::DroppedFile(path) => self.pending.push(path.clone()),
@@ -403,6 +420,21 @@ fn listen_for_wayland_drops(
 /// Whether the window draws the macOS traffic lights over its own strip.
 pub const MACOS: bool = cfg!(target_os = "macos");
 
+/// Set when the start found only a software adapter (Microsoft Basic
+/// Render Driver, llvmpipe) though nothing asked for one: the machine has
+/// no graphics driver Concat can draw with. A safe start's or the
+/// person's own CONCAT_GPU=software is not this; those have notices of
+/// their own.
+static NO_DRIVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether this machine has no graphics driver Concat can use, so
+/// everything draws on the processor (see [`select_backend`]): the window
+/// says so once at the start, with what fixes it, rather than leaving a
+/// slow editor unexplained. Never on a phone, which always has its GPU.
+pub fn no_graphics_driver() -> bool {
+    NO_DRIVER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Whether the window is a phone's: one screen, held upright, driven by a
 /// finger. The editor then wears the phone shell (ui/phone/) rather than
 /// the strip and the dock, whatever the screen's size - a tablet is a big
@@ -435,6 +467,10 @@ pub fn select_backend(
     on_focused: impl Fn() + 'static,
     on_exiting: impl Fn() + 'static,
 ) -> Result<Option<Gpu>, PlatformError> {
+    // Software asked for before anything was found - a safe start, or the
+    // person - rather than the only adapter there is.
+    let chosen = std::env::var("CONCAT_GPU")
+        .is_ok_and(|value| value.trim().eq_ignore_ascii_case("software"));
     // The device the renderer and the monitor share. Taken first, because
     // the backend is selected with it.
     let mut gpu = Gpu::acquire();
@@ -463,6 +499,9 @@ pub fn select_backend(
         log::warn!(
             "gpu: wanted a GPU and the adapter is a software rasteriser; the window draws on the CPU and the monitor on a device of its own"
         );
+        if !chosen {
+            NO_DRIVER.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
     if software {
         // SAFETY: the process is single-threaded at this point - the

@@ -63,6 +63,23 @@ impl Ladder {
         }
     }
 
+    /// A compositor of its own on the device the ladder draws with, for
+    /// work on another thread - an export with no window's device to draw
+    /// on - so the process keeps one device, not one each. A device that
+    /// was lost is let go and the next opened first, as a draw would.
+    ///
+    /// One device, because Direct3D 12 keeps one per adapter in a process
+    /// however many are asked for: a second compositor's "own" device is
+    /// this one underneath, and once it is lost no new one opens on that
+    /// adapter until every hold on the dead one is let go (#824). None
+    /// where the ladder draws on the CPU.
+    pub fn sibling(&mut self) -> Option<WgpuCompositor> {
+        if self.gpu.as_ref().is_some_and(|gpu| gpu.lost()) {
+            self.recover();
+        }
+        self.gpu.as_ref().map(WgpuCompositor::sibling)
+    }
+
     /// Whether frames are drawn on the CPU, slower and without effects.
     pub fn on_cpu(&self) -> bool {
         self.gpu.is_none()
@@ -147,10 +164,20 @@ impl Default for Ladder {
     }
 }
 
-/// The CPU compositor, noting what it leaves out of the frames it draws.
+/// The CPU compositor, noting what it leaves out of the frames it draws
+/// (see [`CpuCompositor::leaves_out`]): the previews' last rung, and what
+/// an export goes on drawing with once no device lasts.
 #[derive(Default)]
-struct CpuRung {
+pub struct CpuRung {
     left_out: bool,
+}
+
+impl CpuRung {
+    /// Whether anything was left out of what was drawn since this was
+    /// last asked: a frame with it is not the frame.
+    pub fn left_out(&mut self) -> bool {
+        std::mem::take(&mut self.left_out)
+    }
 }
 
 impl Compositor for CpuRung {

@@ -15,7 +15,8 @@
 #    a machine with nothing else installed. It touches no GPU: it proves
 #    the program and every DLL it loads at start load and initialise.
 # 3. `concat.exe --smoke` exits 0 the same way: the start-up runs through
-#    the first frame of the window, then the program leaves.
+#    the first frame of the window, then the program leaves. Then
+#    `--smoke-export` makes a project of a fixture clip and exports it.
 # 4. With -Sde, `--version` again under Intel's emulator posing as an Ivy
 #    Bridge (AVX, nothing newer), which stops the program at the first
 #    instruction that chip does not have; then `--whisper-cpu`, loading
@@ -84,9 +85,27 @@ function Show-Crash($file, $since) {
   Write-Host "  (Windows recorded no Application Error event for $exe)"
 }
 
-# Starts a program with the given PATH and waits for it, up to a limit;
-# fails unless it exits 0. Its output is shown when there is any.
-function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
+# The log Concat wrote for a run that started at $since, whole: the 60
+# lines of output a failure shows end at the failure, and the reason for
+# it can be far above (#824 - the first device loss came before the
+# export's first line).
+function Find-Log($since) {
+  $folder = Join-Path $env:LOCALAPPDATA "app.concat.editor\logs"
+  Get-ChildItem $folder -Filter "concat-*.log" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -ge $since.AddSeconds(-2) } |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
+function Show-Log($since) {
+  $log = Find-Log $since
+  if (-not $log) { Write-Host "  (no log of this run)"; return }
+  Say "the run's log, $($log.Name)"
+  Get-Content $log.FullName -TotalCount 3000 | ForEach-Object { Write-Host "  $_" }
+}
+
+# Starts a program with the given PATH, and the variables in $extra, and
+# waits for it, up to a limit; fails unless it exits 0. Its output is shown
+# when there is any, and on a failure the log of the run too.
+function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds, [hashtable]$extra = @{}) {
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = $file
   foreach ($a in $arguments) { [void]$info.ArgumentList.Add($a) }
@@ -97,12 +116,14 @@ function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
   # in the folder it was started from.
   $info.WorkingDirectory = [IO.Path]::GetTempPath()
   $info.Environment["PATH"] = $path
+  foreach ($name in $extra.Keys) { $info.Environment[$name] = $extra[$name] }
   $started = Get-Date
   $process = [System.Diagnostics.Process]::Start($info)
   $stdout = $process.StandardOutput.ReadToEndAsync()
   $stderr = $process.StandardError.ReadToEndAsync()
   if (-not $process.WaitForExit($seconds * 1000)) {
     $process.Kill($true)
+    Show-Log $started
     Fail "${what}: still running after $seconds s"
   }
   $process.WaitForExit()
@@ -111,6 +132,7 @@ function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
   $code = $process.ExitCode
   if ($code -ne 0) {
     Show-Crash $file $started
+    Show-Log $started
     $meaning = $meanings[[int]$code]
     Fail ("${what}: exited with 0x{0:X8}{1}" -f $code, $(if ($meaning) { " - $meaning" } else { "" }))
   }
@@ -172,6 +194,88 @@ Expect-Ok "concat.exe --version" $exe @("--version") $bare 60
 # ── 3. --smoke ─────────────────────────────────────────────────────────
 Say "concat.exe --smoke, with only Windows on the path"
 Expect-Ok "concat.exe --smoke" $exe @("--smoke") $bare 180
+
+# ── 3b. --smoke-export ─────────────────────────────────────────────────
+# A project of a two-second clip from the media fixtures, exported through
+# the Export sheet's own messages; exit 0 once the file is written. A
+# launch alone never reaches an export (#747).
+Say "concat.exe --smoke-export, with only Windows on the path"
+$clip = (Resolve-Path (Join-Path $PSScriptRoot "..\..\src\crates\concat-media\fixtures\picture-starts-late.mov")).Path
+$exportStarted = Get-Date
+$exportFailed = $null
+try {
+  Expect-Ok "concat.exe --smoke-export" $exe @("--smoke-export", $clip) $bare 300
+} catch { $exportFailed = $_ }
+
+# An export that lost its GPU device and finished on the CPU exits 0 - the
+# file a person would get is right - but the device should not have died:
+# here that is a failure still, so the cause stays in sight (#824).
+if (-not $exportFailed) {
+  $log = Find-Log $exportStarted
+  if ($log -and (Select-String -Path $log.FullName -SimpleMatch "going on drawing on the CPU" -Quiet)) {
+    Show-Log $exportStarted
+    $exportFailed = "concat.exe --smoke-export: the GPU device was lost and the export finished on the CPU"
+  }
+}
+
+# The same export again under each condition that decides whether a
+# software adapter's device lives (#824), one line each, whatever the first
+# run did. The earlier runs showed WARP removing the device whenever the
+# shaders were compiled optimised, and serialising calls into the device,
+# the debug layer, hardware coding and logging making no difference; these
+# say whether that holds, and what the unoptimised shaders cost. A plain
+# frame is drawn by the CPU in WARP's place, being faster
+# (cpu_draws_instead in concat-export); CONCAT_WARP_DRAWS=all keeps every
+# frame on WARP, as the lines that look for the shader need, and as the
+# line to measure the CPU's frames against.
+# Only "every frame on WARP" fails the step, as the first run above does:
+# a frame with an effect is still WARP's, so its device must last.
+function Probe-Export($what, [hashtable]$extra, [switch]$mustLast) {
+  $info = New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName = $exe
+  [void]$info.ArgumentList.Add("--smoke-export")
+  [void]$info.ArgumentList.Add($clip)
+  $info.UseShellExecute = $false
+  $info.RedirectStandardOutput = $true
+  $info.RedirectStandardError = $true
+  $info.WorkingDirectory = [IO.Path]::GetTempPath()
+  $info.Environment["PATH"] = $bare
+  foreach ($name in $extra.Keys) { $info.Environment[$name] = $extra[$name] }
+  $started = Get-Date
+  $process = [System.Diagnostics.Process]::Start($info)
+  $null = $process.StandardOutput.ReadToEndAsync()
+  $null = $process.StandardError.ReadToEndAsync()
+  if (-not $process.WaitForExit(180 * 1000)) {
+    $process.Kill($true)
+    Write-Host ("  {0,-34} still running after 180 s" -f $what)
+    if ($mustLast) { $script:exportFailed = "the export with every frame on WARP was still running after 180 s" }
+    return
+  }
+  $process.WaitForExit()
+  $log = Find-Log $started
+  $lines = if ($log) { Get-Content $log.FullName } else { @() }
+  $lost = @($lines | Where-Object { $_ -match "gave up its device" }).Count
+  $dead = @($lines | Where-Object { $_ -match "already removed|still holds" }).Count
+  $cpu = [bool]($lines | Where-Object { $_ -match "going on drawing on the CPU" })
+  $verdict = if ($process.ExitCode -ne 0) { "FAILED" } elseif ($cpu) { "finished on the CPU" } else { "ok on the GPU" }
+  $done = $lines | Where-Object { $_ -match "export     done in" } | Select-Object -First 1
+  $fps = if ($done -match "frames at ([0-9.]+) fps") { "$($Matches[1]) fps" } else { "-" }
+  $byCpu = if ($done -match "([0-9]+) of [0-9]+ frames drawn on the CPU") { "$($Matches[1]) by the CPU" } else { "none by the CPU" }
+  Write-Host ("  {0,-34} {1,-20} {2,-10} {3,-18} devices lost: {4}, opened dead: {5}" -f $what, $verdict, $fps, $byCpu, $lost, $dead)
+  $first = $lines | Where-Object { $_ -match "gave up its device|already removed" } | Select-Object -First 1
+  if ($first) { Write-Host "      first: $($first.Trim())" }
+  if ($mustLast -and $verdict -ne "ok on the GPU") {
+    $script:exportFailed = "the export with every frame on WARP: $verdict (devices lost: $lost) (#824)"
+  }
+}
+
+Say "the export again under each condition (#824)"
+Probe-Export "as shipped, again" @{}
+Probe-Export "every frame on WARP" @{ CONCAT_WARP_DRAWS = "all" } -mustLast
+Probe-Export "shaders optimised" @{ CONCAT_WARP_DRAWS = "all"; CONCAT_WARP_SHADERS = "optimised" }
+Probe-Export "shaders optimised, WGPU_DEBUG" @{ CONCAT_WARP_DRAWS = "all"; CONCAT_WARP_SHADERS = "optimised"; WGPU_DEBUG = "1" }
+
+if ($exportFailed) { Fail "$exportFailed" }
 
 # ── 4. On an emulated Ivy Bridge ───────────────────────────────────────
 if ($Sde) {

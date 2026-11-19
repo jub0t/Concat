@@ -168,8 +168,8 @@ pub fn flatten_timeline_in(
                 offset_x: export_base(clip, KeyProperty::OffsetX),
                 offset_y: export_base(clip, KeyProperty::OffsetY),
                 rotation: export_base(clip, KeyProperty::Rotation),
-                stretch_x: clip.stretch_x,
-                stretch_y: clip.stretch_y,
+                stretch_x: export_base(clip, KeyProperty::StretchX),
+                stretch_y: export_base(clip, KeyProperty::StretchY),
                 opacity: export_base(clip, KeyProperty::Opacity),
                 // Passed through unconditionally: `resolve_transitions` is
                 // the one adjacency judge (frame/2 tolerance). A fixed
@@ -284,7 +284,11 @@ pub fn export_base(clip: &concat_project::model::Clip, property: KeyProperty) ->
     }
     match property {
         // A factor's neutral is one; an addition's is zero.
-        KeyProperty::Scale | KeyProperty::Opacity | KeyProperty::Volume => 1.0,
+        KeyProperty::Scale
+        | KeyProperty::StretchX
+        | KeyProperty::StretchY
+        | KeyProperty::Opacity
+        | KeyProperty::Volume => 1.0,
         KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => 0.0,
     }
 }
@@ -478,6 +482,68 @@ mod tests {
         );
         assert!((middle.masks[0].shape.feather - 0.2).abs() < 1e-12);
         assert_eq!(middle.masks[1].mode, concat_core::mask::MaskMode::Subtract);
+    }
+
+    /// A keyed width reaches the engine as a ride on a neutral pull, as a
+    /// keyed scale does, so the frame between two keys is drawn at the
+    /// width between them, and the unkeyed height keeps its constant.
+    #[test]
+    fn a_keyed_stretch_rides_in_the_engine() {
+        use concat_core::time::Rational;
+        use concat_core::timeline::Transform;
+        use concat_project::model::KeyEase;
+        let (mut editor, _, clip_id) = project_with_clip();
+        editor
+            .apply(Command::SetClipTransform {
+                clip_id: clip_id.clone(),
+                scale: None,
+                offset_x: None,
+                offset_y: None,
+                rotation: None,
+                stretch_x: Some(3.0),
+                stretch_y: Some(0.5),
+            })
+            .expect("pulls");
+        for (at, value) in [(0.0, 1.0), (1.0, 2.0)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: clip_id.clone(),
+                    property: KeyProperty::StretchX,
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        let flat = flatten_timeline(editor.project(), None);
+        assert_eq!(flat[0].stretch_x, 1.0, "a keyed pull's base is neutral");
+        assert_eq!(flat[0].stretch_y, 0.5);
+        let names: Vec<&str> = flat[0]
+            .animation
+            .iter()
+            .map(|key| key.property.as_str())
+            .collect();
+        assert_eq!(names, ["stretchX", "stretchX"]);
+
+        let mut clip = concat_core::timeline::Clip::new(
+            concat_core::timeline::MediaRef::new("a.mp4"),
+            Rational::ZERO,
+            Rational::from_int(10),
+        );
+        clip.transform = Transform {
+            stretch_x: flat[0].stretch_x,
+            stretch_y: flat[0].stretch_y,
+            ..Transform::IDENTITY
+        };
+        clip.animation = crate::animation_of(&flat[0].animation);
+        let middle = clip.transform_at(Rational::from_int(5));
+        assert!(
+            (middle.stretch_x - 1.5).abs() < 1e-12,
+            "{}",
+            middle.stretch_x
+        );
+        assert_eq!(middle.stretch_y, 0.5);
+        assert!((clip.transform_at(Rational::from_int(10)).stretch_x - 2.0).abs() < 1e-12);
     }
 
     #[test]

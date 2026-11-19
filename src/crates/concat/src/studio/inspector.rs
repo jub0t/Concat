@@ -125,8 +125,18 @@ impl Studio {
                     let row = value.max(0.0) as usize;
                     clip.audio_stream = (row > 0).then(|| audio_tracks.get(row).copied()).flatten();
                 }
-                ClipField::StretchX => clip.stretch_x = value.clamp(0.1, 10.0),
-                ClipField::StretchY => clip.stretch_y = value.clamp(0.1, 10.0),
+                ClipField::StretchX => write_keyable(
+                    clip,
+                    model::KeyProperty::StretchX,
+                    value.clamp(0.1, 10.0),
+                    at,
+                ),
+                ClipField::StretchY => write_keyable(
+                    clip,
+                    model::KeyProperty::StretchY,
+                    value.clamp(0.1, 10.0),
+                    at,
+                ),
                 ClipField::OffsetX => write_keyable(
                     clip,
                     model::KeyProperty::OffsetX,

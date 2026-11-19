@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## À propos
 
-Concat est un éditeur vidéo gratuit et open source pour macOS, Windows, Linux et Android. Il couvre ce dont la plupart des montages ont besoin : sous-titres automatiques, synthèse vocale, suppression d’arrière-plan, animation par images clés, effets et titres, montage multipiste, export 4K. Sans aucun piège : pas de filigrane, pas de compte, pas d’abonnement, pas d’envoi.
+Concat est un éditeur vidéo gratuit et open source pour macOS, Windows, Linux, Android et iOS. Il couvre ce dont la plupart des montages ont besoin : sous-titres automatiques, isolation de la voix, synthèse vocale, suppression d’arrière-plan, animations et images clés, effets et titres, montage multipiste, export 4K. Sans aucun piège : pas de filigrane, pas de compte, pas d’abonnement, pas d’envoi.
 
 Tout tourne en local sur un moteur natif en Rust avec un compositeur GPU. Installez, déposez vos rushes, montez. Les modèles d’IA pour les sous-titres, les voix et le détourage se téléchargent une fois depuis les Réglages et fonctionnent ensuite hors ligne. Vos rushes ne quittent jamais votre disque.
 
@@ -55,20 +55,25 @@ Tout tourne en local sur un moteur natif en Rust avec un compositeur GPU. Instal
 ## Points forts
 
 - 🚫 **Pas de filigrane. Pas de compte. Pas de paywall.** Jamais.
-- 🔒 **100 % local.** Rien n’est envoyé. Fonctionne hors ligne.
-- 💬 **Sous-titres automatiques.** Whisper en local. Choisissez une taille de modèle, obtenez des sous-titres stylés sur la timeline.
-- 🗣️ **Synthèse vocale + clonage de voix.** Voix locales gratuites, ou n’importe quelle voix à partir de quelques secondes d’enregistrement.
-- 🧍 **Suppression d’arrière-plan.** Personnes, objets, ou peignez le masque vous-même.
-- 🎞️ **Images clés.** Position, échelle, rotation, opacité, volume, paramètres d’effets. Éditeur de courbes intégré.
-- ✨ **100 effets, filtres et transitions.** Rendus par le GPU, en direct dans l’aperçu.
-- ✂️ **Montez vite.** Couper, rogner, ripple, fusionner, arrêt sur image, vitesse. Timeline magnétique si vous la voulez.
-- 🎚️ **Multipiste, multi-timeline.** Plusieurs montages dans un projet. Modes de fusion, recadrage, retournements.
-- 📝 **Titres.** Polices, contour, ombre, plaque de fond. Des préréglages pour démarrer.
-- 🎙️ **Nettoyage de voix d’un seul geste.** Débruiter, rehausser la voix, niveler le volume. Plus écureuil, robot, téléphone et compagnie.
-- 📤 **Export.** H.264, HEVC, AV1. Jusqu’à 4K 60, couleur 10 bits.
-- 🦀 **Moteur natif en Rust.** Compositeur GPU, proxys, décodage matériel. La 4K se parcourt sans accroc.
+- 🔒 **100 % local.** Rien n’est envoyé, l’IA comprise. Fonctionne hors ligne.
+- 💬 **Sous-titres automatiques.** Dans la langue que vous parlez, générés sur votre machine, stylisés et déjà sur la timeline.
+- 🎤 **Isolation de la voix.** Sortez une voix de sa musique ou de son bruit, ou retirez-la, chaque partie à son propre niveau.
+- 🗣️ **Synthèse vocale + clonage de voix.** Une voix locale gratuite, ou n’importe quelle voix à partir de quelques secondes d’enregistrement. Sur ordinateur.
+- 🧍 **Suppression d’arrière-plan, incrustation chroma et masques.** Personnes et objets détourés pour vous, un fond vert qui s’incruste tout seul, et une pile de masques sur chaque clip, chacun avec son propre mode et ses images clés.
+- 🌀 **Animations d’entrée, de sortie et en boucle.** Pour les clips, les images, les titres et les formes. Chacune se joue sur sa carte avant que vous la choisissiez.
+- ✨ **Plus de 100 effets, filtres et transitions, 25 effets sonores.** Looks cinéma, secousses et impacts, rétro, volets, le tout en direct dans l’aperçu. Une transition est un clip que vous déplacez et ajustez comme les autres.
+- 🎞️ **Images clés.** Position, échelle, taille, rotation, opacité, volume, paramètres des effets. Éditeur de courbes intégré.
+- 🏃 **Rampes et courbes de vitesse.** Constantes ou dessinées, douces ou droites. Arrêts sur image et lecture inversée.
+- 🪄 **Améliorer et Stabiliser.** Restaurez des images floues ou anciennes, jusqu’en 2K. Calmez un plan tremblant.
+- ✂️ **Coupez vite, coupez juste.** Diviser, ajuster, ripple, fusionner, sous-titres et incrustations liés, une timeline magnétique si vous la voulez. Chaque coupe tombe sur l’image, à l’identique dans l’aperçu et dans l’export.
+- 🎚️ **Multipiste, multi-timeline.** Empilez vidéo, images fixes, titres et formes sur autant de pistes que vous voulez. Plusieurs montages dans un projet. Modes de fusion, recadrage, retournements.
+- 📝 **Titres et formes.** Polices, contour, ombre, cartouches, emoji en couleur et préréglages pour l’arabe, le chinois, l’hindi, le thaï et huit autres langues. Formes avec dégradés, étoiles, contours et ombres.
+- 🎙️ **Voix off et nettoyage de la voix en un clic.** Enregistrez par-dessus votre montage. Réduction du bruit, amélioration de la voix, égalisation du volume. Plus écureuil, robot, téléphone et compagnie.
+- 📤 **Export.** H.264, HEVC, AV1, avec l’encodeur propre à votre ordinateur. Jusqu’à la 4K 60, couleur 10 bits.
+- ⚡ **Rapide.** Proxys intégrés, pour que la 4K défile sans à-coups. Les titres se dessinent sur tous les cœurs, et chaque effet est prêt dès l’ouverture de la fenêtre.
+- 🛟 **Continue sur n’importe quelle machine.** Quand la puce graphique lâche, l’aperçu continue de s’afficher.
 - 🤖 **Scriptable.** Une API JSON-RPC avec laquelle les scripts et les agents IA peuvent monter de la vidéo. Une compilation depuis les sources ajoute gRPC et un outil en ligne de commande.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 langues. La même appli, les mêmes fichiers de projet.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 langues. Même app, mêmes fichiers de projet.
 
 ## Téléchargement
 

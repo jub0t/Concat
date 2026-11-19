@@ -326,6 +326,10 @@ impl Studio {
             consider(clip.start as f32);
             consider((clip.start + clip.duration) as f32);
         }
+        // The song's beats, so a cut lands on the beat.
+        for beat in self.timeline_beats() {
+            consider(beat as f32);
+        }
         best
     }
 
@@ -528,8 +532,14 @@ impl Studio {
         );
     }
 
-    /// Writes the document, on a worker. `announce` says so on success;
-    /// a failure is always said.
+    /// Writes the document, on the save lane. `announce` says so on
+    /// success; a failure is always said.
+    ///
+    /// The snapshot is taken here, on the window's thread, with the edit
+    /// that asked for it already applied; the lane only writes it. It has
+    /// a thread of its own, so a save never waits behind an export or an
+    /// analysis, and a save still waiting when the next is asked for is
+    /// replaced by it - see `host::spawn_save`.
     pub fn save(&mut self, announce: bool) {
         let Some(session) = self.session.as_mut() else {
             return;
@@ -542,9 +552,11 @@ impl Studio {
         self.dirty = false;
         let name = self.project_name.clone();
         let began = std::time::Instant::now();
-        crate::host::spawn_in_project_publishing(
+        crate::host::spawn_save(
+            path.clone(),
+            announce,
             move || projects::save_ordered(&path, &document, ticket),
-            move |studio, _, _, result| match result {
+            move |studio, _, _, result, announce| match result {
                 Ok(_) if announce => {
                     log::info!(
                         "project: saved {name} in {}",

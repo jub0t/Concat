@@ -58,8 +58,23 @@ use crate::probe;
 /// sixty decodes - comparable to a seek, and exact.
 const ROLL_FORWARD_FRAMES: i64 = 60;
 
-/// The threads a pool reader's codec decodes on; see `Reader::open`.
+/// The most threads a pool reader's codec decodes on; see `Reader::open`.
 const READER_THREADS: u16 = 8;
+
+/// The threads a pool reader's codec decodes on: one a core up to
+/// [`READER_THREADS`]. Each of a frame-threaded decoder's threads holds
+/// pictures of its own, so a reader on more threads than the machine has
+/// cores holds memory and takes cores from the window and the mix with no
+/// core to run on.
+fn reader_threads() -> u16 {
+    static THREADS: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *THREADS.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+        u16::try_from(cores)
+            .unwrap_or(u16::MAX)
+            .clamp(1, READER_THREADS)
+    })
+}
 
 /// Warm readers one file at one level may hold: enough for the two sides of
 /// a transition within a file and a scrub elsewhere in it, few enough that
@@ -418,17 +433,18 @@ impl Reader {
         // Unpaced, so every source frame comes out with its own timestamp
         // and the index is read from that; a seek lands on the keyframe at
         // or before the target and the pull rolls forward from there.
-        // Four threads, not one a core: each of a frame-threaded decoder's
-        // threads holds its own pictures in flight, and on twelve cores a
-        // 4K reader held 330 MB of them - memory the allocator then kept
-        // after the reader closed. A reader here walks a few frames to the
-        // one the monitor wants, and four do that nearly as fast.
+        // One thread a core, eight at most, not one a core on every
+        // machine: each of a frame-threaded decoder's threads holds its own
+        // pictures in flight, and on twelve cores a 4K reader held 330 MB
+        // of them - memory the allocator then kept after the reader closed.
+        // A reader here walks a few frames to the one the monitor wants, and
+        // past eight threads the walk was no faster (scrub_feel).
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
             .scaled_to(width, height)
             .in_range(range)
             .deep(deep)
-            .threaded(READER_THREADS);
+            .threaded(reader_threads());
         if keyframes {
             options = options.nearest_keyframes();
         }

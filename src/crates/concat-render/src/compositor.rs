@@ -87,8 +87,8 @@ pub trait Compositor {
 
     /// Whether the device this draws on has been lost - a reset, a hang, a
     /// driver gone - after which every frame it hands back is black. An
-    /// export checks it after each frame and stops with an error rather
-    /// than write a file of black.
+    /// export checks it after each frame and draws that frame again on
+    /// the next device, or on the CPU, rather than write a file of black.
     fn lost(&self) -> bool {
         false
     }

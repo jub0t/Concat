@@ -139,10 +139,14 @@ pub unsafe fn import_dx12_texture(
 ) -> Option<skia_safe::Image> {
     unsafe {
         let color_space = super::sampled_texture_color_space(&texture);
-        let dx12_texture = texture.as_hal::<wgpu::wgc::api::Dx12>();
+        // Concat: a texture whose memory ran out has no Direct3D resource
+        // behind it, and the card's out-of-memory unwrapped that into a
+        // crash (#802). No picture this frame instead; the next one asks
+        // again.
+        let dx12_texture = texture.as_hal::<wgpu::wgc::api::Dx12>()?;
 
         let resource: ID3D12Resource = windows_core::Interface::from_raw(
-            windows_core::Interface::into_raw(dx12_texture.unwrap().raw_resource().clone()),
+            windows_core::Interface::into_raw(dx12_texture.raw_resource().clone()),
         );
 
         let dxgi_texture_format = resource.GetDesc().Format;
@@ -172,16 +176,13 @@ pub unsafe fn import_dx12_texture(
             "slint_imported_wgpu_texture",
         );
 
-        Some(
-            skia_safe::image::Image::from_texture(
-                canvas.recording_context().as_mut().unwrap(),
-                &backend_texture,
-                skia_safe::gpu::SurfaceOrigin::TopLeft,
-                color_type,
-                skia_safe::AlphaType::Unpremul,
-                color_space,
-            )
-            .unwrap(),
+        skia_safe::image::Image::from_texture(
+            canvas.recording_context().as_mut()?,
+            &backend_texture,
+            skia_safe::gpu::SurfaceOrigin::TopLeft,
+            color_type,
+            skia_safe::AlphaType::Unpremul,
+            color_space,
         )
     }
 }

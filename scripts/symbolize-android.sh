@@ -3,7 +3,8 @@
 # SPDX-FileCopyrightText: 2026 Jareer Abdullah
 #
 # Names the frames of a phone's hang or crash that stand in Concat's own
-# library: function, file and line, inlined calls included.
+# library, by function: CI's phone build is linked without line tables, so
+# a frame inlined into another is named as the function it was inlined into.
 #
 #   symbolize-android.sh LIBRARY [TRACE]
 #

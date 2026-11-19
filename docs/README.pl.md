@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## O Concat
 
-Concat to darmowy, otwartoźródłowy edytor wideo na systemy macOS, Windows, Linux i Android. Robi to, czego potrzebuje większość montaży: automatyczne napisy, zamianę tekstu na mowę, usuwanie tła, animację na klatkach kluczowych, efekty i napisy tytułowe, montaż na wielu ścieżkach, eksport w 4K. I to bez żadnych haczyków: bez znaku wodnego, bez konta, bez subskrypcji, bez wysyłania plików.
+Concat to darmowy, otwartoźródłowy edytor wideo na systemy macOS, Windows, Linux, Android i iOS. Robi to, czego potrzebuje większość montaży: automatyczne napisy, izolację głosu, zamianę tekstu na mowę, usuwanie tła, animacje i klatki kluczowe, efekty i napisy tytułowe, montaż na wielu ścieżkach, eksport w 4K. I to bez żadnych haczyków: bez znaku wodnego, bez konta, bez subskrypcji, bez wysyłania plików.
 
 Wszystko działa lokalnie, na natywnym silniku napisanym w Rust, z kompozytorem na GPU. Zainstaluj, wrzuć materiał, tnij. Modele AI do napisów, głosów i wycinania pobierasz raz w Ustawieniach, a potem działają offline. Twój materiał nigdy nie opuszcza dysku.
 
@@ -55,20 +55,25 @@ Wszystko działa lokalnie, na natywnym silniku napisanym w Rust, z kompozytorem 
 ## Najważniejsze funkcje
 
 - 🚫 **Bez znaków wodnych. Bez konta. Bez paywalla.** Nigdy.
-- 🔒 **W 100% lokalnie.** Nic nie jest wysyłane. Działa offline.
-- 💬 **Automatyczne napisy.** Lokalny Whisper. Wybierz rozmiar modelu i dostań sformatowane napisy na osi czasu.
-- 🗣️ **Zamiana tekstu na mowę + klonowanie głosu.** Darmowe lokalne głosy albo dowolny głos z kilku sekund nagrania.
-- 🧍 **Usuwanie tła.** Ludzie, obiekty albo maska, którą malujesz sam.
-- 🎞️ **Klatki kluczowe.** Pozycja, skala, obrót, krycie, głośność, parametry efektów. Wbudowany edytor krzywych.
-- ✨ **100 efektów, filtrów i przejść.** Renderowane na GPU, na żywo w podglądzie.
-- ✂️ **Szybkie cięcie.** Dzielenie, przycinanie, ripple, scalanie, stopklatka, prędkość. Magnetyczna oś czasu, jeśli chcesz.
-- 🎚️ **Wiele ścieżek, wiele osi czasu.** Kilka wersji montażu w jednym projekcie. Tryby mieszania, kadrowanie, odbicia.
-- 📝 **Napisy tytułowe.** Czcionki, obrys, cień, tło pod tekstem. Gotowe szablony na start.
-- 🎙️ **Czyszczenie głosu jednym przełącznikiem.** Odszumianie, poprawa głosu, wyrównanie głośności. Do tego wiewiórka, robot, telefon i spółka.
-- 📤 **Eksport.** H.264, HEVC, AV1. Do 4K 60, kolor 10-bitowy.
-- 🦀 **Natywny silnik w Rust.** Kompozytor na GPU, proxy, sprzętowe dekodowanie. Nawet 4K przewija się płynnie.
+- 🔒 **W 100% lokalnie.** Nic nie jest wysyłane, sztuczna inteligencja też nie. Działa offline.
+- 💬 **Automatyczne napisy.** W języku, którym mówisz, tworzone na twoim komputerze, ostylowane i od razu na osi czasu.
+- 🎤 **Izolacja głosu.** Wyciągnij głos z muzyki albo hałasu, albo go usuń, każda część na własnym poziomie.
+- 🗣️ **Zamiana tekstu na mowę + klonowanie głosu.** Darmowy lokalny głos albo dowolny głos z kilku sekund nagrania. Na komputerze.
+- 🧍 **Usuwanie tła, kluczowanie koloru i maski.** Ludzie i obiekty wycinani za ciebie, zielone tło, które samo się kluczuje, i stos masek na każdym klipie, każda z własnym trybem i klatkami kluczowymi.
+- 🌀 **Animacje wejścia, wyjścia i pętli.** Dla klipów, obrazów, napisów tytułowych i kształtów. Każda odtwarza się na swojej karcie, zanim ją wybierzesz.
+- ✨ **Ponad 100 efektów, filtrów i przejść, 25 efektów dźwiękowych.** Filmowe looki, wstrząsy i uderzenia, retro, wipe’y, wszystko na żywo w podglądzie. Przejście to klip, który przesuwasz i przycinasz jak każdy inny.
+- 🎞️ **Klatki kluczowe.** Pozycja, skala, rozmiar, obrót, krycie, głośność, parametry efektów. Wbudowany edytor krzywych.
+- 🏃 **Rampy i krzywe prędkości.** Stałe albo rysowane, gładkie albo proste. Zatrzymane klatki i odtwarzanie wstecz.
+- 🪄 **Ulepsz i Stabilizuj.** Odtwórz miękki lub stary materiał, do 2K. Uspokój drżące ujęcie.
+- ✂️ **Tnij szybko, tnij dokładnie.** Dziel, przycinaj, ripple, scalaj, powiązane napisy i nakładki, magnetyczna oś czasu, jeśli chcesz. Każde cięcie trafia w klatkę, tak samo w podglądzie i w eksporcie.
+- 🎚️ **Wiele ścieżek, wiele osi czasu.** Układaj wideo, obrazy, napisy tytułowe i kształty na tylu ścieżkach, ile chcesz. Kilka wersji montażu w jednym projekcie. Tryby mieszania, kadrowanie, odbicia.
+- 📝 **Napisy tytułowe i kształty.** Czcionki, obrys, cień, podkłady, kolorowe emoji i gotowe style dla arabskiego, chińskiego, hindi, tajskiego i ośmiu innych języków. Kształty z gradientami, gwiazdy, kontury i cienie.
+- 🎙️ **Lektor i czyszczenie głosu jednym przełącznikiem.** Nagrywaj na swoim montażu. Odszumianie, poprawa głosu, wyrównanie głośności. Plus wiewiórka, robot, telefon i reszta.
+- 📤 **Eksport.** H.264, HEVC, AV1, na własnym koderze twojego komputera. Do 4K 60, kolor 10-bitowy.
+- ⚡ **Szybko.** Proxy wbudowane, żeby 4K przewijało się płynnie. Napisy tytułowe rysują się na wszystkich rdzeniach, a każdy efekt jest gotowy w chwili otwarcia okna.
+- 🛟 **Działa dalej na każdym komputerze.** Gdy układ graficzny się poddaje, podgląd nadal się rysuje.
 - 🤖 **Skryptowalny.** API w JSON-RPC, przez które skrypty i agenci AI mogą montować wideo. Wersja zbudowana ze źródeł dodaje gRPC i narzędzie wiersza poleceń.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 języków. Ta sama aplikacja, te same pliki projektów.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 języków. Ta sama aplikacja, te same pliki projektu.
 
 ## Pobieranie
 

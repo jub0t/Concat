@@ -494,15 +494,17 @@ pub(crate) fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
     if keys.is_empty() {
         return None;
     }
-    let mut tracks: [Vec<Key>; 6] = Default::default();
+    let mut tracks: [Vec<Key>; 8] = Default::default();
     for key in keys {
         let slot = match key.property.as_str() {
             "scale" => 0,
             "offsetX" => 1,
             "offsetY" => 2,
             "rotation" => 3,
-            "opacity" => 4,
-            "volume" => 5,
+            "stretchX" => 4,
+            "stretchY" => 5,
+            "opacity" => 6,
+            "volume" => 7,
             _ => continue,
         };
         let [x1, y1, x2, y2] = key.ease;
@@ -512,12 +514,14 @@ pub(crate) fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
             ease: Ease::new(x1, y1, x2, y2),
         });
     }
-    let [scale, x, y, rotation, opacity, volume] = tracks;
+    let [scale, x, y, rotation, wide, tall, opacity, volume] = tracks;
     let animation = Animation {
         scale: Track::new(scale),
         offset_x: Track::new(x),
         offset_y: Track::new(y),
         rotation: Track::new(rotation),
+        stretch_x: Track::new(wide),
+        stretch_y: Track::new(tall),
         opacity: Track::new(opacity),
         volume: Track::new(volume),
     };
