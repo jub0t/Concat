@@ -343,12 +343,7 @@ fn start_of(stream: &ffmpeg::format::stream::Stream<'_>) -> Option<Rational> {
 /// picture is no part of the timeline, and a stream that does not say
 /// where it starts says nothing.
 pub(crate) fn origin(input: &ffmpeg::format::context::Input) -> Rational {
-    use ffmpeg::format::stream::Disposition;
-    let picture = input
-        .streams()
-        .best(ffmpeg::media::Type::Video)
-        .filter(|stream| !stream.disposition().contains(Disposition::ATTACHED_PIC))
-        .and_then(|stream| start_of(&stream));
+    let picture = picture(input).and_then(|stream| start_of(&stream));
     picture
         .or_else(|| {
             input
@@ -358,6 +353,23 @@ pub(crate) fn origin(input: &ffmpeg::format::context::Input) -> Rational {
                 .min()
         })
         .unwrap_or(Rational::ZERO)
+}
+
+/// The file's picture: its best video stream, unless that is a cover.
+///
+/// A song's album art, an MP3's ID3 picture or an M4A's `covr`, reaches
+/// FFmpeg as a video stream of one frame marked as an attached picture.
+/// It is the file's artwork, not footage: read as the picture, it made the
+/// song a video clip whose frame was its cover, drawn in the preview and
+/// the export alike (#730).
+pub(crate) fn picture<'a>(
+    input: &'a ffmpeg::format::context::Input,
+) -> Option<ffmpeg::format::stream::Stream<'a>> {
+    use ffmpeg::format::stream::Disposition;
+    input
+        .streams()
+        .best(ffmpeg::media::Type::Video)
+        .filter(|stream| !stream.disposition().contains(Disposition::ATTACHED_PIC))
 }
 
 /// Seconds in `AV_TIME_BASE` units, which is what container-level seeks take.
