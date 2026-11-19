@@ -182,6 +182,7 @@ jobs:
       # memory; the run below finds everything already built.
       # A cold cache, one build job at a time, has run past 25 minutes.
       - name: Build the tests
+        id: build-tests
         timeout-minutes: 50
         working-directory: src
         env:
@@ -191,7 +192,8 @@ jobs:
           cargo nextest run --workspace --no-run --build-jobs 1 2>&1 | tee build-tests.log
       # CONCAT_REQUIRE_GPU: the GPU tests fail rather than skip when no
       # adapter is usable, so the parity suite is known to have run. The
-      # report and the log are kept when it fails (the last step).
+      # report and the log are kept when it fails (the last step). The
+      # corpus is left to the step after this one.
       - name: Run the tests
         timeout-minutes: 20
         working-directory: src
@@ -201,8 +203,29 @@ jobs:
         run: |
           set -o pipefail
           status=0
-          cargo nextest run --workspace --build-jobs 1 --profile ci 2>&1 | tee nextest-workspace.log || status=$?
+          cargo nextest run --workspace --build-jobs 1 --profile ci \
+            -E 'not package(concat-corpus)' 2>&1 | tee nextest-workspace.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-workspace.xml 2>/dev/null || true
+          exit "$status"
+      # The corpus (src/corpus, run by concat-corpus): small projects built
+      # through the API, exported through the app's own export and checked
+      # frame by frame. In a step of its own, so a red corpus and a red
+      # unit test are told apart at a glance, with a timeout of its own;
+      # it runs whether or not the tests above passed. --workspace and a
+      # filter rather than -p concat-corpus: -p resolves the features of
+      # that one package, and the tree built above would be built again.
+      - name: Run the corpus
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 15
+        working-directory: src
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+        run: |
+          set -o pipefail
+          status=0
+          cargo nextest run --workspace --build-jobs 1 --profile ci \
+            -E 'package(concat-corpus)' 2>&1 | tee nextest-corpus.log || status=$?
+          mv target/nextest/ci/junit.xml target/nextest/ci/junit-corpus.xml 2>/dev/null || true
           exit "$status"
       # nextest does not run the examples in the documentation; cargo does.
       - name: Run the documentation's examples
@@ -234,7 +257,7 @@ jobs:
       # failures in it into annotations on the run (scripts/ci/annotate.py).
       - name: Failures to annotations (failure only)
         if: failure()
-        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/clippy-shell.log src/build-tests.log src/nextest-workspace.log src/clippy-grpc.log src/nextest-grpc.log
+        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/clippy-shell.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log src/clippy-grpc.log src/nextest-grpc.log
 
       - name: Keep the test report (failure only)
         if: failure()
@@ -244,6 +267,15 @@ jobs:
           path: |
             src/target/nextest/ci/*.xml
             src/nextest-*.log
+          if-no-files-found: ignore
+      # Each corpus case's result.json and the frames that failed it, as
+      # PNGs: what a red case looked like, without running it again.
+      - name: Keep the corpus report (failure only)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-linux
+          path: src/target/corpus/
           if-no-files-found: ignore
 
   # The window and the engine built where they ship. Linux is the job
@@ -405,8 +437,22 @@ jobs:
         run: |
           status=0
           cargo nextest run --workspace --build-jobs 2 --profile ci \
-            -E 'not test(=every_edit_still_exports)' 2>&1 | tee nextest-workspace.log || status=$?
+            -E 'not test(=every_edit_still_exports) and not package(concat-corpus)' 2>&1 | tee nextest-workspace.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-workspace.xml 2>/dev/null || true
+          exit "$status"
+      # The corpus, as on Linux: its own step and timeout, on WARP, which
+      # is slower than lavapipe, hence the longer one. Runs whether or
+      # not the rest passed.
+      - name: The corpus (Windows)
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 20
+        working-directory: src
+        shell: bash
+        run: |
+          status=0
+          cargo nextest run --workspace --build-jobs 2 --profile ci \
+            -E 'package(concat-corpus)' 2>&1 | tee nextest-corpus.log || status=$?
+          mv target/nextest/ci/junit.xml target/nextest/ci/junit-corpus.xml 2>/dev/null || true
           exit "$status"
       # every_edit_still_exports passes on Linux in under a minute and has
       # hung on Windows. Alone, with its output shown as it comes: each
@@ -430,7 +476,7 @@ jobs:
         run: |
           python=python3
           command -v python3 >/dev/null 2>&1 || python=python
-          "$python" scripts/ci/annotate.py src/check.log src/check-window.log src/build-tests.log src/nextest-workspace.log src/nextest-every-edit.log
+          "$python" scripts/ci/annotate.py src/check.log src/check-window.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log src/nextest-every-edit.log
       - name: Keep the test report (failure only)
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -439,4 +485,11 @@ jobs:
           path: |
             src/target/nextest/ci/*.xml
             src/nextest-*.log
+          if-no-files-found: ignore
+      - name: Keep the corpus report (failure only)
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-windows
+          path: src/target/corpus/
           if-no-files-found: ignore
