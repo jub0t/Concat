@@ -305,6 +305,11 @@ jobs:
           # newer. The engine's media tests only, a few minutes.
           - os: windows-2025
             verb: Sound
+          # The corpus where the app is developed and on the one adapter
+          # family the other two runners do not have, Metal: the third
+          # system the harness has to be green on.
+          - os: macos-15
+            verb: Corpus
     runs-on: ${{ matrix.os }}
     # Windows' steps that can run long have timeouts of their own, 115
     # minutes between them, so whichever is stuck is named by its own
@@ -396,7 +401,7 @@ jobs:
       # mode (--profile test: its code and its tests in one rustc) in the
       # second.
       - name: Check
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.verb == 'Compiles'
         timeout-minutes: 30
         working-directory: src
         run: |
@@ -404,12 +409,22 @@ jobs:
           cargo check --workspace --exclude concat --all-targets 2>&1 | tee check.log
           cargo check -p concat --bins 2>&1 | tee -a check.log
       - name: Check the window's tests
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.verb == 'Compiles'
         timeout-minutes: 30
         working-directory: src
         run: |
           set -o pipefail
           cargo check -p concat --lib --profile test 2>&1 | tee check-window.log
+
+      # By the package, with cargo's own runner: nothing else is built in
+      # this job, so there is no workspace build for it to disagree with.
+      - name: The corpus (macOS)
+        if: runner.os == 'macOS' && matrix.verb == 'Corpus'
+        timeout-minutes: 60
+        working-directory: src
+        run: |
+          set -o pipefail
+          cargo test -p concat-corpus 2>&1 | tee nextest-corpus.log
 
       # Windows: compile, then run, then the one scenario that has hung
       # here on its own. Each step has its own timeout, so a red run says
@@ -509,7 +524,7 @@ jobs:
             src/nextest-*.log
           if-no-files-found: ignore
       - name: Keep the corpus report (failure only)
-        if: failure() && runner.os == 'Windows'
+        if: failure() && (runner.os == 'Windows' || matrix.verb == 'Corpus')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: corpus-${{ matrix.os }}

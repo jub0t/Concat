@@ -557,12 +557,28 @@ impl Runner<'_> {
     /// and waits for the file.
     fn export(&mut self, project: &str) -> Result<PathBuf, String> {
         let output = Path::new(project).join(format!("{}.mp4", self.name));
+        let mut spec = match &self.case.export {
+            None => ExportSpec::default(),
+            Some(given) => {
+                // The output is the runner's to name; a spec does not read
+                // without one.
+                let mut whole = given.clone();
+                if let Some(object) = whole.as_object_mut() {
+                    object.insert("output".to_owned(), Value::String(String::new()));
+                }
+                let spec: ExportSpec = serde_json::from_value(whole)
+                    .map_err(|error| format!("the case's export is no export spec: {error}"))?;
+                let read = serde_json::to_value(&spec)
+                    .map_err(|error| format!("the export spec does not encode: {error}"))?;
+                covered(given, &read, "")
+                    .map_err(|path| format!("export{path} is not a field the spec reads"))?;
+                spec
+            }
+        };
+        spec.output = output.to_string_lossy().into_owned();
         let reply = self.send(Request::ExportRun {
             path: project.to_owned(),
-            spec: ExportSpec {
-                output: output.to_string_lossy().into_owned(),
-                ..ExportSpec::default()
-            },
+            spec,
         })?;
         let Reply::Started(started) = reply else {
             return Err("export.run did not start a job".to_owned());
@@ -604,13 +620,19 @@ impl Runner<'_> {
             .as_ref()
             .ok_or_else(|| "the export has no picture".to_owned())?;
         let rate = video.frame_rate.fps();
-        let wanted = Rational::new(expect.rate[0], expect.rate[1]);
+        // The file as the case says the export makes it, or as the
+        // timeline is.
+        let (file_frames, file_width, file_height, file_rate) = match &expect.file {
+            Some(file) => (file.frames, file.width, file.height, file.rate),
+            None => (expect.frames, expect.width, expect.height, expect.rate),
+        };
+        let wanted = Rational::new(file_rate[0], file_rate[1]);
         report.check(
             format!(
-                "the file is {}×{} at {}/{} fps",
-                expect.width, expect.height, expect.rate[0], expect.rate[1]
+                "the file is {file_width}×{file_height} at {}/{} fps",
+                file_rate[0], file_rate[1]
             ),
-            video.width == expect.width && video.height == expect.height && rate == wanted,
+            video.width == file_width && video.height == file_height && rate == wanted,
             format!(
                 "it is {}×{} at {}/{} fps",
                 video.width,
@@ -644,25 +666,28 @@ impl Runner<'_> {
 
         let frames = decode(output)?;
         report.check(
-            format!("the file holds {} frames", expect.frames),
-            frames.len() == expect.frames as usize,
+            format!("the file holds {file_frames} frames"),
+            frames.len() == file_frames as usize,
             format!("it holds {}", frames.len()),
         );
 
         let mut wrong = Vec::new();
         let mut worst: f64 = 0.0;
-        for index in 0..expect.frames {
+        for index in 0..file_frames {
+            // The timeline frame this file frame is of, and how much
+            // larger the file draws it.
+            let (of, times) = self.case.file_frame(index);
             let shows = self
                 .case
-                .expected(index)
-                .ok_or_else(|| format!("no run covers frame {index}"))?;
+                .expected(of)
+                .ok_or_else(|| format!("no run covers frame {of}"))?;
             let Some(frame) = frames.get(index as usize) else {
                 wrong.push(format!("frame {index} is missing"));
                 continue;
             };
-            let insets = self.case.expected_insets(index);
+            let insets = self.case.expected_insets(of);
             for shows in std::iter::once(shows).chain(insets) {
-                if let Some(found) = shown_wrong(frame, shows, &mut worst) {
+                if let Some(found) = shown_wrong(frame, enlarged(shows, times), &mut worst) {
                     wrong.push(format!("frame {index} {found}"));
                     self.save(report, &format!("export-{index:04}.png"), frame);
                 }
@@ -1080,12 +1105,34 @@ fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
             (reading.code != Some(code))
                 .then(|| format!("should be {code}, and reads as {}", describe(&reading)))
         }
+        Shows::Either(first, second, at, block) => {
+            let reading = code::read_sized(frame, at[0], at[1], block);
+            *worst = worst.max(reading.worst);
+            (reading.code != Some(first) && reading.code != Some(second)).then(|| {
+                format!(
+                    "should be {first} or the frame after, and reads as {}",
+                    describe(&reading)
+                )
+            })
+        }
         Shows::Black => {
             let all = [0, 0, frame.width(), frame.height()];
             brightest(frame, &all)
                 .filter(|brightest| *brightest > BLACK)
                 .map(|brightest| format!("should be black, and reaches {brightest}"))
         }
+    }
+}
+
+/// `shows` as a picture `times` larger draws it.
+fn enlarged(shows: Shows, times: u32) -> Shows {
+    let grow = |at: [u32; 2]| [at[0] * times, at[1] * times];
+    match shows {
+        Shows::Code(code, at, block) => Shows::Code(code, grow(at), block * times),
+        Shows::Either(first, second, at, block) => {
+            Shows::Either(first, second, grow(at), block * times)
+        }
+        Shows::Black => Shows::Black,
     }
 }
 

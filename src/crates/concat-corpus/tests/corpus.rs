@@ -45,15 +45,18 @@ macro_rules! corpus_case {
 }
 
 corpus_case!(codes);
+corpus_case!(curve);
 corpus_case!(cut);
 corpus_case!(fades);
 corpus_case!(gap);
 corpus_case!(lanes);
 corpus_case!(missing);
 corpus_case!(mono);
+corpus_case!(mute);
 corpus_case!(ntsc);
 corpus_case!(pip);
 corpus_case!(rates);
+corpus_case!(resize);
 corpus_case!(ripple);
 corpus_case!(sound);
 corpus_case!(speed);
