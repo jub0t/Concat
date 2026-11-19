@@ -1248,7 +1248,7 @@ export component PhoneEditor inherits Rectangle {
             }
             PhoneMediaGrid {
                 items: Editor.media;
-                picked(id) => { Editor.media-select(id, true); }
+                picked(id) => { Editor.media-select(id, true, false); }
             }
             // Room under the last row for the Add bar over it.
             if Editor.media-selected-count > 0: Rectangle {

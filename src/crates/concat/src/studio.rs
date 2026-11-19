@@ -1075,6 +1075,8 @@ pub struct Studio {
     /// about a track that the document does not.
     pub lanes: crate::panes::timeline::TimelinePane,
     pub selection: Vec<String>,
+    /// The media bin had the last press: Ctrl+A selects its cards (#696).
+    pub media_focused: bool,
     pub playhead: f32,
     pub playing: bool,
     transport: slint::Timer,
@@ -3109,6 +3111,7 @@ impl Studio {
             waves: RefCell::new(HashMap::new()),
             lanes: crate::panes::timeline::TimelinePane::default(),
             selection: Vec::new(),
+            media_focused: false,
             playhead: 0.0,
             // ~20px a second: a ten-second cut fits a pane at its default width.
             playing: false,

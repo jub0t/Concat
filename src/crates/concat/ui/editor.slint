@@ -90,7 +90,9 @@ export global Editor {
     callback import-media();
     callback media-filter-changed(filter: MediaFilter);
     callback media-sort-changed(index: int);
-    callback media-select(id: int, additive: bool);
+    callback media-select(id: int, toggle: bool, range: bool);
+    /// The media bin took a press; Ctrl+A selects its cards (#696).
+    callback media-focused();
     /// A marquee closed over the bin's grid, as the block of cells it caught.
     /// See MediaGrid.band-selected: the grid is placed by arithmetic, so the
     /// panel resolves the geometry and Rust only maps cells back to rows.
