@@ -14,9 +14,30 @@ fn out_dir() -> PathBuf {
     tmp.parent().unwrap_or(&tmp).join("corpus")
 }
 
+/// The engine's warnings and errors, on the test's own output.
+struct Warnings;
+
+impl log::Log for Warnings {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{} {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 /// Runs one case and fails with what its report found. The case's
 /// directory is its name with dashes for the underscores.
 fn check(name: &str) {
+    // Once a process; a second set is refused and ignored.
+    if log::set_logger(&Warnings).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
     let report = concat_corpus::run_case(name, &concat_corpus::cases_dir(), &out_dir());
     let result = out_dir().join(name).join("result.json");
     eprintln!(

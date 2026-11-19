@@ -1252,6 +1252,7 @@ dependencies = [
  "concat-core",
  "concat-host",
  "concat-media",
+ "log",
  "nv-flip",
  "png 0.17.16",
  "serde",

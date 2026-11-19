@@ -34,6 +34,9 @@ base64 = "0.22"
 nv-flip = "0.1.2"
 
 [dev-dependencies]
+# What the engine warns of while a case runs, said in the test's output:
+# a lost graphics device explains a failed case that nothing else does.
+log = "0.4"
 # A case's folder and an artefacts folder for each golden test, gone when
 # the test is.
 tempfile = "3"

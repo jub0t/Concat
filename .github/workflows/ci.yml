@@ -402,7 +402,11 @@ jobs:
       # second.
       - name: Check
         if: runner.os != 'Windows' && matrix.verb == 'Compiles'
-        timeout-minutes: 30
+        # Thirteen minutes with the build cache warm; with it cold, as
+        # after any change to Cargo.lock, the window's generated UI alone
+        # takes this runner over half an hour to check, and thirty minutes
+        # called two such runs stuck that were only slow.
+        timeout-minutes: 50
         working-directory: src
         run: |
           set -o pipefail

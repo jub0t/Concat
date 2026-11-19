@@ -91,7 +91,9 @@ pub fn run_case(name: &str, cases: &Path, out: &Path) -> Report {
     }
     report.settle();
     report.seconds = started.elapsed().as_secs_f64();
-    if report.passed {
+    // `CONCAT_CORPUS_KEEP` keeps a passing case's working files too: its
+    // media, its project as saved and its export, to look at.
+    if report.passed && std::env::var_os("CONCAT_CORPUS_KEEP").is_none() {
         let _ = std::fs::remove_dir_all(dir.join("work"));
         report.export = None;
     }
