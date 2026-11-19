@@ -42,6 +42,13 @@ pub(crate) struct Lead {
     pub shift: i64,
 }
 
+/// How many times a flushed encoder that says "nothing yet" is asked
+/// again, a millisecond apart, before it is taken to have finished without
+/// saying so. FFmpeg's and Apple's answer with their packets or their end
+/// of stream at once; an encoder behind Media Foundation may still be
+/// working.
+pub(crate) const FLUSH_WAITS: u32 = 500;
+
 /// The frames of the measuring sound.
 const FRAMES: usize = 8;
 
@@ -152,13 +159,20 @@ fn measure(codec_name: &str, format: Sample) -> Result<Lead, String> {
     let source = sweep(FRAMES * size);
 
     let mut packets = Vec::new();
-    let mut drain = |encoder: &mut encoder::audio::Encoder| -> Result<(), String> {
+    let mut drain = |encoder: &mut encoder::audio::Encoder, flushing: bool| -> Result<(), String> {
+        let mut waits = 0;
         loop {
             let mut packet = ffmpeg::Packet::empty();
             match encoder.receive_packet(&mut packet) {
                 Ok(()) => packets.push(packet),
                 Err(ffmpeg::Error::Eof) => return Ok(()),
-                Err(error) if ffi::is_again(&error) => return Ok(()),
+                Err(error) if ffi::is_again(&error) => {
+                    if !flushing || waits >= FLUSH_WAITS {
+                        return Ok(());
+                    }
+                    waits += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
                 Err(error) => return Err(format!("encode: {error}")),
             }
         }
@@ -169,12 +183,12 @@ fn measure(codec_name: &str, format: Sample) -> Result<Lead, String> {
         encoder
             .send_frame(&frame)
             .map_err(|error| format!("encode: {error}"))?;
-        drain(&mut encoder)?;
+        drain(&mut encoder, false)?;
     }
     encoder
         .send_eof()
         .map_err(|error| format!("flush: {error}"))?;
-    drain(&mut encoder)?;
+    drain(&mut encoder, true)?;
 
     // FFmpeg's own decoder, as a file's reader on Windows uses: what it
     // cannot give back whole is what the lead is for.
@@ -236,11 +250,29 @@ fn measure(codec_name: &str, format: Sample) -> Result<Lead, String> {
         decoded[from..from + samples.len()].copy_from_slice(samples);
     }
     judge(&source, &decoded, origin, size).ok_or_else(|| {
+        // Every packet as stamp, length and bytes, and every decoded frame
+        // as stamp and length: what a report from a Windows this was never
+        // run on needs to say what its encoder does.
+        let came: Vec<String> = packets
+            .iter()
+            .map(|packet| {
+                format!(
+                    "{}+{}/{}b",
+                    packet.pts().unwrap_or(-1),
+                    packet.duration(),
+                    packet.size()
+                )
+            })
+            .collect();
+        let back: Vec<String> = heard
+            .iter()
+            .map(|(at, samples)| format!("{at}+{}", samples.len()))
+            .collect();
         format!(
-            "{} packets, {} samples stamped from {origin}, unlike the {} fed",
-            packets.len(),
-            decoded.len(),
-            source.len()
+            "{} samples fed in frames of {size}; packets {}; decoded {}",
+            source.len(),
+            came.join(" "),
+            back.join(" ")
         )
     })
 }

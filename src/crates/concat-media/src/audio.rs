@@ -865,9 +865,15 @@ pub fn mix_to_file_with(
     // encoder cuts its last packet itself, Apple's does not, and 6 s came
     // out as 6.036 - a frame more of every video it went in.
     let samples = (duration.max(0.0) * f64::from(MIX_RATE)).round() as i64;
+    // `flushing` once the encoder has been told there is no more: then
+    // only its end of stream ends the loop, and "nothing yet" is waited
+    // out (see `lead::FLUSH_WAITS`), where between frames it means "feed
+    // me".
     let drain = |encoder: &mut encoder::audio::Encoder,
-                 output: &mut ffmpeg::format::context::Output|
+                 output: &mut ffmpeg::format::context::Output,
+                 flushing: bool|
      -> Result<()> {
+        let mut waits = 0;
         loop {
             let mut packet = ffmpeg::Packet::empty();
             match encoder.receive_packet(&mut packet) {
@@ -892,7 +898,16 @@ pub fn mix_to_file_with(
                         .map_err(|error| ffi::fail("write packet", destination, error))?;
                 }
                 Err(ffmpeg::Error::Eof) => return Ok(()),
-                Err(error) if ffi::is_again(&error) => return Ok(()),
+                Err(error) if ffi::is_again(&error) => {
+                    if !flushing || waits >= lead::FLUSH_WAITS {
+                        if flushing {
+                            log::warn!("{codec_name}: gave no end of stream when flushed");
+                        }
+                        return Ok(());
+                    }
+                    waits += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
                 Err(error) => return Err(ffi::fail("encode", destination, error)),
             }
         }
@@ -908,7 +923,7 @@ pub fn mix_to_file_with(
         encoder
             .send_frame(&quiet)
             .map_err(|error| ffi::fail("encode", destination, error))?;
-        drain(&mut encoder, &mut output)?;
+        drain(&mut encoder, &mut output, false)?;
     }
     run_mix(
         clips,
@@ -926,7 +941,7 @@ pub fn mix_to_file_with(
             encoder
                 .send_frame(mixed)
                 .map_err(|error| ffi::fail("encode", destination, error))?;
-            drain(&mut encoder, &mut output)
+            drain(&mut encoder, &mut output, false)
         },
     )?;
 
@@ -935,7 +950,7 @@ pub fn mix_to_file_with(
     encoder
         .send_eof()
         .map_err(|error| ffi::fail("encode", destination, error))?;
-    drain(&mut encoder, &mut output)?;
+    drain(&mut encoder, &mut output, true)?;
     output
         .write_trailer()
         .map_err(|error| ffi::fail("write trailer", destination, error))
@@ -2235,11 +2250,14 @@ mod tests {
         }];
         let output = dir.join("saved.m4a");
         mix_to_file(&clips, 0.5, &output).expect("saves AAC");
-        let mut decoder =
-            AudioDecoder::open(&output, &AudioOptions::default()).expect("opens the saved AAC");
         let mut saved = Vec::new();
-        while let Some(samples) = decoder.next_i16().expect("decodes AAC") {
-            saved.extend(samples.iter().step_by(2).map(|sample| f64::from(*sample)));
+        {
+            // Closed before the folder goes: Windows removes no open file.
+            let mut decoder =
+                AudioDecoder::open(&output, &AudioOptions::default()).expect("opens the saved AAC");
+            while let Some(samples) = decoder.next_i16().expect("decodes AAC") {
+                saved.extend(samples.iter().step_by(2).map(|sample| f64::from(*sample)));
+            }
         }
         let mixed = left(&clips, &[], 0.0, 0.5)
             .into_iter()
