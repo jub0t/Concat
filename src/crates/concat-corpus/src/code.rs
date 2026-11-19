@@ -271,6 +271,35 @@ pub fn read_blend(
     })
 }
 
+/// How much of `code`'s picture shows over black, 0 to 1, in light, read
+/// off the blocks the code has white; and how far apart their answers
+/// are. None when the picture is not that code dimmed: a block it has
+/// black is lit.
+pub fn read_faded(frame: &Frame, x: u32, y: u32, block: u32, code: Code) -> Option<(f64, f64)> {
+    let means = read_sized(frame, x, y, block).means;
+    if means.len() != BITS {
+        return None;
+    }
+    let light = |level: f64| (level / 255.0).powf(2.4);
+    let mut shares = Vec::new();
+    for (mean, white) in means.iter().zip(bits_of(code)) {
+        if white {
+            shares.push((light(*mean) / light(f64::from(HIGH))).clamp(0.0, 1.0));
+        } else if *mean > f64::from(LOW) + MARGIN {
+            return None;
+        }
+    }
+    let (least, most) = shares
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(least, most), share| {
+            (least.min(*share), most.max(*share))
+        });
+    Some((
+        shares.iter().sum::<f64>() / shares.len() as f64,
+        most - least,
+    ))
+}
+
 /// A pixel's luma, by BT.709's weights: on the grey the code is written in
 /// it is the grey itself, and off it the colour a codec bleeds in from a
 /// neighbour counts for what it does to brightness, not in full.

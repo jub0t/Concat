@@ -1122,6 +1122,18 @@ fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
                 )
             })
         }
+        Shows::Faded(code, share, at, block) => {
+            match code::read_faded(frame, at[0], at[1], block, code) {
+                None => Some(format!("should be {code} dimmed, and is not that")),
+                Some((found, spread)) => ((found - share).abs() > BLEND_TOLERANCE
+                    || spread > 2.0 * BLEND_TOLERANCE)
+                    .then(|| {
+                        format!(
+                            "should show {share:.3} of {code}, and shows {found:.3} (its blocks {spread:.3} apart)"
+                        )
+                    }),
+            }
+        }
         Shows::Blend(first, second, share, at, block) => {
             // At either end the picture is all but one of the two, and
             // reads as it; in between it is held to its share.
@@ -1161,6 +1173,7 @@ fn enlarged(shows: Shows, times: u32) -> Shows {
         Shows::Either(first, second, at, block) => {
             Shows::Either(first, second, grow(at), block * times)
         }
+        Shows::Faded(code, share, at, block) => Shows::Faded(code, share, grow(at), block * times),
         Shows::Blend(first, second, share, at, block) => {
             Shows::Blend(first, second, share, grow(at), block * times)
         }

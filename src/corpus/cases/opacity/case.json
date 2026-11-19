@@ -1,0 +1,28 @@
+{
+  "about": "Clip A at half opacity for two seconds, then clip B whose opacity is keyed from nothing at its start to whole at its end, in a straight line. Over black, A shows half its light in every frame, and B a sixtieth more each frame. A failure means opacity is not applied, is applied to numbers instead of light, a key is read at the wrong place in the clip, or an ease is put where a straight line was asked for.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 }, "as": "clipB" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clipA", "patch": { "opacity": 0.5 } } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "setClipKey", "clipId": "$clipB", "property": "opacity", "at": 0, "value": 0, "ease": [0, 0, 1, 1] } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "setClipKey", "clipId": "$clipB", "property": "opacity", "at": 1, "value": 1, "ease": [0, 0, 1, 1] } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1, "fade": [0.5, 0.5] },
+      { "frames": [60, 119], "media": "b", "from": 0, "step": 1, "fade": [0, 0.9833] }
+    ]
+  }
+}

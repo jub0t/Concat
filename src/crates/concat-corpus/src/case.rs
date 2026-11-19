@@ -345,6 +345,11 @@ pub struct Run {
     /// is scaled: 8 at half size.
     #[serde(default = "block")]
     pub block: u32,
+    /// How much of the picture shows over black at the run's first frame
+    /// and at its last, 0 to 1, in light, a straight line between: a clip
+    /// whose opacity is set or keyed. Absent, all of it.
+    #[serde(default)]
+    pub fade: Option<[f64; 2]>,
     /// The picture the run's own is melting into, for a run under a
     /// dissolve.
     #[serde(default)]
@@ -385,6 +390,8 @@ pub enum Shows {
     /// and which side of it a sum of fractions falls is not the edit's
     /// doing.
     Either(code::Code, code::Code, [u32; 2], u32),
+    /// A source frame with this share of it showing over black.
+    Faded(code::Code, f64, [u32; 2], u32),
     /// The first source frame melting into the second, with this share of
     /// the second in it.
     Blend(code::Code, code::Code, f64, [u32; 2], u32),
@@ -510,6 +517,11 @@ impl Case {
             let along = frame - run.frames[0];
             let index = run.from + along * run.step / run.per;
             let code = code::Code { tag, index };
+            let span = f64::from((run.frames[1] - run.frames[0]).max(1));
+            if let Some(fade) = run.fade {
+                let share = fade[0] + (fade[1] - fade[0]) * f64::from(along) / span;
+                return Some(Shows::Faded(code, share, run.at, run.block));
+            }
             let Some(into) = &run.into else {
                 return Some(Shows::Code(code, run.at, run.block));
             };
@@ -517,7 +529,6 @@ impl Case {
                 tag: self.media.get(&into.media)?.tag(),
                 index: into.from + along * into.step,
             };
-            let span = f64::from((run.frames[1] - run.frames[0]).max(1));
             let share = into.share[0] + (into.share[1] - into.share[0]) * f64::from(along) / span;
             return Some(Shows::Blend(code, coming, share, run.at, run.block));
         };
