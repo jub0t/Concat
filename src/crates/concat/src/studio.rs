@@ -2023,6 +2023,8 @@ fn command_kind(command: &Command) -> &'static str {
         Command::RemoveFont { .. } => "Remove font",
         Command::UpdateMediaPath { .. } => "Relink media",
         Command::SetMediaColorRange { .. } => "Colour range",
+        Command::SetMediaBeats { marks: None, .. } => "Beats off",
+        Command::SetMediaBeats { .. } => "Beats",
     }
 }
 

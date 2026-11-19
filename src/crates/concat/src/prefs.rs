@@ -168,17 +168,6 @@ pub struct Preferences {
     /// edge, so the monitor shows the exact frame the cut lands on. Off by
     /// default; the tray's button beside the hand turns it on.
     pub trim_follow: bool,
-    /// Beats (Audio › Beats) is on: songs are listened to for their beats,
-    /// marked along their clips and snapped to. Off by default: a song is
-    /// a few seconds of every core, not spent for someone who never cuts
-    /// to music.
-    pub beats_on: bool,
-    /// Edges, splits and the playhead do not snap to beats. Snapping to
-    /// them is the default.
-    pub beats_no_snap: bool,
-    /// Which beats the marks and Cut on beats use: 0 as many as the zoom
-    /// has room for, 1 every beat, 2 every second beat, 3 every bar.
-    pub beat_marks: u8,
     /// The preview axis: the monitor shows the frame under the pointer as
     /// it crosses the lanes, the playhead staying where it is. Off by
     /// default: a monitor that jumps with the pointer startles whoever has

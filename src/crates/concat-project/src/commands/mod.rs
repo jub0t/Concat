@@ -13,10 +13,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Background, Clip, ClipKind, ClipMotion, ColorRange, ColorSpace,
-    Crop, CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty, Mask, MediaItem,
-    MediaKind, MediaOrigin, Project, RunStyle, ShapeStyle, SpeedPoint, Stabilize, Stroke,
-    TextStyle, Timeline, Track, Transition, VideoSettings, VoiceMix,
+    AppliedFilter, AudioTrack, Background, BeatMarks, Clip, ClipKind, ClipMotion, ColorRange,
+    ColorSpace, Crop, CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty,
+    Mask, MediaItem, MediaKind, MediaOrigin, Project, RunStyle, ShapeStyle, SpeedPoint, Stabilize,
+    Stroke, TextStyle, Timeline, Track, Transition, VideoSettings, VoiceMix,
 };
 
 mod audio;
@@ -996,6 +996,17 @@ pub enum Command {
         /// own tag.
         range: Option<ColorRange>,
     },
+    /// Asks for a media file's beats - listened to, marked along every
+    /// clip of it on every timeline at the beats `marks` names, snapped to
+    /// when the timeline snaps - or, with None, stops asking. A file of
+    /// its own, not the app's: one song cut to, another only underneath.
+    /// An unknown id is a no-op.
+    SetMediaBeats {
+        /// The bin item.
+        media_id: String,
+        /// Which beats, or None for none.
+        marks: Option<BeatMarks>,
+    },
 }
 
 /// What a command produced, beyond the new state: the ids it minted, so the
@@ -1374,7 +1385,8 @@ pub fn apply(
         | Command::AddFont { .. }
         | Command::RemoveFont { .. }
         | Command::UpdateMediaPath { .. }
-        | Command::SetMediaColorRange { .. }) => media::apply(project, mint, command),
+        | Command::SetMediaColorRange { .. }
+        | Command::SetMediaBeats { .. }) => media::apply(project, mint, command),
         command @ (Command::AddClip { .. }
         | Command::AddClipAtFirstFree { .. }
         | Command::AddClipsInSequence { .. }

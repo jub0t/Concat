@@ -506,6 +506,7 @@ pub(super) fn apply(
                         origin: item.origin,
                         placeholder: false,
                         color_range: None,
+                        beats: None,
                         color_space: item.color_space,
                         extra: Default::default(),
                     });
@@ -637,6 +638,7 @@ pub(super) fn apply(
                         origin: item.origin,
                         placeholder: false,
                         color_range: None,
+                        beats: None,
                         color_space: item.color_space,
                         extra: Default::default(),
                     });

@@ -14,7 +14,6 @@
   "beats.none": "이 사운드에서 비트를 찾지 못했습니다.",
   "beats.nothingToCut": "먼저 노래 위 트랙에 클립을 놓으세요. 비트에서 나누기가 클립을 나눕니다.",
   "beats.offNote": "곡의 비트를 찾아 클립에 표시하고, 자르기가 비트에 맞춰지게 합니다.",
-  "beats.snap": "비트에 스냅",
   "beats.tempoLabel": "템포",
   "beats.title": "비트",
   "captions.addCaptions": "Add captions",

@@ -3501,23 +3501,21 @@ export component FilterPanel inherits VerticalLayout {
 // declares, so adding a processor is one entry here and no change to the
 // panel. The ids are written into project files, so they are stable forever.
 
-/// A song's beats, under its Treatments. The header's switch turns the
-/// whole of it on - songs listened to, marks along their clips, snapping -
-/// and off, the default. On: the tempo heard, whether to snap, which beats
-/// the marks are, and Cut on beats, which splits the clips over the song
-/// at each mark. Marks follow the zoom unless Marks names a beat: a song's
-/// beats are many, and a wall of ticks reads as nothing.
+/// A file's beats, under its Treatments. The header's switch turns them on
+/// for this file alone - listened to, marked along its clips, snapped to
+/// when the timeline snaps - and off, the default. On: the tempo heard,
+/// which beats the marks are, and Cut on beats, which splits the clips
+/// over the song at each mark. Marks follow the zoom unless Marks names a
+/// beat: a song's beats are many, and a wall of ticks reads as nothing.
 export component BeatsPanel inherits VerticalLayout {
     /// "131 BPM", or empty while there is none to show.
     in property <string> tempo;
     /// What stands in the Tempo row's place: listening, or no beat found.
     in property <string> note;
     in property <bool> on;
-    in property <bool> snap;
     in property <int> marks;
 
     callback on-changed(on: bool);
-    callback snap-changed(on: bool);
     callback marks-changed(index: int);
     callback cut();
 
@@ -3555,11 +3553,6 @@ export component BeatsPanel inherits VerticalLayout {
                 }
             }
             if root.tempo == "" && root.note != "": Note { text: root.note; }
-            SwitchRow {
-                label: I18n.t("beats.snap");
-                checked: root.snap;
-                toggled(value) => { root.snap-changed(value); }
-            }
             Subhead { title: I18n.t("beats.marks"); }
             HorizontalLayout {
                 padding-left: Theme.pad;

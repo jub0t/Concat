@@ -193,17 +193,18 @@ export global Editor {
     /// The adjustment layer's card: the colour panel's package at work.
     in-out property <image> adjustment-art;
     in-out property <[CatalogueEntryData]> catalogue-audio;
-    /// Audio › Beats for the selected sound clip: the tempo heard ("131
-    /// BPM"), or in its place a sentence (listening, or no beat found);
-    /// whether marks show and are snapped to; and which beats they are (0
-    /// the zoom's choice, 1 every beat, 2 every second, 3 every bar).
+    /// Audio › Beats for the selected clip's file, its own and no other
+    /// file's: whether it has sound to listen to (the section shows);
+    /// whether its beats are asked for; the tempo heard ("131 BPM"), or in
+    /// its place a sentence (listening, or no beat found); and which beats
+    /// are marked (0 the zoom's choice, 1 every beat, 2 every second, 3
+    /// every bar). Marks are snapped to when the timeline snaps.
+    in-out property <bool> beats-shown;
     in-out property <string> beats-tempo;
     in-out property <string> beats-note;
     in-out property <bool> beats-on;
-    in-out property <bool> beats-snap: true;
     in-out property <int> beats-marks;
     callback beats-on-changed(on: bool);
-    callback beats-snap-changed(on: bool);
     callback beats-marks-changed(index: int);
     callback beats-cut();
     /// The Library's sound-effect shelf: `catalogue-audio` less the three

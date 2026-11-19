@@ -255,13 +255,12 @@ export component Seat inherits Rectangle {
             peak: Editor.peak;
             add-effect(audio) => { Editor.add-effect(audio); }
             remove-effect(id) => { Editor.remove-effect(id); }
+            beats-shown: Editor.beats-shown;
             beats-tempo: Editor.beats-tempo;
             beats-note: Editor.beats-note;
             beats-on: Editor.beats-on;
-            beats-snap: Editor.beats-snap;
             beats-marks: Editor.beats-marks;
             beats-on-changed(on) => { Editor.beats-on-changed(on); }
-            beats-snap-changed(on) => { Editor.beats-snap-changed(on); }
             beats-marks-changed(index) => { Editor.beats-marks-changed(index); }
             beats-cut => { Editor.beats-cut(); }
 

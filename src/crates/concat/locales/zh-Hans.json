@@ -14,7 +14,6 @@
   "beats.none": "在此声音中未找到节拍。",
   "beats.nothingToCut": "请先在歌曲上方的轨道放置片段：在节拍处分割会分割它们。",
   "beats.offNote": "找出歌曲的节拍，标在片段上，并让剪切吸附到节拍。",
-  "beats.snap": "吸附到节拍",
   "beats.tempoLabel": "速度",
   "beats.title": "节拍",
   "captions.addCaptions": "添加字幕",

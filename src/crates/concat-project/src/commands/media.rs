@@ -59,6 +59,7 @@ pub(super) fn apply(
                 origin: item.origin,
                 placeholder: false,
                 color_range: None,
+                beats: None,
                 color_space: item.color_space,
                 extra: Default::default(),
             });
@@ -205,6 +206,18 @@ pub(super) fn apply(
                 .iter_mut()
                 .find(|item| item.id == media_id)
                 .is_some_and(|item| assign(&mut item.color_range, range));
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetMediaBeats { media_id, marks } => {
+            let applied = project
+                .media
+                .iter_mut()
+                .find(|item| item.id == media_id)
+                .is_some_and(|item| assign(&mut item.beats, marks));
             Ok(Outcome {
                 created_id: None,
                 applied,

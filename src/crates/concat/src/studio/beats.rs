@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
-//! A song's beats in the editor: heard once in the background when a sound
-//! file is in the project, kept in the project's cache, drawn as marks
-//! along its clips and snapped to. See `concat_speech::beats` for the
+//! A file's beats in the editor - a song's, or a video's soundtrack: heard
+//! once in the background when that file's beats are asked for (its own
+//! switch, `MediaItem::beats`), kept in the project's cache, drawn as marks
+//! along its clips and snapped to when the timeline snaps. See `concat_speech::beats` for the
 //! listening.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use concat_project::model::BeatMarks;
 use concat_speech::beats::{Beats, VERSION};
 
 use super::*;
@@ -87,14 +89,96 @@ pub(crate) fn heard_beats(id: String, path: String, project: String) -> HeardBea
     }
 }
 
+/// What Audio › Beats shows for the selected clip's file.
+#[derive(Default)]
+pub(crate) struct BeatsShown {
+    /// The clip's file has sound to listen to: the section is there.
+    pub shown: bool,
+    /// Its beats are asked for.
+    pub on: bool,
+    /// Which, as the Marks control counts them.
+    pub marks: i32,
+    /// "131 BPM", or empty while there is none to show.
+    pub tempo: String,
+    /// What stands in the Tempo row's place: listening, or no beat found.
+    pub note: String,
+}
+
+/// The Marks control's index of `marks`, and back.
+fn marks_index(marks: BeatMarks) -> i32 {
+    match marks {
+        BeatMarks::Zoom => 0,
+        BeatMarks::Every => 1,
+        BeatMarks::Second => 2,
+        BeatMarks::Bar => 3,
+    }
+}
+
+fn marks_of(index: i32) -> BeatMarks {
+    match index {
+        1 => BeatMarks::Every,
+        2 => BeatMarks::Second,
+        3 => BeatMarks::Bar,
+        _ => BeatMarks::Zoom,
+    }
+}
+
+/// Whether `item` has sound to listen to: a sound file, or a video that
+/// carries some.
+fn sounds(item: &model::MediaItem) -> bool {
+    (item.kind == model::MediaKind::Audio || item.has_audio) && !item.placeholder
+}
+
 impl Studio {
-    /// Starts hearing the beats of every sound file in the project that
-    /// has none yet, one job each on the long lane: a song is a couple of
-    /// seconds of every core, and nothing waits on it.
-    pub(crate) fn request_beats(&mut self) {
-        if !self.prefs.beats_on {
+    fn media_item(&self, id: &str) -> Option<&model::MediaItem> {
+        self.project().media.iter().find(|item| item.id == id)
+    }
+
+    /// The file whose beats Audio › Beats speaks of: the sole selected
+    /// clip's, when it plays sound from one.
+    fn beats_media(&self) -> Option<(Clip, &model::MediaItem)> {
+        let clip = self
+            .sole_selection()
+            .and_then(|id| self.clip(&id).cloned())?;
+        if !matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video) {
+            return None;
+        }
+        let item = self
+            .media_item(&clip.media_id)
+            .filter(|item| sounds(item))?;
+        Some((clip, item))
+    }
+
+    /// Audio › Beats' switch: asks for the selected clip's file's beats,
+    /// or stops - for that file alone, an undoable step like any other.
+    pub(crate) fn set_beats_on(&mut self, on: bool) {
+        let Some((_, item)) = self.beats_media() else {
+            return;
+        };
+        let media_id = item.id.clone();
+        let marks = on.then(|| item.beats.unwrap_or_default());
+        self.apply(Command::SetMediaBeats { media_id, marks });
+    }
+
+    /// Audio › Beats' Marks, for the selected clip's file.
+    pub(crate) fn set_beat_marks(&mut self, index: i32) {
+        let Some((_, item)) = self.beats_media() else {
+            return;
+        };
+        if item.beats.is_none() {
             return;
         }
+        let media_id = item.id.clone();
+        self.apply(Command::SetMediaBeats {
+            media_id,
+            marks: Some(marks_of(index)),
+        });
+    }
+
+    /// Starts hearing the beats of every file in the project whose beats
+    /// are asked for and not heard yet, one job each on the long lane: a
+    /// song is a couple of seconds of every core, and nothing waits on it.
+    pub(crate) fn request_beats(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
         };
@@ -104,8 +188,8 @@ impl Studio {
             .media
             .iter()
             .filter(|item| {
-                item.kind == model::MediaKind::Audio
-                    && !item.placeholder
+                item.beats.is_some()
+                    && sounds(item)
                     && !item.path.is_empty()
                     && !self.beats.contains_key(&item.id)
                     && !self.beats_pending.contains(&item.id)
@@ -136,24 +220,33 @@ impl Studio {
     }
 
     /// The beats a clip plays, as timeline seconds and whether each starts
-    /// a bar: its file's beats inside its window, through its speed. None
-    /// for a clip with a speed curve, until the one source-to-timeline map
-    /// (`reports/Beat detection 2026-11-19.md`) carries curves too: no
-    /// marks rather than marks in the wrong place.
-    pub(super) fn clip_beats(&self, clip: &Clip) -> Vec<(f64, bool)> {
-        if clip.kind != model::ClipKind::Audio || clip.speed_curve.is_some() || clip.speed <= 0.0 {
-            return Vec::new();
+    /// a bar - its file's beats inside its window, through its speed - and
+    /// which of them its file asks to be marked. Empty when the file's
+    /// beats are not asked for, and for a clip with a speed curve until
+    /// the one source-to-timeline map (`reports/Beat detection
+    /// 2026-11-19.md`) carries curves too: no marks rather than marks in
+    /// the wrong place.
+    pub(super) fn clip_beats(&self, clip: &Clip) -> (Vec<(f64, bool)>, BeatMarks) {
+        if !matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video)
+            || clip.speed_curve.is_some()
+            || clip.speed <= 0.0
+        {
+            return Default::default();
         }
-        let Some(beats) = self.beats.get(&clip.media_id) else {
-            return Vec::new();
+        let Some(marks) = self.media_item(&clip.media_id).and_then(|item| item.beats) else {
+            return Default::default();
         };
-        placed(
+        let Some(beats) = self.beats.get(&clip.media_id) else {
+            return Default::default();
+        };
+        let placed = placed(
             beats,
             clip.start,
             clip.source_start,
             clip.duration,
             clip.speed,
-        )
+        );
+        (placed, marks)
     }
 
     /// A clip's beat marks as path commands in a 1x1 box its width: the
@@ -166,10 +259,8 @@ impl Studio {
         if clip.duration <= 0.0 {
             return Default::default();
         }
-        if !self.prefs.beats_on {
-            return Default::default();
-        }
-        let placed = chosen(&self.clip_beats(clip), self.prefs.beat_marks);
+        let (placed, marks) = self.clip_beats(clip);
+        let placed = chosen(&placed, marks);
         let (every, bars) = marks_at(&placed, f64::from(self.lanes.seconds_per_pixel));
         let path = |times: &[f64]| -> SharedString {
             let mut path = String::new();
@@ -182,38 +273,55 @@ impl Studio {
         (path(&every), path(&bars))
     }
 
-    /// What Audio › Beats says of the selected clip: its tempo, for the
-    /// Tempo row, or a sentence in its place - that it is being listened
-    /// to, or that it has no beat. Both empty for anything but a sound clip.
-    pub(crate) fn beats_status(&self) -> (String, String) {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id).cloned()) else {
-            return Default::default();
+    /// What Audio › Beats shows of the selected clip's file: whether it is
+    /// there at all (a file with sound), whether the file's beats are
+    /// asked for and which, and its tempo for the Tempo row or a sentence
+    /// in its place - that it is being listened to, or that it has no beat.
+    pub(crate) fn beats_shown(&self) -> BeatsShown {
+        let Some((_, item)) = self.beats_media() else {
+            return BeatsShown::default();
         };
-        if clip.kind != model::ClipKind::Audio {
-            return Default::default();
-        }
-        match self.beats.get(&clip.media_id).map(|beats| beats.tempo) {
+        let Some(marks) = item.beats else {
+            return BeatsShown {
+                shown: true,
+                ..BeatsShown::default()
+            };
+        };
+        let (tempo, note) = match self.beats.get(&item.id).map(|beats| beats.tempo) {
             Some(Some(tempo)) => (
                 crate::i18n::tf("beats.bpm", &[&format!("{tempo:.0}")]),
                 String::new(),
             ),
             Some(None) => (String::new(), crate::i18n::t("beats.none")),
-            None if self.beats_failed.contains(&clip.media_id) => {
+            None if self.beats_failed.contains(&item.id) => {
                 (String::new(), crate::i18n::t("beats.none"))
             }
             None => (String::new(), crate::i18n::t("beats.listening")),
+        };
+        BeatsShown {
+            shown: true,
+            on: true,
+            marks: marks_index(marks),
+            tempo,
+            note,
         }
     }
 
     /// Cut on beats: every clip on another track over the selected song is
-    /// split at each of its marks (every beat, second beat or bar as Marks
-    /// says), in one step to undo. Splits go on the frame grid, and none
-    /// closer than a frame-and-a-bit to a clip's own edge.
+    /// split at each of its marks (every beat, second beat or bar as its
+    /// Marks says; every beat when Marks follows the zoom), in one step to
+    /// undo. Splits go on the frame grid, and none closer than a
+    /// frame-and-a-bit to a clip's own edge.
     pub(crate) fn cut_on_beats(&mut self) {
-        let Some(song) = self.sole_selection().and_then(|id| self.clip(&id).cloned()) else {
+        let Some((song, _)) = self.beats_media() else {
             return;
         };
-        let marks: Vec<f64> = chosen(&self.clip_beats(&song), self.prefs.beat_marks.max(1))
+        let (placed, marks) = self.clip_beats(&song);
+        let marks = match marks {
+            BeatMarks::Zoom => BeatMarks::Every,
+            marks => marks,
+        };
+        let marks: Vec<f64> = chosen(&placed, marks)
             .into_iter()
             .map(|(time, _)| time)
             .collect();
@@ -259,17 +367,15 @@ impl Studio {
         self.apply(Command::Batch { commands });
     }
 
-    /// Every beat of the timeline's sound clips, in timeline seconds: what
-    /// a dragged edge, a split or the playhead snaps to beside the cuts.
+    /// Every beat of the timeline's clips whose files' beats are asked
+    /// for, in timeline seconds: what a dragged edge, a split or the
+    /// playhead snaps to beside the cuts, when the timeline snaps.
     pub(super) fn timeline_beats(&self) -> Vec<f64> {
-        if !self.prefs.beats_on || self.prefs.beats_no_snap {
-            return Vec::new();
-        }
         self.timeline()
             .clips
             .iter()
             .filter(|clip| clip.muted != Some(true))
-            .flat_map(|clip| self.clip_beats(clip).into_iter().map(|(time, _)| time))
+            .flat_map(|clip| self.clip_beats(clip).0.into_iter().map(|(time, _)| time))
             .collect()
     }
 }
@@ -293,11 +399,12 @@ fn placed(
         .collect()
 }
 
-/// The beats Marks asks for of `placed`: all (0, 1), every second beat
-/// counted from each bar's first (2), or the bars' first beats (3).
-fn chosen(placed: &[(f64, bool)], marks: u8) -> Vec<(f64, bool)> {
+/// The beats Marks asks for of `placed`: all (as the zoom has room for,
+/// or every one), every second beat counted from each bar's first, or the
+/// bars' first beats.
+fn chosen(placed: &[(f64, bool)], marks: BeatMarks) -> Vec<(f64, bool)> {
     match marks {
-        2 => {
+        BeatMarks::Second => {
             let mut since_bar = 0usize;
             placed
                 .iter()
@@ -308,7 +415,7 @@ fn chosen(placed: &[(f64, bool)], marks: u8) -> Vec<(f64, bool)> {
                 .copied()
                 .collect()
         }
-        3 => placed.iter().filter(|(_, bar)| *bar).copied().collect(),
+        BeatMarks::Bar => placed.iter().filter(|(_, bar)| *bar).copied().collect(),
         _ => placed.to_vec(),
     }
 }
@@ -357,6 +464,7 @@ fn file_name_of(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use concat_project::model::BeatMarks;
     use concat_speech::beats::{Beat, Beats};
 
     fn every_half_second() -> Beats {
@@ -401,11 +509,12 @@ mod tests {
     #[test]
     fn marks_picks_the_beats() {
         let placed = super::placed(&every_half_second(), 0.0, 0.0, 10.0, 1.0);
-        assert_eq!(super::chosen(&placed, 0).len(), 20);
-        let second = super::chosen(&placed, 2);
+        assert_eq!(super::chosen(&placed, BeatMarks::Zoom).len(), 20);
+        assert_eq!(super::chosen(&placed, BeatMarks::Every).len(), 20);
+        let second = super::chosen(&placed, BeatMarks::Second);
         assert_eq!(second.len(), 10);
         assert!((second[1].0 - second[0].0 - 1.0).abs() < 1e-12);
-        let bars = super::chosen(&placed, 3);
+        let bars = super::chosen(&placed, BeatMarks::Bar);
         assert_eq!(bars.len(), 5);
         assert!(bars.iter().all(|(_, bar)| *bar));
     }

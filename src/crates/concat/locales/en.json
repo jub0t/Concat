@@ -14,7 +14,6 @@
   "beats.none": "No beat found in this sound.",
   "beats.nothingToCut": "Put clips on a track over the song first: Cut on beats splits them.",
   "beats.offNote": "Finds the song's beats, marks them on its clip, and lets cuts snap to them.",
-  "beats.snap": "Snap to beats",
   "beats.tempoLabel": "Tempo",
   "beats.title": "Beats",
   "captions.addCaptions": "Add captions",

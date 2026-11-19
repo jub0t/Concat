@@ -205,12 +205,12 @@ impl Studio {
     /// event of a scrub, a drag, a trim or a knob.
     pub fn publish_lanes(&self, app: &App, models: &Models) {
         let editor = app.global::<Editor>();
-        let (tempo, note) = self.beats_status();
-        editor.set_beats_tempo(tempo.into());
-        editor.set_beats_note(note.into());
-        editor.set_beats_on(self.prefs.beats_on);
-        editor.set_beats_snap(!self.prefs.beats_no_snap);
-        editor.set_beats_marks(i32::from(self.prefs.beat_marks));
+        let beats = self.beats_shown();
+        editor.set_beats_shown(beats.shown);
+        editor.set_beats_tempo(beats.tempo.into());
+        editor.set_beats_note(beats.note.into());
+        editor.set_beats_on(beats.on);
+        editor.set_beats_marks(beats.marks);
         let project = self.project();
         sync(
             &models.tabs,

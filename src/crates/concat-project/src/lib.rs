@@ -3985,6 +3985,74 @@ mod tests {
         );
     }
 
+    /// A file's beats are asked for on that file alone: set, saved as a
+    /// word, left out of the document while off, undone like any edit; an
+    /// unknown item is a no-op.
+    #[test]
+    fn a_files_beats_are_its_own_undoable_edit_that_round_trips() {
+        use crate::model::BeatMarks;
+        let (mut editor, media_id, _clip_id) = fixture();
+        assert_eq!(editor.project().media[0].beats, None);
+        let before = editor.project().clone();
+
+        let on = editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: Some(BeatMarks::Zoom),
+            })
+            .expect("sets");
+        assert!(on.applied);
+        editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: Some(BeatMarks::Bar),
+            })
+            .expect("sets");
+        let saved = editor.to_document(&settings());
+        assert_eq!(saved["media"][0]["beats"], "bar");
+        let reopened = Editor::from_document(&saved).expect("loads");
+        assert_eq!(reopened.project().media[0].beats, Some(BeatMarks::Bar));
+        let untold = crate::doc::to_document(&settings(), &before);
+        assert!(untold["media"][0].get("beats").is_none());
+        let mut odd = saved.clone();
+        odd["media"][0]["beats"] = json!("everyThird");
+        let tolerant = Editor::from_document(&odd).expect("loads");
+        assert_eq!(tolerant.project().media[0].beats, None);
+
+        editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: None,
+            })
+            .expect("clears");
+        assert_eq!(editor.project().media[0].beats, None);
+        let gone = editor
+            .apply(Command::SetMediaBeats {
+                media_id: "m999".to_owned(),
+                marks: Some(BeatMarks::Every),
+            })
+            .expect("an unknown item is a no-op");
+        assert!(!gone.applied);
+        editor.undo();
+        assert_eq!(
+            editor.project().media[0].beats,
+            Some(BeatMarks::Bar),
+            "undo of the switch-off brings the file's marks back"
+        );
+
+        let parsed: Command = serde_json::from_value(json!({
+            "op": "setMediaBeats", "mediaId": "m1", "marks": "second"
+        }))
+        .expect("parses");
+        assert!(matches!(
+            parsed,
+            Command::SetMediaBeats {
+                marks: Some(BeatMarks::Second),
+                ..
+            }
+        ));
+    }
+
     #[test]
     fn a_slot_fills_in_place_keeping_the_template_timing() {
         let (mut editor, media_id, clip_id) = fixture();
@@ -5579,6 +5647,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            beats: None,
             color_space: Default::default(),
             origin: None,
             extra: Default::default(),
@@ -5618,6 +5687,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            beats: None,
             color_space: Default::default(),
             origin: None,
             extra: Default::default(),

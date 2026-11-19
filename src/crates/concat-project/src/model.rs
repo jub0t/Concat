@@ -127,6 +127,24 @@ pub struct AudioTrack {
     pub language: String,
 }
 
+/// Which of a file's beats are marked along its clips, and where Cut on
+/// beats cuts; see [`MediaItem::beats`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BeatMarks {
+    /// As many as the zoom has room for: every beat, or the first of each
+    /// bar, or every fourth bar. Cut on beats cuts at every beat.
+    #[default]
+    Zoom,
+    /// Every beat.
+    Every,
+    /// Every second beat, counted from each bar's first.
+    Second,
+    /// The first beat of each bar.
+    Bar,
+}
+
 /// The levels a media file's picture spans, when the person says so over
 /// whatever the file claims: video range, 16-235, or full range, 0-255.
 /// A screen recording written full and tagged nothing plays grey where it
@@ -214,6 +232,15 @@ pub struct MediaItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub origin: Option<MediaOrigin>,
+    /// The file's beats are wanted: its sound is listened to for them,
+    /// they are marked along its clips at the beats named, and a dragged
+    /// edge, a split or the playhead snaps to them when the timeline
+    /// snaps. Absent, and left out of the document, for a file whose beats
+    /// nobody asked for - most of them, so none is listened to unasked.
+    /// Set with `Command::SetMediaBeats`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub beats: Option<BeatMarks>,
     /// Fields this build does not know, kept so a document written by a
     /// newer or a different build round-trips through this one intact.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
