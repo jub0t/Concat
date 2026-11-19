@@ -1244,6 +1244,20 @@ name = "concat-core"
 version = "0.2.12"
 
 [[package]]
+name = "concat-corpus"
+version = "0.2.12"
+dependencies = [
+ "base64 0.22.1",
+ "concat-api",
+ "concat-core",
+ "concat-host",
+ "concat-media",
+ "png 0.17.16",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "concat-effects"
 version = "0.2.12"
 dependencies = [
