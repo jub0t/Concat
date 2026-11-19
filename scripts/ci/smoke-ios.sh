@@ -25,7 +25,8 @@
 #      first log line (the logger's "Concat <version> · ios ...") is there.
 #
 # --no-smoke leaves out the first part. Whatever the outcome it leaves in
-# DIR (smoke-ios by default): the app's own output from both runs, the
+# DIR (smoke-ios by default): the app's own output and log from both runs
+# (the checks read the log; see app_log), the
 # system log of its process, a screenshot at the end, and any crash report
 # the run left. CI uploads that folder. Runs in CI (mobile.yml) and locally
 # on a Mac with Xcode; needs python3 to read simctl's lists.
@@ -99,7 +100,7 @@ cleanup() {
 trap cleanup EXIT
 
 fail() {
-  for f in "$out/smoke-run.txt" "$out/console.txt"; do
+  for f in "$out/smoke-run.log" "$out/smoke-run.txt" "$out/console.log" "$out/console.txt"; do
     if [ -s "$f" ]; then
       echo "-- the last lines of $(basename "$f") --"
       tail -n 60 "$f"
@@ -179,20 +180,40 @@ log_pid=$!
 # or worse.
 fatal='panicked at|Terminating app due to uncaught exception|Preview failed|(ERROR|WARN) +preview {2,}|could not start|event loop exited [(]ok=false[)]'
 
+# The newest of the app's own log files, newer than the file $1, copied to
+# $2; false when there is none. The app writes each line whole into it
+# before anything else (docs/LOGGING.md), while simctl's pty loses lines:
+# the start of one run, the end of another, whose last lines - "smoke ok"
+# among them - were still on their way when the process ended and the pty
+# with it (v0.2.12-rc.1). So the checks read the file, and the pty's copy
+# is kept for what the app said before its logger was up.
+app_log() {
+  local since=$1 to=$2 data newest
+  data=$(xcrun simctl get_app_container "$device" "$bundle_id" data 2>/dev/null) || return 1
+  newest=$(find "$data/Library" -name 'concat-*.log' -newer "$since" -print0 2>/dev/null \
+    | xargs -0 ls -t 2>/dev/null | head -n 1)
+  [ -n "$newest" ] || return 1
+  cp "$newest" "$to"
+}
+
 if [ "$smoke" = 1 ]; then
   say "$executable --smoke"
   status=0
+  before=$(mktemp)
   limit 180 xcrun simctl launch --console-pty --terminate-running-process "$device" "$bundle_id" --smoke \
     > "$out/smoke-run.txt" 2>&1 || status=$?
-  tail -n 40 "$out/smoke-run.txt"
   [ "$status" -ne 142 ] || fail "--smoke was still running after 180s"
   # The console is a pty, so the log colours its lines; the checks below read
   # them without the colour codes, which sat between "smoke" and "ok".
   sed -E $'s/\x1b\\[[0-9;]*m//g' "$out/smoke-run.txt" > "$out/smoke-run.plain.txt"
-  if found=$(grep -E -m 5 "$fatal" "$out/smoke-run.plain.txt"); then
+  app_log "$before" "$out/smoke-run.log" || fail "--smoke left no log of its own (simctl exited $status)"
+  rm -f "$before"
+  echo "-- the run's log --"
+  tail -n 40 "$out/smoke-run.log"
+  if found=$(cat "$out/smoke-run.log" "$out/smoke-run.plain.txt" | grep -E -m 5 "$fatal"); then
     fail "--smoke failed: $(head -n 1 <<< "$found")"
   fi
-  grep -E -q ' smoke +ok' "$out/smoke-run.plain.txt" || fail "--smoke ended without \"smoke: ok\" (simctl exited $status)"
+  grep -E -q ' smoke +ok' "$out/smoke-run.log" || fail "--smoke ended without \"smoke: ok\" (simctl exited $status)"
   # "smoke: ok" and then a crash on the way out is still a crash: v0.2.7-rc.2's
   # Linux arm64 bundle did exactly that. simctl's --console-pty ends with
   # the app's process; whether its status is the app's own is for the first
@@ -201,6 +222,7 @@ if [ "$smoke" = 1 ]; then
 fi
 
 say "start $bundle_id, and watch it for ${wait_secs}s"
+before=$(mktemp)
 xcrun simctl launch --console-pty --terminate-running-process "$device" "$bundle_id" \
   > "$out/console.txt" 2>&1 &
 launch_pid=$!
@@ -221,11 +243,17 @@ while [ "$SECONDS" -lt "$deadline" ]; do
 done
 
 say "the outcome"
-# The logger's first line, written once the app's own code is running.
-grep -E -q 'Concat [0-9][^ ]* · ios' "$out/console.txt" \
-  || fail "the app's first log line (\"Concat <version> · ios ...\") never reached its output"
-echo "-- the app's output --"
-head -n 40 "$out/console.txt"
+# The logger's first line, written once the app's own code is running, in
+# the run's own log (see app_log), and anything fatal the pty lost.
+app_log "$before" "$out/console.log" || fail "the app left no log of its own"
+rm -f "$before"
+if found=$(grep -E -m 5 "$fatal" "$out/console.log"); then
+  fail "the app failed on start: $(head -n 1 <<< "$found")"
+fi
+grep -E -q 'Concat [0-9][^ ]* · ios' "$out/console.log" \
+  || fail "the app's log has no first line (\"Concat <version> · ios ...\")"
+echo "-- the run's log --"
+head -n 40 "$out/console.log"
 echo
 echo "the app is up after ${wait_secs}s with nothing fatal in its output; see $out/"
 say "ok"

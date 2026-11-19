@@ -337,7 +337,15 @@ impl Titles {
                     hidden: !track.visible,
                     muted: true,
                     volume: 0.0,
-                    animation: concat_export::flatten::export_keys(clip),
+                    // A title's width and height keys go the way its
+                    // constant pull does, below: never onto the glyphs.
+                    animation: concat_export::flatten::export_keys(clip)
+                        .into_iter()
+                        .filter(|key| {
+                            matches!(painting, Painting::Shape(_))
+                                || !matches!(key.property.as_str(), "stretchX" | "stretchY")
+                        })
+                        .collect(),
                     // What a media clip carries in the flattening and a
                     // title or a shape would otherwise lose here, starting
                     // from blank: the Animate moves, the mask and the
@@ -369,11 +377,11 @@ impl Titles {
                     // the rectangle that was wanted.
                     stretch_x: match painting {
                         Painting::Title(_) => 1.0,
-                        Painting::Shape(_) => clip.stretch_x,
+                        Painting::Shape(_) => export_base(clip, KeyProperty::StretchX),
                     },
                     stretch_y: match painting {
                         Painting::Title(_) => 1.0,
-                        Painting::Shape(_) => clip.stretch_y,
+                        Painting::Shape(_) => export_base(clip, KeyProperty::StretchY),
                     },
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
@@ -984,6 +992,28 @@ mod tests {
             out[0].clip.scale, 1.03,
             "the scale is honoured; only the stretch is not"
         );
+
+        // Nor by keys: a keyed width on a title is dropped with its
+        // constant, and its other keys still play.
+        for (property, value) in [(KeyProperty::StretchX, 3.0), (KeyProperty::Scale, 2.0)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: id.clone(),
+                    property,
+                    at: 0.5,
+                    value,
+                    ease: Default::default(),
+                })
+                .expect("keys");
+        }
+        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        let names: Vec<&str> = out[0]
+            .clip
+            .animation
+            .iter()
+            .map(|key| key.property.as_str())
+            .collect();
+        assert_eq!(names, ["scale"]);
     }
 
     /// A text clip comes back as an image clip on its own track, pointing

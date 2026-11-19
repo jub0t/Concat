@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Sobre
 
-O Concat é um editor de vídeo gratuito e de código aberto para macOS, Windows, Linux e Android. Ele cobre o que a maioria das edições precisa: legendas automáticas, texto para fala, remoção de fundo, animação por keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
+O Concat é um editor de vídeo gratuito e de código aberto para macOS, Windows, Linux, Android e iOS. Ele cobre o que a maioria das edições precisa: legendas automáticas, isolamento de voz, texto para fala, remoção de fundo, animações e keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
 
 Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instale, solte o material, corte. Os modelos de IA para legendas, vozes e recorte são baixados uma vez nas Configurações e depois funcionam offline. Seu material nunca sai do seu disco.
 
@@ -55,20 +55,25 @@ Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instal
 ## Destaques
 
 - 🚫 **Sem marca d’água. Sem conta. Sem paywall.** Nunca.
-- 🔒 **100 % local.** Nada é enviado. Funciona offline.
-- 💬 **Legendas automáticas.** Whisper local. Escolha o tamanho do modelo e receba legendas estilizadas na linha do tempo.
-- 🗣️ **Texto para fala + clonagem de voz.** Vozes locais gratuitas, ou qualquer voz a partir de alguns segundos de gravação.
-- 🧍 **Remoção de fundo.** Pessoas, objetos, ou pinte a máscara você mesmo.
-- 🎞️ **Keyframes.** Posição, escala, rotação, opacidade, volume, parâmetros de efeitos. Editor de curvas embutido.
-- ✨ **100 efeitos, filtros e transições.** Renderizados na GPU, ao vivo na prévia.
-- ✂️ **Corte rápido.** Dividir, aparar, ripple, mesclar, congelar quadro, velocidade. Linha do tempo magnética se você quiser.
-- 🎚️ **Multipista, múltiplas linhas do tempo.** Vários cortes em um projeto. Modos de mesclagem, corte, inversões.
-- 📝 **Títulos.** Fontes, contorno, sombra, placa de fundo. Predefinições para começar.
-- 🎙️ **Limpeza de voz com um interruptor.** Reduzir ruído, realçar a voz, nivelar o volume. Mais esquilo, robô, telefone e companhia.
-- 📤 **Exportação.** H.264, HEVC, AV1. Até 4K 60, cor de 10 bits.
-- 🦀 **Motor nativo em Rust.** Compositor na GPU, proxies, decodificação por hardware. O 4K navega suavemente.
+- 🔒 **100% local.** Nada é enviado, nem a IA. Funciona offline.
+- 💬 **Legendas automáticas.** No idioma que você fala, geradas no seu computador, estilizadas e já na linha do tempo.
+- 🎤 **Isolamento de voz.** Tire uma voz da música ou do ruído, ou remova-a, cada parte no seu próprio nível.
+- 🗣️ **Texto para fala + clonagem de voz.** Uma voz local gratuita, ou qualquer voz a partir de alguns segundos de gravação. No desktop.
+- 🧍 **Remoção de fundo, chroma key e máscaras.** Pessoas e objetos recortados para você, uma tela verde que se recorta sozinha e uma pilha de máscaras em cada clipe, cada uma com seu próprio modo e seus keyframes.
+- 🌀 **Animações de entrada, saída e loop.** Para clipes, imagens, títulos e formas. Cada uma toca no seu cartão antes de você escolher.
+- ✨ **Mais de 100 efeitos, filtros e transições, 25 efeitos sonoros.** Visuais cinematográficos, tremores e impactos, retrô, cortinas, tudo ao vivo na prévia. Uma transição é um clipe que você move e apara como qualquer outro.
+- 🎞️ **Keyframes.** Posição, escala, tamanho, rotação, opacidade, volume, parâmetros de efeitos. Editor de curvas embutido.
+- 🏃 **Rampas e curvas de velocidade.** Constantes ou desenhadas, suaves ou retas. Congelamento de quadro e reverso.
+- 🪄 **Melhorar e Estabilizar.** Recupere imagens suaves ou antigas, até 2K. Acalme uma cena tremida.
+- ✂️ **Corte rápido, corte exato.** Dividir, aparar, ripple, mesclar, legendas e sobreposições vinculadas, linha do tempo magnética se você quiser. Todo corte cai no quadro, igual na prévia e na exportação.
+- 🎚️ **Multipista, multilinha do tempo.** Empilhe vídeo, imagens, títulos e formas em quantas pistas quiser. Vários cortes em um projeto. Modos de mesclagem, recorte, espelhamento.
+- 📝 **Títulos e formas.** Fontes, contorno, sombra, placas, emoji coloridos e predefinições para árabe, chinês, hindi, tailandês e mais oito idiomas. Formas com gradientes, estrelas, contornos e sombras.
+- 🎙️ **Narração e limpeza de voz com um interruptor.** Grave sobre o seu corte. Remoção de ruído, melhoria da voz, nivelamento do volume. Mais esquilo, robô, telefone e companhia.
+- 📤 **Exportação.** H.264, HEVC, AV1, com o codificador do próprio computador. Até 4K 60, cor de 10 bits.
+- ⚡ **Rápido.** Proxies embutidos, para o 4K rolar com fluidez. Os títulos são desenhados em todos os núcleos, e cada efeito fica pronto assim que a janela abre.
+- 🛟 **Continua em qualquer máquina.** Quando o chip gráfico desiste, a prévia continua desenhando.
 - 🤖 **Automatizável.** Uma API JSON-RPC com a qual scripts e agentes de IA podem cortar vídeo. Compilando a partir do código-fonte, você ganha também gRPC e uma ferramenta de linha de comando.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 idiomas. O mesmo app, os mesmos arquivos de projeto.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 idiomas. O mesmo app, os mesmos arquivos de projeto.
 
 ## Download
 

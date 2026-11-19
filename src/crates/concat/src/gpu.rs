@@ -131,11 +131,32 @@ impl Gpu {
             )
         })
         .ok()?;
+        // A device Direct3D 12 had already removed, handed back because
+        // something in the process still holds it, dies at its first
+        // frame: the window opens without one rather than draw on it.
+        if let Some(reason) = concat_render::gpu::removed(&device) {
+            log::error!(
+                "gpu: {} handed back a device Direct3D 12 had already removed ({reason}): \
+                 something in this process still holds the dead one; the window opens without one",
+                info.name
+            );
+            return None;
+        }
+        // The card's memory as the window's device opens, a line a heap:
+        // what a later "out of memory" needs, to tell a full card from a
+        // gate that refused with room to spare (#746, #802).
+        concat_render::memory::Memory::of_adapter(&adapter)
+            .say(log::Level::Info, "as the window's device opened");
         // Said in the log when it dies, with wgpu's reason: the one line a
         // report of "the GPU device was lost" needs, which until now there
         // was none of. https://github.com/jub0t/Concat/issues/223
+        // Lost to the memory gates, or refused by them, the figures behind
+        // it are said too, once (see `concat_render::memory::ran_out`). The
+        // adapter they are read through goes with the device.
+        let memory_said = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let marked = std::sync::Arc::clone(&lost);
+        let (said, on) = (std::sync::Arc::clone(&memory_said), adapter.clone());
         device.set_device_lost_callback(move |reason, message| {
             marked.store(true, std::sync::atomic::Ordering::Relaxed);
             let why = match reason {
@@ -145,15 +166,26 @@ impl Gpu {
             log::error!(
                 "gpu: the window's device was lost, as {why}: {message}; the window cannot draw on it again"
             );
+            if concat_render::memory::says_out_of_memory(&message) {
+                concat_render::memory::ran_out(&said, "the window's device", || {
+                    concat_render::memory::Memory::of_adapter(&on)
+                });
+            }
         });
         // An error no scope caught goes to the log too. wgpu's default
         // handler panics, and on this device that is the window's thread:
         // a texture past the limit, asked for by anything that draws on it,
         // took the app down where a bad frame would do.
-        device.on_uncaptured_error(std::sync::Arc::new(|error: wgpu::Error| {
+        let on = adapter.clone();
+        device.on_uncaptured_error(std::sync::Arc::new(move |error: wgpu::Error| {
             log::error!(
                 "gpu: something drawing on the window's device was refused: {error}; that drawing is skipped"
             );
+            if matches!(error, wgpu::Error::OutOfMemory { .. }) {
+                concat_render::memory::ran_out(&memory_said, "the window's device", || {
+                    concat_render::memory::Memory::of_adapter(&on)
+                });
+            }
         }));
         Some(Gpu {
             instance,

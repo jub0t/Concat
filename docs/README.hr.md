@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## O projektu
 
-Concat je besplatan videouređivač otvorenog koda za macOS, Windows, Linux i Android. Pokriva ono što treba većini montaža: automatske titlove, pretvorbu teksta u govor, uklanjanje pozadine, animaciju ključnim kadrovima, efekte i naslove, višetračno rezanje, izvoz u 4K. Bez ikakvih kvaka: bez vodenog žiga, bez računa, bez pretplate, bez učitavanja.
+Concat je besplatan videouređivač otvorenog koda za macOS, Windows, Linux, Android i iOS. Pokriva ono što treba većini montaža: automatske titlove, izdvajanje glasa, pretvorbu teksta u govor, uklanjanje pozadine, animacije i ključne kadrove, efekte i naslove, višetračno rezanje, izvoz u 4K. Bez ikakvih kvaka: bez vodenog žiga, bez računa, bez pretplate, bez učitavanja.
 
 Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, ubacite snimke, režite. AI modeli za titlove, glasove i izrezivanje preuzimaju se jednom iz Postavki i nakon toga rade izvan mreže. Vaše snimke nikada ne napuštaju vaš disk.
 
@@ -55,20 +55,25 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 ## Istaknuto
 
 - 🚫 **Bez vodenih žigova. Bez računa. Bez naplate.** Nikad.
-- 🔒 **100 % lokalno.** Ništa se ne učitava. Radi izvan mreže.
-- 💬 **Automatski titlovi.** Lokalni Whisper. Odaberite veličinu modela i dobit ćete stilizirane titlove na vremenskoj crti.
-- 🗣️ **Tekst u govor + kloniranje glasa.** Besplatni lokalni glasovi ili bilo koji glas iz nekoliko sekundi snimke.
-- 🧍 **Uklanjanje pozadine.** Osobe, predmeti ili sami nacrtajte masku.
-- 🎞️ **Ključni kadrovi.** Položaj, skala, rotacija, prozirnost, glasnoća, parametri efekata. Ugrađeni uređivač krivulja.
-- ✨ **100 efekata, filtara i prijelaza.** Iscrtano na GPU-u, uživo u pregledu.
-- ✂️ **Brzo rezanje.** Podijeli, skrati, ripple, spoji, zamrzni kadar, brzina. Magnetska vremenska crta ako je želite.
-- 🎚️ **Više traka, više vremenskih crta.** Više montaža u jednom projektu. Načini stapanja, obrezivanje, zrcaljenja.
-- 📝 **Naslovi.** Fontovi, obrub, sjena, pozadinska pločica. Predlošci za početak.
-- 🎙️ **Čišćenje glasa jednim prekidačem.** Uklanjanje šuma, poboljšanje glasa, izjednačavanje glasnoće. Plus vjeverica, robot, telefon i društvo.
-- 📤 **Izvoz.** H.264, HEVC, AV1. Do 4K 60, 10-bitna boja.
-- 🦀 **Nativni Rust motor.** GPU kompozitor, proxyji, hardversko dekodiranje. 4K se pregledava glatko.
+- 🔒 **100 % lokalno.** Ništa se ne učitava, ni umjetna inteligencija. Radi izvan mreže.
+- 💬 **Automatski titlovi.** Na jeziku kojim govorite, napravljeni na vašem računalu, stilizirani i odmah na vremenskoj crti.
+- 🎤 **Izdvajanje glasa.** Izvucite glas iz glazbe ili buke, ili ga uklonite, svaki dio na svojoj razini.
+- 🗣️ **Pretvorba teksta u govor + kloniranje glasa.** Besplatan lokalni glas ili bilo koji glas iz nekoliko sekundi snimke. Na računalu.
+- 🧍 **Uklanjanje pozadine, chroma key i maske.** Ljudi i objekti izrezani umjesto vas, zeleni zaslon koji se sam uklanja i hrpa maski na svakom klipu, svaka sa svojim načinom i ključnim kadrovima.
+- 🌀 **Animacije ulaza, izlaza i petlje.** Za klipove, slike, naslove i oblike. Svaka se reproducira na svojoj kartici prije nego što je odaberete.
+- ✨ **Više od 100 efekata, filtara i prijelaza, 25 zvučnih efekata.** Filmski izgledi, tresnje i udari, retro, brisanja, sve uživo u pregledu. Prijelaz je klip koji pomičete i skraćujete kao i svaki drugi.
+- 🎞️ **Ključni kadrovi.** Položaj, mjerilo, veličina, rotacija, neprozirnost, glasnoća, parametri efekata. Uređivač krivulja je ugrađen.
+- 🏃 **Rampe i krivulje brzine.** Stalne ili nacrtane, glatke ili ravne. Zamrznuti kadrovi i obrnuto.
+- 🪄 **Poboljšaj i Stabiliziraj.** Obnovite mutan ili stari snimak, do 2K. Smirite drhtav kadar.
+- ✂️ **Režite brzo, režite točno.** Podijeli, skrati, ripple, spoji, povezani titlovi i preklapanja, magnetska vremenska crta ako je želite. Svaki rez pada točno na kadar, jednako u pregledu i u izvozu.
+- 🎚️ **Višetračno, s više vremenskih crta.** Slažite video, slike, naslove i oblike na koliko god tračaka želite. Više rezova u jednom projektu. Načini stapanja, obrezivanje, zrcaljenje.
+- 📝 **Naslovi i oblici.** Fontovi, obrub, sjena, podloge, emotikoni u boji i predlošci za arapski, kineski, hindi, tajlandski i još osam jezika. Oblici s gradijentima, zvijezde, obrisi i sjene.
+- 🎙️ **Govorni komentar i čišćenje glasa jednim prekidačem.** Snimajte preko svog reza. Uklanjanje šuma, poboljšanje glasa, izjednačavanje glasnoće. Plus vjeverica, robot, telefon i društvo.
+- 📤 **Izvoz.** H.264, HEVC, AV1, na kodeku samog računala. Do 4K 60, 10-bitna boja.
+- ⚡ **Brzo.** Proxyji su ugrađeni da se 4K glatko pomiče. Naslovi se crtaju na svim jezgrama, a svaki je efekt spreman čim se prozor otvori.
+- 🛟 **Nastavlja raditi na svakom računalu.** Kad grafički čip odustane, pregled i dalje crta.
 - 🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje gRPC i alat za naredbeni redak.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 jezika. Ista aplikacija, iste datoteke projekta.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 jezika. Ista aplikacija, iste datoteke projekata.
 
 ## Preuzimanje
 

@@ -1710,6 +1710,8 @@ export component VideoPanel inherits VerticalLayout {
 
             Param {
                 label: I18n.t("common.width");
+                keyable: true;
+                field: ClipField.stretch-x;
                 value <=> root.stretch-x;
                 minimum: 0.1;
                 maximum: 4;
@@ -1723,6 +1725,8 @@ export component VideoPanel inherits VerticalLayout {
 
             Param {
                 label: I18n.t("common.height");
+                keyable: true;
+                field: ClipField.stretch-y;
                 value <=> root.stretch-y;
                 minimum: 0.1;
                 maximum: 4;

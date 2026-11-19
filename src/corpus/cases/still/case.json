@@ -1,0 +1,21 @@
+{
+  "about": "A 4:3 PNG, 240 × 180, placed on a 16:9 timeline of 320 × 180 with nothing else. It must last the default still length, five seconds (DEFAULT_IMAGE_DURATION in concat-project), and be fitted unscaled in the middle with a black bar of 40 pixels either side, in every frame. A failure means a still's length, its framing or its bars changed.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "still": { "kind": "still", "tag": 3, "width": 240, "height": 180 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.still", "as": "still" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$still", "start": 0 } }
+  ],
+  "expect": {
+    "frames": 150,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 149], "media": "still", "from": 0, "step": 0, "at": [40, 0] }
+    ],
+    "black": [[0, 0, 36, 180], [284, 0, 36, 180]]
+  }
+}

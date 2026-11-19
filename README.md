@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -46,7 +46,7 @@
 
 ## About
 
-Concat is a free, open-source video editor for macOS, Windows, Linux and Android. It covers what most edits need: auto-captions, text-to-speech, background removal, keyframe animation, effects and titles, multi-track cutting, 4K export. With none of the catches: no watermark, no account, no subscription, no upload.
+Concat is a free, open-source video editor for macOS, Windows, Linux, Android and iOS. It covers what most edits need: auto-captions, voice isolation, text-to-speech, background removal, animations and keyframes, effects and titles, multi-track cutting, 4K export. With none of the catches: no watermark, no account, no subscription, no upload.
 
 Everything runs on your machine. Install it, drop in footage, cut. The AI models for captions, voices and cutout download once from Settings and work offline after that. Your footage never leaves your disk.
 
@@ -57,20 +57,25 @@ Everything runs on your machine. Install it, drop in footage, cut. The AI models
 ## Highlights
 
 - 🚫 **No watermarks. No account. No paywall.** Ever.
-- 🔒 **100% local.** Nothing uploads. Works offline.
-- 💬 **Auto-captions.** Made on your machine. Pick a model size, get styled captions on the timeline.
-- 🗣️ **Text-to-speech + voice cloning.** A free local voice on the desktop, or any voice from a few seconds of a recording. Phones are getting their own system voice.
-- 🧍 **Background removal.** People, objects, or paint the mask yourself.
-- 🎞️ **Keyframes.** Position, scale, rotation, opacity, volume, effect parameters. Curve editor built in.
-- ✨ **100 effects, filters and transitions.** Live in the preview.
-- ✂️ **Cut fast.** Split, trim, ripple, merge, freeze frame, speed. Magnetic timeline if you want it.
-- 🎚️ **Multi-track, multi-timeline.** Overlays and picture-in-picture: stack video, stills and titles on as many tracks as you like. Several cuts in one project. Blend modes (screen, add, multiply…), crop, flips.
-- 📝 **Titles.** Fonts, stroke, shadow, background plate. Presets to start from.
-- 🎙️ **One-switch voice cleanup.** Denoise, enhance voice, level the loudness. Plus chipmunk, robot, telephone and friends.
-- 📤 **Export.** H.264, HEVC, AV1. Up to 4K 60, 10-bit colour.
-- ⚡ **Fast.** Proxies built in, so 4K scrubs smoothly.
+- 🔒 **100% local.** Nothing uploads, the AI included. Works offline.
+- 💬 **Auto-captions.** In the language you speak, made on your machine, styled and on the timeline.
+- 🎤 **Voice isolation.** Pull a voice out of its music or its noise, or take it out, each part at its own level.
+- 🗣️ **Text-to-speech + voice cloning.** A free local voice, or any voice from a few seconds of a recording. On the desktop.
+- 🧍 **Background removal, chroma key and masks.** People and objects cut out for you, a green screen that keys itself, and a stack of masks on every clip, each with its own mode and keyframes.
+- 🌀 **In, Out and Loop animations.** For clips, pictures, titles and shapes. Every one plays on its card before you pick it.
+- ✨ **100+ effects, filters and transitions, 25 sound effects.** Cinematic looks, shakes and impacts, retro, wipes, all live in the preview. A transition is a clip you move and trim like any other.
+- 🎞️ **Keyframes.** Position, scale, size, rotation, opacity, volume, effect parameters. Curve editor built in.
+- 🏃 **Speed ramps and curves.** Constant or drawn, smooth or straight. Freeze frames and reverse.
+- 🪄 **Enhance and Stabilize.** Restore soft or old footage, up to 2K. Steady a shaky shot.
+- ✂️ **Cut fast, cut exact.** Split, trim, ripple, merge, linked captions and overlays, a magnetic timeline if you want it. Every cut lands on the frame, the same in the preview and the export.
+- 🎚️ **Multi-track, multi-timeline.** Stack video, stills, titles and shapes on as many tracks as you like. Several cuts in one project. Blend modes, crop, flips.
+- 📝 **Titles and shapes.** Fonts, stroke, shadow, plates, colour emoji, and presets for Arabic, Chinese, Hindi, Thai and eight more languages. Shapes with gradients, stars, outlines and shadows.
+- 🎙️ **Voiceover and one-switch voice cleanup.** Record over your cut. Denoise, enhance voice, level the loudness. Plus chipmunk, robot, telephone and friends.
+- 📤 **Export.** H.264, HEVC, AV1, on your computer's own encoder. Up to 4K 60, 10-bit colour.
+- ⚡ **Fast.** Proxies built in, so 4K scrubs smoothly. Titles paint on every core, and every effect is ready the moment the window opens.
+- 🛟 **Keeps going on any machine.** When the graphics chip gives up, the preview keeps drawing.
 - 🤖 **Scriptable.** An MCP server built in, so Claude and other AI agents can edit with it ([one line to set up](docs/MCP.md)), and a JSON-RPC API for scripts. A build from source adds gRPC and a command-line tool.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 languages. Same app, same project files.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 languages. Same app, same project files.
 
 ## Download
 
@@ -143,7 +148,8 @@ If you change text the interface shows, run `python3 scripts/locales.py` from th
 
 ## Licence
 
-Concat is free software under [AGPL-3.0-or-later](LICENSE). A commercial licence is available for closed-source use; see [LICENSING.md](LICENSING.md).
+- Concat is free software under [AGPL-3.0-or-later](LICENSE).
+- A commercial licence is available for closed-source use; see [LICENSING.md](LICENSING.md).
 
 ## DMCA
 

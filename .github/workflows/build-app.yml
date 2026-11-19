@@ -44,7 +44,17 @@ name: Build app
 #
 # The six targets are a matrix so one fails without taking the rest down;
 # `fail-fast` is off for the same reason.
+#
+# Started by hand as well, on any ref: every bundle built and started,
+# the export run included, without a tag or a release. Its bundles stay
+# artifacts of the run; nothing is published.
 on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The ref to build (main when empty)
+        type: string
+        default: ""
   workflow_call:
     inputs:
       ref:
@@ -276,10 +286,9 @@ jobs:
         run: |
           set -euo pipefail
           stem="onnxruntime-linux-${{ matrix.ort }}-$ORT_VERSION"
-          scripts/ci/fetch.sh "onnxruntime-linux-${{ matrix.ort }}" onnxruntime.tgz
-          tar -xzf onnxruntime.tgz
+          scripts/ci/onnxruntime.sh "linux-${{ matrix.ort }}"
           test -f "$stem/lib/libonnxruntime.so.$ORT_VERSION"
-          # The tarball carries the soname and the full version; the linker
+          # The layout carries the soname and the full version; the linker
           # asks for the bare name.
           ln -sf "libonnxruntime.so.$ORT_VERSION" "$stem/lib/libonnxruntime.so"
           {
@@ -349,8 +358,7 @@ jobs:
         run: |
           set -euo pipefail
           stem="onnxruntime-osx-x86_64-$ORT_INTEL_MAC_VERSION"
-          scripts/ci/fetch.sh onnxruntime-osx-x86_64 onnxruntime.tgz
-          tar -xzf onnxruntime.tgz
+          scripts/ci/onnxruntime.sh osx-x86_64
           test -f "$stem/lib/libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib"
           echo "ORT_MAC_DYLIB=$PWD/$stem/lib/libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib" >> "$GITHUB_ENV"
 
@@ -460,9 +468,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh "onnxruntime-${{ matrix.ort }}" onnxruntime.zip
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/onnxruntime.sh "${{ matrix.ort }}"
           if ($LASTEXITCODE -ne 0) { throw "the ONNX Runtime download failed" }
-          Expand-Archive onnxruntime.zip -DestinationPath .
           $dir = "$PWD\onnxruntime-${{ matrix.ort }}-$env:ORT_VERSION"
           if (-not (Test-Path "$dir\lib\onnxruntime.lib")) { throw "$dir\lib\onnxruntime.lib is not there" }
           if (-not (Test-Path "$dir\lib\onnxruntime.dll")) { throw "$dir\lib\onnxruntime.dll is not there" }
@@ -652,7 +659,20 @@ jobs:
             codesign --force --deep -s - "$app"
           fi
 
-          hdiutil create -volname Concat -srcfolder "$app" -ov -format UDZO "$dmg"
+          # hdiutil on GitHub's macOS runners sometimes finds the image
+          # "Resource busy" - Spotlight or XProtect still on the folder - and
+          # that failed a whole bundle run. Tried again, a few seconds apart.
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname Concat -srcfolder "$app" -ov -format UDZO "$dmg"; then
+              break
+            fi
+            if [ "$attempt" = 5 ]; then
+              echo "::error::hdiutil could not make $dmg after $attempt tries"
+              exit 1
+            fi
+            echo "hdiutil failed (try $attempt); again in $((attempt * 5)) s"
+            sleep $((attempt * 5))
+          done
 
           if [ -n "${APPLE_ID}" ] && [ -n "${TEAM_ID}" ] && [ -n "${APP_PASSWORD}" ] && [ -n "${IDENTITY}" ]; then
             codesign --force --timestamp -s "$IDENTITY" "$dmg"
@@ -693,6 +713,9 @@ jobs:
           # profile. In lib/ the rpath finds the libraries and
           # concat-speech's `cpu_backend` the modules.
           if [ "${{ matrix.ggml }}" = variants ]; then
+            # Newest first by time, which find does not sort by; the names
+            # are cargo's hashed folders, plain letters and digits.
+            # shellcheck disable=SC2012
             out=$(ls -dt "src/target/${{ matrix.target }}/app/build"/whisper-rs-sys-*/out/bin | head -1)
             out=${out%/bin}
             echo "whisper's build: $out"

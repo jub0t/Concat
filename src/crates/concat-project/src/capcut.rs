@@ -615,6 +615,12 @@ impl Reader<'_> {
     fn keys(&self, segment: &Value, clip: &mut Clip, notes: &mut Notes) {
         let length = clip.duration * MICROS;
         let lists = segment.get("common_keyframes").and_then(Value::as_array);
+        // CapCut sizes the two axes apart; Concat sizes both with the
+        // scale and pulls the height beyond it. The height's keys wait
+        // until the width's are read, since what they become depends on
+        // both.
+        let mut across: Vec<(f64, f64)> = Vec::new();
+        let mut down: Vec<(f64, f64)> = Vec::new();
         for list in lists.into_iter().flatten() {
             let kind = list
                 .get("property_type")
@@ -627,43 +633,112 @@ impl Reader<'_> {
                 "KFTypeRotation" => (KeyProperty::Rotation, |r| r),
                 "KFTypeAlpha" => (KeyProperty::Opacity, |a| a.clamp(0.0, 1.0)),
                 "KFTypeVolume" => (KeyProperty::Volume, |v| v.max(0.0)),
-                "KFTypeScaleY" => continue,
+                "KFTypeScaleY" => {
+                    down.extend(points(list, length));
+                    continue;
+                }
                 _ => {
                     notes.note("a CapCut keyframe Concat has no property for, not carried");
                     continue;
                 }
             };
-            for key in list
-                .get("keyframe_list")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                let Some(raw) = key
-                    .get("values")
-                    .and_then(Value::as_array)
-                    .and_then(|values| values.first())
-                    .and_then(Value::as_f64)
-                else {
-                    continue;
-                };
-                let at = key
-                    .get("time_offset")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0);
+            for (at, raw) in points(list, length) {
+                if property == KeyProperty::Scale {
+                    across.push((at, raw));
+                }
                 clip.keys.push(ClipKey {
                     property,
-                    at: if length > 0.0 {
-                        (at / length).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    },
+                    at,
                     value: value(raw),
                     ease: KeyEase::LINEAR,
                 });
             }
         }
+        heights(clip, &across, &down);
+        // Each property's keys in order, as every reader of them expects;
+        // CapCut's lists are not promised to be.
+        clip.sort_keys();
     }
+}
+
+/// A CapCut keyframe list as `(at, value)` pairs: where in the clip, as a
+/// fraction of its `length` in microseconds, and the first of the values
+/// there. A key with no number is passed over.
+fn points(list: &Value, length: f64) -> Vec<(f64, f64)> {
+    list.get("keyframe_list")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|key| {
+            let raw = key
+                .get("values")
+                .and_then(Value::as_array)
+                .and_then(|values| values.first())
+                .and_then(Value::as_f64)?;
+            let at = key
+                .get("time_offset")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let at = if length > 0.0 {
+                (at / length).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            Some((at, raw))
+        })
+        .collect()
+}
+
+/// The height's keys as Concat holds them: a pull of the height beyond
+/// the scale, `down / across`, at every instant either axis has a key.
+///
+/// No height keys is a height that follows the width, as it always did
+/// here, and the pull `place` set stands. Height keys that only ever keep
+/// the picture's shape become that one pull, not a run of keys saying the
+/// same thing. Anything else is keyed at every instant either axis is, so
+/// the size is CapCut's exactly there; between two of them the pull runs
+/// straight where the true ratio of two straight lines bends slightly.
+fn heights(clip: &mut Clip, across: &[(f64, f64)], down: &[(f64, f64)]) {
+    use concat_core::animate::{Ease, Key, Track};
+    if down.is_empty() {
+        return;
+    }
+    let ride = |points: &[(f64, f64)]| {
+        Track::new(
+            points
+                .iter()
+                .map(|&(at, value)| Key {
+                    at,
+                    value,
+                    ease: Ease::LINEAR,
+                })
+                .collect(),
+        )
+    };
+    let (width, height) = (ride(across), ride(down));
+    let mut instants: Vec<f64> = across.iter().chain(down).map(|&(at, _)| at).collect();
+    instants.sort_by(f64::total_cmp);
+    instants.dedup_by(|a, b| (*a - *b).abs() <= crate::model::KEY_EPSILON);
+    let pulls: Vec<(f64, f64)> = instants
+        .into_iter()
+        .map(|at| {
+            let wide = width.value_at(at, clip.scale).abs().max(MIN_SCALE);
+            let tall = height.value_at(at, clip.scale).abs().max(MIN_SCALE);
+            (at, (tall / wide).clamp(MIN_STRETCH, MAX_STRETCH))
+        })
+        .collect();
+    let first = pulls[0].1;
+    if pulls.iter().all(|&(_, pull)| (pull - first).abs() < 1e-6) {
+        clip.stretch_y = first;
+        return;
+    }
+    clip.keys
+        .extend(pulls.into_iter().map(|(at, value)| ClipKey {
+            property: KeyProperty::StretchY,
+            at,
+            value,
+            ease: KeyEase::LINEAR,
+        }));
 }
 
 /// What a material list holds, in words: "hsl" as "HSL adjustment".
@@ -1066,6 +1141,54 @@ mod tests {
         assert_eq!(music.keys.len(), 2);
         assert_eq!(music.keys[1].property, KeyProperty::Volume);
         assert!((music.keys[1].at - 0.5).abs() < 1e-9);
+    }
+
+    /// A clip whose width and height CapCut keys apart: the width rides
+    /// the scale and the height the pull beyond it, matching CapCut's
+    /// size at every key; a height that only keeps the shape is no keys.
+    #[test]
+    fn a_size_keyed_axis_by_axis_keys_the_pull() {
+        let keyed = |across: Value, down: Value| {
+            let mut clip = Clip::blank("", "", ClipKind::Video, String::new(), 0.0, 4.0);
+            clip.scale = 1.0;
+            let segment = json!({ "common_keyframes": [
+                { "property_type": "KFTypeScaleX", "keyframe_list": across },
+                { "property_type": "KFTypeScaleY", "keyframe_list": down }
+            ] });
+            let materials = HashMap::new();
+            let reader = Reader {
+                materials: &materials,
+                folder: "",
+            };
+            reader.keys(&segment, &mut clip, &mut Notes::default());
+            clip
+        };
+        let clip = keyed(
+            json!([{ "time_offset": 0, "values": [1.0] },
+                   { "time_offset": 4_000_000, "values": [2.0] }]),
+            json!([{ "time_offset": 0, "values": [1.0] },
+                   { "time_offset": 2_000_000, "values": [3.0] },
+                   { "time_offset": 4_000_000, "values": [1.0] }]),
+        );
+        let pulls: Vec<(f64, f64)> = clip
+            .keys_on(KeyProperty::StretchY)
+            .map(|key| (key.at, key.value))
+            .collect();
+        assert_eq!(pulls, vec![(0.0, 1.0), (0.5, 2.0), (1.0, 0.5)]);
+        for (at, wide, tall) in [(0.0, 1.0, 1.0), (0.5, 1.5, 3.0), (1.0, 2.0, 1.0)] {
+            let scale = clip.value_at(KeyProperty::Scale, at);
+            assert!((scale - wide).abs() < 1e-9);
+            assert!((scale * clip.value_at(KeyProperty::StretchY, at) - tall).abs() < 1e-9);
+        }
+
+        let uniform = keyed(
+            json!([{ "time_offset": 0, "values": [1.0] },
+                   { "time_offset": 4_000_000, "values": [2.0] }]),
+            json!([{ "time_offset": 0, "values": [1.0] },
+                   { "time_offset": 4_000_000, "values": [2.0] }]),
+        );
+        assert!(!uniform.is_keyed(KeyProperty::StretchY));
+        assert_eq!(uniform.stretch_y, 1.0);
     }
 
     #[test]

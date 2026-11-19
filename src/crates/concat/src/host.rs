@@ -6,7 +6,9 @@
 //!
 //! Slint's models and properties may only be touched on the event-loop
 //! thread. Everything slow - probes, decodes, renders, downloads - runs on
-//! its own thread through [`spawn`], and hands its result back with
+//! a worker through [`spawn`], [`spawn_long`] or [`spawn_save`] - one lane
+//! each for the monitor's work, the long jobs and the saves, so none waits
+//! behind another - and hands its result back with
 //! `slint::invoke_from_event_loop`, where [`Shell::with`] reaches the window
 //! and its state again. The state itself never leaves the event-loop thread,
 //! which is why it can live in a plain `RefCell` with no lock.
@@ -147,53 +149,344 @@ impl Shell {
     }
 }
 
-/// The workers every background job runs on: a few threads kept for the
-/// life of the process, fed from one queue. A thread per job was a thread
-/// per monitor frame, thirty a second during playback.
-fn workers() -> &'static std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>> {
-    static WORKERS: std::sync::OnceLock<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>> =
-        std::sync::OnceLock::new();
-    WORKERS.get_or_init(|| {
-        let (sender, receiver) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
-        let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
-        // Three: the monitor's frame, its prefetch, and whatever thumbnail
-        // or analysis is running, without any of them queuing behind the
-        // others.
-        for index in 0..3 {
-            let receiver = std::sync::Arc::clone(&receiver);
+// ── the worker lanes ──
+//
+// Background work runs on threads kept for the life of the process: a
+// thread per job was a thread per monitor frame, thirty a second during
+// playback. They come in three lanes, so one kind of work can never sit
+// in a queue behind another:
+//
+//   - the interactive lane: the monitor's frames, the frames ahead of the
+//     playhead, and the short jobs the window is waiting on - a probe, a
+//     picked colour, a list of fonts ([`spawn`], [`spawn_in_project`],
+//     [`spawn_frame`], [`spawn_detached`]);
+//   - the long lane: everything that takes seconds to minutes - an export,
+//     a merge, captions, speech, cutouts, stabilization, Enhance, reverse,
+//     voice isolation, the Smart brush, a download ([`spawn_long`],
+//     [`spawn_long_in_project`]);
+//   - the save lane: the project's saves, one thread, where a save waiting
+//     its turn is replaced by a newer one of the same project
+//     ([`spawn_save`]).
+//
+// These were one queue on three threads, and the comment on it said none
+// of the monitor's frame, its prefetch and an analysis ever queued behind
+// the others. That held while three things ran. Remove background,
+// Stabilize and Captions together took all three: the monitor froze, and
+// the autosave queued behind them for minutes, so a crash then lost every
+// edit since the last save (audit 2026-11-15, A1). This is the stopgap
+// until the engine's own scheduler takes the jobs; the lanes keep the two
+// things that must never wait - the picture and the save - off the
+// threads the long jobs hold.
+
+/// A job for a lane. `what` is the type of the closure the caller handed
+/// in, which names the function that asked for it, for the log.
+struct Job {
+    what: &'static str,
+    run: Box<dyn FnOnce() + Send>,
+}
+
+/// A fixed set of threads fed from one queue.
+struct Lane {
+    sender: std::sync::mpsc::Sender<Job>,
+    /// How many threads the lane has.
+    threads: usize,
+    /// How many of them are running a job now. Read only to say in the log
+    /// that a job had to wait, so it can be a moment out of date.
+    busy: Arc<std::sync::atomic::AtomicUsize>,
+    /// Whether a job that finds every thread busy is said in the log. The
+    /// long lane's are: a job waiting there shows no progress, and the log
+    /// is where a report of a job "stuck at 0%" is read.
+    say_waits: bool,
+}
+
+impl Lane {
+    /// Starts `threads` threads named `name-0`, `name-1` and so on. A job
+    /// that runs longer than `slow` is named in the log as it ends: on the
+    /// interactive lane that is a job that belongs on the long one.
+    fn start(
+        name: &'static str,
+        threads: usize,
+        slow: Option<std::time::Duration>,
+        say_waits: bool,
+    ) -> Lane {
+        let (sender, receiver) = std::sync::mpsc::channel::<Job>();
+        let receiver = Arc::new(std::sync::Mutex::new(receiver));
+        let busy = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        for index in 0..threads {
+            let receiver = Arc::clone(&receiver);
+            let busy = Arc::clone(&busy);
             std::thread::Builder::new()
-                .name(format!("concat-worker-{index}"))
+                .name(format!("{name}-{index}"))
                 .spawn(move || {
                     loop {
                         let job = receiver
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner())
                             .recv();
-                        match job {
-                            Ok(job) => job(),
-                            Err(_) => return,
+                        let Ok(job) = job else {
+                            return;
+                        };
+                        busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let began = std::time::Instant::now();
+                        (job.run)();
+                        busy.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                        if let Some(slow) = slow
+                            && began.elapsed() > slow
+                        {
+                            log::warn!(
+                                "host: {} held an interactive worker for {}; work that long belongs on the long-job lane, where it cannot hold up the monitor's frames",
+                                job.what,
+                                concat_log::span(began.elapsed())
+                            );
                         }
                     }
                 })
                 .expect("a worker thread");
         }
-        sender
+        Lane {
+            sender,
+            threads,
+            busy,
+            say_waits,
+        }
+    }
+
+    /// Queues `run` for the lane's next free thread.
+    fn submit(&self, what: &'static str, run: Box<dyn FnOnce() + Send>) {
+        if self.say_waits && self.busy.load(std::sync::atomic::Ordering::Relaxed) >= self.threads {
+            log::info!(
+                "host: {what} waits its turn: all {} long-job workers are busy",
+                self.threads
+            );
+        }
+        let _ = self.sender.send(Job { what, run });
+    }
+}
+
+/// The interactive lane's threads: two monitor frames out at once - the
+/// one asked for and a refine walking to the exact picture - the prefetch
+/// that follows each, and one short job beside them. The monitor never has
+/// more in flight than that whatever the machine, so the lane does not
+/// grow with it.
+const INTERACTIVE_THREADS: usize = 4;
+
+/// A job on the interactive lane that runs longer than this is said in the
+/// log. A frame decoded from a keyframe seconds away, or a probe of a large
+/// import, is a second or two; past this it is long work on the wrong lane.
+const INTERACTIVE_SLOW: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The long lane's threads on a machine with `cores` hardware threads:
+/// half of them, no fewer than three and no more than six. Every long job
+/// fans out over the cores on its own - a model's threads, an encoder's,
+/// a decoder's - so more of them side by side buys progress on each, not
+/// speed, and costs the memory each holds. Three is what a four-thread
+/// machine ran before, so it is no more crowded than it was; a bigger one
+/// starts a fourth or a fifth job at once rather than holding it at 0%.
+fn long_threads(cores: usize) -> usize {
+    (cores / 2).clamp(3, 6)
+}
+
+fn interactive_lane() -> &'static Lane {
+    static LANE: std::sync::OnceLock<Lane> = std::sync::OnceLock::new();
+    LANE.get_or_init(|| {
+        Lane::start(
+            "concat-worker",
+            INTERACTIVE_THREADS,
+            Some(INTERACTIVE_SLOW),
+            false,
+        )
     })
 }
 
-/// Runs `work` on a worker with nothing to report: a prefetch, a warm-up.
-pub fn spawn_detached(work: impl FnOnce() + Send + 'static) {
-    let _ = workers().send(Box::new(work));
+fn long_lane() -> &'static Lane {
+    static LANE: std::sync::OnceLock<Lane> = std::sync::OnceLock::new();
+    LANE.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map_or(4, |count| count.get());
+        let threads = long_threads(cores);
+        log::debug!("host: {threads} long-job workers for {cores} hardware threads");
+        Lane::start("concat-long", threads, None, true)
+    })
 }
 
-/// Runs `work` on a worker, then `then` on the event-loop thread with the
-/// result, the state and the window - followed by a full publish, so a
-/// completion never has to remember to redraw.
+fn save_lane() -> &'static SaveLane {
+    static LANE: std::sync::OnceLock<SaveLane> = std::sync::OnceLock::new();
+    LANE.get_or_init(|| SaveLane::start("concat-save"))
+}
+
+/// A save waiting on the save lane.
+struct SaveJob {
+    /// The project it writes; a newer save of the same one replaces it.
+    key: String,
+    /// Whether the save is to be said when it lands. A Save that is
+    /// replaced by an autosave before it runs is still said.
+    announce: bool,
+    run: Box<dyn FnOnce(bool) + Send>,
+}
+
+/// One thread that writes the projects, and the saves waiting for it.
+///
+/// One thread, so no two saves ever write at once, of one project or of
+/// two, and a save never waits behind anything but another save. A save
+/// waiting its turn is replaced by a newer one of the same project in its
+/// place in the line, so they never pile up behind a slow disk: only the
+/// newest snapshot is worth writing, and [`projects::save_ordered`] would
+/// skip the older ones anyway. What was asked of a replaced save - to be
+/// said - passes to the one that replaces it.
+///
+/// [`projects::save_ordered`]: concat_host::projects::save_ordered
+struct SaveLane {
+    shared: Arc<SaveQueue>,
+}
+
+#[derive(Default)]
+struct SaveQueue {
+    waiting: std::sync::Mutex<SaveLine>,
+    ready: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct SaveLine {
+    jobs: std::collections::VecDeque<SaveJob>,
+    /// Set when the lane is dropped - only in tests; the process's own
+    /// lasts as long as it does - so its thread ends once the line is empty.
+    closed: bool,
+}
+
+impl SaveLane {
+    fn start(name: &'static str) -> SaveLane {
+        let shared = Arc::new(SaveQueue::default());
+        let queue = Arc::clone(&shared);
+        std::thread::Builder::new()
+            .name(name.to_owned())
+            .spawn(move || {
+                loop {
+                    let job = {
+                        let mut line = queue
+                            .waiting
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        loop {
+                            if let Some(job) = line.jobs.pop_front() {
+                                break job;
+                            }
+                            if line.closed {
+                                return;
+                            }
+                            line = queue
+                                .ready
+                                .wait(line)
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        }
+                    };
+                    (job.run)(job.announce);
+                }
+            })
+            .expect("the save thread");
+        SaveLane { shared }
+    }
+
+    /// Queues a save of `key`, or puts it in the place of the one of `key`
+    /// still waiting.
+    fn submit(&self, key: String, announce: bool, run: Box<dyn FnOnce(bool) + Send>) {
+        let mut line = self
+            .shared
+            .waiting
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(waiting) = line.jobs.iter_mut().find(|job| job.key == key) {
+            waiting.announce |= announce;
+            waiting.run = run;
+        } else {
+            line.jobs.push_back(SaveJob { key, announce, run });
+        }
+        self.shared.ready.notify_one();
+    }
+}
+
+impl Drop for SaveLane {
+    fn drop(&mut self) {
+        self.shared
+            .waiting
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .closed = true;
+        self.shared.ready.notify_one();
+    }
+}
+
+/// Runs `work` on the interactive lane with nothing to report: the frames
+/// ahead of the playhead. Never for anything slow; see [`spawn_long`].
+pub fn spawn_detached(work: impl FnOnce() + Send + 'static) {
+    interactive_lane().submit(std::any::type_name_of_val(&work), Box::new(work));
+}
+
+/// Runs `work` on the interactive lane, then `then` on the event-loop
+/// thread with the result, the state and the window - followed by a full
+/// publish, so a completion never has to remember to redraw.
+///
+/// For short work the window is waiting on: the lane is the monitor's, and
+/// a job that holds one of its threads for seconds holds up the picture.
+/// Anything that can take that long goes through [`spawn_long`].
 pub fn spawn<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
-    spawn_detached(move || deliver(None, work(), then));
+    let what = std::any::type_name_of_val(&work);
+    interactive_lane().submit(what, Box::new(move || deliver(None, work(), then)));
+}
+
+/// [`spawn`] on the long lane: for work that takes seconds or minutes - a
+/// download, a template's copy of its media - and so must not hold a
+/// thread the monitor's frames need.
+pub fn spawn_long<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    let what = std::any::type_name_of_val(&work);
+    long_lane().submit(what, Box::new(move || deliver(None, work(), then)));
+}
+
+/// [`spawn_in_project`] on the long lane: an export, a merge, captions,
+/// speech, an analysis or a render of the open project's media.
+pub fn spawn_long_in_project<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    let epoch = project_epoch();
+    let what = std::any::type_name_of_val(&work);
+    long_lane().submit(what, Box::new(move || deliver(Some(epoch), work(), then)));
+}
+
+/// Runs a save of the project at `key` on the save lane, then `then` with
+/// its result and whether it is to be said, and `publish` after - both
+/// only while that project is still the open one, like
+/// [`spawn_in_project_publishing`].
+///
+/// A save still waiting when a newer one of the same project comes is
+/// replaced by it: its `work` and its `then` are dropped, and the newer
+/// one is said if either was to be. `work` must therefore write a
+/// snapshot taken when the save was asked for, never read the document
+/// when it runs.
+pub fn spawn_save<T: Send + 'static>(
+    key: String,
+    announce: bool,
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T, bool) + Send + 'static,
+    publish: impl FnOnce(&Studio, &App, &Models) + Send + 'static,
+) {
+    let epoch = project_epoch();
+    save_lane().submit(
+        key,
+        announce,
+        Box::new(move |announce| {
+            deliver_then(
+                Some(epoch),
+                work(),
+                move |studio, app, models, result| then(studio, app, models, result, announce),
+                publish,
+            );
+        }),
+    );
 }
 
 /// The project the window is on, counted up at every open and close. A
@@ -221,13 +514,16 @@ fn stale(epoch: Option<u64>) -> bool {
 /// [`spawn`] for work that belongs to the open project: `then` runs only
 /// while that project is still the open one, and is dropped otherwise.
 /// Work that is not a project's - a poster for the launch screen, a model
-/// download - goes through [`spawn`] and is always delivered.
+/// download - goes through [`spawn`] or [`spawn_long`] and is always
+/// delivered. On the interactive lane, like [`spawn`]; long work of the
+/// project's goes through [`spawn_long_in_project`].
 pub fn spawn_in_project<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
     let epoch = project_epoch();
-    spawn_detached(move || deliver(Some(epoch), work(), then));
+    let what = std::any::type_name_of_val(&work);
+    interactive_lane().submit(what, Box::new(move || deliver(Some(epoch), work(), then)));
 }
 
 /// [`spawn_in_project`] with the publish after `then` chosen by the caller:
@@ -239,7 +535,11 @@ pub fn spawn_in_project_publishing<T: Send + 'static>(
     publish: impl FnOnce(&Studio, &App, &Models) + Send + 'static,
 ) {
     let epoch = project_epoch();
-    spawn_detached(move || deliver_then(Some(epoch), work(), then, publish));
+    let what = std::any::type_name_of_val(&work);
+    interactive_lane().submit(
+        what,
+        Box::new(move || deliver_then(Some(epoch), work(), then, publish)),
+    );
 }
 
 /// [`spawn_in_project`] for the monitor's frames. While playback runs a
@@ -254,7 +554,8 @@ pub fn spawn_frame<T: Send + 'static>(
 ) {
     use std::sync::atomic::{AtomicBool, Ordering};
     let epoch = project_epoch();
-    spawn_detached(move || {
+    let what = std::any::type_name_of_val(&work);
+    let run = move || {
         let toasted = Arc::new(AtomicBool::new(false));
         let noted = Arc::clone(&toasted);
         deliver_then(
@@ -273,7 +574,8 @@ pub fn spawn_frame<T: Send + 'static>(
                 }
             },
         );
-    });
+    };
+    interactive_lane().submit(what, Box::new(run));
 }
 
 /// Hands a worker's result to the event-loop thread: `then` with the state
@@ -878,5 +1180,247 @@ mod epoch_tests {
             "the project it was made in has closed"
         );
         assert!(!super::stale(Some(super::project_epoch())));
+    }
+}
+
+#[cfg(test)]
+mod lane_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    /// What "at once" is in these tests: far more than a job on an idle
+    /// thread takes to start, far less than the minutes a save waited.
+    const PROMPTLY: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn the_long_lane_grows_with_the_machine_within_bounds() {
+        assert_eq!(super::long_threads(1), 3, "never fewer than three");
+        assert_eq!(super::long_threads(4), 3, "a four-thread machine as before");
+        assert_eq!(super::long_threads(8), 4);
+        assert_eq!(super::long_threads(12), 6);
+        assert_eq!(super::long_threads(64), 6, "never more than six");
+    }
+
+    /// The bug: every long job running took a worker the monitor's frames
+    /// and the autosave needed. With the long lane full - and a job more
+    /// waiting behind it - a frame and a save still run at once.
+    #[test]
+    fn a_frame_and_a_save_run_at_once_with_the_long_lane_full() {
+        let long = super::long_lane();
+        let (release, held) = mpsc::channel::<()>();
+        let held = Arc::new(Mutex::new(held));
+        let started = Arc::new(AtomicUsize::new(0));
+        let blockers = long.threads + 2;
+        for _ in 0..blockers {
+            let held = Arc::clone(&held);
+            let started = Arc::clone(&started);
+            long.submit(
+                "a long job that does not end",
+                Box::new(move || {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    let _ = held.lock().expect("the gate").recv();
+                }),
+            );
+        }
+        let waited = Instant::now();
+        while started.load(Ordering::SeqCst) < long.threads {
+            assert!(
+                waited.elapsed() < Duration::from_secs(10),
+                "the long lane never filled"
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            started.load(Ordering::SeqCst),
+            long.threads,
+            "every long worker is held and the jobs after them wait"
+        );
+
+        let asked = Instant::now();
+        let (frame_done, frame) = mpsc::channel();
+        super::interactive_lane().submit(
+            "a monitor frame",
+            Box::new(move || {
+                let _ = frame_done.send(());
+            }),
+        );
+        let (save_done, save) = mpsc::channel();
+        super::save_lane().submit(
+            "lane-test-project".to_owned(),
+            false,
+            Box::new(move |_| {
+                let _ = save_done.send(());
+            }),
+        );
+        let frame = frame.recv_timeout(PROMPTLY);
+        let save = save.recv_timeout(PROMPTLY);
+        let took = asked.elapsed();
+
+        // Let the long jobs go before asserting, so a failure here does not
+        // leave the lane held for the tests after it.
+        for _ in 0..blockers {
+            let _ = release.send(());
+        }
+        assert!(frame.is_ok(), "the frame waited behind the long jobs");
+        assert!(save.is_ok(), "the save waited behind the long jobs");
+        assert!(took < PROMPTLY, "both ran in {took:?}");
+    }
+
+    /// One run of a save job: which project, which of its snapshots, and
+    /// whether it was to be said.
+    type Ran = (String, u32, bool);
+
+    /// A save job that records itself and how many saves were running
+    /// beside it.
+    fn recording(
+        key: &str,
+        number: u32,
+        ran: &Arc<Mutex<Vec<Ran>>>,
+        running: &Arc<AtomicUsize>,
+        most: &Arc<AtomicUsize>,
+        hold: Duration,
+    ) -> Box<dyn FnOnce(bool) + Send> {
+        let (key, ran, running, most) = (
+            key.to_owned(),
+            Arc::clone(ran),
+            Arc::clone(running),
+            Arc::clone(most),
+        );
+        Box::new(move |announce| {
+            let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+            most.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(hold);
+            ran.lock()
+                .expect("the record")
+                .push((key, number, announce));
+            running.fetch_sub(1, Ordering::SeqCst);
+        })
+    }
+
+    /// Saves asked for while one is writing do not pile up: the waiting
+    /// one of a project is replaced by the newest, in its place in the
+    /// line, a Save replaced by an autosave is still said, and another
+    /// project's save keeps its own turn.
+    #[test]
+    fn a_waiting_save_is_replaced_by_the_newest_of_its_project() {
+        let lane = super::SaveLane::start("concat-save-test");
+        let ran = Arc::new(Mutex::new(Vec::new()));
+        let (running, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+
+        // The first save holds the thread until it is let go, so the ones
+        // after it are all waiting together.
+        let (writing, wrote) = mpsc::channel::<()>();
+        let (release, gate) = mpsc::channel::<()>();
+        let first = recording("a", 1, &ran, &running, &most, Duration::ZERO);
+        lane.submit(
+            "a".to_owned(),
+            false,
+            Box::new(move |announce| {
+                let _ = writing.send(());
+                let _ = gate.recv();
+                first(announce);
+            }),
+        );
+        wrote.recv_timeout(PROMPTLY).expect("the first save starts");
+
+        let job = |key: &str, number| recording(key, number, &ran, &running, &most, Duration::ZERO);
+        lane.submit("a".to_owned(), true, job("a", 2));
+        lane.submit("b".to_owned(), false, job("b", 1));
+        for number in 3..=6 {
+            lane.submit("a".to_owned(), false, job("a", number));
+        }
+        let _ = release.send(());
+
+        let waited = Instant::now();
+        while ran.lock().expect("the record").len() < 3 && waited.elapsed() < PROMPTLY * 5 {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // Long enough for a save that should not run to have run.
+        std::thread::sleep(Duration::from_millis(50));
+        let ran = ran.lock().expect("the record").clone();
+        assert_eq!(
+            ran,
+            vec![
+                ("a".to_owned(), 1, false),
+                ("a".to_owned(), 6, true),
+                ("b".to_owned(), 1, false),
+            ],
+            "the newest of a, in the place of the first waiting, and said; b in its turn"
+        );
+        assert_eq!(most.load(Ordering::SeqCst), 1, "never two saves at once");
+    }
+
+    /// Saves asked for far faster than they are written: never two at
+    /// once, each project's in the order they were asked for, the last of
+    /// each written, and fewer writes than asks.
+    #[test]
+    fn saves_asked_for_faster_than_they_write_keep_the_newest() {
+        let lane = super::SaveLane::start("concat-save-stress");
+        let ran = Arc::new(Mutex::new(Vec::new()));
+        let (running, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let keys = ["a", "b", "c"];
+        let asks = 300u32;
+        for number in 1..=asks {
+            let key = keys[number as usize % keys.len()];
+            lane.submit(
+                key.to_owned(),
+                false,
+                recording(key, number, &ran, &running, &most, Duration::from_millis(1)),
+            );
+        }
+        let last: Vec<u32> = keys
+            .iter()
+            .map(|key| {
+                (1..=asks)
+                    .filter(|number| keys[*number as usize % keys.len()] == *key)
+                    .max()
+                    .expect("every key is asked for")
+            })
+            .collect();
+
+        let waited = Instant::now();
+        loop {
+            let done = {
+                let ran = ran.lock().expect("the record");
+                keys.iter().zip(&last).all(|(key, newest)| {
+                    ran.iter()
+                        .any(|(ran_key, number, _)| ran_key == key && number == newest)
+                })
+            };
+            if done {
+                break;
+            }
+            assert!(
+                waited.elapsed() < Duration::from_secs(10),
+                "the newest save of every project lands"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        let ran = ran.lock().expect("the record").clone();
+        assert_eq!(most.load(Ordering::SeqCst), 1, "never two saves at once");
+        for (key, newest) in keys.iter().zip(&last) {
+            let numbers: Vec<u32> = ran
+                .iter()
+                .filter(|(ran_key, _, _)| ran_key == key)
+                .map(|(_, number, _)| *number)
+                .collect();
+            assert!(
+                numbers.windows(2).all(|pair| pair[0] < pair[1]),
+                "{key}'s saves ran in the order they were asked for: {numbers:?}"
+            );
+            assert_eq!(
+                numbers.last(),
+                Some(newest),
+                "{key}'s newest is the last written"
+            );
+        }
+        assert!(
+            ran.len() < asks as usize,
+            "the waiting saves were replaced, not each written: {} of {asks}",
+            ran.len()
+        );
     }
 }

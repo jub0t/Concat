@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Tentang
 
-Concat adalah penyunting video gratis dan sumber terbuka untuk macOS, Windows, Linux, dan Android. Ia mencakup yang dibutuhkan sebagian besar suntingan: teks otomatis, teks ke suara, penghapusan latar, animasi keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
+Concat adalah penyunting video gratis dan sumber terbuka untuk macOS, Windows, Linux, Android, dan iOS. Ia mencakup yang dibutuhkan sebagian besar suntingan: teks otomatis, isolasi suara, teks ke suara, penghapusan latar, animasi dan keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
 
 Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatuhkan rekaman, potong. Model AI untuk teks, suara, dan pemotongan latar diunduh sekali dari Pengaturan dan setelah itu bekerja luring. Rekaman Anda tidak pernah meninggalkan disk Anda.
 
@@ -55,20 +55,25 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 ## Sorotan
 
 - 🚫 **Tanpa tanda air. Tanpa akun. Tanpa paywall.** Selamanya.
-- 🔒 **100 % lokal.** Tidak ada yang diunggah. Bekerja luring.
-- 💬 **Teks otomatis.** Whisper lokal. Pilih ukuran model, dapatkan teks bergaya di lini masa.
-- 🗣️ **Teks ke suara + kloning suara.** Suara lokal gratis, atau suara apa pun dari rekaman beberapa detik.
-- 🧍 **Penghapusan latar.** Orang, objek, atau lukis maskernya sendiri.
-- 🎞️ **Keyframe.** Posisi, skala, rotasi, opasitas, volume, parameter efek. Penyunting kurva bawaan.
-- ✨ **100 efek, filter, dan transisi.** Dirender GPU, langsung di pratinjau.
-- ✂️ **Potong cepat.** Belah, pangkas, ripple, gabung, bekukan bingkai, kecepatan. Lini masa magnetik kalau mau.
-- 🎚️ **Multi-trek, multi-lini masa.** Beberapa potongan dalam satu proyek. Mode campur, crop, balik.
-- 📝 **Judul.** Font, garis tepi, bayangan, pelat latar. Preset untuk memulai.
-- 🎙️ **Pembersihan suara satu saklar.** Hilangkan derau, tingkatkan suara, ratakan kenyaringan. Plus tupai, robot, telepon, dan kawan-kawan.
-- 📤 **Ekspor.** H.264, HEVC, AV1. Hingga 4K 60, warna 10-bit.
-- 🦀 **Mesin Rust native.** Kompositor GPU, proxy, dekode perangkat keras. 4K digeser dengan mulus.
+- 🔒 **100% lokal.** Tidak ada yang diunggah, termasuk AI-nya. Berfungsi offline.
+- 💬 **Teks otomatis.** Dalam bahasa yang Anda ucapkan, dibuat di mesin Anda, sudah bergaya dan langsung ada di timeline.
+- 🎤 **Isolasi suara.** Pisahkan suara dari musik atau kebisingannya, atau buang suaranya, setiap bagian dengan levelnya sendiri.
+- 🗣️ **Teks ke suara + kloning suara.** Suara lokal gratis, atau suara apa pun dari rekaman beberapa detik. Di desktop.
+- 🧍 **Penghapusan latar, kunci kroma, dan masker.** Orang dan objek dipotong untuk Anda, layar hijau yang menghapus dirinya sendiri, dan setumpuk masker di setiap klip, masing-masing dengan mode dan keyframe sendiri.
+- 🌀 **Animasi Masuk, Keluar, dan Ulang.** Untuk klip, gambar, judul, dan bentuk. Masing-masing diputar di kartunya sebelum Anda memilih.
+- ✨ **100+ efek, filter, dan transisi, 25 efek suara.** Tampilan sinematik, guncangan dan benturan, retro, wipe, semuanya langsung di pratinjau. Transisi adalah klip yang Anda geser dan pangkas seperti klip lainnya.
+- 🎞️ **Keyframe.** Posisi, skala, ukuran, rotasi, opasitas, volume, parameter efek. Editor kurva bawaan.
+- 🏃 **Rampa dan kurva kecepatan.** Konstan atau digambar, halus atau lurus. Bingkai beku dan mundur.
+- 🪄 **Tingkatkan dan Stabilkan.** Pulihkan rekaman buram atau lawas, hingga 2K. Tenangkan bidikan yang goyang.
+- ✂️ **Potong cepat, potong tepat.** Pisah, pangkas, ripple, gabung, teks dan overlay yang tertaut, timeline magnetis jika Anda mau. Setiap potongan jatuh tepat di bingkai, sama di pratinjau dan di hasil ekspor.
+- 🎚️ **Multi-trek, multi-timeline.** Susun video, gambar diam, judul, dan bentuk di trek sebanyak yang Anda mau. Beberapa suntingan dalam satu proyek. Mode campuran, pangkas, balik.
+- 📝 **Judul dan bentuk.** Font, garis tepi, bayangan, pelat latar, emoji berwarna, dan preset untuk bahasa Arab, Tionghoa, Hindi, Thai, dan delapan bahasa lain. Bentuk dengan gradasi, bintang, garis luar, dan bayangan.
+- 🎙️ **Sulih suara dan pembersihan suara dengan satu sakelar.** Rekam di atas suntingan Anda. Peredam bising, penyempurna suara, penyetara volume. Plus tupai, robot, telepon, dan kawan-kawan.
+- 📤 **Ekspor.** H.264, HEVC, AV1, dengan encoder bawaan komputer Anda. Hingga 4K 60, warna 10-bit.
+- ⚡ **Cepat.** Proksi bawaan, jadi 4K digeser dengan mulus. Judul digambar di setiap inti, dan setiap efek siap begitu jendela terbuka.
+- 🛟 **Tetap jalan di mesin apa pun.** Saat chip grafis menyerah, pratinjau tetap menggambar.
 - 🤖 **Bisa diskrip.** API JSON-RPC yang bisa dipakai skrip dan agen AI untuk memotong video. Build dari kode sumber menambahkan gRPC dan alat baris perintah.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 bahasa. Aplikasi yang sama, berkas proyek yang sama.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 bahasa. Aplikasi yang sama, file proyek yang sama.
 
 ## Unduh
 

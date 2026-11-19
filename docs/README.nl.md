@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Over Concat
 
-Concat is een gratis, open-source video-editor voor macOS, Windows, Linux en Android. Het doet wat de meeste montages nodig hebben: automatische ondertitels, tekst-naar-spraak, achtergrond verwijderen, keyframe-animatie, effecten en titels, monteren op meerdere sporen, exporteren in 4K. En dat zonder addertjes onder het gras: geen watermerk, geen account, geen abonnement, geen upload.
+Concat is een gratis, open-source video-editor voor macOS, Windows, Linux, Android en iOS. Het doet wat de meeste montages nodig hebben: automatische ondertitels, stem isoleren, tekst-naar-spraak, achtergrond verwijderen, animaties en keyframes, effecten en titels, monteren op meerdere sporen, exporteren in 4K. En dat zonder addertjes onder het gras: geen watermerk, geen account, geen abonnement, geen upload.
 
 Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installeren, beeldmateriaal erin slepen, knippen. De AI-modellen voor ondertitels, stemmen en uitsnijden download je één keer via Instellingen, daarna werken ze offline. Je beeldmateriaal verlaat je schijf nooit.
 
@@ -55,20 +55,25 @@ Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installer
 ## Hoogtepunten
 
 - 🚫 **Geen watermerken. Geen account. Geen betaalmuur.** Nooit.
-- 🔒 **100% lokaal.** Er wordt niets geüpload. Werkt offline.
-- 💬 **Automatische ondertitels.** Lokale Whisper. Kies een modelgrootte en je krijgt opgemaakte ondertitels op de tijdlijn.
-- 🗣️ **Tekst-naar-spraak + stemklonen.** Gratis lokale stemmen, of elke stem op basis van een paar seconden opname.
-- 🧍 **Achtergrond verwijderen.** Mensen, objecten, of teken het masker zelf.
-- 🎞️ **Keyframes.** Positie, schaal, rotatie, dekking, volume, effectparameters. Met ingebouwde curve-editor.
-- ✨ **100 effecten, filters en overgangen.** Gerenderd op de GPU, live in het voorbeeld.
-- ✂️ **Snel knippen.** Splitsen, trimmen, ripple, samenvoegen, stilstaand beeld, snelheid. Een magnetische tijdlijn als je dat wilt.
-- 🎚️ **Meerdere sporen, meerdere tijdlijnen.** Verschillende montages in één project. Overvloeimodi, bijsnijden, spiegelen.
-- 📝 **Titels.** Lettertypen, omlijning, schaduw, achtergrondvlak. Presets om mee te beginnen.
-- 🎙️ **Stem opschonen met één schakelaar.** Ruis verwijderen, stem verbeteren, luidheid gelijktrekken. Plus chipmunk, robot, telefoon en meer.
-- 📤 **Exporteren.** H.264, HEVC, AV1. Tot 4K 60, 10-bit kleur.
-- 🦀 **Native Rust-engine.** GPU-compositor, proxy’s, hardwaredecodering. Zelfs 4K scrubt soepel.
+- 🔒 **100% lokaal.** Er wordt niets geüpload, ook de AI niet. Werkt offline.
+- 💬 **Automatische ondertitels.** In de taal die je spreekt, gemaakt op je eigen machine, opgemaakt en meteen op de tijdlijn.
+- 🎤 **Stem isoleren.** Haal een stem uit de muziek of de ruis, of haal hem juist weg, elk deel op zijn eigen niveau.
+- 🗣️ **Tekst-naar-spraak + stemklonen.** Een gratis lokale stem, of elke stem uit een paar seconden opname. Op desktop.
+- 🧍 **Achtergrond verwijderen, chromakey en maskers.** Mensen en objecten worden voor je uitgesneden, een greenscreen die zichzelf keyt, en een stapel maskers op elke clip, elk met een eigen modus en eigen keyframes.
+- 🌀 **In-, uit- en lusanimaties.** Voor clips, afbeeldingen, titels en vormen. Elke animatie speelt af op zijn kaart voordat je kiest.
+- ✨ **100+ effecten, filters en overgangen, 25 geluidseffecten.** Filmische looks, schokken en impacts, retro, wipes, alles live in de preview. Een overgang is een clip die je net als elke andere verplaatst en trimt.
+- 🎞️ **Keyframes.** Positie, schaal, grootte, rotatie, dekking, volume, effectparameters. Curve-editor ingebouwd.
+- 🏃 **Snelheidsrampen en -curves.** Constant of getekend, vloeiend of recht. Stilstaande beelden en achteruit.
+- 🪄 **Verbeteren en Stabiliseren.** Zachte of oude beelden herstellen, tot 2K. Een bevend shot rustig krijgen.
+- ✂️ **Snel knippen, exact knippen.** Splitsen, trimmen, ripple, samenvoegen, gekoppelde ondertitels en overlays, een magnetische tijdlijn als je wilt. Elke snede valt op het frame, hetzelfde in de preview en in de export.
+- 🎚️ **Meerdere sporen, meerdere tijdlijnen.** Stapel video, stilstaande beelden, titels en vormen op zoveel sporen als je wilt. Meerdere montages in één project. Overvloeimodi, bijsnijden, spiegelen.
+- 📝 **Titels en vormen.** Lettertypen, rand, schaduw, achtergrondplaten, kleuren-emoji en voorinstellingen voor Arabisch, Chinees, Hindi, Thai en acht andere talen. Vormen met verlopen, sterren, omlijningen en schaduwen.
+- 🎙️ **Voice-over en stemopschoning met één schakelaar.** Neem op over je montage heen. Ruis weghalen, stem verbeteren, volume gelijktrekken. Plus eekhoorn, robot, telefoon en vrienden.
+- 📤 **Exporteren.** H.264, HEVC, AV1, met de eigen encoder van je computer. Tot 4K 60, 10-bits kleur.
+- ⚡ **Snel.** Proxy’s ingebouwd, zodat 4K soepel scrubt. Titels worden getekend op elke kern, en elk effect is klaar zodra het venster opent.
+- 🛟 **Blijft werken op elke machine.** Als de grafische chip het opgeeft, blijft de preview tekenen.
 - 🤖 **Scriptbaar.** Een JSON-RPC-API waarmee scripts en AI-agents video kunnen knippen. Een build vanaf de broncode voegt gRPC en een opdrachtregeltool toe.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 talen. Dezelfde app, dezelfde projectbestanden.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 talen. Dezelfde app, dezelfde projectbestanden.
 
 ## Downloaden
 
