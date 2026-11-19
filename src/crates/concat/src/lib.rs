@@ -3208,11 +3208,21 @@ pub fn draw_in_software() {
 /// rest of the run - so a quit after any transcription died of SIGABRT in
 /// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
 /// that way itself when it opts into sudden termination.
+///
+/// And on Android, which Rust does not count as Linux. There `exit`
+/// destroys the system libraries' static mutexes while the runtime's own
+/// threads - binder's, and any thread in Java's file I/O - still take
+/// them: the mutex of libandroidio's AsynchronousCloseMonitor, which every
+/// blocking Java read and write locks, and one of libgui's. The thread
+/// that took one next aborted ("FORTIFY: pthread_mutex_lock called on a
+/// destroyed mutex"), after the export had finished. Those threads are the
+/// system's, not ours to stop first, and Android ends an app's process
+/// with a kill, never an `exit`, so nothing on a phone needs the handlers.
 fn leave(code: i32) -> ! {
     // The log's last line: a run that got here ended in order, whatever
     // its code, and the next run reads the lack of this line as a crash.
     concat_host::logs::end();
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
     {
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -3221,7 +3231,7 @@ fn leave(code: i32) -> ! {
         // this one's is touched after it.
         unsafe { libc::_exit(code) }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "android")))]
     std::process::exit(code);
 }
 

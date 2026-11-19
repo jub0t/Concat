@@ -705,7 +705,14 @@ fn android_main(app: slint::android::AndroidApp) {
         }
     };
     log::logger().flush();
-    std::process::exit(status);
+    // `_exit`, not `exit`, as the window's own way out is: `exit` runs the
+    // system libraries' static destructors under the threads still going,
+    // which is a crash of its own (see `leave` in the window's crate). The
+    // log is written a line at a time and flushed above; nothing else is
+    // owed.
+    // SAFETY: `_exit` ends the process there and then; nothing of this
+    // one's is touched after it.
+    unsafe { libc::_exit(status) }
 }
 
 /// The activity's events, after Slint's backend has handled each: safe
