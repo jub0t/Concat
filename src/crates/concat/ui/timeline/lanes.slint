@@ -326,6 +326,44 @@ component Clip inherits Rectangle {
             background: Theme.wave-centre;
         }
 
+        // The song's beats, on a rail along the clip's floor rather than
+        // over its waveform: a short quiet tick at each beat, a taller one
+        // in the accent at the first of a bar. Rust places them in a 1x1
+        // box stretched onto the clip, through its trim and speed, and
+        // thins them with the zoom; see studio/beats.rs.
+        if (root.item.beats != "" || root.item.bars != "") && !root.banded: Rectangle {
+            x: 0;
+            y: parent.height - Theme.beat-rail;
+            width: parent.width;
+            height: Theme.beat-rail;
+            background: Theme.beat-rail-ground;
+        }
+        if root.item.beats != "" && !root.banded: Path {
+            x: 0;
+            y: parent.height - Theme.beat-rail * 0.5;
+            width: parent.width;
+            height: Theme.beat-rail * 0.5;
+            commands: root.item.beats;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            // Stretched onto the clip, not kept square.
+            fit: fill;
+            stroke: Theme.beat-mark;
+            stroke-width: 1px;
+        }
+        if root.item.bars != "" && !root.banded: Path {
+            x: 0;
+            y: parent.height - Theme.beat-rail;
+            width: parent.width;
+            height: Theme.beat-rail;
+            commands: root.item.bars;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            stroke: Theme.accent;
+            stroke-width: 2px;
+        }
+
         // The filmstrip. Tiles are the strip's frames at the body's height,
         // and each tile shows the frame under the midpoint of as much of it
         // as is in the clip: the clip covers `span` of the footage from

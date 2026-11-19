@@ -1030,7 +1030,14 @@ fn open_video(
             (*context).thread_count = i32::from(options.threads);
         }
     }
-    if global_header {
+    // Not for MediaCodec, which writes its parameter sets into the first
+    // packet instead, where MP4's muxer builds its header from them. Asked
+    // for them up front, FFmpeg's MediaCodec encoder gets them at open by
+    // encoding a dummy frame, ending the stream and flushing the codec, and
+    // Android's own encoder takes input after that and never gives back a
+    // packet: every export on the emulator stalled at its first frame, on
+    // the chip and on the software encoder it went on with alike (#747).
+    if global_header && family != Family::MediaCodec {
         video.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
     }
     if pq {

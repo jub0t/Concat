@@ -384,6 +384,36 @@ pub fn instance_flags() -> wgpu::InstanceFlags {
     (wgpu::InstanceFlags::default() - wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL).with_env()
 }
 
+/// The flags a rung's instance is made with: [`instance_flags`], and on
+/// Windows' software renderer (WARP) shaders compiled without the
+/// compiler's optimisations. Optimised, one of the compositor's shaders
+/// made WARP remove the device on the first frame it drew, every time,
+/// in every build that ships - the tests, built for debugging, compile
+/// unoptimised and never saw it. CI's runner, which has no GPU, showed it:
+/// with calls into the device one thread at a time, the debug layer,
+/// hardware coding and logging each tried on and off, the export drew on
+/// WARP only when the shaders were left unoptimised (#824). WARP compiles
+/// every shader again for the CPU with its own optimiser, so little is
+/// lost. `CONCAT_WARP_SHADERS=optimised`
+/// compiles them as on a GPU, for CI's runs that look for the shader.
+fn rung_flags(software: bool) -> wgpu::InstanceFlags {
+    let flags = instance_flags();
+    if cfg!(windows) && software && !warp_shaders_optimised() {
+        flags | wgpu::InstanceFlags::DEBUG
+    } else {
+        flags
+    }
+}
+
+/// Whether `CONCAT_WARP_SHADERS=optimised` asks for WARP's shaders to be
+/// compiled as a GPU's are; see [`rung_flags`].
+fn warp_shaders_optimised() -> bool {
+    std::env::var("CONCAT_WARP_SHADERS").is_ok_and(|value| {
+        let value = value.trim();
+        value.eq_ignore_ascii_case("optimised") || value.eq_ignore_ascii_case("optimized")
+    })
+}
+
 /// How near its memory budget a device lets Concat go, as Firefox ships it
 /// to every Windows user of WebGPU: past 95% a texture or buffer is refused
 /// with an out-of-memory error, which a composite catches and an export
@@ -391,18 +421,23 @@ pub fn instance_flags() -> wgpu::InstanceFlags {
 /// export answers the same way. Without them an 8 GB card shared by the
 /// window, the decoders and an export at 4K lost its device in the driver
 /// (#223) or hung with no loss reported at all (#297). Only Direct3D 12
-/// and Vulkan read them.
+/// and Vulkan read them, and on Vulkan as Concat's copy of wgpu-hal reads
+/// them: a buffer the CPU writes is gated on the heap it will land in, not
+/// the BAR it would prefer, and the BAR is left out of the loss gate (see
+/// `crate::memory` and src/patches/README.md). Every device says the
+/// figures they read as it opens and at its first refusal.
 pub const MEMORY_BUDGET: wgpu::MemoryBudgetThresholds = wgpu::MemoryBudgetThresholds {
     for_resource_creation: Some(95),
     for_device_loss: Some(99),
 };
 
 /// The budget every device is opened with: [`MEMORY_BUDGET`], unless
-/// `CONCAT_GPU_BUDGET` says otherwise. Some drivers report the budget
-/// wrong - NVIDIA's on Linux has read a nearly idle card as spent, so a
-/// buffer of a few hundred bytes was refused as out of memory, the device
-/// was lost, the next would not open and an export sat at 0% - and the
-/// gates then do harm with nothing to protect. `off` (or `none`, `0`)
+/// `CONCAT_GPU_BUDGET` says otherwise. The published gates refused a
+/// buffer of a few hundred bytes on a nearly idle NVIDIA card on Linux,
+/// over the spent budget of its BAR, which the allocator would have gone
+/// past into system memory; the device was lost, the next would not open
+/// and an export sat at 0% (#746). Patched, that no longer happens, and
+/// this stays the way round any gate that still does harm. `off` (or `none`, `0`)
 /// lifts both and leaves out-of-memory to the driver, which the device-loss
 /// recovery answers as before; a number from 1 to 99 moves the creation
 /// gate there, the loss gate four points above it. Read once, and said in
@@ -1212,6 +1247,10 @@ pub struct WgpuCompositor {
     /// How many errors the device has reported that no scope caught, as its
     /// handler counts them; see [`Compositor::render`].
     uncaught: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Set once the device's memory has been said at its first refusal
+    /// (see [`crate::memory::ran_out`]); shared with siblings, which are on
+    /// the same device.
+    memory_said: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Frames [`Compositor::submit`] started, oldest first, on their way
     /// back; see [`Compositor::collect`].
     in_flight: std::collections::VecDeque<Readback>,
@@ -1323,7 +1362,7 @@ impl WgpuCompositor {
         let Rung { backends, software } = rung;
         let mut descriptor = wgpu::InstanceDescriptor {
             backends,
-            flags: instance_flags(),
+            flags: rung_flags(software),
             memory_budget_thresholds: memory_budget(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
@@ -1354,6 +1393,17 @@ impl WgpuCompositor {
                     }
                 };
             let info = adapter.get_info();
+            // A GPU's rung that finds only Windows' software renderer - a
+            // machine with no driver Concat can use - leaves it to the
+            // software rung, which compiles its shaders the way that
+            // renderer survives (see `rung_flags`).
+            if cfg!(windows) && !software && info.device_type == wgpu::DeviceType::Cpu {
+                log::info!(
+                    "compositor: {} is a software renderer; the software rung opens it",
+                    info.name
+                );
+                return None;
+            }
             let (device, queue) =
                 match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                     label: Some("concat compositor"),
@@ -1370,9 +1420,40 @@ impl WgpuCompositor {
                             info.device_type,
                             info.backend
                         );
+                        // Refused for memory - the device's own first
+                        // buffers, as on #746's card - the figures are
+                        // said, since they are all a report of it has.
+                        if crate::memory::says_out_of_memory(&error.to_string()) {
+                            crate::memory::ran_out(
+                                &std::sync::atomic::AtomicBool::new(false),
+                                "the compositor's device",
+                                || crate::memory::Memory::of_adapter(&adapter),
+                            );
+                        }
                         return None;
                     }
                 };
+            // What the card's memory is as the device opens, a line a heap:
+            // what a later report of "out of memory" needs to tell a full
+            // card from a gate that refused with room to spare (#802).
+            crate::memory::Memory::of_adapter(&adapter)
+                .say(log::Level::Info, "as the compositor's device opened");
+            // Direct3D 12 hands back the device it already has for an
+            // adapter, and one it removed is still that device while
+            // anything in the process holds it: such a device dies at its
+            // first frame. Asked here, it is never drawn on (#824).
+            if let Some(reason) = removed(&device) {
+                log::error!(
+                    "compositor: {} ({:?}, {:?}) handed back a device Direct3D 12 had already \
+                     removed ({reason}): something in this process still holds the dead one, \
+                     and no new device opens on that adapter until it lets go; this one is not \
+                     drawn on",
+                    info.name,
+                    info.device_type,
+                    info.backend
+                );
+                return None;
+            }
             let work = work_format(&adapter);
             if work != WORK {
                 log::warn!(
@@ -1390,6 +1471,14 @@ impl WgpuCompositor {
             let marked = std::sync::Arc::clone(&gone);
             let lost_reason = std::sync::Arc::new(std::sync::Mutex::new(None));
             let kept = std::sync::Arc::clone(&lost_reason);
+            // The device's first refusal for memory says the figures behind
+            // it (see `memory::ran_out`), from whichever of the handlers
+            // below or a frame's own scopes sees it first. The adapter the
+            // handlers read them through goes with the device, which holds
+            // it anyway, so nothing is kept alive past it.
+            let memory_said = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let said = std::sync::Arc::clone(&memory_said);
+            let on = adapter.clone();
             device.set_device_lost_callback(move |reason, message| {
                 marked.store(true, std::sync::atomic::Ordering::Relaxed);
                 log::error!(
@@ -1397,6 +1486,12 @@ impl WgpuCompositor {
                 );
                 if let Ok(mut kept) = kept.lock() {
                     *kept = Some(format!("{reason:?}: {message}"));
+                }
+                // The device-loss gate's own way of ending a device.
+                if crate::memory::says_out_of_memory(&message) {
+                    crate::memory::ran_out(&said, "the compositor's device", || {
+                        crate::memory::Memory::of_adapter(&on)
+                    });
                 }
             });
             // An error no scope caught - a texture past the device's limit,
@@ -1409,14 +1504,21 @@ impl WgpuCompositor {
             // frame (see `Compositor::render`).
             let uncaught = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
             let counted = std::sync::Arc::clone(&uncaught);
+            let said = std::sync::Arc::clone(&memory_said);
             device.on_uncaptured_error(std::sync::Arc::new(move |error: wgpu::Error| {
                 counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 log::error!("the compositor's GPU device on {name} reported an error: {error}");
+                if matches!(error, wgpu::Error::OutOfMemory { .. }) {
+                    crate::memory::ran_out(&said, "the compositor's device", || {
+                        crate::memory::Memory::of_adapter(&adapter)
+                    });
+                }
             }));
             let mut compositor = Self::drawing_in(device, queue, work);
             compositor.uncaught = uncaught;
             compositor.gone = gone;
             compositor.lost_reason = lost_reason;
+            compositor.memory_said = memory_said;
             Some(compositor)
         }
     }
@@ -1462,6 +1564,14 @@ impl WgpuCompositor {
         } else {
             format!("driver {driver}")
         };
+        // A software adapter's device that Direct3D 12 removed is gone for
+        // every compositor on it, not only this one: said where they all
+        // look (`gone`), so the previews let go of it at once rather than
+        // hand the export a sibling of the dead device, and none of them
+        // holds it while the next is asked for (#824).
+        if self.on_software_adapter() && removed(&self.device).is_some() {
+            self.gone.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let api = removal_of(&self.device)
             .unwrap_or_else(|| format!("{:?} gives no reason of its own", info.backend));
         let wgpu = self
@@ -1516,7 +1626,16 @@ impl WgpuCompositor {
         sibling.uncaught = std::sync::Arc::clone(&self.uncaught);
         sibling.gone = std::sync::Arc::clone(&self.gone);
         sibling.lost_reason = std::sync::Arc::clone(&self.lost_reason);
+        sibling.memory_said = std::sync::Arc::clone(&self.memory_said);
         sibling
+    }
+
+    /// Says this device's memory the first time it runs out; see
+    /// [`crate::memory::ran_out`].
+    fn ran_out_of_memory(&self) {
+        crate::memory::ran_out(&self.memory_said, "the compositor's device", || {
+            crate::memory::Memory::of_device(&self.device)
+        });
     }
 
     /// The widest or tallest frame this compositor can draw: the document's
@@ -1975,6 +2094,7 @@ impl WgpuCompositor {
             post_mortem: None,
             work,
             uncaught: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            memory_said: std::sync::Arc::default(),
             in_flight: std::collections::VecDeque::new(),
             spare: Vec::new(),
             planar: None,
@@ -4179,6 +4299,9 @@ impl WgpuCompositor {
             });
         let refused = pollster::block_on(validation.pop());
         let exhausted = pollster::block_on(memory.pop());
+        if exhausted.is_some() {
+            self.ran_out_of_memory();
+        }
         let mut failed = false;
         for error in [exhausted, refused].into_iter().flatten() {
             log::error!(
@@ -4452,6 +4575,26 @@ fn clear_of([r, g, b, a]: [u8; 4]) -> wgpu::Color {
 /// Direct3D 12's removed reason. `None` from every other API: Vulkan says
 /// only that the device is lost, Metal and OpenGL say less.
 fn removal_of(device: &wgpu::Device) -> Option<String> {
+    Some(match removed_code(device)? {
+        None => "Direct3D 12 says the device was not removed".to_owned(),
+        Some(code) => removal_words(code),
+    })
+}
+
+/// Whether Direct3D 12 has removed `device` - asked of one just opened,
+/// whether it was dead already - and what it says of it if so; `None` for a live device, and on every
+/// other API. Direct3D 12 keeps one device an adapter in a process and
+/// hands that one back however many are asked for, so while anything
+/// still holds a removed device a "new" one is that dead one again, and
+/// dies at its first frame (#824). One question to the device, so cheap
+/// enough to ask after every open.
+pub fn removed(device: &wgpu::Device) -> Option<String> {
+    removed_code(device)?.map(removal_words)
+}
+
+/// Direct3D 12's removed reason for `device`: `Some(None)` while it is
+/// not removed, `Some(Some(code))` once it is, `None` on another API.
+fn removed_code(device: &wgpu::Device) -> Option<Option<u32>> {
     #[cfg(windows)]
     {
         // SAFETY: the raw device is only asked a question, which Direct3D
@@ -4459,16 +4602,7 @@ fn removal_of(device: &wgpu::Device) -> Option<String> {
         // and the guard is dropped before this returns.
         let hal = unsafe { device.as_hal::<wgpu::hal::api::Dx12>() }?;
         let removed = unsafe { hal.raw_device().GetDeviceRemovedReason() };
-        Some(match removed {
-            Ok(()) => "Direct3D 12 says the device was not removed".to_owned(),
-            Err(error) => {
-                let code = error.code().0 as u32;
-                format!(
-                    "Direct3D 12 says {} ({code:#010X})",
-                    removal_name(code).unwrap_or("an unlisted reason")
-                )
-            }
-        })
+        Some(removed.err().map(|error| error.code().0 as u32))
     }
     #[cfg(not(windows))]
     {
@@ -4477,9 +4611,16 @@ fn removal_of(device: &wgpu::Device) -> Option<String> {
     }
 }
 
+/// A removed reason as the log says it: its name and its code.
+fn removal_words(code: u32) -> String {
+    format!(
+        "Direct3D 12 says {} ({code:#010X})",
+        removal_name(code).unwrap_or("an unlisted reason")
+    )
+}
+
 /// The name of a reason Direct3D 12 gives for removing a device, as
 /// Microsoft's documentation writes it.
-#[cfg(any(windows, test))]
 fn removal_name(code: u32) -> Option<&'static str> {
     Some(match code {
         0x887A_0005 => "DXGI_ERROR_DEVICE_REMOVED",
@@ -4518,6 +4659,9 @@ impl Compositor for WgpuCompositor {
         let frame = self.render_and_read(plan.width, plan.height, &draws, clear_of(plan.canvas));
         let refused = pollster::block_on(validation.pop());
         let exhausted = pollster::block_on(memory.pop());
+        if exhausted.is_some() {
+            self.ran_out_of_memory();
+        }
         let errors = [exhausted, refused].into_iter().flatten();
         let mut failed = frame.is_none();
         for error in errors {

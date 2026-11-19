@@ -21,10 +21,14 @@
 //!
 //! The file goes into the project's audio folder and is whole on disk as
 //! it is written (see concat_host::record). Closing the panel mid-take
-//! stops it and keeps it.
+//! stops it and keeps it, and so does closing the project, quitting or
+//! opening another: the take lands in the project it was recorded for
+//! before that project is saved and let go. A take a project lost all the
+//! same - Concat closed by a crash, or quit without saving - is still in
+//! its audio folder, and goes back in Media the next time it opens.
 
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 
 use concat_host::media;
 use concat_host::record::{self, Microphone};
@@ -70,17 +74,15 @@ pub enum VoiceoverMsg {
     PromptSpeed(i32),
     /// The take is written and probed: onto the timeline with it.
     Finished(Box<Landed>),
+    /// The project is closing - Close Project, Quit, another project
+    /// opened over it: a take under way stops and lands in it now.
+    ProjectClosing,
 }
 
 /// A finished take on its way to the timeline.
 pub struct Landed {
     result: Result<media::MediaSummary, String>,
-    /// Where on the timeline its first sample belongs.
-    landing: f64,
-    /// Its length, in seconds.
-    seconds: f64,
-    /// Where the playhead was when it began: where a retake goes back to.
-    start: f64,
+    take: Ended,
 }
 
 impl std::fmt::Debug for VoiceoverMsg {
@@ -110,6 +112,7 @@ impl std::fmt::Debug for VoiceoverMsg {
                 Ok(summary) => write!(f, "Finished({})", summary.path),
                 Err(error) => write!(f, "Finished(error {error:?})"),
             },
+            Self::ProjectClosing => write!(f, "ProjectClosing"),
         }
     }
 }
@@ -225,6 +228,9 @@ pub struct VoiceoverPane {
     error: Option<String>,
     phase: Phase,
     take: Option<Running>,
+    /// Takes stopped and on their way to be probed. A close lands them
+    /// itself: the probe's answer would come back to a project gone.
+    on_way: Vec<Ended>,
     last: Option<Last>,
     /// The lane the last take went on: the next goes there too when it
     /// can, so a voiceover reads as one line under the picture.
@@ -249,6 +255,12 @@ impl VoiceoverPane {
 
     pub fn recording(&self) -> bool {
         self.phase != Phase::Ready
+    }
+
+    /// Whether a take is under way or on its way to the timeline: what a
+    /// project closing has to keep.
+    pub fn holds_take(&self) -> bool {
+        self.recording() || !self.on_way.is_empty()
     }
 
     /// What Play becomes while a take is under way: the panel's own verb,
@@ -349,7 +361,20 @@ impl VoiceoverPane {
                 studio.prefs.voiceover.prompt_speed = index.clamp(0, 2) as u8;
                 studio.prefs.save(&studio.host.dirs);
             }
-            VoiceoverMsg::Finished(landed) => self.land(*landed, studio),
+            VoiceoverMsg::Finished(landed) => {
+                // Only a take still on its way: one a close has landed
+                // already would go on the timeline twice.
+                let Some(at) = self
+                    .on_way
+                    .iter()
+                    .position(|take| take.path == landed.take.path)
+                else {
+                    return;
+                };
+                self.on_way.remove(at);
+                self.land(*landed, studio, true);
+            }
+            VoiceoverMsg::ProjectClosing => self.keep_before_close(studio),
         }
     }
 
@@ -604,19 +629,37 @@ impl VoiceoverPane {
 
     /// Stops the take and the picture, and sends the file to be probed.
     fn stop(&mut self, studio: &mut Studio) {
+        let Some(take) = self.end_take(studio) else {
+            return;
+        };
+        self.on_way.push(take.clone());
+        let path = take.path.to_string_lossy().into_owned();
+        spawn_in_project(
+            move || media::probe(&path),
+            move |studio, _, _, result| {
+                studio.handle(Msg::Voiceover(VoiceoverMsg::Finished(Box::new(Landed {
+                    result,
+                    take,
+                }))));
+            },
+        );
+    }
+
+    /// Stops the take and the picture and finishes the file: what is left
+    /// is to probe it and land it. None when there was no take, or the
+    /// file could not be finished, which is said.
+    fn end_take(&mut self, studio: &mut Studio) -> Option<Ended> {
         self.cancel_count();
         let Some(take) = self.take.take() else {
             self.phase = Phase::Ready;
-            return;
+            return None;
         };
         self.phase = Phase::Ready;
         if studio.playing {
             studio.pause();
         }
         studio.host.playback.set_muted(false);
-        let Some(mic) = self.mic.as_ref() else {
-            return;
-        };
+        let mic = self.mic.as_ref()?;
         match mic.end() {
             Ok(done) => {
                 log::info!(
@@ -624,25 +667,50 @@ impl VoiceoverPane {
                     concat_log::span(std::time::Duration::from_secs_f64(done.seconds.max(0.0))),
                     crate::studio::file_name_of(&done.path.to_string_lossy())
                 );
-                let landing = record::landing(take.start, take.rolled, done.first);
-                let seconds = done.seconds;
-                let start = take.start;
-                spawn_in_project(
-                    move || media::probe(&done.path.to_string_lossy()),
-                    move |studio, _, _, result| {
-                        studio.handle(Msg::Voiceover(VoiceoverMsg::Finished(Box::new(Landed {
-                            result,
-                            landing,
-                            seconds,
-                            start,
-                        }))));
-                    },
-                );
+                Some(Ended {
+                    landing: record::landing(take.start, take.rolled, done.first),
+                    seconds: done.seconds,
+                    start: take.start,
+                    path: done.path,
+                })
             }
             Err(error) => {
                 let _ = std::fs::remove_file(&take.path);
                 studio.notify(&tf("voiceover.failed", &[&error]), true);
+                None
             }
+        }
+    }
+
+    /// The project is closing with a take under way, or one stopped and
+    /// still on its way: it lands in the bin and on the timeline of this
+    /// project, before the close saves it. Stop's own way probes on a
+    /// worker, and the answer came back to whichever project was open by
+    /// then and was dropped as not its own: the take sat in the audio
+    /// folder with nothing in the project pointing at it.
+    fn keep_before_close(&mut self, studio: &mut Studio) {
+        let mut takes = std::mem::take(&mut self.on_way);
+        takes.extend(self.end_take(studio));
+        for take in takes {
+            // Probed here, on the window's thread: the file is a moment-old
+            // take in the project's own folder, and the close is about to
+            // wait on a save to that same folder anyway.
+            let result = media::probe(&take.path.to_string_lossy());
+            let name = crate::studio::file_name_of(&take.path.to_string_lossy());
+            if let Err(error) = &result {
+                log::warn!(
+                    "voice: the voiceover {name}, recorded as {} closed, would not read: {error}; it stays in the project's audio folder, out of Media",
+                    studio.project_name
+                );
+                continue;
+            }
+            log::info!(
+                "voice: the voiceover {name}, recorded as {} closed, is kept in it",
+                studio.project_name
+            );
+            // No word on the screen: the window is on its way to the launch
+            // screen, another project or out.
+            self.land(Landed { result, take }, studio, false);
         }
     }
 
@@ -688,8 +756,9 @@ impl VoiceoverPane {
         self.record(studio);
     }
 
-    /// Puts a probed take into the bin and on the timeline.
-    fn land(&mut self, landed: Landed, studio: &mut Studio) {
+    /// Puts a probed take into the bin and on the timeline, and says so
+    /// when `say`.
+    fn land(&mut self, landed: Landed, studio: &mut Studio, say: bool) {
         let summary = match landed.result {
             Ok(summary) => summary,
             Err(error) => {
@@ -716,18 +785,18 @@ impl VoiceoverPane {
         let lane = self.lane.clone().filter(|lane| {
             let timeline = studio.project().active();
             timeline.tracks.iter().any(|track| track.id == *lane)
-                && timeline.is_free(lane, landed.landing, landed.seconds, &[])
+                && timeline.is_free(lane, landed.take.landing, landed.take.seconds, &[])
         });
         let clip = match lane {
             Some(track_id) => studio.apply(Command::AddClip {
                 media_id: media_id.clone(),
                 track_id,
-                start: landed.landing,
+                start: landed.take.landing,
                 ripple: false,
             }),
             None => studio.apply(Command::AddClipAtFirstFree {
                 media_id: media_id.clone(),
-                start: landed.landing,
+                start: landed.take.landing,
             }),
         };
         if let Some(clip) = clip {
@@ -740,11 +809,139 @@ impl VoiceoverPane {
                 .map(|placed| placed.track_id.clone());
             self.last = Some(Last {
                 media_id,
-                start: landed.start,
+                start: landed.take.start,
             });
-            studio.notify(&t("voiceover.added"), false);
+            if say {
+                studio.notify(&t("voiceover.added"), false);
+            }
         }
     }
+}
+
+/// A take stopped and its file finished, on its way to be probed.
+#[derive(Clone)]
+struct Ended {
+    path: PathBuf,
+    /// Where on the timeline its first sample belongs.
+    landing: f64,
+    /// Its length, in seconds.
+    seconds: f64,
+    /// Where the playhead was when it began.
+    start: f64,
+}
+
+/// The takes in a project's `audio` folder the project has lost: named as
+/// the panel names them, pointed at by none of `media` (the paths of the
+/// project's media, matched by file name, so a project folder that was
+/// moved still knows its own), and written since the project was `saved`.
+///
+/// The last is what tells a lost take from one the person let go: a take
+/// taken out of the bin, or thrown away by Retake after it landed, keeps
+/// its file - undo brings it back - but a save follows the edit that took
+/// it out, so its file is older than the project's. A take lost to a crash
+/// or a quit without saving was still being written after the last save.
+pub fn lost_takes(audio: &Path, saved: Option<SystemTime>, media: &[String]) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(audio) else {
+        return Vec::new();
+    };
+    let known: std::collections::HashSet<&std::ffi::OsStr> = media
+        .iter()
+        .filter_map(|path| Path::new(path).file_name())
+        .collect();
+    let mut lost: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("voiceover-") && name.ends_with(".wav")
+        })
+        .filter(|entry| !known.contains(entry.file_name().as_os_str()))
+        .filter(|entry| {
+            let Ok(meta) = entry.metadata() else {
+                return false;
+            };
+            let written = meta.modified().ok();
+            meta.is_file()
+                && match (saved, written) {
+                    (Some(saved), Some(written)) => written >= saved,
+                    _ => true,
+                }
+        })
+        .map(|entry| entry.path())
+        .collect();
+    lost.sort();
+    lost
+}
+
+/// Puts the takes the open project lost back in its bin, off the window's
+/// thread, and says so once. `saved` is when the project's file was last
+/// written, read before it opened; see [`lost_takes`]. Not on the timeline:
+/// where a lost take was meant to go went with the project that lost it.
+pub fn recover_lost_takes(studio: &Studio, saved: Option<SystemTime>) {
+    let Some(session) = studio.session.as_ref() else {
+        return;
+    };
+    let audio = Path::new(session.path()).join("audio");
+    let media: Vec<String> = studio
+        .project()
+        .media
+        .iter()
+        .map(|item| item.path.clone())
+        .collect();
+    spawn_in_project(
+        move || {
+            lost_takes(&audio, saved, &media)
+                .into_iter()
+                .filter_map(|path| {
+                    let name = crate::studio::file_name_of(&path.to_string_lossy());
+                    match record::repair(&path) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            log::info!(
+                                "voice: {name} is a voiceover with no sound in it; left out of Media"
+                            );
+                            return None;
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "voice: {name} looks like a lost voiceover and would not read: {error}; left out of Media"
+                            );
+                            return None;
+                        }
+                    }
+                    match media::probe(&path.to_string_lossy()) {
+                        Ok(summary) => Some(summary),
+                        Err(error) => {
+                            log::warn!(
+                                "voice: {name} looks like a lost voiceover and would not open: {error}; left out of Media"
+                            );
+                            None
+                        }
+                    }
+                })
+                .collect::<Vec<_>>()
+        },
+        |studio, _, _, found| {
+            let mut kept = 0usize;
+            for summary in found {
+                let name = crate::studio::file_name_of(&summary.path);
+                if studio
+                    .apply(Command::AddMedia {
+                        item: summary.to_new_media(),
+                    })
+                    .is_some()
+                {
+                    log::info!("voice: {name}, a voiceover the project had lost, is back in Media");
+                    kept += 1;
+                }
+            }
+            match kept {
+                0 => {}
+                1 => studio.notify(&t("voiceover.putBackOne"), false),
+                many => studio.notify(&tf("voiceover.putBackMany", &[&many.to_string()]), false),
+            }
+        },
+    );
 }
 
 /// Seconds counted in before a take.
@@ -860,5 +1057,48 @@ mod tests {
         pane.phase = Phase::Paused;
         assert_eq!(pane.on_seek(), Some(false));
         assert!(matches!(pane.on_play(), Some(VoiceoverMsg::Resume)));
+    }
+
+    /// A take is lost when nothing in the project points at it and it was
+    /// still being written after the project's last save. One the person
+    /// took out of the bin is older than the save that followed, and stays
+    /// out; anything not named as a take is never the panel's.
+    #[test]
+    fn a_take_is_lost_when_the_project_does_not_have_it_and_it_outlived_the_save() {
+        let audio = std::env::temp_dir().join(format!("concat-lost-takes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&audio);
+        std::fs::create_dir_all(&audio).expect("an audio folder");
+        let saved = SystemTime::now();
+        let at = |name: &str, when: SystemTime| {
+            let path = audio.join(name);
+            std::fs::write(&path, b"RIFF").expect("written");
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .and_then(|file| file.set_modified(when))
+                .expect("dated");
+            path
+        };
+        let later = saved + Duration::from_secs(5);
+        let earlier = saved - Duration::from_secs(60);
+        let lost = at("voiceover-3.wav", later);
+        let landed = at("voiceover-2.wav", later);
+        at("voiceover-1.wav", earlier);
+        at("music.wav", later);
+        at("voiceover-4.wav.part", later);
+        std::fs::create_dir(audio.join("voiceover-5.wav")).expect("a folder");
+        // The project knows the landed take by a path from another
+        // machine: the folder was moved, and the name is what matches.
+        let media = vec![
+            format!("/elsewhere/Film/audio/{}", "voiceover-2.wav"),
+            "/clips/a.mov".to_owned(),
+        ];
+        assert_eq!(lost_takes(&audio, Some(saved), &media), vec![lost.clone()]);
+        assert!(!lost_takes(&audio, Some(saved), &media).contains(&landed));
+        // A project whose file has no date to go by keeps every take it
+        // does not have.
+        assert_eq!(lost_takes(&audio, None, &media).len(), 2);
+        assert!(lost_takes(&audio.join("missing"), Some(saved), &media).is_empty());
+        let _ = std::fs::remove_dir_all(&audio);
     }
 }

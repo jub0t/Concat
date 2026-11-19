@@ -56,6 +56,11 @@ Concat bundles two models:
   Schröter, code and weights dual-licensed MIT or Apache-2.0; Concat takes
   it under MIT). It is voice isolation's model. The licence texts are in
   `src/crates/concat-speech/assets/deepfilternet3/`.
+- Beat This!'s small model (`small0`, https://github.com/CPJKU/beat_this,
+  Copyright (c) 2024 Institute of Computational Perception, JKU Linz,
+  Austria; code and weights MIT), exported to ONNX by Concat. It finds a
+  song's beats and downbeats. The licence text is in
+  `src/crates/concat-speech/assets/beat-this/`.
 
 ## Slint (GPL-3.0-only, or Royalty-free for commercial builds)
 

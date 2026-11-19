@@ -3,15 +3,58 @@
 
 //! What the window remembers between runs, as one small JSON file in the
 //! app's config directory. None of it is project state: the theme, which
-//! models are chosen, which languages. A missing or unreadable file is the
-//! defaults, never an error.
+//! models are chosen, which languages. A missing file is the defaults,
+//! never an error. One that is there and will not read - held a moment by
+//! an antivirus or a sync client, most often on Windows - is waited on
+//! briefly, and if it still will not read this run is on the defaults and
+//! writes nothing over it until it has read it: a passing lock used to put
+//! every setting back to its default, and the next save made that stick.
+//!
+//! A save writes what this run changed and leaves the rest as the file has
+//! it now, so two windows open at once each keep what the other chose
+//! rather than the last to save putting back everything the other changed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
 use concat_host::AppDirs;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 const FILE: &str = "settings.json";
+
+/// The pauses between tries at a settings file that is there and will not
+/// read: about a second in all, which outlasts the scan of an antivirus or
+/// the upload of a sync client, and costs nothing when the file reads.
+const PATIENCE: [Duration; 5] = [
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(300),
+    Duration::from_millis(350),
+];
+
+/// A load in this process has waited the whole of [`PATIENCE`] on the file
+/// and given up. A launch loads the settings three times before the window
+/// is up; a file that will not read at all - a folder in its place, no
+/// permission - would cost a second each time, so the loads after the
+/// first that gave up try once.
+static GAVE_UP: AtomicBool = AtomicBool::new(false);
+
+/// Keys an older build wrote that mean nothing now. A save leaves other
+/// keys it does not know as the file has them - a newer build's settings
+/// outlive a run of an older one - but these it lets go; see
+/// [`Preferences::software_gpu`].
+const RETIRED: [&str; 1] = ["softwareGpu"];
+
+/// The keys whose value is a set of choices made one at a time - the
+/// voiceover panel's, the server's, each rebound shortcut - which a save
+/// merges entry by entry. Every other value goes whole, the layout above
+/// all: half of one window's docks and half of another's is neither.
+const BY_ENTRY: [&str; 3] = ["voiceover", "server", "keybinds"];
 
 /// The interface scales Settings > Appearance offers, smallest first, as
 /// percents of the display's own scale. Nothing on the list - and no value
@@ -169,6 +212,51 @@ pub struct Preferences {
     /// by Settings › Shortcuts; resolved in [`crate::keymap`].
     #[serde(default)]
     pub keybinds: BTreeMap<String, String>,
+    /// What this run knows of the file; see [`OnDisk`].
+    #[serde(skip)]
+    disk: OnDisk,
+}
+
+/// What a run knows of the settings file: how the settings stood when it
+/// last read or wrote it, so a save can tell this run's changes from
+/// another window's, and whether it has managed to read it at all.
+#[derive(Default)]
+struct OnDisk(Mutex<Seen>);
+
+#[derive(Clone, Default)]
+struct Seen {
+    /// The settings as last read from the file or written to it, in the
+    /// file's own shape. `None` for preferences that never came from the
+    /// file, whose starting point is the defaults.
+    last: Option<Map<String, Value>>,
+    /// The file was there and would not read, so this run is on the
+    /// defaults, and nothing it saves may go over the file until a save
+    /// has read it.
+    unread: bool,
+}
+
+impl OnDisk {
+    fn seen(&self) -> MutexGuard<'_, Seen> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl Clone for OnDisk {
+    fn clone(&self) -> Self {
+        OnDisk(Mutex::new(self.seen().clone()))
+    }
+}
+
+impl std::fmt::Debug for OnDisk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let seen = self.seen();
+        f.debug_struct("OnDisk")
+            .field("read", &seen.last.is_some())
+            .field("unread", &seen.unread)
+            .finish()
+    }
 }
 
 /// The voiceover panel's choices, kept from one take to the next and one
@@ -358,14 +446,63 @@ impl Preferences {
         }
     }
 
-    /// Reads the file, or the defaults when there is none.
+    /// Reads the file, or the defaults when there is none or it will not
+    /// read; see the module's notes.
     pub fn load(dirs: &AppDirs) -> Self {
-        let path = dirs.config.join(FILE);
-        let Ok(bytes) = std::fs::read(&path) else {
-            return Self::default();
+        let patience: &[Duration] = if GAVE_UP.load(Ordering::Relaxed) {
+            &[]
+        } else {
+            &PATIENCE
         };
-        if let Ok(preferences) = serde_json::from_slice(&bytes) {
-            return preferences;
+        let preferences = Self::load_reading(dirs, |path| std::fs::read(path), patience);
+        if preferences.disk.seen().unread {
+            GAVE_UP.store(true, Ordering::Relaxed);
+        }
+        preferences
+    }
+
+    /// [`Preferences::load`] through `read`, pausing `patience` between
+    /// tries at a file that is there and will not read.
+    fn load_reading(
+        dirs: &AppDirs,
+        read: impl Fn(&Path) -> std::io::Result<Vec<u8>>,
+        patience: &[Duration],
+    ) -> Self {
+        let path = dirs.config.join(FILE);
+        let mut waits = patience.iter();
+        let mut tries = 1;
+        let bytes = loop {
+            match read(&path) {
+                Ok(bytes) => break bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Self::default().seen_as(false);
+                }
+                Err(error) => match waits.next() {
+                    Some(wait) => {
+                        if tries == 1 {
+                            log::info!(
+                                "settings: the saved settings in {} would not read ({error}); trying again for a second",
+                                path.display()
+                            );
+                        }
+                        std::thread::sleep(*wait);
+                        tries += 1;
+                    }
+                    None => {
+                        log::warn!(
+                            "settings: wanted the saved settings in {} and they would not read ({error}); this run uses the defaults and saves nothing over the file until it reads",
+                            path.display()
+                        );
+                        return Self::default().seen_as(true);
+                    }
+                },
+            }
+        };
+        if tries > 1 {
+            log::info!("settings: the saved settings read on try {tries}");
+        }
+        if let Ok(preferences) = serde_json::from_slice::<Self>(&bytes) {
+            return preferences.seen_as(false);
         }
         // One value of the wrong shape - a field an older or newer build
         // wrote differently, a hand edit - failed the whole file, and every
@@ -373,12 +510,25 @@ impl Preferences {
         // read are kept, and the file as it was is set aside rather than
         // overwritten by the next save.
         let _ = std::fs::copy(&path, path.with_extension("json.unreadable"));
-        let preferences = salvage(&bytes);
+        let preferences = match serde_json::from_slice(&bytes) {
+            Ok(Value::Object(found)) => salvage(found),
+            _ => Self::default(),
+        };
         log::warn!(
             "settings: wanted the saved settings in {} and only part of them read; the rest are back to their defaults, and the file is kept beside it as .json.unreadable",
             path.display()
         );
-        preferences
+        preferences.seen_as(false)
+    }
+
+    /// These preferences as the file holds them now; `unread` when it
+    /// would not read and they are the defaults in its place.
+    fn seen_as(self, unread: bool) -> Self {
+        *self.disk.seen() = Seen {
+            last: as_map(&self),
+            unread,
+        };
+        self
     }
 
     /// Writes the file. Best effort: a preference that did not stick is
@@ -387,46 +537,161 @@ impl Preferences {
     /// moment leaves one whole file, never half of one; and readable by
     /// this account alone where the platform has the notion, since it
     /// holds the remote API's token.
+    ///
+    /// The file is read first and only what this run changed since it last
+    /// read or wrote it is laid over it: a second window's choices stay,
+    /// and so do keys a newer build wrote. A file that would not read when
+    /// this run loaded and still will not is left alone; this run's
+    /// changes go out with the first save that reads it.
     pub fn save(&self, dirs: &AppDirs) {
-        let _ = std::fs::create_dir_all(&dirs.config);
-        let Ok(encoded) = serde_json::to_vec_pretty(self) else {
-            return;
+        self.save_reading(dirs, |path| std::fs::read(path));
+    }
+
+    /// [`Preferences::save`] through `read`; whether the file was written.
+    fn save_reading(
+        &self,
+        dirs: &AppDirs,
+        read: impl Fn(&Path) -> std::io::Result<Vec<u8>>,
+    ) -> bool {
+        let Some(now) = as_map(self) else {
+            return false;
         };
         let path = dirs.config.join(FILE);
+        // Held to the end: a clone saving at the same moment waits, rather
+        // than both laying their changes over the same reading.
+        let mut seen = self.disk.seen();
+        let mut merged = match read(&path) {
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(Value::Object(mut found)) => {
+                    let last = seen
+                        .last
+                        .clone()
+                        .or_else(|| as_map(&Self::default()))
+                        .unwrap_or_default();
+                    lay_changes(&mut found, &last, &now, true);
+                    found
+                }
+                // Not settings at all: the load that met it set it aside.
+                _ => now.clone(),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => now.clone(),
+            Err(error) if seen.unread => {
+                log::debug!(
+                    "settings: the saved settings still would not read ({error}); this run's changes wait for a save that can read them"
+                );
+                return false;
+            }
+            // It read when this run loaded it, so this run's settings are
+            // the file's plus what it changed: written as they are rather
+            // than the change dropped.
+            Err(error) => {
+                log::warn!(
+                    "settings: wanted the saved settings read before saving over them and they would not read ({error}); saved as this window has them"
+                );
+                now.clone()
+            }
+        };
+        for key in RETIRED {
+            merged.remove(key);
+        }
+        // A value of the wrong shape the file had and this run did not
+        // touch would fail the whole file at the next load: the file is
+        // written as the values that read.
+        if serde_json::from_value::<Self>(Value::Object(merged.clone())).is_err() {
+            match as_map(&salvage(merged)) {
+                Some(salvaged) => merged = salvaged,
+                None => return false,
+            }
+        }
+        let _ = std::fs::create_dir_all(&dirs.config);
+        let Ok(encoded) = serde_json::to_vec_pretty(&merged) else {
+            return false;
+        };
         let staging = dirs
             .config
             .join(format!("{FILE}.{}.part", std::process::id()));
         if write_private(&staging, &encoded).is_err() || std::fs::rename(&staging, &path).is_err() {
             let _ = std::fs::remove_file(&staging);
+            return false;
+        }
+        *seen = Seen {
+            last: Some(now),
+            unread: false,
+        };
+        true
+    }
+}
+
+/// Preferences in the file's shape: a key per setting.
+fn as_map(preferences: &Preferences) -> Option<Map<String, Value>> {
+    match serde_json::to_value(preferences) {
+        Ok(Value::Object(map)) => Some(map),
+        _ => None,
+    }
+}
+
+/// Lays over `file` what changed from `last` to `now`: a key changed is
+/// set, a key gone is removed, and the rest are left as `file` has them.
+/// At the top level the values under [`BY_ENTRY`] are merged an entry at a
+/// time; everything else goes whole.
+fn lay_changes(
+    file: &mut Map<String, Value>,
+    last: &Map<String, Value>,
+    now: &Map<String, Value>,
+    top: bool,
+) {
+    let keys: BTreeSet<&String> = last.keys().chain(now.keys()).collect();
+    let none = Map::new();
+    for key in keys {
+        let was = last.get(key);
+        let is = now.get(key);
+        if was == is {
+            continue;
+        }
+        match is {
+            None => {
+                file.remove(key);
+            }
+            Some(Value::Object(is)) if top && BY_ENTRY.contains(&key.as_str()) => {
+                let was = match was {
+                    Some(Value::Object(was)) => was,
+                    _ => &none,
+                };
+                match file.get_mut(key) {
+                    Some(Value::Object(there)) => lay_changes(there, was, is, false),
+                    _ => {
+                        file.insert(key.clone(), Value::Object(is.clone()));
+                    }
+                }
+            }
+            Some(is) => {
+                file.insert(key.clone(), is.clone());
+            }
         }
     }
 }
 
 /// The fields of a settings file that read, on the defaults: each top-level
 /// value is laid over them in turn and kept only if the whole still reads.
-fn salvage(bytes: &[u8]) -> Preferences {
-    let Ok(serde_json::Value::Object(found)) = serde_json::from_slice(bytes) else {
-        return Preferences::default();
-    };
-    let Ok(serde_json::Value::Object(mut kept)) = serde_json::to_value(Preferences::default())
-    else {
+fn salvage(found: Map<String, Value>) -> Preferences {
+    let Some(mut kept) = as_map(&Preferences::default()) else {
         return Preferences::default();
     };
     for (key, value) in found {
         let before = kept.insert(key.clone(), value);
-        if serde_json::from_value::<Preferences>(serde_json::Value::Object(kept.clone())).is_err() {
+        if serde_json::from_value::<Preferences>(Value::Object(kept.clone())).is_err() {
             match before {
                 Some(before) => kept.insert(key, before),
                 None => kept.remove(&key),
             };
         }
     }
-    serde_json::from_value(serde_json::Value::Object(kept)).unwrap_or_default()
+    serde_json::from_value(Value::Object(kept)).unwrap_or_default()
 }
 
 /// Writes a new file only this account can read, on Unix; elsewhere as
 /// the platform makes files, which on Windows is the profile's own folder.
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -794,5 +1059,203 @@ mod tests {
         assert!(text.contains("\"drawInSoftware\":true"), "{text}");
         let back: Preferences = serde_json::from_str(&text).unwrap();
         assert!(back.software_gpu);
+    }
+
+    /// A config folder of its own under the temp dir, empty.
+    fn scratch(name: &str) -> AppDirs {
+        let root = std::env::temp_dir().join(format!("concat-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs = AppDirs {
+            config: root.join("config"),
+            data: root.join("data"),
+        };
+        std::fs::create_dir_all(&dirs.config).expect("a config folder");
+        dirs
+    }
+
+    fn locked(_: &Path) -> std::io::Result<Vec<u8>> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "held by another process",
+        ))
+    }
+
+    fn on_disk(dirs: &AppDirs) -> Value {
+        serde_json::from_slice(&std::fs::read(dirs.config.join(FILE)).expect("a settings file"))
+            .expect("settings that read")
+    }
+
+    /// A file that is there and will not read - an antivirus holding it -
+    /// is the defaults for the run and is never saved over, however many
+    /// saves the run makes; the first save that can read it lays this
+    /// run's change over what it holds.
+    #[test]
+    fn a_file_that_would_not_read_is_never_saved_over() {
+        let dirs = scratch("settings-locked");
+        let written = br#"{"magnetic": true, "magneticChosen": true, "drawInSoftware": true}"#;
+        std::fs::write(dirs.config.join(FILE), written).expect("a settings file");
+
+        let prefs = Preferences::load_reading(&dirs, locked, &[Duration::ZERO; 3]);
+        assert!(!prefs.magnetic, "the run is on the defaults");
+        assert!(!prefs.software_gpu);
+        assert!(prefs.disk.seen().unread);
+
+        let mut prefs = prefs;
+        prefs.dark = Some(false);
+        assert!(!prefs.save_reading(&dirs, locked));
+        assert!(!prefs.save_reading(&dirs, locked), "nor the next save");
+        assert_eq!(
+            std::fs::read(dirs.config.join(FILE)).expect("still there"),
+            written.to_vec(),
+            "the file is as it was"
+        );
+
+        // The lock lets go: the choice made meanwhile lands, and nothing
+        // the run never touched goes back to its default.
+        assert!(prefs.save_reading(&dirs, |path| std::fs::read(path)));
+        let saved = on_disk(&dirs);
+        assert_eq!(saved["dark"], false);
+        assert_eq!(saved["magnetic"], true);
+        assert_eq!(saved["drawInSoftware"], true);
+        let _ = std::fs::remove_dir_all(dirs.config.parent().expect("a root"));
+    }
+
+    /// A lock that lets go while the load waits on it costs nothing: the
+    /// settings read on a later try and the run is on them.
+    #[test]
+    fn a_file_that_reads_on_a_later_try_is_loaded() {
+        let dirs = scratch("settings-later");
+        std::fs::write(dirs.config.join(FILE), br#"{"magnetic": true}"#).expect("written");
+        let tries = std::cell::Cell::new(0);
+        let prefs = Preferences::load_reading(
+            &dirs,
+            |path| {
+                tries.set(tries.get() + 1);
+                if tries.get() < 3 {
+                    locked(path)
+                } else {
+                    std::fs::read(path)
+                }
+            },
+            &[Duration::ZERO; 5],
+        );
+        assert_eq!(tries.get(), 3);
+        assert!(prefs.magnetic);
+        assert!(!prefs.disk.seen().unread);
+        let _ = std::fs::remove_dir_all(dirs.config.parent().expect("a root"));
+    }
+
+    /// No file is a first run: the defaults, and the first save makes the
+    /// file.
+    #[test]
+    fn no_file_is_the_defaults_and_a_save_makes_one() {
+        let dirs = scratch("settings-none");
+        let mut prefs = Preferences::load(&dirs);
+        assert!(!prefs.disk.seen().unread);
+        assert_eq!(prefs.dark, None);
+        prefs.set_magnetic(true);
+        prefs.save(&dirs);
+        assert_eq!(on_disk(&dirs)["magnetic"], true);
+        assert!(Preferences::load(&dirs).magnetic);
+        let _ = std::fs::remove_dir_all(dirs.config.parent().expect("a root"));
+    }
+
+    /// Two windows open at once, each changing something else: both
+    /// choices survive whichever saves last, down to one panel setting
+    /// each and one shortcut each. The same setting changed in both is the
+    /// last one's.
+    #[test]
+    fn two_windows_keep_each_others_changes() {
+        let dirs = scratch("settings-two");
+        std::fs::write(
+            dirs.config.join(FILE),
+            br#"{"accent": "sky", "keybinds": {"mute": "m"}}"#,
+        )
+        .expect("written");
+        let mut first = Preferences::load(&dirs);
+        let mut second = Preferences::load(&dirs);
+
+        first.dark = Some(false);
+        first.voiceover.countdown = false;
+        first.keybinds.insert("split".into(), "s".into());
+        first.save(&dirs);
+
+        second.set_magnetic(true);
+        second.voiceover.gain_db = 6.0;
+        second.keybinds.remove("mute");
+        second.save(&dirs);
+
+        let both = Preferences::load(&dirs);
+        assert_eq!(both.dark, Some(false), "the first window's theme");
+        assert!(both.magnetic, "the second window's magnet");
+        assert!(!both.voiceover.countdown);
+        assert_eq!(both.voiceover.gain_db, 6.0);
+        assert_eq!(both.keybinds.get("split").map(String::as_str), Some("s"));
+        assert!(!both.keybinds.contains_key("mute"));
+        assert_eq!(both.accent.as_deref(), Some("sky"), "untouched by either");
+
+        // The first saves again over the second's work: still only its own
+        // changes, which now include the accent both chose.
+        first.accent = Some("violet".into());
+        first.save(&dirs);
+        second.accent = Some("lime".into());
+        second.save(&dirs);
+        let last = Preferences::load(&dirs);
+        assert!(last.magnetic);
+        assert_eq!(last.dark, Some(false));
+        assert_eq!(last.accent.as_deref(), Some("lime"), "the last to choose");
+        let _ = std::fs::remove_dir_all(dirs.config.parent().expect("a root"));
+    }
+
+    /// A newer build's keys outlive a save by this one; the key 0.2.8 wrote
+    /// does not.
+    #[test]
+    fn a_save_keeps_keys_it_does_not_know_but_lets_the_retired_one_go() {
+        let dirs = scratch("settings-unknown");
+        std::fs::write(
+            dirs.config.join(FILE),
+            br#"{"softwareGpu": true, "fromANewerBuild": {"on": true}}"#,
+        )
+        .expect("written");
+        let prefs = Preferences::load(&dirs);
+        prefs.save(&dirs);
+        let saved = on_disk(&dirs);
+        assert_eq!(saved["fromANewerBuild"]["on"], true);
+        assert!(saved.get("softwareGpu").is_none());
+        let _ = std::fs::remove_dir_all(dirs.config.parent().expect("a root"));
+    }
+
+    /// A write that fails half way leaves the file as it was and nothing
+    /// beside it: the new settings go to a file of their own first, and
+    /// only a whole one is moved over the old.
+    #[test]
+    fn a_save_that_cannot_finish_leaves_the_file_whole() {
+        let dirs = scratch("settings-atomic");
+        let written = br#"{"magnetic": true}"#;
+        std::fs::write(dirs.config.join(FILE), written).expect("written");
+        let mut prefs = Preferences::load(&dirs);
+        prefs.dark = Some(true);
+        // Something in the way of the staging file: it cannot be written.
+        let staging = dirs
+            .config
+            .join(format!("{FILE}.{}.part", std::process::id()));
+        std::fs::create_dir(&staging).expect("in the way");
+        assert!(!prefs.save_reading(&dirs, |path| std::fs::read(path)));
+        assert_eq!(
+            std::fs::read(dirs.config.join(FILE)).expect("still there"),
+            written.to_vec()
+        );
+        std::fs::remove_dir(&staging).expect("out of the way");
+        // And the change was not counted as saved: the next save has it.
+        prefs.save(&dirs);
+        assert_eq!(on_disk(&dirs)["dark"], true);
+        assert_eq!(on_disk(&dirs)["magnetic"], true);
+        let leftovers = std::fs::read_dir(&dirs.config)
+            .expect("listed")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".part"))
+            .count();
+        assert_eq!(leftovers, 0);
+        let _ = std::fs::remove_dir_all(dirs.config.parent().expect("a root"));
     }
 }

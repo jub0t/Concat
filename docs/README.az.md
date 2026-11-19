@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Haqqında
 
-Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktorudur. Montajların çoxuna lazım olan hər şey burada var: avtomatik subtitrlər, mətnin səsləndirilməsi, fonun silinməsi, açar kadrlarla animasiya, effektlər və yazılar, bir neçə trekdə montaj, 4K ixrac. Üstəlik heç bir gizli şərt yoxdur: nə su nişanı, nə hesab, nə abunəlik, nə də faylların serverə yüklənməsi.
+Concat macOS, Windows, Linux, Android və iOS üçün pulsuz, açıq mənbəli video redaktorudur. Montajların çoxuna lazım olan hər şey burada var: avtomatik subtitrlər, səsin ayrılması, mətnin səsləndirilməsi, fonun silinməsi, animasiyalar və açar kadrlar, effektlər və yazılar, bir neçə trekdə montaj, 4K ixrac. Üstəlik heç bir gizli şərt yoxdur: nə su nişanı, nə hesab, nə abunəlik, nə də faylların serverə yüklənməsi.
 
 Hər şey Rust ilə yazılmış öz mühərriki üzərində, birbaşa kompüterinizdə işləyir; görüntünün birləşdirilməsi (kompozitinq) GPU-da aparılır. Proqramı quraşdırın, videonuzu əlavə edin və montaja başlayın. Subtitr, səsləndirmə və fon silmə üçün süni intellekt modelləri Parametrlər bölməsindən bir dəfə cihazınıza endirilir, sonra internetsiz işləyir. Videolarınız heç vaxt kompüterinizdən kənara çıxmır.
 
@@ -55,20 +55,25 @@ Hər şey Rust ilə yazılmış öz mühərriki üzərində, birbaşa kompüteri
 ## Əsas imkanlar
 
 - 🚫 **Su nişanı yoxdur. Hesab tələb olunmur. Pullu məhdudiyyət yoxdur.** Heç vaxt.
-- 🔒 **100% lokal.** Heç bir fayl serverə göndərilmir. İnternetsiz işləyir.
-- 💬 **Avtomatik subtitrlər.** Kompüterinizdə işləyən Whisper. Model ölçüsünü seçin, zaman xəttində hazır üslubu olan subtitrlər alın.
-- 🗣️ **Mətnin səsləndirilməsi və səs klonlama.** Pulsuz lokal səslər, ya da cəmi bir neçə saniyəlik səs yazısından klonlanmış istənilən səs.
-- 🧍 **Fonun silinməsi.** İnsanları və obyektləri avtomatik ayırır, istəsəniz maskanı özünüz çəkə bilərsiniz.
-- 🎞️ **Açar kadrlar.** Mövqe, miqyas, fırlanma, görünürlük, səs səviyyəsi və effekt parametrləri. Daxili əyri redaktoru ilə.
-- ✨ **100 effekt, filtr və keçid.** GPU-da render olunur, önizləmədə dərhal görünür.
-- ✂️ **Sürətli montaj.** Bölmə, kəsib qısaltma, boşluğu avtomatik bağlayan ripple redaktə, birləşdirmə, kadrı dondurma, sürət. İstəsəniz, maqnitli zaman xətti də var.
-- 🎚️ **Bir neçə trek, bir neçə zaman xətti.** Bir layihədə bir neçə montaj variantı. Qarışdırma rejimləri, kəsib çərçivələmə, çevirmə.
-- 📝 **Yazılar.** Şriftlər, kontur, kölgə, fon lövhəsi. Başlamaq üçün hazır şablonlar.
-- 🎙️ **Bir düymə ilə səs təmizləmə.** Küyü azaldır, nitqi aydınlaşdırır, səs gücünü bərabərləşdirir. Üstəlik sincab, robot, telefon və digər səs effektləri.
-- 📤 **İxrac.** H.264, HEVC, AV1. 4K 60 kadr/san-a qədər, 10-bit rəng.
-- 🦀 **Rust ilə yazılmış öz mühərriki.** GPU-da kompozitinq, proxy fayllar, aparat səviyyəsində dekodlama. 4K videolarda da zaman xətti boyunca axıcı hərəkət edin.
+- 🔒 **100% lokal.** Heç nə yüklənmir, süni intellekt də daxil olmaqla. Oflayn işləyir.
+- 💬 **Avtomatik subtitrlər.** Danışdığınız dildə, kompüterinizdə hazırlanır, üslubla və dərhal zaman xəttində.
+- 🎤 **Səsin ayrılması.** Səsi musiqidən və ya küydən çıxarın, ya da səsi silin, hər hissə öz səviyyəsində.
+- 🗣️ **Mətnin səsləndirilməsi + səs klonlaşdırma.** Pulsuz lokal səs və ya bir neçə saniyəlik yazıdan istənilən səs. Masaüstündə.
+- 🧍 **Fonun silinməsi, xroma açarı və maskalar.** İnsanlar və obyektlər sizin üçün kəsilir, özü açarlanan yaşıl ekran və hər klipdə bir yığın maska, hər birinin öz rejimi və açar kadrları var.
+- 🌀 **Giriş, Çıxış və Dövr animasiyaları.** Klip, şəkil, yazı və fiqurlar üçün. Hər biri siz seçməzdən əvvəl öz kartında oynayır.
+- ✨ **100-dən çox effekt, filtr və keçid, 25 səs effekti.** Kinematoqrafik görünüşlər, sarsıntılar və zərbələr, retro, silmələr, hamısı önbaxışda canlı. Keçid digərləri kimi sürüşdürüb kəsdiyiniz klipdir.
+- 🎞️ **Açar kadrlar.** Mövqe, miqyas, ölçü, fırlanma, şəffaflıq, səs, effekt parametrləri. Əyri redaktoru daxilidir.
+- 🏃 **Sürət rampaları və əyriləri.** Sabit və ya çəkilmiş, hamar və ya düz. Kadrın dondurulması və əks oxutma.
+- 🪄 **Təkmilləşdir və Stabilləşdir.** Yumşaq və ya köhnə görüntünü bərpa edin, 2K-yə qədər. Titrəyən planı sakitləşdirin.
+- ✂️ **Sürətlə kəsin, dəqiq kəsin.** Bölmək, kəsmək, ripple, birləşdirmək, bağlı subtitrlər və üst qatlar, istəsəniz maqnitli zaman xətti. Hər kəsim kadra düşür, önbaxışda və ixracda eyni.
+- 🎚️ **Çoxtrekli, çoxlu zaman xətti.** Videonu, şəkilləri, yazıları və fiqurları istədiyiniz qədər trekdə üst-üstə qoyun. Bir layihədə bir neçə montaj. Qarışdırma rejimləri, kəsmə, çevirmə.
+- 📝 **Yazılar və fiqurlar.** Şriftlər, kontur, kölgə, fon lövhələri, rəngli emoji və ərəb, çin, hind, tay və daha səkkiz dil üçün hazır üslublar. Qradiyentli fiqurlar, ulduzlar, konturlar və kölgələr.
+- 🎙️ **Səsyazma və bir düymə ilə səs təmizləmə.** Montajınızın üzərinə yazın. Küyün azaldılması, səsin təkmilləşdirilməsi, səs səviyyəsinin bərabərləşdirilməsi. Üstəlik dələ, robot, telefon və s.
+- 📤 **İxrac.** H.264, HEVC, AV1, kompüterinizin öz kodlayıcısı ilə. 4K 60-a qədər, 10 bit rəng.
+- ⚡ **Sürətli.** Proksilər daxilidir, 4K rahat sürüşsün deyə. Yazılar bütün nüvələrdə çəkilir və hər effekt pəncərə açılan kimi hazırdır.
+- 🛟 **İstənilən kompüterdə işləməyə davam edir.** Qrafik çip imtina edəndə önbaxış çəkməyə davam edir.
 - 🤖 **Skriptlərlə idarə oluna bilər.** Daxili MCP serveri sayəsində Claude və digər süni intellekt agentləri Concat ilə montaj edə bilər ([bir sətirlə quraşdırılır](MCP.md)), skriptlər üçün isə JSON-RPC API var. Mənbə kodundan yığılan versiyaya əlavə olaraq gRPC və komanda sətri aləti daxildir.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 dil. Eyni proqram, eyni layihə faylları.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 dil. Eyni tətbiq, eyni layihə faylları.
 
 ## Yükləmə
 

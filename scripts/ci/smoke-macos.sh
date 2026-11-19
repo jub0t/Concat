@@ -7,7 +7,8 @@
 # The signature holds over the whole bundle (an ad-hoc one, which is what
 # a fork's build gets, passes and is reported); no binary in it loads a
 # library from Homebrew or anywhere else outside the bundle; `concat
-# --version` exits 0; and `concat --smoke` - start-up through the first
+# --version` exits 0; `concat --smoke-export` exports a project of a clip;
+# and `concat --smoke` - start-up through the first
 # frame of the window, then out - exits 0. Runs in CI after signing
 # (build-app.yml), and locally against a bundle built the same way.
 set -euo pipefail
@@ -68,5 +69,11 @@ HOME=$(mktemp -d) expect_ok "concat --version" 60 "$bin" --version
 
 say "concat --smoke"
 HOME=$(mktemp -d) expect_ok "concat --smoke" 180 "$bin" --smoke
+
+# A project of a two-second clip from the media fixtures, exported through
+# the Export sheet's own messages: a launch alone never reaches an export.
+say "concat --smoke-export"
+clip=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../src/crates/concat-media/fixtures" && pwd)/picture-starts-late.mov
+HOME=$(mktemp -d) expect_ok "concat --smoke-export" 300 "$bin" --smoke-export "$clip"
 
 say "ok"

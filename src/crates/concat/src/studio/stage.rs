@@ -82,15 +82,6 @@ impl Studio {
                 None => (clip.scale, clip.scale),
             }
         };
-        // Then pulled along each axis, as the compositor pulls it - a
-        // picture, that is. A title's box is its style's, and the compositor
-        // never stretches one; see titles.rs.
-        // https://github.com/jub0t/Concat/issues/119
-        let (w, h) = if clip.kind == model::ClipKind::Text {
-            (w, h)
-        } else {
-            (w * clip.stretch_x, h * clip.stretch_y)
-        };
         // The placement at the playhead: the clip's own, or its ride's
         // where a property is keyed, so the box follows the keys.
         let at = place_in(clip, self.playhead);
@@ -99,8 +90,17 @@ impl Studio {
             offset_x: shown(clip, model::KeyProperty::OffsetX, at),
             offset_y: shown(clip, model::KeyProperty::OffsetY, at),
             rotation: shown(clip, model::KeyProperty::Rotation, at),
-            stretch_x: clip.stretch_x,
-            stretch_y: clip.stretch_y,
+            stretch_x: shown(clip, model::KeyProperty::StretchX, at),
+            stretch_y: shown(clip, model::KeyProperty::StretchY, at),
+        };
+        // Then pulled along each axis, as the compositor pulls it - a
+        // picture, that is. A title's box is its style's, and the compositor
+        // never stretches one; see titles.rs.
+        // https://github.com/jub0t/Concat/issues/119
+        let (w, h) = if clip.kind == model::ClipKind::Text {
+            (w, h)
+        } else {
+            (w * base.stretch_x, h * base.stretch_y)
         };
         let placed = base;
         let factor = placed.scale / clip.scale.max(1e-6);
@@ -110,8 +110,8 @@ impl Studio {
         // before it becomes a fraction of the frame.
         let (ax, ay) = match painted {
             Some((_, (dx, dy))) if dx != 0 || dy != 0 => {
-                let px = f64::from(dx) * placed.scale * clip.stretch_x;
-                let py = f64::from(dy) * placed.scale * clip.stretch_y;
+                let px = f64::from(dx) * placed.scale * placed.stretch_x;
+                let py = f64::from(dy) * placed.scale * placed.stretch_y;
                 let (sin, cos) = placed.rotation.to_radians().sin_cos();
                 (
                     (px * cos - py * sin) / width,
@@ -213,7 +213,10 @@ impl Studio {
             mask,
             &self.footprint(clip),
             self.output_size(),
-            (clip.stretch_x, clip.stretch_y),
+            (
+                shown(clip, model::KeyProperty::StretchX, at),
+                shown(clip, model::KeyProperty::StretchY, at),
+            ),
         ))
     }
 
@@ -418,8 +421,17 @@ impl Studio {
                 stretch: match (figure, across) {
                     (Some((w, _)), true) => w,
                     (Some((_, h)), false) => h,
-                    (None, true) => clip.stretch_x,
-                    (None, false) => clip.stretch_y,
+                    // A keyed pull is dragged from where its ride has it.
+                    (None, true) => shown(
+                        &clip,
+                        model::KeyProperty::StretchX,
+                        place_in(&clip, self.playhead),
+                    ),
+                    (None, false) => shown(
+                        &clip,
+                        model::KeyProperty::StretchY,
+                        place_in(&clip, self.playhead),
+                    ),
                 },
                 centre,
                 from: along.abs().max(1.0),
@@ -629,7 +641,9 @@ impl Studio {
                 if snap {
                     next = (next * 20.0).round() / 20.0;
                 }
+                let playhead = self.playhead;
                 if let Some(clip) = self.echo_clip_mut(clip) {
+                    let at = place_in(clip, playhead);
                     let line = clip
                         .shape
                         .as_ref()
@@ -642,9 +656,19 @@ impl Studio {
                             shape.height = next.clamp(0.01, 4.0);
                         }
                     } else if *across {
-                        clip.stretch_x = next.clamp(0.1, 10.0);
+                        write_keyable(
+                            clip,
+                            model::KeyProperty::StretchX,
+                            next.clamp(0.1, 10.0),
+                            at,
+                        );
                     } else {
-                        clip.stretch_y = next.clamp(0.1, 10.0);
+                        write_keyable(
+                            clip,
+                            model::KeyProperty::StretchY,
+                            next.clamp(0.1, 10.0),
+                            at,
+                        );
                     }
                 }
             }

@@ -651,6 +651,60 @@ impl WavWriter {
     }
 }
 
+/// Brings the header of a take [`WavWriter`] wrote up to the length of the
+/// file: a take cut off by a crash says only what was written by its last
+/// checkpoint - nothing at all, in its first second - though the samples
+/// after it are on disk all the same. Whether the file holds any sound; an
+/// error for a file that is not a take as Concat writes them, which is
+/// left as it is.
+pub fn repair(path: &Path) -> Result<bool, String> {
+    use std::io::Read;
+    let io = |error: std::io::Error| format!("{}: {error}", path.display());
+    let mut file = File::open(path).map_err(io)?;
+    let length = file.metadata().map_err(io)?.len();
+    // Cut off before the header reached the disk: there is no sound.
+    if length < 44 {
+        return Ok(false);
+    }
+    let mut head = [0u8; 44];
+    file.read_exact(&mut head).map_err(io)?;
+    let u16_at = |at: usize| u16::from_le_bytes([head[at], head[at + 1]]);
+    let u32_at =
+        |at: usize| u32::from_le_bytes([head[at], head[at + 1], head[at + 2], head[at + 3]]);
+    if &head[0..4] != b"RIFF"
+        || &head[8..16] != b"WAVEfmt "
+        || u32_at(16) != 16
+        || u16_at(20) != 1
+        || &head[36..40] != b"data"
+    {
+        return Err(format!(
+            "{} is not a recording Concat wrote",
+            path.display()
+        ));
+    }
+    // Whole samples only: a crash can leave half of the last one.
+    let align = u64::from(u16_at(32).max(1));
+    let data = ((length - 44) / align * align).min(u64::from(u32::MAX - 36));
+    let data = u32::try_from(data).unwrap_or(u32::MAX - 36);
+    if u32_at(40) != data || u32_at(4) != 36 + data {
+        drop(file);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .map_err(io)?;
+        file.seek(SeekFrom::Start(4)).map_err(io)?;
+        file.write_all(&(36 + data).to_le_bytes()).map_err(io)?;
+        file.seek(SeekFrom::Start(40)).map_err(io)?;
+        file.write_all(&data.to_le_bytes()).map_err(io)?;
+        file.sync_all().map_err(io)?;
+        log::info!(
+            "voiceover: {} was cut off before it was finished; its header now says the {data} bytes of sound it holds",
+            path.display()
+        );
+    }
+    Ok(data > 0)
+}
+
 /// Where a take spoken from `playhead` lands on the timeline: shifted by how
 /// long after the picture started rolling the microphone heard its first
 /// sample, so the words sit under the frames they were spoken to. Never
@@ -767,6 +821,68 @@ mod tests {
         assert_eq!(bytes.len(), 44 + 12);
         assert_eq!(i16::from_le_bytes([bytes[54], bytes[55]]), 6);
         assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 12);
+    }
+
+    /// A take cut off in its first second says it holds nothing, and one
+    /// cut off later says only what its last checkpoint saw: the header is
+    /// brought up to the samples on disk, the half of one left out.
+    #[test]
+    fn a_take_cut_off_by_a_crash_has_its_header_brought_up_to_date() {
+        let path = temp("cut-off");
+        let mut writer = WavWriter::create(&path, 48_000).expect("creates");
+        writer.write(&[1, -1, 2]).expect("writes");
+        // As a crash leaves it: the samples on disk, the sizes still 0,
+        // and half of a sample after them.
+        drop(writer);
+        {
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .expect("opens");
+            file.write_all(&[7]).expect("writes");
+        }
+        let size =
+            |bytes: &[u8], at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        let bytes = std::fs::read(&path).expect("reads");
+        assert_eq!(size(&bytes, 40), 0);
+
+        assert_eq!(repair(&path), Ok(true));
+        let bytes = std::fs::read(&path).expect("reads");
+        assert_eq!(size(&bytes, 4), 36 + 6);
+        assert_eq!(size(&bytes, 40), 6);
+        assert_eq!(
+            i16::from_le_bytes([bytes[44], bytes[45]]),
+            1,
+            "the sound untouched"
+        );
+        // Repaired already: nothing more to do.
+        assert_eq!(repair(&path), Ok(true));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_take_with_no_sound_or_not_a_take_is_not_repaired() {
+        let empty = temp("no-sound");
+        WavWriter::create(&empty, 48_000)
+            .expect("creates")
+            .finish()
+            .expect("finishes");
+        assert_eq!(repair(&empty), Ok(false));
+        std::fs::write(&empty, b"RIFF").expect("writes");
+        assert_eq!(repair(&empty), Ok(false), "cut off inside the header");
+        let _ = std::fs::remove_file(&empty);
+
+        let other = temp("not-a-take");
+        let mut bytes = vec![0u8; 64];
+        bytes[0..4].copy_from_slice(b"OggS");
+        std::fs::write(&other, &bytes).expect("writes");
+        assert!(repair(&other).is_err());
+        assert_eq!(
+            std::fs::read(&other).expect("reads"),
+            bytes,
+            "left as it is"
+        );
+        let _ = std::fs::remove_file(&other);
     }
 
     #[test]

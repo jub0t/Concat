@@ -153,7 +153,7 @@ impl SoundsPane {
                 if self.concat != ConcatState::Ready {
                     self.concat = ConcatState::Loading;
                 }
-                crate::host::spawn(
+                crate::host::spawn_long(
                     move || sounds::fetch_catalogue(&dirs),
                     |studio, _, _, result| {
                         studio.handle(Msg::Sounds(SoundsMsg::ConcatLoaded(result)));
@@ -219,7 +219,7 @@ impl SoundsPane {
                 }
                 self.importing = true;
                 let dir = self.library.dir.clone();
-                crate::host::spawn(
+                crate::host::spawn_long(
                     move || {
                         taken
                             .iter()
@@ -334,7 +334,7 @@ impl SoundsPane {
         self.fetching.insert(card.to_owned(), (0.0, then));
         let cancel = Arc::clone(&self.cancel);
         let (key, done) = (card.to_owned(), card.to_owned());
-        crate::host::spawn(
+        crate::host::spawn_long(
             move || {
                 sounds::fetch_sound(&dirs, &sound, &cancel, &mut |received, total| {
                     if total > 0 {

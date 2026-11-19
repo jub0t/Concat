@@ -85,6 +85,9 @@ fn main() -> Result<(), slint::PlatformError> {
         Launch::Smoke => concat::smoke().inspect_err(|error| {
             log::error!("smoke: could not start: {error}");
         }),
+        Launch::SmokeExport(clip) => concat::smoke_export(clip).inspect_err(|error| {
+            log::error!("smoke: could not start: {error}");
+        }),
         // Answered above, before the log was opened.
         Launch::Version | Launch::Schema | Launch::WhisperCpu | Launch::Mcp(_) => Ok(()),
     }

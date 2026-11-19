@@ -38,3 +38,20 @@ store-failure-output = true
 [[profile.ci.overrides]]
 filter = "test(=every_edit_still_exports)"
 slow-timeout = { period = "60s", terminate-after = 12 }
+
+# The corpus (concat-corpus) exports through the GPU compositor and the
+# platform's encoder, one case a test. One case at a time: side by side
+# on a runner's software adapter they compete for the same cores and the
+# same device, and a slow case then looks like a stuck one. A case is
+# reported as slow after two minutes and killed after ten, for Windows'
+# WARP, where an export is many times slower than on Linux's lavapipe.
+# Set under the default profile, which every profile falls back to, so
+# a local run takes the cases one at a time too; CI runs them in a step
+# of their own (see ci.yml).
+[test-groups]
+corpus = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "package(concat-corpus)"
+test-group = "corpus"
+slow-timeout = { period = "120s", terminate-after = 5 }

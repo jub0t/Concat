@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## 소개
 
-Concat은 macOS, Windows, Linux, Android용 무료 오픈 소스 비디오 편집기입니다. 대부분의 편집에 필요한 것을 모두 다룹니다: 자동 자막, 텍스트 음성 변환, 배경 제거, 키프레임 애니메이션, 효과와 타이틀, 멀티트랙 편집, 4K 내보내기. 단, 함정은 없습니다: 워터마크 없음, 계정 없음, 구독 없음, 업로드 없음.
+Concat은 macOS, Windows, Linux, Android, iOS용 무료 오픈 소스 비디오 편집기입니다. 대부분의 편집에 필요한 것을 모두 다룹니다: 자동 자막, 음성 분리, 텍스트 음성 변환, 배경 제거, 애니메이션과 키프레임, 효과와 타이틀, 멀티트랙 편집, 4K 내보내기. 단, 함정은 없습니다: 워터마크 없음, 계정 없음, 구독 없음, 업로드 없음.
 
 모든 것이 GPU 컴포지터를 갖춘 네이티브 Rust 엔진 위에서 로컬로 실행됩니다. 설치하고, 영상을 끌어다 놓고, 자르면 됩니다. 자막, 음성, 배경 제거용 AI 모델은 설정에서 한 번만 내려받으면 그 뒤로는 오프라인으로 동작합니다. 당신의 영상은 디스크 밖으로 나가지 않습니다.
 
@@ -55,20 +55,25 @@ Concat은 macOS, Windows, Linux, Android용 무료 오픈 소스 비디오 편�
 ## 주요 기능
 
 - 🚫 **워터마크 없음. 계정 없음. 유료 장벽 없음.** 영원히.
-- 🔒 **100 % 로컬.** 아무것도 업로드하지 않습니다. 오프라인에서 동작.
-- 💬 **자동 자막.** 로컬 Whisper. 모델 크기를 고르면 스타일이 입혀진 자막이 타임라인에 놓입니다.
-- 🗣️ **텍스트 음성 변환 + 음성 복제.** 무료 로컬 음성, 또는 몇 초의 녹음으로 어떤 목소리든.
-- 🧍 **배경 제거.** 사람, 사물, 또는 직접 마스크를 칠하세요.
-- 🎞️ **키프레임.** 위치, 크기, 회전, 불투명도, 볼륨, 효과 매개변수. 커브 편집기 내장.
-- ✨ **100가지 효과, 필터, 전환.** GPU 렌더링, 미리보기에서 실시간.
-- ✂️ **빠른 편집.** 분할, 트림, 리플, 병합, 프레임 고정, 속도. 원하면 자석 타임라인.
-- 🎚️ **멀티트랙, 멀티타임라인.** 한 프로젝트에 여러 편집본. 혼합 모드, 자르기, 뒤집기.
-- 📝 **타이틀.** 글꼴, 외곽선, 그림자, 배경 판. 시작점이 되는 프리셋.
-- 🎙️ **스위치 하나로 음성 정리.** 잡음 제거, 음성 강조, 음량 평준화. 그리고 다람쥐, 로봇, 전화 목소리 등.
-- 📤 **내보내기.** H.264, HEVC, AV1. 최대 4K 60, 10비트 색상.
-- 🦀 **네이티브 Rust 엔진.** GPU 컴포지터, 프록시, 하드웨어 디코딩. 4K도 부드럽게 스크러빙.
+- 🔒 **100 % 로컬.** 아무것도 업로드하지 않습니다. AI도 마찬가지입니다. 오프라인에서 동작.
+- 💬 **자동 자막.** 말하는 언어 그대로, 내 컴퓨터에서 만들어지고, 스타일이 적용된 채 바로 타임라인에 들어갑니다.
+- 🎤 **음성 분리.** 음악이나 소음에서 목소리를 뽑아내거나 목소리만 제거하고, 각 부분을 따로 음량 조절할 수 있습니다.
+- 🗣️ **텍스트 음성 변환 + 음성 복제.** 무료 로컬 음성, 또는 몇 초 분량의 녹음으로 만든 원하는 목소리. 데스크톱에서 사용할 수 있습니다.
+- 🧍 **배경 제거, 크로마 키, 마스크.** 사람과 사물을 알아서 오려 내고, 그린 스크린은 스스로 키잉하며, 모든 클립에 마스크를 쌓을 수 있고 마스크마다 고유한 모드와 키프레임이 있습니다.
+- 🌀 **인, 아웃, 반복 애니메이션.** 클립, 사진, 타이틀, 도형에 사용합니다. 고르기 전에 각 카드에서 바로 재생됩니다.
+- ✨ **100개 이상의 효과, 필터, 전환과 25가지 사운드 효과.** 시네마틱 룩, 흔들림과 충격, 레트로, 와이프까지 모두 미리보기에서 실시간으로 확인합니다. 전환은 다른 클립처럼 옮기고 다듬는 클립입니다.
+- 🎞️ **키프레임.** 위치, 배율, 크기, 회전, 불투명도, 볼륨, 효과 매개변수. 곡선 편집기 내장.
+- 🏃 **속도 램프와 곡선.** 일정하게 또는 직접 그려서, 부드럽게 또는 직선으로. 프리즈 프레임과 역재생.
+- 🪄 **향상과 흔들림 보정.** 흐릿하거나 오래된 영상을 최대 2K까지 복원합니다. 흔들린 샷은 안정시킵니다.
+- ✂️ **빠르게, 정확하게 자르기.** 분할, 트림, 리플, 병합, 연결된 자막과 오버레이, 원한다면 마그네틱 타임라인. 모든 컷이 프레임에 정확히 떨어지며 미리보기와 내보내기가 같습니다.
+- 🎚️ **멀티트랙, 멀티 타임라인.** 영상, 정지 이미지, 타이틀, 도형을 원하는 만큼 많은 트랙에 쌓으세요. 한 프로젝트에 여러 편집본. 블렌드 모드, 자르기, 뒤집기.
+- 📝 **타이틀과 도형.** 글꼴, 외곽선, 그림자, 배경 판, 컬러 이모지, 아랍어, 중국어, 힌디어, 태국어에 그 밖의 8개 언어까지 더한 프리셋. 그러데이션, 별, 윤곽선, 그림자를 쓰는 도형.
+- 🎙️ **내레이션과 스위치 하나로 끝내는 음성 정리.** 편집 위에 바로 녹음하세요. 노이즈 제거, 음성 향상, 음량 평준화. 다람쥐, 로봇, 전화 목소리 같은 효과도 있습니다.
+- 📤 **내보내기.** H.264, HEVC, AV1, 컴퓨터 자체 인코더로. 최대 4K 60, 10비트 색상.
+- ⚡ **빠름.** 프록시가 내장되어 4K도 부드럽게 스크럽됩니다. 타이틀은 모든 코어에서 그려지고, 창이 열리는 순간 모든 효과가 준비되어 있습니다.
+- 🛟 **어떤 컴퓨터에서도 계속 작동.** 그래픽 칩이 포기해도 미리보기는 계속 그려집니다.
 - 🤖 **스크립트 가능.** 스크립트와 AI 에이전트가 영상을 편집할 수 있는 JSON-RPC API. 소스에서 빌드하면 gRPC와 명령줄 도구가 추가됩니다.
-- 🖥️ **macOS, Windows, Linux, Android.** 26개 언어. 같은 앱, 같은 프로젝트 파일.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26개 언어. 같은 앱, 같은 프로젝트 파일.
 
 ## 다운로드
 

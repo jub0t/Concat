@@ -17,7 +17,7 @@ use concat_host::export::{self, ExportSpec};
 use concat_media::ColorRange;
 
 use crate::format::{bytes, eta};
-use crate::host::{on_ui, spawn};
+use crate::host::{on_ui, spawn_long};
 use crate::i18n::{self, t, tf};
 use crate::panes::Msg;
 use crate::platform;
@@ -518,7 +518,7 @@ impl ExportPane {
         self.written.clear();
         self.started_at = Some(std::time::Instant::now());
 
-        spawn(
+        spawn_long(
             move || {
                 let job = job;
                 let cancel = job.cancel_flag();
