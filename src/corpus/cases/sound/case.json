@@ -1,0 +1,33 @@
+{
+  "about": "Clips A and B, two seconds each with their own sound, end to end, and a three-second song on its own track from 0.5 s. Every source second's pip must be heard within a millisecond of where it landed: A's at 0 and 1 s, B's at 2 and 3 s, the song's at 0.5, 1.5 and 2.5 s, each at its own media's pitch, and nothing else. A failure means the sound drifts from the picture, starts a clip late or early, plays the wrong clip, or goes silent.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "song": { "kind": "pips", "tag": 3, "seconds": 3 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "media.import", "path": "$project", "file": "$file.song", "as": "song" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$song", "start": 0.5 } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 },
+      { "frames": [60, 119], "media": "b", "from": 0, "step": 1 }
+    ],
+    "sound": [
+      { "frames": [0, 59], "media": "a", "from": 0 },
+      { "frames": [60, 119], "media": "b", "from": 0 },
+      { "frames": [15, 104], "media": "song", "from": 0 }
+    ]
+  }
+}

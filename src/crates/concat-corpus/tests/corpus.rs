@@ -46,6 +46,7 @@ macro_rules! corpus_case {
 
 corpus_case!(codes);
 corpus_case!(cut);
+corpus_case!(sound);
 corpus_case!(speed);
 corpus_case!(still);
 

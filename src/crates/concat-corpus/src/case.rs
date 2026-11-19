@@ -52,7 +52,8 @@ pub struct Case {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Media {
-    /// Silent ProRes 4444 whose every frame carries its own code.
+    /// ProRes 4444 whose every frame carries its own code, silent unless
+    /// `sound`.
     Clock {
         /// The media tag its codes carry, 1 to 7.
         tag: u8,
@@ -64,6 +65,10 @@ pub enum Media {
         rate: [i64; 2],
         /// How many frames.
         frames: u32,
+        /// A soundtrack of the media's pips (see [`crate::sound`]), as
+        /// long as the picture.
+        #[serde(default)]
+        sound: bool,
     },
     /// A PNG carrying its code as frame nought.
     Still {
@@ -74,13 +79,20 @@ pub enum Media {
         /// Picture height.
         height: u32,
     },
+    /// A WAV of the media's pips and nothing else: a song.
+    Pips {
+        /// The media tag its pitch stands for, 1 to 7.
+        tag: u8,
+        /// How long it is.
+        seconds: f64,
+    },
 }
 
 impl Media {
     /// The media tag the picture's codes carry.
     pub fn tag(&self) -> u8 {
         match self {
-            Media::Clock { tag, .. } | Media::Still { tag, .. } => *tag,
+            Media::Clock { tag, .. } | Media::Still { tag, .. } | Media::Pips { tag, .. } => *tag,
         }
     }
 
@@ -89,6 +101,21 @@ impl Media {
         match self {
             Media::Clock { .. } => "mov",
             Media::Still { .. } => "png",
+            Media::Pips { .. } => "wav",
+        }
+    }
+
+    /// How many seconds of pips it carries, none for a silent one.
+    pub fn sound_seconds(&self) -> Option<f64> {
+        match self {
+            Media::Clock {
+                frames,
+                rate,
+                sound: true,
+                ..
+            } => Some(f64::from(*frames) * rate[1] as f64 / rate[0] as f64),
+            Media::Pips { seconds, .. } => Some(*seconds),
+            Media::Clock { .. } | Media::Still { .. } => None,
         }
     }
 }
@@ -112,6 +139,56 @@ pub struct Expect {
     /// the bars beside a picture that does not fill the frame.
     #[serde(default)]
     pub black: Vec<[u32; 4]>,
+    /// Whose pips the sound carries where, as runs over output frames.
+    /// Absent, the sound is not checked; present, a pip anywhere they do
+    /// not put one is an error, as is silence where they do.
+    #[serde(default)]
+    pub sound: Vec<SoundRun>,
+}
+
+/// A stretch of the export's sound playing one media's pips.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SoundRun {
+    /// The first and last output frame whose span it covers, both
+    /// included.
+    pub frames: [u32; 2],
+    /// The media it plays, by its name in [`Case::media`].
+    pub media: String,
+    /// The source second playing at the run's first instant.
+    pub from: f64,
+    /// Source seconds per output second.
+    #[serde(default = "unit")]
+    pub speed: f64,
+    /// A flaw this run's sound is known to have: its pips may be off by
+    /// up to `within` rather than a millisecond. A run that comes within
+    /// the millisecond fails, so the bound is taken out once the flaw is
+    /// fixed, and never outlives it.
+    #[serde(default)]
+    pub known: Option<Known>,
+}
+
+/// A known flaw, its measured bound and why it is there.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Known {
+    /// How far a pip may be from its place, in seconds.
+    pub within: f64,
+    /// What causes it, and what fixes it.
+    pub why: String,
+}
+
+/// Where a pip must be heard in the export, and whose it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pip {
+    /// Its onset, in seconds from the start of the file.
+    pub at: f64,
+    /// The media tag whose pitch it is.
+    pub tag: u8,
+    /// The source second it starts, for the report.
+    pub second: u32,
+    /// The sound run it is in, by its place in [`Expect::sound`].
+    pub run: usize,
 }
 
 /// A run of output frames showing one media's frames at a steady step.
@@ -158,6 +235,10 @@ fn one() -> u32 {
     1
 }
 
+fn unit() -> f64 {
+    1.0
+}
+
 impl Case {
     /// Reads and checks `<cases>/<name>/case.json`. A missing file, one
     /// that does not parse, and one that contradicts itself are errors.
@@ -188,6 +269,41 @@ impl Case {
         let tag = self.media.get(&run.media)?.tag();
         let index = run.from + (frame - run.frames[0]) * run.step / run.per;
         Some((code::Code { tag, index }, run.at))
+    }
+
+    /// Every pip the export's sound must carry, in order of onset: each
+    /// whole pip a sound run's stretch holds, of the source seconds its
+    /// media has room for.
+    pub fn expected_pips(&self) -> Vec<Pip> {
+        let fps = self.fps();
+        let pip = crate::sound::PIP_SECONDS;
+        let mut pips = Vec::new();
+        for (index, run) in self.expect.sound.iter().enumerate() {
+            let Some(media) = self.media.get(&run.media) else {
+                continue;
+            };
+            let Some(length) = media.sound_seconds() else {
+                continue;
+            };
+            let start = f64::from(run.frames[0]) / fps;
+            let end = f64::from(run.frames[1] + 1) / fps;
+            let mut second = run.from.ceil();
+            while second + pip <= length {
+                let at = start + (second - run.from) / run.speed;
+                if at + pip / run.speed > end {
+                    break;
+                }
+                pips.push(Pip {
+                    at,
+                    tag: media.tag(),
+                    second: second as u32,
+                    run: index,
+                });
+                second += 1.0;
+            }
+        }
+        pips.sort_by(|a, b| a.at.total_cmp(&b.at));
+        pips
     }
 
     /// The names the steps bind with `"as"`.
@@ -227,6 +343,12 @@ impl Case {
                     (*width, *height)
                 }
                 Media::Still { width, height, .. } => (*width, *height),
+                Media::Pips { seconds, .. } => {
+                    if !seconds.is_finite() || *seconds <= 0.0 {
+                        return Err(format!("media {name}: a song lasts more than nothing"));
+                    }
+                    continue;
+                }
             };
             if width < code::WIDTH || height < code::HEIGHT || width % 2 == 1 || height % 2 == 1 {
                 return Err(format!(
@@ -263,6 +385,34 @@ impl Case {
                 "expect: the runs cover {next} frames, and the file has {}",
                 expect.frames
             ));
+        }
+        for run in &expect.sound {
+            let Some(media) = self.media.get(&run.media) else {
+                return Err(format!("expect: no media is called {}", run.media));
+            };
+            if media.sound_seconds().is_none() {
+                return Err(format!("expect: {} has no sound to hear", run.media));
+            }
+            if run.frames[1] < run.frames[0] || run.frames[1] >= expect.frames {
+                return Err(format!(
+                    "expect: the sound run at {:?} is not inside the file's frames",
+                    run.frames
+                ));
+            }
+            if let Some(known) = &run.known
+                && !(known.within > 0.0 && known.within < 0.25)
+            {
+                return Err(format!(
+                    "expect: the sound run at {:?} is known off by {} s; a bound is over 0 and under 0.25 s",
+                    run.frames, known.within
+                ));
+            }
+            if !run.speed.is_finite() || run.speed <= 0.0 || run.from < 0.0 {
+                return Err(format!(
+                    "expect: the sound run at {:?} needs a positive speed and a start at or past 0",
+                    run.frames
+                ));
+            }
         }
         for rect in &expect.black {
             if rect[0] + rect[2] > expect.width || rect[1] + rect[3] > expect.height {

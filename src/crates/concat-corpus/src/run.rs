@@ -28,6 +28,7 @@ use crate::case::{Case, Media};
 use crate::code;
 use crate::media;
 use crate::report::Report;
+use crate::sound;
 
 /// The longest an export may take before the run calls it stuck: far past
 /// the seconds a few seconds of 320 × 180 take, even on a software adapter.
@@ -46,6 +47,22 @@ const MAX_NAMED: usize = 6;
 /// channel but blue (see [`media::picture`]), so a picture where a bar
 /// should be is far past this.
 const BLACK: u8 = 40;
+
+/// How far a pip's onset in the export may be from where its source second
+/// landed: a millisecond, well inside what a person hears as out of sync
+/// and a twentieth of a frame at 50 fps.
+const PIP_TOLERANCE: f64 = 0.001;
+
+/// How far from its place a pip is looked for: under half the gap
+/// between two pips at the fastest speed a case uses.
+const PIP_SEARCH: f64 = 0.15;
+
+/// How much longer than the picture the decoded sound may run: less than
+/// one AAC packet, 1024 samples. The export's file states the sound's
+/// length exactly (its edit list says 4.000000 s for four seconds of
+/// picture), but a packet is decoded whole, so the last one's padding
+/// comes back with it: 9.3 ms of silence on a four-second export.
+const SOUND_PACKET_SECONDS: f64 = 1024.0 / 48_000.0;
 
 /// Runs case `name` from `cases`, writing its report and any failed frames
 /// to `out/<name>/`. That folder is emptied first. The working files - the
@@ -141,15 +158,28 @@ fn make(path: &Path, spec: &Media) -> Result<(), String> {
             height,
             rate,
             frames,
-        } => media::clock(
-            path,
-            *width,
-            *height,
-            FrameRate::new(Rational::new(rate[0], rate[1])),
-            *frames,
-            *tag,
-        ),
+            sound,
+        } => {
+            let rate = FrameRate::new(Rational::new(rate[0], rate[1]));
+            if !*sound {
+                return media::clock(path, *width, *height, rate, *frames, *tag);
+            }
+            // The picture and the pips apart, then one file of both, as a
+            // camera writes it.
+            let picture = path.with_extension("picture.mov");
+            let song = path.with_extension("sound.wav");
+            media::clock(&picture, *width, *height, rate, *frames, *tag)?;
+            let seconds = spec.sound_seconds().unwrap_or_default();
+            sound::write_wav(&song, &sound::pips(*tag, seconds))?;
+            concat_media::audio::mux(&picture, &song, path)
+                .map_err(|error| format!("could not mux {}: {error}", path.display()))?;
+            for part in [picture, song] {
+                let _ = std::fs::remove_file(part);
+            }
+            Ok(())
+        }
         Media::Still { tag, width, height } => media::still(path, *width, *height, *tag),
+        Media::Pips { tag, seconds } => sound::write_wav(path, &sound::pips(*tag, *seconds)),
     }
 }
 
@@ -488,6 +518,10 @@ impl Runner<'_> {
             ),
         );
 
+        if !expect.sound.is_empty() {
+            self.check_sound(report, output)?;
+        }
+
         if !expect.black.is_empty() {
             let mut grey = Vec::new();
             for (index, frame) in frames.iter().enumerate() {
@@ -506,6 +540,123 @@ impl Runner<'_> {
                 named(&grey, "black"),
             );
         }
+        Ok(())
+    }
+
+    /// Holds the export's sound to the pips the case's sound runs put in
+    /// it: each one heard, at its pitch, within [`PIP_TOLERANCE`] of where
+    /// its source second landed, and nothing heard anywhere else.
+    fn check_sound(&mut self, report: &mut Report, output: &Path) -> Result<(), String> {
+        let options = concat_media::AudioOptions {
+            rate: sound::RATE,
+            channels: 1,
+            format: concat_media::SampleFormat::F32,
+            ..concat_media::AudioOptions::default()
+        };
+        let samples = concat_media::AudioDecoder::open(output, &options)
+            .and_then(|mut decoder| decoder.collect_f32())
+            .map_err(|error| format!("the export's sound does not decode: {error}"))?;
+        let length = samples.len() as f64 / f64::from(sound::RATE);
+        let wanted = f64::from(self.case.expect.frames) / self.case.fps();
+        report.check(
+            "the sound lasts as long as the picture, to the codec's last packet",
+            length >= wanted - 0.5 / f64::from(sound::RATE)
+                && length < wanted + SOUND_PACKET_SECONDS,
+            format!("{length:.4} s of sound for {wanted:.4} s of picture"),
+        );
+
+        let heard = sound::hear(&samples, sound::RATE);
+        let expected = self.case.expected_pips();
+        let runs = &self.case.expect.sound;
+        let mut wrong = Vec::new();
+        let mut worst: f64 = 0.0;
+        let mut run_worst = vec![0.0f64; runs.len()];
+        let mut used = vec![false; heard.len()];
+        for pip in &expected {
+            let allowed = runs[pip.run]
+                .known
+                .as_ref()
+                .map_or(PIP_TOLERANCE, |known| known.within);
+            let nearest = heard
+                .iter()
+                .enumerate()
+                .filter(|(index, found)| !used[*index] && (found.at - pip.at).abs() <= PIP_SEARCH)
+                .min_by(|a, b| (a.1.at - pip.at).abs().total_cmp(&(b.1.at - pip.at).abs()));
+            let Some((index, found)) = nearest else {
+                wrong.push(format!(
+                    "second {} of media {} should start at {:.4} s, and nothing is heard there",
+                    pip.second, pip.tag, pip.at
+                ));
+                continue;
+            };
+            used[index] = true;
+            let off = found.at - pip.at;
+            worst = worst.max(off.abs());
+            run_worst[pip.run] = run_worst[pip.run].max(off.abs());
+            if off.abs() > allowed {
+                wrong.push(format!(
+                    "second {} of media {} is heard {:.1} ms {} at {:.4} s; {:.1} ms is allowed",
+                    pip.second,
+                    pip.tag,
+                    off.abs() * 1000.0,
+                    if off < 0.0 { "early" } else { "late" },
+                    found.at,
+                    allowed * 1000.0
+                ));
+            }
+            if found.tag != pip.tag {
+                wrong.push(format!(
+                    "at {:.4} s, second {} of media {} sounds at media {}'s pitch",
+                    found.at, pip.second, pip.tag, found.tag
+                ));
+            }
+        }
+        for (found, _) in heard.iter().zip(&used).filter(|(_, used)| !**used) {
+            wrong.push(format!(
+                "a pip of media {} at {:.4} s that no sound run puts there",
+                found.tag, found.at
+            ));
+        }
+        for (index, run) in runs.iter().enumerate() {
+            let Some(known) = &run.known else {
+                continue;
+            };
+            let heard_any = expected.iter().any(|pip| pip.run == index);
+            report.check(
+                format!(
+                    "the sound run at frames {:?} still has its known flaw",
+                    run.frames
+                ),
+                heard_any && run_worst[index] > PIP_TOLERANCE,
+                format!(
+                    "off by up to {:.1} ms, known up to {:.1} ms: {}{}",
+                    run_worst[index] * 1000.0,
+                    known.within * 1000.0,
+                    known.why,
+                    if run_worst[index] <= PIP_TOLERANCE {
+                        "; it is within a millisecond now, so take the known bound out"
+                    } else {
+                        ""
+                    }
+                ),
+            );
+        }
+        report.sound_worst = worst;
+        report.check(
+            format!(
+                "the sound carries the {} pips the case expects, where it expects them",
+                expected.len()
+            ),
+            wrong.is_empty(),
+            named(
+                &wrong,
+                &format!(
+                    "{} pips heard, the furthest {:.2} ms from its place",
+                    heard.len(),
+                    worst * 1000.0
+                ),
+            ),
+        );
         Ok(())
     }
 

@@ -37,6 +37,8 @@ pub struct Report {
     /// in 8-bit levels, out of the [`crate::code::MARGIN`] a read allows:
     /// how close the export came to being unreadable.
     pub code_worst: f64,
+    /// The furthest any pip was heard from its place, in seconds.
+    pub sound_worst: f64,
     /// The exported file, while it is kept.
     pub export: Option<String>,
     /// The frames written out for a person to look at.
