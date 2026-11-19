@@ -337,6 +337,9 @@ component Clip inherits Rectangle {
             commands: root.item.beats;
             viewbox-width: 1;
             viewbox-height: 1;
+            // Stretched onto the clip, not kept square: without it the
+            // whole song's ticks sit in a square at the clip's start.
+            fit: fill;
             stroke: Theme.beat-mark;
             stroke-width: 1px;
         }
