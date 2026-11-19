@@ -21,17 +21,17 @@ import { SegmentedControl } from "primitives/segmented-control.slint";
 // Three things, in the order a person wants them, the way every modern
 // editor's start page has them:
 //
-// - create: New project, filled with the accent, the one verb on the page
-//   that starts something; Open project beside it; and where the system
-//   can drag a file in, a tile saying the window takes a drop - a project
-//   folder opens, media starts a new project with it;
+// - create: New project, filled with the page's ink, the one verb on the
+//   page that starts something; Open project under it; and Import, where
+//   CapCut has drafts on this machine. The window takes a drop too - a
+//   project folder opens, media starts a new project with it;
 // - the projects: every one this machine has opened, as a grid of posters
 //   with their running time, edit time and frame, hover actions to show
 //   one in its folder or forget it, a missing folder shown as missing, and
 //   a search and a sort once there are more than a page of them;
-// - learn and community: the guides, the first edit, the shortcuts, the
-//   repository, the Discord and how to report a problem, as cards that
-//   open in the browser, and the version with its release notes.
+// - the links: the guides, the shortcuts, the repository, the Discord and
+//   how to report a problem, one line each, and what is new in this
+//   version on a card that opens the post about it.
 //
 // The settings are behind the title strip's gear, as they are in the
 // editor.
@@ -48,14 +48,14 @@ import { SegmentedControl } from "primitives/segmented-control.slint";
 // Two shapes by the width the window is given, since a Slint layout has no
 // wrap:
 //
-// - wide, a desk's window from 680px up: one centred column, the create
-//   row across it, the projects as a grid, and the learn cards as a panel
-//   beside the projects once the column is 1100px wide, under them before;
+// - wide, a desk's window from 680px up: a sidebar that stays put, with
+//   the verbs at its head and the news and the links at its foot, and the
+//   projects as a grid in a panel beside it that scrolls on its own;
 // - narrow, a phone held upright: stacked the way a phone's own apps are -
 //   New project across the width, the projects as a list of rows with the
 //   forget cross on every one, since there is no hover to reveal it with,
-//   and the learn cards as one grouped list at the foot. The sheet's labels
-//   sit over their values there, with its chip rows across the width.
+//   and the news and the links at the foot. The sheet's labels sit over
+//   their values there, with its chip rows across the width.
 //
 // The look is the website's, which is the same product wearing the same
 // clothes: near-black steps for the surfaces, a hairline of light on the
@@ -64,8 +64,8 @@ import { SegmentedControl } from "primitives/segmented-control.slint";
 // here is New project's fill and the one link in the sheet.
 //
 // There is no template store in this tree, which is also why the library's
-// "save as template" is an unwired seam, and why the create row has no
-// fourth verb.
+// "save as template" is an unwired seam, and why the sidebar has no fourth
+// verb.
 
 /// One option on one of the form's three ladders.
 ///
@@ -80,17 +80,16 @@ export struct ChipOption {
 
 /// One card in the projects grid.
 ///
-/// The two lines under the name arrive formatted. A decimal frame rate to
-/// two places and a coarse "4 days ago" are both easier to produce where
-/// the numbers are than in an expression language with no printf and no
-/// clock.
+/// The facts under the name arrive formatted. A coarse "4 days ago" is
+/// easier to produce where the clock is than in an expression language
+/// that has none.
 export struct RecentProjectData {
     /// The folder, and the card's identity — what reopening and forgetting
     /// name.
     path: string,
     name: string,
-    /// "1080 × 1920 · 30 fps"
-    detail: string,
+    /// "1080 × 1920"
+    frame: string,
     /// When it was last worked on: "2 hours ago", "yesterday".
     when: string,
     /// How long its timeline runs, "1:05"; empty until it has been read,
@@ -569,15 +568,11 @@ component PillButton inherits Rectangle {
     in property <bool> primary;
     in property <bool> enabled: true;
     in property <bool> block;
-    /// Opens a page in the browser: an arrow after the label says so, the
-    /// way the Learn cards' does.
-    in property <bool> external;
 
     callback clicked();
 
     property <bool> lit: touch.has-hover && root.enabled;
-    property <length> mark: (root.glyph == Glyph.none ? 0px : 15px)
-        + (root.external ? 13px + root.gap : 0px);
+    property <length> mark: root.glyph == Glyph.none ? 0px : 15px;
     property <length> gap: root.glyph == Glyph.none ? 0px : 8px;
     property <brush> ink: root.primary ? Theme.launch-page
         : root.lit ? Theme.fg
@@ -616,15 +611,6 @@ component PillButton inherits Rectangle {
             font-size: Theme.fs-xl;
             font-weight: Theme.weight-title;
             vertical-alignment: center;
-        }
-
-        if root.external: VerticalLayout {
-            alignment: center;
-            Icon {
-                glyph: Glyph.arrow-up-right;
-                size: 13px;
-                tint: root.ink;
-            }
         }
     }
 
@@ -816,6 +802,34 @@ component CreateTile inherits Pressable {
     }
 }
 
+// A project's frame, at the end of the line under its name: the shape,
+// drawn, and the numbers beside it.
+component FrameFact inherits HorizontalLayout {
+    in property <string> frame;
+    in property <float> ratio;
+
+    horizontal-stretch: 0;
+    spacing: 5px;
+
+    VerticalLayout {
+        alignment: center;
+        FrameShape {
+            room: 10px;
+            ratio: root.ratio;
+            fill: Colors.transparent;
+            tint: Theme.fg-dim;
+        }
+    }
+
+    Text {
+        text: root.frame;
+        color: Theme.fg-dim;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs-sm;
+        vertical-alignment: center;
+    }
+}
+
 // A small round button over a poster: Show in folder, Remove from list.
 // Dark glass under a white mark whatever the theme, because what is under
 // it is a picture, not the page.
@@ -856,8 +870,10 @@ component PosterAction inherits Rectangle {
 }
 
 // One project: its poster, inset in the card like a print on a mount, its
-// running time over the poster's corner, and its name and what it is
-// under it. Show in folder and Remove come up over the poster on hover - or
+// running time over the poster's corner, and under it its name, when it
+// was last worked on, and its frame - drawn as a shape beside the numbers,
+// since the poster is cut to the card's shape and cannot say upright from
+// wide. Flat on the panel until the pointer is on it. Show in folder and Remove come up over the poster on hover - or
 // stay there, where there is no hover. A project whose folder has gone
 // keeps its card, greyed, saying so, with Remove always up.
 component PosterCard inherits Pressable {
@@ -883,7 +899,7 @@ component PosterCard inherits Pressable {
     clicked => { root.opened(); }
     deleted => { root.forgotten(); }
     radius: 22px;
-    background: root.lit ? Theme.launch-raised : Theme.launch-panel;
+    background: root.lit ? Theme.launch-raised : Theme.launch-raised.with-alpha(0);
 
     animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
@@ -992,14 +1008,23 @@ component PosterCard inherits Pressable {
             overflow: elide;
         }
 
-        // Where it was, for one that has gone: the one thing worth
-        // knowing about a folder that is not there.
-        Text {
-            text: root.project.missing ? root.project.path
-                : root.project.when + "  ·  " + root.project.detail;
-            color: Theme.fg-dim;
-            font-size: Theme.fs-sm;
-            overflow: elide;
+        HorizontalLayout {
+            spacing: 8px;
+
+            // Where it was, for one that has gone: the one thing worth
+            // knowing about a folder that is not there.
+            Text {
+                horizontal-stretch: 1;
+                text: root.project.missing ? root.project.path : root.project.when;
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+
+            if !root.project.missing: FrameFact {
+                frame: root.project.frame;
+                ratio: root.project.ratio;
+            }
         }
     }
 }
@@ -1020,19 +1045,25 @@ component ProjectsGrid inherits Rectangle {
     callback forgotten(path: string);
     callback revealed(path: string);
 
-    property <length> gap: 16px;
+    property <length> gap: 12px;
     property <length> min-card: 220px;
+    /// A card is flat until the pointer is on it, so what the eye lines up
+    /// is its poster, not its edge: the cards reach past the grid's own
+    /// width by their inset, and the posters end where the page's margins
+    /// do.
+    property <length> bleed: 8px;
+    property <length> span: root.width + 2 * root.bleed;
     property <int> cols: Math.max(1,
-        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
-    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+        Math.floor((root.span + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.span - (root.cols - 1) * root.gap) / root.cols;
     /// The inset poster, and the name and the line under it.
-    property <length> card-h: (root.card-w - 12px) * 9 / 16 + 70px;
+    property <length> card-h: (root.card-w - 16px) * 9 / 16 + 64px;
     property <int> rows: Math.ceil(root.recents.length / root.cols);
 
     height: Math.max(0px, root.rows * (root.card-h + root.gap) - root.gap);
 
     for project[index] in root.recents: PosterCard {
-        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap) - root.bleed;
         y: Math.floor(index / root.cols) * (root.card-h + root.gap);
         width: root.card-w;
         height: root.card-h;
@@ -1123,12 +1154,22 @@ component ProjectRow inherits Pressable {
                 overflow: elide;
             }
 
-            Text {
-                text: root.project.missing ? I18n.t("start.folderNotFound")
-                    : root.project.when + "  ·  " + root.project.detail;
-                color: Theme.fg-dim;
-                font-size: Theme.fs-sm;
-                overflow: elide;
+            HorizontalLayout {
+                spacing: 8px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.project.missing ? I18n.t("start.folderNotFound")
+                        : root.project.when;
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-sm;
+                    overflow: elide;
+                }
+
+                if !root.project.missing: FrameFact {
+                    frame: root.project.frame;
+                    ratio: root.project.ratio;
+                }
             }
         }
 
@@ -1158,6 +1199,9 @@ component ProjectRow inherits Pressable {
 component SearchField inherits Rectangle {
     in property <string> text;
     in property <string> placeholder;
+    /// Set into a panel rather than standing on the page: a well with the
+    /// panel's own corners, no outline until it is in use.
+    in property <bool> sunken;
 
     callback edited(text: string);
 
@@ -1171,12 +1215,13 @@ component SearchField inherits Rectangle {
         }
     }
 
-    height: 34px;
-    border-radius: self.height / 2;
-    background: Theme.launch-panel;
+    height: root.sunken ? 38px : 34px;
+    border-radius: root.sunken ? 12px : self.height / 2;
+    background: root.sunken ? Theme.launch-well : Theme.launch-panel;
     border-width: 1px;
     border-color: input.has-focus ? Theme.accent
-        : touch.has-hover ? Theme.line-strong : Theme.line;
+        : touch.has-hover ? Theme.line-strong
+        : root.sunken ? Theme.line.with-alpha(0) : Theme.line;
 
     animate border-color { duration: 120ms; }
 
@@ -1244,84 +1289,105 @@ component SearchField inherits Rectangle {
     }
 }
 
-/// One card of the learn-and-community section: where it goes by name -
-/// see `start::link` in Rust, and "shortcuts", which opens Settings - and
-/// what it says.
-struct LearnItem {
+/// One of the page's links: where it goes by name - see `start::link` in
+/// Rust, and "shortcuts", which opens Settings - and the word on it.
+struct HomeLink {
     name: string,
     glyph: Glyph,
     title: string,
-    note: string,
     /// Leaves the app for a web page: the arrow says so.
     external: bool,
 }
 
-// One learn-and-community card: a mark in a square well, a title and the
-// line under it, and an arrow out when it opens a web page. `flat` is the
-// row of a grouped list, with the list's surface rather than its own.
-component LearnCard inherits Pressable {
-    in property <LearnItem> item;
-    in property <bool> flat;
+// One of the sidebar's verbs: a mark and a word, centred. The primary one
+// is the page's ink turned into a surface, the way the website's one light
+// pill is; the others are a step up from the panel they sit on.
+component SideButton inherits Pressable {
+    in property <Glyph> glyph;
+    in property <string> title;
+    in property <bool> primary;
 
-    label: root.item.title;
-    radius: root.flat ? Theme.r : Theme.r-lg;
-    background: root.lit || root.down ? Theme.launch-raised
-        : root.flat ? Colors.transparent : Theme.launch-panel;
-    border-width: root.flat ? 0px : 1px;
-    border-color: root.lit ? Theme.line-strong : Theme.line;
+    property <color> ink: root.primary ? Theme.launch-page : Theme.fg;
 
-    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    label: root.title;
+    radius: 12px;
+    height: 44px;
+    background: root.primary
+        ? (root.down ? Theme.fg.with-alpha(0.82) : root.lit ? Theme.fg.with-alpha(0.9) : Theme.fg)
+        : (root.lit || root.down ? Theme.launch-field : Theme.launch-raised);
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
     HorizontalLayout {
-        padding-left: root.flat ? 10px : 14px;
-        padding-right: 14px;
-        spacing: 12px;
-
-        VerticalLayout {
-            alignment: center;
-            Rectangle {
-                width: 34px;
-                height: 34px;
-                border-radius: Theme.r;
-                background: root.lit ? Theme.launch-field-active : Theme.launch-field;
-
-                Icon {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    glyph: root.item.glyph;
-                    size: 17px;
-                    tint: Theme.fg;
-                }
-            }
-        }
-
-        VerticalLayout {
-            alignment: center;
-            horizontal-stretch: 1;
-            spacing: 2px;
-
-            Text {
-                text: root.item.title;
-                color: Theme.fg;
-                font-size: Theme.fs-lg;
-                font-weight: Theme.weight-title;
-                overflow: elide;
-            }
-
-            Text {
-                text: root.item.note;
-                color: Theme.fg-dim;
-                font-size: Theme.fs-sm;
-                overflow: elide;
-            }
-        }
+        alignment: center;
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 9px;
 
         VerticalLayout {
             alignment: center;
             Icon {
-                glyph: root.item.external ? Glyph.arrow-up-right : Glyph.chevron-right;
-                size: 14px;
-                tint: root.lit ? Theme.fg : Theme.fg-dim;
+                glyph: root.glyph;
+                size: 16px;
+                weight: root.primary ? 2.3 : 1.9;
+                tint: root.ink;
+            }
+        }
+
+        Text {
+            text: root.title;
+            color: root.ink;
+            font-size: Theme.fs-xl;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// One of the page's links, as a line: a mark, the word, and an arrow out
+// when it opens a web page. The foot of the sidebar is a column of them,
+// and the narrow page's foot a list.
+component SideLink inherits Pressable {
+    in property <HomeLink> item;
+
+    label: root.item.title;
+    radius: 9px;
+    height: 34px;
+    background: root.lit || root.down ? Theme.launch-raised : Colors.transparent;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.item.glyph;
+                size: 15px;
+                tint: root.lit ? Theme.fg : Theme.fg-muted;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.item.title;
+            color: root.lit ? Theme.fg : Theme.fg-muted;
+            font-size: Theme.fs-lg;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        if root.item.external: VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: Glyph.arrow-up-right;
+                size: 12px;
+                tint: root.lit ? Theme.fg-muted : Theme.fg-dim;
             }
         }
     }
@@ -1356,6 +1422,125 @@ component TextLink inherits Pressable {
             }
         }
     }
+}
+
+// The order the projects are in: two words in a well, the one in force on
+// a raised thumb. The search field's height, corners and ground, so the
+// two read as one set of tools.
+component SortSwitch inherits Rectangle {
+    in property <string> first;
+    in property <string> second;
+    in property <int> current;
+
+    callback changed(index: int);
+
+    property <bool> ring;
+    // From the words' *preferred* widths: both segments are as wide as the
+    // longer word needs, in whatever language.
+    property <length> seg-w: Math.max(one.preferred-width, two.preferred-width) + 30px;
+
+    width: 2 * root.seg-w + 6px;
+    height: 38px;
+    border-radius: 12px;
+    background: Theme.launch-well;
+
+    fs := FocusScope {
+        // :focus-visible - keyboard focus only, as in ChipRow.
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == Key.RightArrow || event.text == Key.LeftArrow
+                || event.text == Key.UpArrow || event.text == Key.DownArrow) {
+                root.changed(root.current == 0 ? 1 : 0);
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    Rectangle {
+        x: 3px + (root.current == 1 ? root.seg-w : 0px);
+        y: 3px;
+        width: root.seg-w;
+        height: parent.height - 6px;
+        border-radius: 9px;
+        background: Theme.launch-field;
+
+        animate x { duration: 180ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    one := Text {
+        x: 3px;
+        y: 0;
+        width: root.seg-w;
+        height: parent.height;
+        text: root.first;
+        color: root.current == 0 || touch-one.has-hover ? Theme.fg : Theme.fg-muted;
+        font-size: Theme.fs-lg;
+        font-weight: Theme.weight-title;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+
+        animate color { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    two := Text {
+        x: 3px + root.seg-w;
+        y: 0;
+        width: root.seg-w;
+        height: parent.height;
+        text: root.second;
+        color: root.current == 1 || touch-two.has-hover ? Theme.fg : Theme.fg-muted;
+        font-size: Theme.fs-lg;
+        font-weight: Theme.weight-title;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+
+        animate color { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    touch-one := TouchArea {
+        x: 0;
+        width: 3px + root.seg-w;
+        mouse-cursor: pointer;
+        clicked => {
+            fs.focus();
+            root.changed(0);
+        }
+    }
+
+    touch-two := TouchArea {
+        x: 3px + root.seg-w;
+        width: root.seg-w + 3px;
+        mouse-cursor: pointer;
+        clicked => {
+            fs.focus();
+            root.changed(1);
+        }
+    }
+
+    FocusRing {
+        active: root.ring;
+        radius: 12px;
+    }
+}
+
+// The greeting: the one display-sized line in the app, set the way the
+// website sets its headline - medium weight, tight tracking - in the
+// page's plain ink. On the wide page it is the projects' heading, the way
+// a music player's "Good evening" is the heading of what you played last.
+component Greeting inherits Text {
+    in property <bool> returning;
+
+    text: root.returning ? I18n.t("start.welcomeBack") : I18n.t("start.welcome");
+    color: Theme.fg;
+    font-weight: 500;
+    letter-spacing: -0.8px;
+    vertical-alignment: center;
 }
 
 // The section headings: a title, and room at the end of its row for what
@@ -1401,12 +1586,10 @@ component SectionHead inherits HorizontalLayout {
     @children
 }
 
-// What the projects section says when there are none: an invitation, not
-// a blank. The way in for someone who has never cut a video is the guide
-// that walks through the first one.
+// What the projects section says when there are none: what will be here,
+// not a blank. The verbs that fill it are the sidebar's, or the tile's on
+// the narrow page.
 component EmptyProjects inherits Rectangle {
-    callback first-edit();
-
     border-radius: Theme.r-lg;
     border-width: 1px;
     border-color: Theme.line;
@@ -1456,73 +1639,35 @@ component EmptyProjects inherits Rectangle {
                 wrap: word-wrap;
             }
         }
-
-        Rectangle { height: 4px; }
-
-        HorizontalLayout {
-            alignment: center;
-            PillButton {
-                label: I18n.t("start.firstEdit");
-                glyph: Glyph.circle-play;
-                external: true;
-                clicked => { root.first-edit(); }
-            }
-        }
     }
 }
 
-// The cards, and the words on them, in one place: the wide page lays them
-// as a column beside the projects or a grid under them, the narrow one as
-// a list. The phone has no Shortcuts page in its Settings, so it has no
-// card for one.
-global Learn {
-    out property <LearnItem> docs: {
+// The links, and the words on them, in one place: the wide page has them
+// at the foot of its sidebar, the narrow one as a list at its own foot. The
+// phone has no Shortcuts page in its Settings, so it has no line for one.
+global Links {
+    out property <HomeLink> docs: {
         name: "guides", glyph: Glyph.book, external: true,
-        title: I18n.t("start.documentation"), note: I18n.t("start.documentationNote"),
+        title: I18n.t("start.documentation"),
     };
-    out property <LearnItem> keys: {
+    out property <HomeLink> keys: {
         name: "shortcuts", glyph: Glyph.keyboard, external: false,
-        title: I18n.t("start.keyboardShortcuts"), note: I18n.t("start.keyboardShortcutsNote"),
+        title: I18n.t("start.keyboardShortcuts"),
     };
-    out property <LearnItem> code: {
+    out property <HomeLink> code: {
         name: "github", glyph: Glyph.github, external: true,
-        title: "GitHub", note: I18n.t("start.githubNote"),
+        title: "GitHub",
     };
-    out property <LearnItem> chat: {
+    out property <HomeLink> chat: {
         name: "discord", glyph: Glyph.discord, external: true,
-        title: "Discord", note: I18n.t("start.discordNote"),
+        title: "Discord",
     };
-    out property <LearnItem> report: {
+    out property <HomeLink> report: {
         name: "report", glyph: Glyph.bug, external: true,
-        title: I18n.t("start.reportProblem"), note: I18n.t("start.reportProblemNote"),
+        title: I18n.t("start.reportProblem"),
     };
-    out property <[LearnItem]> desk: [docs, keys, code, chat, report];
-    out property <[LearnItem]> phone: [docs, code, chat, report];
-}
-
-// The learn cards as a grid of rows, for the wide page under the projects
-// when there is no room for a column beside them.
-component LearnGrid inherits Rectangle {
-    in property <[LearnItem]> items;
-
-    callback link(name: string);
-
-    property <length> gap: 12px;
-    property <int> cols: root.width >= 860px ? 3 : 2;
-    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
-    property <length> card-h: 64px;
-    property <int> rows: Math.ceil(root.items.length / root.cols);
-
-    height: Math.max(0px, root.rows * (root.card-h + root.gap) - root.gap);
-
-    for item[index] in root.items: LearnCard {
-        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
-        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
-        width: root.card-w;
-        height: root.card-h;
-        item: item;
-        clicked => { root.link(item.name); }
-    }
+    out property <[HomeLink]> desk: [docs, keys, code, chat, report];
+    out property <[HomeLink]> phone: [docs, code, chat, report];
 }
 
 // A soft light of colour behind the news card: a radial fade from `tint`
@@ -1543,9 +1688,12 @@ component NewsCard inherits Pressable {
     in property <string> note;
     /// The type steps down on a short card.
     in property <bool> compact;
+    /// And again in the sidebar, where the card is a couple of hundred
+    /// pixels across.
+    in property <bool> small;
 
     label: root.title;
-    radius: root.compact ? 22px : 28px;
+    radius: root.small ? 14px : root.compact ? 22px : 28px;
     background: #e5475f;
     clip: true;
 
@@ -1564,15 +1712,15 @@ component NewsCard inherits Pressable {
     }
 
     VerticalLayout {
-        padding: root.compact ? 22px : 30px;
+        padding: root.small ? 16px : root.compact ? 22px : 30px;
         spacing: 10px;
 
         Text {
             text: root.title;
             color: #ffffff;
-            font-size: root.compact ? 24px : 31px;
+            font-size: root.small ? 19px : root.compact ? 24px : 31px;
             font-weight: 500;
-            letter-spacing: -0.6px;
+            letter-spacing: root.small ? -0.3px : -0.6px;
             wrap: word-wrap;
             vertical-stretch: 1;
             vertical-alignment: top;
@@ -1584,7 +1732,7 @@ component NewsCard inherits Pressable {
                 text: root.note;
                 color: #ffffff;
                 opacity: 0.9;
-                font-size: Theme.fs-lg;
+                font-size: root.small ? Theme.fs : Theme.fs-lg;
                 font-weight: 500;
                 wrap: word-wrap;
                 horizontal-stretch: 1;
@@ -1606,10 +1754,14 @@ component NewsCard inherits Pressable {
 
 // The wide page: a desk's window, from 680px across to a 4K screen.
 //
-// One column, centred, no wider than reads well: a greeting, the create
-// row, the projects, and - once the column is wide enough to spare it - a
-// learn-and-community panel beside the projects rather than under them,
-// so it is in view without a scroll and the projects keep the width.
+// Two panels on the window's ground, the shape a creative tool's home has:
+//
+// - a sidebar that stays put: the verbs at its head - New project, Open
+//   project and, where CapCut has drafts here, Import - then what is new in
+//   this version, and the page's links as a column of lines at its foot;
+// - the projects, in a panel of their own that takes every pixel the
+//   sidebar leaves and scrolls by itself, so the verbs and the links never
+//   leave the screen however many projects there are.
 component WideHome inherits Rectangle {
     in property <[RecentProjectData]> recents;
     in property <int> recents-total;
@@ -1631,145 +1783,196 @@ component WideHome inherits Rectangle {
     callback sort-changed(sort: int);
     callback link(name: string);
 
-    /// The margin the page keeps from the window's edges.
-    property <length> pad: Math.max(24px, Math.min(64px, root.width / 18));
-    property <length> pad-top: Math.max(28px, Math.min(72px, root.height / 12));
-    property <length> content-w: Math.min(root.width - 2 * root.pad, 1360px);
-    /// Room for the learn panel beside the projects.
-    property <bool> aside: root.content-w >= 1100px;
-    property <length> aside-w: root.content-w >= 1280px ? 360px : 330px;
-    property <length> aside-gap: 40px;
-    property <length> main-w: root.aside ? root.content-w - root.aside-w - root.aside-gap
-        : root.content-w;
-    /// The create row shares its width by weight - New a third again as
-    /// wide as the others - and not by what its words would like, so a
-    /// longer line on one tile does not shoulder the others aside.
-    property <int> extra-tiles: root.capcut ? 1 : 0;
-    property <length> tile-unit: (root.main-w - (1 + root.extra-tiles) * 14px)
-        / (2.3 + root.extra-tiles);
+    /// Between the panels, and between them and the window's edges.
+    property <length> gutter: 12px;
+    /// The title strip is the margin above; the panels start just under it.
+    property <length> top: 4px;
+    property <length> panel-h: root.height - root.top - root.gutter;
+    property <length> side-w: root.width >= 1180px ? 248px : 216px;
+    /// The margin the projects keep from their panel's edges.
+    property <length> inset: Math.max(20px, Math.min(36px, main.width / 28));
     property <bool> searchable: root.recents-total > 8;
+    property <length> greeting-size: Math.max(26px, Math.min(32px, main.width / 34));
+    /// No room for the greeting and the tools on one row.
+    property <bool> stacked: main.width < 820px;
 
-    flick := Flickable {
-        content-width: self.width;
-        content-height: Math.max(self.height, page.height + root.pad-top + root.pad);
-        interactive: page.height + root.pad-top + root.pad > self.height;
+    // ── the sidebar ──────────────────────────────────────────────────
+    side := Rectangle {
+        x: root.gutter;
+        y: root.top;
+        width: root.side-w;
+        height: root.panel-h;
+        border-radius: 18px;
+        background: Theme.launch-panel;
 
-        page := Rectangle {
-            x: (flick.width - self.width) / 2;
-            y: root.pad-top;
-            width: root.content-w;
-            height: Math.max(main.preferred-height,
-                root.aside ? side.y + side-body.preferred-height : 0px);
+        property <int> verbs: root.capcut ? 3 : 2;
+        property <length> verbs-h: self.verbs * 44px + (self.verbs - 1) * 8px;
+        property <length> links-h: Links.desk.length * 34px;
+        property <length> news-h: 156px;
+        /// The news card is the one thing here a short window can do
+        /// without: the verbs and the links keep their room first.
+        property <bool> news: self.height >= self.verbs-h + self.links-h + self.news-h + 64px;
 
-            main := VerticalLayout {
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            SideButton {
+                primary: true;
+                glyph: Glyph.plus;
+                title: I18n.t("start.newProject");
+                enabled: !root.busy;
+                clicked => { root.compose(); }
+            }
+
+            SideButton {
+                glyph: Glyph.folder;
+                title: I18n.t("start.openProject");
+                enabled: !root.busy;
+                clicked => { root.open(); }
+            }
+
+            if root.capcut: SideButton {
+                glyph: Glyph.import;
+                title: I18n.t("start.importCapcut");
+                enabled: !root.busy;
+                clicked => { root.import-capcut(); }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            if side.news: NewsCard {
+                height: side.news-h;
+                small: true;
+                title: I18n.t1("start.whatsNew", root.version);
+                note: I18n.t("start.newsNote");
+                clicked => { root.link("news"); }
+            }
+
+            VerticalLayout {
+                padding-top: 4px;
+
+                for item in Links.desk: SideLink {
+                    item: item;
+                    clicked => { root.link(item.name); }
+                }
+            }
+        }
+    }
+
+    // ── the projects ─────────────────────────────────────────────────
+    main := Rectangle {
+        x: side.x + side.width + root.gutter;
+        y: root.top;
+        width: root.width - self.x - root.gutter;
+        height: root.panel-h;
+        border-radius: 18px;
+        background: Theme.launch-panel;
+        clip: true;
+
+        flick := Flickable {
+            content-width: self.width;
+            content-height: Math.max(self.height, body.preferred-height);
+            interactive: body.preferred-height > self.height;
+
+            body := VerticalLayout {
                 x: 0;
                 y: 0;
-                width: root.main-w;
+                width: flick.width;
                 height: self.preferred-height;
+                padding: root.inset;
+                padding-top: root.inset + 2px;
                 alignment: start;
 
-                // ── the greeting ─────────────────────────────────────
-                // Its own width, not the column's, so the gradient runs
-                // across the words and not across empty space after them.
-                HorizontalLayout {
-                    alignment: start;
-                    Text {
-                        text: root.recents-total == 0
-                            ? I18n.t("start.welcome")
-                            : I18n.t("start.welcomeBack");
-                        // The one display-sized line in the app, set the
-                        // way the website sets its headline: medium weight,
-                        // tight tracking, the ink running into the accent.
-                        color: @linear-gradient(90deg, Theme.fg 0%, Theme.fg 25%, Theme.accent.mix(Theme.fg, 0.6) 100%);
-                        font-size: Math.max(40px, Math.min(60px, root.main-w / 16));
-                        font-weight: 500;
-                        letter-spacing: -1.6px;
-                        max-width: root.main-w;
-                        wrap: word-wrap;
-                    }
-                }
+                // ── the head ─────────────────────────────────────────
+                // One row: the greeting, which is the projects' heading,
+                // and at its end what works on them - the order and the
+                // search - once there are more than a page of them: by
+                // the time there are more than a screen holds, the eye is
+                // not a search.
+                if !root.stacked: HorizontalLayout {
+                    height: 44px;
+                    spacing: 10px;
 
-                Rectangle { height: 12px; }
-
-                Text {
-                    text: root.recents-total == 0
-                        ? I18n.t("start.welcomeNote")
-                        : I18n.t("start.welcomeBackNote");
-                    color: Theme.fg-muted;
-                    font-size: Theme.fs-xl;
-                    wrap: word-wrap;
-                }
-
-                Rectangle { height: 28px; }
-
-                // ── create ───────────────────────────────────────────
-                create-row := HorizontalLayout {
-                    height: 92px;
-                    spacing: 14px;
-
-                    CreateTile {
-                        width: root.tile-unit * 1.3;
-                        primary: true;
-                        glyph: Glyph.plus;
-                        title: I18n.t("start.newProject");
-                        note: I18n.t("start.newProjectNote");
-                        enabled: !root.busy;
-                        clicked => { root.compose(); }
+                    Greeting {
+                        returning: root.recents-total > 0;
+                        font-size: root.greeting-size;
                     }
 
-                    CreateTile {
-                        width: root.tile-unit;
-                        glyph: Glyph.folder;
-                        title: I18n.t("start.openProject");
-                        note: I18n.t("start.openProjectNote");
-                        enabled: !root.busy;
-                        clicked => { root.open(); }
-                    }
+                    Rectangle { horizontal-stretch: 1; }
 
-                    if root.capcut: CreateTile {
-                        width: root.tile-unit;
-                        glyph: Glyph.import;
-                        title: I18n.t("start.importCapcut");
-                        note: I18n.t("start.importCapcutNote");
-                        enabled: !root.busy;
-                        clicked => { root.import-capcut(); }
-                    }
-                }
-
-                Rectangle { height: 44px; }
-
-                // ── the projects ─────────────────────────────────────
-                SectionHead {
-                    height: 34px;
-                    text: I18n.t("start.recentProjects");
-                    count: root.recents-total > 0 ? "\{root.recents-total}" : "";
-
-                    // Past a page of them: by the time there are more
-                    // than a screen holds, the eye is not a search.
-                    if root.searchable: SearchField {
-                        width: Math.min(260px, root.main-w * 0.32);
-                        text: root.query;
-                        placeholder: I18n.t("start.searchProjects");
-                        edited(text) => { root.search-edited(text); }
+                    if root.searchable: VerticalLayout {
+                        alignment: center;
+                        SortSwitch {
+                            first: I18n.t("start.sortRecent");
+                            second: I18n.t("start.sortName");
+                            current: root.sort;
+                            changed(index) => { root.sort-changed(index); }
+                        }
                     }
 
                     if root.searchable: VerticalLayout {
                         alignment: center;
-                        SegmentedControl {
-                            tabs: true;
-                            width: 156px;
-                            options: [I18n.t("start.sortRecent"), I18n.t("start.sortName")];
+                        SearchField {
+                            width: Math.min(300px, main.width * 0.3);
+                            sunken: true;
+                            text: root.query;
+                            placeholder: I18n.t("start.searchProjects");
+                            edited(text) => { root.search-edited(text); }
+                        }
+                    }
+                }
+
+                // The same, in a panel too narrow for one row - a small
+                // window, or a language with longer words: the greeting
+                // over the tools, the search taking what the order leaves.
+                if root.stacked: VerticalLayout {
+                    spacing: 14px;
+
+                    HorizontalLayout {
+                        alignment: start;
+                        Greeting {
+                            returning: root.recents-total > 0;
+                            font-size: root.greeting-size;
+                            max-width: main.width - 2 * root.inset;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    if root.searchable: HorizontalLayout {
+                        spacing: 10px;
+
+                        SearchField {
+                            horizontal-stretch: 1;
+                            sunken: true;
+                            text: root.query;
+                            placeholder: I18n.t("start.searchProjects");
+                            edited(text) => { root.search-edited(text); }
+                        }
+
+                        SortSwitch {
+                            first: I18n.t("start.sortRecent");
+                            second: I18n.t("start.sortName");
                             current: root.sort;
                             changed(index) => { root.sort-changed(index); }
                         }
                     }
                 }
 
-                Rectangle { height: 16px; }
-
-                if root.recents-total == 0: EmptyProjects {
-                    first-edit => { root.link("first-edit"); }
+                // What Concat is, for someone who has just met it.
+                if root.recents-total == 0: VerticalLayout {
+                    padding-top: 6px;
+                    Text {
+                        text: I18n.t("start.welcomeNote");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-xl;
+                        wrap: word-wrap;
+                    }
                 }
+
+                Rectangle { height: root.recents-total == 0 ? 24px : 14px; }
+
+                if root.recents-total == 0: EmptyProjects { }
 
                 if root.recents-total > 0 && root.recents.length == 0: Text {
                     text: I18n.t1("start.noMatches", root.query);
@@ -1786,94 +1989,18 @@ component WideHome inherits Rectangle {
                     forgotten(path) => { root.forget-recent(path); }
                     revealed(path) => { root.reveal-recent(path); }
                 }
-
-                // ── learn, under the projects ────────────────────────
-                if !root.aside: VerticalLayout {
-                    padding-top: 48px;
-                    spacing: 16px;
-
-                    NewsCard {
-                        height: 176px;
-                        compact: true;
-                        title: I18n.t1("start.whatsNew", root.version);
-                        note: I18n.t("start.newsNote");
-                        clicked => { root.link("news"); }
-                    }
-
-                    SectionHead {
-                        height: 34px;
-                        text: I18n.t("start.learnAndCommunity");
-                    }
-
-                    LearnGrid {
-                        items: Learn.desk;
-                        link(name) => { root.link(name); }
-                    }
-
-                }
-            }
-
-            // ── learn, beside the projects ───────────────────────────
-            // From the create row down, so its top lines up with the
-            // first thing that can be pressed.
-            news := NewsCard {
-                x: root.main-w + root.aside-gap;
-                y: create-row.y;
-                width: root.aside-w;
-                height: self.width * 0.62;
-                visible: root.aside;
-                enabled: root.aside;
-                title: I18n.t1("start.whatsNew", root.version);
-                note: I18n.t("start.newsNote");
-                clicked => { root.link("news"); }
-            }
-
-            side := Rectangle {
-                x: root.main-w + root.aside-gap;
-                y: news.y + news.height + 16px;
-                width: root.aside-w;
-                height: side-body.preferred-height;
-                visible: root.aside;
-                border-radius: 28px;
-                background: Theme.launch-panel;
-
-                side-body := VerticalLayout {
-                    padding: 8px;
-                    padding-top: 16px;
-                    spacing: 2px;
-
-                    HorizontalLayout {
-                        padding-left: 10px;
-                        Text {
-                            text: I18n.t("start.learnAndCommunity");
-                            color: Theme.fg;
-                            font-size: Theme.fs-xl;
-                            font-weight: Theme.weight-title;
-                        }
-                    }
-
-                    Rectangle { height: 8px; }
-
-                    for item in Learn.desk: LearnCard {
-                        height: 58px;
-                        flat: true;
-                        item: item;
-                        enabled: root.aside;
-                        clicked => { root.link(item.name); }
-                    }
-                }
             }
         }
-    }
 
-    if flick.interactive: ThinScrollbar {
-        x: parent.width - self.width - 2px;
-        y: 0;
-        height: parent.height;
-        viewport: parent.height;
-        content: flick.content-height;
-        offset: -flick.content-y;
-        scrolled(to) => { flick.content-y = -to; }
+        if flick.interactive: ThinScrollbar {
+            x: parent.width - self.width - 3px;
+            y: 0;
+            height: parent.height;
+            viewport: parent.height;
+            content: flick.content-height;
+            offset: -flick.content-y;
+            scrolled(to) => { flick.content-y = -to; }
+        }
     }
 }
 
@@ -2012,9 +2139,7 @@ component NarrowHome inherits Rectangle {
 
             Rectangle { height: 10px; }
 
-            if root.recents-total == 0: EmptyProjects {
-                first-edit => { root.link("first-edit"); }
-            }
+            if root.recents-total == 0: EmptyProjects { }
 
             if root.recents-total > 0 && root.recents.length == 0: Text {
                 text: I18n.t1("start.noMatches", root.query);
@@ -2032,49 +2157,32 @@ component NarrowHome inherits Rectangle {
 
             Rectangle { height: 32px; }
 
-            SectionHead {
-                height: 28px;
-                text: I18n.t("start.learnAndCommunity");
-            }
-
-            Rectangle { height: 10px; }
-
-            // One grouped list, as a phone's settings are: one surface,
-            // rows on it, hairlines between.
-            Rectangle {
-                border-radius: Theme.r-lg;
-                background: Theme.launch-panel;
-                border-width: 1px;
-                border-color: Theme.line;
-                height: list.preferred-height;
-
-                list := VerticalLayout {
-                    padding: 6px;
-
-                    for item[index] in (root.phone ? Learn.phone : Learn.desk): VerticalLayout {
-                        if index > 0: Rectangle {
-                            height: 1px;
-                            background: Theme.line;
-                        }
-
-                        LearnCard {
-                            height: 56px;
-                            flat: true;
-                            item: item;
-                            clicked => { root.link(item.name); }
-                        }
-                    }
-                }
-            }
-
-            Rectangle { height: 16px; }
-
             NewsCard {
                 height: 150px;
                 compact: true;
                 title: I18n.t1("start.whatsNew", root.version);
                 note: I18n.t("start.newsNote");
                 clicked => { root.link("news"); }
+            }
+
+            Rectangle { height: 12px; }
+
+            // The page's links, as the sidebar's foot has them on a desk:
+            // one line each, on one surface.
+            Rectangle {
+                border-radius: Theme.r-lg;
+                background: Theme.launch-panel;
+                height: list.preferred-height;
+
+                list := VerticalLayout {
+                    padding: 6px;
+
+                    for item in (root.phone ? Links.phone : Links.desk): SideLink {
+                        height: 44px;
+                        item: item;
+                        clicked => { root.link(item.name); }
+                    }
+                }
             }
         }
     }

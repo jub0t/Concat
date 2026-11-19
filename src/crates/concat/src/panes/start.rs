@@ -107,7 +107,6 @@ pub const REPOSITORY: &str = "https://github.com/jub0t/Concat";
 pub fn link(name: &str) -> Option<String> {
     Some(match name {
         "guides" => format!("{SITE}/guides/"),
-        "first-edit" => format!("{SITE}/guides/first-edit/"),
         "report" => format!("{SITE}/guides/report-a-problem/"),
         "github" => REPOSITORY.to_owned(),
         // The gradient card: this version's "What's new" post on the
@@ -708,7 +707,6 @@ mod tests {
     fn every_link_has_an_address() {
         for name in [
             "guides",
-            "first-edit",
             "report",
             "github",
             "discord",
