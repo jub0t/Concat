@@ -1019,8 +1019,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     editor.on_media_sort_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Media(MediaMsg::SortChanged(index)));
     }));
-    editor.on_media_select(on_window!(|state, row: i32, additive: bool| {
-        state.handle(Msg::Media(MediaMsg::Select { row, additive }));
+    editor.on_media_select(on_window!(|state, row: i32, toggle: bool, range: bool| {
+        state.handle(Msg::Media(MediaMsg::Select { row, toggle, range }));
+    }));
+    editor.on_media_focused(on_window!(|state| {
+        state.handle(Msg::Media(MediaMsg::Focused));
     }));
     editor.on_media_band_selected(on_window!(
         |state,

@@ -424,8 +424,8 @@ export component MediaCard inherits Rectangle {
     /// this card moved rather than as a second copy of it.
     opacity: drag.dragging ? 0.45 : 1.0;
 
-    /// modifier-held click: add to or remove from the selection
-    callback clicked(additive: bool);
+    /// Ctrl/Cmd toggles one card; Shift selects a range from the anchor (#696).
+    callback clicked(toggle: bool, range: bool);
     /// double click: put it on the timeline at the playhead
     callback activated();
     callback removed();
@@ -443,7 +443,8 @@ export component MediaCard inherits Rectangle {
         : Glyph.film;
 
     /// modifier state at the moment of the press — `clicked` does not carry it
-    property <bool> additive;
+    property <bool> toggle;
+    property <bool> range;
 
     // The whole card is the drag handle: dragging one onto the timeline is
     // how material gets into an edit. The DragArea only intercepts once the
@@ -485,12 +486,13 @@ export component MediaCard inherits Rectangle {
                     return;
                 }
                 if (event.kind == PointerEventKind.down) {
-                    root.additive = event.modifiers.shift || event.modifiers.control
-                        || event.modifiers.meta;
+                    root.range = event.modifiers.shift;
+                    root.toggle = !root.range
+                        && (event.modifiers.control || event.modifiers.meta);
                 }
             }
             clicked => {
-                root.clicked(root.additive);
+                root.clicked(root.toggle, root.range);
             }
             double-clicked => {
                 root.activated();
@@ -671,7 +673,7 @@ component MediaGrid inherits Rectangle {
     /// most of one is empty. This is the bin's version of that empty lane.
     in property <length> page-floor;
 
-    callback clicked(id: int, additive: bool);
+    callback clicked(id: int, toggle: bool, range: bool);
     callback activated(id: int);
     callback removed(id: int);
     /// Right-click on a card. Rust fills the menu and bumps `menu-token`;
@@ -806,8 +808,8 @@ component MediaGrid inherits Rectangle {
         height: root.card-h;
         item: entry;
 
-        clicked(additive) => {
-            root.clicked(entry.id, additive);
+        clicked(toggle, range) => {
+            root.clicked(entry.id, toggle, range);
         }
         activated => {
             root.activated(entry.id);
@@ -1776,7 +1778,7 @@ export component MediaPane inherits Rectangle {
     callback sort-changed(index: int);
     /// A press on the bin's floor; see Editor.blur.
     callback floor-pressed();
-    callback select(id: int, additive: bool);
+    callback select(id: int, toggle: bool, range: bool);
     /// A marquee closed over the card grid — see MediaGrid.band-selected.
     callback band-selected(columns: int, from-col: int, to-col: int,
         from-row: int, to-row: int, additive: bool);
@@ -2579,7 +2581,7 @@ export component MediaPane inherits Rectangle {
                         menu-token: root.menu-token;
 
                         pressed => { root.floor-pressed(); }
-                        clicked(id, additive) => { root.select(id, additive); }
+                        clicked(id, toggle, range) => { root.select(id, toggle, range); }
                         activated(id) => { root.activate(id); }
                         removed(id) => { root.remove(id); }
                         context(id) => { root.context(id); }
