@@ -11,6 +11,7 @@ license = "AGPL-3.0-or-later"
 [workspace.dependencies]
 concat-core = { path = "crates/concat-core" }
 concat-media = { path = "crates/concat-media" }
+concat-stretch = { path = "crates/concat-stretch" }
 concat-project = { path = "crates/concat-project" }
 concat-render = { path = "crates/concat-render" }
 concat-export = { path = "crates/concat-export" }
