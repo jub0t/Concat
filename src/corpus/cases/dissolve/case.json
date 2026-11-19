@@ -1,0 +1,28 @@
+{
+  "about": "Clips A and B end to end with a one-second Dissolve laid across the cut, half a second either side. Before the cut A plays on and B's first frame, held, comes up under it; after it A's last frame, held, goes on fading while B plays. The mix is of light, and the share of B rises in a straight line from nought at frame 45 to 29 thirtieths at frame 74, a thirtieth a frame. A failure means the dissolve starts or ends a frame off, its progress is not even, it mixes numbers instead of light, or it takes the wrong frames of either clip.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addTransitionClip", "start": 1.5, "duration": 1, "transitionId": "concat.dissolve", "name": "Dissolve" } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 44], "media": "a", "from": 0, "step": 1 },
+      { "frames": [45, 59], "media": "a", "from": 45, "step": 1, "into": { "media": "b", "from": 0, "step": 0, "share": [0, 0.4667] } },
+      { "frames": [60, 74], "media": "a", "from": 59, "step": 0, "into": { "media": "b", "from": 0, "step": 1, "share": [0.5, 0.9667] } },
+      { "frames": [75, 119], "media": "b", "from": 15, "step": 1 }
+    ]
+  }
+}

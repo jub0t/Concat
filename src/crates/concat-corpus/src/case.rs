@@ -345,6 +345,10 @@ pub struct Run {
     /// is scaled: 8 at half size.
     #[serde(default = "block")]
     pub block: u32,
+    /// The picture the run's own is melting into, for a run under a
+    /// dissolve.
+    #[serde(default)]
+    pub into: Option<Into>,
     /// A speed curve over the run, in place of `step` and `per`: points
     /// of `[at, speed]`, `at` the fraction of the run and `speed` source
     /// seconds a timeline second there, joined by straight lines, as a
@@ -352,6 +356,22 @@ pub struct Run {
     /// whose span holds the source time the curve has reached.
     #[serde(default)]
     pub curve: Option<Vec<[f64; 2]>>,
+}
+
+/// The incoming picture of a run under a dissolve.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Into {
+    /// The media coming in, by its name in [`Case::media`].
+    pub media: String,
+    /// The source frame of it the run's first frame mixes in.
+    pub from: u32,
+    /// How many of its frames each output frame moves on by; 0 while it is
+    /// held on one frame, waiting for its own clip to start.
+    pub step: u32,
+    /// How much of it is in the run's first frame and in its last, 0 to 1,
+    /// in light; in between, a straight line.
+    pub share: [f64; 2],
 }
 
 /// What an output frame must show.
@@ -365,6 +385,9 @@ pub enum Shows {
     /// and which side of it a sum of fractions falls is not the edit's
     /// doing.
     Either(code::Code, code::Code, [u32; 2], u32),
+    /// The first source frame melting into the second, with this share of
+    /// the second in it.
+    Blend(code::Code, code::Code, f64, [u32; 2], u32),
     /// Nothing: black from edge to edge.
     Black,
 }
@@ -484,8 +507,19 @@ impl Case {
         let spec = self.media.get(media)?;
         let tag = spec.tag();
         let Some(curve) = &run.curve else {
-            let index = run.from + (frame - run.frames[0]) * run.step / run.per;
-            return Some(Shows::Code(code::Code { tag, index }, run.at, run.block));
+            let along = frame - run.frames[0];
+            let index = run.from + along * run.step / run.per;
+            let code = code::Code { tag, index };
+            let Some(into) = &run.into else {
+                return Some(Shows::Code(code, run.at, run.block));
+            };
+            let coming = code::Code {
+                tag: self.media.get(&into.media)?.tag(),
+                index: into.from + along * into.step,
+            };
+            let span = f64::from((run.frames[1] - run.frames[0]).max(1));
+            let share = into.share[0] + (into.share[1] - into.share[0]) * f64::from(along) / span;
+            return Some(Shows::Blend(code, coming, share, run.at, run.block));
         };
         let Media::Clock { rate, .. } = spec else {
             return None;
@@ -657,6 +691,15 @@ impl Case {
             if let Some(curve) = &run.curve {
                 check_curve(curve)
                     .map_err(|error| format!("expect: the run at {:?}: {error}", run.frames))?;
+            }
+            if let Some(into) = &run.into {
+                let shares = into.share.iter().all(|share| (0.0..=1.0).contains(share));
+                if !self.media.contains_key(&into.media) || !shares || run.media.is_none() {
+                    return Err(format!(
+                        "expect: the run at {:?} melts a media of the case into another, by shares of 0 to 1",
+                        run.frames
+                    ));
+                }
             }
             next = run.frames[1] + 1;
         }

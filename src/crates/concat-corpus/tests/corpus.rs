@@ -47,6 +47,7 @@ macro_rules! corpus_case {
 corpus_case!(codes);
 corpus_case!(curve);
 corpus_case!(cut);
+corpus_case!(dissolve);
 corpus_case!(fades);
 corpus_case!(gap);
 corpus_case!(lanes);

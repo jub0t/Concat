@@ -59,6 +59,11 @@ const PIP_TOLERANCE: f64 = 0.001;
 const LEVEL_TOLERANCE: f64 = 0.01;
 const LEVEL_SHARE: f64 = 0.05;
 
+/// How far a dissolve's mix may be from the share a case states, and half
+/// how far apart its blocks may read it: a fiftieth. A frame early or late
+/// in a one-second dissolve is a thirtieth off.
+const BLEND_TOLERANCE: f64 = 0.02;
+
 /// How far from its place a pip is looked for: under half the gap
 /// between two pips at the fastest speed a case uses.
 const PIP_SEARCH: f64 = 0.15;
@@ -1115,6 +1120,28 @@ fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
                 )
             })
         }
+        Shows::Blend(first, second, share, at, block) => {
+            // At either end the picture is all but one of the two, and
+            // reads as it; in between it is held to its share.
+            let whole = code::read_sized(frame, at[0], at[1], block).code;
+            if (share <= BLEND_TOLERANCE && whole == Some(first))
+                || (share >= 1.0 - BLEND_TOLERANCE && whole == Some(second))
+            {
+                return None;
+            }
+            match code::read_blend(frame, at[0], at[1], block, first, second) {
+                None => Some(format!(
+                    "should be {first} melting into {second}, and is not those two alone"
+                )),
+                Some((found, spread)) => ((found - share).abs() > BLEND_TOLERANCE
+                    || spread > 2.0 * BLEND_TOLERANCE)
+                    .then(|| {
+                        format!(
+                            "should be {share:.3} of the way from {first} into {second}, and is {found:.3} (its blocks {spread:.3} apart)"
+                        )
+                    }),
+            }
+        }
         Shows::Black => {
             let all = [0, 0, frame.width(), frame.height()];
             brightest(frame, &all)
@@ -1131,6 +1158,9 @@ fn enlarged(shows: Shows, times: u32) -> Shows {
         Shows::Code(code, at, block) => Shows::Code(code, grow(at), block * times),
         Shows::Either(first, second, at, block) => {
             Shows::Either(first, second, grow(at), block * times)
+        }
+        Shows::Blend(first, second, share, at, block) => {
+            Shows::Blend(first, second, share, grow(at), block * times)
         }
         Shows::Black => Shows::Black,
     }
