@@ -125,8 +125,15 @@ pub struct Run {
     /// The source frame the run's first frame shows.
     pub from: u32,
     /// How many source frames each output frame moves on by: 1 at normal
-    /// speed, 0 for a still or a hold.
+    /// speed, 0 for a still or a hold. With [`Run::per`], how many source
+    /// frames every `per` output frames move on by.
     pub step: u32,
+    /// The output frames `step` is counted over, 1 unless the speed is a
+    /// fraction: 1.5x is step 3 per 2, half speed step 1 per 2. Output
+    /// frame `k` of the run shows source frame `from + floor(k * step /
+    /// per)`, the frame whose span holds that instant.
+    #[serde(default = "one")]
+    pub per: u32,
     /// Where in the output frame the picture's code is, `[x, y]`: its top
     /// left corner, the origin unless the picture is placed elsewhere.
     #[serde(default)]
@@ -145,6 +152,10 @@ pub struct Twin {
     /// The output frames whose previews are compared, each at its own
     /// instant, `frame / fps`.
     pub frames: Vec<u32>,
+}
+
+fn one() -> u32 {
+    1
 }
 
 impl Case {
@@ -175,7 +186,7 @@ impl Case {
             .iter()
             .find(|run| (run.frames[0]..=run.frames[1]).contains(&frame))?;
         let tag = self.media.get(&run.media)?.tag();
-        let index = run.from + (frame - run.frames[0]) * run.step;
+        let index = run.from + (frame - run.frames[0]) * run.step / run.per;
         Some((code::Code { tag, index }, run.at))
     }
 
@@ -241,6 +252,9 @@ impl Case {
             }
             if !self.media.contains_key(&run.media) {
                 return Err(format!("expect: no media is called {}", run.media));
+            }
+            if run.per == 0 {
+                return Err(format!("expect: the run at {:?} has per 0", run.frames));
             }
             next = run.frames[1] + 1;
         }
