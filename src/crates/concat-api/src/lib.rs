@@ -601,6 +601,12 @@ impl Api {
         closed
     }
 
+    /// The graphics adapter `preview.frame` draws on, as its back end and
+    /// its name, or None when it draws on the processor.
+    pub fn adapter(&self) -> Option<(String, String)> {
+        self.monitor.adapter()
+    }
+
     /// [`Request::ProjectList`].
     pub fn recents(&self) -> Vec<ProjectInfo> {
         projects::list(&self.dirs.config)

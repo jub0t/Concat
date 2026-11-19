@@ -148,6 +148,9 @@ fn run(name: &str, cases: &Path, dir: &Path, report: &mut Report) -> Result<(), 
     let output = runner.export(&project)?;
     report.export = Some(output.display().to_string());
     runner.check_export(report, &project, &output)?;
+    if !case.expect.golden.is_empty() {
+        runner.check_goldens(report, &project, cases)?;
+    }
     for twin in &case.twins {
         runner.check_twin(report, &project, twin)?;
     }
@@ -842,6 +845,44 @@ impl Runner<'_> {
                 ),
             ),
         );
+        Ok(())
+    }
+
+    /// Holds the monitor's frames to the case's stored pictures: what the
+    /// compositor drew, before any encoder, judged as [`crate::golden`]
+    /// judges. A failed picture's page is `golden/index.html` beside the
+    /// report.
+    fn check_goldens(
+        &mut self,
+        report: &mut Report,
+        project: &str,
+        cases: &Path,
+    ) -> Result<(), String> {
+        use crate::golden::{Family, Golden, Mode, Rgba8Image};
+
+        let (backend, adapter) = self.api.adapter().ok_or_else(|| {
+            "the case has golden pictures and there is no graphics adapter to draw them".to_owned()
+        })?;
+        let family = Family::of_adapter(&backend, &adapter);
+        let out = self.dir.parent().unwrap_or(&self.dir).to_path_buf();
+        let mode = Mode::from_env(self.name, &out.join("bless.md"))?;
+        let folder = self.dir.join("golden");
+        let golden = Golden::new(&cases.join(self.name), family, &folder, mode);
+        let fps = self.case.fps();
+        let mut results = Vec::new();
+        for wanted in &self.case.expect.golden {
+            let seen = self.preview(project, f64::from(wanted.frame) / fps)?;
+            let image = Rgba8Image::from_frame(&seen)
+                .ok_or_else(|| format!("the monitor's frame {} is no picture", wanted.frame))?;
+            let result = golden.check(&wanted.name, &image);
+            let mut check = result.to_check();
+            check.detail = format!("{} ({adapter}, {family})", check.detail);
+            report.checks.push(check);
+            results.push(result);
+        }
+        if results.iter().any(|result| !result.ok()) {
+            crate::golden::write_failure_page(&folder, &results)?;
+        }
         Ok(())
     }
 

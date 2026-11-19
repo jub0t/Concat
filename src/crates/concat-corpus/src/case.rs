@@ -171,6 +171,21 @@ pub struct Expect {
     /// clip that should not be heard at all.
     #[serde(default)]
     pub level: Vec<Level>,
+    /// Frames of the monitor held to a stored picture, for what no code
+    /// or pip can say: how an effect, a title or a mask looks. See
+    /// [`crate::golden`].
+    #[serde(default)]
+    pub golden: Vec<GoldenFrame>,
+}
+
+/// One frame of the monitor held to a stored picture.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GoldenFrame {
+    /// The picture's name in the case's `golden` folder, without `.png`.
+    pub name: String,
+    /// The output frame, seen at its own instant.
+    pub frame: u32,
 }
 
 /// How loud one media's tone must be at one instant of the export.
@@ -553,6 +568,16 @@ impl Case {
                 return Err(format!(
                     "expect: the sound run at {:?} needs a positive speed and a start at or past 0",
                     run.frames
+                ));
+            }
+        }
+        for golden in &expect.golden {
+            crate::golden::bounds::check_name(&golden.name)
+                .map_err(|error| format!("expect: golden {}: {error}", golden.name))?;
+            if golden.frame >= expect.frames {
+                return Err(format!(
+                    "expect: golden {} is of frame {}, past the end",
+                    golden.name, golden.frame
                 ));
             }
         }

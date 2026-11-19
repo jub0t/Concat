@@ -1641,6 +1641,14 @@ fn headless_sibling() -> Option<WgpuCompositor> {
 }
 
 /// The ladder [`headless`] draws on, made the first time it is asked for.
+/// The adapter the shared headless compositor draws on, as its back end
+/// and its name, once it has drawn a frame; None before, and where there
+/// is none to draw on.
+pub fn headless_adapter() -> Option<(String, String)> {
+    let info = headless_sibling()?.adapter_info();
+    Some((format!("{:?}", info.backend), info.name))
+}
+
 fn headless_ladder() -> &'static std::sync::Mutex<concat_render::Ladder> {
     static HEADLESS: std::sync::OnceLock<std::sync::Mutex<concat_render::Ladder>> =
         std::sync::OnceLock::new();

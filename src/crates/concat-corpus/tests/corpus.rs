@@ -50,6 +50,7 @@ corpus_case!(fades);
 corpus_case!(gap);
 corpus_case!(lanes);
 corpus_case!(missing);
+corpus_case!(mono);
 corpus_case!(ntsc);
 corpus_case!(pip);
 corpus_case!(rates);
@@ -60,6 +61,15 @@ corpus_case!(still);
 corpus_case!(trim);
 corpus_case!(unknown);
 corpus_case!(volume);
+
+/// The stored pictures stay small enough to live in the repository, and
+/// every one of them is a picture some case names.
+#[test]
+fn the_golden_pictures_stay_in_budget() {
+    let audit = concat_corpus::golden::audit(&concat_corpus::cases_dir(), Default::default())
+        .expect("the cases can be listed");
+    assert!(audit.problems.is_empty(), "{}", audit.problems.join("\n"));
+}
 
 #[test]
 fn every_case_dir_has_a_test() {
