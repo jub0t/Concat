@@ -46,9 +46,15 @@ macro_rules! corpus_case {
 
 corpus_case!(codes);
 corpus_case!(cut);
+corpus_case!(gap);
+corpus_case!(lanes);
+corpus_case!(ntsc);
+corpus_case!(rates);
+corpus_case!(ripple);
 corpus_case!(sound);
 corpus_case!(speed);
 corpus_case!(still);
+corpus_case!(trim);
 
 #[test]
 fn every_case_dir_has_a_test() {

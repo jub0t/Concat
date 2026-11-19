@@ -16,7 +16,10 @@
 //! start of a string stands for a literal `$`). A step with `"step"` in
 //! place of `"method"` is the harness's own: `closeAndReopen` saves and
 //! closes the project, opens it again and holds the document to what it
-//! was.
+//! was. `"bind"` on a request binds names to anything else in its answer:
+//! each to the string or number a JSON pointer finds in the project the
+//! request answered with, `"/project/timelines/0/tracks/0/id"` for the
+//! first track's id.
 //!
 //! The file is read strictly. An unknown field anywhere is an error, as is
 //! a missing expectation, so a typo cannot quietly turn a check off.
@@ -197,13 +200,17 @@ pub struct Pip {
 pub struct Run {
     /// The first and last output frame of the run, both included.
     pub frames: [u32; 2],
-    /// The media they show, by its name in [`Case::media`].
-    pub media: String,
+    /// The media they show, by its name in [`Case::media`]. Absent, the
+    /// frames show nothing: a gap in the timeline, black from edge to edge.
+    #[serde(default)]
+    pub media: Option<String>,
     /// The source frame the run's first frame shows.
+    #[serde(default)]
     pub from: u32,
     /// How many source frames each output frame moves on by: 1 at normal
     /// speed, 0 for a still or a hold. With [`Run::per`], how many source
     /// frames every `per` output frames move on by.
+    #[serde(default)]
     pub step: u32,
     /// The output frames `step` is counted over, 1 unless the speed is a
     /// fraction: 1.5x is step 3 per 2, half speed step 1 per 2. Output
@@ -215,6 +222,15 @@ pub struct Run {
     /// left corner, the origin unless the picture is placed elsewhere.
     #[serde(default)]
     pub at: [u32; 2],
+}
+
+/// What an output frame must show.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Shows {
+    /// A source frame, by its code, with the code's top left corner here.
+    Code(code::Code, [u32; 2]),
+    /// Nothing: black from edge to edge.
+    Black,
 }
 
 /// A second project, built from the same steps less some, that must
@@ -258,17 +274,19 @@ impl Case {
         self.expect.rate[0] as f64 / self.expect.rate[1] as f64
     }
 
-    /// The code output frame `frame` must carry and where it sits, by the
-    /// runs.
-    pub fn expected(&self, frame: u32) -> Option<(code::Code, [u32; 2])> {
+    /// What output frame `frame` must show, by the runs.
+    pub fn expected(&self, frame: u32) -> Option<Shows> {
         let run = self
             .expect
             .runs
             .iter()
             .find(|run| (run.frames[0]..=run.frames[1]).contains(&frame))?;
-        let tag = self.media.get(&run.media)?.tag();
+        let Some(media) = &run.media else {
+            return Some(Shows::Black);
+        };
+        let tag = self.media.get(media)?.tag();
         let index = run.from + (frame - run.frames[0]) * run.step / run.per;
-        Some((code::Code { tag, index }, run.at))
+        Some(Shows::Code(code::Code { tag, index }, run.at))
     }
 
     /// Every pip the export's sound must carry, in order of onset: each
@@ -372,8 +390,17 @@ impl Case {
                     next, run.frames
                 ));
             }
-            if !self.media.contains_key(&run.media) {
-                return Err(format!("expect: no media is called {}", run.media));
+            match &run.media {
+                Some(media) if !self.media.contains_key(media) => {
+                    return Err(format!("expect: no media is called {media}"));
+                }
+                None if run.from != 0 || run.step != 0 => {
+                    return Err(format!(
+                        "expect: the run at {:?} shows no media, so has no from or step",
+                        run.frames
+                    ));
+                }
+                _ => {}
             }
             if run.per == 0 {
                 return Err(format!("expect: the run at {:?} has per 0", run.frames));

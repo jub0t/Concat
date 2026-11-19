@@ -24,7 +24,7 @@ use concat_core::time::{FrameRate, Rational};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
 use serde_json::{Value, json};
 
-use crate::case::{Case, Media};
+use crate::case::{Case, Media, Shows};
 use crate::code;
 use crate::media;
 use crate::report::Report;
@@ -302,6 +302,15 @@ impl Runner<'_> {
                     .ok_or_else(|| format!("step {at}: \"as\" is a name"))
             })
             .transpose()?;
+        let pointers = value
+            .as_object_mut()
+            .and_then(|object| object.remove("bind"))
+            .map(|bind| {
+                serde_json::from_value::<BTreeMap<String, String>>(bind)
+                    .map_err(|_| format!("step {at}: \"bind\" is names to JSON pointers"))
+            })
+            .transpose()?
+            .unwrap_or_default();
         let request: Request = serde_json::from_value(value.clone())
             .map_err(|error| format!("step {at} is not a request: {error}"))?;
         // A field the API does not read is dropped by serde without a word;
@@ -314,13 +323,34 @@ impl Runner<'_> {
         let reply = self
             .send(request)
             .map_err(|error| format!("step {at}: {error}"))?;
-        let Some(alias) = alias else {
+        if alias.is_none() && pointers.is_empty() {
             return Ok(());
-        };
+        }
         let Reply::View(view) = reply else {
             return Err(format!(
                 "step {at}: {method} answered with no project to bind from"
             ));
+        };
+        if !pointers.is_empty() {
+            let answer = serde_json::to_value(&view)
+                .map_err(|error| format!("step {at}: the answer does not encode: {error}"))?;
+            for (name, pointer) in pointers {
+                let found = match answer.pointer(&pointer) {
+                    Some(Value::String(text)) => text.clone(),
+                    Some(Value::Number(number)) => number.to_string(),
+                    _ => {
+                        return Err(format!(
+                            "step {at}: {pointer} is no string or number in the answer"
+                        ));
+                    }
+                };
+                if bindings.insert(name.clone(), found).is_some() {
+                    return Err(format!("step {at}: {name} is bound already"));
+                }
+            }
+        }
+        let Some(alias) = alias else {
+            return Ok(());
         };
         let id = match method.as_str() {
             "media.import" => {
@@ -490,7 +520,7 @@ impl Runner<'_> {
         let mut wrong = Vec::new();
         let mut worst: f64 = 0.0;
         for index in 0..expect.frames {
-            let (code, at) = self
+            let shows = self
                 .case
                 .expected(index)
                 .ok_or_else(|| format!("no run covers frame {index}"))?;
@@ -498,13 +528,8 @@ impl Runner<'_> {
                 wrong.push(format!("frame {index} is missing"));
                 continue;
             };
-            let reading = code::read_at(frame, at[0], at[1]);
-            worst = worst.max(reading.worst);
-            if reading.code != Some(code) {
-                wrong.push(format!(
-                    "frame {index} should be {code}, and reads as {}",
-                    describe(&reading)
-                ));
+            if let Some(found) = shown_wrong(frame, shows, &mut worst) {
+                wrong.push(format!("frame {index} {found}"));
                 self.save(report, &format!("export-{index:04}.png"), frame);
             }
         }
@@ -516,6 +541,27 @@ impl Runner<'_> {
                 &wrong,
                 &format!("every code read, the worst block {worst:.1} levels off its level"),
             ),
+        );
+
+        // The monitor, paused on each frame's own instant, shows what the
+        // export wrote there: the picture a person edits by is the one
+        // they get.
+        let fps = self.case.fps();
+        let mut unlike = Vec::new();
+        for index in 0..expect.frames {
+            let Some(shows) = self.case.expected(index) else {
+                continue;
+            };
+            let seen = self.preview(project, f64::from(index) / fps)?;
+            if let Some(found) = shown_wrong(&seen, shows, &mut 0.0) {
+                unlike.push(format!("frame {index} {found}"));
+                self.save(report, &format!("monitor-{index:04}.png"), &seen);
+            }
+        }
+        report.check(
+            "the monitor shows at every frame what the export should",
+            unlike.is_empty(),
+            named(&unlike, &format!("{} frames seen", expect.frames)),
         );
 
         if !expect.sound.is_empty() {
@@ -712,15 +758,11 @@ impl Runner<'_> {
                     &yours,
                 );
             }
-            if let Some((code, at)) = self.case.expected(index) {
-                let reading = code::read_at(&mine, at[0], at[1]);
-                if reading.code != Some(code) {
-                    wrong.push(format!(
-                        "frame {index} should be {code}, and reads as {}",
-                        describe(&reading)
-                    ));
-                    self.save(report, &format!("preview-{index:04}-case.png"), &mine);
-                }
+            if let Some(shows) = self.case.expected(index)
+                && let Some(found) = shown_wrong(&mine, shows, &mut 0.0)
+            {
+                wrong.push(format!("frame {index} {found}"));
+                self.save(report, &format!("preview-{index:04}-case.png"), &mine);
             }
         }
         report.check(
@@ -809,6 +851,26 @@ fn decode(path: &Path) -> Result<Vec<Frame>, String> {
         frames.push(frame);
     }
     Ok(frames)
+}
+
+/// What is wrong with `frame` if it does not show `shows`, in words that
+/// follow "frame N"; `worst` keeps the furthest a code block was from its
+/// level.
+fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
+    match shows {
+        Shows::Code(code, at) => {
+            let reading = code::read_at(frame, at[0], at[1]);
+            *worst = worst.max(reading.worst);
+            (reading.code != Some(code))
+                .then(|| format!("should be {code}, and reads as {}", describe(&reading)))
+        }
+        Shows::Black => {
+            let all = [0, 0, frame.width(), frame.height()];
+            brightest(frame, &all)
+                .filter(|brightest| *brightest > BLACK)
+                .map(|brightest| format!("should be black, and reaches {brightest}"))
+        }
+    }
 }
 
 /// What a read found, in words.

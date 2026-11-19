@@ -1,0 +1,29 @@
+{
+  "about": "A 24 fps clip and a 60 fps clip, two seconds each, on a 30 fps timeline. Output frame k of the first shows source frame floor(k × 4 / 5), so every fifth source frame is shown twice; of the second, source frame 2k, every other one. Each clip's pips land on its own seconds. A failure means a source at another rate is sampled a frame early or late (a rounding of k / 30 × 24 just under a whole number is the classic), drifts over its length, or its sound runs at the wrong rate.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [24, 1], "frames": 48, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [60, 1], "frames": 120, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 4, "per": 5 },
+      { "frames": [60, 119], "media": "b", "from": 0, "step": 2 }
+    ],
+    "sound": [
+      { "frames": [0, 59], "media": "a", "from": 0 },
+      { "frames": [60, 119], "media": "b", "from": 0 }
+    ]
+  }
+}
