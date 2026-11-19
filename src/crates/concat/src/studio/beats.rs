@@ -153,20 +153,27 @@ impl Studio {
         )
     }
 
-    /// A clip's beat marks as path commands in a 1x1 box, its width the
-    /// clip's: a tick up from the floor for a beat, a taller one for a
-    /// downbeat. Empty for a clip with none.
-    pub(super) fn beat_marks(&self, clip: &Clip) -> SharedString {
+    /// A clip's beat marks as path commands in a 1x1 box its width: the
+    /// beats, then the first beats of bars, each a vertical tick on the
+    /// rail along the clip's floor. How much is drawn follows the zoom, as
+    /// a beat grid does: every beat while beats are [`LEAST_GAP`] pixels
+    /// apart or more, else the bars alone, else every fourth bar - never a
+    /// wall of ticks that reads as a second waveform.
+    pub(super) fn beat_marks(&self, clip: &Clip) -> (SharedString, SharedString) {
         if clip.duration <= 0.0 {
-            return SharedString::default();
+            return Default::default();
         }
-        let mut path = String::new();
-        for (time, downbeat) in self.clip_beats(clip) {
-            let x = ((time - clip.start) / clip.duration).clamp(0.0, 1.0);
-            let top = if downbeat { 0.35 } else { 0.7 };
-            path.push_str(&format!("M {x:.5} 1 L {x:.5} {top} "));
-        }
-        path.into()
+        let placed = self.clip_beats(clip);
+        let (every, bars) = marks_at(&placed, f64::from(self.lanes.seconds_per_pixel));
+        let path = |times: &[f64]| -> SharedString {
+            let mut path = String::new();
+            for time in times {
+                let x = ((time - clip.start) / clip.duration).clamp(0.0, 1.0);
+                path.push_str(&format!("M {x:.5} 0 L {x:.5} 1 "));
+            }
+            path.into()
+        };
+        (path(&every), path(&bars))
     }
 
     /// Every beat of the timeline's sound clips, in timeline seconds: what
@@ -198,6 +205,41 @@ fn placed(
         .filter(|beat| beat.time >= source_start && beat.time < to)
         .map(|beat| (start + (beat.time - source_start) / speed, beat.downbeat))
         .collect()
+}
+
+/// The fewest pixels between two ticks that still read as two.
+const LEAST_GAP: f64 = 6.0;
+
+/// Which of `placed` beats to draw at `seconds_per_pixel`: the plain
+/// beats (none when they would crowd) and the bars' first beats (every
+/// fourth when even those would). Gaps are the beats' own median, so a
+/// skipped beat does not change the level.
+fn marks_at(placed: &[(f64, bool)], seconds_per_pixel: f64) -> (Vec<f64>, Vec<f64>) {
+    let median_gap = |times: &[f64]| {
+        let mut gaps: Vec<f64> = times.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        gaps.sort_by(f64::total_cmp);
+        gaps.get(gaps.len() / 2).copied()
+    };
+    let pixels =
+        |gap: Option<f64>| gap.map_or(f64::INFINITY, |gap| gap / seconds_per_pixel.max(1e-9));
+    let all: Vec<f64> = placed.iter().map(|(time, _)| *time).collect();
+    let bars: Vec<f64> = placed
+        .iter()
+        .filter(|(_, bar)| *bar)
+        .map(|(time, _)| *time)
+        .collect();
+    if pixels(median_gap(&all)) >= LEAST_GAP {
+        let plain = placed
+            .iter()
+            .filter(|(_, bar)| !*bar)
+            .map(|(time, _)| *time)
+            .collect();
+        return (plain, bars);
+    }
+    if pixels(median_gap(&bars)) >= LEAST_GAP {
+        return (Vec::new(), bars);
+    }
+    (Vec::new(), bars.into_iter().step_by(4).collect())
 }
 
 fn file_name_of(path: &str) -> String {
@@ -246,5 +288,20 @@ mod tests {
         assert_eq!(fast.len(), 8);
         assert!((fast[1].0 - fast[0].0 - 0.25).abs() < 1e-12);
         assert!(super::placed(&beats, 0.0, 20.0, 5.0, 1.0).is_empty());
+    }
+
+    /// The marks thin out with the zoom: every beat when beats are six
+    /// pixels apart or more, the bars alone when only they are, every
+    /// fourth bar when even bars would crowd.
+    #[test]
+    fn the_marks_thin_out_with_the_zoom() {
+        let placed = super::placed(&every_half_second(), 0.0, 0.0, 10.0, 1.0);
+        // 0.5 s a beat, 2 s a bar.
+        let (plain, bars) = super::marks_at(&placed, 0.05); // 10 px a beat
+        assert_eq!((plain.len(), bars.len()), (15, 5));
+        let (plain, bars) = super::marks_at(&placed, 0.2); // 2.5 px a beat, 10 a bar
+        assert_eq!((plain.len(), bars.len()), (0, 5));
+        let (plain, bars) = super::marks_at(&placed, 1.0); // 2 px a bar
+        assert_eq!((plain.len(), bars.len()), (0, 2));
     }
 }
