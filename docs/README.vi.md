@@ -44,7 +44,7 @@
 
 ## Giới thiệu
 
-Concat là trình biên tập video miễn phí, mã nguồn mở cho macOS, Windows, Linux và Android. Nó có những gì phần lớn các bản dựng cần: phụ đề tự động, chuyển văn bản thành giọng nói, xóa nền, hoạt ảnh keyframe, hiệu ứng và tiêu đề, cắt nhiều track, xuất 4K. Không có bất kỳ ràng buộc nào: không watermark, không tài khoản, không đăng ký, không tải lên.
+Concat là trình biên tập video miễn phí, mã nguồn mở cho macOS, Windows, Linux, Android và iOS. Nó có những gì phần lớn các bản dựng cần: phụ đề tự động, tách giọng, chuyển văn bản thành giọng nói, xóa nền, hoạt ảnh và keyframe, hiệu ứng và tiêu đề, cắt nhiều track, xuất 4K. Không có bất kỳ ràng buộc nào: không watermark, không tài khoản, không đăng ký, không tải lên.
 
 Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp GPU. Cài đặt, kéo thả footage, cắt. Các mô hình AI cho phụ đề, giọng nói và tách nền tải một lần từ Cài đặt và sau đó hoạt động ngoại tuyến. Footage của bạn không bao giờ rời khỏi ổ đĩa của bạn.
 
@@ -55,20 +55,25 @@ Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp 
 ## Điểm nổi bật
 
 - 🚫 **Không watermark. Không tài khoản. Không tường phí.** Mãi mãi.
-- 🔒 **100 % cục bộ.** Không tải lên gì cả. Hoạt động ngoại tuyến.
-- 💬 **Phụ đề tự động.** Whisper cục bộ. Chọn kích thước mô hình, nhận phụ đề có kiểu dáng trên timeline.
-- 🗣️ **Chuyển văn bản thành giọng nói + nhân bản giọng.** Giọng cục bộ miễn phí, hoặc bất kỳ giọng nào từ vài giây ghi âm.
-- 🧍 **Xóa nền.** Người, vật thể, hoặc tự vẽ mặt nạ.
-- 🎞️ **Keyframe.** Vị trí, tỷ lệ, xoay, độ mờ, âm lượng, tham số hiệu ứng. Trình chỉnh sửa đường cong tích hợp.
-- ✨ **100 hiệu ứng, bộ lọc và chuyển cảnh.** Kết xuất bằng GPU, xem trực tiếp trong bản xem trước.
-- ✂️ **Cắt nhanh.** Tách, cắt gọt, ripple, gộp, đóng băng khung hình, tốc độ. Timeline từ tính nếu bạn muốn.
-- 🎚️ **Nhiều track, nhiều timeline.** Nhiều bản dựng trong một dự án. Chế độ hòa trộn, cắt khung, lật.
-- 📝 **Tiêu đề.** Phông chữ, viền, bóng đổ, nền. Preset để bắt đầu.
-- 🎙️ **Làm sạch giọng nói bằng một công tắc.** Khử ồn, tăng cường giọng, cân bằng âm lượng. Thêm giọng sóc, robot, điện thoại và các bạn.
-- 📤 **Xuất.** H.264, HEVC, AV1. Lên đến 4K 60, màu 10-bit.
-- 🦀 **Engine Rust gốc.** Trình tổng hợp GPU, proxy, giải mã phần cứng. Tua 4K mượt mà.
+- 🔒 **100% cục bộ.** Không có gì được tải lên, kể cả AI. Hoạt động ngoại tuyến.
+- 💬 **Phụ đề tự động.** Bằng ngôn ngữ bạn nói, tạo ngay trên máy bạn, đã có kiểu dáng và nằm sẵn trên timeline.
+- 🎤 **Tách giọng.** Tách giọng nói khỏi nhạc hoặc tiếng ồn, hoặc bỏ giọng đi, mỗi phần có mức âm lượng riêng.
+- 🗣️ **Chuyển văn bản thành giọng nói + nhân bản giọng.** Một giọng cục bộ miễn phí, hoặc bất kỳ giọng nào từ vài giây ghi âm. Trên máy tính.
+- 🧍 **Xóa nền, chroma key và mặt nạ.** Người và vật thể được cắt tách giúp bạn, phông xanh tự tách, và một chồng mặt nạ trên mỗi clip, mỗi mặt nạ có chế độ và keyframe riêng.
+- 🌀 **Hoạt ảnh Vào, Ra và Lặp.** Cho clip, ảnh, tiêu đề và hình khối. Mỗi hoạt ảnh chạy ngay trên thẻ của nó trước khi bạn chọn.
+- ✨ **Hơn 100 hiệu ứng, bộ lọc và chuyển cảnh, 25 hiệu ứng âm thanh.** Phong cách điện ảnh, rung lắc và va chạm, hoài cổ, wipe, tất cả xem trực tiếp trong bản xem trước. Chuyển cảnh là một clip bạn di chuyển và cắt tỉa như mọi clip khác.
+- 🎞️ **Keyframe.** Vị trí, tỷ lệ, kích thước, xoay, độ mờ, âm lượng, tham số hiệu ứng. Có sẵn trình chỉnh đường cong.
+- 🏃 **Đường tăng tốc và đường cong tốc độ.** Hằng số hoặc tự vẽ, mượt hoặc thẳng. Đóng băng khung hình và chạy ngược.
+- 🪄 **Tăng cường và Chống rung.** Phục hồi cảnh quay mềm hoặc cũ, tới 2K. Làm dịu một cảnh quay rung.
+- ✂️ **Cắt nhanh, cắt chuẩn.** Tách, tỉa, ripple, gộp, phụ đề và lớp phủ liên kết, timeline từ tính nếu bạn muốn. Mỗi nhát cắt rơi đúng vào khung hình, giống hệt trong bản xem trước và khi xuất.
+- 🎚️ **Nhiều track, nhiều timeline.** Xếp video, ảnh tĩnh, tiêu đề và hình khối lên bao nhiêu track tùy thích. Nhiều bản dựng trong một dự án. Chế độ hòa trộn, cắt khung, lật.
+- 📝 **Tiêu đề và hình khối.** Phông chữ, viền, đổ bóng, nền chữ, emoji màu và mẫu có sẵn cho tiếng Ả Rập, Trung, Hindi, Thái và tám ngôn ngữ khác. Hình khối có chuyển màu, ngôi sao, đường viền và bóng đổ.
+- 🎙️ **Thuyết minh và làm sạch giọng chỉ với một công tắc.** Thu âm đè lên bản dựng của bạn. Khử ồn, tăng cường giọng, cân bằng âm lượng. Cùng giọng sóc chuột, robot, điện thoại và nhiều kiểu khác.
+- 📤 **Xuất.** H.264, HEVC, AV1, bằng bộ mã hóa riêng của máy tính. Tới 4K 60, màu 10-bit.
+- ⚡ **Nhanh.** Có sẵn proxy, nên 4K tua mượt. Tiêu đề được vẽ trên mọi nhân CPU, và mọi hiệu ứng sẵn sàng ngay khi cửa sổ mở.
+- 🛟 **Chạy tiếp trên mọi máy.** Khi chip đồ họa bỏ cuộc, bản xem trước vẫn tiếp tục vẽ.
 - 🤖 **Có thể lập trình.** API JSON-RPC để script và các tác nhân AI cắt video. Bản dựng từ mã nguồn có thêm gRPC và công cụ dòng lệnh.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.
 
 ## Tải về
 
