@@ -2799,7 +2799,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                     .peaks
                     .get(&plan.media)
                     .filter(|_| plan.kind == ClipKind::Audio)
-                    .map(|peaks| format::wave_path(peaks, 0.0, plan.duration, 32, 0.75))
+                    .map(|peaks| {
+                        format::wave_path(peaks, 0.0, plan.duration, 32, 0.75, format::WAVE_FLOOR)
+                    })
                     .unwrap_or_default();
                 let document = chips::drag_chip_svg(
                     chips::chip_glyph(plan.kind),
