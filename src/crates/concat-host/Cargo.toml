@@ -21,6 +21,8 @@ concat-log.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
 concat-export.workspace = true
+# The lanes every job that computes is handed to, sized to the machine.
+concat-sched.workspace = true
 # The effect cards: every picture package drawn by its own shader; see
 # cards.rs.
 concat-effects.workspace = true

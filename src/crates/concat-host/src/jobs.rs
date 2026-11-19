@@ -13,7 +13,26 @@
 //! un-cancelled by a stale start or stopped by a stale cancel.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+pub use concat_sched as sched;
+
+/// The process's one scheduler, opened the first time a job is handed to
+/// it and sized to this machine's cores and memory.
+///
+/// One, because what it is for is one owner of how much of the machine is
+/// in use: every export, analysis and decode ahead in the process, the
+/// window's and the API's alike, takes its turn and its cores here, where
+/// each used to bring threads of its own and none knew of the others.
+pub fn scheduler() -> &'static concat_sched::Scheduler {
+    static SCHEDULER: OnceLock<concat_sched::Scheduler> = OnceLock::new();
+    SCHEDULER.get_or_init(|| {
+        let machine = concat_sched::Machine::detect(crate::memory::total());
+        let budget = concat_sched::Budget::for_machine(machine);
+        log::info!("jobs: {budget}");
+        concat_sched::Scheduler::new(concat_sched::Config::new(budget))
+    })
+}
 
 /// The slot: at most one running job, identified by its own cancel flag.
 pub struct SingleFlight {

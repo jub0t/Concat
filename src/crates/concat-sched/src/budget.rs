@@ -178,10 +178,13 @@ impl Budget {
     /// - **The pool is every core but one.** The one is the window's own
     ///   thread, the mixer and the frame on screen, which are not counted
     ///   and must not find the machine full.
-    /// - **The frame has one thread, two from eight cores up**: the frame
-    ///   asked for and the refine that walks to the exact picture. It
-    ///   never has more in flight whatever the machine, so the lane does
-    ///   not grow with it.
+    /// - **The frame has two threads**, on every machine: the frame asked
+    ///   for and the refine that walks to the exact picture. The monitor
+    ///   lets a scrub's next frame start while a refine is still out - the
+    ///   frame a refine walks to can be most of a second away - so on one
+    ///   thread the hand would wait behind it, and it is the weak machine
+    ///   whose refines are slow. It never has more in flight whatever the
+    ///   machine, so the lane does not grow with it.
     /// - **The save has one thread**, always.
     /// - **A foreground job may have the whole pool** less what is kept
     ///   for the lanes below. An export fans out over the cores itself, so
@@ -213,7 +216,7 @@ impl Budget {
 
         let mut lanes = [LaneBudget::default(); Lane::COUNT];
         lanes[Lane::Frame.index()] = LaneBudget {
-            workers: if cores >= 8 { 2 } else { 1 },
+            workers: 2,
             reserve: 0,
             width: 1,
         };
@@ -357,7 +360,7 @@ mod tests {
         assert_eq!(
             rows(&two),
             [
-                (1, 0, 1),
+                (2, 0, 1),
                 (1, 0, 1),
                 (1, 0, 1),
                 (2, 0, 1),
@@ -371,7 +374,7 @@ mod tests {
         assert_eq!(
             rows(&four),
             [
-                (1, 0, 1),
+                (2, 0, 1),
                 (1, 0, 1),
                 (1, 0, 3),
                 (2, 0, 1),
@@ -425,16 +428,17 @@ mod tests {
 
     #[test]
     fn a_weak_machine_is_never_given_more_to_compute_than_it_has_cores() {
+        // The refine is a second frame thread, and the one thread over,
+        // while a refine and a frame are both out, is the price of a scrub
+        // that never waits behind one.
         for (cores, gibibytes) in [(2, 4), (3, 4), (4, 8), (6, 8)] {
             let budget = budget(cores, gibibytes);
             assert!(
-                budget.peak() <= cores,
+                budget.peak() <= cores + 1,
                 "{cores} cores: the pool and the frame come to {}",
                 budget.peak()
             );
         }
-        // From eight cores the refine is a second frame thread, and the
-        // one thread over is the price of it.
         for cores in [8, 12, 16, 32, 64, 128] {
             let budget = budget(cores, 64);
             assert!(budget.peak() <= cores + 1, "{cores} cores");
