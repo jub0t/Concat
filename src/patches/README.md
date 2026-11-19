@@ -104,3 +104,34 @@ existing shared-library build and CPU backend selection are unchanged.
 Apart from the changes documented here, the copy matches the published
 crate. When refreshing it, check whether the new whisper.cpp already
 includes this fix before reapplying it.
+
+## wgpu-hal 30.0.1
+
+wgpu's memory gates refuse a resource once the driver's budget is 95%
+spent and lose the device at 99% (Concat opens every device with them;
+see `MEMORY_BUDGET` in concat-render's gpu.rs). On Vulkan the published
+crate checks the heap of the memory type gpu-allocator *prefers*. For a
+buffer the CPU writes (`MemoryLocation::CpuToGpu`) that is a type both
+device-local and host-visible, which on a card without resizable BAR is
+the BAR: a 256 MB heap every program on the machine shares, whose budget
+of 88-120 MB is likely true. gpu-allocator puts such a buffer in plain
+host memory when the BAR is full; the gate refused it first. A 2 GB NVIDIA
+card with 1.5 GB free refused a 208-byte buffer, its next device would not
+open, and the window's device was lost at the next submit over the same
+heap (jub0t/concat#746). Two changes, marked `Concat:` in
+`src/vulkan/device.rs`:
+
+- `error_if_would_oom_on_resource_allocation`: where the preferred heap is
+  past the gate, a `CpuToGpu` request is gated on the heap of the first
+  host-visible, host-coherent type it may use, the one gpu-allocator falls
+  back to, and allowed when that heap has room.
+- `check_if_oom`: the BAR (`MemoryProperties::is_bar`: a device-local heap
+  only host-visible types live on, beside a larger device-local heap) is
+  left out of the device-loss gate. Only buffers the CPU writes land there,
+  and they move to system memory once it is full, so the card's own memory,
+  which the gate protects, is no fuller for it.
+
+Textures, buffers the GPU alone uses, readback buffers and Direct3D 12 are
+gated exactly as published. Nothing else differs from the published crate;
+`Cargo.lock` and the registry metadata files are left out. Drop the copy
+once wgpu's own gate follows the allocator's fallback.

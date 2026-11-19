@@ -21,6 +21,7 @@
 pub mod compositor;
 pub mod gpu;
 mod ladder;
+pub mod memory;
 pub mod metrics;
 pub mod plan;
 mod reference;

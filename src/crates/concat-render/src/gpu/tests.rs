@@ -2890,3 +2890,48 @@ fn an_exports_planar_frames_survive_on_the_software_adapter() {
         }
     }
 }
+
+/// `CONCAT_GPU_BUDGET` still reads as it did: off lifts both gates, a
+/// percentage moves the creation gate there and the loss gate four points
+/// above, and anything else is no choice at all.
+#[test]
+fn the_person_s_budget_reads_as_it_did() {
+    for off in ["off", "None", "0"] {
+        let budget = parse_budget(off).expect("a choice");
+        assert_eq!(budget.for_resource_creation, None, "{off}");
+        assert_eq!(budget.for_device_loss, None, "{off}");
+    }
+    let ninety = parse_budget(" 90% ").expect("a choice");
+    assert_eq!(ninety.for_resource_creation, Some(90));
+    assert_eq!(ninety.for_device_loss, Some(94));
+    let high = parse_budget("98").expect("a choice");
+    assert_eq!(high.for_device_loss, Some(99));
+    for nothing in ["lots", "100", "-5", ""] {
+        assert!(parse_budget(nothing).is_none(), "{nothing}");
+    }
+}
+
+/// The adapter's memory reads on whatever this machine draws with: a
+/// device here says at least one heap with a figure in it, or none where
+/// its API reports none; never a panic.
+#[test]
+fn the_memory_of_a_real_device_reads() {
+    let Some(gpu) = gpu() else { return };
+    let memory = crate::memory::Memory::of_device(&gpu.device);
+    let lines = memory.lines("in a test");
+    eprintln!("{}", lines.join("\n"));
+    assert!(!lines.is_empty());
+    if matches!(
+        memory.backend,
+        wgpu::Backend::Metal | wgpu::Backend::Dx12 | wgpu::Backend::Vulkan
+    ) {
+        assert!(!memory.heaps.is_empty(), "{lines:?}");
+        assert!(
+            memory
+                .heaps
+                .iter()
+                .any(|heap| heap.size.is_some() || heap.budget.is_some()),
+            "{lines:?}"
+        );
+    }
+}

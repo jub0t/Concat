@@ -157,3 +157,9 @@ i-slint-backend-android-activity = { path = "patches/i-slint-backend-android-act
 # (see patches/README.md, and GGML_BACKEND_DL in build-app.yml). 0.15.0
 # exactly; bump it with whisper-rs, re-applying the change.
 whisper-rs-sys = { path = "patches/whisper-rs-sys" }
+# wgpu's hardware layer, as published, with its Vulkan memory gates reading
+# the heap an allocation lands in: a buffer the CPU writes is no longer
+# refused over a spent BAR the allocator would go past, and the BAR no
+# longer loses the device (#746; see patches/README.md). 30.0.1 exactly;
+# bump it with wgpu, re-applying the change.
+wgpu-hal = { path = "patches/wgpu-hal" }

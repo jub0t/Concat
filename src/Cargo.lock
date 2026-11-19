@@ -1382,13 +1382,17 @@ dependencies = [
 name = "concat-render"
 version = "0.2.12"
 dependencies = [
+ "ash",
  "concat-core",
  "concat-effects",
+ "concat-log",
  "concat-vision",
  "half",
  "log",
+ "objc2-metal 0.3.2",
  "pollster",
  "wgpu",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -7789,8 +7793,6 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6b7fb58561a792bc237628ba0792e332de418fefe145f13b5ed8201e6d52f58"
 dependencies = [
  "android_system_properties",
  "arrayvec",

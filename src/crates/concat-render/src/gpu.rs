@@ -421,18 +421,23 @@ fn warp_shaders_optimised() -> bool {
 /// export answers the same way. Without them an 8 GB card shared by the
 /// window, the decoders and an export at 4K lost its device in the driver
 /// (#223) or hung with no loss reported at all (#297). Only Direct3D 12
-/// and Vulkan read them.
+/// and Vulkan read them, and on Vulkan as Concat's copy of wgpu-hal reads
+/// them: a buffer the CPU writes is gated on the heap it will land in, not
+/// the BAR it would prefer, and the BAR is left out of the loss gate (see
+/// `crate::memory` and src/patches/README.md). Every device says the
+/// figures they read as it opens and at its first refusal.
 pub const MEMORY_BUDGET: wgpu::MemoryBudgetThresholds = wgpu::MemoryBudgetThresholds {
     for_resource_creation: Some(95),
     for_device_loss: Some(99),
 };
 
 /// The budget every device is opened with: [`MEMORY_BUDGET`], unless
-/// `CONCAT_GPU_BUDGET` says otherwise. Some drivers report the budget
-/// wrong - NVIDIA's on Linux has read a nearly idle card as spent, so a
-/// buffer of a few hundred bytes was refused as out of memory, the device
-/// was lost, the next would not open and an export sat at 0% - and the
-/// gates then do harm with nothing to protect. `off` (or `none`, `0`)
+/// `CONCAT_GPU_BUDGET` says otherwise. The published gates refused a
+/// buffer of a few hundred bytes on a nearly idle NVIDIA card on Linux,
+/// over the spent budget of its BAR, which the allocator would have gone
+/// past into system memory; the device was lost, the next would not open
+/// and an export sat at 0% (#746). Patched, that no longer happens, and
+/// this stays the way round any gate that still does harm. `off` (or `none`, `0`)
 /// lifts both and leaves out-of-memory to the driver, which the device-loss
 /// recovery answers as before; a number from 1 to 99 moves the creation
 /// gate there, the loss gate four points above it. Read once, and said in
@@ -1242,6 +1247,10 @@ pub struct WgpuCompositor {
     /// How many errors the device has reported that no scope caught, as its
     /// handler counts them; see [`Compositor::render`].
     uncaught: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Set once the device's memory has been said at its first refusal
+    /// (see [`crate::memory::ran_out`]); shared with siblings, which are on
+    /// the same device.
+    memory_said: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Frames [`Compositor::submit`] started, oldest first, on their way
     /// back; see [`Compositor::collect`].
     in_flight: std::collections::VecDeque<Readback>,
@@ -1411,9 +1420,24 @@ impl WgpuCompositor {
                             info.device_type,
                             info.backend
                         );
+                        // Refused for memory - the device's own first
+                        // buffers, as on #746's card - the figures are
+                        // said, since they are all a report of it has.
+                        if crate::memory::says_out_of_memory(&error.to_string()) {
+                            crate::memory::ran_out(
+                                &std::sync::atomic::AtomicBool::new(false),
+                                "the compositor's device",
+                                || crate::memory::Memory::of_adapter(&adapter),
+                            );
+                        }
                         return None;
                     }
                 };
+            // What the card's memory is as the device opens, a line a heap:
+            // what a later report of "out of memory" needs to tell a full
+            // card from a gate that refused with room to spare (#802).
+            crate::memory::Memory::of_adapter(&adapter)
+                .say(log::Level::Info, "as the compositor's device opened");
             // Direct3D 12 hands back the device it already has for an
             // adapter, and one it removed is still that device while
             // anything in the process holds it: such a device dies at its
@@ -1447,6 +1471,14 @@ impl WgpuCompositor {
             let marked = std::sync::Arc::clone(&gone);
             let lost_reason = std::sync::Arc::new(std::sync::Mutex::new(None));
             let kept = std::sync::Arc::clone(&lost_reason);
+            // The device's first refusal for memory says the figures behind
+            // it (see `memory::ran_out`), from whichever of the handlers
+            // below or a frame's own scopes sees it first. The adapter the
+            // handlers read them through goes with the device, which holds
+            // it anyway, so nothing is kept alive past it.
+            let memory_said = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let said = std::sync::Arc::clone(&memory_said);
+            let on = adapter.clone();
             device.set_device_lost_callback(move |reason, message| {
                 marked.store(true, std::sync::atomic::Ordering::Relaxed);
                 log::error!(
@@ -1454,6 +1486,12 @@ impl WgpuCompositor {
                 );
                 if let Ok(mut kept) = kept.lock() {
                     *kept = Some(format!("{reason:?}: {message}"));
+                }
+                // The device-loss gate's own way of ending a device.
+                if crate::memory::says_out_of_memory(&message) {
+                    crate::memory::ran_out(&said, "the compositor's device", || {
+                        crate::memory::Memory::of_adapter(&on)
+                    });
                 }
             });
             // An error no scope caught - a texture past the device's limit,
@@ -1466,14 +1504,21 @@ impl WgpuCompositor {
             // frame (see `Compositor::render`).
             let uncaught = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
             let counted = std::sync::Arc::clone(&uncaught);
+            let said = std::sync::Arc::clone(&memory_said);
             device.on_uncaptured_error(std::sync::Arc::new(move |error: wgpu::Error| {
                 counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 log::error!("the compositor's GPU device on {name} reported an error: {error}");
+                if matches!(error, wgpu::Error::OutOfMemory { .. }) {
+                    crate::memory::ran_out(&said, "the compositor's device", || {
+                        crate::memory::Memory::of_adapter(&adapter)
+                    });
+                }
             }));
             let mut compositor = Self::drawing_in(device, queue, work);
             compositor.uncaught = uncaught;
             compositor.gone = gone;
             compositor.lost_reason = lost_reason;
+            compositor.memory_said = memory_said;
             Some(compositor)
         }
     }
@@ -1581,7 +1626,16 @@ impl WgpuCompositor {
         sibling.uncaught = std::sync::Arc::clone(&self.uncaught);
         sibling.gone = std::sync::Arc::clone(&self.gone);
         sibling.lost_reason = std::sync::Arc::clone(&self.lost_reason);
+        sibling.memory_said = std::sync::Arc::clone(&self.memory_said);
         sibling
+    }
+
+    /// Says this device's memory the first time it runs out; see
+    /// [`crate::memory::ran_out`].
+    fn ran_out_of_memory(&self) {
+        crate::memory::ran_out(&self.memory_said, "the compositor's device", || {
+            crate::memory::Memory::of_device(&self.device)
+        });
     }
 
     /// The widest or tallest frame this compositor can draw: the document's
@@ -2040,6 +2094,7 @@ impl WgpuCompositor {
             post_mortem: None,
             work,
             uncaught: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            memory_said: std::sync::Arc::default(),
             in_flight: std::collections::VecDeque::new(),
             spare: Vec::new(),
             planar: None,
@@ -4244,6 +4299,9 @@ impl WgpuCompositor {
             });
         let refused = pollster::block_on(validation.pop());
         let exhausted = pollster::block_on(memory.pop());
+        if exhausted.is_some() {
+            self.ran_out_of_memory();
+        }
         let mut failed = false;
         for error in [exhausted, refused].into_iter().flatten() {
             log::error!(
@@ -4601,6 +4659,9 @@ impl Compositor for WgpuCompositor {
         let frame = self.render_and_read(plan.width, plan.height, &draws, clear_of(plan.canvas));
         let refused = pollster::block_on(validation.pop());
         let exhausted = pollster::block_on(memory.pop());
+        if exhausted.is_some() {
+            self.ran_out_of_memory();
+        }
         let errors = [exhausted, refused].into_iter().flatten();
         let mut failed = frame.is_none();
         for error in errors {
