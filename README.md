@@ -143,7 +143,8 @@ If you change text the interface shows, run `python3 scripts/locales.py` from th
 
 ## Licence
 
-Concat is free software under [AGPL-3.0-or-later](LICENSE). A commercial licence is available for closed-source use; see [LICENSING.md](LICENSING.md).
+- Concat is free software under [AGPL-3.0-or-later](LICENSE).
+- A commercial licence is available for closed-source use; see [LICENSING.md](LICENSING.md).
 
 ## DMCA
 
