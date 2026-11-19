@@ -2073,12 +2073,37 @@ fn render_picture(
                     ));
                     continue;
                 }
-                // A source that has run out contributes nothing rather than
-                // aborting the export - a clip trimmed past its media's end is a
-                // mistake in the edit, not a failure of the renderer.
+                // A run whose file has run out goes on with its last picture
+                // (see `Feed::next`). One that begins past the last picture -
+                // a split's tail inside a sound's overhang - has none of its
+                // own, and reads it as the seeking path does: the pool answers
+                // a time past the media's end with its last frame (#790).
                 let waiting = std::time::Instant::now();
-                let next = feeds.next(index, layer, paced)?;
+                let mut next = feeds.next(index, layer, paced)?;
                 spent.footage += waiting.elapsed();
+                if next.is_none() {
+                    let (decode_width, decode_height) = decode_sizes
+                        .get(&layer.clip)
+                        .copied()
+                        .unwrap_or((request.width, request.height));
+                    let seeking = std::time::Instant::now();
+                    next = sought
+                        .frame_at(
+                            &layer.media,
+                            layer.source_time,
+                            decode_width,
+                            decode_height,
+                            stills.contains(&layer.clip),
+                            None,
+                            None,
+                            ranges.get(&layer.clip).copied(),
+                            !cutouts.contains_key(&layer.clip),
+                        )
+                        .map(Some)
+                        .map_err(|error| error.to_string())?;
+                    spent.seeking += seeking.elapsed();
+                    spent.sought += 1;
+                }
                 if let Some(frame) = next {
                     // The cutout, on the decoded picture before it is placed:
                     // the same frame both compositors then draw.
@@ -2086,12 +2111,12 @@ fn render_picture(
                         .get(&layer.clip)
                         .and_then(|job| job.cut(&frame, layer.source_time))
                     {
-                        Some(cut) => cut,
+                        Some(cut) => std::sync::Arc::new(cut),
                         None => frame,
                     };
                     layers.push(filled(
                         layer,
-                        std::sync::Arc::new(frame),
+                        frame,
                         tracks.get(&layer.clip).copied().unwrap_or(0),
                         passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                         geometry.get(&layer.clip),

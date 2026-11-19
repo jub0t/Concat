@@ -2124,6 +2124,122 @@ fn cuts_between_frames_leave_no_black_frame() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Shots whose sound runs past their last picture - a phone's or camera's
+/// MP4, where AAC's 1024-sample packets end after the video does - laid
+/// end to end and exported: every frame of the file is footage, never a
+/// black frame at a join (#790). A shot probes a touch longer than its
+/// pictures, so on the grid the overhangs add up to a frame the picture
+/// stream has no picture for; that frame holds the shot's last picture.
+#[test]
+fn shots_whose_sound_outlasts_their_picture_leave_no_black_frame() {
+    let scratch = Scratch::new("sound-outlasts-picture");
+    // Two seconds of sound under one of picture: the mux stops at the
+    // first sound packet that starts after the picture ends, so the one
+    // before it runs past the last picture - up to an AAC packet's 21 ms,
+    // as a phone's or camera's file does.
+    let wav = scratch.path().join("clock.wav");
+    clock_wav(&wav, 2);
+    let mut failures: Vec<String> = Vec::new();
+    for (num, den) in [(24, 1), (30, 1)] {
+        let rate = FrameRate::checked(num, den).expect("a rate");
+        let picture_only = scratch.path().join(format!("shot-{num}-picture.mp4"));
+        picture(&picture_only, rate, 1, VideoCodec::H264);
+        let sound_only = scratch.path().join(format!("shot-{num}.m4a"));
+        clock_aac(&wav, &sound_only, 2);
+        let shot = scratch.path().join(format!("shot-{num}.mp4"));
+        sound::mux(&picture_only, &sound_only, &shot).expect("joins the shot");
+        let probed = concat_media::probe::probe(&shot).expect("probes the shot");
+        eprintln!(
+            "{num}/{den}: the shot probes at {:?} s for {num} pictures",
+            probed.duration.map(|d| d.as_f64())
+        );
+
+        let label = format!("twelve shots at {num}/{den}");
+        let mut studio = Studio::new(
+            scratch.path(),
+            &format!("Overhang-{num}"),
+            video(WIDTH, HEIGHT, num, den),
+        );
+        let media = studio.import(&shot);
+        let mut end = 0.0;
+        for _ in 0..12 {
+            let id = studio
+                .apply(Command::AddClipAtFirstFree {
+                    media_id: media.clone(),
+                    start: end,
+                })
+                .expect("the clip has an id");
+            let clip = studio.clip(&id);
+            end = clip.start + clip.duration;
+        }
+        let output = studio.exports.join(format!("overhang-{num}.mp4"));
+        let request = export::request(
+            &studio.session,
+            &ExportSpec {
+                output: output.to_string_lossy().into_owned(),
+                crf: 16,
+                preset: "ultrafast".into(),
+                ..Default::default()
+            },
+            Vec::new(),
+        );
+        export::run(&request, &AtomicBool::new(false), |_| {})
+            .unwrap_or_else(|error| panic!("{label}: the export failed: {error}"));
+        let exported = Exported::read(&label, &output, (num, den));
+        let black: Vec<usize> = exported
+            .frames
+            .iter()
+            .enumerate()
+            .filter(|(_, frame)| {
+                let [r, g, b, _] = frame
+                    .pixel(frame.width() / 2, frame.height() / 2)
+                    .expect("the middle is inside the frame");
+                second_of_colour([r, g, b]).is_none()
+            })
+            .map(|(index, _)| index)
+            .collect();
+        if !black.is_empty() {
+            failures.push(format!(
+                "{label}: the file's frames {black:?} of {} are not footage (clips end at {end:.4} s)",
+                exported.frames.len()
+            ));
+        }
+        // The monitor too, at every frame the file has.
+        let pool = concat_media::ReaderPool::with_defaults();
+        let plan = concat_export::preview_plan(
+            &studio.session.flattened_clips(),
+            WIDTH,
+            HEIGHT,
+            num,
+            den,
+            Default::default(),
+            [0, 0, 0, 255],
+        );
+        let fps = rate.fps().as_f64();
+        let unseen: Vec<usize> = (0..exported.frames.len())
+            .filter(|&index| {
+                let sources = concat_export::preview_sources_of(
+                    &pool,
+                    &plan,
+                    index as f64 / fps,
+                    false,
+                    false,
+                )
+                .unwrap_or_else(|error| panic!("{label}: frame {index}: {error}"));
+                let pixels = sources.pixels(true).expect("the monitor draws the frame");
+                let at = ((HEIGHT / 2 * WIDTH + WIDTH / 2) * 4) as usize;
+                second_of_colour([pixels[at], pixels[at + 1], pixels[at + 2]]).is_none()
+            })
+            .collect();
+        if !unseen.is_empty() {
+            failures.push(format!(
+                "{label}: the monitor's frames {unseen:?} are not footage"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// Hardware decode preferred, the way the app always sets it: the
 /// export decodes its sources on the platform's device where there is one
 /// and reads the same picture and sound back.
