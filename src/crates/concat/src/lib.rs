@@ -2023,7 +2023,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             // Ctrl+B in a title split the clip and Backspace in a path field
             // deleted it; and Delete or Q with Export or Settings open cut
             // the timeline nobody could see.
+            //
+            // Copy / paste / select-all are the exception while typing: the
+            // same chords mean clip ops on the timeline, so when they bubble
+            // out of a TextInput the window would otherwise swallow them
+            // (#799). Forward them to the focused field instead.
             if action != "save" && (typing(&app) || shell.studio.borrow().sheet_open()) {
+                if typing(&app) && text_edit_shortcut(&app, action) {
+                    handled = true;
+                }
                 return;
             }
             handled = true;
@@ -3014,6 +3022,37 @@ fn typing(app: &App) -> bool {
         .borrow()
         .upgrade()
         .is_some_and(|item| item.downcast::<TextInput>().is_some())
+}
+
+/// Runs a text-editing shortcut on the focused [`TextInput`], if any.
+/// Used when Ctrl+C/V/A bubble out of a field and would otherwise be
+/// eaten as timeline clip actions (#799).
+fn text_edit_shortcut(app: &App, action: &str) -> bool {
+    use slint::private_unstable_api::re_exports::{TextInput, WindowInner};
+
+    let inner = WindowInner::from_pub(app.window());
+    let Some(item) = inner.focus_item.borrow().upgrade() else {
+        return false;
+    };
+    let Some(input) = item.downcast::<TextInput>() else {
+        return false;
+    };
+    let adapter = inner.window_adapter();
+    match action {
+        "copy" => {
+            input.as_pin_ref().copy(&adapter, &item);
+            true
+        }
+        "paste" => {
+            input.as_pin_ref().paste(&adapter, &item);
+            true
+        }
+        "select-all" => {
+            input.as_pin_ref().select_all(&adapter, &item);
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Adds a pane of `kind` beside the largest seat: to its right when that
