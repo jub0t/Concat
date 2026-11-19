@@ -49,6 +49,15 @@ pub(crate) struct Lead {
 /// working.
 pub(crate) const FLUSH_WAITS: u32 = 500;
 
+/// The frame an encoder that takes any size is fed: an AAC frame.
+pub(crate) const FRAME: u32 = 1024;
+
+/// The frame size to feed an encoder that states `stated`: its own, or
+/// [`FRAME`] where it states none because it takes any.
+pub(crate) fn frame_size(stated: u32) -> u32 {
+    if stated == 0 { FRAME } else { stated }
+}
+
 /// The frames of the measuring sound.
 const FRAMES: usize = 8;
 
@@ -155,7 +164,7 @@ fn measure(codec_name: &str, format: Sample) -> Result<Lead, String> {
     audio.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
     ffi::begin();
     let mut encoder = audio.open().map_err(|error| format!("open: {error}"))?;
-    let size = encoder.frame_size().max(1) as usize;
+    let size = frame_size(encoder.frame_size()) as usize;
     let source = sweep(FRAMES * size);
 
     let mut packets = Vec::new();

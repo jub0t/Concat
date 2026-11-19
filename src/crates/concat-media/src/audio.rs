@@ -826,10 +826,14 @@ pub fn mix_to_file_with(
         .map_err(|error| ffi::fail_said("open encoder", destination, error))?;
     // PCM accepts variable-size frames. Use blocks rather than one sample
     // per packet; run_mix keeps the final block's exact sample count.
+    // Windows' AAC encoder takes frames of any size too and states none,
+    // and a stated size of nought was read as one: every export on Windows
+    // handed it the mix a sample at a time, 48,000 frames for a second of
+    // sound.
     let frame_size = if wav {
-        1024
+        lead::FRAME
     } else {
-        encoder.frame_size().max(1)
+        lead::frame_size(encoder.frame_size())
     };
     // Silence ahead of the mix, and its packets stamped that much earlier,
     // for an encoder that keeps no priming of its own (see `lead`): the
