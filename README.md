@@ -72,7 +72,7 @@ Everything runs on your machine. Install it, drop in footage, cut. The AI models
 - 📝 **Titles and shapes.** Fonts, stroke, shadow, plates, colour emoji, and presets for Arabic, Chinese, Hindi, Thai and eight more languages. Shapes with gradients, stars, outlines and shadows.
 - 🎙️ **Voiceover and one-switch voice cleanup.** Record over your cut. Denoise, enhance voice, level the loudness. Plus chipmunk, robot, telephone and friends.
 - 📤 **Export.** H.264, HEVC, AV1, on your computer's own encoder. Up to 4K 60, 10-bit colour.
-- ⚡ **Fast, and measured.** Titles appear 45x faster and a project with 500 captions opens 42x faster than a few releases ago ([the numbers](https://concat.standalones.org/blog/concat-got-faster/)). Proxies built in, so 4K scrubs smoothly.
+- ⚡ **Fast.** Proxies built in, so 4K scrubs smoothly. Titles paint on every core, and every effect is ready the moment the window opens.
 - 🛟 **Keeps going on any machine.** When the graphics chip gives up, the preview keeps drawing.
 - 🤖 **Scriptable.** An MCP server built in, so Claude and other AI agents can edit with it ([one line to set up](docs/MCP.md)), and a JSON-RPC API for scripts. A build from source adds gRPC and a command-line tool.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 languages. Same app, same project files.
