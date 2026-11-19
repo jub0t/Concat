@@ -121,7 +121,7 @@ impl Studio {
         self.pause();
         self.notify(&t("studio.mergeStarted"), false);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = -1.0;
                 let result = concat_host::export::run_on(

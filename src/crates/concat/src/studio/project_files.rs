@@ -103,6 +103,12 @@ impl Studio {
                 return Err(tf("studio.projectOpenElsewhere", &[&pid]));
             }
         }
+        // When the project was last saved, read before anything opening it
+        // can write: what tells a voiceover it lost from one taken out of
+        // it; see `voiceover::lost_takes`.
+        let saved = std::fs::metadata(projects::manifest_path(std::path::Path::new(&info.path)))
+            .and_then(|meta| meta.modified())
+            .ok();
         match Session::open_info(&info) {
             Ok(session) => {
                 if let Err(error) = projects::remember(&self.host.dirs.config, &info) {
@@ -254,6 +260,10 @@ impl Studio {
                         self.warn(&notice);
                     }
                 }
+                // Voiceovers still recording when Concat last let this
+                // project go without them - a crash, a quit without saving
+                // - go back in Media.
+                crate::panes::voiceover::recover_lost_takes(self, saved);
                 Ok(())
             }
             Err(error) => {
@@ -342,6 +352,16 @@ impl Studio {
         log::debug!("project: closing {}", self.project_name);
         // Words still being typed land in the save, not on the floor.
         self.flush_commit();
+        // So does a voiceover still being recorded, or stopped a moment ago
+        // and not landed yet: put in this project's bin and on its
+        // timeline as Stop would, for the save below to keep. Left to
+        // Stop's own way, it was dropped on its way back and its file sat
+        // in the audio folder unseen.
+        if self.voiceover.holds_take() {
+            self.handle(crate::panes::Msg::Voiceover(
+                crate::panes::voiceover::VoiceoverMsg::ProjectClosing,
+            ));
+        }
         self.pause();
         // Saved before the workers are cancelled: a close that cannot be
         // written is not a close, and the jobs it would have stopped are
@@ -416,8 +436,9 @@ impl Studio {
         // find stays up over the launch screen.
         self.relink = Default::default();
         self.source = None;
-        // A take running as the project closes stops, keeping its file;
-        // the next project's speakers are not left silent.
+        // A take running as the project closes without a save - Quit
+        // without saving - stops, keeping its file for the next open to
+        // put back; the next project's speakers are not left silent.
         self.voiceover = Default::default();
         self.host.playback.set_muted(false);
         self.echo = None;

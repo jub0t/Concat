@@ -118,7 +118,7 @@ pub fn probe(path: impl AsRef<Path>) -> Result<MediaInfo> {
         (duration > 0).then(|| Rational::new(duration, i64::from(ffmpeg::sys::AV_TIME_BASE)));
 
     let origin = ffi::origin(&input);
-    let video = match input.streams().best(ffmpeg::media::Type::Video) {
+    let video = match ffi::picture(&input) {
         Some(stream) => Some(video_stream(&stream, path, origin)?),
         None => None,
     };
@@ -479,5 +479,66 @@ mod tests {
             assert_eq!(info.video.expect("a picture").signal, want, "{name}");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An MP3 with its album art in the ID3 tag: one APIC frame holding a
+    /// JPEG, then silent MPEG-1 Layer III frames (128 kb/s, 44.1 kHz; a
+    /// frame of zeros after its header is a frame of silence). Written by
+    /// hand so no MP3 encoder is needed, which an LGPL FFmpeg lacks.
+    fn covered_mp3(path: &Path) {
+        use concat_core::frame::Frame;
+        let cover = crate::encode::jpeg(&Frame::black(64, 64), 2).expect("a jpeg");
+        let mut apic = vec![0u8]; // ISO-8859-1
+        apic.extend_from_slice(b"image/jpeg\0");
+        apic.push(3); // front cover
+        apic.push(0); // no description
+        apic.extend_from_slice(&cover);
+        let mut frame = b"APIC".to_vec();
+        frame.extend_from_slice(&(apic.len() as u32).to_be_bytes());
+        frame.extend_from_slice(&[0, 0]);
+        frame.extend_from_slice(&apic);
+        let size = frame.len() as u32;
+        let synchsafe = [
+            (size >> 21) as u8 & 0x7f,
+            (size >> 14) as u8 & 0x7f,
+            (size >> 7) as u8 & 0x7f,
+            size as u8 & 0x7f,
+        ];
+        let mut bytes = b"ID3\x03\x00\x00".to_vec();
+        bytes.extend_from_slice(&synchsafe);
+        bytes.extend_from_slice(&frame);
+        for _ in 0..100 {
+            let mut silent = vec![0u8; 417];
+            silent[..4].copy_from_slice(&[0xff, 0xfb, 0x90, 0x64]);
+            bytes.extend_from_slice(&silent);
+        }
+        std::fs::write(path, bytes).expect("writes the mp3");
+    }
+
+    /// A song's album art is a picture in the file, but not the clip's
+    /// picture: the probe reports the sound and no video, so the song goes
+    /// on the timeline as sound and its cover is never drawn (#730).
+    #[test]
+    fn an_audio_files_cover_art_is_not_its_picture() {
+        let dir = std::env::temp_dir().join(format!("concat-probe-cover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let path = dir.join("song.mp3");
+        covered_mp3(&path);
+
+        {
+            use ffmpeg::format::stream::Disposition;
+            let input = ffmpeg::format::input(&path).expect("opens");
+            assert!(
+                input
+                    .streams()
+                    .any(|stream| stream.disposition().contains(Disposition::ATTACHED_PIC)),
+                "the fixture carries its cover as an attached picture"
+            );
+        }
+        let info = probe(&path).expect("probes");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(info.audio.is_some(), "the song is heard");
+        assert!(info.video.is_none(), "the cover is not the clip's picture");
     }
 }

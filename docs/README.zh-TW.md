@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## 關於
 
-Concat 是一款免費、開源的影片編輯器，支援 macOS、Windows、Linux 與 Android。它涵蓋了大多數剪輯所需的功能：自動字幕、文字轉語音、背景移除、關鍵影格動畫、特效與標題、多軌剪輯、4K 輸出。而且沒有任何陷阱：無浮水印、不需帳號、不需訂閱、不上傳。
+Concat 是一款免費、開源的影片編輯器，支援 macOS、Windows、Linux、Android 與 iOS。它涵蓋了大多數剪輯所需的功能：自動字幕、人聲分離、文字轉語音、背景移除、動畫與關鍵影格、特效與標題、多軌剪輯、4K 輸出。而且沒有任何陷阱：無浮水印、不需帳號、不需訂閱、不上傳。
 
 一切都在本機執行，基於帶 GPU 合成器的原生 Rust 引擎。安裝、拖入素材、開剪。字幕、語音與去背所用的 AI 模型只需在設定中下載一次，之後離線可用。您的素材永遠不會離開您的硬碟。
 
@@ -55,20 +55,25 @@ Concat 是一款免費、開源的影片編輯器，支援 macOS、Windows、Lin
 ## 亮點
 
 - 🚫 **無浮水印。無帳號。無付費牆。** 永遠如此。
-- 🔒 **100 % 本機。** 不上傳任何內容。離線可用。
-- 💬 **自動字幕。** 本機 Whisper。選一個模型大小，帶樣式的字幕就排進時間軸。
-- 🗣️ **文字轉語音 + 聲音複製。** 免費的本機聲音，或用幾秒鐘錄音複製任何聲音。
-- 🧍 **背景移除。** 人物、物體，或者自己塗抹遮罩。
-- 🎞️ **關鍵影格。** 位置、縮放、旋轉、不透明度、音量、特效參數。內建曲線編輯器。
-- ✨ **100 種特效、濾鏡與轉場。** GPU 算繪，預覽中即時呈現。
-- ✂️ **快剪。** 分割、修剪、漣漪、合併、定格、變速。想要的話還有磁性時間軸。
-- 🎚️ **多軌、多時間軸。** 一個專案裡放多個剪輯版本。混合模式、裁切、翻轉。
-- 📝 **標題。** 字型、描邊、陰影、背景底板。有預設可作起點。
-- 🎙️ **一鍵人聲淨化。** 降噪、增強人聲、響度均衡。還有花栗鼠、機器人、電話等效果。
-- 📤 **輸出。** H.264、HEVC、AV1。最高 4K 60，10 位元色彩。
-- 🦀 **原生 Rust 引擎。** GPU 合成器、代理、硬體解碼。4K 拖曳也順暢。
+- 🔒 **100% 本機執行。** 不上傳任何內容，AI 也不例外。離線可用。
+- 💬 **自動字幕。** 用你說的語言，在你的電腦上產生，帶有樣式，直接放上時間軸。
+- 🎤 **人聲分離。** 把人聲從音樂或雜音中抽出來，或把人聲拿掉，各部分有各自的音量。
+- 🗣️ **文字轉語音 + 聲音複製。** 免費的本機聲音，或用幾秒錄音複製任何聲音。桌面版可用。
+- 🧍 **背景移除、色度去背和遮罩。** 人物和物件幫你去背，綠幕自動去背，每個片段上還能疊加多個遮罩，每個遮罩都有自己的模式和關鍵影格。
+- 🌀 **進場、出場和循環動畫。** 適用於片段、圖片、標題和形狀。每一個在選擇之前都會在它的卡片上播放。
+- ✨ **100 多種特效、濾鏡和轉場，25 種音效。** 電影感色調、晃動與衝擊、復古、擦除，全都在預覽中即時呈現。轉場就是一個片段，可以像其他片段一樣移動和修剪。
+- 🎞️ **關鍵影格。** 位置、縮放、尺寸、旋轉、不透明度、音量、特效參數。內建曲線編輯器。
+- 🏃 **速度斜坡與曲線。** 恆定或手繪，平滑或直線。定格畫面和倒放。
+- 🪄 **增強與防手震。** 修復模糊或老舊的素材，最高 2K。讓晃動的鏡頭穩下來。
+- ✂️ **剪得快，剪得準。** 分割、修剪、波紋、合併、連動的字幕和疊加層，需要時還有磁性時間軸。每一刀都落在影格上，預覽和輸出完全一致。
+- 🎚️ **多軌、多時間軸。** 影片、靜態圖片、標題和形狀，想疊多少軌就疊多少軌。一個專案裡放多個剪輯版本。混合模式、裁切、翻轉。
+- 📝 **標題與形狀。** 字型、描邊、陰影、底板、彩色表情符號，以及阿拉伯文、中文、印地語、泰語以及另外八種語言的預設。形狀支援漸層、星形、輪廓和陰影。
+- 🎙️ **旁白與一鍵人聲淨化。** 直接錄在你的剪輯上。降噪、人聲增強、響度平衡。還有花栗鼠、機器人、電話等音效。
+- 📤 **輸出。** H.264、HEVC、AV1，使用你電腦自備的編碼器。最高 4K 60，10 位元色彩。
+- ⚡ **快。** 內建代理檔，4K 拖曳也順暢。標題在每個核心上繪製，視窗一開啟，所有特效就已就緒。
+- 🛟 **任何機器上都能繼續運作。** 顯示晶片罷工時，預覽依然會繼續繪製。
 - 🤖 **可指令碼化。** 提供 JSON-RPC API，指令碼與 AI 代理可以用它剪影片。從原始碼建置還會加上 gRPC 與命令列工具。
-- 🖥️ **macOS、Windows、Linux、Android。** 26 種語言。同一個應用程式，同樣的專案檔。
+- 🖥️ **macOS、Windows、Linux、Android、iOS。** 26 種語言。同一個應用程式，同樣的專案檔。
 
 ## 下載
 

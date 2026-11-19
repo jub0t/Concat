@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --software | --mcp [auto|window|headless] | --schema | --version | --smoke | --whisper-cpu]";
+const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --software | --mcp [auto|window|headless] | --schema | --version | --smoke | --smoke-export <CLIP> | --whisper-cpu]";
 
 /// What one run of the binary was asked to do.
 #[derive(Debug, PartialEq, Eq)]
@@ -37,6 +37,11 @@ pub enum Launch {
     /// the window's models, and exit instead of entering the event loop.
     /// For CI, which has no one to close a window.
     Smoke,
+    /// Start as [`Launch::Smoke`] does, then make a project of the clip,
+    /// export it through the Export sheet's own messages and exit once the
+    /// file is written: 0, or 1 with the reason in the log. For CI, where a
+    /// launch alone never reaches an export.
+    SmokeExport(PathBuf),
     /// Load whisper's CPU kernels the way the first transcription does,
     /// print the CPU they run on and exit, before logging, the GPU or a
     /// window. For CI on an emulated older CPU: where the kernels are one
@@ -72,6 +77,12 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String>
                     .ok_or_else(|| format!("--mcp takes auto, window or headless\n{USAGE}"))?,
             )),
         }
+    } else if option == "--smoke-export" {
+        let clip = args
+            .next()
+            .filter(|clip| !clip.is_empty())
+            .ok_or_else(|| "--smoke-export requires a video file".to_string())?;
+        Launch::SmokeExport(PathBuf::from(clip))
     } else if option == "--project" {
         let path = args
             .next()
@@ -114,6 +125,12 @@ mod tests {
         assert_eq!(parse_strs(&["--schema"]).unwrap(), Launch::Schema);
         assert!(parse_strs(&["--schema", "extra"]).is_err());
         assert_eq!(parse_strs(&["--smoke"]).unwrap(), Launch::Smoke);
+        assert_eq!(
+            parse_strs(&["--smoke-export", "clip.mp4"]).unwrap(),
+            Launch::SmokeExport(PathBuf::from("clip.mp4"))
+        );
+        assert!(parse_strs(&["--smoke-export"]).is_err());
+        assert!(parse_strs(&["--smoke-export", "clip.mp4", "extra"]).is_err());
         assert_eq!(parse_strs(&["--software"]).unwrap(), Launch::Software);
         assert_eq!(parse_strs(&["--whisper-cpu"]).unwrap(), Launch::WhisperCpu);
         for args in [

@@ -205,9 +205,22 @@ fn tokenize(source: &str) -> Result<Vec<Token>, EvalError> {
     Ok(tokens)
 }
 
+/// The most tokens one expression may have. A package's expressions are
+/// a line or two; a longer one is refused, since a chain of operators
+/// builds a tree as deep as it is long, and reading or letting go of a
+/// deep enough tree runs the thread out of stack. A package is installed
+/// by whoever made it, so its text is not to be trusted that far.
+const MOST_TOKENS: usize = 1024;
+
+/// The deepest brackets, calls and minus signs may nest, for the same
+/// reason: the parser goes one level down for each.
+const MOST_NESTING: usize = 64;
+
 struct Parser {
     tokens: Vec<Token>,
     at: usize,
+    /// How deep in brackets, calls and minus signs the parser is now.
+    depth: usize,
 }
 
 impl Parser {
@@ -227,6 +240,20 @@ impl Parser {
             Some(found) => Err(EvalError(format!("expected {token:?}, found {found:?}"))),
             None => Err(EvalError(format!("expected {token:?}, found the end"))),
         }
+    }
+
+    /// Goes one level deeper for `parse`, or refuses past [`MOST_NESTING`].
+    fn nested<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> Result<T, EvalError>,
+    ) -> Result<T, EvalError> {
+        if self.depth >= MOST_NESTING {
+            return Err(EvalError(format!("nested more than {MOST_NESTING} deep")));
+        }
+        self.depth += 1;
+        let parsed = parse(self);
+        self.depth -= 1;
+        parsed
     }
 
     fn comparison(&mut self) -> Result<Expr, EvalError> {
@@ -270,7 +297,7 @@ impl Parser {
     fn unary(&mut self) -> Result<Expr, EvalError> {
         if let Some(Token::Minus) = self.peek() {
             self.next();
-            return Ok(Expr::Neg(Box::new(self.unary()?)));
+            return Ok(Expr::Neg(Box::new(self.nested(Self::unary)?)));
         }
         self.atom()
     }
@@ -286,7 +313,7 @@ impl Parser {
                         self.next();
                     } else {
                         loop {
-                            args.push(self.comparison()?);
+                            args.push(self.nested(Self::comparison)?);
                             match self.next() {
                                 Some(Token::Comma) => continue,
                                 Some(Token::RParen) => break,
@@ -313,7 +340,7 @@ impl Parser {
                 }
             }
             Some(Token::LParen) => {
-                let inner = self.comparison()?;
+                let inner = self.nested(Self::comparison)?;
                 self.expect(Token::RParen)?;
                 Ok(inner)
             }
@@ -326,9 +353,14 @@ impl Parser {
 impl Expr {
     /// Parses one expression.
     pub fn parse(source: &str) -> Result<Expr, EvalError> {
+        let tokens = tokenize(source)?;
+        if tokens.len() > MOST_TOKENS {
+            return Err(EvalError(format!("longer than {MOST_TOKENS} tokens")));
+        }
         let mut parser = Parser {
-            tokens: tokenize(source)?,
+            tokens,
             at: 0,
+            depth: 0,
         };
         let expr = parser.comparison()?;
         if parser.at != parser.tokens.len() {
@@ -559,6 +591,26 @@ mod tests {
         assert!(Expr::parse("1 & 2").is_err());
         assert!(Expr::parse("(1").is_err());
         assert!(Expr::parse("1 2").is_err());
+    }
+
+    /// An expression nested or chained deep enough to run the thread out
+    /// of stack - from a package nobody here wrote - is refused, not a
+    /// crash; one as deep as any real package's still reads.
+    #[test]
+    fn a_deep_or_endless_expression_is_refused_not_a_crash() {
+        let deep = format!("{}1{}", "(".repeat(100_000), ")".repeat(100_000));
+        assert!(Expr::parse(&deep).is_err());
+        let negated = format!("{}1", "-".repeat(100_000));
+        assert!(Expr::parse(&negated).is_err());
+        let chain = vec!["1"; 100_000].join("+");
+        assert!(Expr::parse(&chain).is_err());
+        let calls = format!("{}1{}", "abs(".repeat(100_000), ")".repeat(100_000));
+        assert!(Expr::parse(&calls).is_err());
+
+        let nested = format!("{}1{}", "(".repeat(40), ")".repeat(40));
+        assert_eq!(eval(&nested, &[]), Value::Float(1.0));
+        let long = vec!["1"; 400].join("+");
+        assert_eq!(eval(&long, &[]), Value::Float(400.0));
     }
 
     #[test]

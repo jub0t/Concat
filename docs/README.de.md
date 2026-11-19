@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Über Concat
 
-Concat ist ein kostenloser, quelloffener Videoeditor für macOS, Windows, Linux und Android. Er kann, was die meisten Schnitte brauchen: automatische Untertitel, Text-zu-Sprache, Hintergrundentfernung, Keyframe-Animation, Effekte und Titel, Schnitt auf mehreren Spuren, 4K-Export. Ohne die Haken: kein Wasserzeichen, kein Konto, kein Abo, kein Upload.
+Concat ist ein kostenloser, quelloffener Videoeditor für macOS, Windows, Linux, Android und iOS. Er kann, was die meisten Schnitte brauchen: automatische Untertitel, Stimmisolierung, Text-zu-Sprache, Hintergrundentfernung, Animationen und Keyframes, Effekte und Titel, Schnitt auf mehreren Spuren, 4K-Export. Ohne die Haken: kein Wasserzeichen, kein Konto, kein Abo, kein Upload.
 
 Alles läuft lokal auf einer nativen Rust-Engine mit GPU-Compositor. Installieren, Material hineinziehen, schneiden. Die KI-Modelle für Untertitel, Stimmen und Freisteller werden einmal in den Einstellungen geladen und arbeiten danach offline. Dein Material verlässt deine Festplatte nie.
 
@@ -55,20 +55,25 @@ Alles läuft lokal auf einer nativen Rust-Engine mit GPU-Compositor. Installiere
 ## Highlights
 
 - 🚫 **Keine Wasserzeichen. Kein Konto. Keine Bezahlschranke.** Niemals.
-- 🔒 **100 % lokal.** Nichts wird hochgeladen. Funktioniert offline.
-- 💬 **Automatische Untertitel.** Lokales Whisper. Modellgröße wählen, gestylte Untertitel auf der Zeitleiste bekommen.
-- 🗣️ **Text-zu-Sprache + Stimmklonen.** Kostenlose lokale Stimmen, oder jede Stimme aus ein paar Sekunden Aufnahme.
-- 🧍 **Hintergrundentfernung.** Personen, Objekte, oder die Maske selbst malen.
-- 🎞️ **Keyframes.** Position, Skalierung, Drehung, Deckkraft, Lautstärke, Effektparameter. Kurveneditor eingebaut.
-- ✨ **100 Effekte, Filter und Übergänge.** GPU-gerendert, live in der Vorschau.
-- ✂️ **Schnell schneiden.** Teilen, trimmen, Ripple, zusammenführen, Standbild, Geschwindigkeit. Magnetische Zeitleiste, wenn du willst.
-- 🎚️ **Mehrere Spuren, mehrere Zeitleisten.** Mehrere Schnitte in einem Projekt. Mischmodi, Zuschnitt, Spiegelungen.
-- 📝 **Titel.** Schriften, Kontur, Schatten, Hintergrundplatte. Vorlagen zum Loslegen.
-- 🎙️ **Stimmbereinigung mit einem Schalter.** Entrauschen, Stimme verbessern, Lautheit angleichen. Dazu Chipmunk, Roboter, Telefon und Freunde.
-- 📤 **Export.** H.264, HEVC, AV1. Bis 4K 60, 10-Bit-Farbe.
-- 🦀 **Native Rust-Engine.** GPU-Compositor, Proxys, Hardware-Decoding. 4K scrubbt flüssig.
+- 🔒 **100 % lokal.** Nichts wird hochgeladen, auch die KI nicht. Funktioniert offline.
+- 💬 **Automatische Untertitel.** In der Sprache, die du sprichst, auf deinem Rechner erzeugt, gestylt und auf der Zeitleiste.
+- 🎤 **Stimme isolieren.** Hol eine Stimme aus Musik oder Lärm heraus, oder nimm sie heraus, jeder Teil mit eigener Lautstärke.
+- 🗣️ **Text-zu-Sprache + Stimmklonen.** Eine kostenlose lokale Stimme, oder jede Stimme aus ein paar Sekunden Aufnahme. Auf dem Desktop.
+- 🧍 **Hintergrundentfernung, Chroma-Key und Masken.** Personen und Objekte werden für dich freigestellt, ein Greenscreen, der sich selbst keyt, und ein Stapel Masken auf jedem Clip, jede mit eigenem Modus und eigenen Keyframes.
+- 🌀 **Ein-, Aus- und Schleifen-Animationen.** Für Clips, Bilder, Titel und Formen. Jede spielt auf ihrer Karte ab, bevor du sie wählst.
+- ✨ **Über 100 Effekte, Filter und Übergänge, 25 Soundeffekte.** Filmische Looks, Wackler und Einschläge, Retro, Wischer, alles live in der Vorschau. Ein Übergang ist ein Clip, den du wie jeden anderen verschiebst und trimmst.
+- 🎞️ **Keyframes.** Position, Skalierung, Größe, Drehung, Deckkraft, Lautstärke, Effektparameter. Kurveneditor eingebaut.
+- 🏃 **Tempo-Rampen und -Kurven.** Konstant oder gezeichnet, glatt oder gerade. Standbilder und Rückwärts.
+- 🪄 **Verbessern und Stabilisieren.** Weiches oder altes Material auffrischen, bis 2K. Ein verwackeltes Bild beruhigen.
+- ✂️ **Schnell schneiden, genau schneiden.** Teilen, Trimmen, Ripple, Zusammenführen, verknüpfte Untertitel und Overlays, auf Wunsch eine magnetische Zeitleiste. Jeder Schnitt sitzt auf dem Bild, in Vorschau und Export gleich.
+- 🎚️ **Mehrere Spuren, mehrere Zeitleisten.** Video, Standbilder, Titel und Formen auf beliebig vielen Spuren stapeln. Mehrere Schnittfassungen in einem Projekt. Mischmodi, Zuschneiden, Spiegeln.
+- 📝 **Titel und Formen.** Schriften, Kontur, Schatten, Hintergrundplatten, farbige Emojis und Vorlagen für Arabisch, Chinesisch, Hindi, Thai und acht weitere Sprachen. Formen mit Verläufen, Sternen, Umrissen und Schatten.
+- 🎙️ **Voiceover und Stimmbereinigung mit einem Schalter.** Sprich über deinen Schnitt. Rauschen entfernen, Stimme verbessern, Lautstärke angleichen. Dazu Chipmunk, Roboter, Telefon und Co.
+- 📤 **Export.** H.264, HEVC, AV1, mit dem eigenen Encoder deines Computers. Bis zu 4K 60, 10-Bit-Farbe.
+- ⚡ **Schnell.** Proxys eingebaut, damit 4K flüssig scrubbt. Titel werden auf allen Kernen gezeichnet, und jeder Effekt ist bereit, sobald sich das Fenster öffnet.
+- 🛟 **Läuft auf jedem Rechner weiter.** Wenn der Grafikchip aufgibt, zeichnet die Vorschau weiter.
 - 🤖 **Skriptbar.** Eine JSON-RPC-API, mit der Skripte und KI-Agenten Video schneiden können. Ein Build aus dem Quellcode bringt zusätzlich gRPC und ein Kommandozeilenwerkzeug mit.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 Sprachen. Dieselbe App, dieselben Projektdateien.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 Sprachen. Dieselbe App, dieselben Projektdateien.
 
 ## Download
 

@@ -852,10 +852,10 @@ pub enum Command {
     /// Sizes a picture to the frame in one step: fitted whole inside it,
     /// or covering it, centred either way and unstretched (see
     /// [`crate::model::framing_scale`]; a turned picture is sized as turned).
-    /// A scale or a position with keys gets a key at `at` rather than a new
-    /// constant, the way every edit of a keyed property lands, so the rest
-    /// of the ride is left as it was. A no-op for a clip that is not a video
-    /// or a still, or whose media's size is unknown.
+    /// A scale, a position or a stretch with keys gets a key at `at` rather
+    /// than a new constant, the way every edit of a keyed property lands, so
+    /// the rest of the ride is left as it was. A no-op for a clip that is
+    /// not a video or a still, or whose media's size is unknown.
     FrameClip {
         /// The clip to size. An unknown id is a no-op.
         clip_id: String,

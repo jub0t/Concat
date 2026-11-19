@@ -45,6 +45,7 @@ use concat_project::model::{
 use concat_project::{Command, PlayheadSide};
 
 mod backdrop;
+mod beats;
 mod consolidate;
 use consolidate::MergeJob;
 mod masking;
@@ -88,8 +89,8 @@ use crate::grading;
 use crate::host::{
     CachedStrip, Host, MediaArt, MediaPoster, WindowArt, cached_media_art, cached_window_art,
     image_at, image_of, media_peaks, media_poster, media_strip, on_ui_in_project, spawn, spawn_art,
-    spawn_in_project, spawn_poster, spawn_strip, spawn_wave, strip_window, window_art, window_span,
-    window_start,
+    spawn_in_project, spawn_long, spawn_long_in_project, spawn_poster, spawn_strip, spawn_wave,
+    strip_window, window_art, window_span, window_start,
 };
 use crate::i18n::{self, t, tf};
 use crate::keymap;
@@ -440,6 +441,12 @@ pub const SHELF_KINDS: [PackageKind; 4] = [
     PackageKind::Transition,
 ];
 
+/// The sound packages Basic > Treatments switches on and off: a clip's
+/// loudness, its noise and its voice. They are switches there and nowhere
+/// a card, so the Library's sound shelf leaves them out; a sound layer,
+/// which has no Treatments page, still lists them in its own chain.
+pub const TREATMENTS: [&str; 3] = ["concat.loudness", "concat.denoise", "concat.enhance-voice"];
+
 /// `name` under the home directory, as a path string; empty when there is
 /// no home to speak of, and the form then asks for a folder outright.
 ///
@@ -743,6 +750,9 @@ pub struct Models {
     /// The looks made from tables, for the Adjustments page's LUTs shelf.
     pub catalogue_luts: Rc<VecModel<CatalogueEntryData>>,
     pub catalogue_audio: Rc<VecModel<CatalogueEntryData>>,
+    /// The Library's sound-effect shelf: the same, less the treatments,
+    /// which are switches under Basic > Treatments and not cards.
+    pub catalogue_audio_library: Rc<VecModel<CatalogueEntryData>>,
     pub catalogue_transitions: Rc<VecModel<CatalogueEntryData>>,
     pub effect_groups: Rc<VecModel<SharedString>>,
     pub filter_groups: Rc<VecModel<SharedString>>,
@@ -852,6 +862,7 @@ impl Models {
             catalogue_filters: Rc::new(VecModel::default()),
             catalogue_luts: Rc::new(VecModel::default()),
             catalogue_audio: Rc::new(VecModel::default()),
+            catalogue_audio_library: Rc::new(VecModel::default()),
             catalogue_transitions: Rc::new(VecModel::default()),
             effect_groups: Rc::new(VecModel::default()),
             filter_groups: Rc::new(VecModel::default()),
@@ -1030,6 +1041,11 @@ pub struct Studio {
     pub media: crate::panes::media_bin::MediaBin,
     /// Decoded art by media id, and the ids a worker is decoding for.
     pub peaks: HashMap<String, Arc<Pyramid>>,
+    /// Each sound file's beats by media id, the ids being heard, and those
+    /// that could not be; see `studio::beats`.
+    pub beats: HashMap<String, Arc<concat_speech::beats::Beats>>,
+    pub beats_pending: HashSet<String>,
+    pub beats_failed: HashSet<String>,
     /// Filmstrips by media id: the picture, how many frames are in it, one
     /// frame's width and the strip's height, in the picture's own pixels.
     pub strips: HashMap<String, Strip>,
@@ -1675,6 +1691,8 @@ fn key_field_of(property: model::KeyProperty) -> ClipField {
         model::KeyProperty::OffsetX => ClipField::OffsetX,
         model::KeyProperty::OffsetY => ClipField::OffsetY,
         model::KeyProperty::Rotation => ClipField::Rotation,
+        model::KeyProperty::StretchX => ClipField::StretchX,
+        model::KeyProperty::StretchY => ClipField::StretchY,
         model::KeyProperty::Opacity => ClipField::Opacity,
         model::KeyProperty::Volume => ClipField::Volume,
     }
@@ -1798,6 +1816,7 @@ fn knob_range(property: model::KeyProperty) -> (f64, f64) {
         model::KeyProperty::Scale => (0.05, 8.0),
         model::KeyProperty::OffsetX | model::KeyProperty::OffsetY => (-1.0, 1.0),
         model::KeyProperty::Rotation => (-180.0, 180.0),
+        model::KeyProperty::StretchX | model::KeyProperty::StretchY => (0.1, 4.0),
         model::KeyProperty::Opacity => (0.0, 1.0),
         model::KeyProperty::Volume => (-60.0, 24.0),
     }
@@ -1836,22 +1855,7 @@ fn batch_value(field: ClipField, value: f64, reference: f64, current: f64) -> f6
 /// stops reading the constant the moment a property is keyed, so a knob or
 /// a stage drag that wrote it would change nothing on screen.
 fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: f64) {
-    if clip.is_keyed(property) {
-        let ease = clip
-            .keys_on(property)
-            .rfind(|key| key.at < at)
-            .map_or(model::KeyEase::LINEAR, |key| key.ease);
-        clip.set_key(property, at, value, ease);
-        return;
-    }
-    match property {
-        model::KeyProperty::Scale => clip.scale = value,
-        model::KeyProperty::OffsetX => clip.offset_x = value,
-        model::KeyProperty::OffsetY => clip.offset_y = value,
-        model::KeyProperty::Rotation => clip.rotation = value,
-        model::KeyProperty::Opacity => clip.opacity = value,
-        model::KeyProperty::Volume => clip.volume = value,
-    }
+    clip.write_at(property, value, at);
 }
 
 thread_local! {
@@ -3090,6 +3094,9 @@ impl Studio {
             autosave: slint::Timer::default(),
             media: crate::panes::media_bin::MediaBin::default(),
             peaks: HashMap::new(),
+            beats: HashMap::new(),
+            beats_pending: HashSet::new(),
+            beats_failed: HashSet::new(),
             strips: HashMap::new(),
             windows: HashMap::new(),
             art_pending: HashSet::new(),
@@ -3289,7 +3296,8 @@ mod tests {
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_choices, chain_colours, chain_rows,
         colour_about, custom_frame, custom_rate, fps_of, grading_rows, has_hue, home_folder,
-        key_commands, packed, place_in, shown, wheel_partners, write_keyable,
+        key_commands, key_field_of, knob_range, packed, place_in, shown, wheel_partners,
+        write_keyable,
     };
 
     /// The inspector writes its Voice isolation into the echo, and the
@@ -3413,6 +3421,36 @@ mod tests {
         // A thousandth of a second past the cut at 2 is that cut's frame.
         assert_eq!(walk(2.001, true), 3.0);
         assert_eq!(walk(2.001, false), 1.0);
+    }
+
+    /// The three treatments are packages the Treatments switches turn on,
+    /// so they must exist as sound packages; and they are switches, not
+    /// cards, so the Library's sound shelf leaves them out while the rest
+    /// of the sound library stays.
+    #[test]
+    fn the_treatments_are_switches_not_library_cards() {
+        use concat_effects::catalogue::Catalogue;
+        let audio: Vec<&str> = Catalogue::builtin()
+            .of_kind(super::SHELF_KINDS[2])
+            .map(|package| package.manifest.effect.id.as_str())
+            .collect();
+        for id in super::TREATMENTS {
+            assert!(audio.contains(&id), "{id} is a sound package");
+        }
+        let view = Default::default();
+        let (_, shelf) = super::shelves(
+            super::SHELF_KINDS[2],
+            &view,
+            &[],
+            &std::cell::RefCell::new(std::collections::HashMap::new()),
+            &std::collections::HashMap::new(),
+            |package| !super::TREATMENTS.contains(&package.manifest.effect.id.as_str()),
+        );
+        let ids: Vec<String> = shelf.iter().map(|entry| entry.id.to_string()).collect();
+        for id in super::TREATMENTS {
+            assert!(!ids.iter().any(|shown| shown == id), "{id} is not a card");
+        }
+        assert_eq!(ids.len(), audio.len() - super::TREATMENTS.len());
     }
 
     /// A text box's caret counts bytes and a run counts characters: an
@@ -3842,6 +3880,49 @@ mod tests {
         );
         assert_eq!(place_in(&after, 2.5), 0.25);
         assert_eq!(place_in(&after, 12.0), 1.0, "held to the end");
+    }
+
+    /// Width and height key the way scale does: a knob on an unkeyed pull
+    /// sets the constant, and once it carries keys the knob writes a key
+    /// that the commit carries, while the other axis is left as it was.
+    /// Every keyable property has a field that names it and back, which
+    /// is what lets an inspector row and a Keyframes row find each other.
+    #[test]
+    fn a_pull_is_keyed_like_a_scale() {
+        use concat_project::model::{Clip, ClipKind, KeyEase, KeyProperty};
+        let before = Clip::blank("c1", "t1", ClipKind::Video, "clip", 0.0, 10.0);
+        let mut after = before.clone();
+        write_keyable(&mut after, KeyProperty::StretchX, 1.5, 0.5);
+        assert_eq!(after.stretch_x, 1.5, "no keys: the constant");
+
+        after.set_key(KeyProperty::StretchX, 0.0, 1.0, KeyEase::LINEAR);
+        write_keyable(&mut after, KeyProperty::StretchX, 2.0, 1.0);
+        assert_eq!(after.stretch_x, 1.5, "keyed: the constant is left alone");
+        assert_eq!(shown(&after, KeyProperty::StretchX, 0.5), 1.5);
+        assert_eq!(shown(&after, KeyProperty::StretchY, 0.5), 1.0);
+        let commands = key_commands("c1", &before, &after);
+        assert_eq!(commands.len(), 2, "one per key: {commands:?}");
+        assert!(commands.iter().all(|command| matches!(
+            command,
+            Command::SetClipKey {
+                property: KeyProperty::StretchX,
+                ..
+            }
+        )));
+
+        for property in KeyProperty::ALL {
+            assert_eq!(
+                Studio::key_property_of(key_field_of(property)),
+                Some(property)
+            );
+            let (low, high) = knob_range(property);
+            assert!(low < high, "{property:?}");
+        }
+        assert_eq!(
+            knob_range(KeyProperty::StretchY),
+            (0.1, 4.0),
+            "the inspector's"
+        );
     }
 
     /// A batch level lands on every clip as the inspector commits it - one

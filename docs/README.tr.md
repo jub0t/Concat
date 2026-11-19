@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.11-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.11" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Hakkında
 
-Concat; macOS, Windows, Linux ve Android için ücretsiz, açık kaynaklı bir video düzenleyicidir. Çoğu kurgunun ihtiyaç duyduğu her şeyi karşılar: otomatik altyazı, metinden sese, arka plan kaldırma, anahtar kare animasyonu, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.
+Concat; macOS, Windows, Linux, Android ve iOS için ücretsiz, açık kaynaklı bir video düzenleyicidir. Çoğu kurgunun ihtiyaç duyduğu her şeyi karşılar: otomatik altyazı, ses ayırma, metinden sese, arka plan kaldırma, animasyonlar ve anahtar kareler, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.
 
 Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır. Kurun, görüntüleri bırakın, kesin. Altyazı, ses ve kesme için yapay zekâ modelleri Ayarlar’dan bir kez indirilir ve sonrasında çevrimdışı çalışır. Görüntüleriniz diskinizden asla çıkmaz.
 
@@ -55,20 +55,25 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 ## Öne çıkanlar
 
 - 🚫 **Filigran yok. Hesap yok. Ödeme duvarı yok.** Asla.
-- 🔒 **%100 yerel.** Hiçbir şey yüklenmez. Çevrimdışı çalışır.
-- 💬 **Otomatik altyazı.** Yerel Whisper. Bir model boyutu seçin, zaman çizelgesinde biçimli altyazılar alın.
-- 🗣️ **Metinden sese + ses klonlama.** Ücretsiz yerel sesler ya da birkaç saniyelik kayıttan herhangi bir ses.
-- 🧍 **Arka plan kaldırma.** İnsanlar, nesneler ya da maskeyi kendiniz boyayın.
-- 🎞️ **Anahtar kareler.** Konum, ölçek, döndürme, saydamlık, ses düzeyi, efekt parametreleri. Yerleşik eğri düzenleyici.
-- ✨ **100 efekt, filtre ve geçiş.** GPU ile çizilir, önizlemede canlı.
-- ✂️ **Hızlı kesin.** Böl, kırp, ripple, birleştir, kareyi dondur, hız. İsterseniz manyetik zaman çizelgesi.
-- 🎚️ **Çok parçalı, çok zaman çizelgeli.** Bir projede birden çok kurgu. Karışım modları, kırpma, çevirmeler.
-- 📝 **Yazılar.** Yazı tipleri, kontur, gölge, arka plan plakası. Başlamak için hazır ayarlar.
-- 🎙️ **Tek anahtarla ses temizliği.** Gürültü azaltma, sesi iyileştirme, ses düzeyini dengeleme. Artı sincap, robot, telefon ve arkadaşları.
-- 📤 **Dışa aktarma.** H.264, HEVC, AV1. 4K 60’a kadar, 10 bit renk.
-- 🦀 **Yerel Rust motoru.** GPU birleştirici, proxy’ler, donanım çözme. 4K akıcı gezinir.
+- 🔒 **%100 yerel.** Hiçbir şey yüklenmez, yapay zekâ da dahil. Çevrimdışı çalışır.
+- 💬 **Otomatik altyazı.** Konuştuğunuz dilde, kendi makinenizde üretilir, biçimlendirilmiş hâlde zaman çizelgesinde.
+- 🎤 **Ses ayırma.** Bir sesi müziğinden ya da gürültüsünden çıkarın, ya da sesi çıkarıp atın; her parça kendi seviyesinde.
+- 🗣️ **Metinden sese + ses klonlama.** Ücretsiz yerel bir ses ya da birkaç saniyelik bir kayıttan istediğiniz herhangi bir ses. Masaüstünde.
+- 🧍 **Arka plan kaldırma, chroma key ve maskeler.** İnsanlar ve nesneler sizin için kesilir, kendi kendine ayrılan bir yeşil perde ve her klipte bir maske yığını; her biri kendi moduna ve anahtar karelerine sahip.
+- 🌀 **Giriş, Çıkış ve Döngü animasyonları.** Klipler, resimler, yazılar ve şekiller için. Her biri siz seçmeden önce kendi kartında oynar.
+- ✨ **100'den fazla efekt, filtre ve geçiş, 25 ses efekti.** Sinematik görünümler, sarsıntılar ve darbeler, retro, silmeler, hepsi önizlemede canlı. Geçiş, diğerleri gibi taşıyıp kırptığınız bir kliptir.
+- 🎞️ **Anahtar kareler.** Konum, ölçek, boyut, döndürme, opaklık, ses düzeyi, efekt parametreleri. Eğri düzenleyici dahil.
+- 🏃 **Hız rampaları ve eğrileri.** Sabit ya da çizilmiş, yumuşak ya da düz. Kareyi dondurma ve geri sarma.
+- 🪄 **İyileştir ve Sabitle.** Yumuşak ya da eski görüntüyü onarın, 2K'ya kadar. Titrek bir çekimi sakinleştirin.
+- ✂️ **Hızlı kesin, tam kesin.** Böl, kırp, ripple, birleştir, bağlı altyazılar ve bindirmeler, isterseniz manyetik zaman çizelgesi. Her kesim tam kareye düşer, önizlemede ve dışa aktarmada aynı.
+- 🎚️ **Çok parçalı, çok zaman çizelgeli.** Video, durağan görüntü, yazı ve şekilleri istediğiniz kadar parçaya yığın. Tek projede birkaç kurgu. Karışım modları, kırpma, çevirme.
+- 📝 **Yazılar ve şekiller.** Yazı tipleri, kontur, gölge, arka plan plakaları, renkli emoji ve Arapça, Çince, Hintçe, Tayca ile sekiz dil daha için hazır ayarlar. Gradyanlı şekiller, yıldızlar, ana hatlar ve gölgeler.
+- 🎙️ **Seslendirme ve tek düğmeyle ses temizleme.** Kurgunuzun üzerine kaydedin. Gürültü azaltma, sesi iyileştirme, ses düzeyini eşitleme. Ayrıca sincap, robot, telefon ve benzerleri.
+- 📤 **Dışa aktarma.** H.264, HEVC, AV1, bilgisayarınızın kendi kodlayıcısıyla. 4K 60'a kadar, 10 bit renk.
+- ⚡ **Hızlı.** Proxy dosyaları dahil, böylece 4K akıcı kayar. Yazılar tüm çekirdeklerde çizilir ve her efekt pencere açıldığı anda hazırdır.
+- 🛟 **Her makinede çalışmaya devam eder.** Grafik çipi pes ettiğinde önizleme çizmeye devam eder.
 - 🤖 **Betiklenebilir.** Betiklerin ve yapay zekâ ajanlarının video kesebileceği bir JSON-RPC API’si. Kaynaktan derlenen sürüm buna gRPC ve bir komut satırı aracı ekler.
-- 🖥️ **macOS, Windows, Linux, Android.** 26 dil. Aynı uygulama, aynı proje dosyaları.
+- 🖥️ **macOS, Windows, Linux, Android, iOS.** 26 dil. Aynı uygulama, aynı proje dosyaları.
 
 ## İndir
 

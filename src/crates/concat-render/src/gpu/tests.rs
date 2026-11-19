@@ -2777,3 +2777,161 @@ fn the_709_frame_survives_hundreds_of_frames_on_the_software_adapter() {
         );
     }
 }
+
+/// Frames of a clip at `width` x `height`, as the export (full size) and
+/// the monitor (half size) each draw them while an export runs.
+fn draw_frames(gpu: &mut WgpuCompositor, width: u32, height: u32, frames: u32, who: &str) {
+    for index in 0..frames {
+        let mut clip = gradient(1920, 1080);
+        clip.set_pixel(index % 1920, 0, [index as u8, 0, 0, 255]);
+        let mut frame_plan = plan(width, height, vec![layer(clip)]);
+        frame_plan.time = concat_core::time::Rational::new(i64::from(index), 24);
+        gpu.render(&frame_plan);
+        assert!(
+            !gpu.lost(),
+            "{who} lost its device at frame {index} on {}: {:?}",
+            gpu.adapter_info().name,
+            gpu.post_mortem()
+        );
+    }
+}
+
+/// The export and the monitor each open a device on the software adapter
+/// and draw at the same time, as the app does while an export runs. On
+/// Windows both devices are one Direct3D 12 device underneath (it keeps one
+/// per adapter in a process), and the export smoke run lost it at frame 0
+/// (#824). Each test runs in a process of its own, so nothing else ever
+/// had two devices open there.
+#[test]
+fn two_compositors_draw_at_once_on_the_software_adapter() {
+    let (Some(mut export), Some(mut monitor)) =
+        (WgpuCompositor::software(), WgpuCompositor::software())
+    else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    std::thread::scope(|scope| {
+        scope.spawn(|| draw_frames(&mut export, 1920, 1080, 48, "the export"));
+        scope.spawn(|| draw_frames(&mut monitor, 960, 540, 48, "the monitor"));
+    });
+}
+
+/// A device opened beside a drawing one and dropped at once, as the cards
+/// do when they find only a software adapter, leaves the drawing one able
+/// to draw (#824).
+#[test]
+fn a_device_opened_and_dropped_beside_another_leaves_it_drawing() {
+    let Some(mut export) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    draw_frames(&mut export, 1920, 1080, 1, "the export");
+    drop(WgpuCompositor::software().expect("a second device on the same adapter"));
+    draw_frames(&mut export, 1920, 1080, 48, "the export");
+}
+
+/// A picture smaller than the frame, drawn up to it on the software
+/// adapter: the monitor's 960x540 of a 32x32 picture, as the app drew when
+/// its device on WARP was lost at the first frame, every device it opened
+/// (#824). Every software-adapter test before this drew a picture the
+/// frame's size or larger.
+#[test]
+fn a_small_picture_drawn_up_survives_on_the_software_adapter() {
+    let Some(mut gpu) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    for index in 0..24u32 {
+        let mut frame_plan = plan(960, 540, vec![layer(gradient(32, 32))]);
+        frame_plan.time = concat_core::time::Rational::new(i64::from(index), 24);
+        let frame = gpu.render(&frame_plan);
+        assert!(
+            !gpu.lost(),
+            "a 32x32 picture drawn up to 960x540 lost the device at frame {index}: {:?}",
+            gpu.post_mortem()
+        );
+        assert!(frame.pixel(480, 270).is_some_and(|p| p[3] == 255));
+    }
+}
+
+/// The export's frames on the software adapter: a square clip drawn up
+/// into a 1920x1080 frame and handed back as the encoder takes it, YUV
+/// planes in each chroma layout. The export smoke run lost its device at
+/// frame 0 on every device it opened, so (#824).
+#[test]
+fn an_exports_planar_frames_survive_on_the_software_adapter() {
+    use concat_core::frame::{Chroma, YuvLayout};
+    let Some(mut gpu) = WgpuCompositor::software() else {
+        eprintln!("no software adapter here; skipped");
+        return;
+    };
+    for chroma in [Chroma::Nv12, Chroma::I420] {
+        gpu.planar(Some(YuvLayout {
+            chroma,
+            full_range: false,
+        }));
+        for index in 0..12u32 {
+            let mut frame_plan = plan(1920, 1080, vec![layer(gradient(1080, 1080))]);
+            frame_plan.time = concat_core::time::Rational::new(i64::from(index), 24);
+            assert!(
+                gpu.submit(&frame_plan),
+                "a GPU compositor takes frames in flight"
+            );
+            let drawn = gpu.collect();
+            assert!(
+                !gpu.lost(),
+                "{chroma:?} frame {index} lost the device: {:?}",
+                gpu.post_mortem()
+            );
+            assert!(
+                matches!(drawn, Some(crate::Drawn::Yuv(_))),
+                "{chroma:?} frame {index} came back as planes"
+            );
+        }
+    }
+}
+
+/// `CONCAT_GPU_BUDGET` still reads as it did: off lifts both gates, a
+/// percentage moves the creation gate there and the loss gate four points
+/// above, and anything else is no choice at all.
+#[test]
+fn the_person_s_budget_reads_as_it_did() {
+    for off in ["off", "None", "0"] {
+        let budget = parse_budget(off).expect("a choice");
+        assert_eq!(budget.for_resource_creation, None, "{off}");
+        assert_eq!(budget.for_device_loss, None, "{off}");
+    }
+    let ninety = parse_budget(" 90% ").expect("a choice");
+    assert_eq!(ninety.for_resource_creation, Some(90));
+    assert_eq!(ninety.for_device_loss, Some(94));
+    let high = parse_budget("98").expect("a choice");
+    assert_eq!(high.for_device_loss, Some(99));
+    for nothing in ["lots", "100", "-5", ""] {
+        assert!(parse_budget(nothing).is_none(), "{nothing}");
+    }
+}
+
+/// The adapter's memory reads on whatever this machine draws with: a
+/// device here says at least one heap with a figure in it, or none where
+/// its API reports none; never a panic.
+#[test]
+fn the_memory_of_a_real_device_reads() {
+    let Some(gpu) = gpu() else { return };
+    let memory = crate::memory::Memory::of_device(&gpu.device);
+    let lines = memory.lines("in a test");
+    eprintln!("{}", lines.join("\n"));
+    assert!(!lines.is_empty());
+    if matches!(
+        memory.backend,
+        wgpu::Backend::Metal | wgpu::Backend::Dx12 | wgpu::Backend::Vulkan
+    ) {
+        assert!(!memory.heaps.is_empty(), "{lines:?}");
+        assert!(
+            memory
+                .heaps
+                .iter()
+                .any(|heap| heap.size.is_some() || heap.budget.is_some()),
+            "{lines:?}"
+        );
+    }
+}

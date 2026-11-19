@@ -73,6 +73,9 @@ impl Decoding {
 pub(crate) struct Feed {
     frames: Option<Receiver<Result<Option<Frame>, String>>>,
     thread: Option<JoinHandle<()>>,
+    /// The last picture the run handed over, shared rather than copied:
+    /// what it goes on showing once its file runs out (#790).
+    held: Option<Arc<Frame>>,
 }
 
 impl Feed {
@@ -123,29 +126,50 @@ impl Feed {
         Ok(Self {
             frames: Some(frames),
             thread: Some(thread),
+            held: None,
         })
     }
 
-    /// The run's next frame; `None` once its file has run out.
-    fn next(&mut self) -> Result<Option<Frame>, String> {
+    /// The run's next frame. Once its file has run out, the last frame it
+    /// had, for as long as its clip lasts: a clip's span can outlast its
+    /// pictures - a phone's sound runs a packet past them, and on the frame
+    /// grid the overhangs add up to a frame with no picture of its own -
+    /// and a held picture is what the monitor shows there, not a gap
+    /// (#790). `None` only for a run that ran out before its first frame.
+    fn next(&mut self) -> Result<Option<Arc<Frame>>, String> {
         match self.frames.as_ref().map(Receiver::recv) {
-            Some(Ok(next)) => next,
-            // The thread has gone after its last frame or its error.
-            _ => Ok(None),
+            Some(Ok(Ok(Some(frame)))) => {
+                let frame = Arc::new(frame);
+                self.held = Some(Arc::clone(&frame));
+                Ok(Some(frame))
+            }
+            Some(Ok(Err(error))) => Err(error),
+            // The file has run out, or the thread has gone after its last
+            // frame: the decoder is let go now, not when the clip ends, so
+            // a phone's seat on the chip is free for the next clip.
+            Some(Ok(Ok(None)) | Err(_)) | None => {
+                self.stop();
+                Ok(self.held.clone())
+            }
+        }
+    }
+
+    /// Closes the queue and waits for the thread, so its decoder is gone.
+    fn stop(&mut self) {
+        // The queue goes first, so a thread waiting to hand over a frame
+        // is told at once and one decoding stops after the frame in hand.
+        self.frames = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
     }
 }
 
 impl Drop for Feed {
     fn drop(&mut self) {
-        // The queue goes first, so a thread waiting to hand over a frame
-        // is told at once and one decoding stops after the frame in hand;
-        // then it is waited for, so its decoder - and on a phone, its seat
-        // on the chip - is let go before the next one is asked for.
-        self.frames = None;
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        // Waited for, so its decoder - and on a phone, its seat on the
+        // chip - is let go before the next one is asked for.
+        self.stop();
     }
 }
 
@@ -224,7 +248,7 @@ impl Feeds {
         index: i64,
         layer: &PlannedLayer,
         open: impl Fn(&PlannedLayer) -> (DecodeOptions, usize),
-    ) -> Result<Option<Frame>, String> {
+    ) -> Result<Option<Arc<Frame>>, String> {
         let ready = self
             .runs
             .get(&layer.clip)
