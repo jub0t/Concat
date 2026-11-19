@@ -298,6 +298,13 @@ jobs:
             verb: Compiles
           - os: windows-2022
             verb: Tests
+          # Windows 11's codecs, which are not Windows 10's: its AAC
+          # encoder was replaced between the two, and what it does with a
+          # sound's first frames changed with it (see the engine's
+          # audio/lead.rs). The 2022 runner is the older one; this is the
+          # newer. The engine's media tests only, a few minutes.
+          - os: windows-2025
+            verb: Sound
     runs-on: ${{ matrix.os }}
     # Windows' steps that can run long have timeouts of their own, 115
     # minutes between them, so whichever is stuck is named by its own
@@ -421,7 +428,7 @@ jobs:
       # build both again, side by side.
       - name: Build the tests (Windows)
         id: build-tests
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.verb == 'Tests'
         timeout-minutes: 60
         working-directory: src
         shell: bash
@@ -430,7 +437,7 @@ jobs:
           cargo nextest run --workspace --no-run --build-jobs 2 --bins --test '*' --examples 2>&1 | tee build-tests.log
           cargo nextest run --workspace --no-run --build-jobs 2 --lib 2>&1 | tee -a build-tests.log
       - name: Run the tests (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.verb == 'Tests'
         timeout-minutes: 30
         working-directory: src
         shell: bash
@@ -439,6 +446,21 @@ jobs:
           cargo nextest run --workspace --build-jobs 2 --profile ci \
             -E 'not test(=every_edit_still_exports) and not package(concat-corpus)' 2>&1 | tee nextest-workspace.log || status=$?
           mv target/nextest/ci/junit.xml target/nextest/ci/junit-workspace.xml 2>/dev/null || true
+          exit "$status"
+      # What this Windows' AAC encoder does with a sound's start, said in
+      # the log whether or not anything fails, then every test of the
+      # media crate: the saved sound's first frame among them.
+      - name: The media tests (Windows 11)
+        if: runner.os == 'Windows' && matrix.verb == 'Sound'
+        timeout-minutes: 45
+        working-directory: src
+        shell: bash
+        run: |
+          status=0
+          cargo nextest run -p concat-media --build-jobs 2 --profile ci --no-capture \
+            -E 'test(windows_encoder_is_measured)' 2>&1 | tee nextest-encoder.log || status=$?
+          cargo nextest run -p concat-media --build-jobs 2 --profile ci 2>&1 | tee nextest-sound.log || status=$?
+          mv target/nextest/ci/junit.xml target/nextest/ci/junit-sound.xml 2>/dev/null || true
           exit "$status"
       # The corpus, as on Linux: its own step and timeout, on WARP, which
       # is slower than lavapipe, hence the longer one. Runs whether or
@@ -476,12 +498,12 @@ jobs:
         run: |
           python=python3
           command -v python3 >/dev/null 2>&1 || python=python
-          "$python" scripts/ci/annotate.py src/check.log src/check-window.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log src/nextest-every-edit.log
+          "$python" scripts/ci/annotate.py src/check.log src/check-window.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log src/nextest-every-edit.log src/nextest-sound.log
       - name: Keep the test report (failure only)
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: test-report-windows
+          name: test-report-${{ matrix.os }}
           path: |
             src/target/nextest/ci/*.xml
             src/nextest-*.log
@@ -490,6 +512,6 @@ jobs:
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: corpus-windows
+          name: corpus-${{ matrix.os }}
           path: src/target/corpus/
           if-no-files-found: ignore
