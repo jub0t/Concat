@@ -286,6 +286,9 @@ export global Theme {
     out property <color> clip-chip: dark ? Dark.clip-chip : Light.clip-chip;
     out property <color> wave-centre: dark ? Dark.wave-centre : Light.wave-centre;
     out property <color> beat-mark: dark ? Dark.beat-mark : Light.beat-mark;
+    /// The first beat of a bar: amber, the colour beat markers usually
+    /// are, and apart from the accent the selection and playhead wear.
+    out property <color> beat-bar: dark ? Dark.beat-bar : Light.beat-bar;
     /// The strip along a song's clip floor its beat ticks stand on, and
     /// its height.
     out property <color> beat-rail-ground: dark ? Dark.beat-rail-ground : Light.beat-rail-ground;

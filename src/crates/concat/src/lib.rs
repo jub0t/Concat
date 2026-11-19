@@ -1567,6 +1567,25 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     editor.on_chain_add(on_window!(|state, audio: bool, id: SharedString| {
         state.chain_add(audio, id.as_str());
     }));
+    // ── Audio › Beats ──
+    // On, every song in the project is listened to at once (and kept, so
+    // the next time is instant); off, nothing is.
+    editor.on_beats_on_changed(on_window!(|state, on: bool| {
+        state.prefs.beats_on = on;
+        state.prefs.save(&state.host.dirs);
+        state.request_beats();
+    }));
+    editor.on_beats_snap_changed(on_window!(|state, on: bool| {
+        state.prefs.beats_no_snap = !on;
+        state.prefs.save(&state.host.dirs);
+    }));
+    editor.on_beats_marks_changed(on_window!(|state, index: i32| {
+        state.prefs.beat_marks = index.clamp(0, 3) as u8;
+        state.prefs.save(&state.host.dirs);
+    }));
+    editor.on_beats_cut(on_window!(|state| {
+        state.cut_on_beats();
+    }));
     editor.on_chain_toggle(on_window!(|state, audio: bool, index: i32| {
         state.chain_toggle(audio, index);
     }));

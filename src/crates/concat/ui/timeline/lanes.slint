@@ -327,8 +327,8 @@ component Clip inherits Rectangle {
         }
 
         // The song's beats, on a rail along the clip's floor rather than
-        // over its waveform: a short quiet tick at each beat, a taller one
-        // in the accent at the first of a bar. Rust places them in a 1x1
+        // over its waveform: a short quiet tick at each beat, a taller amber
+        // one at the first of a bar. Rust places them in a 1x1
         // box stretched onto the clip, through its trim and speed, and
         // thins them with the zoom; see studio/beats.rs.
         if (root.item.beats != "" || root.item.bars != "") && !root.banded: Rectangle {
@@ -360,7 +360,7 @@ component Clip inherits Rectangle {
             viewbox-width: 1;
             viewbox-height: 1;
             fit: fill;
-            stroke: Theme.accent;
+            stroke: Theme.beat-bar;
             stroke-width: 2px;
         }
 

@@ -91,7 +91,10 @@ impl Studio {
     /// Starts hearing the beats of every sound file in the project that
     /// has none yet, one job each on the long lane: a song is a couple of
     /// seconds of every core, and nothing waits on it.
-    pub(super) fn request_beats(&mut self) {
+    pub(crate) fn request_beats(&mut self) {
+        if !self.prefs.beats_on {
+            return;
+        }
         let Some(session) = self.session.as_ref() else {
             return;
         };
@@ -163,7 +166,10 @@ impl Studio {
         if clip.duration <= 0.0 {
             return Default::default();
         }
-        let placed = self.clip_beats(clip);
+        if !self.prefs.beats_on {
+            return Default::default();
+        }
+        let placed = chosen(&self.clip_beats(clip), self.prefs.beat_marks);
         let (every, bars) = marks_at(&placed, f64::from(self.lanes.seconds_per_pixel));
         let path = |times: &[f64]| -> SharedString {
             let mut path = String::new();
@@ -176,9 +182,89 @@ impl Studio {
         (path(&every), path(&bars))
     }
 
+    /// What Audio › Beats says of the selected clip: its tempo, for the
+    /// Tempo row, or a sentence in its place - that it is being listened
+    /// to, or that it has no beat. Both empty for anything but a sound clip.
+    pub(crate) fn beats_status(&self) -> (String, String) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id).cloned()) else {
+            return Default::default();
+        };
+        if clip.kind != model::ClipKind::Audio {
+            return Default::default();
+        }
+        match self.beats.get(&clip.media_id).map(|beats| beats.tempo) {
+            Some(Some(tempo)) => (
+                crate::i18n::tf("beats.bpm", &[&format!("{tempo:.0}")]),
+                String::new(),
+            ),
+            Some(None) => (String::new(), crate::i18n::t("beats.none")),
+            None if self.beats_failed.contains(&clip.media_id) => {
+                (String::new(), crate::i18n::t("beats.none"))
+            }
+            None => (String::new(), crate::i18n::t("beats.listening")),
+        }
+    }
+
+    /// Cut on beats: every clip on another track over the selected song is
+    /// split at each of its marks (every beat, second beat or bar as Marks
+    /// says), in one step to undo. Splits go on the frame grid, and none
+    /// closer than a frame-and-a-bit to a clip's own edge.
+    pub(crate) fn cut_on_beats(&mut self) {
+        let Some(song) = self.sole_selection().and_then(|id| self.clip(&id).cloned()) else {
+            return;
+        };
+        let marks: Vec<f64> = chosen(&self.clip_beats(&song), self.prefs.beat_marks.max(1))
+            .into_iter()
+            .map(|(time, _)| time)
+            .collect();
+        let video = self.project().active().video;
+        let rate = concat_core::time::FrameRate::checked(video.rate_num, video.rate_den)
+            .unwrap_or(concat_core::time::FrameRate::THIRTY);
+        let edge = f64::from(MIN_DURATION);
+        let targets: Vec<(String, f64, f64)> = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| clip.id != song.id && clip.track_id != song.track_id)
+            .filter(|clip| !self.locked(&clip.track_id))
+            .filter(|clip| {
+                clip.start < song.start + song.duration && song.start < clip.start + clip.duration
+            })
+            .map(|clip| (clip.id.clone(), clip.start, clip.start + clip.duration))
+            .collect();
+        // Latest first: a split keeps the clip's id on its head, so each
+        // earlier cut finds the same clip still under it.
+        let mut commands = Vec::new();
+        for time in marks.iter().rev() {
+            let at = rate
+                .time_of_frame((time * rate.fps().as_f64()).round() as i64)
+                .as_f64();
+            let ids: Vec<String> = targets
+                .iter()
+                .filter(|(_, start, end)| at > start + edge && at < end - edge)
+                .map(|(id, _, _)| id.clone())
+                .collect();
+            if !ids.is_empty() {
+                commands.push(Command::SplitClips {
+                    clip_ids: ids,
+                    time: at,
+                });
+            }
+        }
+        if commands.is_empty() {
+            self.notify(&crate::i18n::t("beats.nothingToCut"), false);
+            return;
+        }
+        self.flush_commit();
+        self.apply(Command::Batch { commands });
+    }
+
     /// Every beat of the timeline's sound clips, in timeline seconds: what
     /// a dragged edge, a split or the playhead snaps to beside the cuts.
     pub(super) fn timeline_beats(&self) -> Vec<f64> {
+        if !self.prefs.beats_on || self.prefs.beats_no_snap {
+            return Vec::new();
+        }
         self.timeline()
             .clips
             .iter()
@@ -205,6 +291,26 @@ fn placed(
         .filter(|beat| beat.time >= source_start && beat.time < to)
         .map(|beat| (start + (beat.time - source_start) / speed, beat.downbeat))
         .collect()
+}
+
+/// The beats Marks asks for of `placed`: all (0, 1), every second beat
+/// counted from each bar's first (2), or the bars' first beats (3).
+fn chosen(placed: &[(f64, bool)], marks: u8) -> Vec<(f64, bool)> {
+    match marks {
+        2 => {
+            let mut since_bar = 0usize;
+            placed
+                .iter()
+                .filter(|(_, bar)| {
+                    since_bar = if *bar { 0 } else { since_bar + 1 };
+                    since_bar.is_multiple_of(2)
+                })
+                .copied()
+                .collect()
+        }
+        3 => placed.iter().filter(|(_, bar)| *bar).copied().collect(),
+        _ => placed.to_vec(),
+    }
 }
 
 /// The fewest pixels between two ticks that still read as two.
@@ -288,6 +394,20 @@ mod tests {
         assert_eq!(fast.len(), 8);
         assert!((fast[1].0 - fast[0].0 - 0.25).abs() < 1e-12);
         assert!(super::placed(&beats, 0.0, 20.0, 5.0, 1.0).is_empty());
+    }
+
+    /// Marks picks every beat, every second one from each bar's first, or
+    /// the bars alone.
+    #[test]
+    fn marks_picks_the_beats() {
+        let placed = super::placed(&every_half_second(), 0.0, 0.0, 10.0, 1.0);
+        assert_eq!(super::chosen(&placed, 0).len(), 20);
+        let second = super::chosen(&placed, 2);
+        assert_eq!(second.len(), 10);
+        assert!((second[1].0 - second[0].0 - 1.0).abs() < 1e-12);
+        let bars = super::chosen(&placed, 3);
+        assert_eq!(bars.len(), 5);
+        assert!(bars.iter().all(|(_, bar)| *bar));
     }
 
     /// The marks thin out with the zoom: every beat when beats are six

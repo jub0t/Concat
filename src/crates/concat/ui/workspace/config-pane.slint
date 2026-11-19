@@ -10,7 +10,7 @@ import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, BackgroundRows, ProcessorRows,
+    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, BackgroundRows, BeatsPanel, ProcessorRows,
     TransitionChoiceData,
     AnimatePanel, CatalogueEntryData, ChainChoiceData, ColourKnobData, EnhancePanel, FilterPanel, PresetStack,
     TransitionPanel, VideoPanel,
@@ -220,6 +220,16 @@ export component ConfigPane inherits Rectangle {
     in property <string> jump-section;
 
     callback chain-add(audio: bool, id: string);
+    /// Audio › Beats; see Editor.beats-tempo.
+    in property <string> beats-tempo;
+    in property <string> beats-note;
+    in property <bool> beats-on;
+    in property <bool> beats-snap;
+    in property <int> beats-marks;
+    callback beats-on-changed(on: bool);
+    callback beats-snap-changed(on: bool);
+    callback beats-marks-changed(index: int);
+    callback beats-cut();
     callback chain-toggle(audio: bool, index: int);
     callback chain-move-by(audio: bool, index: int, delta: int);
     callback chain-remove(audio: bool, index: int);
@@ -893,6 +903,20 @@ export component ConfigPane inherits Rectangle {
                             root.chain-set-param(true, index, key, value);
                         }
                         commit => { root.clip-commit(); }
+                    }
+                    // A song's beats: what was heard, the marks and Cut on
+                    // beats. A sound clip only - a video's sound is not
+                    // listened to for beats yet.
+                    if root.is-audio && !root.selected.batch-volume: BeatsPanel {
+                        tempo: root.beats-tempo;
+                        note: root.beats-note;
+                        on: root.beats-on;
+                        snap: root.beats-snap;
+                        marks: root.beats-marks;
+                        on-changed(on) => { root.beats-on-changed(on); }
+                        snap-changed(on) => { root.beats-snap-changed(on); }
+                        marks-changed(index) => { root.beats-marks-changed(index); }
+                        cut => { root.beats-cut(); }
                     }
                 }
 

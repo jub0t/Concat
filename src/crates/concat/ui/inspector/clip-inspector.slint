@@ -3500,3 +3500,96 @@ export component FilterPanel inherits VerticalLayout {
 // The catalogues. Data only: the stack renders whatever params a preset
 // declares, so adding a processor is one entry here and no change to the
 // panel. The ids are written into project files, so they are stable forever.
+
+/// A song's beats, under its Treatments. The header's switch turns the
+/// whole of it on - songs listened to, marks along their clips, snapping -
+/// and off, the default. On: the tempo heard, whether to snap, which beats
+/// the marks are, and Cut on beats, which splits the clips over the song
+/// at each mark. Marks follow the zoom unless Marks names a beat: a song's
+/// beats are many, and a wall of ticks reads as nothing.
+export component BeatsPanel inherits VerticalLayout {
+    /// "131 BPM", or empty while there is none to show.
+    in property <string> tempo;
+    /// What stands in the Tempo row's place: listening, or no beat found.
+    in property <string> note;
+    in property <bool> on;
+    in property <bool> snap;
+    in property <int> marks;
+
+    callback on-changed(on: bool);
+    callback snap-changed(on: bool);
+    callback marks-changed(index: int);
+    callback cut();
+
+    Section {
+        SectionHeader {
+            title: I18n.t("beats.title");
+            switchable: true;
+            on: root.on;
+            switched(on) => { root.on-changed(on); }
+        }
+
+        if !root.on: SectionBody {
+            Note { text: I18n.t("beats.offNote"); }
+        }
+
+        if root.on: SectionBody {
+            // The tempo as a value, like every other row's: its name on
+            // the left, the number on the right.
+            if root.tempo != "": HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                Text {
+                    text: I18n.t("beats.tempoLabel");
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.tempo;
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    font-family: Theme.font-technical;
+                }
+            }
+            if root.tempo == "" && root.note != "": Note { text: root.note; }
+            SwitchRow {
+                label: I18n.t("beats.snap");
+                checked: root.snap;
+                toggled(value) => { root.snap-changed(value); }
+            }
+            Subhead { title: I18n.t("beats.marks"); }
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                SegmentedControl {
+                    options: [
+                        I18n.t("beats.marksZoom"),
+                        I18n.t("beats.marksEvery"),
+                        I18n.t("beats.marksSecond"),
+                        I18n.t("beats.marksBar"),
+                    ];
+                    // A press assigns `current` inside the control; the
+                    // property follows the preference back.
+                    property <int> shown: root.marks;
+                    current: self.shown;
+                    changed shown => { self.current = self.shown; }
+                    changed(index) => { root.marks-changed(index); }
+                }
+            }
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                padding-top: 6px;
+                Button {
+                    label: I18n.t("beats.cut");
+                    block: true;
+                    clicked => { root.cut(); }
+                }
+            }
+            Note { text: I18n.t("beats.cutNote"); }
+        }
+    }
+}
