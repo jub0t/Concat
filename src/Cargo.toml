@@ -25,6 +25,7 @@ concat-text = { path = "crates/concat-text" }
 concat-vision = { path = "crates/concat-vision" }
 concat-log = { path = "crates/concat-log" }
 concat-sched = { path = "crates/concat-sched" }
+concat-doc = { path = "crates/concat-doc" }
 concat = { path = "crates/concat" }
 
 # float_roundtrip: every number a save writes is read back as the same

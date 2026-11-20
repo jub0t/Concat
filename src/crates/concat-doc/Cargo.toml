@@ -1,0 +1,24 @@
+[package]
+name = "concat-doc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The document's core: whole ticks for time, typed ids that are never used twice, tables that share what did not change, transactions that are checked before they land, and undo as a step back to an earlier snapshot."
+
+[dependencies]
+# A tick is written as a whole number and an id as a short string; the
+# types here say so themselves, so no file format can spell them another
+# way.
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# The tests run long random lists of edits against a model too simple to
+# be wrong: a plain sorted map per table, copied whole at every step.
+proptest = "1"
+proptest-state-machine = "0.9"
+serde_json.workspace = true
+
+[lints]
+workspace = true
