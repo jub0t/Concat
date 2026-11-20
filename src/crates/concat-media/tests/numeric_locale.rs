@@ -62,15 +62,20 @@ fn a_clip_at_another_speed_decodes_under_a_comma_locale() {
     let _restore = Restore(before);
 
     // The names a comma locale goes by: glibc's and macOS's, then the
-    // UCRT's.
+    // UCRT's (German and Polish — #762 was reported on pl-PL).
     let candidates = [
         "de_DE.UTF-8",
         "de_DE.utf8",
         "fr_FR.UTF-8",
         "fr_FR.utf8",
+        "pl_PL.UTF-8",
+        "pl_PL.utf8",
         "de_DE",
         "de-DE",
+        "pl_PL",
+        "pl-PL",
         "German_Germany.1252",
+        "Polish_Poland.1250",
     ];
     let Some(used) = candidates
         .iter()
