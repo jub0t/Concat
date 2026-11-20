@@ -1,0 +1,26 @@
+{
+  "about": "A two-second clip with an effect layer over it carrying the Mono effect for the layer's second half. Under the layer the clip's frames still read and its colour is gone; before it, the colour is there. Frames 15 and 45 of the monitor are held to stored pictures. A failure means an effect layer does not act on what is beneath it, acts outside its own span, or draws differently on this graphics adapter.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addLayerClip", "start": 1, "duration": 1, "effectId": "concat.mono", "name": "Mono", "sound": false } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 60,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 }
+    ],
+    "golden": [
+      { "name": "frame-15", "frame": 15 },
+      { "name": "frame-45", "frame": 45 }
+    ]
+  }
+}

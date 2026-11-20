@@ -1,0 +1,27 @@
+{
+  "about": "A title over a clip with its first four letters made red, heavier and underlined. The clip's frames read under it, and frames 0 and 45 of the monitor are held to stored pictures of the lettering. A failure means a style on part of a title lands on the wrong letters, is lost by a save, or changes the rest of the title.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addTextClip", "above": true, "start": 0, "duration": 2 }, "as": "title" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "styleTextRange", "clipId": "$title", "start": 0, "end": 4, "patch": { "color": "#ff3b30", "fontWeight": 900, "underline": true } } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 60,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 }
+    ],
+    "golden": [
+      { "name": "frame-00", "frame": 0 },
+      { "name": "frame-45", "frame": 45 }
+    ]
+  }
+}

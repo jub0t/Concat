@@ -350,6 +350,12 @@ pub struct Run {
     /// whose opacity is set or keyed. Absent, all of it.
     #[serde(default)]
     pub fade: Option<[f64; 2]>,
+    /// [`Run::fade`] counted in stops, as an exposure is: at the run's
+    /// first frame and at its last, a straight line between, each stop
+    /// down halving the light. A keyed exposure is a straight line in
+    /// stops and a curve in light.
+    #[serde(default)]
+    pub stops: Option<[f64; 2]>,
     /// The picture the run's own is melting into, for a run under a
     /// dissolve.
     #[serde(default)]
@@ -526,6 +532,10 @@ impl Case {
             if let Some(fade) = run.fade {
                 let share = fade[0] + (fade[1] - fade[0]) * f64::from(along) / span;
                 return Some(Shows::Faded(code, share, run.at, run.block));
+            }
+            if let Some(stops) = run.stops {
+                let at = stops[0] + (stops[1] - stops[0]) * f64::from(along) / span;
+                return Some(Shows::Faded(code, 2f64.powf(at), run.at, run.block));
             }
             let Some(into) = &run.into else {
                 return Some(Shows::Code(code, run.at, run.block));

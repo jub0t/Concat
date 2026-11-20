@@ -1,0 +1,10 @@
+{
+  "goldens": {
+    "frame-15": {
+      "blessedOn": "metal"
+    },
+    "frame-45": {
+      "blessedOn": "metal"
+    }
+  }
+}
