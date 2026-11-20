@@ -38,6 +38,9 @@ use crate::error::{Error, Result};
 use crate::feed;
 use crate::ffi;
 use crate::hardware::{self, Device, HwDevice, HwPolicy, Seat};
+use crate::iphone_sdr;
+
+pub(crate) use crate::iphone_sdr::is_iphone_dolby_vision_stream;
 
 /// How [`Decoder::open_codec`] opens the codec.
 enum Codec<'a> {
@@ -176,6 +179,9 @@ pub struct DecodeOptions {
     /// pre-chain runs, since those are FFmpeg filters on eight bits. See
     /// [`Frame::signal`].
     pub deep: bool,
+    /// Apply the iPhone Dolby Vision 8.4 input profile on an SDR timeline.
+    /// Other signals and a platform without the profile use the usual path.
+    pub iphone_sdr: bool,
 }
 
 impl DecodeOptions {
@@ -257,6 +263,12 @@ impl DecodeOptions {
     /// Keeps a wide or HDR source deep; see [`DecodeOptions::deep`].
     pub fn deep(mut self, deep: bool) -> Self {
         self.deep = deep;
+        self
+    }
+
+    /// Enables the iPhone Dolby Vision 8.4 profile for an SDR caller.
+    pub fn iphone_sdr(mut self, enabled: bool) -> Self {
+        self.iphone_sdr = enabled;
         self
     }
 
@@ -644,7 +656,8 @@ pub struct Decoder {
     height: u32,
     /// Built on the first frame, once its format and size are known;
     /// rebuilt if a later frame differs.
-    graph: Option<(Pixel, u32, u32, filter::Graph)>,
+    graph: Option<((Pixel, u32, u32, bool), filter::Graph)>,
+    iphone_sdr: Option<iphone_sdr::Profile>,
     /// Frames before this instant are decoded and discarded - the exact
     /// half of a seek, after the container landed on a keyframe.
     discard_before: Option<Rational>,
@@ -710,6 +723,12 @@ impl Decoder {
                 path: path.to_path_buf(),
             })?;
         let stream_index = stream.index();
+        // Safe graphics must be able to recover from a broken graphics
+        // driver, including when the source normally uses a Vulkan filter.
+        let iphone_sdr = (options.iphone_sdr
+            && is_iphone_dolby_vision_stream(&stream)
+            && iphone_sdr::available())
+        .then(iphone_sdr::Profile::default);
         let time_base = stream.time_base();
         let start = ffi::origin(&input);
         let rotation = ffi::rotation(&stream);
@@ -870,6 +889,7 @@ impl Decoder {
             width,
             height,
             graph: None,
+            iphone_sdr,
             discard_before: None,
             discard_through: None,
             landing: None,
@@ -1351,16 +1371,39 @@ impl Decoder {
 
     /// Runs one decoded picture through the graph and copies the RGBA out.
     fn convert(&mut self, source: &Video) -> Result<Frame> {
-        let key = (source.format(), source.width(), source.height());
+        let converted = if let Some(profile) = &mut self.iphone_sdr {
+            match profile.convert(
+                &self.path,
+                source,
+                self.rotation,
+                self.color,
+                self.options.color_range,
+            ) {
+                Ok(frame) => frame,
+                Err(error) => {
+                    log::warn!(
+                        "{}: iPhone Dolby Vision 8.4 SDR profile unavailable, using standard colour conversion: {error}",
+                        self.path.display()
+                    );
+                    self.iphone_sdr = None;
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let profiled = converted.is_some();
+        let source = converted.as_ref().unwrap_or(source);
+        let key = (source.format(), source.width(), source.height(), profiled);
         if self
             .graph
             .as_ref()
-            .is_none_or(|(format, width, height, _)| (*format, *width, *height) != key)
+            .is_none_or(|(current, _)| *current != key)
         {
-            let graph = self.build_graph(key.0, key.1, key.2)?;
-            self.graph = Some((key.0, key.1, key.2, graph));
+            let graph = self.build_graph(key.0, key.1, key.2, profiled)?;
+            self.graph = Some((key, graph));
         }
-        let (.., graph) = self.graph.as_mut().expect("just built");
+        let (_, graph) = self.graph.as_mut().expect("just built");
 
         {
             let mut context = graph.get("in").expect("the graph has an input");
@@ -1381,7 +1424,11 @@ impl Decoder {
         // The sink's picture is RGBA already - sixteen bits a channel for a
         // deep frame - and only its row padding differs from the packed
         // buffer a Frame is.
-        let deep = deep_output(&self.options, Some(&self.color));
+        let deep = if profiled {
+            None
+        } else {
+            deep_output(&self.options, Some(&self.color))
+        };
         let width = filtered.width();
         let height = filtered.height();
         let row = width as usize * if deep.is_some() { 8 } else { 4 };
@@ -1401,15 +1448,24 @@ impl Decoder {
         })
     }
 
-    fn build_graph(&self, format: Pixel, width: u32, height: u32) -> Result<filter::Graph> {
+    fn build_graph(
+        &self,
+        format: Pixel,
+        width: u32,
+        height: u32,
+        profiled: bool,
+    ) -> Result<filter::Graph> {
         ffi::begin();
         let mut graph = filter::Graph::new();
-        let args = format!(
+        let mut args = format!(
             "video_size={width}x{height}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1",
             Into::<ffmpeg::sys::AVPixelFormat>::into(format).0,
             self.time_base.numerator(),
             self.time_base.denominator()
         );
+        if profiled {
+            args.push_str(":colorspace=bt709:range=tv");
+        }
         let missing = |name: &str| Error::Missing {
             what: "filter",
             name: name.to_owned(),
@@ -1428,13 +1484,22 @@ impl Decoder {
                 "",
             )
             .map_err(|error| ffi::fail_said("buffer sink", &self.path, error))?;
-        let spec = video_filter(
-            self.rotation,
-            &self.options,
-            self.width,
-            self.height,
-            Some(&self.color),
-        );
+        let spec = if profiled {
+            // The input stage applied autorotation and produced BT.709
+            // limited YUV420P as in v1. A range override belongs to the
+            // original input, and the SDR result is eight bits.
+            let mut options = self.options.clone();
+            options.color_range = None;
+            video_filter(0, &options, self.width, self.height, None)
+        } else {
+            video_filter(
+                self.rotation,
+                &self.options,
+                self.width,
+                self.height,
+                Some(&self.color),
+            )
+        };
         graph
             .output("in", 0)
             .and_then(|parser| parser.input("out", 0))

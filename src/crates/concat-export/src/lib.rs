@@ -1931,6 +1931,7 @@ fn render_picture(
     // An HDR file comes out of the compositor as its signal, sixteen bits a
     // channel; anything else, SDR - an HDR timeline's tone-mapped.
     let signal = output_of(request.color_space);
+    let iphone_sdr = request.color_space.is_sdr();
     // The alpha codecs are written SDR alone (see `Encoder::create_hdr`):
     // an HDR timeline is tone-mapped into one, as it is on a phone that
     // cannot write ten bits, rather than the export failing.
@@ -1941,6 +1942,23 @@ fn render_picture(
     // paced decoder: each of its frames is sought by its own source time,
     // through a pool that keeps the reader rolling where it can.
     let sought = concat_media::ReaderPool::with_defaults();
+    let seek = |layer: &PlannedLayer| {
+        let (width, height) = decode_sizes
+            .get(&layer.clip)
+            .copied()
+            .unwrap_or((request.width, request.height));
+        sought
+            .frame_at_with(
+                &concat_media::FrameRequest::new(&layer.media, layer.source_time, width, height)
+                    .as_still(stills.contains(&layer.clip))
+                    .in_range(ranges.get(&layer.clip).copied())
+                    // Deep where the frame goes to the GPU as it is: a
+                    // cutout cuts eight bits.
+                    .deep_when_untreated(!cutouts.contains_key(&layer.clip))
+                    .iphone_sdr(iphone_sdr),
+            )
+            .map_err(|error| error.to_string())
+    };
 
     // Each pass renders the whole cut from its first frame. There is a
     // second only when the first one's hardware encoder stopped taking
@@ -2014,7 +2032,8 @@ fn render_picture(
                 .scaled_to(decode_width, decode_height)
                 .at_rate(decode_rate)
                 .in_range(ranges.get(&layer.clip).copied())
-                .deep(deep);
+                .deep(deep)
+                .iphone_sdr(iphone_sdr);
 
             // A still is a one-frame stream. Without looping it would
             // contribute a single frame and then disappear.
@@ -2053,10 +2072,6 @@ fn render_picture(
             let mut layers: Vec<PlannedLayer> = Vec::with_capacity(plan.layers.len());
             for layer in &plan.layers {
                 if !layer.paced {
-                    let (decode_width, decode_height) = decode_sizes
-                        .get(&layer.clip)
-                        .copied()
-                        .unwrap_or((request.width, request.height));
                     // A frame that cannot be read ends the export with the
                     // reason, as it does on the paced path below. A time past
                     // the media's end is not that: the pool answers it with the
@@ -2064,21 +2079,7 @@ fn render_picture(
                     // floor, so a reversed or retimed clip whose file had gone
                     // bad exported as a missing layer and nobody was told.
                     let seeking = std::time::Instant::now();
-                    let frame = sought
-                        .frame_at(
-                            &layer.media,
-                            layer.source_time,
-                            decode_width,
-                            decode_height,
-                            stills.contains(&layer.clip),
-                            None,
-                            None,
-                            ranges.get(&layer.clip).copied(),
-                            // Deep where the frame goes to the GPU as it is: a
-                            // cutout cuts eight bits.
-                            !cutouts.contains_key(&layer.clip),
-                        )
-                        .map_err(|error| error.to_string())?;
+                    let frame = seek(layer)?;
                     spent.seeking += seeking.elapsed();
                     spent.sought += 1;
                     let frame = cutouts
@@ -2105,25 +2106,8 @@ fn render_picture(
                 let mut next = feeds.next(index, layer, paced)?;
                 spent.footage += waiting.elapsed();
                 if next.is_none() {
-                    let (decode_width, decode_height) = decode_sizes
-                        .get(&layer.clip)
-                        .copied()
-                        .unwrap_or((request.width, request.height));
                     let seeking = std::time::Instant::now();
-                    next = sought
-                        .frame_at(
-                            &layer.media,
-                            layer.source_time,
-                            decode_width,
-                            decode_height,
-                            stills.contains(&layer.clip),
-                            None,
-                            None,
-                            ranges.get(&layer.clip).copied(),
-                            !cutouts.contains_key(&layer.clip),
-                        )
-                        .map(Some)
-                        .map_err(|error| error.to_string())?;
+                    next = Some(seek(layer)?);
                     spent.seeking += seeking.elapsed();
                     spent.sought += 1;
                 }
@@ -3322,6 +3306,7 @@ fn frame_request(
         .as_still(still)
         .from_proxy(proxy)
         .in_range(plan.built.ranges.get(&layer.clip).copied())
+        .iphone_sdr(plan.iphone_sdr)
         // The compositor fits the picture into its place, so an untreated
         // frame is drawn at the level it was decoded at - deep, for an HDR
         // clip, unless a cutout has to cut it in eight bits.
@@ -3476,6 +3461,15 @@ pub struct PreviewPlan {
     height: u32,
     /// What the timeline is output in.
     output: Signal,
+    iphone_sdr: bool,
+}
+
+impl PreviewPlan {
+    /// Keeps the original picture in the source monitor's existing colour pipeline.
+    pub fn for_source_monitor(mut self) -> Self {
+        self.iphone_sdr = false;
+        self
+    }
 }
 
 /// Builds the plan for `clips` at one output size and rate. The costly
@@ -3528,6 +3522,7 @@ pub fn preview_plan(
         width,
         height,
         output: output_of(color_space),
+        iphone_sdr: color_space.is_sdr(),
     }
 }
 
