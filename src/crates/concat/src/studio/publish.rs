@@ -234,6 +234,20 @@ impl Studio {
                 .rev()
                 .map(|lane| {
                     let height = self.lane_height(lane);
+                    // Eye drops picture from the composite. Enable it when the
+                    // lane has any picture, when it is empty, or when it is
+                    // already hidden (so picture can be brought back). Dim
+                    // only on a visible lane that holds only audio / sound
+                    // layers (#833); the slot stays so header columns align.
+                    let shows_eye = !lane.visible
+                        || timeline.clips.iter().any(|clip| {
+                            clip.track_id == lane.id
+                                && !matches!(
+                                    clip.kind,
+                                    model::ClipKind::Audio | model::ClipKind::SoundLayer
+                                )
+                        })
+                        || !timeline.clips.iter().any(|clip| clip.track_id == lane.id);
                     let row = TrackData {
                         id: lane.id.as_str().into(),
                         visible: lane.visible,
@@ -242,6 +256,7 @@ impl Studio {
                         size: self.lane_size(&lane.id),
                         height,
                         top,
+                        shows_eye,
                     };
                     top += height;
                     row
