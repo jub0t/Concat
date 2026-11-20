@@ -135,7 +135,9 @@ impl ExportPane {
                 self.phase = ExportPhase::Idle;
                 self.message.clear();
                 // The timeline's own size: the one rung that can be picked;
-                // and its own rate, first on the rate list.
+                // and its own rate, first on the rate list. Destination
+                // folder is set when the project opens (#750 / #836): the
+                // project folder, or a Browse pick remembered for it.
                 self.resolution = Self::own_rung(studio);
                 self.rate = 0;
                 self.follow_canvas(studio);
@@ -179,7 +181,19 @@ impl ExportPane {
                     },
                 );
             }
-            ExportMsg::FolderChosen(folder) => self.folder = folder,
+            ExportMsg::FolderChosen(folder) => {
+                self.folder = folder;
+                // Remember the Browse pick for this project so the next open
+                // uses it instead of the project folder (#836).
+                if let Some(session) = studio.session.as_ref() {
+                    let path = session.path().to_string();
+                    studio
+                        .prefs
+                        .export_folders
+                        .insert(path, self.folder.clone());
+                    studio.prefs.save(&studio.host.dirs);
+                }
+            }
             ExportMsg::Reveal => {
                 if !self.written.is_empty()
                     && let Err(error) = platform::reveal(&self.written)
