@@ -283,6 +283,32 @@ fn from_document_quietly(document: &Value) -> bool {
         .is_some()
 }
 
+/// A save writes each number in as few digits as name it, and the reader
+/// must come back to that same number: a clip's start a hair off after a
+/// reopen is, on a frame's edge, a cut a frame over. Two hundred thousand
+/// numbers with every bit of their precision in use, in the range a
+/// project's times are in; about one in twelve came back a last digit off
+/// before the reader was told to be exact.
+#[test]
+fn every_number_a_save_writes_is_read_back_as_it_was() {
+    let mut dice = Dice(0x9E37_79B9_7F4A_7C15);
+    let mut off = Vec::new();
+    for _ in 0..200_000 {
+        let value = (dice.next() >> 11) as f64 / (1u64 << 53) as f64 * 10_000.0;
+        let text = serde_json::to_string(&json!({ "start": value })).expect("writes");
+        let back: Value = serde_json::from_str(&text).expect("reads");
+        if back["start"].as_f64().map(f64::to_bits) != Some(value.to_bits()) {
+            off.push(text);
+        }
+    }
+    assert!(
+        off.is_empty(),
+        "{} numbers came back changed, the first {}",
+        off.len(),
+        off[0]
+    );
+}
+
 /// A document that is not an object, or is empty, or is only noise, is
 /// nothing to open, said without a panic.
 #[test]

@@ -27,7 +27,12 @@ concat-log = { path = "crates/concat-log" }
 concat-sched = { path = "crates/concat-sched" }
 concat = { path = "crates/concat" }
 
-serde_json = "1"
+# float_roundtrip: every number a save writes is read back as the same
+# number. Without it the parser is faster and a last digit off for about
+# one full-precision number in twelve, so a project's times moved by a
+# hair the first time it was reopened - enough, on a frame's edge, to land
+# a cut a frame over.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
 clap = { version = "4", features = ["derive", "env"] }
 # JSON Schemas for the API's request types, behind the `schema` features of
