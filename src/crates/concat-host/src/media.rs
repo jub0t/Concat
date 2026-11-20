@@ -1003,6 +1003,7 @@ mod tests {
                 cadence: concat_core::time::FrameRate::from_int(25),
                 color_range: None,
                 signal: Signal::Sdr,
+                iphone_dolby_vision: false,
                 keyframes: std::sync::Arc::from([]),
             }),
             audio: None,

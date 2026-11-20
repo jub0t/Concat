@@ -887,6 +887,7 @@ impl Api {
                     moving: false,
                     proxy: false,
                     color_space: session.video().color_space,
+                    source_monitor: false,
                     canvas: session.video().canvas,
                     nearest: false,
                 },

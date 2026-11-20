@@ -376,6 +376,7 @@ impl MonitorPane {
                 && (studio.playing || studio.source.as_ref().is_some_and(|source| source.playing))
                 && quality > 0,
             color_space: studio.project().active().video.color_space,
+            source_monitor: studio.source.is_some(),
             canvas: studio.project().active().video.canvas,
             nearest,
         };

@@ -135,6 +135,7 @@ impl Studio {
             moving: false,
             proxy: false,
             color_space: self.project().active().video.color_space,
+            source_monitor: self.source.is_some(),
             canvas: self.project().active().video.canvas,
             nearest: false,
         };
