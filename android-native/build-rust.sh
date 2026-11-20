@@ -31,7 +31,7 @@ flags=()
 [ "$profile" = release ] && flags+=(--release)
 cd "$workspace"
 started=$(date +%s)
-cargo ndk -t arm64-v8a --platform 26 build "${flags[@]}" -p concat-mobile
+cargo ndk -t arm64-v8a --platform 26 build ${flags[@]+"${flags[@]}"} -p concat-mobile
 echo "cargo ndk took $(( $(date +%s) - started ))s"
 
 so=$CARGO_TARGET_DIR/aarch64-linux-android/$profile/libconcat_mobile.so
