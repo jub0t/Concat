@@ -187,7 +187,17 @@ impl Shell {
 /// among the analyses: the scheduler sizes each to the machine and is the
 /// one place that knows how much of it is in use (see
 /// `concat_host::jobs::scheduler`). The save keeps its own thread, below.
-fn submit(lane: sched::Lane, what: &'static str, run: impl FnOnce() + Send + 'static) {
+///
+/// `project` is the project epoch a job belongs to, when it is a
+/// project's: the scheduler then knows whose it is, and a job still
+/// waiting its turn when that project closes is let go without running
+/// (see [`next_project_epoch`]).
+fn submit(
+    lane: sched::Lane,
+    what: &'static str,
+    project: Option<u64>,
+    run: impl FnOnce() + Send + 'static,
+) {
     let scheduler = concat_host::jobs::scheduler();
     // A long job that finds every worker busy shows no progress while it
     // waits, and the log is where a report of one "stuck at 0%" is read.
@@ -197,10 +207,17 @@ fn submit(lane: sched::Lane, what: &'static str, run: impl FnOnce() + Send + 'st
             log::info!("host: {what} waits its turn: all {workers} long-job workers are busy");
         }
     }
-    let ticket = scheduler.submit_then(
-        sched::Job::infallible(lane, move |_| run()).label(what),
-        |_| {},
-    );
+    let mut job = sched::Job::infallible(lane, move |_| run()).label(what);
+    if let Some(epoch) = project {
+        job = job.owner(sched::Owner(epoch));
+    }
+    // An export has the cores the scheduler grants the foreground: it
+    // fans out over them itself, and the jobs under it wait their turn
+    // rather than take a share from it.
+    if lane == sched::Lane::Foreground {
+        job = job.wide();
+    }
+    let ticket = scheduler.submit_then(job, |_| {});
     if let Some(sched::End::Refused(why)) = ticket.end() {
         log::error!("host: {what} was not taken on ({why:?}); it will not run");
     }
@@ -315,7 +332,12 @@ impl Drop for SaveLane {
 /// Runs `work` on the interactive lane with nothing to report: the frames
 /// ahead of the playhead. Never for anything slow; see [`spawn_long`].
 pub fn spawn_detached(work: impl FnOnce() + Send + 'static) {
-    submit(sched::Lane::Io, std::any::type_name_of_val(&work), work);
+    submit(
+        sched::Lane::Io,
+        std::any::type_name_of_val(&work),
+        None,
+        work,
+    );
 }
 
 /// Runs `work` on the interactive lane, then `then` on the event-loop
@@ -330,7 +352,9 @@ pub fn spawn<T: Send + 'static>(
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
     let what = std::any::type_name_of_val(&work);
-    submit(sched::Lane::Io, what, move || deliver(None, work(), then));
+    submit(sched::Lane::Io, what, None, move || {
+        deliver(None, work(), then)
+    });
 }
 
 /// [`spawn`] on the long lane: for work that takes seconds or minutes - a
@@ -341,20 +365,36 @@ pub fn spawn_long<T: Send + 'static>(
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
     let what = std::any::type_name_of_val(&work);
-    submit(sched::Lane::Background, what, move || {
+    submit(sched::Lane::Background, what, None, move || {
         deliver(None, work(), then)
     });
 }
 
-/// [`spawn_in_project`] on the long lane: an export, a merge, captions,
-/// speech, an analysis or a render of the open project's media.
+/// [`spawn_long`] for an export: on the scheduler's foreground lane, ahead
+/// of the analyses and across the cores that lane is granted, where it
+/// used to be one long job among them. The person is waiting for it, and
+/// two things that each use every core side by side finish neither sooner.
+/// Not a project's: an export goes on writing its file when the project
+/// that started it is closed.
+pub fn spawn_export<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    let what = std::any::type_name_of_val(&work);
+    submit(sched::Lane::Foreground, what, None, move || {
+        deliver(None, work(), then)
+    });
+}
+
+/// [`spawn_in_project`] on the long lane: a merge, captions, speech, an
+/// analysis or a render of the open project's media.
 pub fn spawn_long_in_project<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
     let epoch = project_epoch();
     let what = std::any::type_name_of_val(&work);
-    submit(sched::Lane::Background, what, move || {
+    submit(sched::Lane::Background, what, Some(epoch), move || {
         deliver(Some(epoch), work(), then)
     });
 }
@@ -403,9 +443,21 @@ pub fn project_epoch() -> u64 {
     PROJECT_EPOCH.load(std::sync::atomic::Ordering::Acquire)
 }
 
-/// Starts the next project epoch: a project opened or closed.
+/// Starts the next project epoch: a project opened or closed. The jobs
+/// of the one that ended are told so. One still waiting its turn never
+/// runs - a queue of analyses for a project the person has left used to
+/// run to its end, each result thrown away as it landed - and one already
+/// running goes on until it next looks, its result dropped in [`deliver`]
+/// as before.
 pub fn next_project_epoch() {
-    PROJECT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    let ended = PROJECT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    let told = concat_host::jobs::scheduler().cancel_owner(sched::Owner(ended));
+    if !told.is_empty() {
+        log::info!(
+            "host: {} job(s) of the project that closed were told to stop",
+            told.len()
+        );
+    }
 }
 
 /// Whether a result made in `epoch` concerns a project no longer open.
@@ -425,7 +477,7 @@ pub fn spawn_in_project<T: Send + 'static>(
 ) {
     let epoch = project_epoch();
     let what = std::any::type_name_of_val(&work);
-    submit(sched::Lane::Io, what, move || {
+    submit(sched::Lane::Io, what, Some(epoch), move || {
         deliver(Some(epoch), work(), then)
     });
 }
@@ -440,7 +492,7 @@ pub fn spawn_in_project_publishing<T: Send + 'static>(
 ) {
     let epoch = project_epoch();
     let what = std::any::type_name_of_val(&work);
-    submit(sched::Lane::Io, what, move || {
+    submit(sched::Lane::Io, what, Some(epoch), move || {
         deliver_then(Some(epoch), work(), then, publish)
     });
 }
@@ -478,7 +530,7 @@ pub fn spawn_frame<T: Send + 'static>(
             },
         );
     };
-    submit(sched::Lane::Frame, what, run);
+    submit(sched::Lane::Frame, what, Some(epoch), run);
 }
 
 /// Hands a worker's result to the event-loop thread: `then` with the state
@@ -1097,6 +1149,11 @@ mod lane_tests {
     /// thread takes to start, far less than the minutes a save waited.
     const PROMPTLY: Duration = Duration::from_secs(1);
 
+    /// Held by each test that fills the long jobs' workers: they are the
+    /// process's, so two such tests at once each hold some and neither
+    /// ever sees them all as its own.
+    static WORKERS: Mutex<()> = Mutex::new(());
+
     /// The bug: every long job running took a worker the monitor's frames
     /// and the autosave needed. With every long-job worker held - and jobs
     /// more waiting behind them - a frame, a short job and a save still
@@ -1104,6 +1161,7 @@ mod lane_tests {
     #[test]
     fn a_frame_and_a_save_run_at_once_with_the_long_jobs_full() {
         use concat_host::jobs::sched::Lane;
+        let _turn = WORKERS.lock().unwrap_or_else(|held| held.into_inner());
         let workers = concat_host::jobs::scheduler()
             .budget()
             .lane(Lane::Background)
@@ -1118,6 +1176,7 @@ mod lane_tests {
             super::submit(
                 Lane::Background,
                 "a long job that does not end",
+                None,
                 move || {
                     started.fetch_add(1, Ordering::SeqCst);
                     let _ = held.lock().expect("the gate").recv();
@@ -1140,11 +1199,11 @@ mod lane_tests {
 
         let asked = Instant::now();
         let (frame_done, frame) = mpsc::channel();
-        super::submit(Lane::Frame, "a monitor frame", move || {
+        super::submit(Lane::Frame, "a monitor frame", None, move || {
             let _ = frame_done.send(());
         });
         let (short_done, short) = mpsc::channel();
-        super::submit(Lane::Io, "a short job", move || {
+        super::submit(Lane::Io, "a short job", None, move || {
             let _ = short_done.send(());
         });
         let (save_done, save) = mpsc::channel();
@@ -1169,6 +1228,67 @@ mod lane_tests {
         assert!(short.is_ok(), "the short job waited behind the long jobs");
         assert!(save.is_ok(), "the save waited behind the long jobs");
         assert!(took < PROMPTLY, "all three ran in {took:?}");
+    }
+
+    /// A project's job still waiting its turn when the project closes
+    /// never runs; one that belongs to no project does.
+    #[test]
+    fn a_closed_projects_waiting_jobs_never_run() {
+        use concat_host::jobs::sched::Lane;
+        let _turn = WORKERS.lock().unwrap_or_else(|held| held.into_inner());
+        let workers = concat_host::jobs::scheduler()
+            .budget()
+            .lane(Lane::Background)
+            .workers;
+        // Every long-job worker held, so what is asked next waits.
+        let (release, held) = mpsc::channel::<()>();
+        let held = Arc::new(Mutex::new(held));
+        let started = Arc::new(AtomicUsize::new(0));
+        for _ in 0..workers {
+            let held = Arc::clone(&held);
+            let started = Arc::clone(&started);
+            super::submit(
+                Lane::Background,
+                "a long job that holds a worker",
+                None,
+                move || {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    let _ = held.lock().expect("the gate").recv();
+                },
+            );
+        }
+        let waited = Instant::now();
+        while started.load(Ordering::SeqCst) < workers {
+            assert!(
+                waited.elapsed() < Duration::from_secs(10),
+                "the workers never filled"
+            );
+            std::thread::yield_now();
+        }
+
+        let (ran, which) = mpsc::channel();
+        let theirs = ran.clone();
+        let project = super::project_epoch();
+        super::submit(
+            Lane::Background,
+            "the closed project's job",
+            Some(project),
+            move || {
+                let _ = theirs.send("the project's");
+            },
+        );
+        super::submit(Lane::Background, "nobody's job", None, move || {
+            let _ = ran.send("nobody's");
+        });
+        super::next_project_epoch();
+        for _ in 0..workers {
+            let _ = release.send(());
+        }
+        assert_eq!(which.recv_timeout(PROMPTLY * 5), Ok("nobody's"));
+        assert!(
+            which.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the closed project's job ran"
+        );
     }
 
     /// One run of a save job: which project, which of its snapshots, and
