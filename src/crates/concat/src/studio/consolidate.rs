@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
 use concat_host::consolidate::Consolidation;
 use concat_project::consolidation_clips;
 
@@ -148,11 +149,22 @@ impl Studio {
             },
             |studio, _, _, (plan, mut rendered, output, cancel, result)| {
                 studio.merge_job = None;
-                if cancel.load(Ordering::Relaxed) {
+                // Cancelled is the render's own word for it. One asked to
+                // stop as it wrote its last frame comes back whole, and is
+                // a cancel all the same: the person asked for the clips to
+                // stay as they are. A failure is said as one, whenever
+                // Cancel was pressed.
+                let written = match result {
+                    Err(Halt::Cancelled) => None,
+                    Ok(_) if cancel.load(Ordering::Relaxed) => None,
+                    Ok(_) => Some(Ok(())),
+                    Err(Halt::Failed(error)) => Some(Err(error)),
+                };
+                let Some(written) = written else {
                     studio.notify(&t("studio.mergeCancelled"), false);
                     return;
-                }
-                let outcome = result.and_then(|_| {
+                };
+                let outcome = written.and_then(|()| {
                     let summary = media::probe(&output.to_string_lossy())?;
                     let mut item = summary.to_new_media();
                     item.name = t("studio.mergedClips");

@@ -30,6 +30,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
 use concat_media::samples::{AudioDecoder, AudioOptions, SampleFormat};
 use concat_vision::runtime::{Data, Input, Model};
 use realfft::RealFftPlanner;
@@ -95,7 +96,7 @@ pub fn analyse_file(
     stream: Option<usize>,
     cancel: &AtomicBool,
     progress: impl FnMut(f32),
-) -> Result<Beats, String> {
+) -> Result<Beats, Halt> {
     let samples = decode(path, stream, cancel)?;
     analyse(&samples, cancel, progress)
 }
@@ -110,7 +111,7 @@ pub fn analyse(
     samples: &[f32],
     cancel: &AtomicBool,
     mut progress: impl FnMut(f32),
-) -> Result<Beats, String> {
+) -> Result<Beats, Halt> {
     let seconds = samples.len() as f64 / f64::from(RATE);
     let spect = log_mel(samples);
     let frames = spect.len() / MELS;
@@ -213,7 +214,7 @@ fn keep_model(threads: usize, model: Model) {
 /// Decodes `path` to mono at [`RATE`]: both channels at the rate, then
 /// their mean, which is the model's downmix (a mono file comes back as
 /// two equal channels, whose mean is itself).
-fn decode(path: &Path, stream: Option<usize>, cancel: &AtomicBool) -> Result<Vec<f32>, String> {
+fn decode(path: &Path, stream: Option<usize>, cancel: &AtomicBool) -> Result<Vec<f32>, Halt> {
     let mut decoder = AudioDecoder::open(
         path,
         &AudioOptions {
@@ -231,7 +232,7 @@ fn decode(path: &Path, stream: Option<usize>, cancel: &AtomicBool) -> Result<Vec
     let mut mono = Vec::new();
     while let Some(interleaved) = decoder.next_f32().map_err(|error| error.to_string())? {
         if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
         mono.extend(
             interleaved
@@ -409,7 +410,7 @@ fn activations(
     workers: usize,
     cancel: &AtomicBool,
     progress: &mut impl FnMut(f32),
-) -> Result<(Vec<f32>, Vec<f32>), String> {
+) -> Result<(Vec<f32>, Vec<f32>), Halt> {
     let starts = window_starts(frames, chunk);
     let workers = workers.clamp(1, starts.len());
     let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
@@ -455,7 +456,7 @@ fn activations(
         Ok(())
     })?;
     if cancel.load(Ordering::Relaxed) {
-        return Err("cancelled".to_owned());
+        return Err(Halt::Cancelled);
     }
     let mut beat = vec![f32::NAN; frames];
     let mut downbeat = vec![f32::NAN; frames];
@@ -849,5 +850,25 @@ mod tests {
         let found = analyse(&[0.0; 300], &AtomicBool::new(false), |_| {}).expect("listens");
         assert!(found.beats.is_empty());
         assert!(found.tempo.is_none());
+    }
+
+    #[test]
+    fn listening_tells_its_cancel_from_a_file_it_cannot_read_under_a_folder_named_cancelled() {
+        let missing = std::env::temp_dir()
+            .join(format!("concat-beats-halt-{}", std::process::id()))
+            .join("cancelled")
+            .join("song.wav");
+        let failed = analyse_file(&missing, None, &AtomicBool::new(false), |_| {})
+            .expect_err("there is no song");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("song.wav") && message.contains("cancelled")
+            ),
+            "the failure names the file, folder and all: {failed}"
+        );
+
+        let stopped = analyse(&groove(), &AtomicBool::new(true), |_| {});
+        assert_eq!(stopped, Err(Halt::Cancelled));
     }
 }

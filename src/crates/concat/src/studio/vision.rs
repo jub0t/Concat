@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 //! Cutouts, stabilization and Enhance.
 
+use concat_core::Halt;
+
 use super::*;
 
 impl Studio {
@@ -89,8 +91,10 @@ impl Studio {
                         studio.request_preview();
                         studio.ensure_cutouts();
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.removeBackground", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.removeBackground", &[&error]), true);
+                    }
                 }
             },
         );
@@ -173,8 +177,10 @@ impl Studio {
                         studio.request_preview();
                         studio.ensure_stabilizers();
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.stabilize", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.stabilize", &[&error]), true);
+                    }
                 }
             },
         );
@@ -597,8 +603,10 @@ impl Studio {
                         made.blend_at(studio.enhance_strength);
                         studio.enhance_preview = Some(made);
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.enhance", &[&error]), true);
+                    }
                 }
             },
         );
@@ -724,8 +732,10 @@ impl Studio {
                         studio.adopt_enhanced(&clip_id, &path, scale, percent, offset);
                     }
                     Ok(_) => {}
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.enhance", &[&error]), true);
+                    }
                 }
             },
         );
@@ -807,8 +817,10 @@ impl Studio {
                 studio.reverse_jobs.remove(&clip_id);
                 match result {
                     Ok(path) => studio.adopt_reversed(&clip_id, &path, start, covered),
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.reverse", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.reverse", &[&error]), true);
+                    }
                 }
             },
         );

@@ -20,6 +20,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use concat_core::Halt;
 use concat_host::media::{self, MediaSummary};
 use concat_host::voices::{self, Heard, SavedVoice};
 use concat_project::Command;
@@ -165,7 +166,7 @@ pub enum SpeechMsg {
     Progress(JobStage),
     /// The synthesiser's worker is done: the file it wrote, probed, or
     /// why not.
-    Finished(Box<Result<MediaSummary, String>>),
+    Finished(Box<Result<MediaSummary, Halt>>),
 }
 
 /// The Voices shelf's New voice sheet: a recording from the system's
@@ -512,10 +513,10 @@ impl SpeechPane {
                         }
                     }
                     // Asked for: the sheet is already on its way down.
-                    Err(error) if error.contains("cancel") => self.open = false,
+                    Err(Halt::Cancelled) => self.open = false,
                     // Closed while it ran: the panel is not there to say
                     // it, so the notice does, and the panel too next time.
-                    Err(error) => {
+                    Err(Halt::Failed(error)) => {
                         if !self.open {
                             studio.notify(&error, true);
                         }
@@ -646,7 +647,7 @@ impl SpeechPane {
                     });
                 })?;
                 let summary = media::probe(&spoken.path)?;
-                Ok::<_, String>(summary)
+                Ok::<_, Halt>(summary)
             },
             |studio, _, _, result| {
                 studio.handle(Msg::Speech(SpeechMsg::Finished(Box::new(result))))

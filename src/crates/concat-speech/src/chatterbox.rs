@@ -40,6 +40,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
 use ort::session::Session;
 use ort::value::Tensor;
 
@@ -199,7 +200,7 @@ pub fn download(
     dir: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(DownloadProgress),
-) -> Result<(), String> {
+) -> Result<(), Halt> {
     concat_vision::runtime::ready()?;
     let total: u64 = FILES.iter().map(|file| file.bytes).sum();
     let mut before: u64 = 0;
@@ -240,7 +241,7 @@ pub fn download(
             .map_err(|error| format!("could not finish {}: {error}", target.display()))?;
         before += file.bytes;
         if cancel.load(Ordering::Relaxed) {
-            return Err("download cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
     }
     progress(DownloadProgress {
@@ -572,7 +573,7 @@ impl Engine {
         let limit = MAX_NEW_TOKENS.min(expected_tokens(chunk) * RUNAWAY + 64);
         for step in 0..limit {
             if cancel.load(Ordering::Relaxed) {
-                return Err("speech generation cancelled".into());
+                return Err(ReadError::Cancelled);
             }
             let total_len = prompt_len + step;
             let mut inputs: Vec<Fed> = Vec::with_capacity(3 + LAYERS * 2);

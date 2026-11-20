@@ -158,7 +158,11 @@ fn seconds_cut_out_of_the_recording_stay_out_of_the_merge() {
     let plan = Consolidation::new(studio.project(), &ids).expect("mergeable");
     let stopped = scratch.path().join("stopped.mp4");
     let request = plan.request(studio.project(), Path::new(studio.session.path()), &stopped);
-    assert!(export::run(&request, &AtomicBool::new(true), |_| {}).is_err());
+    assert_eq!(
+        export::run(&request, &AtomicBool::new(true), |_| {}),
+        Err(concat_core::Halt::Cancelled),
+        "a render told to stop ends as a cancel, not as a failure"
+    );
     assert!(!stopped.exists(), "a cancelled render is not a file");
 
     let (plan, output, file) = render(&studio, &ids, "cuts");

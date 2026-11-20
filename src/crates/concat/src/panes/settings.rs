@@ -17,6 +17,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
 use concat_host::models::SourcePreference;
 use concat_host::updates::{self, Fixed, Installed, Release, Standing, Version};
 use slint::{ModelRc, SharedString, VecModel};
@@ -101,7 +102,7 @@ pub enum SettingsMsg {
     /// A download's worker is done: the model on disk, or why not.
     ModelFinished {
         id: String,
-        result: Result<(), String>,
+        result: Result<(), Halt>,
     },
     /// The Version page asks GitHub for the releases.
     CheckUpdates,
@@ -120,7 +121,7 @@ pub enum SettingsMsg {
     /// The switch's worker is done: what it did, or why not.
     InstallFinished {
         version: Version,
-        result: Result<Installed, String>,
+        result: Result<Installed, Halt>,
     },
 }
 
@@ -129,6 +130,11 @@ const VERSION_PAGE: i32 = 6;
 /// The Shortcuts page's index, which the launch screen's Keyboard
 /// shortcuts card opens the sheet on.
 pub const SHORTCUTS_PAGE: i32 = 7;
+
+/// What the notice says when a model's download is stopped. These were the
+/// downloader's own words while a cancel was an error like any other, and
+/// are kept as they were now that it is not.
+const DOWNLOAD_CANCELLED: &str = "download cancelled";
 
 /// One downloadable model, as the settings sheet shows it.
 #[derive(Clone, Debug)]
@@ -576,7 +582,10 @@ impl SettingsPane {
                         }
                         studio.prefs.save(&studio.host.dirs);
                     }
-                    Err(error) => match &failure {
+                    // A download that was stopped says so, in the words it
+                    // always has.
+                    Err(Halt::Cancelled) => studio.notify(DOWNLOAD_CANCELLED, true),
+                    Err(Halt::Failed(error)) => match &failure {
                         Some(failure) => studio.notify(&failure_line(failure), true),
                         None => studio.notify(&error, true),
                     },
@@ -645,10 +654,10 @@ impl SettingsPane {
                         studio.notify(&tf("settings.packageOpened", &[&version]), false);
                     }
                     // A cancel is a choice, not a failure worth a toast.
-                    Err(_) if self.install_cancel.load(Ordering::Relaxed) => {
+                    Err(Halt::Cancelled) => {
                         log::info!("update: switching to {version} cancelled");
                     }
-                    Err(error) => {
+                    Err(Halt::Failed(error)) => {
                         log::warn!(
                             "update: installing {version} failed: {error}; this version stays"
                         );
@@ -702,6 +711,7 @@ impl SettingsPane {
         spawn_long(
             move || {
                 let result = updates::fetch_package(&release, kind)
+                    .map_err(Halt::Failed)
                     .and_then(|package| {
                         let mut report = |received: u64, total: u64| {
                             let msg = SettingsMsg::InstallProgress {
@@ -712,7 +722,7 @@ impl SettingsPane {
                         };
                         updates::download_package(&package, &folder, &cancel, &mut report)
                     })
-                    .and_then(|path| updates::install(&path, kind));
+                    .and_then(|path| updates::install(&path, kind).map_err(Halt::Failed));
                 (version, result)
             },
             |studio, _, _, (version, result)| {

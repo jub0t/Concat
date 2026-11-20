@@ -1429,6 +1429,7 @@ dependencies = [
 name = "concat-speech"
 version = "0.2.12"
 dependencies = [
+ "concat-core",
  "concat-host",
  "concat-log",
  "concat-media",

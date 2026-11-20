@@ -2639,7 +2639,11 @@ fn consolidation_after_pause_removal_preserves_picture_sound_and_undo() {
     let cancelled = AtomicBool::new(true);
     let cancelled_path = folder.join("cancelled.mp4");
     let request = plan.request(&before, Path::new(studio.session.path()), &cancelled_path);
-    assert!(export::run(&request, &cancelled, |_| {}).is_err());
+    assert_eq!(
+        export::run(&request, &cancelled, |_| {}),
+        Err(concat_core::Halt::Cancelled),
+        "a render told to stop ends as a cancel, not as a failure"
+    );
     assert!(
         !cancelled_path.exists(),
         "a cancelled render is never a completed source"

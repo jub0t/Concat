@@ -21,6 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
+use concat_core::Halt;
 use serde::{Deserialize, Serialize};
 
 use crate::AppDirs;
@@ -426,7 +427,7 @@ pub fn fetch_sound(
     sound: &Listed,
     cancel: &std::sync::atomic::AtomicBool,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, Halt> {
     let target = cached_file(dirs, sound);
     if target.is_file() {
         return Ok(target);
@@ -437,7 +438,7 @@ pub fn fetch_sound(
     let partial = target.with_extension("partial");
     let mut last = String::new();
     for url in crate::models::sound_sources(&sound.file) {
-        match crate::models::download(&url, &partial, sound.bytes, cancel, "cancelled", progress) {
+        match crate::models::download(&url, &partial, sound.bytes, cancel, progress) {
             Ok(_) => match crate::models::verify(&partial, &sound.sha256) {
                 Ok(()) => {
                     std::fs::rename(&partial, &target)
@@ -449,11 +450,11 @@ pub fn fetch_sound(
                     last = error;
                 }
             },
-            Err(error) if error == "cancelled" => return Err(error),
-            Err(error) => last = error,
+            Err(Halt::Cancelled) => return Err(Halt::Cancelled),
+            Err(Halt::Failed(error)) => last = error,
         }
     }
-    Err(last)
+    Err(Halt::Failed(last))
 }
 
 #[cfg(test)]

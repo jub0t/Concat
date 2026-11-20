@@ -11,6 +11,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use concat_core::Halt;
 use concat_export::{ExportClip, ExportRequest, Reporter, render_on};
 pub use concat_media::{ColorRange, RateMode, VideoCodec};
 pub use concat_render::WgpuCompositor;
@@ -107,14 +108,15 @@ pub fn request_for(
 }
 
 /// Renders `request` and returns the path written, reporting through
-/// `progress` and stopping at the next frame once `cancel` is set. Blocks for
-/// the whole render: run it on its own thread. Draws on a device of its
-/// own; [`run_on`] draws on one the caller lends.
+/// `progress` and stopping at the next frame once `cancel` is set, which
+/// ends it with [`Halt::Cancelled`]. Blocks for the whole render: run it on
+/// its own thread. Draws on a device of its own; [`run_on`] draws on one
+/// the caller lends.
 pub fn run(
     request: &ExportRequest,
     cancel: &AtomicBool,
     progress: impl FnMut(Progress),
-) -> Result<String, String> {
+) -> Result<String, Halt> {
     run_on(request, None, cancel, progress)
 }
 
@@ -129,7 +131,7 @@ pub fn run_on(
     compositor: Option<WgpuCompositor>,
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
-) -> Result<String, String> {
+) -> Result<String, Halt> {
     // What a death part way through needs to be read: what was asked for,
     // which stage it was in, and how far that stage had got. The stages
     // and every quarter of one are a handful of lines an export.

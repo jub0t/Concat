@@ -7,6 +7,8 @@
 //! See `concat_speech::isolate` for the engine and `VoiceMix` for what a
 //! clip asks.
 
+use concat_core::Halt;
+
 use super::*;
 
 /// What isolating a file needs to know: where its sound is and where its
@@ -120,7 +122,12 @@ impl Studio {
                     }
                 };
                 let result = std::fs::create_dir_all(&request.dir)
-                    .map_err(|error| format!("could not create {}: {error}", request.dir.display()))
+                    .map_err(|error| {
+                        Halt::Failed(format!(
+                            "could not create {}: {error}",
+                            request.dir.display()
+                        ))
+                    })
                     .and_then(|()| match request.kind {
                         concat_project::model::VoiceKind::Speech => {
                             concat_speech::isolate::isolate(
@@ -177,8 +184,8 @@ impl Studio {
                         studio.request_media_art();
                         studio.ensure_voices();
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => {
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
                         log::error!(
                             "voice: splitting {source} failed: {error}; its clips keep their whole sound"
                         );

@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use concat_core::Halt;
 use concat_host::{AppDirs, SingleFlight, projects};
 use serde::{Deserialize, Serialize};
 
@@ -334,13 +335,16 @@ struct CachedEngine {
 /// failed running one of the networks, which the accelerator may be to
 /// blame for and the CPU may well run - DirectML refuses some of
 /// Chatterbox's quantised attention (#291) - or something else, which the
-/// CPU would stop at too: the text, the recording, a cancel.
+/// CPU would stop at too: the text, the recording - or no failure at all,
+/// the read having been told to stop.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadError {
     /// The runtime failed running a network.
     Runtime(String),
-    /// Anything else.
+    /// Any other failure.
     Other(String),
+    /// The read was told to stop.
+    Cancelled,
 }
 
 impl From<String> for ReadError {
@@ -359,6 +363,18 @@ impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadError::Runtime(message) | ReadError::Other(message) => f.write_str(message),
+            ReadError::Cancelled => f.write_str("cancelled"),
+        }
+    }
+}
+
+/// A read's end as a job's: a cancel is a cancel, and either kind of
+/// failure a failure in its own words.
+impl From<ReadError> for Halt {
+    fn from(error: ReadError) -> Halt {
+        match error {
+            ReadError::Runtime(message) | ReadError::Other(message) => Halt::Failed(message),
+            ReadError::Cancelled => Halt::Cancelled,
         }
     }
 }
@@ -378,8 +394,8 @@ fn accelerator() -> &'static str {
 /// it in the runtime, `read` once more on the engine `on_cpu` loads for the
 /// CPU. A model that loads for the accelerator can still be refused there a
 /// network at a time, mid-read, and loading alone never found that out
-/// (#291); slower is better than no voice. Any other failure is handed
-/// back as it is, and nothing is loaded.
+/// (#291); slower is better than no voice. Any other failure, and a
+/// cancel, is handed back as it is, and nothing is loaded.
 ///
 /// The CPU engine comes back beside the result, whether or not the second
 /// read went through, for the caller to keep in place of the one that
@@ -391,7 +407,7 @@ fn read_or_on_cpu<E, T>(
     model: &str,
     mut read: impl FnMut(&E) -> Result<T, ReadError>,
     on_cpu: impl FnOnce() -> Result<E, String>,
-) -> (Result<T, String>, Option<E>) {
+) -> (Result<T, Halt>, Option<E>) {
     match read(engine) {
         Ok(done) => (Ok(done), None),
         Err(ReadError::Runtime(error)) if accelerated => {
@@ -401,18 +417,18 @@ fn read_or_on_cpu<E, T>(
             );
             match on_cpu() {
                 Ok(cpu) => {
-                    let again = read(&cpu).map_err(|error| error.to_string());
+                    let again = read(&cpu).map_err(Halt::from);
                     (again, Some(cpu))
                 }
                 Err(load) => (
-                    Err(format!(
+                    Err(Halt::Failed(format!(
                         "{error}; and it would not load for the CPU either: {load}"
-                    )),
+                    ))),
                     None,
                 ),
             }
         }
-        Err(error) => (Err(error.to_string()), None),
+        Err(error) => (Err(error.into()), None),
     }
 }
 
@@ -508,7 +524,7 @@ impl Speech {
         dirs: &AppDirs,
         id: &str,
         mut progress: impl FnMut(DownloadProgress),
-    ) -> Result<(), String> {
+    ) -> Result<(), Halt> {
         let job = self.downloads.begin("voice model download")?;
         let cancel = job.cancel_flag();
         let destination = model_dir(dirs, id)?;
@@ -519,7 +535,7 @@ impl Speech {
             #[cfg(not(feature = "chatterbox"))]
             Family::Chatterbox => {
                 let _ = (destination, cancel, &mut progress);
-                Err("The studio voice is not part of this build".to_owned())
+                Err("The studio voice is not part of this build".into())
             }
         }
     }
@@ -578,14 +594,14 @@ impl Speech {
         dirs: &AppDirs,
         request: &SpeakRequest,
         mut progress: impl FnMut(JobStage) + Send + 'static,
-    ) -> Result<SpeakResult, String> {
+    ) -> Result<SpeakResult, Halt> {
         let job = self.gate.begin("speech generation")?;
         let cancel = job.cancel_handle();
         let started = std::time::Instant::now();
 
         let text = request.text.trim();
         if text.is_empty() {
-            return Err("nothing to say: the text is empty".to_owned());
+            return Err("nothing to say: the text is empty".into());
         }
         let family = family_of(&request.model_id);
         log::info!(
@@ -610,9 +626,10 @@ impl Speech {
                 return Err(format!(
                     "voice {} does not belong to {}",
                     request.voice, request.model_id
-                ));
+                )
+                .into());
             }
-            None => return Err(format!("unknown voice {}", request.voice)),
+            None => return Err(format!("unknown voice {}", request.voice).into()),
         }
         let speed = if request.speed.is_finite() {
             request.speed.clamp(0.5, 2.0)
@@ -625,7 +642,8 @@ impl Speech {
             return Err(format!(
                 "model {} is not downloaded - see Settings > Speech",
                 request.model_id
-            ));
+            )
+            .into());
         }
 
         // The WAV goes in the project so it travels (and dies) with it - and
@@ -633,7 +651,7 @@ impl Speech {
         // it: cache is for things that can be regenerated.
         let root = Path::new(&request.project);
         if !projects::is_project(root) {
-            return Err(format!("{} is not a project folder", request.project));
+            return Err(format!("{} is not a project folder", request.project).into());
         }
         let out_dir = root.join("audio");
         std::fs::create_dir_all(&out_dir)
@@ -665,7 +683,7 @@ impl Speech {
         #[cfg(not(feature = "chatterbox"))]
         {
             let _ = (dir, speed, cancel, &mut progress);
-            Err("The studio voice is not part of this build".to_owned())
+            Err("The studio voice is not part of this build".into())
         }
         #[cfg(feature = "chatterbox")]
         {
@@ -711,7 +729,7 @@ impl Speech {
                         );
                         (load(false)?, false)
                     }
-                    Err(error) => return Err(error),
+                    Err(error) => return Err(error.into()),
                 };
                 log::info!(
                     "tts: {} loaded in {:.1}s",
@@ -768,7 +786,7 @@ impl Speech {
             }
             let spoken = spoken?;
             if spoken.is_empty() {
-                return Err("the engine produced no audio for this text".to_owned());
+                return Err("the engine produced no audio for this text".into());
             }
             let rate = crate::chatterbox::SAMPLE_RATE;
             std::fs::write(&file, wav_bytes(&spoken, rate))
@@ -865,14 +883,14 @@ fn speak_on_the_phone(
     file: &Path,
     cancel: &std::sync::atomic::AtomicBool,
     progress: &mut dyn FnMut(JobStage),
-) -> Result<f64, String> {
+) -> Result<f64, Halt> {
     let pieces = pieces(text, SYSTEM_PIECE);
     let count = pieces.len().max(1) as f32;
     let mut samples: Vec<f32> = Vec::new();
     let mut rate = 0u32;
     for (index, piece) in pieces.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
-            return Err("speech generation cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
         progress(JobStage::Working {
             done: index as f32 / count,
@@ -901,7 +919,7 @@ fn speak_on_the_phone(
         samples.extend(read?);
     }
     if samples.is_empty() {
-        return Err("the phone's voice produced no audio for this text".to_owned());
+        return Err("the phone's voice produced no audio for this text".into());
     }
     std::fs::write(file, wav_bytes(&samples, rate))
         .map_err(|error| format!("could not write {}: {error}", file.display()))?;
@@ -1053,7 +1071,7 @@ mod tests {
             || Ok("cpu"),
         );
         assert_eq!(reads, 2);
-        assert_eq!(result, Err("still refused".to_owned()));
+        assert_eq!(result, Err(Halt::Failed("still refused".to_owned())));
         assert_eq!(kept, Some("cpu"), "the CPU engine is kept all the same");
 
         // A model that will not load for the CPU says both.
@@ -1062,14 +1080,17 @@ mod tests {
         });
         let error = result.expect_err("nothing read");
         assert!(
-            error.contains("E_INVALIDARG") && error.contains("no memory"),
+            error.failure().is_some_and(
+                |message| message.contains("E_INVALIDARG") && message.contains("no memory")
+            ),
             "{error}"
         );
         assert!(kept.is_none());
     }
 
-    /// Nothing is loaded again for a failure the CPU would meet too, nor
-    /// for an engine on the CPU already.
+    /// Nothing is loaded again for a cancel, for a failure the CPU would
+    /// meet too, nor for an engine on the CPU already. A cancel comes back
+    /// a cancel, and a failure a failure whatever its words.
     #[test]
     fn only_the_accelerators_failures_are_read_again() {
         let never = || -> Result<&str, String> { panic!("loaded for the CPU") };
@@ -1077,10 +1098,20 @@ mod tests {
             &"gpu",
             true,
             "chatterbox",
-            |_: &&str| Err::<(), _>(ReadError::from("speech generation cancelled")),
+            |_: &&str| Err::<(), _>(ReadError::Cancelled),
             never,
         );
-        assert_eq!(result, Err("speech generation cancelled".to_owned()));
+        assert_eq!(result, Err(Halt::Cancelled));
+        assert!(kept.is_none());
+        let unread = "could not read /voices/cancelled/take.wav";
+        let (result, kept) = read_or_on_cpu(
+            &"gpu",
+            true,
+            "chatterbox",
+            |_: &&str| Err::<(), _>(ReadError::from(unread)),
+            never,
+        );
+        assert_eq!(result, Err(Halt::Failed(unread.to_owned())));
         assert!(kept.is_none());
         let (result, _) = read_or_on_cpu(
             &"cpu",
@@ -1089,7 +1120,34 @@ mod tests {
             |_: &&str| Err::<(), _>(ReadError::Runtime("refused".to_owned())),
             never,
         );
-        assert_eq!(result, Err("refused".to_owned()));
+        assert_eq!(result, Err(Halt::Failed("refused".to_owned())));
+    }
+
+    /// The phone's voice told to stop is a cancel; its engine failing on a
+    /// file under a folder named `cancelled` is a failure, and says so.
+    #[test]
+    fn a_read_on_the_phone_tells_its_cancel_from_a_failure_that_has_the_word() {
+        let dir = std::env::temp_dir().join(format!("concat-tts-halt-{}", std::process::id()));
+        let file = dir.join("cancelled").join("speech.wav");
+        let refuses: Box<SystemVoice> = Box::new(|_: &str, part: &Path, _: f32| {
+            Err(format!("the engine could not write {}", part.display()))
+        });
+        let go = std::sync::atomic::AtomicBool::new(false);
+        let failed = speak_on_the_phone(&refuses, "Hello there.", 1.0, &file, &go, &mut |_| {})
+            .expect_err("the engine refuses");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("could not write") && message.contains("cancelled")
+            ),
+            "{failed}"
+        );
+
+        let never: Box<SystemVoice> =
+            Box::new(|_: &str, _: &Path, _: f32| panic!("read after it was told to stop"));
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        let stopped = speak_on_the_phone(&never, "Hello there.", 1.0, &file, &stop, &mut |_| {});
+        assert_eq!(stopped, Err(Halt::Cancelled));
     }
 
     #[test]

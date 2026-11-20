@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 //! Keyframes.
 
+use concat_core::Halt;
+
 use super::*;
 
 impl Studio {
@@ -1762,8 +1764,10 @@ impl Studio {
                         studio.request_preview();
                         studio.ensure_regions();
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.smartBrush", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.smartBrush", &[&error]), true);
+                    }
                 }
             },
         );

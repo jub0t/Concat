@@ -24,6 +24,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use concat_core::Halt;
 use concat_core::time::Rational;
 use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_project::model::{ClipKind, Project};
@@ -145,7 +146,7 @@ impl Stabilizers {
         &self,
         request: &StabilizeRequest,
         progress: &mut dyn FnMut(f32),
-    ) -> Result<usize, String> {
+    ) -> Result<usize, Halt> {
         let job = self.gate.begin("stabilization analysis")?;
         let dir = Self::dir(request);
         let wanted = Self::outstanding(request);
@@ -223,7 +224,7 @@ impl Stabilizers {
                 motion.write(&dir)?;
             }
             if cancelled {
-                return Err("stabilization analysis cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
             done_seconds += to - from;
         }

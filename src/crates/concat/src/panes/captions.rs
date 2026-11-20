@@ -19,6 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use concat_core::Halt;
 use concat_project::Command;
 use concat_project::model::{ClipKind, TextStyle};
 use concat_project::srt;
@@ -71,7 +72,7 @@ pub enum CaptionsMsg {
     /// The transcriber's worker reporting the stage it is in.
     Progress(JobStage),
     /// The transcriber's worker is done: what was said, or why not.
-    Finished(Result<Vec<Segment>, String>),
+    Finished(Result<Vec<Segment>, Halt>),
     /// Asks for a SubRip file to read in.
     ImportSrt,
     /// The SubRip file chosen: its cues as captions.
@@ -278,10 +279,10 @@ impl CaptionsPane {
                         }
                     }
                     // Asked for: the sheet is already on its way down.
-                    Err(error) if error.contains("cancel") => self.open = false,
+                    Err(Halt::Cancelled) => self.open = false,
                     // Closed while it ran: the panel is not there to say
                     // it, so the notice does, and the panel too next time.
-                    Err(error) => {
+                    Err(Halt::Failed(error)) => {
                         if !self.open {
                             studio.notify(&error, true);
                         }

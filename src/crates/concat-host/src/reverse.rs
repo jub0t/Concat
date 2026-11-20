@@ -32,7 +32,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use concat_core::{Frame, FrameRate, Rational};
+use concat_core::{Frame, FrameRate, Halt, Rational};
 use concat_media::audio::{AudioClip, mix_to_file, mux};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
@@ -124,12 +124,12 @@ impl Reversers {
         &self,
         request: &ReverseRequest,
         progress: &mut dyn FnMut(f32),
-    ) -> Result<PathBuf, String> {
+    ) -> Result<PathBuf, Halt> {
         if request.target.is_file() {
             return Ok(request.target.clone());
         }
         if !request.start.is_finite() || !request.duration.is_finite() || request.duration <= 0.0 {
-            return Err("nothing to reverse".to_owned());
+            return Err("nothing to reverse".into());
         }
         let job = self.gate.begin("reverse")?;
         if let Some(folder) = request.target.parent() {
@@ -137,12 +137,12 @@ impl Reversers {
                 .map_err(|error| format!("{}: {error}", folder.display()))?;
         }
         progress(0.0);
-        let result = if request.audio_only {
-            sound(request)
+        if request.audio_only {
+            sound(request)?;
         } else {
-            footage(request, &job, progress)
-        };
-        result.map(|()| request.target.clone())
+            footage(request, &job, progress)?;
+        }
+        Ok(request.target.clone())
     }
 }
 
@@ -197,7 +197,7 @@ fn footage(
     request: &ReverseRequest,
     job: &crate::jobs::Job,
     progress: &mut dyn FnMut(f32),
-) -> Result<(), String> {
+) -> Result<(), Halt> {
     let info = concat_media::probe(&request.media_path).map_err(|error| error.to_string())?;
     let video = info
         .video
@@ -212,7 +212,7 @@ fn footage(
     let width = video.width & !1;
     let height = video.height & !1;
     if width == 0 || height == 0 {
-        return Err("the picture is too small to reverse".to_owned());
+        return Err("the picture is too small to reverse".into());
     }
     let end = request.start + request.duration;
     let partial_video = request.target.with_extension("part.mp4");
@@ -231,10 +231,10 @@ fn footage(
     let mut segments: Vec<PathBuf> = Vec::new();
     let mut held: Vec<Frame> = Vec::with_capacity(run);
     let mut count = 0u64;
-    let passes = (|| -> Result<(), String> {
+    let passes = (|| -> Result<(), Halt> {
         loop {
             if job.cancelled() {
-                return Err("reverse cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
             let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? else {
                 break;
@@ -259,21 +259,21 @@ fn footage(
             write_segment(request, &mut segments, &mut held, rate)?;
         }
         if segments.is_empty() {
-            return Err("the span holds no frames".to_owned());
+            return Err("the span holds no frames".into());
         }
 
         // Pass two: the segments last to first, into the copy.
         let mut encoder = Encoder::create(&partial_video, width, height, rate, &copy_options())
             .map_err(|error| error.to_string())?;
         let mut written = 0u64;
-        let encoded = (|| -> Result<(), String> {
+        let encoded = (|| -> Result<(), Halt> {
             for segment in segments.iter().rev() {
                 let mut reader =
                     Decoder::open(segment, &DecodeOptions::default().in_software().threaded(2))
                         .map_err(|error| error.to_string())?;
                 while let Some(frame) = reader.next_frame().map_err(|error| error.to_string())? {
                     if job.cancelled() {
-                        return Err("reverse cancelled".to_owned());
+                        return Err(Halt::Cancelled);
                     }
                     encoder
                         .write_frame(&frame)
@@ -282,7 +282,8 @@ fn footage(
                     progress((0.5 + 0.5 * written as f64 / count.max(1) as f64).min(0.99) as f32);
                 }
             }
-            encoder.finish().map_err(|error| error.to_string())
+            encoder.finish().map_err(|error| error.to_string())?;
+            Ok(())
         })();
         if let Err(error) = encoded {
             let _ = std::fs::remove_file(&partial_video);
@@ -297,7 +298,8 @@ fn footage(
 
     // The sound, when the file has any, backwards beside the picture.
     if info.audio.is_none() {
-        return land(&partial_video, &request.target, Ok(()));
+        land(&partial_video, &request.target, Ok(()))?;
+        return Ok(());
     }
     let partial_audio = request.target.with_extension("part.m4a");
     let partial_muxed = request.target.with_extension("muxed.part.mp4");
@@ -310,7 +312,8 @@ fn footage(
     .map_err(|error| error.to_string());
     let _ = std::fs::remove_file(&partial_video);
     let _ = std::fs::remove_file(&partial_audio);
-    land(&partial_muxed, &request.target, muxed)
+    land(&partial_muxed, &request.target, muxed)?;
+    Ok(())
 }
 
 /// The run in `held`, backwards, as the next segment; the run is emptied
