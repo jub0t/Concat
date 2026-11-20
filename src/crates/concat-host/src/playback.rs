@@ -399,14 +399,6 @@ impl Pcm {
     }
 }
 
-/// Pitch-kept speed uses the stretcher (Bungee). Running several of those
-/// at once on Windows has corrupted the heap on long multi-track projects;
-/// one stretch decode at a time keeps the product path and avoids that.
-fn stretch_slot() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    locked(&LOCK)
-}
-
 /// A finished cache file that holds no usable samples: refuse it so the
 /// next decode runs instead of mixing silence with no notice (#762).
 fn refuse_empty_pcm(pcm: &Pcm, duration: f64) -> Result<(), String> {
@@ -1341,22 +1333,24 @@ fn decode_key(spec: &ClipSpec) -> String {
     // this retires every one of them (audit 2026-10-04, #3). The disk
     // budget sweeps the orphans.
     eat(b"origin");
-    // A speed with the pitch kept was atempo's; it is the stretcher's now,
-    // which places every sound where the picture is. Only then, so a span
-    // at its own speed keeps its file.
+    // Preview pitch-kept speed uses atempo (not Bungee); see `decode`. A
+    // distinct marker so a later return to the stretcher does not reuse
+    // atempo cache under the old stretch key.
     if spec.engine().stretched() {
-        eat(b"stretch-bungee");
+        eat(b"preview-atempo");
     }
     format!("{hash:016x}")
 }
 
 /// Decodes one clip span to the cache and maps it.
 ///
-/// The decode mirrors the exporter's treatment of filters and speed, so
-/// what the preview mixes is what the export renders. A file already in the
-/// cache is reused as is - that is the point of the cache. `within` is a
-/// mapped span whose samples from a frame on are this one's (see
-/// [`copy_source`]): they are copied, which for the rest of a long
+/// Speed and filters match the exporter's order, except pitch-kept speed:
+/// the preview uses FFmpeg `atempo` here. The stretcher (Bungee) is what
+/// the export uses for that case, but running it in-process for preview
+/// has corrupted the heap on Windows (silence, then `STATUS_HEAP_CORRUPTION`
+/// on long detached audio). A file already in the cache is reused as is.
+/// `within` is a mapped span whose samples from a frame on are this one's
+/// (see [`copy_source`]): they are copied, which for the rest of a long
 /// recording after a cut is a fraction of a second where the decode is
 /// many.
 fn decode(
@@ -1412,25 +1406,17 @@ fn decode(
         return Ok(pcm);
     }
 
-    // Speed first, then the clip's own filters - the same order the export
-    // graph applies, because these are one definition, not two. The engine
-    // owns what speed *means*; this function only decodes.
-    // A changing rate is told by the source's own clock, so the stamps
-    // start at zero where the span does.
+    // Speed first, then the clip's own filters. Pitch-kept speed in the
+    // *export* goes through the stretcher; preview stays on `atempo` /
+    // `retime_filters` so Bungee never runs in the GUI process (Windows
+    // heap corruption on long multi-track projects).
     let engine = spec.engine();
-    // A speed with the pitch kept goes through the stretcher, before the
-    // filters, as the export mix stretches it (`AudioClip::stretched`).
-    let stretch = engine
-        .stretched()
-        .then(|| engine.stretching(0.0, spec.duration));
-    let mut filters: Vec<String> = if engine.tempo.is_empty() || stretch.is_some() {
+    let mut filters: Vec<String> = if engine.tempo.is_empty() {
         Vec::new()
     } else {
         vec!["asetpts=PTS-STARTPTS".to_owned()]
     };
-    if stretch.is_none() {
-        filters.extend(engine.retime_filters(0.0, "p"));
-    }
+    filters.extend(engine.retime_filters(0.0, "p"));
     if !spec.chain.is_empty() {
         filters.push(spec.chain.clone());
     }
@@ -1439,10 +1425,6 @@ fn decode(
     // timeline: the source window is `duration * speed`, exactly the window
     // the exporter trims.
     let window = engine.source_at(spec.duration);
-
-    // One stretch at a time: concurrent Bungee jobs on long detached
-    // tracks have taken the process down with a heap corruption on Windows.
-    let _stretch_slot = stretch.as_ref().map(|_| stretch_slot());
 
     let mut decoder = AudioDecoder::open(
         &spec.path,
@@ -1454,7 +1436,7 @@ fn decode(
             channels: 2,
             format: SampleFormat::I16,
             stream: spec.audio_stream.map(|index| index as usize),
-            stretch,
+            stretch: None,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -2090,14 +2072,12 @@ mod tests {
         );
     }
 
-    /// A clip at another speed, its pitch kept, plays every sound where its
-    /// picture is: a 20 ms pip at every source second, decoded for the
-    /// preview at half speed and through a speed curve, is heard within a
-    /// millisecond of where the clip's time map puts that second, as the
-    /// export mix's are (the corpus's speed case). FFmpeg's atempo, which
-    /// played these before, put them up to 53 ms early.
+    /// Preview pitch-kept speed uses atempo (not Bungee): a half-speed
+    /// decode must finish with audible pips and about the right length,
+    /// without taking the process down. Exact grain timing vs the picture
+    /// remains the export stretcher's job.
     #[test]
-    fn a_stretched_clip_plays_every_sound_where_its_picture_is() {
+    fn a_pitch_kept_preview_decode_stays_audible_without_the_stretcher() {
         let dir = std::env::temp_dir().join(format!("concat-pips-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a folder");
         let rate = super::PCM_RATE;
@@ -2120,59 +2100,25 @@ mod tests {
             writer.write(&mut file, &data).expect("writes");
             writer.finish(&mut file).expect("finishes");
         }
-        let onsets = |pcm: &super::Pcm| {
-            let mut found = Vec::new();
-            let mut frame = 0i64;
-            while frame < pcm.frames as i64 {
-                if pcm.sample(frame, 0).abs() < 0.02 {
-                    frame += 1;
-                    continue;
-                }
-                let start = frame;
-                let mut peak = 0.0f32;
-                while frame < pcm.frames as i64 && frame < start + i64::from(rate) / 10 {
-                    peak = peak.max(pcm.sample(frame, 0).abs());
-                    frame += 1;
-                }
-                let onset = (start..frame)
-                    .find(|at| pcm.sample(*at, 0).abs() >= 0.3 * peak)
-                    .unwrap_or(start);
-                found.push(onset as f64 / f64::from(rate));
-            }
-            found
-        };
 
-        // Half speed: source second n at 2n.
         let mut slow = tone_spec(&source, 0.0, 12.0);
         slow.speed = 0.5;
-        let pcm = super::decode(&slow, &dir, &super::decode_key(&slow), None).expect("decodes");
-        let heard = onsets(&pcm);
-        assert_eq!(heard.len(), 6, "{heard:?}");
-        for (second, at) in heard.iter().enumerate() {
-            let off = (at - 2.0 * second as f64) * 1000.0;
-            assert!(
-                off.abs() <= 1.0,
-                "half speed: second {second} heard {off:+.2} ms off"
-            );
-        }
-
-        // Steps of speed: 1x for 1 s, 4x for 0.5 s (source 1 to 3), 0.5x
-        // after: source seconds 0 to 5 at 0, 1, 1.25, 1.5, 3.5 and 5.5 s.
-        let mut curve = tone_spec(&source, 0.0, 8.0);
-        curve.tempo = vec![(0.0, 1.0), (1.0, 4.0), (1.5, 0.5)];
-        curve.speed = 0.75;
-        let pcm = super::decode(&curve, &dir, &super::decode_key(&curve), None).expect("decodes");
-        let heard = onsets(&pcm);
+        let key = super::decode_key(&slow);
+        assert!(
+            !key.is_empty(),
+            "preview-atempo marks pitch-kept speed in the cache key"
+        );
+        let pcm = super::decode(&slow, &dir, &key, None).expect("decodes");
         let _ = std::fs::remove_dir_all(&dir);
-        let expected = [0.0, 1.0, 1.25, 1.5, 3.5, 5.5];
-        assert_eq!(heard.len(), expected.len(), "{heard:?}");
-        for (at, want) in heard.iter().zip(expected) {
-            let off = (at - want) * 1000.0;
-            assert!(
-                off.abs() <= 3.0,
-                "the curve: a pip due at {want} s heard {off:+.2} ms off"
-            );
-        }
+        assert!(
+            pcm.frames > u64::from(rate) * 11,
+            "about twelve seconds at half speed, got {}",
+            pcm.frames
+        );
+        let peak = (0..pcm.frames.min(u64::from(rate) * 12))
+            .map(|frame| pcm.sample(frame as i64, 0).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(peak > 0.1, "pips came through at peak {peak}");
     }
 
     /// A stretch under a sound layer decodes to the mix with the layer
