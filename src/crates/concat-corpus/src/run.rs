@@ -200,6 +200,15 @@ fn make(path: &Path, spec: &Media) -> Result<(), String> {
     }
 }
 
+/// What a session has to undo.
+struct History {
+    /// The document when nothing could be undone.
+    base: Value,
+    /// The edits that changed it since; `usize::MAX` when the case undid
+    /// or redid some itself and the count is not this check's to make.
+    edits: usize,
+}
+
 struct Runner<'a> {
     case: &'a Case,
     name: &'a str,
@@ -284,6 +293,13 @@ impl Runner<'_> {
         for (name, path) in &self.files {
             bindings.insert(format!("file.{name}"), path.to_string_lossy().into_owned());
         }
+        // What there is to undo: the document as it was when nothing could
+        // be undone, and the edits made since. Held to before every save
+        // and reopen, which is where a session's history ends.
+        let mut history = History {
+            base: self.document(&project)?,
+            edits: 0,
+        };
         for (at, step) in self.case.steps.iter().enumerate() {
             let alias = step.get("as").and_then(Value::as_str);
             if alias.is_some_and(|alias| skip.iter().any(|name| name == alias)) {
@@ -292,13 +308,104 @@ impl Runner<'_> {
             if step.get("step").is_some() {
                 let harness: Harness = serde_json::from_value(step.clone())
                     .map_err(|error| format!("step {at} is no harness step: {error}"))?;
+                self.undo_and_redo(report, label, &project, &format!("step {at}"), &history)?;
                 self.harness(report, label, &project, at, &harness)?;
+                history = History {
+                    base: self.document(&project)?,
+                    edits: 0,
+                };
                 continue;
             }
+            let before = self.document(&project)?;
             self.script_step(at, step, &mut bindings)?;
+            let after = self.document(&project)?;
+            match step.get("method").and_then(Value::as_str) {
+                // The case's own undo or redo: what it leaves to undo is
+                // not counted here, only that all of it undoes and redoes.
+                Some("edit.undo" | "edit.redo") => history.edits = usize::MAX,
+                // Whatever cannot be undone moves the start.
+                _ if !self.can_undo(&project)? => {
+                    history = History {
+                        base: after,
+                        edits: 0,
+                    };
+                }
+                // An edit or an import that changed the document is one
+                // step to undo; one that changed nothing is none.
+                _ if after != before && history.edits != usize::MAX => history.edits += 1,
+                _ => {}
+            }
         }
+        self.undo_and_redo(report, label, &project, "the end", &history)?;
         self.round_trip(report, label, &project, "the end", |_| Ok(()))?;
         Ok(project)
+    }
+
+    /// Whether the project has anything to undo.
+    fn can_undo(&mut self, project: &str) -> Result<bool, String> {
+        match self.send(Request::ProjectGet {
+            path: project.to_owned(),
+        })? {
+            Reply::View(view) => Ok(view.can_undo),
+            _ => Err("project.get did not answer with the project".to_owned()),
+        }
+    }
+
+    /// Undoes everything there is to undo and redoes all of it: the
+    /// document goes back to where the history began, in as many steps as
+    /// edits were made, and comes forward to exactly what it was.
+    fn undo_and_redo(
+        &mut self,
+        report: &mut Report,
+        label: &str,
+        project: &str,
+        when: &str,
+        history: &History,
+    ) -> Result<(), String> {
+        let ended = self.document(project)?;
+        let mut undone = 0usize;
+        while self.can_undo(project)? {
+            self.send(Request::EditUndo {
+                path: project.to_owned(),
+            })?;
+            undone += 1;
+            if undone > 10_000 {
+                return Err(format!("{label}: undo never ran out at {when}"));
+            }
+        }
+        if undone == 0 {
+            return Ok(());
+        }
+        let began = self.document(project)?;
+        for _ in 0..undone {
+            self.send(Request::EditRedo {
+                path: project.to_owned(),
+            })?;
+        }
+        let again = self.document(project)?;
+        let counted = history.edits != usize::MAX;
+        let mut wrong = Vec::new();
+        if let Some(path) = difference(&history.base, &began, "") {
+            wrong.push(format!(
+                "undone, the document is not what it was before the edits: it first differs at {path}"
+            ));
+        }
+        if let Some(path) = difference(&ended, &again, "") {
+            wrong.push(format!(
+                "redone, the document is not what the edits left: it first differs at {path}"
+            ));
+        }
+        if counted && undone != history.edits {
+            wrong.push(format!("{} edits took {undone} undos", history.edits));
+        }
+        report.check(
+            format!(
+                "{label}: every edit undoes in one step and redoes to the same document, at {when}"
+            ),
+            wrong.is_empty(),
+            named(&wrong, &format!("{undone} steps back and forward")),
+        );
+        Ok(())
     }
 
     /// Runs one request of the script, binding what it made when it says
