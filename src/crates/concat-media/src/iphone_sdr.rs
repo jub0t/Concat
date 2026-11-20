@@ -26,10 +26,12 @@ pub(crate) fn available() -> bool {
     {
         return false;
     }
-    static HAS_FILTER: OnceLock<bool> = OnceLock::new();
-    *HAS_FILTER.get_or_init(|| {
+    static HAS_FILTERS: OnceLock<bool> = OnceLock::new();
+    *HAS_FILTERS.get_or_init(|| {
         ffi::init();
-        ffmpeg::filter::find("libplacebo").is_some()
+        ["libplacebo", "zscale"]
+            .into_iter()
+            .all(|name| ffmpeg::filter::find(name).is_some())
     })
 }
 
@@ -176,11 +178,81 @@ impl Profile {
             .sink()
             .frame(&mut frame)
             .map_err(|error| ffi::fail("Dolby Vision filter output", path, error))?;
+        apply_sdr_grade(&mut frame)
+            .map_err(|error| ffi::fail("Dolby Vision SDR grade", path, error))?;
         frame.set_pts(source.pts());
         // SAFETY: both frames are live, and only the destination is modified.
         unsafe { (*frame.as_mut_ptr()).duration = (*source.as_ptr()).duration };
         Ok(Some(frame))
     }
+}
+
+#[derive(Clone, Copy)]
+struct Grade {
+    luma: u16,
+    chroma: [i16; 2],
+}
+
+fn grade_for_luma(luma: u16) -> Grade {
+    let y = f64::from(luma);
+    let level = ((y - 64.0) / 876.0).clamp(0.0, 1.0);
+    let warmth = ((y - 256.0) / 144.0).clamp(0.0, 1.0) * ((940.0 - y) / 120.0).clamp(0.0, 1.0);
+    Grade {
+        luma: (y + 360.0 * level * (1.0 - level) * (0.51 - level)) as u16,
+        // geq truncates the adjusted sample, so a negative fractional
+        // correction rounds down when applied to an integer sample.
+        chroma: [
+            (-12.0 * warmth).floor() as i16,
+            (4.0 * warmth).floor() as i16,
+        ],
+    }
+}
+
+fn code(sample: &[u8]) -> usize {
+    usize::from(u16::from_le_bytes([sample[0], sample[1]])).min(1023)
+}
+
+fn apply_sdr_grade(frame: &mut Video) -> std::result::Result<(), ffmpeg::Error> {
+    if frame.format() != Pixel::YUV420P10LE {
+        return Err(ffmpeg::Error::InvalidData);
+    }
+    // SAFETY: the sink returned a live frame. It may still share a buffer
+    // with the filter graph, so obtain exclusive pixel storage first.
+    check(unsafe { sys::av_frame_make_writable(frame.as_mut_ptr()) })?;
+
+    // Evaluate the v3 grade once for each possible 10-bit luma code.
+    static TABLE: OnceLock<[Grade; 1024]> = OnceLock::new();
+    let table = TABLE.get_or_init(|| std::array::from_fn(|y| grade_for_luma(y as u16)));
+    let width = frame.width() as usize;
+    let height = frame.height() as usize;
+    let luma_stride = frame.stride(0);
+    let chroma_strides = [frame.stride(1), frame.stride(2)];
+    let chroma_width = width.div_ceil(2);
+    let mut shifts = vec![[0; 2]; chroma_width];
+
+    // Each chroma sample uses the original top-left luma in its 2x2 block.
+    // Finish both chroma planes before modifying any luma samples.
+    for row in 0..height.div_ceil(2) {
+        let start = 2 * row * luma_stride;
+        let luma = &frame.data(0)[start..start + 2 * width];
+        for (shift, sample) in shifts.iter_mut().zip(luma.chunks_exact(2).step_by(2)) {
+            *shift = table[code(sample)].chroma;
+        }
+        for (channel, stride) in chroma_strides.into_iter().enumerate() {
+            let start = row * stride;
+            let chroma = &mut frame.data_mut(channel + 1)[start..start + 2 * chroma_width];
+            for (sample, shift) in chroma.chunks_exact_mut(2).zip(&shifts) {
+                let value = (code(sample) as i16 + shift[channel]).clamp(0, 1023);
+                sample.copy_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
+    for row in frame.data_mut(0).chunks_exact_mut(luma_stride).take(height) {
+        for sample in row[..2 * width].chunks_exact_mut(2) {
+            sample.copy_from_slice(&table[code(sample)].luma.to_le_bytes());
+        }
+    }
+    Ok(())
 }
 
 fn check(ret: i32) -> std::result::Result<(), ffmpeg::Error> {
@@ -256,7 +328,7 @@ fn build(path: &Path, frame: &Video, rotation: i64) -> Result<Graph> {
         // Disable stateful peak analysis for seek/streaming agreement.
         check(sys::avfilter_init_str(
             context.as_ptr(),
-            c"apply_dolbyvision=1:tonemapping=spline:gamut_mode=perceptual:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p:peak_detect=0:fps=30"
+            c"apply_dolbyvision=1:tonemapping=spline:gamut_mode=perceptual:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p10le:peak_detect=0:fps=30"
                 .as_ptr(),
         ))
         .map_err(fail)?;
@@ -273,12 +345,12 @@ fn build(path: &Path, frame: &Video, rotation: i64) -> Result<Graph> {
         // one video output and one video input respectively.
         check(unsafe { sys::avfilter_link(input, 0, profile, 0) }).map_err(fail)?;
     }
-    // Constrain the output link to software YUV420P, since a Vulkan
-    // device also lets libplacebo negotiate a hardware frame.
+    // Keep 10-bit software samples through the grade. A Vulkan device
+    // also lets libplacebo negotiate a hardware frame.
     graph
         .output("profile", 0)
         .and_then(|parser| parser.input("out", 0))
-        .and_then(|parser| parser.parse("[profile]format=yuv420p[out]"))
+        .and_then(|parser| parser.parse("[profile]format=yuv420p10le[out]"))
         .map_err(fail)?;
     graph.validate().map_err(fail)?;
     Ok(graph)
@@ -319,5 +391,52 @@ impl Drop for Vulkan {
         let mut device = self.0.as_ptr();
         // SAFETY: releases the Vulkan owner's AVBufferRef.
         unsafe { sys::av_buffer_unref(&mut device) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sdr_grade_samples_the_original_luma() {
+        let mut frame = Video::new(Pixel::YUV420P10LE, 4, 4);
+        for (plane, rows) in [
+            (
+                0,
+                vec![
+                    vec![256, 400, 300, 940],
+                    vec![64; 4],
+                    vec![820, 64, 880, 64],
+                    vec![64; 4],
+                ],
+            ),
+            (1, vec![vec![512; 2]; 2]),
+            (2, vec![vec![512; 2]; 2]),
+        ] {
+            let stride = frame.stride(plane);
+            for (row, values) in frame.data_mut(plane).chunks_exact_mut(stride).zip(rows) {
+                for (sample, value) in row.chunks_exact_mut(2).zip(values) {
+                    sample.copy_from_slice(&u16::to_le_bytes(value));
+                }
+            }
+        }
+
+        apply_sdr_grade(&mut frame).unwrap();
+
+        let row = |plane, y| {
+            let width = frame.plane_width(plane) as usize;
+            let start = y * frame.stride(plane);
+            frame.data(plane)[start..start + 2 * width]
+                .chunks_exact(2)
+                .map(code)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(row(0, 0), [273, 410, 317, 940]);
+        assert_eq!(row(0, 2), [804, 64, 870, 64]);
+        assert_eq!(row(1, 0), [512, 508]);
+        assert_eq!(row(1, 1), [500, 506]);
+        assert_eq!(row(2, 0), [512, 513]);
+        assert_eq!(row(2, 1), [516, 514]);
     }
 }

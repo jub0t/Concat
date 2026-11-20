@@ -1485,12 +1485,15 @@ impl Decoder {
             )
             .map_err(|error| ffi::fail_said("buffer sink", &self.path, error))?;
         let spec = if profiled {
-            // The input stage applied autorotation and produced BT.709
-            // limited YUV420P as in v1. A range override belongs to the
-            // original input, and the SDR result is eight bits.
+            // The input stage applied autorotation and the SDR grade
+            // in 10-bit limited BT.709. The range override belongs to
+            // the source. Dither to eight bits before the normal resize.
             let mut options = self.options.clone();
             options.color_range = None;
-            video_filter(0, &options, self.width, self.height, None)
+            format!(
+                "zscale=dither=ordered,format=yuv420p,{}",
+                video_filter(0, &options, self.width, self.height, None)
+            )
         } else {
             video_filter(
                 self.rotation,
