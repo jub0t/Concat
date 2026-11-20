@@ -70,6 +70,7 @@ corpus_case!(curve);
 corpus_case!(cut);
 corpus_case!(detach);
 corpus_case!(dissolve);
+corpus_case!(exposure);
 corpus_case!(fades);
 corpus_case!(fit);
 corpus_case!(fps60);
@@ -88,8 +89,10 @@ corpus_case!(pip);
 corpus_case!(rates);
 corpus_case!(resize);
 corpus_case!(ripple);
+corpus_case!(rotate);
 corpus_case!(ripple_trim);
 corpus_case!(sequence);
+corpus_case!(shape);
 corpus_case!(sound);
 corpus_case!(speed);
 corpus_case!(speed_ripple);
@@ -98,6 +101,7 @@ corpus_case!(still);
 corpus_case!(title);
 corpus_case!(trim);
 corpus_case!(unknown);
+corpus_case!(vignette);
 corpus_case!(volume);
 
 /// The stored pictures stay small enough to live in the repository, and

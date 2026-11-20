@@ -1,0 +1,27 @@
+{
+  "about": "Clip A with Exposure at one stop down, then clip B at two stops down. A stop halves the light, so every frame of A shows half its light and every frame of B a quarter, read off the white blocks of its code. A failure means the effect's number is not the stops it says, is applied to the numbers and not the light, or is dropped.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 }, "as": "clipB" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clipA", "patch": { "videoEffects": [{ "id": "concat.exposure", "params": { "stops": -1 }, "enabled": true }] } } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clipB", "patch": { "videoEffects": [{ "id": "concat.exposure", "params": { "stops": -2 }, "enabled": true }] } } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1, "fade": [0.5, 0.5] },
+      { "frames": [60, 119], "media": "b", "from": 0, "step": 1, "fade": [0.25, 0.25] }
+    ]
+  }
+}
