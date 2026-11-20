@@ -1,0 +1,31 @@
+{
+  "about": "Clips A and B end to end; A's sound is detached into a clip of its own and then attached again. Everything is seen and heard as if neither had been done. A failure means attaching a clip's sound again loses it, doubles it, or leaves the picture muted.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "detachAudio", "clipId": "$clipA" } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "reattachAudio", "clipId": "$clipA" } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 120,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 },
+      { "frames": [60, 119], "media": "b", "from": 0, "step": 1 }
+    ],
+    "sound": [
+      { "frames": [0, 59], "media": "a", "from": 0 },
+      { "frames": [60, 119], "media": "b", "from": 0 }
+    ]
+  }
+}

@@ -64,6 +64,10 @@ const LEVEL_SHARE: f64 = 0.05;
 /// in a one-second dissolve is a thirtieth off.
 const BLEND_TOLERANCE: f64 = 0.02;
 
+/// The commands that change what is looked at and not the edit: saved,
+/// and never a step to undo.
+const VIEW_STATE: [&str; 2] = ["selectTimeline", "moveTimeline"];
+
 /// How far from its place a pip is looked for: under half the gap
 /// between two pips at the fastest speed a case uses.
 const PIP_SEARCH: f64 = 0.15;
@@ -330,6 +334,13 @@ impl Runner<'_> {
                         edits: 0,
                     };
                 }
+                // Which timeline is showing and the order of their tabs
+                // are saved with the document and are no step to undo:
+                // what the person is looking at, not the edit.
+                Some("edit.apply")
+                    if step["command"]["op"]
+                        .as_str()
+                        .is_some_and(|op| VIEW_STATE.contains(&op)) => {}
                 // An edit or an import that changed the document is one
                 // step to undo; one that changed nothing is none.
                 _ if after != before && history.edits != usize::MAX => history.edits += 1,

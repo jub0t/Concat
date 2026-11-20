@@ -65,6 +65,7 @@ macro_rules! corpus_case {
     };
 }
 
+corpus_case!(batch);
 corpus_case!(codes);
 corpus_case!(curve);
 corpus_case!(cut);
@@ -76,6 +77,7 @@ corpus_case!(fit);
 corpus_case!(fps60);
 corpus_case!(gap);
 corpus_case!(hidden);
+corpus_case!(keys_clear);
 corpus_case!(lanes);
 corpus_case!(mask);
 corpus_case!(merge);
@@ -87,10 +89,13 @@ corpus_case!(ntsc);
 corpus_case!(opacity);
 corpus_case!(pip);
 corpus_case!(rates);
+corpus_case!(reattach);
+corpus_case!(remove_media);
+corpus_case!(remove_track);
 corpus_case!(resize);
 corpus_case!(ripple);
-corpus_case!(rotate);
 corpus_case!(ripple_trim);
+corpus_case!(rotate);
 corpus_case!(sequence);
 corpus_case!(shape);
 corpus_case!(sound);
@@ -98,6 +103,7 @@ corpus_case!(speed);
 corpus_case!(speed_ripple);
 corpus_case!(split_speed);
 corpus_case!(still);
+corpus_case!(timelines);
 corpus_case!(title);
 corpus_case!(trim);
 corpus_case!(unknown);

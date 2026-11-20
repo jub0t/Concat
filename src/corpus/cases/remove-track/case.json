@@ -1,0 +1,29 @@
+{
+  "about": "Clip A on the first track and clip B on a track added above it; then that track is removed, and B with it. The export is A alone, picture and sound. A failure means removing a track leaves its clips drawn or heard, or takes a clip from another track.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addTrack" }, "as": "top" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClip", "mediaId": "$b", "trackId": "$top", "start": 0.5, "ripple": false } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "removeTrack", "trackId": "$top" } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 60,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 }
+    ],
+    "sound": [
+      { "frames": [0, 59], "media": "a", "from": 0 }
+    ]
+  }
+}
