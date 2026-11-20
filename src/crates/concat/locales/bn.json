@@ -955,6 +955,7 @@
   "textPanel.horizontal": "অনুভূমিক",
   "textPanel.importFont": "ফন্ট ইমপোর্ট করুন…",
   "textPanel.italic": "ইটালিক",
+  "textPanel.justify": "দুই পাশে সমান",
   "textPanel.layout": "লেআউট",
   "textPanel.letterCase": "অক্ষরের ধরন",
   "textPanel.lineHeight": "লাইনের উচ্চতা",

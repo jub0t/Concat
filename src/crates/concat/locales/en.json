@@ -955,6 +955,7 @@
   "textPanel.horizontal": "Horizontal",
   "textPanel.importFont": "Import a font…",
   "textPanel.italic": "Italic",
+  "textPanel.justify": "Justify",
   "textPanel.layout": "Layout",
   "textPanel.letterCase": "Letter case",
   "textPanel.lineHeight": "Line height",

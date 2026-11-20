@@ -955,6 +955,7 @@
   "textPanel.horizontal": "Horizontal",
   "textPanel.importFont": "Schrift importieren…",
   "textPanel.italic": "Kursiv",
+  "textPanel.justify": "Blocksatz",
   "textPanel.layout": "Layout",
   "textPanel.letterCase": "Groß-/Kleinschreibung",
   "textPanel.lineHeight": "Zeilenhöhe",

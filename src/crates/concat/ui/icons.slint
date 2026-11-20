@@ -110,6 +110,7 @@ export enum Glyph {
     align-left,
     align-center-x,
     align-right,
+    align-justify,
     align-top,
     align-center-y,
     align-bottom,
@@ -989,6 +990,13 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint;
         commands: "M 13 1 L 14 1 L 14 14 L 13 14 Z M 2 3 L 11 3 L 11 6 L 2 6 Z M 5 9"
             + " L 11 9 L 11 12 L 5 12 Z";
+    }
+
+    // The same grid: no rail, and both bars run the full width, the way
+    // justified lines run to both edges.
+    if root.glyph == Glyph.align-justify: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 2 3 L 13 3 L 13 6 L 2 6 Z M 2 9 L 13 9 L 13 12 L 2 12 Z";
     }
 
     // radix-ui/icons, 15-unit grid
