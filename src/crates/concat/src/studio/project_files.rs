@@ -170,6 +170,7 @@ impl Studio {
                 self.recents = projects::recents(&self.host.dirs.config);
                 self.host.monitor.clear();
                 self.audition = None;
+                self.preview_effects_bypassed = false;
                 self.revision += 1;
                 self.flat = None;
                 self.sync_audio();
@@ -451,6 +452,7 @@ impl Studio {
         ));
         self.host.monitor.clear();
         self.audition = None;
+        self.preview_effects_bypassed = false;
         self.revision += 1;
         self.flat = None;
         self.host
