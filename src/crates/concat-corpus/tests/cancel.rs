@@ -82,7 +82,9 @@ impl Bench {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.events.recv_timeout(left) {
                 Ok(Event::ExportDone { job: done, .. }) if done == job => return Ok(()),
-                Ok(Event::ExportFailed { job: failed, error, .. }) if failed == job => {
+                Ok(Event::ExportFailed {
+                    job: failed, error, ..
+                }) if failed == job => {
                     return Err(error);
                 }
                 Ok(_) => {}
@@ -100,9 +102,13 @@ impl Bench {
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.events.recv_timeout(left) {
-                Ok(Event::ExportProgress { job: moving, frame, total, stage, .. })
-                    if moving == job =>
-                {
+                Ok(Event::ExportProgress {
+                    job: moving,
+                    frame,
+                    total,
+                    stage,
+                    ..
+                }) if moving == job => {
                     let now = match at {
                         At::FirstSign => true,
                         At::HalfThePicture => total > 0 && frame * 2 >= total,
@@ -113,8 +119,13 @@ impl Bench {
                     }
                 }
                 Ok(Event::ExportDone { job: done, .. }) if done == job => return None,
-                Ok(Event::ExportFailed { job: failed, error, .. }) if failed == job => {
-                    panic!("the export failed before it was cancelled: {}", error.message);
+                Ok(Event::ExportFailed {
+                    job: failed, error, ..
+                }) if failed == job => {
+                    panic!(
+                        "the export failed before it was cancelled: {}",
+                        error.message
+                    );
                 }
                 Ok(_) => {}
                 Err(_) => panic!("the export did not reach {at:?} in {} s", STUCK.as_secs()),
@@ -199,7 +210,13 @@ fn bench() -> Bench {
         let Reply::View(view) = reply else {
             panic!("media.import answered with no project");
         };
-        let id = view.project.media.last().expect("the tone is in the bin").id.clone();
+        let id = view
+            .project
+            .media
+            .last()
+            .expect("the tone is in the bin")
+            .id
+            .clone();
         bench.send(json!({
             "method": "edit.apply",
             "path": bench.project,
@@ -216,7 +233,9 @@ fn a_cancelled_export_lets_go_within_a_second_at_every_stage() {
     // To its end once: the file a cancelled export must leave alone.
     let began = Instant::now();
     let job = bench.start();
-    bench.end(&job).expect("the export finishes when left alone");
+    bench
+        .end(&job)
+        .expect("the export finishes when left alone");
     let whole = std::fs::read(&bench.output).expect("the finished file");
     eprintln!(
         "left alone: {:.1} s for {} bytes",
@@ -279,5 +298,7 @@ fn a_cancelled_export_lets_go_within_a_second_at_every_stage() {
 
     // And the next one starts, and finishes.
     let job = bench.start();
-    bench.end(&job).expect("an export after the cancelled ones finishes");
+    bench
+        .end(&job)
+        .expect("an export after the cancelled ones finishes");
 }

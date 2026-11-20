@@ -968,15 +968,27 @@ impl Runner<'_> {
         let ours = self.document(project)?;
         let theirs = self.document(&other)?;
         let differ = difference(&ours["timelines"], &theirs["timelines"], "").is_some();
-        report.check(
-            format!("the {} twin's timeline differs from the case's", twin.name),
-            differ,
-            if differ {
-                "it does, so the comparison is of two different edits".to_owned()
-            } else {
-                "they are the same edit, which would make the comparison prove nothing".to_owned()
-            },
-        );
+        if twin.same {
+            report.check(
+                format!("the case's timeline is the {} twin's again", twin.name),
+                !differ,
+                match difference(&ours["timelines"], &theirs["timelines"], "") {
+                    None => "entry for entry".to_owned(),
+                    Some(path) => format!("they first differ at {path}"),
+                },
+            );
+        } else {
+            report.check(
+                format!("the {} twin's timeline differs from the case's", twin.name),
+                differ,
+                if differ {
+                    "it does, so the comparison is of two different edits".to_owned()
+                } else {
+                    "they are the same edit, which would make the comparison prove nothing"
+                        .to_owned()
+                },
+            );
+        }
 
         let fps = self.case.fps();
         let mut unequal = Vec::new();

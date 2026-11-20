@@ -1,0 +1,31 @@
+{
+  "about": "Clips A and B end to end; then B is moved to start a second later on the same track, leaving a second of nothing between them. A plays, a second is black and silent, and B starts on its own first frame at frame 90 with its pips. A failure means a move lands a clip a frame off, drags its neighbour, or leaves its sound behind.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 }, "as": "clipB", "bind": { "track": "/project/timelines/0/clips/1/trackId" } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "moveClips", "moves": [{ "clipId": "$clipB", "start": 3, "trackId": "$track" }] } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 150,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 },
+      { "frames": [60, 89] },
+      { "frames": [90, 149], "media": "b", "from": 0, "step": 1 }
+    ],
+    "sound": [
+      { "frames": [0, 59], "media": "a", "from": 0 },
+      { "frames": [90, 149], "media": "b", "from": 0 }
+    ]
+  }
+}

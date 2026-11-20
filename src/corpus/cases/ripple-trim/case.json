@@ -1,0 +1,30 @@
+{
+  "about": "Clips A and B end to end; A is trimmed half a second in from its end with ripple, so B closes up to it. A's first 45 frames are followed at once by B's first, and B's pips come half a second sooner. A failure means a ripple trim leaves a gap, moves the wrong clip, or moves a clip's picture without its sound.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "trimClip", "clipId": "$clipA", "edge": "end", "delta": -0.5, "ripple": true } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 105,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 44], "media": "a", "from": 0, "step": 1 },
+      { "frames": [45, 104], "media": "b", "from": 0, "step": 1 }
+    ],
+    "sound": [
+      { "frames": [0, 44], "media": "a", "from": 0 },
+      { "frames": [45, 104], "media": "b", "from": 0 }
+    ]
+  }
+}

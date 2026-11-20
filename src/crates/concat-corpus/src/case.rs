@@ -411,6 +411,11 @@ pub struct Twin {
     /// The output frames whose previews are compared, each at its own
     /// instant, `frame / fps`.
     pub frames: Vec<u32>,
+    /// Whether the twin's timeline must be the case's own, entry for
+    /// entry: an edit and its undoing, a split and a merge. Otherwise it
+    /// must differ, or the comparison is of one edit with itself.
+    #[serde(default)]
+    pub same: bool,
 }
 
 /// The speed a curve of `[at, speed]` points gives at fraction `at`:
