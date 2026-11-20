@@ -68,6 +68,11 @@ const BLEND_TOLERANCE: f64 = 0.02;
 /// and never a step to undo.
 const VIEW_STATE: [&str; 2] = ["selectTimeline", "moveTimeline"];
 
+/// How many eight-bit levels a lossy codec may move a flat block by: the
+/// bound on a dimmed picture read out of the export's file, where it is
+/// more than [`BLEND_TOLERANCE`].
+const ENCODED_LEVELS: f64 = 2.5;
+
 /// How far from its place a pip is looked for: under half the gap
 /// between two pips at the fastest speed a case uses.
 const PIP_SEARCH: f64 = 0.15;
@@ -812,7 +817,7 @@ impl Runner<'_> {
             };
             let insets = self.case.expected_insets(of);
             for shows in std::iter::once(shows).chain(insets) {
-                if let Some(found) = shown_wrong(frame, enlarged(shows, times), &mut worst) {
+                if let Some(found) = shown_wrong(frame, enlarged(shows, times), &mut worst, true) {
                     wrong.push(format!("frame {index} {found}"));
                     self.save(report, &format!("export-{index:04}.png"), frame);
                 }
@@ -840,7 +845,7 @@ impl Runner<'_> {
             let seen = self.preview(project, f64::from(index) / fps)?;
             let insets = self.case.expected_insets(index);
             for shows in std::iter::once(shows).chain(insets) {
-                if let Some(found) = shown_wrong(&seen, shows, &mut 0.0) {
+                if let Some(found) = shown_wrong(&seen, shows, &mut 0.0, false) {
                     unlike.push(format!("frame {index} {found}"));
                     self.save(report, &format!("monitor-{index:04}.png"), &seen);
                 }
@@ -1137,7 +1142,7 @@ impl Runner<'_> {
                 );
             }
             if let Some(shows) = self.case.expected(index)
-                && let Some(found) = shown_wrong(&mine, shows, &mut 0.0)
+                && let Some(found) = shown_wrong(&mine, shows, &mut 0.0, false)
             {
                 wrong.push(format!("frame {index} {found}"));
                 self.save(report, &format!("preview-{index:04}-case.png"), &mine);
@@ -1234,7 +1239,15 @@ fn decode(path: &Path) -> Result<Vec<Frame>, String> {
 /// What is wrong with `frame` if it does not show `shows`, in words that
 /// follow "frame N"; `worst` keeps the furthest a code block was from its
 /// level.
-fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
+///
+/// `encoded` says the frame came out of the export's file and not from the
+/// monitor: an eight-bit picture a lossy codec has had. A dimmed picture's
+/// light is then known no better than the codec keeps its levels, which
+/// near white is worth more light a level than the usual bound allows -
+/// one encoder left a frame a fortieth dimmer than the last as it was,
+/// two levels' worth - so there the bound is two and a half levels, and
+/// the monitor's frame, drawn before any codec, is what is held tightly.
+fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64, encoded: bool) -> Option<String> {
     match shows {
         Shows::Code(code, at, block) => {
             let reading = code::read_sized(frame, at[0], at[1], block);
@@ -1253,10 +1266,18 @@ fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
             })
         }
         Shows::Faded(code, share, at, block) => {
+            // What one level of the white blocks is worth in light, at the
+            // level this share of it shows as.
+            let level = f64::from(code::HIGH) * share.max(1e-6).powf(1.0 / 2.4);
+            let allowed = if encoded {
+                BLEND_TOLERANCE.max(ENCODED_LEVELS * 2.4 * share / level)
+            } else {
+                BLEND_TOLERANCE
+            };
             match code::read_faded(frame, at[0], at[1], block, code) {
                 None => Some(format!("should be {code} dimmed, and is not that")),
-                Some((found, spread)) => ((found - share).abs() > BLEND_TOLERANCE
-                    || spread > 2.0 * BLEND_TOLERANCE)
+                Some((found, spread)) => ((found - share).abs() > allowed
+                    || spread > 2.0 * allowed)
                     .then(|| {
                         format!(
                             "should show {share:.3} of {code}, and shows {found:.3} (its blocks {spread:.3} apart)"
