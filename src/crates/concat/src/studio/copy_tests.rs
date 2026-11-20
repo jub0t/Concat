@@ -38,6 +38,7 @@ fn file(kind: MediaKind, seconds: Option<f64>) -> NewMedia {
         audio_codec: (kind == MediaKind::Audio).then(|| "aac".to_owned()),
         has_audio: kind == MediaKind::Audio,
         audio_tracks: Vec::new(),
+        chapters: Vec::new(),
         origin: None,
         color_space: Default::default(),
     }

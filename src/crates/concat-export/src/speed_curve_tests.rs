@@ -146,6 +146,7 @@ fn curves_with_eased_points_carry_their_slopes_and_straight_ones_none() {
                 audio_codec: Some("aac".to_owned()),
                 has_audio: true,
                 audio_tracks: Vec::new(),
+                chapters: Vec::new(),
                 origin: None,
                 color_space: Default::default(),
             },
