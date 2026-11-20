@@ -131,11 +131,6 @@ const VERSION_PAGE: i32 = 6;
 /// shortcuts card opens the sheet on.
 pub const SHORTCUTS_PAGE: i32 = 7;
 
-/// What the notice says when a model's download is stopped. These were the
-/// downloader's own words while a cancel was an error like any other, and
-/// are kept as they were now that it is not.
-const DOWNLOAD_CANCELLED: &str = "download cancelled";
-
 /// One downloadable model, as the settings sheet shows it.
 #[derive(Clone, Debug)]
 pub struct ModelState {
@@ -582,9 +577,12 @@ impl SettingsPane {
                         }
                         studio.prefs.save(&studio.host.dirs);
                     }
-                    // A download that was stopped says so, in the words it
-                    // always has.
-                    Err(Halt::Cancelled) => studio.notify(DOWNLOAD_CANCELLED, true),
+                    // The person stopped it, and knows: nothing is said.
+                    // It used to put up the downloader's own words,
+                    // "download cancelled", as an error and in English
+                    // whatever the language, because a cancel was an
+                    // error like any other.
+                    Err(Halt::Cancelled) => {}
                     Err(Halt::Failed(error)) => match &failure {
                         Some(failure) => studio.notify(&failure_line(failure), true),
                         None => studio.notify(&error, true),
