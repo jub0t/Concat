@@ -18,6 +18,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use concat_host::export::Exporter;
+use concat_host::jobs::sched;
 pub use concat_host::media::{strip_window, window_span, window_start};
 use concat_host::playback::{Playback, PlaybackEvents};
 use concat_host::preview::Monitor;
@@ -153,14 +154,14 @@ impl Shell {
 //
 // Background work runs on threads kept for the life of the process: a
 // thread per job was a thread per monitor frame, thirty a second during
-// playback. They come in three lanes, so one kind of work can never sit
-// in a queue behind another:
+// playback. It comes in lanes, so one kind of work can never sit in a
+// queue behind another:
 //
-//   - the interactive lane: the monitor's frames, the frames ahead of the
-//     playhead, and the short jobs the window is waiting on - a probe, a
-//     picked colour, a list of fonts ([`spawn`], [`spawn_in_project`],
-//     [`spawn_frame`], [`spawn_detached`]);
-//   - the long lane: everything that takes seconds to minutes - an export,
+//   - the frame's: the monitor's frame and its refine ([`spawn_frame`]);
+//   - the short jobs the window is waiting on - a probe, a picked colour,
+//     a list of fonts, the hand-off of the frames ahead of the playhead
+//     ([`spawn`], [`spawn_in_project`], [`spawn_detached`]);
+//   - the long jobs: everything that takes seconds to minutes - an export,
 //     a merge, captions, speech, cutouts, stabilization, Enhance, reverse,
 //     voice isolation, the Smart brush, a download ([`spawn_long`],
 //     [`spawn_long_in_project`]);
@@ -168,144 +169,41 @@ impl Shell {
 //     its turn is replaced by a newer one of the same project
 //     ([`spawn_save`]).
 //
-// These were one queue on three threads, and the comment on it said none
-// of the monitor's frame, its prefetch and an analysis ever queued behind
-// the others. That held while three things ran. Remove background,
-// Stabilize and Captions together took all three: the monitor froze, and
-// the autosave queued behind them for minutes, so a crash then lost every
-// edit since the last save (audit 2026-11-15, A1). This is the stopgap
-// until the engine's own scheduler takes the jobs; the lanes keep the two
-// things that must never wait - the picture and the save - off the
-// threads the long jobs hold.
+// These were one queue on three threads. Remove background, Stabilize and
+// Captions together took all three: the monitor froze, and the autosave
+// queued behind them for minutes, so a crash then lost every edit since
+// the last save (audit 2026-11-15, A1). Three lanes of this file's own
+// were the stopgap; the first three are now the process's scheduler's,
+// which the API's exports share, sized to the machine's cores and memory.
+// The save's thread stays this file's: it is the one thing that must run
+// whatever else does, and nothing about it needed to change.
 
-/// A job for a lane. `what` is the type of the closure the caller handed
-/// in, which names the function that asked for it, for the log.
-struct Job {
-    what: &'static str,
-    run: Box<dyn FnOnce() + Send>,
-}
-
-/// A fixed set of threads fed from one queue.
-struct Lane {
-    sender: std::sync::mpsc::Sender<Job>,
-    /// How many threads the lane has.
-    threads: usize,
-    /// How many of them are running a job now. Read only to say in the log
-    /// that a job had to wait, so it can be a moment out of date.
-    busy: Arc<std::sync::atomic::AtomicUsize>,
-    /// Whether a job that finds every thread busy is said in the log. The
-    /// long lane's are: a job waiting there shows no progress, and the log
-    /// is where a report of a job "stuck at 0%" is read.
-    say_waits: bool,
-}
-
-impl Lane {
-    /// Starts `threads` threads named `name-0`, `name-1` and so on. A job
-    /// that runs longer than `slow` is named in the log as it ends: on the
-    /// interactive lane that is a job that belongs on the long one.
-    fn start(
-        name: &'static str,
-        threads: usize,
-        slow: Option<std::time::Duration>,
-        say_waits: bool,
-    ) -> Lane {
-        let (sender, receiver) = std::sync::mpsc::channel::<Job>();
-        let receiver = Arc::new(std::sync::Mutex::new(receiver));
-        let busy = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        for index in 0..threads {
-            let receiver = Arc::clone(&receiver);
-            let busy = Arc::clone(&busy);
-            std::thread::Builder::new()
-                .name(format!("{name}-{index}"))
-                .spawn(move || {
-                    loop {
-                        let job = receiver
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner())
-                            .recv();
-                        let Ok(job) = job else {
-                            return;
-                        };
-                        busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let began = std::time::Instant::now();
-                        (job.run)();
-                        busy.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                        if let Some(slow) = slow
-                            && began.elapsed() > slow
-                        {
-                            log::warn!(
-                                "host: {} held an interactive worker for {}; work that long belongs on the long-job lane, where it cannot hold up the monitor's frames",
-                                job.what,
-                                concat_log::span(began.elapsed())
-                            );
-                        }
-                    }
-                })
-                .expect("a worker thread");
-        }
-        Lane {
-            sender,
-            threads,
-            busy,
-            say_waits,
+/// Hands `run` to the process's scheduler on `lane`, named `what` - the
+/// type of the closure the caller handed in, which names the function that
+/// asked - for the log.
+///
+/// The monitor's frames have a lane of their own, the short jobs the
+/// window waits on go among the file and network work, and the long ones
+/// among the analyses: the scheduler sizes each to the machine and is the
+/// one place that knows how much of it is in use (see
+/// `concat_host::jobs::scheduler`). The save keeps its own thread, below.
+fn submit(lane: sched::Lane, what: &'static str, run: impl FnOnce() + Send + 'static) {
+    let scheduler = concat_host::jobs::scheduler();
+    // A long job that finds every worker busy shows no progress while it
+    // waits, and the log is where a report of one "stuck at 0%" is read.
+    if lane == sched::Lane::Background {
+        let workers = scheduler.budget().lane(lane).workers;
+        if scheduler.load()[lane.index()].running >= workers {
+            log::info!("host: {what} waits its turn: all {workers} long-job workers are busy");
         }
     }
-
-    /// Queues `run` for the lane's next free thread.
-    fn submit(&self, what: &'static str, run: Box<dyn FnOnce() + Send>) {
-        if self.say_waits && self.busy.load(std::sync::atomic::Ordering::Relaxed) >= self.threads {
-            log::info!(
-                "host: {what} waits its turn: all {} long-job workers are busy",
-                self.threads
-            );
-        }
-        let _ = self.sender.send(Job { what, run });
+    let ticket = scheduler.submit_then(
+        sched::Job::infallible(lane, move |_| run()).label(what),
+        |_| {},
+    );
+    if let Some(sched::End::Refused(why)) = ticket.end() {
+        log::error!("host: {what} was not taken on ({why:?}); it will not run");
     }
-}
-
-/// The interactive lane's threads: two monitor frames out at once - the
-/// one asked for and a refine walking to the exact picture - the prefetch
-/// that follows each, and one short job beside them. The monitor never has
-/// more in flight than that whatever the machine, so the lane does not
-/// grow with it.
-const INTERACTIVE_THREADS: usize = 4;
-
-/// A job on the interactive lane that runs longer than this is said in the
-/// log. A frame decoded from a keyframe seconds away, or a probe of a large
-/// import, is a second or two; past this it is long work on the wrong lane.
-const INTERACTIVE_SLOW: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// The long lane's threads on a machine with `cores` hardware threads:
-/// half of them, no fewer than three and no more than six. Every long job
-/// fans out over the cores on its own - a model's threads, an encoder's,
-/// a decoder's - so more of them side by side buys progress on each, not
-/// speed, and costs the memory each holds. Three is what a four-thread
-/// machine ran before, so it is no more crowded than it was; a bigger one
-/// starts a fourth or a fifth job at once rather than holding it at 0%.
-fn long_threads(cores: usize) -> usize {
-    (cores / 2).clamp(3, 6)
-}
-
-fn interactive_lane() -> &'static Lane {
-    static LANE: std::sync::OnceLock<Lane> = std::sync::OnceLock::new();
-    LANE.get_or_init(|| {
-        Lane::start(
-            "concat-worker",
-            INTERACTIVE_THREADS,
-            Some(INTERACTIVE_SLOW),
-            false,
-        )
-    })
-}
-
-fn long_lane() -> &'static Lane {
-    static LANE: std::sync::OnceLock<Lane> = std::sync::OnceLock::new();
-    LANE.get_or_init(|| {
-        let cores = std::thread::available_parallelism().map_or(4, |count| count.get());
-        let threads = long_threads(cores);
-        log::debug!("host: {threads} long-job workers for {cores} hardware threads");
-        Lane::start("concat-long", threads, None, true)
-    })
 }
 
 fn save_lane() -> &'static SaveLane {
@@ -417,7 +315,7 @@ impl Drop for SaveLane {
 /// Runs `work` on the interactive lane with nothing to report: the frames
 /// ahead of the playhead. Never for anything slow; see [`spawn_long`].
 pub fn spawn_detached(work: impl FnOnce() + Send + 'static) {
-    interactive_lane().submit(std::any::type_name_of_val(&work), Box::new(work));
+    submit(sched::Lane::Io, std::any::type_name_of_val(&work), work);
 }
 
 /// Runs `work` on the interactive lane, then `then` on the event-loop
@@ -432,7 +330,7 @@ pub fn spawn<T: Send + 'static>(
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
     let what = std::any::type_name_of_val(&work);
-    interactive_lane().submit(what, Box::new(move || deliver(None, work(), then)));
+    submit(sched::Lane::Io, what, move || deliver(None, work(), then));
 }
 
 /// [`spawn`] on the long lane: for work that takes seconds or minutes - a
@@ -443,7 +341,9 @@ pub fn spawn_long<T: Send + 'static>(
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
     let what = std::any::type_name_of_val(&work);
-    long_lane().submit(what, Box::new(move || deliver(None, work(), then)));
+    submit(sched::Lane::Background, what, move || {
+        deliver(None, work(), then)
+    });
 }
 
 /// [`spawn_in_project`] on the long lane: an export, a merge, captions,
@@ -454,7 +354,9 @@ pub fn spawn_long_in_project<T: Send + 'static>(
 ) {
     let epoch = project_epoch();
     let what = std::any::type_name_of_val(&work);
-    long_lane().submit(what, Box::new(move || deliver(Some(epoch), work(), then)));
+    submit(sched::Lane::Background, what, move || {
+        deliver(Some(epoch), work(), then)
+    });
 }
 
 /// Runs a save of the project at `key` on the save lane, then `then` with
@@ -523,7 +425,9 @@ pub fn spawn_in_project<T: Send + 'static>(
 ) {
     let epoch = project_epoch();
     let what = std::any::type_name_of_val(&work);
-    interactive_lane().submit(what, Box::new(move || deliver(Some(epoch), work(), then)));
+    submit(sched::Lane::Io, what, move || {
+        deliver(Some(epoch), work(), then)
+    });
 }
 
 /// [`spawn_in_project`] with the publish after `then` chosen by the caller:
@@ -536,10 +440,9 @@ pub fn spawn_in_project_publishing<T: Send + 'static>(
 ) {
     let epoch = project_epoch();
     let what = std::any::type_name_of_val(&work);
-    interactive_lane().submit(
-        what,
-        Box::new(move || deliver_then(Some(epoch), work(), then, publish)),
-    );
+    submit(sched::Lane::Io, what, move || {
+        deliver_then(Some(epoch), work(), then, publish)
+    });
 }
 
 /// [`spawn_in_project`] for the monitor's frames. While playback runs a
@@ -575,7 +478,7 @@ pub fn spawn_frame<T: Send + 'static>(
             },
         );
     };
-    interactive_lane().submit(what, Box::new(run));
+    submit(sched::Lane::Frame, what, run);
 }
 
 /// Hands a worker's result to the event-loop thread: `then` with the state
@@ -1194,58 +1097,56 @@ mod lane_tests {
     /// thread takes to start, far less than the minutes a save waited.
     const PROMPTLY: Duration = Duration::from_secs(1);
 
-    #[test]
-    fn the_long_lane_grows_with_the_machine_within_bounds() {
-        assert_eq!(super::long_threads(1), 3, "never fewer than three");
-        assert_eq!(super::long_threads(4), 3, "a four-thread machine as before");
-        assert_eq!(super::long_threads(8), 4);
-        assert_eq!(super::long_threads(12), 6);
-        assert_eq!(super::long_threads(64), 6, "never more than six");
-    }
-
     /// The bug: every long job running took a worker the monitor's frames
-    /// and the autosave needed. With the long lane full - and a job more
-    /// waiting behind it - a frame and a save still run at once.
+    /// and the autosave needed. With every long-job worker held - and jobs
+    /// more waiting behind them - a frame, a short job and a save still
+    /// run at once.
     #[test]
-    fn a_frame_and_a_save_run_at_once_with_the_long_lane_full() {
-        let long = super::long_lane();
+    fn a_frame_and_a_save_run_at_once_with_the_long_jobs_full() {
+        use concat_host::jobs::sched::Lane;
+        let workers = concat_host::jobs::scheduler()
+            .budget()
+            .lane(Lane::Background)
+            .workers;
         let (release, held) = mpsc::channel::<()>();
         let held = Arc::new(Mutex::new(held));
         let started = Arc::new(AtomicUsize::new(0));
-        let blockers = long.threads + 2;
+        let blockers = workers + 2;
         for _ in 0..blockers {
             let held = Arc::clone(&held);
             let started = Arc::clone(&started);
-            long.submit(
+            super::submit(
+                Lane::Background,
                 "a long job that does not end",
-                Box::new(move || {
+                move || {
                     started.fetch_add(1, Ordering::SeqCst);
                     let _ = held.lock().expect("the gate").recv();
-                }),
+                },
             );
         }
         let waited = Instant::now();
-        while started.load(Ordering::SeqCst) < long.threads {
+        while started.load(Ordering::SeqCst) < workers {
             assert!(
                 waited.elapsed() < Duration::from_secs(10),
-                "the long lane never filled"
+                "the long jobs' workers never filled"
             );
             std::thread::yield_now();
         }
         assert_eq!(
             started.load(Ordering::SeqCst),
-            long.threads,
-            "every long worker is held and the jobs after them wait"
+            workers,
+            "every long-job worker is held and the jobs after them wait"
         );
 
         let asked = Instant::now();
         let (frame_done, frame) = mpsc::channel();
-        super::interactive_lane().submit(
-            "a monitor frame",
-            Box::new(move || {
-                let _ = frame_done.send(());
-            }),
-        );
+        super::submit(Lane::Frame, "a monitor frame", move || {
+            let _ = frame_done.send(());
+        });
+        let (short_done, short) = mpsc::channel();
+        super::submit(Lane::Io, "a short job", move || {
+            let _ = short_done.send(());
+        });
         let (save_done, save) = mpsc::channel();
         super::save_lane().submit(
             "lane-test-project".to_owned(),
@@ -1255,17 +1156,19 @@ mod lane_tests {
             }),
         );
         let frame = frame.recv_timeout(PROMPTLY);
+        let short = short.recv_timeout(PROMPTLY);
         let save = save.recv_timeout(PROMPTLY);
         let took = asked.elapsed();
 
         // Let the long jobs go before asserting, so a failure here does not
-        // leave the lane held for the tests after it.
+        // leave their workers held for the tests after it.
         for _ in 0..blockers {
             let _ = release.send(());
         }
         assert!(frame.is_ok(), "the frame waited behind the long jobs");
+        assert!(short.is_ok(), "the short job waited behind the long jobs");
         assert!(save.is_ok(), "the save waited behind the long jobs");
-        assert!(took < PROMPTLY, "both ran in {took:?}");
+        assert!(took < PROMPTLY, "all three ran in {took:?}");
     }
 
     /// One run of a save job: which project, which of its snapshots, and

@@ -30,9 +30,33 @@ pub fn scheduler() -> &'static concat_sched::Scheduler {
         let machine = concat_sched::Machine::detect(crate::memory::total());
         let budget = concat_sched::Budget::for_machine(machine);
         log::info!("jobs: {budget}");
-        concat_sched::Scheduler::new(concat_sched::Config::new(budget))
+        concat_sched::Scheduler::new(concat_sched::Config::new(budget).events(|event| {
+            // A job on the frame's lane or among the short ones that ran
+            // for seconds belongs with the long jobs, where it cannot hold
+            // up the monitor's frames: said, so it is found.
+            if let concat_sched::Event::Finished {
+                job,
+                ran: Some(ran),
+                ..
+            } = event
+                && matches!(job.lane, concat_sched::Lane::Frame | concat_sched::Lane::Io)
+                && *ran > SHORT
+            {
+                log::warn!(
+                    "jobs: {} held a {} worker for {}; work that long belongs with the long jobs",
+                    job.label,
+                    job.lane.name(),
+                    concat_log::span(*ran)
+                );
+            }
+        }))
     })
 }
+
+/// The longest a job on the frame's lane or among the short ones is
+/// expected to run. A frame decoded from a keyframe seconds away, or a
+/// probe of a large import, is a second or two.
+const SHORT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The slot: at most one running job, identified by its own cancel flag.
 pub struct SingleFlight {
