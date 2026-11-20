@@ -399,6 +399,32 @@ impl Pcm {
     }
 }
 
+/// Pitch-kept speed uses the stretcher (Bungee). Running several of those
+/// at once on Windows has corrupted the heap on long multi-track projects;
+/// one stretch decode at a time keeps the product path and avoids that.
+fn stretch_slot() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    locked(&LOCK)
+}
+
+/// A finished cache file that holds no usable samples: refuse it so the
+/// next decode runs instead of mixing silence with no notice (#762).
+fn refuse_empty_pcm(pcm: &Pcm, duration: f64) -> Result<(), String> {
+    if pcm.frames == 0 {
+        return Err("decode produced no samples".into());
+    }
+    let expected = (duration.max(0.0) * f64::from(PCM_RATE)).round() as u64;
+    // At least a tenth of a second expected, yet under 1% of the samples:
+    // a header-only or torn write that would otherwise play as silence.
+    if expected >= u64::from(PCM_RATE) / 10 && pcm.frames < expected / 100 {
+        return Err(format!(
+            "decode produced {} samples, expected about {expected}",
+            pcm.frames
+        ));
+    }
+    Ok(())
+}
+
 /// Finds the samples inside a WAV file: byte offset of the `data` chunk's
 /// payload and its usable length.
 ///
@@ -1133,21 +1159,35 @@ fn decode_worker(playback: &Arc<Playback>) {
         let within = copy_source(&locked(&playback.cache), &job.spec);
         match decode(&job.spec, &job.project, &job.key, within) {
             Ok(pcm) => {
-                let now = playback.tick.fetch_add(1, Ordering::Relaxed) + 1;
-                locked(&playback.cache).insert(
-                    job.key.clone(),
-                    CacheEntry {
-                        pcm: Arc::new(pcm),
-                        last_used: now,
-                        reach: Reach::of(&job.spec),
-                    },
-                );
+                if let Err(error) = refuse_empty_pcm(&pcm, job.spec.duration) {
+                    let wav = job
+                        .project
+                        .join("cache")
+                        .join("audio")
+                        .join(format!("{}.wav", job.key));
+                    let _ = std::fs::remove_file(&wav);
+                    report(
+                        playback.events.as_ref(),
+                        format!("audio decode failed for {}: {error}", job.spec.path),
+                    );
+                } else {
+                    let now = playback.tick.fetch_add(1, Ordering::Relaxed) + 1;
+                    locked(&playback.cache).insert(
+                        job.key.clone(),
+                        CacheEntry {
+                            pcm: Arc::new(pcm),
+                            last_used: now,
+                            reach: Reach::of(&job.spec),
+                        },
+                    );
+                }
             }
             Err(error) => report(
                 playback.events.as_ref(),
                 format!("audio decode failed for {}: {error}", job.spec.path),
             ),
         }
+        // Always drop the key so a failed or empty decode can be queued again.
         locked(&playback.decoding).remove(&job.key);
         playback.resync();
     }
@@ -1170,15 +1210,18 @@ fn sweep_plan(directory: &Path, live: &HashSet<String>, budget: u64) -> Option<V
         let name = entry.file_name().to_string_lossy().into_owned();
         let Ok(meta) = entry.metadata() else { continue };
 
-        // A `.decoding` file is a crashed or torn run once it is old enough
-        // that no live decode can still be writing it.
-        if name.ends_with(".decoding") {
+        // A `.decoding` leftover: drop it when no current clip wants that
+        // key (no live worker should be writing it). A wanted key that is
+        // still being written is left alone; a crash mid-decode of a live
+        // key is overwritten on the next `File::create`, and a day-old
+        // leftover of a live key is swept so multi-GB tears do not sit.
+        if let Some(key) = name.strip_suffix(".wav.decoding") {
             let stale = meta
                 .modified()
                 .ok()
                 .and_then(|modified| now.duration_since(modified).ok())
                 .is_some_and(|age| age.as_secs() > 24 * 3600);
-            if stale {
+            if !live.contains(key) || stale {
                 doomed.push(path);
             }
             continue;
@@ -1318,17 +1361,30 @@ fn decode(
     let directory = project.join("cache").join("audio");
     let destination = directory.join(format!("{key}.wav"));
     if destination.is_file() {
-        return Pcm::open(&destination);
+        match Pcm::open(&destination).and_then(|pcm| {
+            refuse_empty_pcm(&pcm, spec.duration)?;
+            Ok(pcm)
+        }) {
+            Ok(pcm) => return Ok(pcm),
+            Err(_) => {
+                // Empty or torn: drop it and decode again rather than mix silence.
+                let _ = std::fs::remove_file(&destination);
+            }
+        }
     }
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("could not create {}: {error}", directory.display()))?;
 
     if let Some(bus) = &spec.bus {
-        return mix_span(spec, bus, &directory, key, &destination);
+        let pcm = mix_span(spec, bus, &directory, key, &destination)?;
+        refuse_empty_pcm(&pcm, spec.duration).inspect_err(|_| {
+            let _ = std::fs::remove_file(&destination);
+        })?;
+        return Ok(pcm);
     }
     if let Some((pcm, from)) = within {
         let frames = (spec.duration * f64::from(PCM_RATE)).round() as u64;
-        return write_span(&directory, key, &destination, |file, writer| {
+        let pcm = write_span(&directory, key, &destination, |file, writer| {
             // In pieces, so the writer's buffer is never the whole span.
             let mut at = from;
             let end = from.saturating_add(frames).min(pcm.frames);
@@ -1338,7 +1394,11 @@ fn decode(
                 at += count;
             }
             Ok(())
-        });
+        })?;
+        refuse_empty_pcm(&pcm, spec.duration).inspect_err(|_| {
+            let _ = std::fs::remove_file(&destination);
+        })?;
+        return Ok(pcm);
     }
 
     // Speed first, then the clip's own filters - the same order the export
@@ -1369,6 +1429,10 @@ fn decode(
     // the exporter trims.
     let window = engine.source_at(spec.duration);
 
+    // One stretch at a time: concurrent Bungee jobs on long detached
+    // tracks have taken the process down with a heap corruption on Windows.
+    let _stretch_slot = stretch.as_ref().map(|_| stretch_slot());
+
     let mut decoder = AudioDecoder::open(
         &spec.path,
         &AudioOptions {
@@ -1384,12 +1448,16 @@ fn decode(
     )
     .map_err(|error| error.to_string())?;
 
-    write_span(&directory, key, &destination, |file, writer| {
+    let pcm = write_span(&directory, key, &destination, |file, writer| {
         while let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
             writer.write(file, &decoder.bytes_of(&frame))?;
         }
         Ok(())
-    })
+    })?;
+    refuse_empty_pcm(&pcm, spec.duration).inspect_err(|_| {
+        let _ = std::fs::remove_file(&destination);
+    })?;
+    Ok(pcm)
 }
 
 /// Writes a span's cache file through `fill`, under a temporary name until
@@ -1936,6 +2004,36 @@ mod tests {
             chain: String::new(),
             bus: None,
         }
+    }
+
+    /// A finished cache file with no samples is dropped and decoded again,
+    /// so preview does not mix silence with no notice (#762).
+    #[test]
+    fn an_empty_cache_wav_is_refused_and_decoded_again() {
+        let dir = std::env::temp_dir().join(format!("concat-empty-cache-{}", std::process::id()));
+        let cache = dir.join("cache").join("audio");
+        std::fs::create_dir_all(&cache).expect("cache");
+        let source = rising_tone(&dir);
+        let spec = tone_spec(&source, 0.0, 1.0);
+        let key = super::decode_key(&spec);
+        let empty = cache.join(format!("{key}.wav"));
+        {
+            let mut file = std::fs::File::create(&empty).expect("empty");
+            let writer = super::WavWriter::start(&mut file).expect("header");
+            writer.finish(&mut file).expect("finish with no samples");
+        }
+        assert_eq!(
+            super::Pcm::open(&empty).expect("maps").frames,
+            0,
+            "the planted file holds no samples"
+        );
+        let pcm = super::decode(&spec, &dir, &key, None).expect("redecodes");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            pcm.frames > super::PCM_RATE as u64 * 9 / 10,
+            "about a second of the tone, got {}",
+            pcm.frames
+        );
     }
 
     /// Layers that touch or overlap are mixed as one stretch, apart from
