@@ -3,6 +3,8 @@
 
 //! Writing RGBA frames back out to a file.
 
+pub mod apart;
+
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -835,13 +837,34 @@ fn remember(encoder_name: &'static str, opened: bool) {
     }
 }
 
+/// Told of every encoder about to be opened for [`opens_here`], and then
+/// of what it answered: the helper process's way of saying where it is
+/// (see [`apart`]). Nobody, in the editor itself.
+static TOLD: OnceLock<fn(&str, Option<bool>)> = OnceLock::new();
+
+/// The encoder linked here whose name is `name`, as the name the answers
+/// are remembered under.
+fn linked_name(name: &str) -> Option<&'static str> {
+    VideoCodec::ALL
+        .iter()
+        .flat_map(|codec| [codec.encoders(true), codec.encoders(false)])
+        .flat_map(|names| names.iter().copied())
+        .find(|linked| *linked == name)
+}
+
 /// [`opens`], asked once per encoder and remembered for the process.
 fn opens_here(codec: VideoCodec, encoder_name: &'static str) -> bool {
     if let Some(answer) = probed(encoder_name) {
         return answer;
     }
+    if let Some(tell) = TOLD.get() {
+        tell(encoder_name, None);
+    }
     let answer = opens(codec, encoder_name);
     remember(encoder_name, answer);
+    if let Some(tell) = TOLD.get() {
+        tell(encoder_name, Some(answer));
+    }
     answer
 }
 

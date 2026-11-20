@@ -8,6 +8,9 @@ use std::path::PathBuf;
 
 const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --software | --mcp [auto|window|headless] | --schema | --version | --smoke | --smoke-export <CLIP> | --whisper-cpu]";
 
+/// The flag the window starts its encoder helper with.
+pub const PROBE_ENCODERS: &str = concat_media::encode::apart::FLAG;
+
 /// What one run of the binary was asked to do.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Launch {
@@ -50,6 +53,13 @@ pub enum Launch {
     /// instruction the CPU lacks would crash here, not at somebody's first
     /// transcription (#388).
     WhisperCpu,
+    /// Open every system encoder the export sheet asks about, say on
+    /// standard output which of them open, and exit, before logging, the
+    /// GPU or a window. Not for a person: the window starts itself again
+    /// this way at launch, so that a graphics driver which crashes when its
+    /// encoder is opened takes this helper down and not the editor (see
+    /// `concat_media::encode::apart`).
+    ProbeEncoders,
 }
 
 /// No arguments preserves the launch screen; a project names its directory.
@@ -68,6 +78,8 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String>
         Launch::Software
     } else if option == "--whisper-cpu" {
         Launch::WhisperCpu
+    } else if option == PROBE_ENCODERS {
+        Launch::ProbeEncoders
     } else if option == "--mcp" {
         match args.next() {
             None => Launch::Mcp(None),
@@ -123,6 +135,10 @@ mod tests {
     fn version_and_smoke_take_no_arguments() {
         assert_eq!(parse_strs(&["--version"]).unwrap(), Launch::Version);
         assert_eq!(parse_strs(&["--schema"]).unwrap(), Launch::Schema);
+        assert_eq!(
+            parse_strs(&[PROBE_ENCODERS]).unwrap(),
+            Launch::ProbeEncoders
+        );
         assert!(parse_strs(&["--schema", "extra"]).is_err());
         assert_eq!(parse_strs(&["--smoke"]).unwrap(), Launch::Smoke);
         assert_eq!(

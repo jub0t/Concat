@@ -36,6 +36,15 @@ fn main() -> Result<(), slint::PlatformError> {
         let _ = writeln!(std::io::stdout(), "{text}");
         return Ok(());
     }
+    // The window's own helper: it opens the system's encoders so the
+    // window does not have to, and a driver that crashes under one takes
+    // this process down instead. No log, so a helper that dies leaves no
+    // crash for the next launch to find, and nothing on standard output
+    // but its answers.
+    if launch == Ok(Launch::ProbeEncoders) {
+        concat_media::encode::apart::answer();
+        return Ok(());
+    }
     // Before the log and the window too: what this proves is that whisper's
     // CPU kernels load on this CPU, and nothing else should be in the way.
     if launch == Ok(Launch::WhisperCpu) {
@@ -89,6 +98,10 @@ fn main() -> Result<(), slint::PlatformError> {
             log::error!("smoke: could not start: {error}");
         }),
         // Answered above, before the log was opened.
-        Launch::Version | Launch::Schema | Launch::WhisperCpu | Launch::Mcp(_) => Ok(()),
+        Launch::Version
+        | Launch::Schema
+        | Launch::WhisperCpu
+        | Launch::Mcp(_)
+        | Launch::ProbeEncoders => Ok(()),
     }
 }
