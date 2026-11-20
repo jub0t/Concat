@@ -531,6 +531,12 @@ struct Shared {
     origin_micros: AtomicI64,
     epoch: std::time::Instant,
     playing: AtomicBool,
+    /// Whether an output stream is up and its callback is what moves the
+    /// clock. While there is none - a machine with no speakers, a remote
+    /// desktop, headphones just unplugged, a stream that failed and is
+    /// being rebuilt - the clock runs on the wall's time instead, so Play
+    /// plays, in silence.
+    driven: AtomicBool,
     /// Silent while set: the clock runs on, the speakers say nothing. A
     /// voiceover takes the picture without the timeline's sound, so the
     /// speakers do not bleed into the microphone.
@@ -554,6 +560,7 @@ impl Shared {
             origin_micros: AtomicI64::new(0),
             epoch: std::time::Instant::now(),
             playing: AtomicBool::new(false),
+            driven: AtomicBool::new(false),
             muted: AtomicBool::new(false),
             peak_left: AtomicU32::new(0),
             peak_right: AtomicU32::new(0),
@@ -572,20 +579,47 @@ impl Shared {
         self.epoch.elapsed().as_micros() as i64
     }
 
-    fn position(&self) -> f64 {
+    /// The position last written: the device's own word while a stream
+    /// drives the clock.
+    fn written(&self) -> f64 {
         self.position_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0
+    }
+
+    /// The clock a buffer at a time while a device drives it; with none,
+    /// the wall's, since nothing else moves it.
+    fn position(&self) -> f64 {
+        if self.playing.load(Ordering::Relaxed) && !self.driven.load(Ordering::Relaxed) {
+            return self.position_now();
+        }
+        self.written()
     }
 
     /// The clock between callbacks: where the last one left it plus the
     /// time since, while playing, so a reader polling faster than the
     /// device's buffers sees time move smoothly and not in buffer steps.
+    /// Held to [`COAST`] past the device's last word while a device drives
+    /// it; with no device there is no word to wait for, and it is the
+    /// wall's time from where Play, a seek or the last stream left it.
     fn position_now(&self) -> f64 {
-        let position = self.position();
+        let position = self.written();
         if !self.playing.load(Ordering::Relaxed) {
             return position;
         }
-        let run_on = self.now_micros() - self.origin_micros.load(Ordering::Relaxed);
-        (run_on as f64 / 1_000_000.0).clamp(position, position + COAST.as_secs_f64())
+        let run_on =
+            (self.now_micros() - self.origin_micros.load(Ordering::Relaxed)) as f64 / 1_000_000.0;
+        if !self.driven.load(Ordering::Relaxed) {
+            return run_on.max(position);
+        }
+        run_on.clamp(position, position + COAST.as_secs_f64())
+    }
+
+    /// Lands the stored position where the clock is now: before a pause
+    /// with no device, where nothing has stored it since Play, and before
+    /// a new stream takes the clock over from the wall.
+    fn settle(&self) {
+        if self.playing.load(Ordering::Relaxed) && !self.driven.load(Ordering::Relaxed) {
+            self.stamp(self.position_now());
+        }
     }
 }
 
@@ -867,6 +901,7 @@ impl Playback {
 
     /// Stops playing; the position holds.
     pub fn pause(&self) {
+        self.shared.settle();
         self.shared.playing.store(false, Ordering::Relaxed);
         if self.fine.swap(false, Ordering::Relaxed) {
             fine_timer(false);
@@ -1506,6 +1541,12 @@ fn supervise_stream(
             Ok((stream, device_name)) => {
                 backoff = std::time::Duration::from_secs(1);
                 reported_missing = false;
+                // The stored position is brought up to where the wall has
+                // the clock before the stream's word is waited for, so the
+                // playhead does not start back where Play left it for the
+                // buffer it takes the stream to speak.
+                shared.settle();
+                shared.driven.store(true, Ordering::Relaxed);
 
                 // Watch for the two reasons to rebuild: the stream reported
                 // an error, or the default device is no longer the one the
@@ -1534,6 +1575,9 @@ fn supervise_stream(
                         break;
                     }
                 }
+                // The wall's time carries the clock until the next stream
+                // has it, from where this one left it.
+                shared.driven.store(false, Ordering::Relaxed);
                 // `_stream` drops here, releasing the device before rebuild.
             }
             Err(error) => {
@@ -1555,12 +1599,17 @@ fn supervise_stream(
                     while let Ok(message) = receiver.try_recv() {
                         match message {
                             Msg::SetClips(next) => *locked(&last_active) = next,
-                            Msg::Play(at) => {
-                                shared.stamp(at);
-                                shared.playing.store(true, Ordering::Relaxed);
-                            }
-                            Msg::Pause => shared.playing.store(false, Ordering::Relaxed),
-                            Msg::Seek(at) => shared.stamp(at),
+                            // Play and a seek landed the clock themselves
+                            // when they were asked for. These are read
+                            // here a backoff later, up to half a minute,
+                            // and the clock has been running on the wall
+                            // since: landing it again would throw the
+                            // playhead back to where it started.
+                            Msg::Play(_) => {}
+                            // The window stopped the clock and landed it
+                            // itself, in `pause`; the message is only the
+                            // stream's to act on.
+                            Msg::Pause | Msg::Seek(_) => {}
                         }
                     }
                 }
@@ -1632,6 +1681,9 @@ where
 
     let failed = Arc::new(AtomicBool::new(false));
     let rx = Arc::clone(rx);
+    // A second hold on the clock, for the stream's error to say at once
+    // that nothing drives it now.
+    let unheard = Arc::clone(shared);
     let shared = Arc::clone(shared);
 
     let stream = device
@@ -1738,11 +1790,17 @@ where
             {
                 let events = Arc::clone(events);
                 let failed = Arc::clone(&failed);
+                let shared = Arc::clone(&unheard);
                 move |error| {
                     // The supervisor rebuilds on this flag; the report says
                     // why the sound hiccuped.
                     report(events.as_ref(), format!("audio stream error: {error}"));
                     failed.store(true, Ordering::Relaxed);
+                    // At once, not at the supervisor's next look: the
+                    // clock goes on by the wall from the device's last
+                    // word, where it used to stand still for up to a
+                    // second while the stream was rebuilt.
+                    shared.driven.store(false, Ordering::Relaxed);
                 }
             },
             None,
@@ -1761,9 +1819,51 @@ mod tests {
     use super::{COAST, Shared, sweep_plan, wav_data_range};
     use std::sync::atomic::Ordering;
 
+    /// A machine with no speakers, a remote desktop, headphones unplugged:
+    /// no stream ever calls back. Play moved the playhead a tenth of a
+    /// second and stopped. The clock is the wall's then, a pause holds it
+    /// where it got to, and a stream that comes up takes over from there.
+    #[test]
+    fn with_no_device_the_clock_is_the_walls_and_a_pause_holds_it() {
+        let shared = Shared::new();
+        shared.stamp(5.0);
+        shared.playing.store(true, Ordering::Relaxed);
+        let wait = COAST * 2;
+        std::thread::sleep(wait);
+        let now = shared.position_now();
+        assert!(now >= 5.0 + wait.as_secs_f64(), "{now}");
+        assert!(shared.position() >= now, "the stepped clock moves with it");
+
+        // Paused: landed where it got to, and held.
+        shared.settle();
+        shared.playing.store(false, Ordering::Relaxed);
+        let held = shared.position();
+        assert!(held >= now, "{held}");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(shared.position_now(), held);
+        assert_eq!(shared.position(), held);
+
+        // A stream comes up while playing: it is seeded from where the
+        // wall has the clock, and from then on its word is waited for.
+        shared.playing.store(true, Ordering::Relaxed);
+        shared.stamp(held);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        shared.settle();
+        shared.driven.store(true, Ordering::Relaxed);
+        let seeded = shared.position();
+        assert!(seeded >= held + 0.03, "{seeded}");
+        std::thread::sleep(COAST + std::time::Duration::from_millis(20));
+        let waited = shared.position_now();
+        assert!(
+            (waited - (seeded + COAST.as_secs_f64())).abs() < 1e-3,
+            "{waited}"
+        );
+    }
+
     #[test]
     fn the_clock_runs_on_between_buffers_but_not_past_a_stall() {
         let shared = Shared::new();
+        shared.driven.store(true, Ordering::Relaxed);
         shared.stamp(5.0);
         std::thread::sleep(std::time::Duration::from_millis(20));
         assert_eq!(shared.position_now(), 5.0, "a paused clock holds");
