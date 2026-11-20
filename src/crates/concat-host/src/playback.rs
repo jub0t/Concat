@@ -1109,8 +1109,13 @@ impl Playback {
             .name("audio-cache-sweep".into())
             .spawn(move || {
                 let live: HashSet<String> = locked(&this.specs).iter().map(decode_key).collect();
+                // In-flight decodes keep their `.wav.decoding` even after a
+                // speed change drops the old key from `live`: on Windows a
+                // sweep that unlinks the path while the worker still holds
+                // the handle makes the final rename fail with NotFound.
+                let decoding = locked(&this.decoding).clone();
                 let directory = project.join("cache").join("audio");
-                if let Some(doomed) = sweep_plan(&directory, &live, DISK_CACHE_BUDGET) {
+                if let Some(doomed) = sweep_plan(&directory, &live, &decoding, DISK_CACHE_BUDGET) {
                     for path in doomed {
                         let _ = std::fs::remove_file(path);
                     }
@@ -1195,9 +1200,15 @@ fn decode_worker(playback: &Arc<Playback>) {
 
 /// Which files a sweep of `directory` should delete to fit `budget` bytes:
 /// least-recently-modified first, never a `.wav` whose key is in `live`,
+/// never a `.decoding` whose key is in `live` or `decoding` (in-flight),
 /// plus any `.decoding` leftover older than a day. Returns `None` when the
 /// directory cannot be read (not created yet - nothing to sweep).
-fn sweep_plan(directory: &Path, live: &HashSet<String>, budget: u64) -> Option<Vec<PathBuf>> {
+fn sweep_plan(
+    directory: &Path,
+    live: &HashSet<String>,
+    decoding: &HashSet<String>,
+    budget: u64,
+) -> Option<Vec<PathBuf>> {
     let entries = std::fs::read_dir(directory).ok()?;
     let now = std::time::SystemTime::now();
 
@@ -1210,18 +1221,18 @@ fn sweep_plan(directory: &Path, live: &HashSet<String>, budget: u64) -> Option<V
         let name = entry.file_name().to_string_lossy().into_owned();
         let Ok(meta) = entry.metadata() else { continue };
 
-        // A `.decoding` leftover: drop it when no current clip wants that
-        // key (no live worker should be writing it). A wanted key that is
-        // still being written is left alone; a crash mid-decode of a live
-        // key is overwritten on the next `File::create`, and a day-old
-        // leftover of a live key is swept so multi-GB tears do not sit.
+        // A `.decoding` file: keep it while a worker is writing it
+        // (`decoding`) or the timeline still wants that key (`live`).
+        // Drop orphans immediately; drop day-old leftovers even for a live
+        // key so a crash mid-decode does not leave multi-GB tears forever.
         if let Some(key) = name.strip_suffix(".wav.decoding") {
+            let protected = live.contains(key) || decoding.contains(key);
             let stale = meta
                 .modified()
                 .ok()
                 .and_then(|modified| now.duration_since(modified).ok())
                 .is_some_and(|age| age.as_secs() > 24 * 3600);
-            if !live.contains(key) || stale {
+            if !protected || stale {
                 doomed.push(path);
             }
             continue;
@@ -2574,10 +2585,11 @@ mod tests {
         }
 
         let live: HashSet<String> = ["live".to_owned()].into();
+        let none: HashSet<String> = HashSet::new();
 
         // Budget for two files: only the oldest dead file goes; the live one
         // survives despite being older than "new".
-        let doomed = sweep_plan(&directory, &live, 8).expect("plans");
+        let doomed = sweep_plan(&directory, &live, &none, 8).expect("plans");
         let names: Vec<_> = doomed
             .iter()
             .filter_map(|path| {
@@ -2589,13 +2601,35 @@ mod tests {
 
         // Inside budget: nothing goes.
         assert_eq!(
-            sweep_plan(&directory, &live, 1024).expect("plans"),
+            sweep_plan(&directory, &live, &none, 1024).expect("plans"),
             Vec::<std::path::PathBuf>::new()
+        );
+
+        // An in-flight decode keeps its `.decoding` even when that key is
+        // no longer on the timeline (speed change): sweeping it would make
+        // the worker's rename fail with NotFound on Windows.
+        std::fs::write(directory.join("inflight.wav.decoding"), [0u8; 4]).expect("writes");
+        let decoding: HashSet<String> = ["inflight".to_owned()].into();
+        let doomed = sweep_plan(&directory, &live, &decoding, 1024).expect("plans");
+        assert!(
+            doomed.iter().all(|path| {
+                path.file_name().map(|name| name.to_string_lossy())
+                    != Some("inflight.wav.decoding".into())
+            }),
+            "in-flight .decoding must not be swept"
+        );
+        let orphaned = sweep_plan(&directory, &live, &none, 1024).expect("plans");
+        assert!(
+            orphaned.iter().any(|path| {
+                path.file_name().map(|name| name.to_string_lossy())
+                    == Some("inflight.wav.decoding".into())
+            }),
+            "orphan .decoding is swept when not decoding"
         );
 
         // A directory that does not exist yet is nothing to sweep, not a
         // panic - the first decode has simply not happened.
-        assert!(sweep_plan(&directory.join("missing"), &live, 8).is_none());
+        assert!(sweep_plan(&directory.join("missing"), &live, &none, 8).is_none());
 
         let _ = std::fs::remove_dir_all(&directory);
     }
