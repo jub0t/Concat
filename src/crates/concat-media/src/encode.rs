@@ -1156,7 +1156,10 @@ fn open_video(
     if average {
         let kbps = ceiling(options.bitrate_kbps);
         video.set_bit_rate(kbps as usize * 1000);
-        video.set_max_bit_rate(kbps as usize * 1500);
+        // SVT accepts a maximum bitrate only in CRF mode.
+        if encoder_name != "libsvtav1" {
+            video.set_max_bit_rate(kbps as usize * 1500);
+        }
     }
     let bitrate = format!("{}k", options.bitrate_kbps);
     // The average's ceiling, half again the target, and a buffer of two
@@ -1183,8 +1186,7 @@ fn open_video(
             "coder" => "cabac",
             "allow_skip_frames" => "0",
         },
-        // The context carries the target and the ceiling (above); the
-        // encoder runs its own VBR to them.
+        // The context carries the average bitrate target.
         "libsvtav1" if average => ffmpeg::dict! {
             "preset" => &svt_preset(&options.preset).to_string(),
         },
@@ -2542,6 +2544,31 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn average_av1_export_uses_svt_when_available() {
+        ffi::init();
+        if encoder::find_by_name("libsvtav1").is_none() {
+            return;
+        }
+        let path =
+            std::env::temp_dir().join(format!("concat-av1-average-{}.mp4", std::process::id()));
+        let options = EncodeOptions {
+            codec: VideoCodec::Av1,
+            rate_mode: RateMode::Average,
+            bitrate_kbps: 4000,
+            hardware: false,
+            ..EncodeOptions::default()
+        };
+        let mut encoder =
+            Encoder::create(&path, 320, 180, FrameRate::FILM, &options).expect("opens AV1");
+        assert_eq!(encoder.encoder_name(), "libsvtav1");
+        encoder
+            .write_frame(&Frame::black(320, 180))
+            .expect("writes");
+        encoder.finish().expect("finishes");
+        std::fs::remove_file(path).expect("remove export");
     }
 
     /// An average-bitrate export, the export sheet's: busy pictures come
