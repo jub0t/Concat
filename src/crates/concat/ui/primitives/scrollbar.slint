@@ -108,6 +108,9 @@ export component ThinHScrollbar inherits Rectangle {
     in property <length> offset;
     in property <length> min-thumb: 24px;
     in property <float> max-thumb: 1.0;
+    /// Keep the gutter and its full-width thumb drawn when there is no
+    /// overflow. The timeline uses this so its scrollbar is a fixed control.
+    in property <bool> always-visible: false;
 
     callback scrolled(offset: length);
 
@@ -124,7 +127,7 @@ export component ThinHScrollbar inherits Rectangle {
     // at eight with a four-pixel thumb it was a hairline to hunt for (#634).
     height: 12px;
     background: transparent;
-    visible: root.overflow > 0px;
+    visible: root.always-visible || root.overflow > 0px;
 
     thumb := Rectangle {
         x: root.thumb-x;

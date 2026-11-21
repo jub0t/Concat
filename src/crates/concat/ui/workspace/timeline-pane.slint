@@ -174,6 +174,8 @@ export component TimelinePane inherits Rectangle {
     property <length> headers-w: Math.max(0px,
         Math.min(root.header-width, root.width / 2));
     in property <length> ruler-height: 28px;
+    /// The strip under the lanes that carries the horizontal scrollbar.
+    property <length> hbar-h: 14px;
     /// The meters' column: the ruler, two bars and their gaps, a few
     /// pixels of air, and nothing when they are put away.
     property <length> meters-w: root.meters-shown ? 60px : 0px;
@@ -397,7 +399,7 @@ export component TimelinePane inherits Rectangle {
                 x: 0;
                 y: 0;
                 width: root.headers-w;
-                height: parent.height;
+                height: parent.height - root.hbar-h;
 
                 tracks: root.tracks;
                 ruler-height: root.ruler-height;
@@ -417,7 +419,7 @@ export component TimelinePane inherits Rectangle {
             HairlineSplitter {
                 x: root.headers-w;
                 y: 0;
-                height: parent.height;
+                height: parent.height - root.hbar-h;
 
                 pressed => { root.press-width = root.header-width; }
                 moved(delta) => {
@@ -432,7 +434,7 @@ export component TimelinePane inherits Rectangle {
                 x: root.headers-w + 1px;
                 y: 0;
                 width: Math.max(0px, parent.width - root.headers-w - 1px - root.meters-w);
-                height: parent.height;
+                height: parent.height - root.hbar-h;
 
                 tracks: root.tracks;
                 clips: root.clips;
@@ -492,18 +494,34 @@ export component TimelinePane inherits Rectangle {
                 init => { root.lanes-resized(self.width / 1px); }
             }
 
-            // Across the bottom of the lanes: where the view is along the
-            // cut, and a thumb to drag it there. Zoomed in, the lanes show
-            // a slice of the cut and nothing said which slice or how to
-            // get back to the start short of the wheel. The extent is the
-            // cut's length with a screen's worth of room after it, and
-            // never less than wherever the view has already been scrolled
-            // to, so the thumb cannot vanish from under a drag.
+            // A strip of its own under the grid, so the bar never covers the
+            // bottom track's clips and remains present at every zoom level.
+            Rectangle {
+                x: 0;
+                y: parent.height - root.hbar-h;
+                width: parent.width;
+                height: root.hbar-h;
+                background: Theme.panel;
+
+                Rectangle {
+                    y: 0;
+                    height: 1px;
+                    background: Theme.line;
+                }
+            }
+
+            // Under the lanes: where the view is along the cut, and a thumb
+            // to drag it there. The extent is the cut's length with a
+            // screen's worth of room after it, and never less than wherever
+            // the view has already been scrolled to, so the thumb cannot
+            // vanish from under a drag.
             // https://github.com/jub0t/Concat/issues/237
             ThinHScrollbar {
                 x: lanes.x;
-                y: parent.height - self.height;
+                y: parent.height - root.hbar-h + (root.hbar-h + 1px - self.height) / 2;
                 width: lanes.width;
+                always-visible: true;
+                min-thumb: 40px;
                 viewport: lanes.width;
                 content: Math.max(
                     (root.duration-seconds / root.seconds-per-pixel) * 1px + lanes.width / 4,
@@ -521,7 +539,7 @@ export component TimelinePane inherits Rectangle {
                 x: parent.width - root.meters-w;
                 y: 0;
                 width: root.meters-w;
-                height: parent.height;
+                height: parent.height - root.hbar-h;
                 ruler-height: root.ruler-height;
             }
         }
