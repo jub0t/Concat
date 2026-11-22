@@ -1544,6 +1544,15 @@ impl WgpuCompositor {
         self.dead || self.gone.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Whether the device under this compositor lives on though the
+    /// compositor gave it up: wgpu never said it was lost, and Direct3D 12,
+    /// where it is the API, says it was not removed. What failed - a map
+    /// left unanswered, a frame out of memory - was this compositor's, and
+    /// a sibling draws on the device again (#868).
+    pub fn device_lives(&self) -> bool {
+        !self.gone.load(std::sync::atomic::Ordering::Relaxed) && removed(&self.device).is_none()
+    }
+
     /// Says once, in the log, that this compositor has given up its device
     /// and why: the adapter and its driver, what the device's own API says
     /// happened where it can say (Direct3D 12's removed reason), what wgpu
