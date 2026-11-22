@@ -30,6 +30,7 @@ impl Studio {
         // change would look for it on the newly selected clip and lose it.
         self.flush_commit();
         self.end_audition();
+        self.media_focused = false;
         // A press on a transition's seam or handles selects the transition,
         // not the clip it rides into; a drag there still sets its length.
         if edge == 2

@@ -267,9 +267,16 @@ impl Studio {
         }
     }
 
-    /// Every clip on an unlocked lane.
+    /// Every clip on an unlocked lane — or every visible media card when
+    /// the bin had the last press (#696).
     pub fn select_all(&mut self) {
         self.flush_commit();
+        if self.media_focused {
+            self.handle(crate::panes::Msg::Media(
+                crate::panes::media_bin::MediaMsg::SelectAll,
+            ));
+            return;
+        }
         self.selection = self
             .timeline()
             .clips
