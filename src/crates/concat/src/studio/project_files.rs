@@ -156,6 +156,14 @@ impl Studio {
                 self.dirty = false;
                 self.project_name = info.name.clone();
                 self.export.name = projects::folder_name(&info.name);
+                // Destination: a Browse pick remembered for this project, or
+                // the project folder. Resolution is set when the sheet opens.
+                self.export.folder = self
+                    .prefs
+                    .export_folders
+                    .get(&info.path)
+                    .cloned()
+                    .unwrap_or_else(|| info.path.clone());
                 self.selection.clear();
                 self.transition_selected = None;
                 self.media.selected.clear();

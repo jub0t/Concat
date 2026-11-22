@@ -212,6 +212,10 @@ pub struct Preferences {
     /// by Settings › Shortcuts; resolved in [`crate::keymap`].
     #[serde(default)]
     pub keybinds: BTreeMap<String, String>,
+    /// Export › Browse destinations remembered per project path. Absent
+    /// means the project's own folder (#750 / #836).
+    #[serde(default)]
+    pub export_folders: BTreeMap<String, String>,
     /// What this run knows of the file; see [`OnDisk`].
     #[serde(skip)]
     disk: OnDisk,
