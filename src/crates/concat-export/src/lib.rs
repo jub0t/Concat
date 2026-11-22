@@ -1691,7 +1691,8 @@ const NO_RENDERER: &str = "no GPU or software renderer is available to draw with
 /// again: on the device the export was lent, where it was lent one, and
 /// otherwise a fresh device, which a reset adapter opens again. The next
 /// goes to the software adapter, which draws the same picture however
-/// slowly; after the third the CPU draws the rest (see [`recovered`]).
+/// slowly, unless the device lives on, when it is drawn on again; after
+/// the third the CPU draws the rest (see [`recovered`]).
 const DEVICE_LOSSES: u32 = 3;
 
 /// What an export draws with, `losses` deaths of its device in, after the
@@ -1718,6 +1719,13 @@ const DEVICE_LOSSES: u32 = 3;
 /// died, the sibling's first frame fails too, and the second death goes to
 /// the software adapter as before.
 ///
+/// A device that lives on under a death, which wgpu never said was lost
+/// and Direct3D 12 says was not removed ([`WgpuCompositor::device_lives`]),
+/// goes on in a sibling at every death, lent or not: a readback map left
+/// unanswered on a 4K export took a live RTX 3060 for dead at the second
+/// time and drew the rest on Windows' software adapter, five times slower
+/// (#868).
+///
 /// Every other road lets go of `dead` before it asks for anything, and
 /// asks the previews' device ([`headless_sibling`]) first, which lets go
 /// of a dead device of its own the same way. Direct3D 12 keeps one device
@@ -1739,7 +1747,7 @@ fn recovered(losses: u32, hdr: bool, dead: WgpuCompositor, lent: bool) -> Drawer
     let fresh = if no_device_opens() {
         drop(dead);
         None
-    } else if losses == 1 && lent {
+    } else if dead.device_lives() || (losses == 1 && lent) {
         Some(dead.sibling())
     } else {
         drop(dead);
@@ -5433,8 +5441,8 @@ mod tests {
     /// An export lent the window's device goes on on that device after the
     /// first loss - a sibling of the dead compositor, on the same adapter -
     /// rather than opening another, which on a laptop with two GPUs is the
-    /// other chip (audit 2026-10-20, H7). Losses past it go to the software
-    /// adapter, lent or not.
+    /// other chip (audit 2026-10-20, H7). Losses past it on a device that
+    /// itself died go to the software adapter.
     #[test]
     fn a_lent_device_is_drawn_on_again_after_the_first_loss() {
         let Some(window) = WgpuCompositor::new() else {
@@ -5446,8 +5454,33 @@ mod tests {
         let (was, now) = (window.adapter_info(), again.adapter_info());
         assert_eq!((was.name, was.backend), (now.name, now.backend));
         if WgpuCompositor::software().is_some() {
-            let slow = on_gpu(recovered(2, false, window.sibling(), true));
+            drop(again);
+            let dead = window.sibling();
+            dead.lose_device();
+            let slow = on_gpu(recovered(2, false, dead, true));
             assert!(slow.on_software_adapter(), "the software adapter opens");
+        }
+    }
+
+    /// A loss under which the device itself lives on - a map left
+    /// unanswered, Direct3D 12 saying the device was not removed and wgpu
+    /// never saying it was lost - is drawn again on that device, however
+    /// many losses in, rather than on the software adapter (#868).
+    #[test]
+    fn a_device_that_lives_on_is_drawn_on_again_after_every_loss() {
+        let Some(window) = WgpuCompositor::new() else {
+            eprintln!("no adapter here; skipped");
+            return;
+        };
+        let was = window.adapter_info();
+        for losses in 1..DEVICE_LOSSES {
+            let again = on_gpu(recovered(losses, false, window.sibling(), true));
+            let now = again.adapter_info();
+            assert_eq!(
+                (&was.name, was.backend, was.device_type),
+                (&now.name, now.backend, now.device_type),
+                "loss {losses} goes on on the same device"
+            );
         }
     }
 
