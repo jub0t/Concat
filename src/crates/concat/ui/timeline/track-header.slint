@@ -13,9 +13,11 @@ import { TrackData, TrackSize } from "model.slint";
 // No label on a row: the lanes are untyped, so there is no kind to name, and
 // a lane's place in the stack is the only handle anything needs on it.
 //
-// Both a visibility and a mute toggle on every row, because a track is not
-// typed — the same lane can be carrying a video clip and an mp3 side by side,
-// and each needs its own switch.
+// Visibility and mute are separate because a track is not typed — the same
+// lane can carry a video clip and an mp3 side by side. The eye is only for
+// picture; Rust dims it on a visible lane that holds only audio or sound
+// layers, where mute is the control that matters. The slot stays so every
+// header keeps the same columns.
 //
 // The column scrolls with the lanes rather than on its own: the offset is the
 // caller's `track-scroll`, so the labels and the lanes cannot drift apart.
@@ -271,6 +273,9 @@ component Header inherits Rectangle {
                 }
             }
 
+            // Eye hides picture from the composite. Kept on every row so the
+            // header columns do not shift; dimmed on audio / sound-layer
+            // lanes, where mute is the control that matters.
             VerticalLayout {
                 alignment: start;
                 IconButton {
@@ -282,6 +287,7 @@ component Header inherits Rectangle {
                     icon-size: 12px;
                     idle: Theme.fg;
                     checked: !root.track.visible;
+                    enabled: root.track.shows-eye;
                     clicked => {
                         root.flag-changed(!root.track.visible, root.track.muted,
                             root.track.locked);
