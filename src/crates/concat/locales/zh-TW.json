@@ -558,7 +558,7 @@
   "settings.installedMbOnDisk": "已安裝 {0} 個 · 佔用磁碟 {1} MB",
   "settings.installerOpened": "Concat {0} 的安裝程式已開啟。Concat 現在會關閉，讓安裝得以完成。",
   "settings.language": "語言",
-  "settings.light": "光",
+  "settings.light": "淺色",
   "settings.lime": "萊姆",
   "settings.lineAcrossLanesMarks": "橫跨軌道、標記目前時間的那條線。可為它選擇任意顏色，或點第一個圓點回到主題原本的顏色。",
   "settings.listeningOnConnected": "正在監聽 {0} · 已連線 {1} 個",
