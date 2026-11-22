@@ -169,18 +169,24 @@ fn a_job_on_lent_cores_stands_aside_at_its_next_checkpoint_and_comes_back() {
     let export_id = export.id();
     assert_eq!(outcome(export), Outcome::Done(()));
     // The export's end and the analysis's return are said by two
-    // threads, in either order.
-    let after = [next(&seen), next(&seen)];
-    assert!(
-        after
-            .iter()
-            .any(|event| matches!(event, Event::Finished { job, .. } if job.id == export_id))
-    );
-    assert!(
-        after
-            .iter()
-            .any(|event| matches!(event, Event::Resumed(job) if job.id == analysis.id()))
-    );
+    // threads, in either order. The export's cores go back before its
+    // end is said, so the analysis can return and end first too: up to
+    // three events, the analysis's end the only one that may come between.
+    let analysis_id = analysis.id();
+    let (mut export_ended, mut resumed) = (false, false);
+    for _ in 0..3 {
+        if export_ended && resumed {
+            break;
+        }
+        match next(&seen) {
+            Event::Finished { job, .. } if job.id == export_id => export_ended = true,
+            Event::Resumed(job) if job.id == analysis_id => resumed = true,
+            Event::Finished { job, .. } if job.id == analysis_id && resumed => {}
+            other => panic!("unexpected event after the export: {other:?}"),
+        }
+    }
+    assert!(export_ended, "the export's end is said");
+    assert!(resumed, "the analysis is said to come back");
     assert!(next(&checks));
     // It comes back to the cores it had.
     assert_eq!(outcome(analysis), Outcome::Done(4));
