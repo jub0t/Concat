@@ -127,6 +127,10 @@ pub const ACTIONS: &[Action] = &[
         id: "mute",
         defaults: &["m"],
     },
+    Action {
+        id: "toggle-clip-enabled",
+        defaults: &["v"],
+    },
     // The hand: the pan tool, on and off, the key every editor's canvas
     // grabs with.
     Action {
@@ -215,6 +219,7 @@ pub fn name(id: &str) -> String {
         "delete-right" => i18n::t("shortcuts.deleteRight"),
         "split-tool" => i18n::t("shortcuts.splitTool"),
         "mute" => i18n::t("studio.mute"),
+        "toggle-clip-enabled" => i18n::t("shortcuts.toggleClipEnabled"),
         "pan" => i18n::t("shortcuts.pan"),
         "snap" => i18n::t("common.snapToEdges"),
         "preview-axis" => i18n::t("shortcuts.previewAxis"),

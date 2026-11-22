@@ -39,6 +39,9 @@ pub(super) fn apply(
             if let Some(preserve) = patch.preserve_pitch {
                 applied |= assign(&mut clip.preserve_pitch, preserve);
             }
+            if let Some(disabled) = patch.disabled {
+                applied |= assign(&mut clip.disabled, disabled);
+            }
             if let Some(muted) = patch.muted {
                 // Unmuted is the absent value, so a document never carries
                 // a `muted: false` that means the same as nothing.
