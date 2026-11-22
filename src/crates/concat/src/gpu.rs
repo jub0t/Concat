@@ -147,6 +147,19 @@ impl Gpu {
         // gate that refused with room to spare (#746, #802).
         concat_render::memory::Memory::of_adapter(&adapter)
             .say(log::Level::Info, "as the window's device opened");
+        // The video decoders hold pictures on this card too, and only the
+        // adapter can say how full it is: they read it through this as
+        // each opens, and those that would not fit decode on the CPU
+        // (#873). A card with no memory of its own reads nothing.
+        let reading = adapter.clone();
+        concat_media::hardware::set_card_room(move || {
+            let memory = concat_render::memory::Memory::of_adapter(&reading);
+            let card = memory.card()?;
+            Some(concat_media::hardware::CardRoom {
+                budget: card.budget?,
+                usage: card.usage?,
+            })
+        });
         // Said in the log when it dies, with wgpu's reason: the one line a
         // report of "the GPU device was lost" needs, which until now there
         // was none of. https://github.com/jub0t/Concat/issues/223

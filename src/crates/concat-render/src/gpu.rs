@@ -1020,21 +1020,31 @@ struct PooledTexture {
 /// the monitor has shown finds its frames on the device.
 ///
 /// Chosen by what the textures cost the machine. On a card of its own they
-/// live in the card's memory, which nothing else in the app wants: 512 MB,
-/// 64 frames at 1080p. On integrated graphics - Intel, AMD's APUs, Apple's
-/// chips - and on a virtual GPU they come out of system memory beside the
-/// frame cache, so half that; on the software adapter they are system
-/// memory outright, so a quarter.
-pub fn pool_budget_for(device: wgpu::DeviceType) -> u64 {
+/// live in the card's memory: 512 MB, 64 frames at 1080p, but never more
+/// than a fifth of what the driver gives this process of the card
+/// (`card_budget`), since the window, the effects and the video decoders
+/// live there too - a flat 512 MB was a third of a 2 GB card, which ran
+/// out (#873). On integrated graphics - Intel, AMD's APUs, Apple's chips -
+/// and on a virtual GPU they come out of system memory beside the frame
+/// cache, so half that; on the software adapter they are system memory
+/// outright, so a quarter.
+pub fn pool_budget_for(device: wgpu::DeviceType, card_budget: Option<u64>) -> u64 {
     const MB: u64 = 1024 * 1024;
     match device {
-        wgpu::DeviceType::DiscreteGpu => 512 * MB,
+        wgpu::DeviceType::DiscreteGpu => {
+            card_budget.map_or(512 * MB, |budget| (budget / 5).clamp(POOL_FLOOR, 512 * MB))
+        }
         wgpu::DeviceType::Cpu => 128 * MB,
         wgpu::DeviceType::IntegratedGpu
         | wgpu::DeviceType::VirtualGpu
         | wgpu::DeviceType::Other => 256 * MB,
     }
 }
+
+/// The least the layer pool is let shrink to, by the card's size or by the
+/// card running out (see `pressure_seen`): two 1080p frames at half float
+/// and change, enough for a composite of a few layers to draw.
+const POOL_FLOOR: u64 = 48 * 1024 * 1024;
 
 /// The LUTs and the reveal maps kept on the device, at most: a look is a
 /// megabyte at 65 a side, and each one a person tries stayed on the device
@@ -1204,8 +1214,13 @@ pub struct WgpuCompositor {
     pool: HashMap<(u32, u32), Vec<PooledTexture>>,
     /// What the pool's textures hold, in bytes; see [`pool_budget_for`].
     pool_bytes: u64,
-    /// What `pool_bytes` may reach; see [`pool_budget_for`].
+    /// What `pool_bytes` may reach; see [`pool_budget_for`]. Halved each
+    /// time a device of the process runs out of memory, down to
+    /// [`POOL_FLOOR`].
     pool_budget: u64,
+    /// [`crate::memory::pressure`] as last read: a change since says a
+    /// device has run out of memory and the pool must hold less.
+    pressure_seen: u64,
     /// How many textures the pool holds; see [`POOL_TEXTURES`].
     pool_textures: usize,
     /// Composites drawn so far; see [`PooledTexture::drawn`].
@@ -1656,7 +1671,10 @@ impl WgpuCompositor {
     /// [`WORK_FALLBACK`] where the device cannot draw into that.
     fn drawing_in(device: wgpu::Device, queue: wgpu::Queue, work: wgpu::TextureFormat) -> Self {
         // Read before the device moves into the compositor below.
-        let budget = pool_budget_for(device.adapter_info().device_type);
+        let card = crate::memory::Memory::of_device(&device)
+            .card()
+            .and_then(|heap| heap.budget);
+        let budget = pool_budget_for(device.adapter_info().device_type, card);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat compositor"),
             source: wgpu::ShaderSource::Wgsl(format!("{MASK_WGSL}{SHADER}").into()),
@@ -2072,6 +2090,7 @@ impl WgpuCompositor {
             pool: HashMap::new(),
             pool_bytes: 0,
             pool_budget: budget,
+            pressure_seen: crate::memory::pressure(),
             pool_textures: 0,
             composites: 0,
             uploads: 0,
@@ -3013,6 +3032,25 @@ impl WgpuCompositor {
             REVEAL_CACHE,
             self.composites,
         );
+        // A device of this process ran out of memory since the last
+        // composite: the card is fuller than the budget allowed for -
+        // other programs took theirs, or the decoders and the window hold
+        // more than was thought - so the pool holds half as much from now
+        // on, and lets the rest go below. Every draw refused for memory
+        // until then was a frame lost, and in #873 the device next.
+        let pressure = crate::memory::pressure();
+        if pressure != self.pressure_seen {
+            self.pressure_seen = pressure;
+            let halved = (self.pool_budget / 2).max(POOL_FLOOR);
+            if halved < self.pool_budget {
+                log::warn!(
+                    "compositor: the card ran out of memory; its layer textures held to {} from {}",
+                    concat_log::bytes(halved),
+                    concat_log::bytes(self.pool_budget)
+                );
+                self.pool_budget = halved;
+            }
+        }
         // Back under budget, least recently drawn first, never a texture
         // this composite claimed: a pool grows past the budget only when
         // one composite needs that much.

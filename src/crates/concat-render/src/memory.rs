@@ -41,7 +41,7 @@
 //! A figure the driver does not give is "unknown", never a guess and never
 //! a panic.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Where a heap's memory is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,6 +166,29 @@ impl Memory {
             log::log!(level, "{line}");
         }
     }
+
+    /// The card's own memory: the largest heap on the card, mapped for the
+    /// CPU or not, with a budget the driver reports. `None` on a GPU with
+    /// no memory of its own (integrated, Apple's) or one whose API says
+    /// nothing of budgets.
+    pub fn card(&self) -> Option<&Heap> {
+        self.heaps
+            .iter()
+            .filter(|heap| matches!(heap.kind, Kind::Card | Kind::Mapped))
+            .filter(|heap| heap.budget.is_some())
+            .max_by_key(|heap| heap.size.or(heap.budget))
+    }
+}
+
+/// How many times a device of this process has run out of memory: what
+/// the caches on the card read to know they must hold less. It only ever
+/// goes up.
+static PRESSURE: AtomicU64 = AtomicU64::new(0);
+
+/// See [`PRESSURE`]: compare with the figure last read, and a change means
+/// a device has run out since.
+pub fn pressure() -> u64 {
+    PRESSURE.load(Ordering::Relaxed)
 }
 
 /// Says `memory` once a device - `owner`, as the log names it - has run
@@ -173,7 +196,10 @@ impl Memory {
 /// that draws on it, so only its first refusal is said: what an export
 /// refused fifty times needs is the figures behind the first, not fifty
 /// copies. `memory` is read only then.
+///
+/// Every call counts as [`pressure`], said or not.
 pub fn ran_out(said: &AtomicBool, owner: &str, memory: impl FnOnce() -> Memory) {
+    PRESSURE.fetch_add(1, Ordering::Relaxed);
     if !said.swap(true, Ordering::Relaxed) {
         memory().say(log::Level::Warn, &format!("as {owner} ran out of memory"));
     }

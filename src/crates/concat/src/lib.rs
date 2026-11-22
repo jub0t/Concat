@@ -2947,14 +2947,25 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // memory all of that freed goes back to the system. Open on a 4K
     // project, idle, it held 590 MB, a hundred of it freed and kept by the
     // allocator; the caches fill again as soon as frames are asked for.
+    //
+    // A device that ran out of memory since the last look closes every
+    // reader not decoding now instead: a hardware one holds its pictures
+    // on the card, and the card is what ran out (#873).
     let reader_sweep = slint::Timer::default();
     let quiet = std::cell::Cell::new((u64::MAX, false));
+    let pressure = std::cell::Cell::new(concat_render::memory::pressure());
     reader_sweep.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_secs(5),
         move || {
             let pool = concat_host::scheduler().pool();
-            let closed = pool.close_idle(std::time::Duration::from_secs(10));
+            let now = concat_render::memory::pressure();
+            let idle = if now == pressure.replace(now) {
+                std::time::Duration::from_secs(10)
+            } else {
+                std::time::Duration::ZERO
+            };
+            let closed = pool.close_idle(idle);
             if closed > 0 {
                 log::debug!("memory: closed {closed} idle decoder(s)");
             }

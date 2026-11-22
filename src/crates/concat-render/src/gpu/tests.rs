@@ -1249,11 +1249,54 @@ fn a_frame_drawn_before_is_not_uploaded_again() {
 /// budget says so.
 #[test]
 fn the_pool_budget_follows_what_the_textures_cost() {
-    let discrete = pool_budget_for(wgpu::DeviceType::DiscreteGpu);
-    let integrated = pool_budget_for(wgpu::DeviceType::IntegratedGpu);
-    let software = pool_budget_for(wgpu::DeviceType::Cpu);
-    assert_eq!(discrete, 512 * 1024 * 1024);
+    const MB: u64 = 1024 * 1024;
+    let discrete = pool_budget_for(wgpu::DeviceType::DiscreteGpu, None);
+    let integrated = pool_budget_for(wgpu::DeviceType::IntegratedGpu, None);
+    let software = pool_budget_for(wgpu::DeviceType::Cpu, None);
+    assert_eq!(discrete, 512 * MB);
     assert!(discrete > integrated && integrated > software);
+    // A card of its own gives the pool a fifth of its budget, 512 MB at
+    // most: #873's 2 GB card (1.63 GB budget) a third of what it had, an
+    // 8 GB card the same 512 MB, and a tiny one no less than the floor.
+    let small = pool_budget_for(wgpu::DeviceType::DiscreteGpu, Some(1669 * MB));
+    assert_eq!(small, 1669 * MB / 5);
+    let large = pool_budget_for(wgpu::DeviceType::DiscreteGpu, Some(7400 * MB));
+    assert_eq!(large, 512 * MB);
+    let tiny = pool_budget_for(wgpu::DeviceType::DiscreteGpu, Some(100 * MB));
+    assert_eq!(tiny, POOL_FLOOR);
+    // Integrated graphics keep theirs: the card figure is system memory.
+    assert_eq!(
+        pool_budget_for(wgpu::DeviceType::IntegratedGpu, Some(100 * MB)),
+        integrated
+    );
+}
+
+/// A device of the process that runs out of memory halves the layer pool
+/// at the next composite, and the pool lets go of what is over it.
+#[test]
+fn running_out_of_memory_halves_the_pool() {
+    let Some(mut gpu) = gpu() else { return };
+    let before = gpu.pool_budget();
+    crate::memory::ran_out(
+        &std::sync::atomic::AtomicBool::new(true),
+        "a test's device",
+        || unreachable!("said already"),
+    );
+    let plan = FramePlan {
+        time: concat_core::time::Rational::new(0, 1),
+        width: 4,
+        height: 4,
+        canvas: [0, 0, 0, 255],
+        layers: vec![PlannedLayer::picture(
+            detached_clip(),
+            Arc::new(solid(4, 4, [1, 2, 3, 255])),
+        )],
+        treatments: Vec::new(),
+        output: concat_core::frame::Signal::Sdr,
+    };
+    gpu.render_texture(&plan).expect("draws");
+    assert!(gpu.pool_budget() <= (before / 2).max(POOL_FLOOR));
+    assert!(gpu.pool_bytes <= gpu.pool_budget());
 }
 
 #[test]
