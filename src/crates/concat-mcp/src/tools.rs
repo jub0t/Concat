@@ -396,6 +396,13 @@ pub fn catalogue() -> Vec<Tool> {
             idempotent: false,
             action: Action::Captions,
         },
+        method(
+            "captions_generate",
+            "Generate captions",
+            "Hears a clip's speech with an installed whisper model and makes captions of it, as the window's auto-captions do. `model` names the model (e.g. \"small\"); without one, the largest installed is used, and one that is not downloaded is an error. `language` is whisper's code (\"id\", \"de\", ...); without one whisper hears the language for itself, and an English-only model hears English regardless. `maxWords` caps a caption's words, splitting longer speech at word boundaries. The captions are placed in one undoable step unless `place` is false, at `offsetY` as in `captions_add`, and are returned either way, each with its timeline start, end and text. Runs until the clip is heard: a long clip takes a while.",
+            "captions.generate",
+            Reply::Raw,
+        ),
         command(
             "keyframe_set",
             "Set a keyframe",
@@ -1052,6 +1059,10 @@ mod tests {
             (
                 "captions_add",
                 json!({ "path": "/tmp/Cut", "captions": [{ "start": 0.0, "end": 1.5, "text": "Hi" }], "style": { "color": "#ffff00" }, "offsetY": 0.3 }),
+            ),
+            (
+                "captions_generate",
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "language": "id", "maxWords": 8 }),
             ),
             (
                 "keyframe_set",

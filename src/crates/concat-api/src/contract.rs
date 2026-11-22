@@ -13,8 +13,8 @@ use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
 
 use crate::message::{
-    API_VERSION, ApiError, Done, ErrorCode, Event, JobStatus, PackageInfo, Picture, Request,
-    Started, VersionInfo, Written,
+    API_VERSION, ApiError, Done, ErrorCode, Event, GeneratedCaptions, JobStatus, PackageInfo,
+    Picture, Request, Started, VersionInfo, Written,
 };
 
 /// Where the published document lives: the website (ConcatApp/website)
@@ -90,6 +90,7 @@ fn reply_schema(method: &str, generator: &mut SchemaGenerator) -> Option<Value> 
             "description": "The file written when the request names an `output`; the picture itself when it does not.",
             "oneOf": [of::<Written>(generator), of::<Picture>(generator)]
         }),
+        "captions.generate" => of::<GeneratedCaptions>(generator),
         _ => return None,
     })
 }

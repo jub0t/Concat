@@ -12,6 +12,7 @@ concat-project.workspace = true
 concat-effects.workspace = true
 concat-export.workspace = true
 concat-host.workspace = true
+concat-speech.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 # The frame method hands back a PNG: the one picture format every
