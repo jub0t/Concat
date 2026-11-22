@@ -276,41 +276,36 @@ struct Voice {
     spectrum: (Vec<usize>, Vec<f32>),
 }
 
-/// One network, opened for the CPU or, when asked and where the build has
-/// it, for CoreML: the Mac's GPU and Neural Engine. CoreML takes the parts
-/// of a graph it knows and hands the rest back to the CPU; a network it
-/// refuses outright fails here, and the caller loads the bundle for the
-/// CPU instead. The log says which it got.
-fn session(path: &Path, accelerated: bool) -> Result<Session, String> {
-    let threads = std::thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(1)
-        .clamp(1, 8);
+/// One network, opened for the CPU, its matrix products worked in `int8`
+/// (see [`concat_vision::int8`]): the export leaves them in `f32`, which
+/// cost the language model 100 ms a token where `int8` takes 8.
+///
+/// The CPU on every platform. CoreML was tried on the Mac and measured
+/// slower than the CPU's own `f32` (3.6 s a second of speech against 2.7 on
+/// an M-series, and eleven seconds more to load), and Windows' runtime is
+/// Microsoft's CPU build, DirectML having crashed this model (#399).
+///
+/// `threads` `None` is the runtime's own choice, one a physical core. The
+/// language model writes one token at a time and a step that small waits
+/// on memory more than on arithmetic: two threads write as fast as ten, so
+/// it is given a few and the rest of the machine stays free. The encoder
+/// and the decoder are whole passes over seconds of sound and take every
+/// core they are given.
+fn session(path: &Path, threads: Option<usize>) -> Result<Session, String> {
     concat_vision::runtime::ready()?;
-    let mut builder = Session::builder()
-        .map_err(|error| format!("onnx runtime: {error}"))?
-        .with_intra_threads(threads)
-        .map_err(|error| format!("onnx runtime: {error}"))?;
-    #[cfg(target_os = "macos")]
-    if accelerated {
-        use ort::ep::coreml::{ComputeUnits, CoreML};
+    let mut builder = Session::builder().map_err(|error| format!("onnx runtime: {error}"))?;
+    if let Some(threads) = threads {
         builder = builder
-            .with_execution_providers([CoreML::default()
-                .with_compute_units(ComputeUnits::All)
-                .with_subgraphs(true)
-                .build()])
-            .map_err(|error| format!("onnx runtime: coreml: {error}"))?;
-        log::info!(
-            "chatterbox: {} asked to run on CoreML",
-            path.file_name().unwrap_or_default().to_string_lossy()
-        );
+            .with_intra_threads(threads)
+            .map_err(|error| format!("onnx runtime: {error}"))?;
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = accelerated;
     builder
-        .commit_from_file(path)
+        .commit_from_file(concat_vision::int8::int8_graph(path))
         .map_err(|error| format!("{}: {error}", path.display()))
 }
+
+/// Threads for a network that runs a token at a time: see [`session`].
+const STEP_THREADS: usize = 4;
 
 /// One named input, as a session takes it.
 type Fed = (
@@ -361,27 +356,26 @@ fn take_i64(outputs: &ort::session::SessionOutputs<'_>, name: &str) -> Result<Ve
 }
 
 impl Engine {
-    /// Loads the bundle in `dir`, for the accelerator or the CPU.
-    pub fn load(dir: &Path, accelerated: bool) -> Result<Engine, String> {
+    /// Loads the bundle in `dir`.
+    pub fn load(dir: &Path) -> Result<Engine, String> {
         if !installed(dir) {
             return Err("the studio voice download is incomplete - download it again".to_owned());
         }
         let started = std::time::Instant::now();
-        log::info!(
-            "chatterbox: loading the bundle in {} for the {}",
-            dir.display(),
-            if accelerated { "accelerator" } else { "CPU" }
-        );
+        log::info!("chatterbox: loading the bundle in {}", dir.display());
         let tokenizer = tokenizers::Tokenizer::from_file(dir.join("tokenizer.json"))
             .map_err(|error| format!("chatterbox tokenizer: {error}"))?;
         let onnx = dir.join("onnx");
-        let open = |name: &str| session(&onnx.join(name), accelerated);
+        let step = Some(
+            STEP_THREADS.min(std::thread::available_parallelism().map_or(1, |count| count.get())),
+        );
+        let open = |name: &str, threads| session(&onnx.join(name), threads);
         let engine = Engine {
             tokenizer,
-            speech_encoder: Mutex::new(open("speech_encoder_quantized.onnx")?),
-            embed_tokens: Mutex::new(open("embed_tokens_quantized.onnx")?),
-            language_model: Mutex::new(open("language_model_quantized.onnx")?),
-            decoder: Mutex::new(open("conditional_decoder_quantized.onnx")?),
+            speech_encoder: Mutex::new(open("speech_encoder_quantized.onnx", None)?),
+            embed_tokens: Mutex::new(open("embed_tokens_quantized.onnx", step)?),
+            language_model: Mutex::new(open("language_model_quantized.onnx", step)?),
+            decoder: Mutex::new(open("conditional_decoder_quantized.onnx", None)?),
         };
         log::info!(
             "chatterbox: four networks loaded in {:.1}s",

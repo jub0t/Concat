@@ -1526,6 +1526,7 @@ version = "0.2.12"
 dependencies = [
  "concat-core",
  "concat-project",
+ "log",
  "ort",
  "png 0.17.16",
 ]

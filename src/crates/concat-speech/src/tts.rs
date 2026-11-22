@@ -327,16 +327,11 @@ pub struct SpeakResult {
 struct CachedEngine {
     model_id: String,
     tts: Box<crate::chatterbox::Engine>,
-    /// Whether it was loaded for the accelerator rather than the CPU.
-    accelerated: bool,
 }
 
-/// Why a read failed, as far as the accelerator is concerned: the runtime
-/// failed running one of the networks, which the accelerator may be to
-/// blame for and the CPU may well run - DirectML refuses some of
-/// Chatterbox's quantised attention (#291) - or something else, which the
-/// CPU would stop at too: the text, the recording - or no failure at all,
-/// the read having been told to stop.
+/// Why a read failed: the runtime failed running one of the networks, or
+/// something else did - the text, the recording - or it did not fail at
+/// all, having been told to stop.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadError {
     /// The runtime failed running a network.
@@ -379,59 +374,6 @@ impl From<ReadError> for Halt {
     }
 }
 
-/// The accelerator the runtime is asked for here, by the name its log
-/// lines use.
-#[cfg_attr(not(feature = "chatterbox"), allow(dead_code))]
-fn accelerator() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "CoreML"
-    } else {
-        "the accelerator"
-    }
-}
-
-/// `read` on `engine`, and when an engine loaded for the accelerator fails
-/// it in the runtime, `read` once more on the engine `on_cpu` loads for the
-/// CPU. A model that loads for the accelerator can still be refused there a
-/// network at a time, mid-read, and loading alone never found that out
-/// (#291); slower is better than no voice. Any other failure, and a
-/// cancel, is handed back as it is, and nothing is loaded.
-///
-/// The CPU engine comes back beside the result, whether or not the second
-/// read went through, for the caller to keep in place of the one that
-/// failed: an accelerator that refused a network once will refuse it again.
-#[cfg_attr(not(feature = "chatterbox"), allow(dead_code))]
-fn read_or_on_cpu<E, T>(
-    engine: &E,
-    accelerated: bool,
-    model: &str,
-    mut read: impl FnMut(&E) -> Result<T, ReadError>,
-    on_cpu: impl FnOnce() -> Result<E, String>,
-) -> (Result<T, Halt>, Option<E>) {
-    match read(engine) {
-        Ok(done) => (Ok(done), None),
-        Err(ReadError::Runtime(error)) if accelerated => {
-            log::warn!(
-                "tts: {model} failed on {} ({error}); loading it for the CPU and reading again",
-                accelerator()
-            );
-            match on_cpu() {
-                Ok(cpu) => {
-                    let again = read(&cpu).map_err(Halt::from);
-                    (again, Some(cpu))
-                }
-                Err(load) => (
-                    Err(Halt::Failed(format!(
-                        "{error}; and it would not load for the CPU either: {load}"
-                    ))),
-                    None,
-                ),
-            }
-        }
-        Err(error) => (Err(error.into()), None),
-    }
-}
-
 /// The one synthesis and the one download that can run at a time, plus the
 /// loaded engine.
 ///
@@ -447,11 +389,6 @@ pub struct Speech {
     engine: Mutex<Option<CachedEngine>>,
     #[cfg(not(feature = "chatterbox"))]
     engine: Mutex<Option<String>>,
-    /// The models the accelerator failed to run this session: loaded for
-    /// the CPU from then on, rather than tried there and failed again each
-    /// time one is loaded.
-    #[cfg_attr(not(feature = "chatterbox"), allow(dead_code))]
-    on_cpu: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Default for Speech {
@@ -467,7 +404,6 @@ impl Speech {
             gate: Arc::new(SingleFlight::new()),
             downloads: Arc::new(SingleFlight::new()),
             engine: Mutex::new(None),
-            on_cpu: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -699,38 +635,8 @@ impl Speech {
                 // Load before overwriting: a failed load keeps the old engine.
                 progress(JobStage::Loading);
                 let loading = std::time::Instant::now();
-                let load = |accelerated: bool| -> Result<Box<crate::chatterbox::Engine>, String> {
-                    log::info!(
-                        "tts: loading {} from {} for the {}",
-                        request.model_id,
-                        dir.display(),
-                        if accelerated { "accelerator" } else { "CPU" }
-                    );
-                    Ok(Box::new(crate::chatterbox::Engine::load(
-                        &dir,
-                        accelerated,
-                    )?))
-                };
-                // The accelerator where there is one, and the CPU when a
-                // model will not load for it: slower is better than not at
-                // all, and nobody should have to find a setting to get the
-                // voice back. A model the accelerator failed to run this
-                // session goes straight to the CPU.
-                let refused = self
-                    .on_cpu
-                    .lock()
-                    .is_ok_and(|models| models.contains(&request.model_id));
-                let (tts, accelerated) = match load(crate::accelerated() && !refused) {
-                    Ok(tts) => (tts, crate::accelerated() && !refused),
-                    Err(error) if crate::accelerated() && !refused => {
-                        log::warn!(
-                            "tts: {} would not load on the accelerator ({error}); loading it for the CPU",
-                            request.model_id
-                        );
-                        (load(false)?, false)
-                    }
-                    Err(error) => return Err(error.into()),
-                };
+                log::info!("tts: loading {} from {}", request.model_id, dir.display());
+                let tts = Box::new(crate::chatterbox::Engine::load(&dir)?);
                 log::info!(
                     "tts: {} loaded in {:.1}s",
                     request.model_id,
@@ -739,11 +645,9 @@ impl Speech {
                 *engine = Some(CachedEngine {
                     model_id: request.model_id.clone(),
                     tts,
-                    accelerated,
                 });
             }
-            let cached = engine.as_ref().expect("engine cached above");
-            let (chatterbox, accelerated) = (&cached.tts, cached.accelerated);
+            let chatterbox = &engine.as_ref().expect("engine cached above").tts;
 
             // A named voice's recording is one Concat carries; a chosen
             // recording is the request's own.
@@ -758,32 +662,14 @@ impl Speech {
                 done: 0.0,
                 next: CHATTERBOX_STEP,
             });
-            let (spoken, on_cpu) = read_or_on_cpu(
-                chatterbox.as_ref(),
-                accelerated,
-                &request.model_id,
-                |chatterbox| {
-                    chatterbox.speak(text, &samples, &cancel, &mut |done| {
-                        progress(JobStage::Working {
-                            done,
-                            next: (done + CHATTERBOX_STEP).min(1.0),
-                        });
-                    })
-                },
-                || crate::chatterbox::Engine::load(&dir, false),
-            );
-            // The CPU engine stays for the session, and the model is
-            // loaded for the CPU from now on.
-            if let Some(cpu) = on_cpu {
-                if let Ok(mut models) = self.on_cpu.lock() {
-                    models.insert(request.model_id.clone());
-                }
-                *engine = Some(CachedEngine {
-                    model_id: request.model_id.clone(),
-                    tts: Box::new(cpu),
-                    accelerated: false,
-                });
-            }
+            let spoken = chatterbox
+                .speak(text, &samples, &cancel, &mut |done| {
+                    progress(JobStage::Working {
+                        done,
+                        next: (done + CHATTERBOX_STEP).min(1.0),
+                    });
+                })
+                .map_err(Halt::from);
             let spoken = spoken?;
             if spoken.is_empty() {
                 return Err("the engine produced no audio for this text".into());
@@ -1041,86 +927,6 @@ mod tests {
                 .all(|piece| piece.chars().count() <= SYSTEM_PIECE)
         );
         assert_eq!(cut.concat().matches("Word.").count(), 2_000);
-    }
-
-    /// A read the accelerator's runtime fails is read again once on the
-    /// CPU, and the CPU engine comes back to be kept: DirectML refused
-    /// Chatterbox's attention mid-read, after it had loaded (#291).
-    #[test]
-    fn a_read_the_accelerator_fails_is_read_again_on_the_cpu() {
-        let read = |engine: &&str| match *engine {
-            "gpu" => Err(ReadError::Runtime(
-                "MultiHeadAttention: E_INVALIDARG".to_owned(),
-            )),
-            _ => Ok(format!("read on the {engine}")),
-        };
-        let (result, kept) = read_or_on_cpu(&"gpu", true, "chatterbox", read, || Ok("cpu"));
-        assert_eq!(result.as_deref(), Ok("read on the cpu"));
-        assert_eq!(kept, Some("cpu"));
-
-        // Read once on the CPU, however it goes.
-        let mut reads = 0;
-        let (result, kept) = read_or_on_cpu(
-            &"gpu",
-            true,
-            "chatterbox",
-            |_: &&str| {
-                reads += 1;
-                Err::<(), _>(ReadError::Runtime("still refused".to_owned()))
-            },
-            || Ok("cpu"),
-        );
-        assert_eq!(reads, 2);
-        assert_eq!(result, Err(Halt::Failed("still refused".to_owned())));
-        assert_eq!(kept, Some("cpu"), "the CPU engine is kept all the same");
-
-        // A model that will not load for the CPU says both.
-        let (result, kept) = read_or_on_cpu(&"gpu", true, "chatterbox", read, || {
-            Err("no memory".to_owned())
-        });
-        let error = result.expect_err("nothing read");
-        assert!(
-            error.failure().is_some_and(
-                |message| message.contains("E_INVALIDARG") && message.contains("no memory")
-            ),
-            "{error}"
-        );
-        assert!(kept.is_none());
-    }
-
-    /// Nothing is loaded again for a cancel, for a failure the CPU would
-    /// meet too, nor for an engine on the CPU already. A cancel comes back
-    /// a cancel, and a failure a failure whatever its words.
-    #[test]
-    fn only_the_accelerators_failures_are_read_again() {
-        let never = || -> Result<&str, String> { panic!("loaded for the CPU") };
-        let (result, kept) = read_or_on_cpu(
-            &"gpu",
-            true,
-            "chatterbox",
-            |_: &&str| Err::<(), _>(ReadError::Cancelled),
-            never,
-        );
-        assert_eq!(result, Err(Halt::Cancelled));
-        assert!(kept.is_none());
-        let unread = "could not read /voices/cancelled/take.wav";
-        let (result, kept) = read_or_on_cpu(
-            &"gpu",
-            true,
-            "chatterbox",
-            |_: &&str| Err::<(), _>(ReadError::from(unread)),
-            never,
-        );
-        assert_eq!(result, Err(Halt::Failed(unread.to_owned())));
-        assert!(kept.is_none());
-        let (result, _) = read_or_on_cpu(
-            &"cpu",
-            false,
-            "chatterbox",
-            |_: &&str| Err::<(), _>(ReadError::Runtime("refused".to_owned())),
-            never,
-        );
-        assert_eq!(result, Err(Halt::Failed("refused".to_owned())));
     }
 
     /// The phone's voice told to stop is a cancel; its engine failing on a

@@ -32,18 +32,6 @@ use concat_core::Halt;
 pub use transcribe::Transcriber;
 pub use tts::Speech;
 
-/// Whether the voices ask for the machine's own accelerator: CoreML, the
-/// Mac's GPU and Neural Engine. Windows and Linux have none in the runtime
-/// the app ships - Windows' is Microsoft's CPU build, and asking it for
-/// DirectML crashed Chatterbox on its second network (#399). Not a setting. Measured on an M5 against
-/// the CPU, a warm Chatterbox read took 48.6 s against 60.6. The one cost is Chatterbox's load, about
-/// eleven seconds longer while CoreML compiles its networks, paid once per
-/// run since the engine stays loaded. A model that will not load for CoreML
-/// at all loads for the CPU instead (tts.rs).
-pub const fn accelerated() -> bool {
-    cfg!(target_os = "macos")
-}
-
 /// How far a transcription or a read has got, as it reports it: the stage
 /// it is in, and in the work itself where it is and where the step under
 /// way will leave it. A job is mostly long waits between reports - whisper
