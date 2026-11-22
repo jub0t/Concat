@@ -436,9 +436,10 @@ impl MediaBin {
     fn select(&mut self, project: &Project, id: String, toggle: bool, range: bool) {
         if range {
             let visible = self.visible(project);
-            let anchor = self.anchor.as_ref().and_then(|anchor| {
-                visible.iter().position(|item| item.id == *anchor)
-            });
+            let anchor = self
+                .anchor
+                .as_ref()
+                .and_then(|anchor| visible.iter().position(|item| item.id == *anchor));
             let here = visible.iter().position(|item| item.id == id);
             if let (Some(a), Some(b)) = (anchor, here) {
                 let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
@@ -477,18 +478,17 @@ impl MediaBin {
         (from_row, to_row): (i32, i32),
         additive: bool,
     ) -> HashSet<String> {
-        let mut cell = 0;
         let mut next = if additive {
             self.selected.clone()
         } else {
             HashSet::new()
         };
-        for item in self.visible(project) {
-            let (row, col) = (cell / columns.max(1), cell % columns.max(1));
+        let columns = columns.max(1);
+        for (cell, item) in (0..).zip(self.visible(project)) {
+            let (row, col) = (cell / columns, cell % columns);
             if row >= from_row && row <= to_row && col >= from_col && col <= to_col {
                 next.insert(item.id.clone());
             }
-            cell += 1;
         }
         next
     }
@@ -713,14 +713,22 @@ mod tests {
         bin.select(&project, "v1".into(), false, false);
         bin.select(&project, "i1".into(), false, true);
         assert_eq!(bin.selected.len(), 3);
-        assert!(bin.selected.contains("v1") && bin.selected.contains("a1") && bin.selected.contains("i1"));
+        assert!(
+            bin.selected.contains("v1")
+                && bin.selected.contains("a1")
+                && bin.selected.contains("i1")
+        );
         // Sorted by name: alpha.wav, apple.mov, Mid.png, Zebra.mp4.
         // Anchor alpha → Mid includes apple between them.
         bin.sort = 1;
         bin.select(&project, "a1".into(), false, false);
         bin.select(&project, "i1".into(), false, true);
         assert_eq!(bin.selected.len(), 3);
-        assert!(bin.selected.contains("a1") && bin.selected.contains("v2") && bin.selected.contains("i1"));
+        assert!(
+            bin.selected.contains("a1")
+                && bin.selected.contains("v2")
+                && bin.selected.contains("i1")
+        );
         assert!(!bin.selected.contains("v1"));
     }
 
