@@ -5,6 +5,14 @@
 use super::*;
 use concat_project::placement::shifted_starts;
 
+/// How far a pressed clip must travel before it moves or trims.
+const DRAG_DEAD_ZONE: f32 = 4.0;
+
+fn in_dead_zone(seconds: f32, pixels: f32, seconds_per_pixel: f32) -> bool {
+    seconds.abs() / seconds_per_pixel.max(f32::EPSILON) < DRAG_DEAD_ZONE
+        && pixels.abs() < DRAG_DEAD_ZONE
+}
+
 impl Studio {
     // ── gestures ──
 
@@ -64,6 +72,7 @@ impl Studio {
                 start: clip.start as f32,
                 duration: clip.duration as f32,
                 source_start: clip.source_start as f32,
+                started: false,
             };
             return;
         }
@@ -92,17 +101,28 @@ impl Studio {
             primary: id.to_owned(),
             origins,
             lanes: self.lane_heights(),
+            started: false,
         };
     }
 
     /// The pointer moved: the echo follows it.
     pub fn clip_dragged(&mut self, seconds: f32, pixels: f32) {
-        let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
+        let mut gesture = std::mem::replace(&mut self.gesture, Gesture::None);
+        if let Gesture::Move { started, .. } | Gesture::Trim { started, .. } = &mut gesture
+            && !*started
+        {
+            if in_dead_zone(seconds, pixels, self.lanes.seconds_per_pixel) {
+                self.gesture = gesture;
+                return;
+            }
+            *started = true;
+        }
         match &gesture {
             Gesture::Move {
                 primary,
                 origins,
                 lanes,
+                ..
             } => {
                 let Some(anchor) = origins.iter().find(|origin| &origin.clip == primary) else {
                     self.gesture = gesture;
@@ -178,6 +198,7 @@ impl Studio {
                 start,
                 duration,
                 source_start,
+                ..
             } => {
                 let (id, edge) = (clip.clone(), *edge);
                 let (start, duration, source_start) = (*start, *duration, *source_start);
@@ -360,5 +381,18 @@ impl Studio {
                 self.gesture = other;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_dead_zone;
+
+    #[test]
+    fn a_wobbling_click_is_not_a_drag() {
+        let spp = 0.25;
+        assert!(in_dead_zone(3.0 * spp, -3.0, spp));
+        assert!(!in_dead_zone(4.0 * spp, 0.0, spp));
+        assert!(!in_dead_zone(0.0, 4.0, spp));
     }
 }
