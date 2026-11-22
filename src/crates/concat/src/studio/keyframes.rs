@@ -1252,8 +1252,12 @@ impl Studio {
         let shape = clip.shape.clone().unwrap_or_default();
         let steady = self.stabilize_readout(clip);
         let enhance_preview = enhance.preview.is_some();
-        let (enhance_before, enhance_after, (estimate_total, estimate_frames, estimate_per_frame)) =
-            enhance.preview.take().unwrap_or_default();
+        let (
+            enhance_before,
+            enhance_after,
+            (estimate_total, estimate_frames, estimate_per_frame),
+            estimate_warning,
+        ) = enhance.preview.take().unwrap_or_default();
         let current_mask = self.current_mask(clip);
         let fresh_mask = model::Mask::of("", "", model::MaskShape::Circle);
         let mask_number = |number: &str| -> f32 {
@@ -1574,6 +1578,7 @@ impl Studio {
             enhance_estimate_total: estimate_total.into(),
             enhance_estimate_frames: estimate_frames.into(),
             enhance_estimate_per_frame: estimate_per_frame.into(),
+            enhance_warning: estimate_warning.into(),
         }
     }
 
@@ -1631,7 +1636,21 @@ impl Studio {
                         format!("{per_frame:.1} s"),
                     )
                 };
-                (preview.before.clone(), preview.after.clone(), estimate)
+                let warning = if concat_host::enhance::too_long(
+                    per_frame,
+                    total,
+                    clip.kind == model::ClipKind::Image,
+                ) {
+                    tf("studio.enhanceTooLong", &[&crate::format::span(total)])
+                } else {
+                    String::new()
+                };
+                (
+                    preview.before.clone(),
+                    preview.after.clone(),
+                    estimate,
+                    warning,
+                )
             });
         readout
     }
