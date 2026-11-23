@@ -1240,10 +1240,14 @@ pub struct WgpuCompositor {
     white: std::sync::Arc<Frame>,
     /// The mask pass's module: the shared mask arithmetic and the pass.
     mask_stack_source: std::sync::Arc<str>,
-    /// Set when a readback fails - a lost or reset device. The compositor
-    /// then answers every composite from the CPU reference instead: slower,
-    /// always correct, and never a panic in the middle of an export.
+    /// Set once the device is given up: when it says it is gone - its lost
+    /// callback, Direct3D 12's removed reason - or after [`STRIKES`] frames
+    /// in a row failed on it. The compositor then answers every composite
+    /// black and `lost` says so, and the caller draws on the next device.
     dead: bool,
+    /// Frames in a row that failed on a device that said it was still
+    /// there; see [`WgpuCompositor::failed_frame`].
+    strikes: u32,
     /// Set by the device's lost callback, from whatever thread wgpu calls
     /// it on, and read as `dead` is: a device Direct3D removed outright
     /// (#673) was otherwise only noticed by a readback, and a picture drawn
@@ -1557,6 +1561,50 @@ impl WgpuCompositor {
     /// the device said it was lost.
     fn dead(&self) -> bool {
         self.dead || self.gone.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// A frame failed on this device: whether that costs the device is
+    /// asked of the device. Only the device can say it is gone - its lost
+    /// callback (`gone`), or Direct3D 12's removed reason - and a timeout,
+    /// a map nobody answered, a refused call or memory run short is a
+    /// frame that failed, drawn again on the same device. Guessing a loss
+    /// from those gave up a working RTX 3060 mid-export for Windows'
+    /// software renderer, five times slower, though Direct3D 12 said both
+    /// times the device was not removed (#868). A device that fails
+    /// [`STRIKES`] frames in a row is given up all the same: alive or
+    /// not, it is not drawing.
+    fn failed_frame(&mut self) {
+        self.strikes += 1;
+        let gone =
+            self.gone.load(std::sync::atomic::Ordering::Relaxed) || removed(&self.device).is_some();
+        if gone || self.strikes >= STRIKES {
+            self.dead = true;
+            return;
+        }
+        log::warn!(
+            "gpu: a frame failed on {}, which says it is still there; drawing it again on \
+             the same device ({} of {STRIKES})",
+            self.device.adapter_info().name,
+            self.strikes
+        );
+    }
+
+    /// A frame came back whole: the device's strikes start again.
+    fn drew_frame(&mut self) {
+        self.strikes = 0;
+    }
+
+    /// The oldest frame in flight failed. On a device that is given up it
+    /// comes back black, and `lost` says so; on one that is not, nothing
+    /// comes back and every frame still in flight is let go, so the caller
+    /// draws them all again, in order, on this device.
+    fn failed_in_flight(&mut self, black: crate::Drawn) -> Option<crate::Drawn> {
+        self.failed_frame();
+        if self.dead() {
+            return Some(black);
+        }
+        self.in_flight.clear();
+        None
     }
 
     /// Says once, in the log, that this compositor has given up its device
@@ -2108,6 +2156,7 @@ impl WgpuCompositor {
             },
             mask_stack_source: format!("{MASK_WGSL}{MASK_STACK_WGSL}").into(),
             dead: false,
+            strikes: 0,
             gone: std::sync::Arc::default(),
             lost_reason: std::sync::Arc::default(),
             post_mortem: None,
@@ -4412,9 +4461,11 @@ impl WgpuCompositor {
             failed,
         } = readback;
         let black = || crate::Drawn::Rgba(Frame::black(shape.width, shape.height));
-        if self.dead() || failed {
-            self.dead = true;
+        if self.dead() {
             return Some(black());
+        }
+        if failed {
+            return self.failed_in_flight(black());
         }
         let waited = self.device.poll(wgpu::PollType::Wait {
             submission_index: Some(submission),
@@ -4424,20 +4475,17 @@ impl WgpuCompositor {
             log::error!(
                 "GPU readback: the device did not finish the frame within {DEVICE_WAIT:?}: {error}"
             );
-            self.dead = true;
-            return Some(black());
+            return self.failed_in_flight(black());
         }
         match self.answered(&mapped) {
             Some(Ok(())) => {}
             Some(Err(error)) => {
                 log::error!("GPU readback: the frame's buffer would not map: {error}");
-                self.dead = true;
-                return Some(black());
+                return self.failed_in_flight(black());
             }
             None => {
                 log::error!("GPU readback: the device finished without answering the map");
-                self.dead = true;
-                return Some(black());
+                return self.failed_in_flight(black());
             }
         }
         let frame = shape.drawn_from(&staging);
@@ -4448,11 +4496,11 @@ impl WgpuCompositor {
             self.spare.push(staging);
         }
         match frame {
-            Some(frame) => Some(frame),
-            None => {
-                self.dead = true;
-                Some(black())
+            Some(frame) => {
+                self.drew_frame();
+                Some(frame)
             }
+            None => self.failed_in_flight(black()),
         }
     }
 }
@@ -4460,6 +4508,10 @@ impl WgpuCompositor {
 /// How many frames [`Compositor::submit`] keeps on their way back at most,
 /// and how many spare staging buffers are kept for them.
 const READBACKS: usize = 3;
+
+/// Frames in a row that may fail on a device that says it is still there
+/// before it is given up anyway; see [`WgpuCompositor::failed_frame`].
+const STRIKES: u32 = 3;
 
 /// One plane of a read-back frame: where its rows start in the staging
 /// buffer, how far apart they are there, and how much of each is picture.
@@ -4710,18 +4762,76 @@ impl Compositor for WgpuCompositor {
     fn render(&mut self, plan: &FramePlan) -> Frame {
         // A dead device never comes back for this instance. What it hands
         // back is black, never a mid-export panic, and `lost` says so: the
-        // export stops with an error rather than write a file of black.
-        if self.dead() {
-            self.say_why(|| plan.summary());
-            return Frame::black(plan.width, plan.height);
+        // export stops with an error rather than write a file of black. A
+        // frame that fails on a device that is still there is drawn again
+        // on it, until it draws or the device is given up
+        // (`failed_frame`), so the loop ends.
+        loop {
+            if self.dead() {
+                self.say_why(|| plan.summary());
+                return Frame::black(plan.width, plan.height);
+            }
+            if let Some(frame) = self.render_once(plan) {
+                return frame;
+            }
         }
+    }
+
+    fn submit(&mut self, plan: &FramePlan) -> bool {
+        // Never more on their way back than there are buffers for: the
+        // oldest is the caller's to collect first.
+        self.in_flight.len() < READBACKS && self.submit_plan(plan)
+    }
+
+    fn collect(&mut self) -> Option<crate::Drawn> {
+        self.collect_oldest()
+    }
+
+    fn planar(&mut self, layout: Option<concat_core::frame::YuvLayout>) {
+        self.planar = layout;
+    }
+
+    fn lost(&self) -> bool {
+        self.dead()
+    }
+
+    fn deliver_hdr(&mut self, on: bool) {
+        self.deliver_hdr = on;
+    }
+
+    fn combine(
+        &mut self,
+        width: u32,
+        height: u32,
+        time: f32,
+        from: &Frame,
+        to: &Frame,
+        pass: &TransitionPass,
+    ) -> Option<Frame> {
+        // As `render`: drawn again on a device that is still there, until
+        // it draws or the device is given up.
+        loop {
+            if let Some(frame) = self.combine_once(width, height, time, from, to, pass) {
+                return Some(frame);
+            }
+            if self.dead() {
+                return None;
+            }
+        }
+    }
+}
+
+impl WgpuCompositor {
+    /// One drawing of `plan`: the frame, or `None` when it failed, the
+    /// failure counted against the device (`failed_frame`).
+    fn render_once(&mut self, plan: &FramePlan) -> Option<Frame> {
         // Whatever the device says went wrong with this frame is caught
         // here: memory it ran out of - an 8 GB card shared with the
         // window, the decoder and the encoder (#297) - or a call it
         // refused. Uncaught, it was logged and the frame went to the
         // encoder wrong (audit 2026-10-11, finding 8). A frame drawn under
-        // one is a failed frame, as a failed readback is: the compositor is
-        // dead, and the export draws it again on a fresh device. The
+        // one is a failed frame, as a failed readback is, and is drawn again
+        // (`failed_frame`). The
         // passes' own scopes inside still catch what they catch first, and
         // what a scope misses still reaches the handler, which counts it.
         let uncaught = self.uncaught.load(std::sync::atomic::Ordering::Relaxed);
@@ -4752,38 +4862,20 @@ impl Compositor for WgpuCompositor {
             failed = true;
         }
         match frame {
-            Some(frame) if !failed => frame,
+            Some(frame) if !failed => {
+                self.drew_frame();
+                Some(frame)
+            }
             _ => {
-                self.dead = true;
-                self.say_why(|| plan.summary());
-                Frame::black(plan.width, plan.height)
+                self.failed_frame();
+                None
             }
         }
     }
 
-    fn submit(&mut self, plan: &FramePlan) -> bool {
-        // Never more on their way back than there are buffers for: the
-        // oldest is the caller's to collect first.
-        self.in_flight.len() < READBACKS && self.submit_plan(plan)
-    }
-
-    fn collect(&mut self) -> Option<crate::Drawn> {
-        self.collect_oldest()
-    }
-
-    fn planar(&mut self, layout: Option<concat_core::frame::YuvLayout>) {
-        self.planar = layout;
-    }
-
-    fn lost(&self) -> bool {
-        self.dead()
-    }
-
-    fn deliver_hdr(&mut self, on: bool) {
-        self.deliver_hdr = on;
-    }
-
-    fn combine(
+    /// One drawing of a transition; see [`Compositor::combine`].
+    #[allow(clippy::too_many_arguments)]
+    fn combine_once(
         &mut self,
         width: u32,
         height: u32,
@@ -4848,15 +4940,18 @@ impl Compositor for WgpuCompositor {
         }
         self.queue.submit([encoder.finish()]);
         let frame = self.read_back();
-        if frame.is_none() {
-            self.dead = true;
-            self.say_why(|| format!("the transition {} at {width}x{height}", pass.key));
+        match frame {
+            Some(_) => self.drew_frame(),
+            None => {
+                self.failed_frame();
+                if self.dead() {
+                    self.say_why(|| format!("the transition {} at {width}x{height}", pass.key));
+                }
+            }
         }
         frame
     }
-}
 
-impl WgpuCompositor {
     /// Draws into the readback target and copies it out: one submit, one
     /// wait. `None` when the device did not deliver the pixels.
     fn render_and_read(
