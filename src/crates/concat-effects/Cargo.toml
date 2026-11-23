@@ -19,3 +19,7 @@ toml = "1.1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Random expressions and inputs for the expression language (expr.rs).
+proptest = "1"

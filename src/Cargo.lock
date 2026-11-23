@@ -1321,6 +1321,7 @@ dependencies = [
  "concat-core",
  "concat-project",
  "naga",
+ "proptest",
  "serde",
  "thiserror 2.0.20",
  "toml",
