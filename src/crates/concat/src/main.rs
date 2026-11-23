@@ -41,6 +41,13 @@ fn main() -> Result<(), slint::PlatformError> {
     // this process down instead. No log, so a helper that dies leaves no
     // crash for the next launch to find, and nothing on standard output
     // but its answers.
+    // Risky work in a process of its own: its log to standard error, which
+    // the window copies into its own, and its answers on standard output.
+    if let Ok(Launch::Worker(job)) = &launch {
+        let _ = concat_host::logs::open_console(None);
+        let table = [concat_worker::entry::<concat_host::export_apart::Export>()];
+        std::process::exit(concat_worker::serve(&table, job));
+    }
     if launch == Ok(Launch::ProbeEncoders) {
         concat_media::encode::apart::answer();
         return Ok(());
@@ -102,6 +109,7 @@ fn main() -> Result<(), slint::PlatformError> {
         | Launch::Schema
         | Launch::WhisperCpu
         | Launch::Mcp(_)
-        | Launch::ProbeEncoders => Ok(()),
+        | Launch::ProbeEncoders
+        | Launch::Worker(_) => Ok(()),
     }
 }

@@ -1218,6 +1218,7 @@ dependencies = [
  "concat-speech",
  "concat-text",
  "concat-vision",
+ "concat-worker",
  "dirs",
  "image",
  "libc",
@@ -1356,6 +1357,7 @@ dependencies = [
  "concat-sched",
  "concat-text",
  "concat-vision",
+ "concat-worker",
  "cpal",
  "libc",
  "log",
@@ -1530,6 +1532,16 @@ dependencies = [
  "log",
  "ort",
  "png 0.17.16",
+]
+
+[[package]]
+name = "concat-worker"
+version = "0.2.12"
+dependencies = [
+ "concat-core",
+ "log",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -152,6 +152,7 @@ concat-export.workspace = true
 # (`gpu::MEMORY_BUDGET`); linked through the host already.
 concat-render = { workspace = true, features = ["gpu"] }
 concat-host = { workspace = true, features = ["gpu"] }
+concat-worker.workspace = true
 concat-speech = { workspace = true, features = ["beats", "chatterbox", "isolate"] }
 # The Settings sheet's Automation page: the Concat API on a socket while the
 # window is open. JSON-RPC only; the gRPC feature stays with concat-cli.

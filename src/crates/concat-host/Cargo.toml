@@ -16,6 +16,7 @@ schema = ["dep:schemars", "concat-project/schema"]
 
 [dependencies]
 concat-core.workspace = true
+concat-worker.workspace = true
 # The run's log: the file, the console, and operations timed step by step.
 concat-log.workspace = true
 concat-media.workspace = true

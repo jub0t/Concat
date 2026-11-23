@@ -844,6 +844,28 @@ static TOLD: OnceLock<fn(&str, Option<bool>)> = OnceLock::new();
 
 /// The encoder linked here whose name is `name`, as the name the answers
 /// are remembered under.
+/// Every encoder whose opening this process has found out, and whether it
+/// opened: what an export in a process of its own is handed, so it opens
+/// no encoder the probe already found does not, and asks no question twice.
+pub fn known_encoders() -> Vec<(String, bool)> {
+    opened_before()
+        .lock()
+        .map(|map| {
+            map.iter()
+                .map(|(name, opened)| ((*name).to_owned(), *opened))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Takes another process's word on whether `encoder_name` opens, as
+/// [`known_encoders`] gave it. A name this build does not link is ignored.
+pub fn assume_encoder(encoder_name: &str, opened: bool) {
+    if let Some(name) = linked_name(encoder_name) {
+        remember(name, opened);
+    }
+}
+
 fn linked_name(name: &str) -> Option<&'static str> {
     VideoCodec::ALL
         .iter()

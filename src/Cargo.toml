@@ -25,6 +25,7 @@ concat-text = { path = "crates/concat-text" }
 concat-vision = { path = "crates/concat-vision" }
 concat-log = { path = "crates/concat-log" }
 concat-sched = { path = "crates/concat-sched" }
+concat-worker = { path = "crates/concat-worker" }
 concat-doc = { path = "crates/concat-doc" }
 concat = { path = "crates/concat" }
 

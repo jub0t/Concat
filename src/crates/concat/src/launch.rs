@@ -11,6 +11,10 @@ const USAGE: &str = "usage: concat [--project <PROJECT_DIRECTORY> | --software |
 /// The flag the window starts its encoder helper with.
 pub const PROBE_ENCODERS: &str = concat_media::encode::apart::FLAG;
 
+/// The flag the window starts risky work in a process of its own with,
+/// the job's name after it: see `concat_worker`.
+pub const WORKER: &str = concat_worker::FLAG;
+
 /// What one run of the binary was asked to do.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Launch {
@@ -60,6 +64,12 @@ pub enum Launch {
     /// encoder is opened takes this helper down and not the editor (see
     /// `concat_media::encode::apart`).
     ProbeEncoders,
+    /// Run the job named, read from standard input, saying how it goes on
+    /// standard output, and exit. Not for a person: the window starts
+    /// itself again this way for an export, so that a driver, decoder or
+    /// encoder that crashes takes this worker down and not the editor
+    /// (see `concat_worker`).
+    Worker(String),
 }
 
 /// No arguments preserves the launch screen; a project names its directory.
@@ -80,6 +90,13 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String>
         Launch::WhisperCpu
     } else if option == PROBE_ENCODERS {
         Launch::ProbeEncoders
+    } else if option == WORKER {
+        let job = args
+            .next()
+            .and_then(|job| job.into_string().ok())
+            .filter(|job| !job.is_empty())
+            .ok_or_else(|| "--worker requires a job's name".to_string())?;
+        Launch::Worker(job)
     } else if option == "--mcp" {
         match args.next() {
             None => Launch::Mcp(None),
@@ -135,6 +152,11 @@ mod tests {
     fn version_and_smoke_take_no_arguments() {
         assert_eq!(parse_strs(&["--version"]).unwrap(), Launch::Version);
         assert_eq!(parse_strs(&["--schema"]).unwrap(), Launch::Schema);
+        assert_eq!(
+            parse_strs(&[WORKER, "export"]).unwrap(),
+            Launch::Worker("export".into())
+        );
+        assert!(parse_strs(&[WORKER]).is_err());
         assert_eq!(
             parse_strs(&[PROBE_ENCODERS]).unwrap(),
             Launch::ProbeEncoders
