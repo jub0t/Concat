@@ -883,6 +883,25 @@ fn poster_moments(project: &str) -> Result<Vec<(String, f64)>, String> {
     Ok(moments)
 }
 
+/// The picture a freeze of clip `clip_id` holds: the frame `seconds` into
+/// the video at `path`, 1280 across, written as a JPEG into project
+/// `project`'s cache and probed the way an import is - what
+/// `Command::FreezeFrame` takes as its `still`. The window and the API both
+/// freeze through this, so a hold looks the same from either.
+pub fn freeze_still(
+    project: &str,
+    path: &str,
+    clip_id: &str,
+    seconds: f64,
+) -> Result<concat_project::commands::NewMedia, String> {
+    let frame = still_at(path, seconds, 1280)?;
+    let bytes = concat_media::jpeg(&frame, 4).map_err(|error| error.to_string())?;
+    let key = format!("freeze-{clip_id}-{}.jpg", (seconds * 1000.0).round() as i64);
+    write_artwork(project, &key, &bytes)?;
+    let file = artwork_file(project, &key)?;
+    Ok(probe(&file.to_string_lossy())?.to_new_media())
+}
+
 /// One frame of `path` at `seconds`, scaled to `width` across with the
 /// height following the picture's shape.
 pub fn still_at(path: &str, seconds: f64, width: u32) -> Result<Frame, String> {

@@ -37,7 +37,7 @@ use concat_host::{
     AnalyseRequest, Cutouts, EnhanceRequest, ProjectInfo, RegionRequest, Session, media, projects,
     templates,
 };
-use concat_media::{Pyramid, jpeg};
+use concat_media::Pyramid;
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,

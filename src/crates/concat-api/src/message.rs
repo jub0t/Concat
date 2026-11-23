@@ -352,6 +352,76 @@ pub enum Request {
         job: String,
     },
 
+    /// Holds the picture a video or image clip shows at `time`: the clip
+    /// is split there and the still laid between its halves, the rest of
+    /// its lane moved on by the hold - one undo step. A video's frame is
+    /// written into the project's cache first. In the reply's view, the
+    /// hold is the clip on that lane that starts at `time`.
+    #[serde(rename = "clips.freeze")]
+    ClipsFreeze {
+        /// The project folder.
+        path: String,
+        /// The video or image clip.
+        clip_id: String,
+        /// The timeline instant to hold, in seconds; strictly inside the
+        /// clip.
+        time: f64,
+        /// How long the hold lasts, in seconds; 1 when absent.
+        #[serde(default)]
+        duration: Option<f64>,
+    },
+    /// Points a clip at another file, probed the way an import is: the
+    /// clip keeps its place, length, effects and look, and shows the new
+    /// file from the same in-point (or from its start, when the new file is
+    /// shorter than that) - one undo step.
+    #[serde(rename = "clips.replace")]
+    ClipsReplace {
+        /// The project folder.
+        path: String,
+        /// The clip.
+        clip_id: String,
+        /// The new file.
+        file: String,
+    },
+    /// Writes the span a video or sound clip shows of its file backwards,
+    /// into the project's cache, as a job: [`Event::ReverseProgress`] as it
+    /// goes, ending in [`Event::ReverseDone`] or [`Event::ReverseFailed`].
+    /// The clip is not touched yet: [`Request::ClipsUseReversed`] points it
+    /// at the copy. The file imported is never changed, and a span written
+    /// before is found again rather than written twice. One reverse runs
+    /// at a time.
+    #[serde(rename = "clips.reverse")]
+    ClipsReverse {
+        /// The project folder.
+        path: String,
+        /// The video or sound clip.
+        clip_id: String,
+    },
+    /// Points a clip at the reversed copy [`Event::ReverseDone`] named, its
+    /// in-point at the copy's start: one undo step. Refused when the clip
+    /// has moved on its file since the reverse began - the copy then covers
+    /// a span the clip no longer shows, and the reverse is asked again.
+    #[serde(rename = "clips.useReversed")]
+    ClipsUseReversed {
+        /// The project folder.
+        path: String,
+        /// The clip the reverse was asked for.
+        clip_id: String,
+        /// The copy, as [`Event::ReverseDone`] gave it.
+        file: String,
+        /// The in-point the copy was written from, as the event gave it.
+        source_start: f64,
+        /// The seconds of file the copy covers, as the event gave it.
+        covered: f64,
+    },
+    /// Stops the running reverse. Its job then ends with
+    /// [`Event::ReverseFailed`] carrying [`ErrorCode::Cancelled`].
+    #[serde(rename = "reverse.cancel")]
+    ReverseCancel {
+        /// The job [`Started`] named.
+        job: String,
+    },
+
     /// Composites the true frame at one instant. Written as a PNG to
     /// `output` when there is one, and handed back inline as a
     /// [`Picture`] otherwise, for a caller on the far side of a socket.
@@ -1034,6 +1104,45 @@ pub enum Event {
         /// Why.
         error: ApiError,
     },
+    /// A reverse moved on.
+    #[serde(rename = "reverse.progress")]
+    ReverseProgress {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// The clip being reversed.
+        clip_id: String,
+        /// How far the copy is, `0..=1`.
+        fraction: f32,
+    },
+    /// The reversed copy is written. The job is over; pass these fields to
+    /// `clips.useReversed` to show it.
+    #[serde(rename = "reverse.done")]
+    ReverseDone {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// The clip it was asked for.
+        clip_id: String,
+        /// The copy.
+        file: String,
+        /// The in-point it was written from.
+        source_start: f64,
+        /// The seconds of file it covers.
+        covered: f64,
+    },
+    /// The reverse did not finish. The job is over.
+    #[serde(rename = "reverse.failed")]
+    ReverseFailed {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// Why.
+        error: ApiError,
+    },
 }
 
 impl Event {
@@ -1064,7 +1173,10 @@ impl Event {
             | Event::ModelsFailed { job, .. }
             | Event::SpeechProgress { job, .. }
             | Event::SpeechDone { job, .. }
-            | Event::SpeechFailed { job, .. } => job,
+            | Event::SpeechFailed { job, .. }
+            | Event::ReverseProgress { job, .. }
+            | Event::ReverseDone { job, .. }
+            | Event::ReverseFailed { job, .. } => job,
         }
     }
 }

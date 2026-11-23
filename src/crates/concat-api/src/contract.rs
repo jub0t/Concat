@@ -74,9 +74,12 @@ fn reply_schema(method: &str, generator: &mut SchemaGenerator) -> Option<Value> 
         | "edit.redo"
         | "media.import"
         | "template.instantiate"
-        | "captions.place" => of::<EditorView>(generator),
+        | "captions.place"
+        | "clips.freeze"
+        | "clips.replace"
+        | "clips.useReversed" => of::<EditorView>(generator),
         "project.close" | "project.save" | "export.cancel" | "captions.cancel"
-        | "models.delete" | "speech.cancel" => of::<Done>(generator),
+        | "models.delete" | "speech.cancel" | "reverse.cancel" => of::<Done>(generator),
         "project.list" => of::<Vec<ProjectInfo>>(generator),
         "project.document" => json!({
             "type": "object",
@@ -86,7 +89,8 @@ fn reply_schema(method: &str, generator: &mut SchemaGenerator) -> Option<Value> 
         "catalogue.list" => of::<Vec<PackageInfo>>(generator),
         "template.list" => of::<Vec<TemplateInfo>>(generator),
         "template.save" => of::<TemplateInfo>(generator),
-        "export.run" | "captions.transcribe" | "models.download" | "speech.speak" => {
+        "export.run" | "captions.transcribe" | "models.download" | "speech.speak"
+        | "clips.reverse" => {
             of::<Started>(generator)
         }
         "models.list" => of::<ModelsInfo>(generator),

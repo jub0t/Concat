@@ -257,6 +257,8 @@ pub struct Api {
     transcriber: Arc<concat_speech::Transcriber>,
     /// The reading-aloud model, kept loaded between readings.
     speech: Arc<concat_speech::Speech>,
+    /// The one-at-a-time slot reversed copies are written through.
+    reversers: Arc<concat_host::Reversers>,
 }
 
 /// A way to stop the jobs of one [`Api`] from any thread, without waiting
@@ -318,6 +320,7 @@ impl Api {
             capabilities: CAPABILITIES.iter().map(|name| (*name).to_owned()).collect(),
             transcriber: Arc::new(concat_speech::Transcriber::new()),
             speech: Arc::new(concat_speech::Speech::new()),
+            reversers: Arc::new(concat_host::Reversers::new()),
         }
     }
 
@@ -558,6 +561,31 @@ impl Api {
             )),
             Request::SpeechCancel { job } => {
                 self.cancel_reading(&job)?;
+                Ok(Reply::Done(Done {}))
+            }
+            Request::ClipsFreeze {
+                path,
+                clip_id,
+                time,
+                duration,
+            } => view(self.freeze(&path, &clip_id, time, duration)?),
+            Request::ClipsReplace {
+                path,
+                clip_id,
+                file,
+            } => view(self.replace(&path, &clip_id, &file)?),
+            Request::ClipsReverse { path, clip_id } => {
+                Ok(Reply::Started(self.reverse(&path, &clip_id)?))
+            }
+            Request::ClipsUseReversed {
+                path,
+                clip_id,
+                file,
+                source_start,
+                covered,
+            } => view(self.use_reversed(&path, &clip_id, &file, source_start, covered)?),
+            Request::ReverseCancel { job } => {
+                self.cancel_reverse(&job)?;
                 Ok(Reply::Done(Done {}))
             }
             Request::ExportCancel { job } => {
@@ -1328,6 +1356,231 @@ impl Api {
         Ok(())
     }
 
+    /// [`Request::ClipsFreeze`]: what the window's Freeze does - the still
+    /// written through the same `concat_host::media::freeze_still`, then
+    /// the command that splits and holds.
+    fn freeze(
+        &mut self,
+        path: &str,
+        clip_id: &str,
+        time: f64,
+        duration: Option<f64>,
+    ) -> Result<EditorView, ApiError> {
+        use concat_project::model::ClipKind;
+        let still = {
+            let session = self.session(path)?;
+            let project = session.project();
+            let clip = project
+                .active()
+                .clip(clip_id)
+                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
+            match clip.kind {
+                ClipKind::Image => None,
+                ClipKind::Video => {
+                    if time <= clip.start || time >= clip.start + clip.duration {
+                        return Err(ApiError::invalid(format!(
+                            "{time} s is not inside clip {clip_id}"
+                        )));
+                    }
+                    let media = project.media_by_id(&clip.media_id).ok_or_else(|| {
+                        ApiError::invalid(format!("clip {clip_id} has no file to hold"))
+                    })?;
+                    let seconds = clip.source_start + (time - clip.start) * clip.speed;
+                    Some(
+                        media::freeze_still(session.path(), &media.path, clip_id, seconds)
+                            .map_err(ApiError::failed)?,
+                    )
+                }
+                _ => {
+                    return Err(ApiError::invalid(format!(
+                        "clip {clip_id} is not a picture: only a video or an image holds"
+                    )));
+                }
+            }
+        };
+        self.apply(
+            path,
+            Command::FreezeFrame {
+                clip_id: clip_id.to_owned(),
+                time,
+                duration: Some(duration.unwrap_or(1.0)),
+                still,
+            },
+        )
+    }
+
+    /// [`Request::ClipsReplace`].
+    fn replace(&mut self, path: &str, clip_id: &str, file: &str) -> Result<EditorView, ApiError> {
+        let (start, covered) = {
+            let clip = self
+                .session(path)?
+                .project()
+                .active()
+                .clip(clip_id)
+                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
+            (clip.source_start, clip.duration * clip.speed)
+        };
+        let summary = media::probe(file).map_err(ApiError::failed)?;
+        // A still has no in-point; a file too short to show the clip's
+        // span from its in-point shows it from its start.
+        let from = match summary.duration {
+            Some(length) if start + covered > length => 0.0,
+            _ => start,
+        };
+        self.apply(
+            path,
+            Command::ReplaceClipMedia {
+                clip_id: clip_id.to_owned(),
+                item: summary.to_new_media(),
+                source_start: Some(from),
+                enhanced: false,
+                offset: 0.0,
+            },
+        )
+    }
+
+    /// [`Request::ClipsReverse`]: the span the clip shows of its file -
+    /// its in-point, and its length at its rate - written backwards on the
+    /// scheduler's background lane, as the window's Reverse does.
+    fn reverse(&mut self, path: &str, clip_id: &str) -> Result<Started, ApiError> {
+        use concat_project::model::ClipKind;
+        if self.reversers.is_busy() {
+            return Err(ApiError::failed("a reverse is already running"));
+        }
+        let (request, project_path) = {
+            let session = self.session(path)?;
+            let project = session.project();
+            let clip = project
+                .active()
+                .clip(clip_id)
+                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
+            let audio_only = match clip.kind {
+                ClipKind::Video => false,
+                ClipKind::Audio => true,
+                _ => {
+                    return Err(ApiError::invalid(format!(
+                        "clip {clip_id} is neither video nor sound: nothing to reverse"
+                    )));
+                }
+            };
+            let media = project.media_by_id(&clip.media_id).ok_or_else(|| {
+                ApiError::invalid(format!("clip {clip_id} has no file to reverse"))
+            })?;
+            let start = clip.source_start;
+            let covered = clip.duration * clip.speed;
+            let target = concat_host::reverse::target_for(
+                Path::new(session.path()),
+                &media.path,
+                start,
+                covered,
+                audio_only,
+            )
+            .ok_or_else(|| ApiError::failed(format!("could not read {}", media.path)))?;
+            let request = concat_host::ReverseRequest {
+                media_path: media.path.clone(),
+                audio_only,
+                start,
+                duration: covered,
+                target,
+            };
+            (request, session.path().to_owned())
+        };
+        let started = Started {
+            job: self.jobs.mint(),
+            path: project_path.clone(),
+            output: String::new(),
+        };
+        let job = started.job.clone();
+        let clip_id = clip_id.to_owned();
+        let events = Arc::clone(&self.events);
+        let reversers = Arc::clone(&self.reversers);
+        self.background(started, "reverse", move || {
+            let mut last = -1.0f32;
+            let mut progress = |fraction: f32| {
+                if fraction - last >= 0.01 {
+                    last = fraction;
+                    events(Event::ReverseProgress {
+                        job: job.clone(),
+                        path: project_path.clone(),
+                        clip_id: clip_id.clone(),
+                        fraction,
+                    });
+                }
+            };
+            match reversers.reverse(&request, &mut progress) {
+                Ok(file) => Event::ReverseDone {
+                    job,
+                    path: project_path,
+                    clip_id,
+                    file: file.to_string_lossy().into_owned(),
+                    source_start: request.start,
+                    covered: request.duration,
+                },
+                Err(halt) => Event::ReverseFailed {
+                    job,
+                    path: project_path,
+                    error: halt_error(halt, "The reverse was cancelled"),
+                },
+            }
+        })
+    }
+
+    /// [`Request::ClipsUseReversed`]: the clip re-pointed at its reversed
+    /// copy, unless it has moved on its file since the copy was asked for.
+    fn use_reversed(
+        &mut self,
+        path: &str,
+        clip_id: &str,
+        file: &str,
+        source_start: f64,
+        covered: f64,
+    ) -> Result<EditorView, ApiError> {
+        let mut item = {
+            let session = self.session(path)?;
+            let project = session.project();
+            let clip = project
+                .active()
+                .clip(clip_id)
+                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
+            if (clip.source_start - source_start).abs() > 1e-6
+                || (clip.duration * clip.speed - covered).abs() > 1e-6
+            {
+                return Err(ApiError::invalid(format!(
+                    "clip {clip_id} changed while it was being reversed: reverse it again"
+                )));
+            }
+            let mut item = media::probe(file).map_err(ApiError::failed)?.to_new_media();
+            if let Some(original) = project.media_by_id(&clip.media_id) {
+                item.name = format!("{} (reversed)", original.name);
+            }
+            item
+        };
+        item.origin = Some(concat_project::model::MediaOrigin::Processed);
+        self.apply(
+            path,
+            Command::ReplaceClipMedia {
+                clip_id: clip_id.to_owned(),
+                item,
+                source_start: Some(0.0),
+                enhanced: false,
+                offset: 0.0,
+            },
+        )
+    }
+
+    /// [`Request::ReverseCancel`].
+    fn cancel_reverse(&mut self, job: &str) -> Result<(), ApiError> {
+        self.jobs.reap(&self.book);
+        if !self.jobs.running.iter().any(|(name, _)| name == job) {
+            return Err(ApiError::new(
+                ErrorCode::NotFound,
+                format!("no job {job} is running"),
+            ));
+        }
+        self.reversers.cancel();
+        Ok(())
+    }
+
     /// [`Request::CaptionsCancel`].
     fn cancel_transcription(&mut self, job: &str) -> Result<(), ApiError> {
         self.jobs.reap(&self.book);
@@ -2070,6 +2323,68 @@ mod tests {
             }],
             placement: None,
             size: None,
+        }));
+    }
+
+    /// Freeze splits a picture and holds it in one undo step; reverse and
+    /// replace refuse what they cannot do before touching anything.
+    #[test]
+    fn a_clip_is_frozen_and_reverse_and_replace_refuse_what_they_cannot_do() {
+        let (mut api, scratch, _) = api();
+        let path = project(&mut api, &scratch, "Held");
+        let added = view(ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddMedia {
+                item: still("/nowhere/still.png"),
+            }),
+        })));
+        let placed = view(ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddClipAtFirstFree {
+                media_id: added.created_id.expect("minted"),
+                start: 0.0,
+            }),
+        })));
+        let clip = placed.project.active().clips[0].clone();
+        let request: Request = serde_json::from_value(json!({
+            "method": "clips.freeze", "path": path, "clipId": clip.id,
+            "time": clip.duration / 2.0, "duration": 2.0
+        }))
+        .expect("parses");
+        let frozen = view(ok(api.dispatch(request)));
+        let clips = &frozen.project.active().clips;
+        assert_eq!(clips.len(), 3, "the clip, the hold, the rest of the clip");
+        let hold = clips
+            .iter()
+            .find(|held| (held.start - clip.duration / 2.0).abs() < 1e-9)
+            .expect("a hold where the playhead was");
+        assert!((hold.duration - 2.0).abs() < 1e-9);
+        let undone = view(ok(api.dispatch(Request::EditUndo { path: path.clone() })));
+        assert_eq!(undone.project.active().clips.len(), 1, "one undo step");
+
+        let refused = err(api.dispatch(Request::ClipsReverse {
+            path: path.clone(),
+            clip_id: clip.id.clone(),
+        }));
+        assert!(refused.message.contains("nothing to reverse"), "{refused}");
+        let moved = err(api.dispatch(Request::ClipsUseReversed {
+            path: path.clone(),
+            clip_id: clip.id.clone(),
+            file: "/nowhere/reversed.mp4".to_owned(),
+            source_start: clip.source_start + 1.0,
+            covered: clip.duration * clip.speed,
+        }));
+        assert!(moved.message.contains("changed"), "{moved}");
+        err(api.dispatch(Request::ClipsReplace {
+            path: path.clone(),
+            clip_id: clip.id.clone(),
+            file: "/nowhere/else.mp4".to_owned(),
+        }));
+        err(api.dispatch(Request::ClipsFreeze {
+            path,
+            clip_id: "no-such-clip".to_owned(),
+            time: 0.5,
+            duration: None,
         }));
     }
 

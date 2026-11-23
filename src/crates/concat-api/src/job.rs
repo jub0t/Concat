@@ -105,7 +105,8 @@ impl Book {
             Event::ExportFailed { error, .. }
             | Event::CaptionsFailed { error, .. }
             | Event::ModelsFailed { error, .. }
-            | Event::SpeechFailed { error, .. } => {
+            | Event::SpeechFailed { error, .. }
+            | Event::ReverseFailed { error, .. } => {
                 status.state = if error.code == ErrorCode::Cancelled {
                     JobState::Cancelled
                 } else {
@@ -123,7 +124,7 @@ impl Book {
                 status.state = JobState::Done;
                 status.fraction = 1.0;
             }
-            Event::SpeechDone { file, .. } => {
+            Event::SpeechDone { file, .. } | Event::ReverseDone { file, .. } => {
                 status.state = JobState::Done;
                 status.output = file.clone();
                 status.fraction = 1.0;
@@ -132,6 +133,10 @@ impl Book {
                 stage, fraction, ..
             } => {
                 status.stage = Some(stage.clone());
+                status.fraction = f64::from(*fraction).clamp(0.0, 1.0);
+            }
+            Event::ReverseProgress { fraction, .. } => {
+                status.stage = Some("reversing".to_owned());
                 status.fraction = f64::from(*fraction).clamp(0.0, 1.0);
             }
             Event::ModelsProgress {
