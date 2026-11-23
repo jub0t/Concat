@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6507d140a80e981ccd6de14a33bcd80aa12c0acf8b63fe6a13575718a341e84b # shrinks to ops = [Together([AddLane { sequence: Index(0), at: Index(0) }, Move { item: Index(0), lane: Index(0), start: 0 }]), Together([Reorder { lane: Index(13835058055282163712), to: Index(3074458989863327769) }, AddLane { sequence: Index(4377800253126261139), at: Index(9221249839589867478) }])]
+cc a50c25153d99431b7e491d04c3b2cd53699b97a60757b71f99643c86e612bfc4 # shrinks to ops = [RemoveSequence { sequence: Index(9223372036854775808) }, Reorder { lane: Index(0), to: Index(9223372036854775808) }, Together([AddLane { sequence: Index(0), at: Index(6148914691236517206) }, Trim { item: Index(620306793), offset: 19, len: 13 }])]

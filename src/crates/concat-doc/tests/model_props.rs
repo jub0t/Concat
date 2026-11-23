@@ -336,7 +336,10 @@ fn run(draft: &mut Draft<Model>, op: &Op) {
                 .collect();
             let at = at.index(keys.len() + 1);
             let low = at.checked_sub(1).map(|below| &keys[below]);
-            let order = OrderKey::between(low, keys.get(at)).unwrap();
+            // In a draft two lanes may share a key, with no room between.
+            let Some(order) = OrderKey::between(low, keys.get(at)) else {
+                return;
+            };
             let id: LaneId = draft.mint().unwrap();
             draft.lanes.insert(id, Lane::new(sequence, order)).unwrap();
         }
