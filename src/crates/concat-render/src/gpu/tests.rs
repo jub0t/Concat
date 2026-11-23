@@ -946,6 +946,129 @@ fn every_shader_package_builds_on_this_adapter() {
     );
 }
 
+/// The most one built-in effect may cost, as many times an invert's 4K frame
+/// on the same adapter, so the rule means the same on a GTX 980, an RTX and
+/// a runner: an effect over it on one card is over it on every card. Motion
+/// Blur at its widest, the dearest that ships, is about 14; Halation 2,
+/// whose cost took small cards' devices (#673), was 31.
+const EFFECT_COST: u32 = 20;
+
+/// Below this an effect is within its budget however many inverts it is:
+/// on a fast card an invert takes a fraction of a millisecond, and timing
+/// noise is not a cost.
+const EFFECT_FLOOR: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// What one built-in effect's 4K frame may never take, on any hardware
+/// adapter. Windows resets a GPU whose work does not yield within two
+/// seconds (TDR), and a frame stacks several effects on several layers.
+const EFFECT_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Every built-in effect draws a 4K frame within [`EFFECT_COST`] inverts and
+/// [`EFFECT_BUDGET`], with
+/// its knobs all at their minimum, their default and their maximum. A
+/// sixteen-pixel trial says a shader builds and nothing of what it costs:
+/// Halation 2 passed it and took up to 1,800 fetches a pixel at 4K, enough
+/// on a small card for Windows to reset the GPU and take the preview with
+/// it (#673). What is timed is the device's work alone: each frame is drawn
+/// once to build its pipelines and upload its picture, which then stays in
+/// the pool, and timed the second time. Skipped on a software adapter,
+/// where every effect is slow and none of it is a driver's reset.
+#[test]
+fn every_shader_package_draws_a_4k_frame_within_its_budget() {
+    let Some(mut gpu) = gpu() else { return };
+    if gpu.on_software_adapter() {
+        eprintln!("a software adapter; the budget is a hardware one, skipped");
+        return;
+    }
+    const WIDTH: u32 = 3840;
+    const HEIGHT: u32 = 2160;
+    // One picture for every frame, so after the first drawing it is the
+    // pool's and no upload is timed.
+    let picture = layer(gradient(WIDTH, HEIGHT));
+    let frame_of = |pass: ShaderPass| {
+        let mut layer = picture.clone();
+        layer.effects = vec![pass];
+        plan(WIDTH, HEIGHT, vec![layer])
+    };
+    // The device's time for one drawing of `plan`, already drawn once; or
+    // why it did not draw.
+    let timed = |gpu: &mut WgpuCompositor, plan: &FramePlan| {
+        if gpu.render_texture(plan).is_none() || !gpu.finish() {
+            return Err("it did not draw".to_owned());
+        }
+        let began = std::time::Instant::now();
+        if gpu.render_texture(plan).is_none() || !gpu.finish() {
+            return Err(format!(
+                "the device did not finish it: {:?}",
+                gpu.post_mortem()
+            ));
+        }
+        Ok(began.elapsed())
+    };
+    let canary = frame_of(package("test.canary", INVERT, "", &[], 1.0));
+    let floor = timed(&mut gpu, &canary).expect("an invert draws");
+    eprintln!("an invert at {WIDTH}x{HEIGHT}: {floor:?}");
+    let limit = (floor * EFFECT_COST).max(EFFECT_FLOOR).min(EFFECT_BUDGET);
+    let catalogue = concat_effects::Catalogue::builtin();
+    let mut over = Vec::new();
+    let mut timings = Vec::new();
+    for package in catalogue.packages() {
+        let Some(shader) = package.shader() else {
+            continue;
+        };
+        let corners: [(&str, fn(&concat_effects::Param) -> f64); 3] = [
+            ("minimum", |param| param.min),
+            ("default", |param| param.default),
+            ("maximum", |param| param.max),
+        ];
+        for (at, pick) in corners {
+            let set: std::collections::BTreeMap<String, f64> = package
+                .manifest
+                .params
+                .iter()
+                .filter(|param| !param.kind.is_compound())
+                .map(|param| (param.key.clone(), pick(param)))
+                .collect();
+            let values = package.resolve(&set);
+            let pass = shader.pass(
+                &values,
+                &package.manifest.params,
+                1.0,
+                package.lut().cloned(),
+                None,
+            );
+            match timed(&mut gpu, &frame_of(pass)) {
+                Ok(took) => {
+                    timings.push((took, format!("{} at its {at}", package.id())));
+                    if took > limit {
+                        over.push(format!(
+                            "{} at its {at}: {took:?}, over {limit:?} ({EFFECT_COST} inverts,                              at most {EFFECT_BUDGET:?})",
+                            package.id()
+                        ));
+                    }
+                }
+                Err(error) => {
+                    over.push(format!("{} at its {at}: {error}", package.id()));
+                    let Some(fresh) = WgpuCompositor::new() else {
+                        panic!("no device opened after {}", package.id());
+                    };
+                    gpu = fresh;
+                }
+            }
+        }
+    }
+    timings.sort_by(|a, b| b.0.cmp(&a.0));
+    for (took, what) in timings.iter().take(15) {
+        eprintln!("{took:>12.1?}  {what}");
+    }
+    assert!(
+        over.is_empty(),
+        "over budget on {}:\n{}",
+        gpu.adapter_info().name,
+        over.join("\n")
+    );
+}
+
 /// A pass reads how long its own clip has been on screen through
 /// `frame.clip_time` - the gap between the frame's own time and where the
 /// clip begins on the timeline, not the timeline's absolute clock. A
