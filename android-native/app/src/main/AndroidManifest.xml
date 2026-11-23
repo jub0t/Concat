@@ -1,17 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Voiceover: recording from the microphone, asked for at run time. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Speech models downloaded by the engine. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The export's foreground service and its progress notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Publishing to Movies/Concat before scoped storage. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <application
+        android:name=".ConcatApplication"
         android:label="Concat Spike"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|keyboardHidden|keyboard|navigation|screenSize|smallestScreenSize|screenLayout|uiMode|density|fontScale|locale|layoutDirection">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".export.ExportService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProcessing|dataSync" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

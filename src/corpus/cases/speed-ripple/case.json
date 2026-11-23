@@ -1,0 +1,30 @@
+{
+  "about": "Clips A and B end to end; A is set to twice its speed with ripple, so it lasts one second and B closes up to it. A shows every second frame for 30 frames, B follows at frame 30, and both clips' pips land where their speed and place put them. A failure means a speed change with ripple leaves a gap or an overlap, or moves the following clip's sound differently from its picture.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true },
+    "b": { "kind": "clock", "tag": 2, "width": 320, "height": 180, "rate": [30, 1], "frames": 60, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "setClipSpeed", "clipId": "$clipA", "speed": 2, "ripple": true } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 90,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 29], "media": "a", "from": 0, "step": 2 },
+      { "frames": [30, 89], "media": "b", "from": 0, "step": 1 }
+    ],
+    "sound": [
+      { "frames": [0, 29], "media": "a", "from": 0, "speed": 2 },
+      { "frames": [30, 89], "media": "b", "from": 0 }
+    ]
+  }
+}

@@ -31,10 +31,13 @@ pub enum MediaMsg {
     FilterChanged(MediaFilter),
     /// 0 added, 1 name, 2 kind.
     SortChanged(i32),
-    /// A card clicked, by its row; additive keeps what was selected.
+    /// A card clicked, by its row. `toggle` (Ctrl/Cmd) adds or removes
+    /// one card; `range` (Shift) selects from the anchor to this card in
+    /// the visible order (#696).
     Select {
         row: i32,
-        additive: bool,
+        toggle: bool,
+        range: bool,
     },
     /// A marquee closed over the grid: the block of cells it caught.
     Band {
@@ -45,6 +48,10 @@ pub enum MediaMsg {
         to_row: i32,
         additive: bool,
     },
+    /// The bin took a press: Ctrl+A should select its cards (#696).
+    Focused,
+    /// Every visible card, for Ctrl+A while the bin has focus (#696).
+    SelectAll,
     Remove(i32),
     RemoveSelected,
     /// Files picked, dropped or handed over by the platform.
@@ -76,6 +83,9 @@ pub struct MediaBin {
     /// editor's picker numbers them. May name what has since been let go
     /// of; [`MediaBin::picked_in_order`] reads it against `selected`.
     picked: Vec<String>,
+    /// The last plain or toggled click: Shift+click selects from here
+    /// through the card in the visible order (#696).
+    anchor: Option<String>,
     pub filter: MediaFilter,
     /// 0 = Added, 1 = Name, 2 = Kind
     pub sort: usize,
@@ -95,6 +105,7 @@ impl Default for MediaBin {
             next_row: 1,
             selected: HashSet::new(),
             picked: Vec::new(),
+            anchor: None,
             filter: MediaFilter::All,
             sort: 0,
             thumbs: HashMap::new(),
@@ -110,17 +121,18 @@ impl MediaBin {
         match msg {
             MediaMsg::FilterChanged(filter) => self.filter = filter,
             MediaMsg::SortChanged(index) => self.sort = (index.max(0) as usize).min(2),
-            MediaMsg::Select { row, additive } => {
+            MediaMsg::Select { row, toggle, range } => {
                 let Some(id) = self
                     .by_row(studio.project(), row)
                     .map(|item| item.id.clone())
                 else {
                     return;
                 };
-                self.select(id.clone(), additive);
+                studio.media_focused = true;
+                self.select(studio.project(), id.clone(), toggle, range);
                 // A plain click shows a picture on the monitor, or plays a
                 // sound, without putting it on the timeline.
-                if !additive {
+                if !toggle && !range {
                     studio.preview_media(&id, row);
                 }
             }
@@ -132,6 +144,7 @@ impl MediaBin {
                 to_row,
                 additive,
             } => {
+                studio.media_focused = true;
                 self.selected = self.band(
                     studio.project(),
                     columns,
@@ -141,6 +154,22 @@ impl MediaBin {
                 );
                 let selected = &self.selected;
                 self.picked.retain(|id| selected.contains(id));
+                for id in selected {
+                    if !self.picked.iter().any(|held| held == id) {
+                        self.picked.push(id.clone());
+                    }
+                }
+            }
+            MediaMsg::Focused => studio.media_focused = true,
+            MediaMsg::SelectAll => {
+                studio.media_focused = true;
+                let ids: Vec<String> = self
+                    .visible(studio.project())
+                    .into_iter()
+                    .map(|item| item.id.clone())
+                    .collect();
+                self.selected = ids.iter().cloned().collect();
+                self.picked = ids;
             }
             MediaMsg::Remove(row) => {
                 if let Some(id) = self
@@ -402,26 +431,45 @@ impl MediaBin {
         }
     }
 
-    /// A click: the one card, or toggled into what is held.
-    fn select(&mut self, id: String, additive: bool) {
-        if additive {
+    /// A click: one card, a Ctrl/Cmd toggle, or a Shift range from the
+    /// anchor through this card in the visible order (#696).
+    fn select(&mut self, project: &Project, id: String, toggle: bool, range: bool) {
+        if range {
+            let visible = self.visible(project);
+            let anchor = self
+                .anchor
+                .as_ref()
+                .and_then(|anchor| visible.iter().position(|item| item.id == *anchor));
+            let here = visible.iter().position(|item| item.id == id);
+            if let (Some(a), Some(b)) = (anchor, here) {
+                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                let slice = &visible[lo..=hi];
+                self.selected = slice.iter().map(|item| item.id.clone()).collect();
+                self.picked = slice.iter().map(|item| item.id.clone()).collect();
+                return;
+            }
+            // No usable anchor: fall through as a plain click.
+        }
+        if toggle {
             if self.selected.remove(&id) {
                 self.picked.retain(|held| *held != id);
             } else {
                 self.selected.insert(id.clone());
                 self.picked.retain(|held| *held != id);
-                self.picked.push(id);
+                self.picked.push(id.clone());
             }
+            self.anchor = Some(id);
         } else {
             self.selected.clear();
             self.selected.insert(id.clone());
-            self.picked = vec![id];
+            self.picked = vec![id.clone()];
+            self.anchor = Some(id);
         }
     }
 
     /// A marquee closed over the grid, as the block of cells it caught. The
-    /// walk is over the filtered order, because that is what the grid was
-    /// laid out from.
+    /// walk is over the visible order, because that is what the grid was
+    /// laid out from (#696).
     fn band(
         &self,
         project: &Project,
@@ -430,21 +478,17 @@ impl MediaBin {
         (from_row, to_row): (i32, i32),
         additive: bool,
     ) -> HashSet<String> {
-        let mut cell = 0;
         let mut next = if additive {
             self.selected.clone()
         } else {
             HashSet::new()
         };
-        for item in &project.media {
-            if !Self::shows(self.filter, item) {
-                continue;
-            }
-            let (row, col) = (cell / columns.max(1), cell % columns.max(1));
+        let columns = columns.max(1);
+        for (cell, item) in (0..).zip(self.visible(project)) {
+            let (row, col) = (cell / columns, cell % columns);
             if row >= from_row && row <= to_row && col >= from_col && col <= to_col {
                 next.insert(item.id.clone());
             }
-            cell += 1;
         }
         next
     }
@@ -526,6 +570,7 @@ impl MediaBin {
                         .iter()
                         .position(|id| *id == item.id)
                         .map_or(0, |at| at as i32 + 1),
+                    preparing: concat_host::proxy::progress(&item.path).unwrap_or(-1.0),
                 }
             })
             .collect()
@@ -648,41 +693,69 @@ mod tests {
     }
 
     #[test]
-    fn a_click_toggles_only_when_additive() {
+    fn a_click_toggles_only_when_asked() {
         let mut bin = MediaBin::default();
-        bin.select("a".into(), false);
-        bin.select("b".into(), false);
+        let project = project();
+        bin.select(&project, "a1".into(), false, false);
+        bin.select(&project, "v1".into(), false, false);
         assert_eq!(bin.selected.len(), 1);
-        assert!(bin.selected.contains("b"));
-        bin.select("a".into(), true);
+        assert!(bin.selected.contains("v1"));
+        bin.select(&project, "a1".into(), true, false);
         assert_eq!(bin.selected.len(), 2);
-        bin.select("a".into(), true);
-        assert!(!bin.selected.contains("a"));
+        bin.select(&project, "a1".into(), true, false);
+        assert!(!bin.selected.contains("a1"));
+    }
+
+    #[test]
+    fn shift_click_selects_a_range_in_visible_order() {
+        let mut bin = MediaBin::default();
+        let project = project();
+        // Added order: v1, a1, i1, v2. Anchor on v1, Shift on i1 → those three.
+        bin.select(&project, "v1".into(), false, false);
+        bin.select(&project, "i1".into(), false, true);
+        assert_eq!(bin.selected.len(), 3);
+        assert!(
+            bin.selected.contains("v1")
+                && bin.selected.contains("a1")
+                && bin.selected.contains("i1")
+        );
+        // Sorted by name: alpha.wav, apple.mov, Mid.png, Zebra.mp4.
+        // Anchor alpha → Mid includes apple between them.
+        bin.sort = 1;
+        bin.select(&project, "a1".into(), false, false);
+        bin.select(&project, "i1".into(), false, true);
+        assert_eq!(bin.selected.len(), 3);
+        assert!(
+            bin.selected.contains("a1")
+                && bin.selected.contains("v2")
+                && bin.selected.contains("i1")
+        );
+        assert!(!bin.selected.contains("v1"));
     }
 
     #[test]
     fn picks_are_numbered_in_the_order_they_were_made() {
         let mut bin = MediaBin::default();
         let project = project();
-        bin.select("i1".into(), true);
-        bin.select("v1".into(), true);
-        bin.select("a1".into(), true);
+        bin.select(&project, "i1".into(), true, false);
+        bin.select(&project, "v1".into(), true, false);
+        bin.select(&project, "a1".into(), true, false);
         assert_eq!(bin.picked_in_order(&project), ["i1", "v1", "a1"]);
         // Let go of and picked again, it goes to the back of the line.
-        bin.select("i1".into(), true);
+        bin.select(&project, "i1".into(), true, false);
         assert_eq!(bin.picked_in_order(&project), ["v1", "a1"]);
-        bin.select("i1".into(), true);
+        bin.select(&project, "i1".into(), true, false);
         assert_eq!(bin.picked_in_order(&project), ["v1", "a1", "i1"]);
         // Selected some other way, it follows in the bin's order.
         bin.selected.insert("v2".into());
         assert_eq!(bin.picked_in_order(&project), ["v1", "a1", "i1", "v2"]);
         // A plain click starts over.
-        bin.select("v2".into(), false);
+        bin.select(&project, "v2".into(), false, false);
         assert_eq!(bin.picked_in_order(&project), ["v2"]);
     }
 
     #[test]
-    fn a_band_walks_the_filtered_grid_and_survives_zero_columns() {
+    fn a_band_walks_the_visible_grid_and_survives_zero_columns() {
         let mut bin = MediaBin::default();
         let project = project();
         // Two columns over all four: rows are (v1 a1) (i1 v2).
@@ -700,5 +773,11 @@ mod tests {
         let caught = bin.band(&project, 1, (0, 0), (0, 0), true);
         assert_eq!(caught.len(), 2);
         assert!(caught.contains("i1") && caught.contains("x"));
+        // Sort by name: alpha.wav, apple.mov, Mid.png, Zebra.mp4 → cell 1 is apple.
+        bin.filter = MediaFilter::All;
+        bin.sort = 1;
+        let caught = bin.band(&project, 1, (0, 0), (1, 1), false);
+        assert_eq!(caught.len(), 1);
+        assert!(caught.contains("v2"), "{caught:?}");
     }
 }

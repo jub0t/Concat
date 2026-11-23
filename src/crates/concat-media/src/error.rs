@@ -105,6 +105,11 @@ pub enum Error {
         got_height: u32,
     },
 
+    /// The work was stopped because whoever asked for it said to: not a
+    /// failure, and told apart from one so nobody has to read the words.
+    #[error("cancelled")]
+    Cancelled,
+
     /// The linked FFmpeg was built without something this operation needs -
     /// an encoder, a filter, a muxer.
     #[error("the linked FFmpeg has no {what} {name:?}")]
@@ -123,5 +128,33 @@ impl Error {
     /// not one that going again would mend.
     pub fn stalled_on_hardware(&self) -> bool {
         matches!(self, Error::Stalled { hardware: true, .. })
+    }
+}
+
+/// A media error as a job's reason for ending: [`Error::Cancelled`] is the
+/// job told to stop, and anything else a failure in the error's own words.
+impl From<Error> for concat_core::Halt {
+    fn from(error: Error) -> concat_core::Halt {
+        match error {
+            Error::Cancelled => concat_core::Halt::Cancelled,
+            other => concat_core::Halt::Failed(other.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use concat_core::Halt;
+
+    #[test]
+    fn a_cancelled_mix_is_a_cancel_and_any_other_error_a_failure_in_its_own_words() {
+        assert_eq!(Halt::from(Error::Cancelled), Halt::Cancelled);
+        // A file that could not be read, under a folder named for the word.
+        let unread = Error::NoAudioStream {
+            path: PathBuf::from("/takes/cancelled/clip.mp4"),
+        };
+        let words = unread.to_string();
+        assert_eq!(Halt::from(unread), Halt::Failed(words));
     }
 }

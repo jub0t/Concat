@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fa1f1efbc26e2f5a94df454abfb394f34b17e85b3a6bce8f08f5e796859e6ef2 # shrinks to source = "(floor(c) + c)", values = [Int(-9223372036854775808), Int(-9223372036854775808), Int(-9223372036854775808)]

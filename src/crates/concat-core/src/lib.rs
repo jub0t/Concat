@@ -11,6 +11,8 @@
 //! - [`arena`] - generational arenas and `Copy` handles, the way Concat models
 //!   graphs.
 //! - [`frame`] - a decoded RGBA8 image buffer.
+//! - [`halt`] - how work that can be told to stop says whether it was
+//!   cancelled or failed.
 //! - [`timeline`] - projects, tracks and clips.
 //!
 //! If you are about to add a dependency to this crate, the thing you are adding
@@ -19,6 +21,7 @@
 pub mod animate;
 pub mod arena;
 pub mod frame;
+pub mod halt;
 pub mod mask;
 pub mod motion;
 pub mod retime;
@@ -29,6 +32,7 @@ pub mod time;
 pub mod timeline;
 
 pub use frame::Frame;
+pub use halt::Halt;
 pub use retime::SpeedCurve;
 pub use shader::{Lut, RevealMap, ShaderPass, Stage, TransitionPass};
 pub use time::{FrameRate, Rational, TimeRange};

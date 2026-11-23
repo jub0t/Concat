@@ -40,7 +40,12 @@ export struct TextPresetData {
     align: TextAlignment,
 }
 
-/// A preset's sample in its look, on the ground the library's cards use.
+/// A preset's sample in its look, set straight on the field or the list it
+/// sits in - no card of its own, which inside an already bordered dropdown
+/// read as a box in a box. Every preset's words are light, or dark on a
+/// plate of their own, so the dark theme needs no ground under them. The
+/// light theme's fields are pale, and white words would vanish there: it
+/// keeps a borderless dark ground.
 export component PresetSwatch inherits Rectangle {
     in property <TextPresetData> preset;
     in property <length> size: 28px;
@@ -48,9 +53,7 @@ export component PresetSwatch inherits Rectangle {
     width: root.size;
     height: root.size;
     border-radius: Theme.r-sm;
-    background: Theme.sample-ground;
-    border-width: 1px;
-    border-color: Theme.line;
+    background: Theme.dark ? transparent : Theme.sample-ground;
     clip: true;
 
     if root.preset.plated: Rectangle {

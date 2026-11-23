@@ -184,6 +184,24 @@ impl Monitor {
         }
     }
 
+    /// The graphics adapter frames are composited on, as its back end and
+    /// its name ("Metal", "Apple M5"): the window's device where the
+    /// monitor was given one, the shared headless compositor's otherwise,
+    /// once it has drawn a frame. None when frames are drawn on the
+    /// processor. What a test of pictures needs to know which family of
+    /// adapters drew the one it is judging.
+    pub fn adapter(&self) -> Option<(String, String)> {
+        #[cfg(feature = "gpu")]
+        if let Some(gpu) = self.gpu.as_ref() {
+            let info = gpu.lock().unwrap_or_else(|e| e.into_inner()).adapter_info();
+            return Some((format!("{:?}", info.backend), info.name));
+        }
+        if concat_export::previews_on_cpu() {
+            return None;
+        }
+        concat_export::headless_adapter()
+    }
+
     /// Makes `frame` the still the pool serves under `path`, a name no
     /// file has; see `ReaderPool::hold_still`.
     pub fn hold_still(&self, path: &std::path::Path, frame: Arc<concat_core::frame::Frame>) {

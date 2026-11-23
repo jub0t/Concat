@@ -54,7 +54,7 @@ pub const ENGLISH: &str = "en";
 /// The locales the app ships, as `(code, file)`. `en.json` is the
 /// inventory - every key, with its English - which is what a translator
 /// starts a new file from, and what every language falls back to.
-pub(crate) const BUILT_IN: [(&str, &str); 26] = [
+pub(crate) const BUILT_IN: [(&str, &str); 27] = [
     ("en", include_str!("../locales/en.json")),
     ("ar", include_str!("../locales/ar.json")),
     ("az", include_str!("../locales/az.json")),
@@ -66,6 +66,7 @@ pub(crate) const BUILT_IN: [(&str, &str); 26] = [
     ("he", include_str!("../locales/he.json")),
     ("hi", include_str!("../locales/hi.json")),
     ("hr", include_str!("../locales/hr.json")),
+    ("hu", include_str!("../locales/hu.json")),
     ("id", include_str!("../locales/id.json")),
     ("it", include_str!("../locales/it.json")),
     ("ja", include_str!("../locales/ja.json")),

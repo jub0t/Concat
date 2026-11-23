@@ -25,8 +25,21 @@ serde_json.workspace = true
 # Stills in and failed frames out, lossless. Already in the tree for the
 # API's own frames.
 png = "0.17"
-# A preview frame comes back from the API as base64.
+# A preview frame comes back from the API as base64, and the page of
+# failed goldens carries its pictures the same way, so it is one file.
 base64 = "0.22"
+# How far a picture is from its golden as a person would see it: NVIDIA's
+# FLIP, the measure wgpu's own tests judge their pictures by. Its C++ is
+# in the crate and built by `cc`, with nothing asked of the system.
+nv-flip = "0.1.2"
+
+[dev-dependencies]
+# What the engine warns of while a case runs, said in the test's output:
+# a lost graphics device explains a failed case that nothing else does.
+log = "0.4"
+# A case's folder and an artefacts folder for each golden test, gone when
+# the test is.
+tempfile = "3"
 
 [lints]
 workspace = true

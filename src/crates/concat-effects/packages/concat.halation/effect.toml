@@ -3,7 +3,7 @@ format = 2
 [effect]
 id = "concat.halation"
 name = "Halation"
-version = 2
+version = 3
 kind = "effect"
 category = "Film"
 order = 150
@@ -54,11 +54,16 @@ unit = "%"
 [wgsl]
 entry = "effect.wgsl"
 
-# The halo is a wide Gaussian over the bright parts, drawn across and then
-# down at a quarter of the layer's pixels.
+# The halo is the bright light, taken at a quarter of the layer's pixels,
+# blurred across and then down by one Gaussian. Every pass is a quarter
+# both ways, so the blur is round and its cost held (see effect.wgsl).
+[[wgsl.pass]]
+target = "light"
+shrink = ["4", "4"]
+
 [[wgsl.pass]]
 target = "across"
-shrink = ["4", "1"]
+shrink = ["4", "4"]
 
 [[wgsl.pass]]
 target = "down"

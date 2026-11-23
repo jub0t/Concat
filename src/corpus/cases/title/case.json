@@ -1,0 +1,26 @@
+{
+  "about": "A two-second clip with a title over it at the title's defaults. The clip's own frames show under it, and frames 0 and 45 of the monitor are held to stored pictures of the lettering. A failure means a title's font, size, place, colour or edges changed, or it draws differently on this graphics adapter.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addTextClip", "above": true, "start": 0, "duration": 2 } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 60,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 }
+    ],
+    "golden": [
+      { "name": "frame-00", "frame": 0 },
+      { "name": "frame-45", "frame": 45 }
+    ]
+  }
+}

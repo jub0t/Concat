@@ -1,0 +1,24 @@
+{
+  "about": "A clip's opacity keyed from nothing at its start to whole at its end, and the key at its start then taken away. One key is left, at whole, so the clip shows whole in every frame. A failure means taking one key away takes the other, leaves the clip at the removed key's value, or leaves it fading.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clip" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "setClipKey", "clipId": "$clip", "property": "opacity", "at": 0, "value": 0, "ease": [0, 0, 1, 1] } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "setClipKey", "clipId": "$clip", "property": "opacity", "at": 1, "value": 1, "ease": [0, 0, 1, 1] } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "clearClipKey", "clipId": "$clip", "property": "opacity", "at": 0 } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 60,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 }
+    ]
+  }
+}

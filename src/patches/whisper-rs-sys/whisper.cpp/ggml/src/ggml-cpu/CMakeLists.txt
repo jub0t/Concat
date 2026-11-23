@@ -58,8 +58,8 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
             message(STATUS "Accelerate framework found")
 
             target_compile_definitions(${GGML_CPU_NAME} PRIVATE GGML_USE_ACCELERATE)
-            target_compile_definitions(${GGML_CPU_NAME} PRIVATE ACCELERATE_NEW_LAPACK)
-            target_compile_definitions(${GGML_CPU_NAME} PRIVATE ACCELERATE_LAPACK_ILP64)
+            # Concat: no ACCELERATE_NEW_LAPACK, as in ggml-blas (Concat #862):
+            # its symbols are macOS 13.3 and later, and the app runs on 12.
 
             target_link_libraries(${GGML_CPU_NAME} PRIVATE ${ACCELERATE_FRAMEWORK})
         else()

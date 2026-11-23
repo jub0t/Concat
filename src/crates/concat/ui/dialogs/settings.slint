@@ -310,7 +310,7 @@ component ModelRow inherits Rectangle {
                 Text {
                     text: root.model.note;
                     color: Theme.fg-muted;
-                    font-size: Theme.fs-sm;
+                    font-size: Theme.fs-prose;
                     wrap: root.compact ? TextWrap.word-wrap : TextWrap.no-wrap;
                     overflow: elide;
                 }
@@ -374,7 +374,7 @@ component ModelRow inherits Rectangle {
             Text {
                 text: root.model.problem;
                 color: Theme.danger;
-                font-size: Theme.fs-sm;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
 
@@ -1375,7 +1375,7 @@ export component SettingsDialog inherits Sheet {
                             text: root.data.server-status;
                             color: root.data.server-state == 2 ? Theme.danger : Theme.fg-muted;
                             font-family: root.data.server-state == 1 ? Theme.font-technical : Theme.font;
-                            font-size: Theme.fs-sm;
+                            font-size: Theme.fs-prose;
                             vertical-alignment: center;
                             wrap: word-wrap;
                         }
@@ -1384,7 +1384,7 @@ export component SettingsDialog inherits Sheet {
                     Text {
                         text: I18n.t("settings.agentsConnectWithMcp");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                 }
@@ -1454,7 +1454,7 @@ export component SettingsDialog inherits Sheet {
                                 horizontal-stretch: 1;
                                 text: I18n.t("settings.exposedAddressWarning");
                                 color: Theme.fg;
-                                font-size: Theme.fs-sm;
+                                font-size: Theme.fs-prose;
                                 wrap: word-wrap;
                                 vertical-alignment: center;
                             }
@@ -1563,7 +1563,7 @@ export component SettingsDialog inherits Sheet {
                         Text {
                             text: root.data.update-status;
                             color: Theme.fg-muted;
-                            font-size: Theme.fs-sm;
+                            font-size: Theme.fs-prose;
                             wrap: word-wrap;
                         }
 
@@ -1622,7 +1622,7 @@ export component SettingsDialog inherits Sheet {
                         if root.data.install-note != "": Text {
                             text: root.data.install-note;
                             color: Theme.fg-muted;
-                            font-size: Theme.fs-sm;
+                            font-size: Theme.fs-prose;
                             wrap: word-wrap;
                         }
 

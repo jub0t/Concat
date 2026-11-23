@@ -23,7 +23,7 @@
   <a href="https://trendshift.io/repositories/191379?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/191379" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · **🇸🇦 العربية** · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇭🇺 Magyar](README.hu.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · **🇸🇦 العربية** · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
 > مترجم من ملف README الإنجليزي بتاريخ 11 أكتوبر 2026. النسخة الإنجليزية هي التي تُحدَّث باستمرار.
 
@@ -73,7 +73,7 @@ Concat محرر فيديو مجاني ومفتوح المصدر على macOS وW
 - ⚡ **سريع.** ملفات وسيطة مدمجة لتصفّح 4K بسلاسة. تُرسم العناوين على كل النوى، وكل مؤثر جاهز لحظة فتح النافذة.
 - 🛟 **يواصل العمل على أي جهاز.** حين تستسلم شريحة الرسوميات، تواصل المعاينة الرسم.
 - 🤖 **قابل للبرمجة.** واجهة JSON-RPC يمكن للسكربتات ووكلاء الذكاء الاصطناعي قص الفيديو بها. والبناء من الشيفرة المصدرية يضيف gRPC وأداة سطر أوامر.
-- 🖥️ **macOS وWindows وLinux وAndroid وiOS.** 26 لغة. التطبيق نفسه، ملفات المشروع نفسها.
+- 🖥️ **macOS وWindows وLinux وAndroid وiOS.** 27 لغة. التطبيق نفسه، ملفات المشروع نفسها.
 
 ## التنزيل
 

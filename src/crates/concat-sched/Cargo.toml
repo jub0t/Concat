@@ -1,0 +1,17 @@
+[package]
+name = "concat-sched"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The one scheduler: lanes of work sized to the machine, where every job has a typed cancel, an owner, its progress and the resources it holds."
+
+[dependencies]
+# The facade every crate already writes through. The scheduler says little:
+# a thread that could not start, a callback that panicked, a job that
+# ignored its cancel at shutdown.
+log = "0.4"
+
+[lints]
+workspace = true

@@ -53,6 +53,11 @@ pub struct Case {
     /// Projects that must preview the same as this one, pixel for pixel.
     #[serde(default)]
     pub twins: Vec<Twin>,
+    /// How the case is exported where not by the sheet's defaults: the
+    /// fields of `export.run`'s spec other than its output. What the file
+    /// then is goes in [`Expect::file`].
+    #[serde(default)]
+    pub export: Option<Value>,
 }
 
 /// A piece of media to make for a case.
@@ -171,6 +176,42 @@ pub struct Expect {
     /// clip that should not be heard at all.
     #[serde(default)]
     pub level: Vec<Level>,
+    /// What the exported file is where the export changes it from the
+    /// timeline: another size, another rate. Absent, the file is the
+    /// timeline's frames at the timeline's size and rate. Everything else
+    /// here stays in the timeline's own frames and pixels; a file frame is
+    /// held to the timeline frame whose span holds its instant.
+    #[serde(default)]
+    pub file: Option<File>,
+    /// Frames of the monitor held to a stored picture, for what no code
+    /// or pip can say: how an effect, a title or a mask looks. See
+    /// [`crate::golden`].
+    #[serde(default)]
+    pub golden: Vec<GoldenFrame>,
+}
+
+/// What an exported file is, where it is not the timeline as it stands.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct File {
+    /// Frames in the file.
+    pub frames: u32,
+    /// The file's picture width: the timeline's, times a whole number.
+    pub width: u32,
+    /// The file's picture height: the timeline's, times the same number.
+    pub height: u32,
+    /// The file's frame rate, as numerator and denominator.
+    pub rate: [i64; 2],
+}
+
+/// One frame of the monitor held to a stored picture.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GoldenFrame {
+    /// The picture's name in the case's `golden` folder, without `.png`.
+    pub name: String,
+    /// The output frame, seen at its own instant.
+    pub frame: u32,
 }
 
 /// How loud one media's tone must be at one instant of the export.
@@ -238,6 +279,9 @@ pub struct SoundRun {
     /// Source seconds per output second.
     #[serde(default = "unit")]
     pub speed: f64,
+    /// A speed curve over the run, in place of `speed`; see [`Run::curve`].
+    #[serde(default)]
+    pub curve: Option<Vec<[f64; 2]>>,
     /// A flaw this run's sound is known to have: its pips may be off by
     /// up to `within` rather than a millisecond. A run that comes within
     /// the millisecond fails, so the bound is taken out once the flaw is
@@ -301,6 +345,44 @@ pub struct Run {
     /// is scaled: 8 at half size.
     #[serde(default = "block")]
     pub block: u32,
+    /// How much of the picture shows over black at the run's first frame
+    /// and at its last, 0 to 1, in light, a straight line between: a clip
+    /// whose opacity is set or keyed. Absent, all of it.
+    #[serde(default)]
+    pub fade: Option<[f64; 2]>,
+    /// [`Run::fade`] counted in stops, as an exposure is: at the run's
+    /// first frame and at its last, a straight line between, each stop
+    /// down halving the light. A keyed exposure is a straight line in
+    /// stops and a curve in light.
+    #[serde(default)]
+    pub stops: Option<[f64; 2]>,
+    /// The picture the run's own is melting into, for a run under a
+    /// dissolve.
+    #[serde(default)]
+    pub into: Option<Into>,
+    /// A speed curve over the run, in place of `step` and `per`: points
+    /// of `[at, speed]`, `at` the fraction of the run and `speed` source
+    /// seconds a timeline second there, joined by straight lines, as a
+    /// clip's speed curve is. Output frame `k` then shows the source frame
+    /// whose span holds the source time the curve has reached.
+    #[serde(default)]
+    pub curve: Option<Vec<[f64; 2]>>,
+}
+
+/// The incoming picture of a run under a dissolve.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Into {
+    /// The media coming in, by its name in [`Case::media`].
+    pub media: String,
+    /// The source frame of it the run's first frame mixes in.
+    pub from: u32,
+    /// How many of its frames each output frame moves on by; 0 while it is
+    /// held on one frame, waiting for its own clip to start.
+    pub step: u32,
+    /// How much of it is in the run's first frame and in its last, 0 to 1,
+    /// in light; in between, a straight line.
+    pub share: [f64; 2],
 }
 
 /// What an output frame must show.
@@ -309,6 +391,16 @@ pub enum Shows {
     /// A source frame, by its code, with the code's top left corner here
     /// and its blocks this many pixels a side.
     Code(code::Code, [u32; 2], u32),
+    /// Either of two source frames next to each other: where a speed
+    /// curve lands on the very instant one frame gives way to the next,
+    /// and which side of it a sum of fractions falls is not the edit's
+    /// doing.
+    Either(code::Code, code::Code, [u32; 2], u32),
+    /// A source frame with this share of it showing over black.
+    Faded(code::Code, f64, [u32; 2], u32),
+    /// The first source frame melting into the second, with this share of
+    /// the second in it.
+    Blend(code::Code, code::Code, f64, [u32; 2], u32),
     /// Nothing: black from edge to edge.
     Black,
 }
@@ -325,6 +417,53 @@ pub struct Twin {
     /// The output frames whose previews are compared, each at its own
     /// instant, `frame / fps`.
     pub frames: Vec<u32>,
+    /// Whether the twin's timeline must be the case's own, entry for
+    /// entry: an edit and its undoing, a split and a merge. Otherwise it
+    /// must differ, or the comparison is of one edit with itself.
+    #[serde(default)]
+    pub same: bool,
+}
+
+/// The speed a curve of `[at, speed]` points gives at fraction `at`:
+/// straight lines between the points, the first and last held outside.
+fn speed_at(curve: &[[f64; 2]], at: f64) -> f64 {
+    let Some(first) = curve.first() else {
+        return 1.0;
+    };
+    if at <= first[0] {
+        return first[1];
+    }
+    for pair in curve.windows(2) {
+        let [a, b] = [pair[0], pair[1]];
+        if at <= b[0] {
+            return a[1] + (b[1] - a[1]) * (at - a[0]) / (b[0] - a[0]).max(f64::EPSILON);
+        }
+    }
+    curve.last().map_or(1.0, |last| last[1])
+}
+
+/// The source seconds a run of `length` timeline seconds under `curve`
+/// has played by `time` seconds into it: the curve's area up to there.
+pub fn source_at(curve: &[[f64; 2]], length: f64, time: f64) -> f64 {
+    let reach = (time / length).clamp(0.0, 1.0);
+    // The corners up to `reach`, and `reach` itself: between two of them
+    // the speed is a straight line, so each stretch is a trapezium.
+    let mut corners: Vec<f64> = std::iter::once(0.0)
+        .chain(
+            curve
+                .iter()
+                .map(|point| point[0])
+                .filter(|at| *at > 0.0 && *at < reach),
+        )
+        .collect();
+    corners.push(reach);
+    corners
+        .windows(2)
+        .map(|pair| {
+            (pair[1] - pair[0]) * (speed_at(curve, pair[0]) + speed_at(curve, pair[1])) / 2.0
+        })
+        .sum::<f64>()
+        * length
 }
 
 fn one() -> u32 {
@@ -383,9 +522,60 @@ impl Case {
         let Some(media) = &run.media else {
             return Some(Shows::Black);
         };
-        let tag = self.media.get(media)?.tag();
-        let index = run.from + (frame - run.frames[0]) * run.step / run.per;
-        Some(Shows::Code(code::Code { tag, index }, run.at, run.block))
+        let spec = self.media.get(media)?;
+        let tag = spec.tag();
+        let Some(curve) = &run.curve else {
+            let along = frame - run.frames[0];
+            let index = run.from + along * run.step / run.per;
+            let code = code::Code { tag, index };
+            let span = f64::from((run.frames[1] - run.frames[0]).max(1));
+            if let Some(fade) = run.fade {
+                let share = fade[0] + (fade[1] - fade[0]) * f64::from(along) / span;
+                return Some(Shows::Faded(code, share, run.at, run.block));
+            }
+            if let Some(stops) = run.stops {
+                let at = stops[0] + (stops[1] - stops[0]) * f64::from(along) / span;
+                return Some(Shows::Faded(code, 2f64.powf(at), run.at, run.block));
+            }
+            let Some(into) = &run.into else {
+                return Some(Shows::Code(code, run.at, run.block));
+            };
+            let coming = code::Code {
+                tag: self.media.get(&into.media)?.tag(),
+                index: into.from + along * into.step,
+            };
+            let share = into.share[0] + (into.share[1] - into.share[0]) * f64::from(along) / span;
+            return Some(Shows::Blend(code, coming, share, run.at, run.block));
+        };
+        let Media::Clock { rate, .. } = spec else {
+            return None;
+        };
+        let length = f64::from(run.frames[1] - run.frames[0] + 1) / self.fps();
+        let time = f64::from(frame - run.frames[0]) / self.fps();
+        let source = source_at(curve, length, time) * rate[0] as f64 / rate[1] as f64;
+        let index = run.from + source.floor() as u32;
+        let code = code::Code { tag, index };
+        // Within a millionth of a frame of a boundary, either side is right.
+        let near = source - source.round();
+        Some(if near.abs() < 1e-6 && source.round() >= 1.0 {
+            let other = run.from + source.round() as u32 - u32::from(near >= 0.0);
+            let other = if other == index { index + 1 } else { other };
+            Shows::Either(code, code::Code { tag, index: other }, run.at, run.block)
+        } else {
+            Shows::Code(code, run.at, run.block)
+        })
+    }
+
+    /// The timeline frame whose span holds file frame `frame`'s instant,
+    /// and how many times larger than the timeline the file's picture is.
+    pub fn file_frame(&self, frame: u32) -> (u32, u32) {
+        let Some(file) = &self.expect.file else {
+            return (frame, 1);
+        };
+        let rate = self.expect.rate;
+        let at = i128::from(frame) * i128::from(file.rate[1]) * i128::from(rate[0])
+            / (i128::from(file.rate[0]) * i128::from(rate[1]));
+        (at as u32, file.width / self.expect.width)
     }
 
     /// Every pip the export's sound must carry, in order of onset: each
@@ -406,8 +596,28 @@ impl Case {
             let end = f64::from(run.frames[1] + 1) / fps;
             let mut second = run.from.ceil();
             while second + pip <= length {
-                let at = start + (second - run.from) / run.speed;
-                if at + pip / run.speed > end {
+                // Where the run reaches that source second, and how fast
+                // it is going there.
+                let (at, speed) = match &run.curve {
+                    None => (start + (second - run.from) / run.speed, run.speed),
+                    Some(curve) => {
+                        let span = end - start;
+                        if source_at(curve, span, span) < second - run.from {
+                            break;
+                        }
+                        let (mut low, mut high) = (0.0, span);
+                        for _ in 0..60 {
+                            let middle = (low + high) / 2.0;
+                            if source_at(curve, span, middle) < second - run.from {
+                                low = middle;
+                            } else {
+                                high = middle;
+                            }
+                        }
+                        (start + high, speed_at(curve, high / span))
+                    }
+                };
+                if at + pip / speed > end {
                     break;
                 }
                 pips.push(Pip {
@@ -504,6 +714,19 @@ impl Case {
             if run.per == 0 {
                 return Err(format!("expect: the run at {:?} has per 0", run.frames));
             }
+            if let Some(curve) = &run.curve {
+                check_curve(curve)
+                    .map_err(|error| format!("expect: the run at {:?}: {error}", run.frames))?;
+            }
+            if let Some(into) = &run.into {
+                let shares = into.share.iter().all(|share| (0.0..=1.0).contains(share));
+                if !self.media.contains_key(&into.media) || !shares || run.media.is_none() {
+                    return Err(format!(
+                        "expect: the run at {:?} melts a media of the case into another, by shares of 0 to 1",
+                        run.frames
+                    ));
+                }
+            }
             next = run.frames[1] + 1;
         }
         if next != expect.frames {
@@ -549,10 +772,39 @@ impl Case {
                     run.frames, known.within
                 ));
             }
+            if let Some(curve) = &run.curve {
+                check_curve(curve).map_err(|error| {
+                    format!("expect: the sound run at {:?}: {error}", run.frames)
+                })?;
+            }
             if !run.speed.is_finite() || run.speed <= 0.0 || run.from < 0.0 {
                 return Err(format!(
                     "expect: the sound run at {:?} needs a positive speed and a start at or past 0",
                     run.frames
+                ));
+            }
+        }
+        if let Some(file) = &expect.file {
+            let times = file.width / expect.width.max(1);
+            if times == 0
+                || file.width != expect.width * times
+                || file.height != expect.height * times
+                || file.rate[0] <= 0
+                || file.rate[1] <= 0
+            {
+                return Err(
+                    "expect: the file is the timeline's size times a whole number, at a positive rate"
+                        .to_owned(),
+                );
+            }
+        }
+        for golden in &expect.golden {
+            crate::golden::bounds::check_name(&golden.name)
+                .map_err(|error| format!("expect: golden {}: {error}", golden.name))?;
+            if golden.frame >= expect.frames {
+                return Err(format!(
+                    "expect: golden {} is of frame {}, past the end",
+                    golden.name, golden.frame
                 ));
             }
         }
@@ -618,6 +870,21 @@ impl Case {
         }
         Ok(())
     }
+}
+
+/// A curve has points in order from 0 to 1, each with a speed over 0.
+fn check_curve(curve: &[[f64; 2]]) -> Result<(), String> {
+    let ordered = curve.windows(2).all(|pair| pair[0][0] < pair[1][0]);
+    let inside = curve
+        .iter()
+        .all(|point| (0.0..=1.0).contains(&point[0]) && point[1] > 0.0 && point[1].is_finite());
+    if curve.len() < 2 || !ordered || !inside {
+        return Err(
+            "a curve is two or more [at, speed] points, at rising from 0 to 1, speed over 0"
+                .to_owned(),
+        );
+    }
+    Ok(())
 }
 
 /// Every case directory under `cases`, by name.

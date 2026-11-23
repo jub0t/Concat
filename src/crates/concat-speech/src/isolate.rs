@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use concat_core::Halt;
 use concat_media::samples::{AudioDecoder, AudioOptions, SampleFormat};
 use concat_vision::runtime::{Data, Input, Model};
 use realfft::num_complex::Complex32;
@@ -124,14 +125,14 @@ pub fn isolate(
     workers: usize,
     cancel: &AtomicBool,
     progress: Progress<'_>,
-) -> Result<(), String> {
+) -> Result<(), Halt> {
     let dsp = Dsp::new();
     progress(0.0);
     let channels = channels_of(source, stream)?;
     let survey = survey(source, stream, channels, &dsp, cancel)?;
     progress(0.05);
     if survey.samples == 0 {
-        return Err("the clip's file has no sound to separate".to_owned());
+        return Err("the clip's file has no sound to separate".into());
     }
     let chunks = survey.frames.div_ceil(CHUNK);
     let channels = survey.channels;
@@ -182,18 +183,18 @@ pub fn isolate(
     if failure.is_none() && cancel.load(Ordering::Relaxed) {
         let _ = std::fs::remove_file(&voice_part);
         let _ = std::fs::remove_file(&rest_part);
-        return Err("voice isolation cancelled".to_owned());
+        return Err(Halt::Cancelled);
     }
     if let Some(error) = failure {
         let _ = std::fs::remove_file(&voice_part);
         let _ = std::fs::remove_file(&rest_part);
-        return Err(error);
+        return Err(Halt::Failed(error));
     }
     let writer = writer.into_inner().unwrap_or_else(|e| e.into_inner());
     if !writer.seams.is_empty() {
         let _ = std::fs::remove_file(&voice_part);
         let _ = std::fs::remove_file(&rest_part);
-        return Err("voice isolation: a chunk's seam was never met".to_owned());
+        return Err("voice isolation: a chunk's seam was never met".into());
     }
     writer.voice.finish()?;
     writer.rest.finish()?;
@@ -442,7 +443,7 @@ fn survey(
     channels: usize,
     dsp: &Dsp,
     cancel: &AtomicBool,
-) -> Result<Survey, String> {
+) -> Result<Survey, Halt> {
     let mut decoder = decoder(source, stream, channels, 0.0, None)?;
     let mut norms = Norms::start();
     let mut kept = Vec::new();
@@ -465,7 +466,7 @@ fn survey(
         };
     while let Some(interleaved) = decoder.next_f32().map_err(|error| error.to_string())? {
         if cancel.load(Ordering::Relaxed) {
-            return Err("voice isolation cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
         for frame in interleaved.chunks_exact(channels) {
             window.push(frame.iter().sum::<f32>() / channels as f32);
@@ -994,6 +995,48 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0, f32::max);
         assert!(error < 1e-4, "round trip off by {error}");
+    }
+
+    /// A split told to stop ends as a cancel and leaves no part behind; a
+    /// file it cannot read is a failure, though the folder it is under is
+    /// named `cancelled`.
+    #[test]
+    fn a_split_tells_its_cancel_from_a_file_it_cannot_read_under_a_folder_named_cancelled() {
+        let dir = std::env::temp_dir()
+            .join(format!("concat-isolate-halt-{}", std::process::id()))
+            .join("cancelled");
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let stems = Stems {
+            voice: dir.join("voice.wav"),
+            rest: dir.join("rest.wav"),
+        };
+        let go = AtomicBool::new(false);
+        let failed = isolate(&dir.join("take.wav"), None, &stems, 1, &go, &mut |_| {})
+            .expect_err("there is no take");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("take.wav") && message.contains("cancelled")
+            ),
+            "the failure names the file, folder and all: {failed}"
+        );
+
+        // A second of a tone, and the split stopped before it begins.
+        let tone: Vec<f32> = (0..RATE as usize)
+            .map(|i| 0.2 * (i as f32 * 2.0 * std::f32::consts::PI * 220.0 / RATE as f32).sin())
+            .collect();
+        let source = dir.join("tone.wav");
+        let mut wav = Wav::create(&source, RATE, 1, tone.len()).expect("a file");
+        wav.write_at(0, &tone).expect("written");
+        wav.finish().expect("finished");
+        let stop = AtomicBool::new(true);
+        let stopped = isolate(&source, None, &stems, 1, &stop, &mut |_| {});
+        assert_eq!(stopped, Err(Halt::Cancelled));
+        assert!(
+            !part(&stems.voice).exists() && !part(&stems.rest).exists(),
+            "a stopped split leaves nothing that could be taken for a finished one"
+        );
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
     }
 
     /// The real thing on a real voice under a tone and noise: the voice

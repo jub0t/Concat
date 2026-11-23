@@ -17,6 +17,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
 use concat_host::models::SourcePreference;
 use concat_host::updates::{self, Fixed, Installed, Release, Standing, Version};
 use slint::{ModelRc, SharedString, VecModel};
@@ -55,7 +56,8 @@ pub enum SettingsMsg {
     /// The log level's row: an index into [`LOG_LEVELS`].
     LogLevelChanged(i32),
     PlayheadStopsChanged(bool),
-    /// The proxies switch: whether large files get a smaller copy to play.
+    /// The scrub copies switch: whether every video gets a small copy that
+    /// a scrub reads; see `Preferences::scrub_copies`.
     ProxiesChanged(bool),
     /// The remember-layout switch: whether a launch opens on the last
     /// session's panels and window size.
@@ -101,7 +103,7 @@ pub enum SettingsMsg {
     /// A download's worker is done: the model on disk, or why not.
     ModelFinished {
         id: String,
-        result: Result<(), String>,
+        result: Result<(), Halt>,
     },
     /// The Version page asks GitHub for the releases.
     CheckUpdates,
@@ -120,7 +122,7 @@ pub enum SettingsMsg {
     /// The switch's worker is done: what it did, or why not.
     InstallFinished {
         version: Version,
-        result: Result<Installed, String>,
+        result: Result<Installed, Halt>,
     },
 }
 
@@ -390,10 +392,10 @@ impl SettingsPane {
                 studio.seek(at);
             }
             SettingsMsg::ProxiesChanged(on) => {
-                log::info!("settings: Proxies {}", on_off(on));
-                studio.prefs.proxies = on;
+                log::info!("settings: Scrub copies {}", on_off(on));
+                studio.prefs.scrub_copies = Some(on);
                 studio.prefs.save(&studio.host.dirs);
-                // On, the media already in the project gets its proxies
+                // On, the media already in the project gets its scrub copies
                 // straight away (refresh_art's stamp holds the switch);
                 // off, playback reads the files from the next frame.
             }
@@ -576,7 +578,13 @@ impl SettingsPane {
                         }
                         studio.prefs.save(&studio.host.dirs);
                     }
-                    Err(error) => match &failure {
+                    // The person stopped it, and knows: nothing is said.
+                    // It used to put up the downloader's own words,
+                    // "download cancelled", as an error and in English
+                    // whatever the language, because a cancel was an
+                    // error like any other.
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => match &failure {
                         Some(failure) => studio.notify(&failure_line(failure), true),
                         None => studio.notify(&error, true),
                     },
@@ -645,10 +653,10 @@ impl SettingsPane {
                         studio.notify(&tf("settings.packageOpened", &[&version]), false);
                     }
                     // A cancel is a choice, not a failure worth a toast.
-                    Err(_) if self.install_cancel.load(Ordering::Relaxed) => {
+                    Err(Halt::Cancelled) => {
                         log::info!("update: switching to {version} cancelled");
                     }
-                    Err(error) => {
+                    Err(Halt::Failed(error)) => {
                         log::warn!(
                             "update: installing {version} failed: {error}; this version stays"
                         );
@@ -702,6 +710,7 @@ impl SettingsPane {
         spawn_long(
             move || {
                 let result = updates::fetch_package(&release, kind)
+                    .map_err(Halt::Failed)
                     .and_then(|package| {
                         let mut report = |received: u64, total: u64| {
                             let msg = SettingsMsg::InstallProgress {
@@ -712,7 +721,7 @@ impl SettingsPane {
                         };
                         updates::download_package(&package, &folder, &cancel, &mut report)
                     })
-                    .and_then(|path| updates::install(&path, kind));
+                    .and_then(|path| updates::install(&path, kind).map_err(Halt::Failed));
                 (version, result)
             },
             |studio, _, _, (version, result)| {
@@ -1016,7 +1025,7 @@ impl SettingsPane {
                 .position(|level| *level == log::max_level())
                 .unwrap_or(2) as i32,
             playhead_stops: self.playhead_stops,
-            proxies: studio.prefs.proxies,
+            proxies: studio.prefs.scrub_copies(),
             remember_layout: studio.prefs.remembers_layout(),
             layout_switchable: !crate::platform::phone(),
             gpu: !studio.prefs.draws_in_software(),

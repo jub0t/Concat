@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use concat_core::Halt;
 use concat_core::time::{FrameRate, Rational};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_project::model::{MediaKind, Project, Subject};
@@ -117,11 +118,11 @@ impl Cutouts {
         id: ModelId,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<Arc<Segmenter>, String> {
+    ) -> Result<Arc<Segmenter>, Halt> {
         let slot = match id {
             ModelId::Person => &self.person,
             ModelId::Object => &self.object,
-            _ => return Err("not a segmenting model".to_owned()),
+            _ => return Err("not a segmenting model".into()),
         };
         if let Some(loaded) = slot.lock().map_err(|_| "model slot poisoned")?.as_ref() {
             return Ok(Arc::clone(loaded));
@@ -139,17 +140,16 @@ impl Cutouts {
     }
 
     /// The person model, or the compiled-in one when the download cannot
-    /// happen: a cutout with no network is a worse cutout, not none.
+    /// happen: a cutout with no network is a worse cutout, not none. A
+    /// download the person stopped is a cancel, and nothing stands in.
     fn person_or_selfie(
         &self,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<Arc<Segmenter>, String> {
-        match self.downloaded(ModelId::Person, cancel, progress) {
-            Ok(model) => Ok(model),
-            Err(error) if error.contains("cancelled") => Err(error),
-            Err(_) => self.selfie(),
-        }
+    ) -> Result<Arc<Segmenter>, Halt> {
+        or_built_in(self.downloaded(ModelId::Person, cancel, progress), || {
+            self.selfie()
+        })
     }
 
     /// What the active timeline's cutouts need analysed: one request per
@@ -240,7 +240,7 @@ impl Cutouts {
         &self,
         request: &AnalyseRequest,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<usize, String> {
+    ) -> Result<usize, Halt> {
         let job = self.gate.begin("cutout analysis")?;
         let cancel = job.cancel_handle();
         let mut store = MaskStore::open(&mask_dir(
@@ -340,7 +340,7 @@ impl Cutouts {
             let mut next = 0usize;
             while next < run.len() {
                 if job.cancelled() {
-                    return Err("cutout analysis cancelled".to_owned());
+                    return Err(Halt::Cancelled);
                 }
                 let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? else {
                     // The file ran out before its stated length: what was
@@ -397,7 +397,7 @@ pub fn fetch_model(
     id: ModelId,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<std::path::PathBuf, String> {
+) -> Result<std::path::PathBuf, Halt> {
     let file = concat_vision::models::model_file(data, id);
     if concat_vision::models::installed(data, id) {
         return Ok(file);
@@ -415,7 +415,7 @@ pub(crate) fn fetch(
     file: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
-) -> Result<(), String> {
+) -> Result<(), Halt> {
     concat_vision::runtime::ready()?;
     let spec = id.spec();
     if let Some(parent) = file.parent() {
@@ -439,11 +439,26 @@ pub(crate) fn fetch(
         spec.bytes,
         spec.sha256,
         cancel,
-        "cutout analysis cancelled",
         &mut |received, total| progress(Progress::Fetching { received, total }),
     )?;
     std::fs::rename(&partial, file)
-        .map_err(|error| format!("could not finish {}: {error}", file.display()))
+        .map_err(|error| format!("could not finish {}: {error}", file.display()))?;
+    Ok(())
+}
+
+/// The model a download brought, or the one `built_in` gives when the
+/// download failed. A download that was told to stop stays a cancel: only
+/// a failure is something the compiled-in model can stand in for, and
+/// which of the two it was is the type's to say, never the wording's.
+fn or_built_in(
+    downloaded: Result<Arc<Segmenter>, Halt>,
+    built_in: impl FnOnce() -> Result<Arc<Segmenter>, String>,
+) -> Result<Arc<Segmenter>, Halt> {
+    match downloaded {
+        Ok(model) => Ok(model),
+        Err(Halt::Cancelled) => Err(Halt::Cancelled),
+        Err(Halt::Failed(_)) => Ok(built_in()?),
+    }
 }
 
 /// Every instant the ranges need that the store lacks, ascending, once.
@@ -480,5 +495,106 @@ mod tests {
             vec![vec![0, 100, 200], vec![500, 600], vec![900]]
         );
         assert!(runs(&[], 100).is_empty());
+    }
+
+    /// A service over an empty folder of its own, and a request for a
+    /// still that is not there, under a folder named `cancelled`.
+    fn a_still_under_a_folder_named_cancelled(
+        tag: &str,
+        subject: Subject,
+    ) -> (PathBuf, Cutouts, AnalyseRequest) {
+        let dir = std::env::temp_dir().join(format!("concat-cutout-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("cancelled")).expect("a temp dir");
+        let request = AnalyseRequest {
+            project: dir.join("project"),
+            media_path: dir
+                .join("cancelled")
+                .join("still.png")
+                .to_string_lossy()
+                .into_owned(),
+            media_size: (64, 64),
+            still: true,
+            subject,
+            ranges: vec![(0.0, 1.0)],
+        };
+        let cutouts = Cutouts::new(&dir.join("data"));
+        (dir, cutouts, request)
+    }
+
+    #[test]
+    fn a_still_that_will_not_decode_under_a_folder_named_cancelled_is_a_failure() {
+        let (dir, cutouts, request) =
+            a_still_under_a_folder_named_cancelled("decode", Subject::Person);
+        // The person model cannot be had - the copy the person chose is
+        // not there - so the compiled-in one answers, and nothing is
+        // downloaded.
+        crate::models::supply(
+            ModelId::Person.spec().file,
+            dir.join("cancelled").join("no-model.onnx"),
+        );
+        let failed = cutouts
+            .analyse(&request, &mut |_| {})
+            .expect_err("there is no picture to read");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("still.png") && message.contains("cancelled")
+            ),
+            "the failure names the file, folder and all: {failed}"
+        );
+        assert!(!cutouts.is_busy(), "the slot is free again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_analysis_tells_its_cancel_from_a_model_file_under_a_folder_named_cancelled() {
+        let (dir, cutouts, request) =
+            a_still_under_a_folder_named_cancelled("model", Subject::Object);
+        let file = ModelId::Object.spec().file;
+
+        // The object model has no stand-in: a copy that cannot be read is
+        // the analysis's failure, though its path has the word in it.
+        crate::models::supply(file, dir.join("cancelled").join("no-model.onnx"));
+        let failed = cutouts
+            .analyse(&request, &mut |_| {})
+            .expect_err("the model cannot be read");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("could not read") && message.contains("cancelled")
+            ),
+            "{failed}"
+        );
+
+        // Told to stop while the model is being brought in: a cancel.
+        let chosen = dir.join("cancelled").join("some-model.onnx");
+        std::fs::write(&chosen, vec![1u8; 4096]).expect("the chosen file");
+        crate::models::supply(file, chosen);
+        let stopped = cutouts.analyse(&request, &mut |_| cutouts.cancel());
+        assert_eq!(stopped, Err(Halt::Cancelled));
+        assert!(!cutouts.is_busy(), "the slot is free again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_built_in_model_stands_in_for_a_failed_download_and_never_for_a_cancel() {
+        let asked = std::cell::Cell::new(0);
+        let built_in = || {
+            asked.set(asked.get() + 1);
+            Err("no model in this test".to_owned())
+        };
+        let failed = or_built_in(
+            Err(Halt::Failed(
+                "could not read /takes/cancelled/person.onnx".to_owned(),
+            )),
+            built_in,
+        );
+        assert_eq!(asked.get(), 1, "a failure that has the word in it");
+        assert!(matches!(failed, Err(Halt::Failed(message)) if message == "no model in this test"));
+
+        let stopped = or_built_in(Err(Halt::Cancelled), built_in);
+        assert_eq!(asked.get(), 1, "a cancel asks for nothing");
+        assert!(matches!(stopped, Err(Halt::Cancelled)));
     }
 }

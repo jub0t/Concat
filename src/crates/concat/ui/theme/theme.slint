@@ -122,6 +122,12 @@ export global Theme {
     out property <length> fs-xl: 14px;
     out property <length> fs-input: 15px;
     out property <length> fs-display: 34px;
+    /// Sentences that wrap - a hint under a control, a note in a dialog.
+    /// Larger than the one-line labels around them, which are read at a
+    /// glance: a paragraph is read word by word, and at 11px, dim, on a
+    /// monitor without high DPI, the strokes break up and the words look
+    /// broken. Paired with `fg-muted`, never the dimmer `fg-dim`.
+    out property <length> fs-prose: 13px;
 
     // The weights the design actually calls for, uncompensated.
     //

@@ -22,6 +22,7 @@
 pub mod awake;
 pub mod brush;
 pub mod capcut;
+pub mod captions;
 pub mod cards;
 pub mod consolidate;
 #[cfg(test)]
@@ -31,6 +32,7 @@ pub mod cutout;
 pub mod dirs;
 pub mod enhance;
 pub mod export;
+pub mod export_apart;
 pub mod jobs;
 pub mod lock;
 pub mod logs;

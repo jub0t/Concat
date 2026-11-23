@@ -754,6 +754,36 @@ pub fn mix_to_file_with(
     duration: f64,
     destination: &Path,
 ) -> Result<()> {
+    mix_to_file_until(clips, buses, duration, destination, &|| false)
+}
+
+/// [`mix_to_file_with`] that stops when told to: `cancelled` is asked at
+/// every frame of the mix, 47 times a second of sound, and once it says
+/// yes the mix ends with [`Error::Cancelled`] and what it had written of
+/// `destination` is removed. An export's Cancel used to be looked at only
+/// before the mix and after it, so a long timeline's went on mixing to its
+/// end, for as long as that took, before the export let go.
+pub fn mix_to_file_until(
+    clips: &[AudioClip],
+    buses: &[AudioBus],
+    duration: f64,
+    destination: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
+    let mixed = mix_into(clips, buses, duration, destination, cancelled);
+    if matches!(mixed, Err(Error::Cancelled)) {
+        let _ = std::fs::remove_file(destination);
+    }
+    mixed
+}
+
+fn mix_into(
+    clips: &[AudioClip],
+    buses: &[AudioBus],
+    duration: f64,
+    destination: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
     let extension = destination
         .extension()
         .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
@@ -769,7 +799,7 @@ pub fn mix_to_file_with(
         {
             validate_chain(chain)?;
         }
-        return android_aac::mix(clips, buses, duration, destination);
+        return android_aac::mix(clips, buses, duration, destination, cancelled);
     }
     let (codec_name, mix_format) = if wav {
         (
@@ -826,10 +856,14 @@ pub fn mix_to_file_with(
         .map_err(|error| ffi::fail_said("open encoder", destination, error))?;
     // PCM accepts variable-size frames. Use blocks rather than one sample
     // per packet; run_mix keeps the final block's exact sample count.
+    // Windows' AAC encoder takes frames of any size too and states none,
+    // and a stated size of nought was read as one: every export on Windows
+    // handed it the mix a sample at a time, 48,000 frames for a second of
+    // sound.
     let frame_size = if wav {
-        1024
+        lead::FRAME
     } else {
-        encoder.frame_size().max(1)
+        lead::frame_size(encoder.frame_size())
     };
     // Silence ahead of the mix, and its packets stamped that much earlier,
     // for an encoder that keeps no priming of its own (see `lead`): the
@@ -865,9 +899,15 @@ pub fn mix_to_file_with(
     // encoder cuts its last packet itself, Apple's does not, and 6 s came
     // out as 6.036 - a frame more of every video it went in.
     let samples = (duration.max(0.0) * f64::from(MIX_RATE)).round() as i64;
+    // `flushing` once the encoder has been told there is no more: then
+    // only its end of stream ends the loop, and "nothing yet" is waited
+    // out (see `lead::FLUSH_WAITS`), where between frames it means "feed
+    // me".
     let drain = |encoder: &mut encoder::audio::Encoder,
-                 output: &mut ffmpeg::format::context::Output|
+                 output: &mut ffmpeg::format::context::Output,
+                 flushing: bool|
      -> Result<()> {
+        let mut waits = 0;
         loop {
             let mut packet = ffmpeg::Packet::empty();
             match encoder.receive_packet(&mut packet) {
@@ -892,7 +932,16 @@ pub fn mix_to_file_with(
                         .map_err(|error| ffi::fail("write packet", destination, error))?;
                 }
                 Err(ffmpeg::Error::Eof) => return Ok(()),
-                Err(error) if ffi::is_again(&error) => return Ok(()),
+                Err(error) if ffi::is_again(&error) => {
+                    if !flushing || waits >= lead::FLUSH_WAITS {
+                        if flushing {
+                            log::warn!("{codec_name}: gave no end of stream when flushed");
+                        }
+                        return Ok(());
+                    }
+                    waits += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
                 Err(error) => return Err(ffi::fail("encode", destination, error)),
             }
         }
@@ -908,7 +957,7 @@ pub fn mix_to_file_with(
         encoder
             .send_frame(&quiet)
             .map_err(|error| ffi::fail("encode", destination, error))?;
-        drain(&mut encoder, &mut output)?;
+        drain(&mut encoder, &mut output, false)?;
     }
     run_mix(
         clips,
@@ -918,6 +967,9 @@ pub fn mix_to_file_with(
         Some(frame_size),
         destination,
         |mixed| {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
             // The encoder's clock runs on from the silence it was fed.
             if lead.silence != 0 {
                 let stamp = mixed.pts().map(|pts| pts + lead.silence);
@@ -926,7 +978,7 @@ pub fn mix_to_file_with(
             encoder
                 .send_frame(mixed)
                 .map_err(|error| ffi::fail("encode", destination, error))?;
-            drain(&mut encoder, &mut output)
+            drain(&mut encoder, &mut output, false)
         },
     )?;
 
@@ -935,7 +987,7 @@ pub fn mix_to_file_with(
     encoder
         .send_eof()
         .map_err(|error| ffi::fail("encode", destination, error))?;
-    drain(&mut encoder, &mut output)?;
+    drain(&mut encoder, &mut output, true)?;
     output
         .write_trailer()
         .map_err(|error| ffi::fail("write trailer", destination, error))
@@ -2235,11 +2287,14 @@ mod tests {
         }];
         let output = dir.join("saved.m4a");
         mix_to_file(&clips, 0.5, &output).expect("saves AAC");
-        let mut decoder =
-            AudioDecoder::open(&output, &AudioOptions::default()).expect("opens the saved AAC");
         let mut saved = Vec::new();
-        while let Some(samples) = decoder.next_i16().expect("decodes AAC") {
-            saved.extend(samples.iter().step_by(2).map(|sample| f64::from(*sample)));
+        {
+            // Closed before the folder goes: Windows removes no open file.
+            let mut decoder =
+                AudioDecoder::open(&output, &AudioOptions::default()).expect("opens the saved AAC");
+            while let Some(samples) = decoder.next_i16().expect("decodes AAC") {
+                saved.extend(samples.iter().step_by(2).map(|sample| f64::from(*sample)));
+            }
         }
         let mixed = left(&clips, &[], 0.0, 0.5)
             .into_iter()

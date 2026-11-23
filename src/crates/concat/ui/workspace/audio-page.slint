@@ -377,8 +377,8 @@ export component VoiceList inherits VerticalLayout {
     @children
     if !root.styles && Sounds.voices-saved.length == 0: Text {
         text: I18n.t("voices.noneSavedYet");
-        color: Theme.fg-dim;
-        font-size: Theme.fs-sm;
+        color: Theme.fg-muted;
+        font-size: Theme.fs-prose;
         wrap: word-wrap;
     }
     if !root.styles: VerticalLayout {
@@ -397,8 +397,8 @@ export component VoiceList inherits VerticalLayout {
     if !root.styles: ShelfHeading { text: I18n.t("voices.builtIn"); }
     if !root.styles && !Sounds.voices-ready: Text {
         text: I18n.t("voices.noModel");
-        color: Theme.fg-dim;
-        font-size: Theme.fs-sm;
+        color: Theme.fg-muted;
+        font-size: Theme.fs-prose;
         wrap: word-wrap;
     }
     if !root.styles: VerticalLayout {
@@ -416,7 +416,7 @@ export component VoiceList inherits VerticalLayout {
     if root.styles: Text {
         text: I18n.t("voices.stylesHint");
         color: Theme.fg-muted;
-        font-size: Theme.fs-sm;
+        font-size: Theme.fs-prose;
         wrap: word-wrap;
     }
     if root.styles: VerticalLayout {

@@ -397,7 +397,10 @@ impl Expr {
                 .cloned()
                 .ok_or_else(|| EvalError(format!("unknown name `{name}`"))),
             Expr::Neg(inner) => match inner.eval(env)? {
-                Value::Int(n) => Ok(Value::Int(-n)),
+                // Past the integers (only `-i64::MIN` is), the true value.
+                Value::Int(n) => Ok(n
+                    .checked_neg()
+                    .map_or(Value::Float(-(n as f64)), Value::Int)),
                 Value::Float(x) => Ok(Value::Float(-x)),
                 Value::Text(_) => Err(EvalError("cannot negate text".to_owned())),
             },
@@ -420,10 +423,14 @@ impl Expr {
 fn binary(op: Op, left: &Value, right: &Value) -> Result<Value, EvalError> {
     if let (Value::Int(a), Value::Int(b)) = (left, right) {
         let (a, b) = (*a, *b);
+        // A sum, difference or product past the integers is the true value
+        // as a float, not a panic (the window aborts on one) nor a wrap.
+        let exact =
+            |checked: Option<i64>, wide: f64| checked.map_or(Value::Float(wide), Value::Int);
         return Ok(match op {
-            Op::Add => Value::Int(a + b),
-            Op::Sub => Value::Int(a - b),
-            Op::Mul => Value::Int(a * b),
+            Op::Add => exact(a.checked_add(b), a as f64 + b as f64),
+            Op::Sub => exact(a.checked_sub(b), a as f64 - b as f64),
+            Op::Mul => exact(a.checked_mul(b), a as f64 * b as f64),
             Op::Div => Value::Float(a as f64 / b as f64),
             Op::Lt => Value::Int(i64::from(a < b)),
             Op::Gt => Value::Int(i64::from(a > b)),
@@ -488,7 +495,9 @@ fn call(name: &str, args: &[Value]) -> Result<Value, EvalError> {
             _ => Value::Float(num(0)?.max(num(1)?)),
         },
         "abs" => match &args[0] {
-            Value::Int(n) => Value::Int(n.abs()),
+            Value::Int(n) => n
+                .checked_abs()
+                .map_or(Value::Float((*n as f64).abs()), Value::Int),
             _ => Value::Float(num(0)?.abs()),
         },
         "floor" => Value::Int(num(0)?.floor() as i64),
@@ -625,5 +634,129 @@ mod tests {
         assert!(fails("clamp(round(5), round(10), round(0))"));
         assert!(fails("clamp(0.5, 0, sqrt(0 - 1))"));
         assert_eq!(eval("clamp(0.5, 1, 1)", &[]), Value::Float(1.0));
+    }
+
+    /// Integers past the range become the true value as a float: found by
+    /// the property test below as a panic in `round(9e18) + round(9e18)`, written out.
+    #[test]
+    fn integers_past_the_range_carry_on_as_floats() {
+        assert_eq!(
+            eval(
+                "round(9000000000000000000) + round(9000000000000000000)",
+                &[]
+            ),
+            Value::Float(1.8e19)
+        );
+        assert_eq!(
+            eval(
+                "round(0 - 9000000000000000000) - round(9000000000000000000)",
+                &[]
+            ),
+            Value::Float(-1.8e19)
+        );
+        assert_eq!(
+            eval("round(9000000000000000000) * round(2)", &[]),
+            Value::Float(1.8e19)
+        );
+        let least = [("n", Value::Int(i64::MIN))];
+        assert_eq!(eval("-n", &least), Value::Float(9.223_372_036_854_776e18));
+        assert_eq!(
+            eval("abs(n)", &least),
+            Value::Float(9.223_372_036_854_776e18)
+        );
+        assert_eq!(eval("round(2) + round(3)", &[]), Value::Int(5));
+    }
+
+    /// Whatever a package writes, and whatever values its parameters hold,
+    /// the language answers with a value or an error and never panics: a
+    /// panic is the window gone, since it aborts on one. Two sources: any
+    /// string over the language's alphabet, and expressions built from its
+    /// grammar so they parse and reach the evaluator, over the extremes -
+    /// the largest and smallest integers, infinities, NaN, negative zero.
+    mod never_panics {
+        use super::super::*;
+        use proptest::prelude::*;
+
+        fn extreme() -> impl Strategy<Value = Value> {
+            prop_oneof![
+                Just(Value::Int(i64::MIN)),
+                Just(Value::Int(i64::MAX)),
+                Just(Value::Int(-1)),
+                Just(Value::Int(0)),
+                any::<i64>().prop_map(Value::Int),
+                Just(Value::Float(f64::NAN)),
+                Just(Value::Float(f64::INFINITY)),
+                Just(Value::Float(f64::NEG_INFINITY)),
+                Just(Value::Float(-0.0)),
+                Just(Value::Float(9.3e18)),
+                any::<f64>().prop_map(Value::Float),
+                "[a-z ]{0,8}".prop_map(Value::Text),
+            ]
+        }
+
+        /// An expression as text, from the grammar.
+        fn expression() -> impl Strategy<Value = String> {
+            let leaf = prop_oneof![
+                Just("a".to_owned()),
+                Just("b".to_owned()),
+                Just("c".to_owned()),
+                Just("9300000000000000000".to_owned()),
+                Just("0".to_owned()),
+                any::<f64>()
+                    .prop_filter("finite", |x| x.is_finite())
+                    .prop_map(|x| format!("{}", x.abs())),
+            ];
+            leaf.prop_recursive(6, 64, 3, |inner| {
+                let ops = prop_oneof![
+                    Just("+"),
+                    Just("-"),
+                    Just("*"),
+                    Just("/"),
+                    Just("<"),
+                    Just(">="),
+                    Just("=="),
+                    Just("!="),
+                ];
+                prop_oneof![
+                    (inner.clone(), ops, inner.clone())
+                        .prop_map(|(l, op, r)| format!("({l} {op} {r})")),
+                    inner.clone().prop_map(|e| format!("-{e}")),
+                    (
+                        prop::sample::select(FUNCTIONS.to_vec()),
+                        prop::collection::vec(inner, 3)
+                    )
+                        .prop_map(|((name, arity), args)| {
+                            format!("{name}({})", args[..arity].join(", "))
+                        }),
+                ]
+            })
+        }
+
+        fn env(values: Vec<Value>) -> BTreeMap<String, Value> {
+            ["a", "b", "c"]
+                .iter()
+                .map(|name| (*name).to_owned())
+                .zip(values)
+                .collect()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(4000))]
+
+            #[test]
+            fn any_text(source in "[0-9a-z_.()+*/<>=!, -]{0,80}") {
+                let _ = Expr::parse(&source);
+            }
+
+            #[test]
+            fn any_expression(
+                source in expression(),
+                values in prop::collection::vec(extreme(), 3),
+            ) {
+                if let Ok(expr) = Expr::parse(&source) {
+                    let _ = expr.eval(&env(values));
+                }
+            }
+        }
     }
 }

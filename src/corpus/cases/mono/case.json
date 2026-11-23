@@ -1,0 +1,26 @@
+{
+  "about": "A two-second clip with the Mono effect on it. Its frames keep their codes, which are grey already, and the picture under them loses its colour: frames 0 and 45 of the monitor are held to stored pictures. A failure means the effect is not drawn, is drawn with other numbers, or draws differently on this graphics adapter than on the one the picture was made on.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 60 }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clip" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clip", "patch": { "videoEffects": [{ "id": "concat.mono", "params": {}, "enabled": true }] } } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 60,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "from": 0, "step": 1 }
+    ],
+    "golden": [
+      { "name": "frame-00", "frame": 0 },
+      { "name": "frame-45", "frame": 45 }
+    ]
+  }
+}

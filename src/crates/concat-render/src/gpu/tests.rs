@@ -946,6 +946,132 @@ fn every_shader_package_builds_on_this_adapter() {
     );
 }
 
+/// The most one built-in effect may cost, as many times an invert's 4K frame
+/// on the same adapter, so the rule means the same on a GTX 980, an RTX and
+/// a runner: an effect over it on one card is over it on every card. Motion
+/// Blur at its widest, the dearest that ships, is about 14; Halation 2,
+/// whose cost took small cards' devices (#673), was 31.
+const EFFECT_COST: u32 = 20;
+
+/// Below this an effect is within its budget however many inverts it is:
+/// on a fast card an invert takes a fraction of a millisecond, and timing
+/// noise is not a cost.
+const EFFECT_FLOOR: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// What one built-in effect's 4K frame may never take, on any hardware
+/// adapter. Windows resets a GPU whose work does not yield within two
+/// seconds (TDR), and a frame stacks several effects on several layers.
+const EFFECT_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Which value of a knob a corner of the budget test sets it to.
+type Pick = fn(&concat_effects::Param) -> f64;
+
+/// Every built-in effect draws a 4K frame within [`EFFECT_COST`] inverts and
+/// [`EFFECT_BUDGET`], with
+/// its knobs all at their minimum, their default and their maximum. A
+/// sixteen-pixel trial says a shader builds and nothing of what it costs:
+/// Halation 2 passed it and took up to 1,800 fetches a pixel at 4K, enough
+/// on a small card for Windows to reset the GPU and take the preview with
+/// it (#673). What is timed is the device's work alone: each frame is drawn
+/// once to build its pipelines and upload its picture, which then stays in
+/// the pool, and timed the second time. Skipped on a software adapter,
+/// where every effect is slow and none of it is a driver's reset.
+#[test]
+fn every_shader_package_draws_a_4k_frame_within_its_budget() {
+    let Some(mut gpu) = gpu() else { return };
+    if gpu.on_software_adapter() {
+        eprintln!("a software adapter; the budget is a hardware one, skipped");
+        return;
+    }
+    const WIDTH: u32 = 3840;
+    const HEIGHT: u32 = 2160;
+    // One picture for every frame, so after the first drawing it is the
+    // pool's and no upload is timed.
+    let picture = layer(gradient(WIDTH, HEIGHT));
+    let frame_of = |pass: ShaderPass| {
+        let mut layer = picture.clone();
+        layer.effects = vec![pass];
+        plan(WIDTH, HEIGHT, vec![layer])
+    };
+    // The device's time for one drawing of `plan`, already drawn once; or
+    // why it did not draw.
+    let timed = |gpu: &mut WgpuCompositor, plan: &FramePlan| {
+        if gpu.render_texture(plan).is_none() || !gpu.finish() {
+            return Err("it did not draw".to_owned());
+        }
+        let began = std::time::Instant::now();
+        if gpu.render_texture(plan).is_none() || !gpu.finish() {
+            return Err(format!(
+                "the device did not finish it: {:?}",
+                gpu.post_mortem()
+            ));
+        }
+        Ok(began.elapsed())
+    };
+    let canary = frame_of(package("test.canary", INVERT, "", &[], 1.0));
+    let floor = timed(&mut gpu, &canary).expect("an invert draws");
+    eprintln!("an invert at {WIDTH}x{HEIGHT}: {floor:?}");
+    let limit = (floor * EFFECT_COST).max(EFFECT_FLOOR).min(EFFECT_BUDGET);
+    let catalogue = concat_effects::Catalogue::builtin();
+    let mut over = Vec::new();
+    let mut timings = Vec::new();
+    for package in catalogue.packages() {
+        let Some(shader) = package.shader() else {
+            continue;
+        };
+        let corners: [(&str, Pick); 3] = [
+            ("minimum", |param| param.min),
+            ("default", |param| param.default),
+            ("maximum", |param| param.max),
+        ];
+        for (at, pick) in corners {
+            let set: std::collections::BTreeMap<String, f64> = package
+                .manifest
+                .params
+                .iter()
+                .filter(|param| !param.kind.is_compound())
+                .map(|param| (param.key.clone(), pick(param)))
+                .collect();
+            let values = package.resolve(&set);
+            let pass = shader.pass(
+                &values,
+                &package.manifest.params,
+                1.0,
+                package.lut().cloned(),
+                None,
+            );
+            match timed(&mut gpu, &frame_of(pass)) {
+                Ok(took) => {
+                    timings.push((took, format!("{} at its {at}", package.id())));
+                    if took > limit {
+                        over.push(format!(
+                            "{} at its {at}: {took:?}, over {limit:?} ({EFFECT_COST} inverts,                              at most {EFFECT_BUDGET:?})",
+                            package.id()
+                        ));
+                    }
+                }
+                Err(error) => {
+                    over.push(format!("{} at its {at}: {error}", package.id()));
+                    let Some(fresh) = WgpuCompositor::new() else {
+                        panic!("no device opened after {}", package.id());
+                    };
+                    gpu = fresh;
+                }
+            }
+        }
+    }
+    timings.sort_by(|a, b| b.0.cmp(&a.0));
+    for (took, what) in timings.iter().take(15) {
+        eprintln!("{took:>12.1?}  {what}");
+    }
+    assert!(
+        over.is_empty(),
+        "over budget on {}:\n{}",
+        gpu.adapter_info().name,
+        over.join("\n")
+    );
+}
+
 /// A pass reads how long its own clip has been on screen through
 /// `frame.clip_time` - the gap between the frame's own time and where the
 /// clip begins on the timeline, not the timeline's absolute clock. A
@@ -1249,11 +1375,54 @@ fn a_frame_drawn_before_is_not_uploaded_again() {
 /// budget says so.
 #[test]
 fn the_pool_budget_follows_what_the_textures_cost() {
-    let discrete = pool_budget_for(wgpu::DeviceType::DiscreteGpu);
-    let integrated = pool_budget_for(wgpu::DeviceType::IntegratedGpu);
-    let software = pool_budget_for(wgpu::DeviceType::Cpu);
-    assert_eq!(discrete, 512 * 1024 * 1024);
+    const MB: u64 = 1024 * 1024;
+    let discrete = pool_budget_for(wgpu::DeviceType::DiscreteGpu, None);
+    let integrated = pool_budget_for(wgpu::DeviceType::IntegratedGpu, None);
+    let software = pool_budget_for(wgpu::DeviceType::Cpu, None);
+    assert_eq!(discrete, 512 * MB);
     assert!(discrete > integrated && integrated > software);
+    // A card of its own gives the pool a fifth of its budget, 512 MB at
+    // most: #873's 2 GB card (1.63 GB budget) a third of what it had, an
+    // 8 GB card the same 512 MB, and a tiny one no less than the floor.
+    let small = pool_budget_for(wgpu::DeviceType::DiscreteGpu, Some(1669 * MB));
+    assert_eq!(small, 1669 * MB / 5);
+    let large = pool_budget_for(wgpu::DeviceType::DiscreteGpu, Some(7400 * MB));
+    assert_eq!(large, 512 * MB);
+    let tiny = pool_budget_for(wgpu::DeviceType::DiscreteGpu, Some(100 * MB));
+    assert_eq!(tiny, POOL_FLOOR);
+    // Integrated graphics keep theirs: the card figure is system memory.
+    assert_eq!(
+        pool_budget_for(wgpu::DeviceType::IntegratedGpu, Some(100 * MB)),
+        integrated
+    );
+}
+
+/// A device of the process that runs out of memory halves the layer pool
+/// at the next composite, and the pool lets go of what is over it.
+#[test]
+fn running_out_of_memory_halves_the_pool() {
+    let Some(mut gpu) = gpu() else { return };
+    let before = gpu.pool_budget();
+    crate::memory::ran_out(
+        &std::sync::atomic::AtomicBool::new(true),
+        "a test's device",
+        || unreachable!("said already"),
+    );
+    let plan = FramePlan {
+        time: concat_core::time::Rational::new(0, 1),
+        width: 4,
+        height: 4,
+        canvas: [0, 0, 0, 255],
+        layers: vec![PlannedLayer::picture(
+            detached_clip(),
+            Arc::new(solid(4, 4, [1, 2, 3, 255])),
+        )],
+        treatments: Vec::new(),
+        output: concat_core::frame::Signal::Sdr,
+    };
+    gpu.render_texture(&plan).expect("draws");
+    assert!(gpu.pool_budget() <= (before / 2).max(POOL_FLOOR));
+    assert!(gpu.pool_bytes <= gpu.pool_budget());
 }
 
 #[test]
@@ -2336,6 +2505,42 @@ fn no_wait_on_the_device_is_unbounded() {
     );
     assert!(DEVICE_WAIT >= std::time::Duration::from_secs(10));
     assert!(DEVICE_WAIT <= std::time::Duration::from_secs(60));
+}
+
+/// Compositors that share a device draw at once, each on its own thread,
+/// as an export, the monitor and the effect cards do. A frame's pixels are
+/// handed back by whichever thread polls the device next, so one thread
+/// could find its own not yet there, and took that for a dead device: the
+/// corpus, run as one process, lost its device to it about one run in
+/// four. None is lost, and every frame is the one drawn.
+#[test]
+fn compositors_sharing_a_device_draw_at_once_and_none_is_lost() {
+    let Some(first) = gpu() else { return };
+    let workers: Vec<_> = (0..6u8)
+        .map(|worker| {
+            let mut gpu = first.sibling();
+            std::thread::spawn(move || {
+                let colour = [40 * worker + 15, 255 - 40 * worker, 90, 255];
+                let plan = plan(64, 36, vec![layer(solid(64, 36, colour))]);
+                for frame in 0..300 {
+                    let drawn = gpu.render(&plan);
+                    assert!(
+                        !gpu.lost(),
+                        "worker {worker} lost the device at frame {frame}"
+                    );
+                    assert_eq!(
+                        drawn.pixel(32, 18),
+                        Some(colour),
+                        "worker {worker}, frame {frame}"
+                    );
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().expect("a worker drew every frame");
+    }
+    assert!(!first.lost());
 }
 
 /// A frame the device refuses part of - here a layer wider than any

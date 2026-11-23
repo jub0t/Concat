@@ -398,34 +398,9 @@ impl Studio {
             let Some(session) = self.session.as_ref() else {
                 return;
             };
-            let project_path = session.path().to_owned();
             let source_time = clip.source_start + (at - clip.start) * clip.speed;
-            let frame = match media::still_at(&media.path, source_time, 1280) {
-                Ok(frame) => frame,
-                Err(error) => {
-                    self.notify(&error, true);
-                    return;
-                }
-            };
-            let bytes = match jpeg(&frame, 4) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    self.notify(&format!("{error}"), true);
-                    return;
-                }
-            };
-            let key = format!(
-                "freeze-{}-{}.jpg",
-                clip.id,
-                (source_time * 1000.0).round() as i64
-            );
-            if let Err(error) = media::write_artwork(&project_path, &key, &bytes) {
-                self.notify(&error, true);
-                return;
-            }
-            let path = format!("{project_path}/cache/{key}");
-            match media::probe(&path) {
-                Ok(summary) => Some(summary.to_new_media()),
+            match media::freeze_still(session.path(), &media.path, &clip.id, source_time) {
+                Ok(still) => Some(still),
                 Err(error) => {
                     self.notify(&error, true);
                     return;

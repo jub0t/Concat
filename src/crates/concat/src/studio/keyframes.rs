@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 //! Keyframes.
 
+use concat_core::Halt;
+
 use super::*;
 
 impl Studio {
@@ -1762,8 +1764,10 @@ impl Studio {
                         studio.request_preview();
                         studio.ensure_regions();
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.smartBrush", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.smartBrush", &[&error]), true);
+                    }
                 }
             },
         );
@@ -2173,8 +2177,8 @@ impl Studio {
             self.revision,
             self.on_start,
             self.art_pending.len() + self.posters_pending.len(),
-            // Proxies switched on in Settings are seen to at once.
-            self.prefs.proxies,
+            // Scrub copies switched on in Settings are seen to at once.
+            self.prefs.scrub_copies(),
         );
         if self.art_stamp == Some(stamp) {
             if !self.on_start {

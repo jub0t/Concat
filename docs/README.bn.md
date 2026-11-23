@@ -23,7 +23,7 @@
   <a href="https://trendshift.io/repositories/191379?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/191379" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · **🇧🇩 বাংলা**
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇦🇿 Azərbaycanca](README.az.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇭🇺 Magyar](README.hu.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · **🇧🇩 বাংলা**
 
 > ১১ অক্টোবর ২০২৬ তারিখের ইংরেজি README থেকে অনূদিত। ইংরেজি সংস্করণটিই নিয়মিত হালনাগাদ রাখা হয়।
 
@@ -73,7 +73,7 @@ Concat হলো macOS, Windows, Linux, Android ও iOS-এর জন্য এ�
 - ⚡ **দ্রুত।** প্রক্সি ভেতরেই আছে, তাই 4K মসৃণভাবে স্ক্রাব হয়। টাইটেল সব কোরে আঁকা হয়, আর উইন্ডো খোলার মুহূর্তেই প্রতিটি ইফেক্ট তৈরি থাকে।
 - 🛟 **যেকোনো মেশিনে চলতে থাকে।** গ্রাফিক্স চিপ হাল ছেড়ে দিলেও প্রিভিউ আঁকা চালিয়ে যায়।
 - 🤖 **স্ক্রিপ্টযোগ্য।** একটি JSON-RPC API, যা দিয়ে স্ক্রিপ্ট আর AI এজেন্ট ভিডিও কাটতে পারে। সোর্স থেকে বিল্ড করলে সঙ্গে gRPC আর একটি কমান্ড-লাইন টুলও পাওয়া যায়।
-- 🖥️ **macOS, Windows, Linux, Android, iOS।** ২৬টি ভাষা। একই অ্যাপ, একই প্রজেক্ট ফাইল।
+- 🖥️ **macOS, Windows, Linux, Android, iOS।** ২৭টি ভাষা। একই অ্যাপ, একই প্রজেক্ট ফাইল।
 
 ## ডাউনলোড
 

@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
-//! Proxies: a smaller copy of a large file, written once into the
-//! project's cache, that playback and the filmstrips read instead of the
-//! original.
+//! Proxies: a smaller copy of every video, written once into the project's
+//! cache, with every frame a keyframe, that scrubbing, playback and the
+//! filmstrips read instead of the original.
 //!
-//! A 4K file decodes at a few frames a second on a laptop without
-//! hardware decode; its quarter-size copy decodes at dozens. So a file
-//! larger than HD gets one, written on the scheduler's proxy lane - one
-//! at a time, on two threads, so the machine stays usable meanwhile - and
-//! adopted into the reader pool as the file's stand-in. A request that
-//! asks for the proxy reads it; the paused monitor and the export never
-//! do, and see the original. The copy is named after the file's path,
-//! size and modification time, so a file replaced on disk gets a fresh
-//! one and the old copy is swept with the rest of the cache.
+//! Two costs, one copy. A 4K file decodes at a few frames a second on a
+//! laptop without hardware decode; its quarter-size copy at dozens. And a
+//! camera's or a phone's file has a keyframe every second or two, so the
+//! frame under a scrub is decoded from the keyframe before it through
+//! every frame between: on a 1080x1920 phone clip, 440 ms a jump on an
+//! i5-6400, which is a scrub that lags the hand. The copy has every frame
+//! a keyframe (see `VideoCodec::Mpeg4`), so any frame is one decode - 1.6
+//! ms at 540x960 - and every video gets one, whatever its size: the seek
+//! is as slow on an HD file as on a 4K one.
+//!
+//! Written on the scheduler's proxy lane - one at a time, on two threads,
+//! so the machine stays usable meanwhile - and adopted into the reader
+//! pool as the file's stand-in. A request that asks for the proxy reads
+//! it; the resting monitor and the export never do, and see the original.
+//! The copy is named after the file's path, size and modification time, so
+//! a file replaced on disk gets a fresh one and the old copy is swept with
+//! the rest of the cache.
 
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
@@ -24,17 +32,22 @@ use concat_core::frame::Signal;
 use concat_media::decode::{DecodeOptions, Decoder, FrameSource};
 use concat_media::{ColorRange, EncodeOptions, Encoder, FrameSink, Priority, RateMode, VideoCodec};
 
-/// A file with more pixels than this gets a proxy: anything larger than
-/// full HD.
-const PIXELS_WITHOUT_PROXY: u64 = 1920 * 1080;
 /// The proxy's long side is the original's divided by this, and never
 /// shorter than [`SHORTEST_LONG_SIDE`].
 const DIVISOR: u32 = 4;
 const SHORTEST_LONG_SIDE: u32 = 960;
 
-/// Whether a `width` by `height` file is worth a proxy.
+/// What a proxy is written as, in its name: a copy written to another
+/// recipe is another copy. Bumped when the recipe changes, so the copies
+/// an earlier build wrote - a keyframe every two seconds, before this -
+/// are written again and the old ones swept.
+const RECIPE: &str = "intra-1";
+
+/// Whether a `width` by `height` file is worth a proxy: every video with
+/// a picture. The seek a proxy saves costs as much on an HD file as on a
+/// 4K one; only the decode it saves grows with the size.
 pub fn wanted(width: u32, height: u32) -> bool {
-    u64::from(width) * u64::from(height) > PIXELS_WITHOUT_PROXY
+    width > 0 && height > 0
 }
 
 /// The proxy's size for a `width` by `height` original: the long side a
@@ -64,6 +77,7 @@ pub fn path_for(
 ) -> Option<PathBuf> {
     let meta = std::fs::metadata(media).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    RECIPE.hash(&mut hasher);
     media.hash(&mut hasher);
     meta.len().hash(&mut hasher);
     if let Some(range) = range {
@@ -132,8 +146,11 @@ pub fn ensure(
     }
     let source = media.to_owned();
     let size = size_for(width, height);
+    set_progress(&source, Some(0.0));
     crate::scheduler().submit(Priority::Proxy, move || {
-        match write(&source, &target, size, range) {
+        let written = write(&source, &target, size, range);
+        set_progress(&source, None);
+        match written {
             Ok(()) => {
                 crate::scheduler()
                     .pool()
@@ -157,11 +174,51 @@ fn writing() -> &'static Mutex<HashSet<PathBuf>> {
     WRITING.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+/// How far each file's proxy is, 0 to 1, by the file's path: queued at 0,
+/// moved on as its frames are written, gone once it is there or has
+/// failed. What a card says while a scrub over the file still lags.
+fn preparing() -> &'static Mutex<std::collections::HashMap<String, f32>> {
+    static PREPARING: OnceLock<Mutex<std::collections::HashMap<String, f32>>> = OnceLock::new();
+    PREPARING.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// How far the proxy of the file at `media` is, 0 to 1, while it is queued
+/// or being written; None once it is there, or for a file that gets none.
+pub fn progress(media: &str) -> Option<f32> {
+    preparing()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(media)
+        .copied()
+}
+
+/// Whether any proxy is queued or being written: while one is, a window
+/// showing [`progress`] has something to redraw.
+pub fn any_preparing() -> bool {
+    !preparing()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_empty()
+}
+
+fn set_progress(media: &str, done: Option<f32>) {
+    let mut preparing = preparing()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match done {
+        Some(fraction) => {
+            preparing.insert(media.to_owned(), fraction.clamp(0.0, 1.0));
+        }
+        None => {
+            preparing.remove(media);
+        }
+    }
+}
+
 /// Removes the proxies under `project` that `keep` does not name: the
 /// copies of media no longer in the project, or read as a range they no
-/// longer are. Nothing else sweeps this folder, and a proxy is a
-/// quarter-size copy of every file over HD the project ever held
-/// (audit 2026-09-23, #15). One being written is left for its writer.
+/// longer are. Nothing else sweeps this folder, and there is a proxy of
+/// every video the project ever held (audit 2026-09-23, #15). One being written is left for its writer.
 /// Returns how many files went.
 pub fn sweep(project: &Path, keep: &HashSet<PathBuf>) -> usize {
     let dir = project.join("cache").join("proxy");
@@ -247,11 +304,26 @@ pub fn write(
         Encoder::create(&partial, width, height, rate, &encoding)
     }
     .map_err(|error| error.to_string())?;
+    // How many frames to expect, for the card's progress; a file whose
+    // length is unknown says nothing until it is done.
+    let expected = info
+        .duration
+        .map(|duration| duration.as_f64() * rate.fps().as_f64())
+        .filter(|frames| *frames >= 1.0);
     let result = (|| {
+        let mut written = 0u64;
         while let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
             encoder
                 .write_frame(&frame)
                 .map_err(|error| error.to_string())?;
+            written += 1;
+            // A percent at a time: the lock is shared with the window,
+            // which reads it on every publish of the bin.
+            if let Some(expected) = expected
+                && written.is_multiple_of((expected / 100.0).ceil().max(1.0) as u64)
+            {
+                set_progress(source, Some((written as f64 / expected) as f32));
+            }
         }
         encoder.finish().map_err(|error| error.to_string())
     })();
@@ -348,12 +420,56 @@ mod tests {
     }
 
     #[test]
-    fn only_files_larger_than_hd_get_a_proxy() {
-        assert!(!wanted(1920, 1080));
-        assert!(!wanted(1280, 720));
+    fn every_video_with_a_picture_gets_a_proxy() {
+        assert!(wanted(1920, 1080));
+        assert!(wanted(1080, 1920));
+        assert!(wanted(1280, 720));
         assert!(wanted(3840, 2160));
-        assert!(wanted(2560, 1440));
         assert!(!wanted(0, 0));
+    }
+
+    /// A proxy's every frame is a keyframe, so a scrub anywhere in it is
+    /// one decode, never a walk from a keyframe seconds back.
+    #[test]
+    fn a_proxy_has_every_frame_a_keyframe() {
+        use concat_core::frame::Frame;
+        use concat_core::time::FrameRate;
+        let dir = std::env::temp_dir().join(format!("concat-proxy-intra-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let media = dir.join("phone.mp4");
+        {
+            let mut encoder = Encoder::create(
+                &media,
+                320,
+                576,
+                FrameRate::THIRTY,
+                &EncodeOptions {
+                    codec: VideoCodec::Mpeg4,
+                    preset: "ultrafast".to_owned(),
+                    hardware: false,
+                    ..EncodeOptions::default()
+                },
+            )
+            .expect("encodes");
+            for index in 0..90u8 {
+                let mut frame = Frame::black(320, 576);
+                frame.fill([index.wrapping_mul(3), 40, 160, 255]);
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+        }
+        let source = media.to_string_lossy().into_owned();
+        let target = dir.join("proxy.mp4");
+        write(&source, &target, size_for(320, 576), None).expect("writes the proxy");
+        let info = concat_media::probe(&target).expect("probes");
+        let video = info.video.expect("has pictures");
+        assert_eq!(
+            video.keyframes.len(),
+            90,
+            "every one of the 90 frames is a keyframe"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -428,8 +544,6 @@ mod tests {
             .frame(&concat_media::FrameRequest::new(&source, time, 480, 270))
             .expect("reads the original");
         assert_eq!((paused.width(), paused.height()), (480, 270));
-        // A file not worth a proxy is left alone.
-        assert!(!ensure(&project, &source, 1280, 720, None, false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

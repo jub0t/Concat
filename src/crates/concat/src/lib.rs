@@ -264,6 +264,71 @@ pub(crate) fn close_window(
 /// a few seconds of scrubbing around where the monitor is, at its size.
 const IDLE_FRAMES: usize = 96 * 1024 * 1024;
 
+/// How long one callback may hold the window's thread before the log says
+/// so: past about six frames a drag or a click is felt to stick.
+const SLOW_CALLBACK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How long the window's thread may go without ticking before the log says
+/// it stalled: a drag that sticks for a quarter of a second is a bug to
+/// the person dragging.
+const STALL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// A callback's body as a short name for the log: its first statement,
+/// whitespace folded, at most 80 characters - enough to find it by.
+fn callback_name(body: &str) -> String {
+    let folded: String = body
+        .trim_start_matches('{')
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let first = folded.split(';').next().unwrap_or(&folded).trim();
+    first.chars().take(80).collect()
+}
+
+/// Watches the window's thread from another: a timer on the window's
+/// thread ticks every 50 ms, and a thread of its own logs every stretch of
+/// [`STALL`] or more without a tick, once it is over - a stall in a timer,
+/// in a background job's arrival or in drawing, which no callback's own
+/// timing sees. Returns the timer, which must be kept for the watch to run.
+fn watch_window_thread() -> slint::Timer {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let started = std::time::Instant::now();
+    let ticked = Arc::new(AtomicU64::new(0));
+    let tick = slint::Timer::default();
+    {
+        let ticked = Arc::clone(&ticked);
+        tick.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(50),
+            move || ticked.store(started.elapsed().as_millis() as u64, Ordering::Relaxed),
+        );
+    }
+    let _ = std::thread::Builder::new()
+        .name("concat window watch".into())
+        .spawn(move || {
+            let mut stalled_since: Option<u64> = None;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                let now = started.elapsed().as_millis() as u64;
+                let last = ticked.load(Ordering::Relaxed);
+                // Not before the first tick: the window is still opening.
+                if last == 0 {
+                    continue;
+                }
+                if now.saturating_sub(last) >= STALL.as_millis() as u64 {
+                    stalled_since.get_or_insert(last);
+                } else if let Some(from) = stalled_since.take() {
+                    log::warn!(
+                        "window: the window's thread stalled for {} ms",
+                        last.saturating_sub(from)
+                    );
+                }
+            }
+        });
+    tick
+}
+
 fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint::PlatformError> {
     // What Import and a finished export reach on an iPhone. Android's own
     // crate installs its; iOS runs this crate's binary, so it is here.
@@ -542,7 +607,25 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // the window answered a touch. Asked on a worker; the sheet offers
     // what needs no asking meanwhile (H.264, and a desktop's software
     // encoders), and the publish after this lands brings the rest.
-    host::spawn_long(concat_media::encode::probe_encoders, |_, _, _, ()| {});
+    // And asked by a helper, this program started again, where the machine
+    // can start one: opening a chip's encoder runs its driver, and a
+    // driver that crashes there used to close the editor at launch. What
+    // the helper found is remembered here, and the asking after it opens
+    // nothing. Where no helper starts or speaks - a phone, a sandbox that
+    // forbids it - the encoders are asked here, as they were.
+    host::spawn_long(
+        || {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let Ok(program) = std::env::current_exe()
+                && let Err(why) =
+                    concat_media::encode::apart::ask(&program, &[concat_media::encode::apart::FLAG])
+            {
+                log::warn!("export: the encoder helper was no use ({why}); asking here");
+            }
+            concat_media::encode::probe_encoders();
+        },
+        |_, _, _, ()| {},
+    );
 
     // Handed over once, here, and never replaced: a fresh model is a reset,
     // and a reset rebuilds every row that hangs off it.
@@ -819,17 +902,36 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // return skipped the publish and left the window showing the state from
     // before until the next event republished it: Generate captions from a
     // clip's menu opened the sheet only at the next click (#433).
+    // Every callback from the window is timed, its three parts apart: one
+    // that holds the window's thread past `SLOW_CALLBACK` is said in the
+    // log by its first words, so a window that "froze for a moment" is a
+    // line naming what it was doing, and not an impression. See also
+    // `watch_window_thread` for a stall outside any callback.
     macro_rules! handler {
         ($publish:ident, |$state:ident $(, $arg:ident : $ty:ty)*| $body:block) => {{
             move |$($arg : $ty),*| {
                 Shell::with(|shell, app| {
+                    let began = std::time::Instant::now();
                     {
                         let mut $state = shell.studio.borrow_mut();
                         #[allow(clippy::redundant_closure_call)]
                         (|| $body)();
                     }
+                    let handled = began.elapsed();
                     shell.studio.borrow_mut().refresh_art();
+                    let refreshed = began.elapsed();
                     shell.studio.borrow().$publish(&app, &shell.models);
+                    let total = began.elapsed();
+                    if total >= SLOW_CALLBACK {
+                        log::warn!(
+                            "window: {} held the window's thread {} - {} handling, {} art, {} publishing",
+                            callback_name(stringify!($body)),
+                            concat_log::span(total),
+                            concat_log::span(handled),
+                            concat_log::span(refreshed - handled),
+                            concat_log::span(total - refreshed),
+                        );
+                    }
                 });
             }
         }};
@@ -1019,8 +1121,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     editor.on_media_sort_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Media(MediaMsg::SortChanged(index)));
     }));
-    editor.on_media_select(on_window!(|state, row: i32, additive: bool| {
-        state.handle(Msg::Media(MediaMsg::Select { row, additive }));
+    editor.on_media_select(on_window!(|state, row: i32, toggle: bool, range: bool| {
+        state.handle(Msg::Media(MediaMsg::Select { row, toggle, range }));
+    }));
+    editor.on_media_focused(on_window!(|state| {
+        state.handle(Msg::Media(MediaMsg::Focused));
     }));
     editor.on_media_band_selected(on_window!(
         |state,
@@ -2023,7 +2128,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             // Ctrl+B in a title split the clip and Backspace in a path field
             // deleted it; and Delete or Q with Export or Settings open cut
             // the timeline nobody could see.
+            //
+            // Copy / paste / select-all are the exception while typing: the
+            // same chords mean clip ops on the timeline, so when they bubble
+            // out of a TextInput the window would otherwise swallow them
+            // (#799). Forward them to the focused field instead.
             if action != "save" && (typing(&app) || shell.studio.borrow().sheet_open()) {
+                if typing(&app) && text_edit_shortcut(&app, action) {
+                    handled = true;
+                }
                 return;
             }
             handled = true;
@@ -2918,14 +3031,45 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // memory all of that freed goes back to the system. Open on a 4K
     // project, idle, it held 590 MB, a hundred of it freed and kept by the
     // allocator; the caches fill again as soon as frames are asked for.
+    //
+    // A device that ran out of memory since the last look closes every
+    // reader not decoding now instead: a hardware one holds its pictures
+    // on the card, and the card is what ran out (#873).
+    // Every stall of the window's thread, in the log; see the function.
+    let _window_watch = watch_window_thread();
+
+    // The bin's "Preparing" while scrub copies are written: its cards
+    // redrawn twice a second as long as any copy is under way, and once
+    // more after the last, so the words go when the copy is there.
+    let preparing = slint::Timer::default();
+    let was_preparing = std::cell::Cell::new(false);
+    preparing.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(500),
+        move || {
+            let now = concat_host::proxy::any_preparing();
+            let before = was_preparing.replace(now);
+            if now || before {
+                Shell::with(|shell, _| shell.studio.borrow().publish_bin(&shell.models));
+            }
+        },
+    );
+
     let reader_sweep = slint::Timer::default();
     let quiet = std::cell::Cell::new((u64::MAX, false));
+    let pressure = std::cell::Cell::new(concat_render::memory::pressure());
     reader_sweep.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_secs(5),
         move || {
             let pool = concat_host::scheduler().pool();
-            let closed = pool.close_idle(std::time::Duration::from_secs(10));
+            let now = concat_render::memory::pressure();
+            let idle = if now == pressure.replace(now) {
+                std::time::Duration::from_secs(10)
+            } else {
+                std::time::Duration::ZERO
+            };
+            let closed = pool.close_idle(idle);
             if closed > 0 {
                 log::debug!("memory: closed {closed} idle decoder(s)");
             }
@@ -3014,6 +3158,37 @@ fn typing(app: &App) -> bool {
         .borrow()
         .upgrade()
         .is_some_and(|item| item.downcast::<TextInput>().is_some())
+}
+
+/// Runs a text-editing shortcut on the focused [`TextInput`], if any.
+/// Used when Ctrl+C/V/A bubble out of a field and would otherwise be
+/// eaten as timeline clip actions (#799).
+fn text_edit_shortcut(app: &App, action: &str) -> bool {
+    use slint::private_unstable_api::re_exports::{TextInput, WindowInner};
+
+    let inner = WindowInner::from_pub(app.window());
+    let Some(item) = inner.focus_item.borrow().upgrade() else {
+        return false;
+    };
+    let Some(input) = item.downcast::<TextInput>() else {
+        return false;
+    };
+    let adapter = inner.window_adapter();
+    match action {
+        "copy" => {
+            input.as_pin_ref().copy(&adapter, &item);
+            true
+        }
+        "paste" => {
+            input.as_pin_ref().paste(&adapter, &item);
+            true
+        }
+        "select-all" => {
+            input.as_pin_ref().select_all(&adapter, &item);
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Adds a pane of `kind` beside the largest seat: to its right when that

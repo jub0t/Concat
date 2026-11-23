@@ -14,9 +14,30 @@ fn out_dir() -> PathBuf {
     tmp.parent().unwrap_or(&tmp).join("corpus")
 }
 
+/// The engine's warnings and errors, on the test's own output.
+struct Warnings;
+
+impl log::Log for Warnings {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{} {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 /// Runs one case and fails with what its report found. The case's
 /// directory is its name with dashes for the underscores.
 fn check(name: &str) {
+    // Once a process; a second set is refused and ignored.
+    if log::set_logger(&Warnings).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
     let report = concat_corpus::run_case(name, &concat_corpus::cases_dir(), &out_dir());
     let result = out_dir().join(name).join("result.json");
     eprintln!(
@@ -44,22 +65,67 @@ macro_rules! corpus_case {
     };
 }
 
+corpus_case!(batch);
 corpus_case!(codes);
+corpus_case!(curve);
 corpus_case!(cut);
+corpus_case!(detach);
+corpus_case!(dissolve);
+corpus_case!(effect_key);
+corpus_case!(exposure);
 corpus_case!(fades);
+corpus_case!(fit);
+corpus_case!(fps60);
 corpus_case!(gap);
+corpus_case!(hidden);
+corpus_case!(key_clear_one);
+corpus_case!(keys_clear);
 corpus_case!(lanes);
+corpus_case!(layer);
+corpus_case!(mask);
+corpus_case!(merge);
 corpus_case!(missing);
+corpus_case!(mono);
+corpus_case!(moved);
+corpus_case!(mute);
 corpus_case!(ntsc);
+corpus_case!(opacity);
 corpus_case!(pip);
 corpus_case!(rates);
+corpus_case!(reattach);
+corpus_case!(relink);
+corpus_case!(remove_media);
+corpus_case!(remove_timeline);
+corpus_case!(remove_track);
+corpus_case!(resize);
 corpus_case!(ripple);
+corpus_case!(ripple_trim);
+corpus_case!(rotate);
+corpus_case!(select_timeline);
+corpus_case!(sequence);
+corpus_case!(shape);
 corpus_case!(sound);
 corpus_case!(speed);
+corpus_case!(speed_ripple);
+corpus_case!(split_speed);
 corpus_case!(still);
+corpus_case!(text_style);
+corpus_case!(timeline_video);
+corpus_case!(timelines);
+corpus_case!(title);
 corpus_case!(trim);
 corpus_case!(unknown);
+corpus_case!(vignette);
 corpus_case!(volume);
+
+/// The stored pictures stay small enough to live in the repository, and
+/// every one of them is a picture some case names.
+#[test]
+fn the_golden_pictures_stay_in_budget() {
+    let audit = concat_corpus::golden::audit(&concat_corpus::cases_dir(), Default::default())
+        .expect("the cases can be listed");
+    assert!(audit.problems.is_empty(), "{}", audit.problems.join("\n"));
+}
 
 #[test]
 fn every_case_dir_has_a_test() {

@@ -33,6 +33,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use concat_core::Halt;
 use concat_host::{AppDirs, SingleFlight};
 use concat_media::{AudioDecoder, AudioOptions, SampleFormat};
 use serde::{Deserialize, Serialize};
@@ -844,7 +845,7 @@ pub struct TranscriberStatus {
 }
 
 /// One caption, in seconds relative to the transcribed window's start.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Segment {
     /// Seconds from the window's start.
@@ -856,7 +857,7 @@ pub struct Segment {
 }
 
 /// What to transcribe.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscribeRequest {
     /// The media file to transcribe.
@@ -996,7 +997,7 @@ impl Transcriber {
         dirs: &AppDirs,
         id: &str,
         mut progress: impl FnMut(DownloadProgress),
-    ) -> Result<(), String> {
+    ) -> Result<(), Halt> {
         let job = self.downloads.begin("model download")?;
         let destination = model_file(dirs, id)?;
         if destination.is_file() {
@@ -1076,7 +1077,7 @@ impl Transcriber {
         dirs: &AppDirs,
         request: &TranscribeRequest,
         progress: impl FnMut(JobStage) + Send + 'static,
-    ) -> Result<Vec<Segment>, String> {
+    ) -> Result<Vec<Segment>, Halt> {
         self.run(dirs, request, Recipe::SHIPPED, progress)
     }
 
@@ -1086,7 +1087,7 @@ impl Transcriber {
         request: &TranscribeRequest,
         recipe: Recipe,
         mut progress: impl FnMut(JobStage) + Send + 'static,
-    ) -> Result<Vec<Segment>, String> {
+    ) -> Result<Vec<Segment>, Halt> {
         let job = self.gate.begin("transcription")?;
         let cancel = job.cancel_handle();
 
@@ -1095,11 +1096,12 @@ impl Transcriber {
             return Err(format!(
                 "model {} is not downloaded - see Settings > Transcriber",
                 request.model_id
-            ));
+            )
+            .into());
         }
         // NaN is refused along with zero and negative windows.
         if request.window.is_nan() || request.window <= 0.0 {
-            return Err("nothing to transcribe: the clip covers no time".to_owned());
+            return Err("nothing to transcribe: the clip covers no time".into());
         }
         let asked = asked_language(request.language.as_deref())?;
         // Before anything of ggml's runs - Silero's context below included.
@@ -1126,10 +1128,10 @@ impl Transcriber {
         .map_err(|error| error.to_string())?;
         let samples = decoder.collect_f32().map_err(|error| error.to_string())?;
         if samples.is_empty() {
-            return Err("nothing to transcribe: the clip has no audio".to_owned());
+            return Err("nothing to transcribe: the clip has no audio".into());
         }
         if cancel.load(Ordering::Relaxed) {
-            return Err("transcription cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
 
         // Two hardware threads are left to the rest of the app: playback,
@@ -1202,7 +1204,7 @@ impl Transcriber {
         } else if recipe.detect_over_speech {
             let code = detect_language(&mut state, &reel.samples, threads)?;
             if cancel.load(Ordering::Relaxed) {
-                return Err("transcription cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
             code
         } else {
@@ -1275,12 +1277,12 @@ impl Transcriber {
         // told transcription failed when they had stopped it (#388).
         if let Err(error) = run {
             if cancel.load(Ordering::Relaxed) {
-                return Err("transcription cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
-            return Err(format!("transcription failed: {error}"));
+            return Err(format!("transcription failed: {error}").into());
         }
         if cancel.load(Ordering::Relaxed) {
-            return Err("transcription cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
 
         let eot = context.token_eot();
@@ -1312,6 +1314,8 @@ impl Transcriber {
     /// Asks the running transcription to stop at its next check.
     pub fn cancel(&self) {
         self.gate.cancel();
+        // And one in a worker of the window's, which this gate does not see.
+        crate::apart::cancel();
     }
 
     /// Whether a transcription is running.
@@ -1626,6 +1630,83 @@ mod tests {
         let status = Transcriber::status(&AppDirs::under(&scratch)).expect("status");
         assert_eq!(status.models.len(), KNOWN_MODELS.len());
         assert!(status.models.iter().all(|model| !model.downloaded));
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A folder of its own with a file standing where the first model of
+    /// the table would be, and a request for a clip under a folder named
+    /// `cancelled` in it: enough for a run to get as far as reading the
+    /// clip's sound, which is as far as these tests take one. The stand-in
+    /// is never opened as a model.
+    fn a_clip_under_a_folder_named_cancelled(tag: &str) -> (PathBuf, AppDirs, TranscribeRequest) {
+        let scratch =
+            std::env::temp_dir().join(format!("concat-whisper-halt-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(scratch.join("cancelled")).expect("a temp dir");
+        let dirs = AppDirs::under(&scratch);
+        let model = KNOWN_MODELS[0].id;
+        std::fs::write(
+            model_file(&dirs, model).expect("a known model"),
+            b"stand-in",
+        )
+        .expect("the stand-in");
+        let request = TranscribeRequest {
+            path: scratch
+                .join("cancelled")
+                .join("take.wav")
+                .to_string_lossy()
+                .into_owned(),
+            audio_stream: None,
+            source_start: 0.0,
+            window: 1.0,
+            model_id: model.to_owned(),
+            language: None,
+        };
+        (scratch, dirs, request)
+    }
+
+    #[test]
+    fn a_clip_that_cannot_be_read_under_a_folder_named_cancelled_is_a_failure() {
+        let (scratch, dirs, request) = a_clip_under_a_folder_named_cancelled("unread");
+        let transcriber = Transcriber::new();
+        // There is no take.wav.
+        let failed = transcriber
+            .transcribe(&dirs, &request, |_| {})
+            .expect_err("there is no sound to read");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("take.wav") && message.contains("cancelled")
+            ),
+            "the failure names the file, folder and all: {failed}"
+        );
+        assert!(!transcriber.is_busy(), "the slot is free again");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn a_transcription_told_to_stop_ends_as_a_cancel() {
+        let (scratch, dirs, request) = a_clip_under_a_folder_named_cancelled("stopped");
+        // A second of a tone, so there is sound to have read.
+        let tone: Vec<f32> = (0..SAMPLE_RATE)
+            .map(|index| (index as f32 * 0.05).sin() * 0.25)
+            .collect();
+        std::fs::write(&request.path, crate::tts::wav_bytes(&tone, SAMPLE_RATE)).expect("the clip");
+        let transcriber = Arc::new(Transcriber::new());
+        // Stopped as the run says it is reading: the next look at the
+        // flag, once the sound is in, ends it before whisper is asked.
+        let stopper = Arc::clone(&transcriber);
+        let stopped = transcriber.transcribe(&dirs, &request, move |stage| {
+            if stage == JobStage::Reading {
+                stopper.cancel();
+            }
+        });
+        assert!(
+            matches!(stopped, Err(Halt::Cancelled)),
+            "{:?}",
+            stopped.err()
+        );
+        assert!(!transcriber.is_busy(), "the slot is free again");
         let _ = std::fs::remove_dir_all(&scratch);
     }
 

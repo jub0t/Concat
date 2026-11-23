@@ -506,3 +506,28 @@ export component AddPaneButton inherits Rectangle {
         }
     }
 }
+
+/// A panel's header strip as a handle: pressing anywhere on it that no
+/// button, tab or chip has claimed and dragging moves the panel, as the
+/// corner switcher's own drag does - most editors move a panel by its
+/// header, and a 24px corner button is a small thing to have to find.
+/// Laid *under* the panel by `Seat`, so every control in the header keeps
+/// its press; only the strip's empty space and its title reach this. The
+/// payload is the switcher's, so a drop cannot tell the two apart.
+export component PaneGrip inherits Rectangle {
+    in property <PaneKind> kind;
+    in property <int> seat;
+
+    property <string> payload:
+        "pane:\{root.seat}:\{Panes.label(root.kind)}:\{Panes.id(root.kind)}";
+
+    DragArea {
+        width: parent.width;
+        height: parent.height;
+        allow-move: true;
+        data: Payload.of(root.payload);
+        drag-image: Payload.preview(root.payload);
+        drag-image-offset-x: -8;
+        drag-image-offset-y: -4;
+    }
+}

@@ -59,6 +59,10 @@ export struct MediaItemData {
     /// it is not selected: the number a phone's pick wears, and the order
     /// Add lays the picks down in.
     pick: int,
+    /// How far its scrub copy is, 0 to 1, while one is being written; -1
+    /// once it is there, or for a file that gets none. Until then a scrub
+    /// over it reads the file itself and lags; see concat_host::proxy.
+    preparing: float,
 }
 
 // ── the page strip ───────────────────────────────────────────────────────────
@@ -424,8 +428,8 @@ export component MediaCard inherits Rectangle {
     /// this card moved rather than as a second copy of it.
     opacity: drag.dragging ? 0.45 : 1.0;
 
-    /// modifier-held click: add to or remove from the selection
-    callback clicked(additive: bool);
+    /// Ctrl/Cmd toggles one card; Shift selects a range from the anchor (#696).
+    callback clicked(toggle: bool, range: bool);
     /// double click: put it on the timeline at the playhead
     callback activated();
     callback removed();
@@ -443,7 +447,8 @@ export component MediaCard inherits Rectangle {
         : Glyph.film;
 
     /// modifier state at the moment of the press — `clicked` does not carry it
-    property <bool> additive;
+    property <bool> toggle;
+    property <bool> range;
 
     // The whole card is the drag handle: dragging one onto the timeline is
     // how material gets into an edit. The DragArea only intercepts once the
@@ -485,12 +490,13 @@ export component MediaCard inherits Rectangle {
                     return;
                 }
                 if (event.kind == PointerEventKind.down) {
-                    root.additive = event.modifiers.shift || event.modifiers.control
-                        || event.modifiers.meta;
+                    root.range = event.modifiers.shift;
+                    root.toggle = !root.range
+                        && (event.modifiers.control || event.modifiers.meta);
                 }
             }
             clicked => {
-                root.clicked(root.additive);
+                root.clicked(root.toggle, root.range);
             }
             double-clicked => {
                 root.activated();
@@ -573,6 +579,36 @@ export component MediaCard inherits Rectangle {
                         font-family: Theme.font-technical;
                         font-size: Theme.fs-xs;
                     }
+                }
+
+                // Its scrub copy being written: what CapCut calls processing.
+                // Until it is there a scrub over the file reads the file itself
+                // and lags behind the hand, so the card says so, with how far
+                // it has got - a line along the foot of the tile, and the words
+                // on the scrim top left, where nothing else of the card sits.
+                if root.item.preparing >= 0: Rectangle {
+                    x: 4px;
+                    y: 4px;
+                    width: preparing.width + 7px;
+                    height: preparing.height + 2px;
+                    border-radius: Theme.r-xs;
+                    background: Theme.scrim;
+
+                    preparing := Text {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        text: I18n.t1("mediaPane.preparing", Math.round(root.item.preparing * 100));
+                        color: Theme.on-scrim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-xs;
+                    }
+                }
+                if root.item.preparing >= 0: Rectangle {
+                    x: 0;
+                    y: parent.height - 2px;
+                    width: parent.width * Math.clamp(root.item.preparing, 0, 1);
+                    height: 2px;
+                    background: Theme.accent;
                 }
 
                 // The card that is playing, or on the monitor: how far it has
@@ -671,7 +707,7 @@ component MediaGrid inherits Rectangle {
     /// most of one is empty. This is the bin's version of that empty lane.
     in property <length> page-floor;
 
-    callback clicked(id: int, additive: bool);
+    callback clicked(id: int, toggle: bool, range: bool);
     callback activated(id: int);
     callback removed(id: int);
     /// Right-click on a card. Rust fills the menu and bumps `menu-token`;
@@ -806,8 +842,8 @@ component MediaGrid inherits Rectangle {
         height: root.card-h;
         item: entry;
 
-        clicked(additive) => {
-            root.clicked(entry.id, additive);
+        clicked(toggle, range) => {
+            root.clicked(entry.id, toggle, range);
         }
         activated => {
             root.activated(entry.id);
@@ -958,7 +994,7 @@ component CatalogueCard inherits Rectangle {
                     height: parent.height;
                     text: root.item.label;
                     color: root.item.enabled ? Theme.fg : Theme.fg-dim;
-                    font-size: Theme.fs-sm;
+                    font-size: Theme.fs-prose;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     wrap: word-wrap;
@@ -1776,7 +1812,7 @@ export component MediaPane inherits Rectangle {
     callback sort-changed(index: int);
     /// A press on the bin's floor; see Editor.blur.
     callback floor-pressed();
-    callback select(id: int, additive: bool);
+    callback select(id: int, toggle: bool, range: bool);
     /// A marquee closed over the card grid — see MediaGrid.band-selected.
     callback band-selected(columns: int, from-col: int, to-col: int,
         from-row: int, to-row: int, additive: bool);
@@ -2579,7 +2615,7 @@ export component MediaPane inherits Rectangle {
                         menu-token: root.menu-token;
 
                         pressed => { root.floor-pressed(); }
-                        clicked(id, additive) => { root.select(id, additive); }
+                        clicked(id, toggle, range) => { root.select(id, toggle, range); }
                         activated(id) => { root.activate(id); }
                         removed(id) => { root.remove(id); }
                         context(id) => { root.context(id); }
@@ -2606,7 +2642,7 @@ export component MediaPane inherits Rectangle {
                     if Sounds.mine.length > 0: Text {
                         text: I18n.t("sounds.mineHint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     SoundList {
@@ -2624,7 +2660,7 @@ export component MediaPane inherits Rectangle {
                     if root.audio-category == 10: Text {
                         text: I18n.t("voices.hint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     VoiceList {
@@ -2795,7 +2831,7 @@ export component MediaPane inherits Rectangle {
                     Text {
                         text: I18n.t("mediaPane.adjustmentLayerHint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     AdjustmentShelf {
@@ -2820,7 +2856,7 @@ export component MediaPane inherits Rectangle {
                     if root.catalogue-luts.length > 0: Text {
                         text: I18n.t("mediaPane.lutsHint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     ShelfGrid {

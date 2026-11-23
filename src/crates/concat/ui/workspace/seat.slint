@@ -4,7 +4,7 @@
 import { Theme } from "../theme/theme.slint";
 import { Payload } from "../util.slint";
 import { DockSide } from "../dock.slint";
-import { PaneKind } from "pane-switcher.slint";
+import { PaneGrip, PaneKind } from "pane-switcher.slint";
 import { Editor } from "../editor.slint";
 import { ConfigPane } from "config-pane.slint";
 import { MediaPane, SourcePreview } from "media-pane.slint";
@@ -82,6 +82,20 @@ export component Seat inherits Rectangle {
                 : y < root.height / 2 ? DockSide.top : DockSide.bottom);
     }
 
+    // The header strip as a handle. First of the children, so it lies under
+    // every panel and the header's own buttons, tabs and chips keep their
+    // presses; see `PaneGrip`. The timeline's header is its tab strip (a 1px
+    // rule and 32px of tabs); every other panel's is the shared 52px bar
+    // (see PaneHeader).
+    PaneGrip {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.kind == PaneKind.timeline ? 33px : 52px;
+        kind: root.kind;
+        seat: root.index;
+    }
+
     if root.kind == PaneKind.media: MediaPane {
             x: 0;
             y: 0;
@@ -124,10 +138,13 @@ export component Seat inherits Rectangle {
             import-media => { Editor.import-media(); }
             filter-changed(filter) => { Editor.media-filter-changed(filter); }
             sort-changed(index) => { Editor.media-sort-changed(index); }
-            floor-pressed => { Editor.blur(); }
-            select(id, additive) => {
+            floor-pressed => {
                 Editor.blur();
-                Editor.media-select(id, additive);
+                Editor.media-focused();
+            }
+            select(id, toggle, range) => {
+                Editor.blur();
+                Editor.media-select(id, toggle, range);
             }
             band-selected(columns, from-col, to-col, from-row, to-row, additive) => {
                 Editor.media-band-selected(columns, from-col, to-col,

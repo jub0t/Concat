@@ -219,6 +219,87 @@ pub fn read_sized(frame: &Frame, x: u32, y: u32, block: u32) -> Reading {
     }
 }
 
+/// How much of `second` is in a picture that is `first` melting into it,
+/// 0 to 1, read off the blocks where the two codes differ; and how far
+/// apart the blocks' answers are. None when the picture is not those two
+/// and nothing else: a block where they agree is off its level, or they
+/// agree everywhere.
+///
+/// A dissolve mixes light, not numbers: the frames are taken to light by
+/// the display's power of 2.4, mixed, and brought back, so a block a tenth
+/// of the way from black to white is at level 91, not 38. The share is
+/// read in light, where it is the transition's own progress.
+pub fn read_blend(
+    frame: &Frame,
+    x: u32,
+    y: u32,
+    block: u32,
+    first: Code,
+    second: Code,
+) -> Option<(f64, f64)> {
+    let means = read_sized(frame, x, y, block).means;
+    if means.len() != BITS {
+        return None;
+    }
+    let light = |level: f64| (level / 255.0).powf(2.4);
+    let (low, high) = (light(f64::from(LOW)), light(f64::from(HIGH)));
+    let (first, second) = (bits_of(first), bits_of(second));
+    let mut shares = Vec::new();
+    for ((mean, was), will) in means.iter().zip(first).zip(second) {
+        if was == will {
+            let level = f64::from(if was { HIGH } else { LOW });
+            if (mean - level).abs() > MARGIN {
+                return None;
+            }
+            continue;
+        }
+        // How far this block is from black to white, in light: the share
+        // of whichever of the two is white here.
+        let lit = ((light(*mean) - low) / (high - low)).clamp(0.0, 1.0);
+        shares.push(if will { lit } else { 1.0 - lit });
+    }
+    let (least, most) = shares
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(least, most), share| {
+            (least.min(*share), most.max(*share))
+        });
+    (!shares.is_empty()).then(|| {
+        (
+            shares.iter().sum::<f64>() / shares.len() as f64,
+            most - least,
+        )
+    })
+}
+
+/// How much of `code`'s picture shows over black, 0 to 1, in light, read
+/// off the blocks the code has white; and how far apart their answers
+/// are. None when the picture is not that code dimmed: a block it has
+/// black is lit.
+pub fn read_faded(frame: &Frame, x: u32, y: u32, block: u32, code: Code) -> Option<(f64, f64)> {
+    let means = read_sized(frame, x, y, block).means;
+    if means.len() != BITS {
+        return None;
+    }
+    let light = |level: f64| (level / 255.0).powf(2.4);
+    let mut shares = Vec::new();
+    for (mean, white) in means.iter().zip(bits_of(code)) {
+        if white {
+            shares.push((light(*mean) / light(f64::from(HIGH))).clamp(0.0, 1.0));
+        } else if *mean > f64::from(LOW) + MARGIN {
+            return None;
+        }
+    }
+    let (least, most) = shares
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(least, most), share| {
+            (least.min(*share), most.max(*share))
+        });
+    Some((
+        shares.iter().sum::<f64>() / shares.len() as f64,
+        most - least,
+    ))
+}
+
 /// A pixel's luma, by BT.709's weights: on the grey the code is written in
 /// it is the grey itself, and off it the colour a codec bleeds in from a
 /// neighbour counts for what it does to brightness, not in full.

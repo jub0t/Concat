@@ -53,8 +53,7 @@ export struct TimelineTabData {
 export enum TrackSize { auto, small, medium, large }
 
 /// One lane. Deliberately untyped: any media goes on any track, which is why
-/// every lane carries both a visibility and a mute switch rather than one or
-/// the other.
+/// visibility and mute are separate switches rather than one or the other.
 export struct TrackData {
     id: string,
     visible: bool,
@@ -71,6 +70,11 @@ export struct TrackData {
     /// nothing can be dropped onto it. A lane you can see and hear and still
     /// knock sideways by accident is the one every editor locks.
     locked: bool,
+    /// Whether the visibility eye is active. False only on a visible lane
+    /// that holds nothing but audio or sound layers: the button stays in
+    /// the header (so columns do not shift) but is dimmed. Empty lanes,
+    /// hidden lanes, and any lane with picture keep it enabled.
+    shows-eye: bool,
 }
 
 /// A media item's filmstrip and the window of it one clip shows.

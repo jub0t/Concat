@@ -1,0 +1,275 @@
+{
+ "activeTimelineId": "TL1",
+ "clips": [
+  {
+   "duration": 2.0,
+   "fadeIn": 0.0,
+   "fadeOut": 0.0,
+   "filters": [],
+   "id": "c4",
+   "kind": "audio",
+   "mediaId": "m1",
+   "muted": true,
+   "name": "a.wav",
+   "offsetX": 0.0,
+   "offsetY": 0.0,
+   "opacity": 1.0,
+   "preservePitch": true,
+   "rotation": 0.0,
+   "scale": 1.0,
+   "sourceStart": 0.0,
+   "speed": 1.0,
+   "start": 0.0,
+   "trackId": "T1",
+   "videoEffects": [],
+   "volume": 1.0
+  },
+  {
+   "duration": 2.0,
+   "fadeIn": 0.0,
+   "fadeOut": 0.0,
+   "filters": [],
+   "id": "c5",
+   "kind": "audio",
+   "mediaId": "m2",
+   "name": "b.wav",
+   "offsetX": 0.0,
+   "offsetY": 0.0,
+   "opacity": 1.0,
+   "preservePitch": true,
+   "rotation": 0.0,
+   "scale": 1.0,
+   "sourceStart": 0.0,
+   "speed": 1.0,
+   "start": 0.5,
+   "trackId": "T2",
+   "videoEffects": [],
+   "volume": 1.0
+  },
+  {
+   "duration": 2.0,
+   "fadeIn": 0.0,
+   "fadeOut": 0.0,
+   "filters": [],
+   "id": "c6",
+   "kind": "audio",
+   "mediaId": "m3",
+   "name": "c.wav",
+   "offsetX": 0.0,
+   "offsetY": 0.0,
+   "opacity": 1.0,
+   "preservePitch": true,
+   "rotation": 0.0,
+   "scale": 1.0,
+   "sourceStart": 0.0,
+   "speed": 1.0,
+   "start": 1.0,
+   "trackId": "T3",
+   "videoEffects": [],
+   "volume": 1.0
+  }
+ ],
+ "concat": "0.1.0",
+ "fonts": [],
+ "media": [
+  {
+   "audioCodec": "pcm_s16le",
+   "audioTracks": [
+    {
+     "channels": 1,
+     "codec": "pcm_s16le",
+     "index": 0,
+     "sampleRate": 48000
+    }
+   ],
+   "duration": 2.0,
+   "frameRate": null,
+   "frameRateFraction": null,
+   "hasAudio": true,
+   "height": null,
+   "id": "m1",
+   "kind": "audio",
+   "name": "a.wav",
+   "path": "/media/a.wav",
+   "videoCodec": null,
+   "width": null
+  },
+  {
+   "audioCodec": "pcm_s16le",
+   "audioTracks": [
+    {
+     "channels": 1,
+     "codec": "pcm_s16le",
+     "index": 0,
+     "sampleRate": 48000
+    }
+   ],
+   "duration": 2.0,
+   "frameRate": null,
+   "frameRateFraction": null,
+   "hasAudio": true,
+   "height": null,
+   "id": "m2",
+   "kind": "audio",
+   "name": "b.wav",
+   "path": "/media/b.wav",
+   "videoCodec": null,
+   "width": null
+  },
+  {
+   "audioCodec": "pcm_s16le",
+   "audioTracks": [
+    {
+     "channels": 1,
+     "codec": "pcm_s16le",
+     "index": 0,
+     "sampleRate": 48000
+    }
+   ],
+   "duration": 2.0,
+   "frameRate": null,
+   "frameRateFraction": null,
+   "hasAudio": true,
+   "height": null,
+   "id": "m3",
+   "kind": "audio",
+   "name": "c.wav",
+   "path": "/media/c.wav",
+   "videoCodec": null,
+   "width": null
+  }
+ ],
+ "name": "mute",
+ "timelines": [
+  {
+   "clips": [
+    {
+     "duration": 2.0,
+     "fadeIn": 0.0,
+     "fadeOut": 0.0,
+     "filters": [],
+     "id": "c4",
+     "kind": "audio",
+     "mediaId": "m1",
+     "muted": true,
+     "name": "a.wav",
+     "offsetX": 0.0,
+     "offsetY": 0.0,
+     "opacity": 1.0,
+     "preservePitch": true,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "sourceStart": 0.0,
+     "speed": 1.0,
+     "start": 0.0,
+     "trackId": "T1",
+     "videoEffects": [],
+     "volume": 1.0
+    },
+    {
+     "duration": 2.0,
+     "fadeIn": 0.0,
+     "fadeOut": 0.0,
+     "filters": [],
+     "id": "c5",
+     "kind": "audio",
+     "mediaId": "m2",
+     "name": "b.wav",
+     "offsetX": 0.0,
+     "offsetY": 0.0,
+     "opacity": 1.0,
+     "preservePitch": true,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "sourceStart": 0.0,
+     "speed": 1.0,
+     "start": 0.5,
+     "trackId": "T2",
+     "videoEffects": [],
+     "volume": 1.0
+    },
+    {
+     "duration": 2.0,
+     "fadeIn": 0.0,
+     "fadeOut": 0.0,
+     "filters": [],
+     "id": "c6",
+     "kind": "audio",
+     "mediaId": "m3",
+     "name": "c.wav",
+     "offsetX": 0.0,
+     "offsetY": 0.0,
+     "opacity": 1.0,
+     "preservePitch": true,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "sourceStart": 0.0,
+     "speed": 1.0,
+     "start": 1.0,
+     "trackId": "T3",
+     "videoEffects": [],
+     "volume": 1.0
+    }
+   ],
+   "id": "TL1",
+   "name": "Timeline 1",
+   "tracks": [
+    {
+     "id": "T1",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T2",
+     "muted": true,
+     "visible": true
+    },
+    {
+     "id": "T3",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T4",
+     "muted": false,
+     "visible": true
+    }
+   ],
+   "video": {
+    "height": 180,
+    "rateDen": 1,
+    "rateNum": 30,
+    "width": 320
+   }
+  }
+ ],
+ "tracks": [
+  {
+   "id": "T1",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T2",
+   "muted": true,
+   "visible": true
+  },
+  {
+   "id": "T3",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T4",
+   "muted": false,
+   "visible": true
+  }
+ ],
+ "version": 2,
+ "video": {
+  "height": 180,
+  "rateDen": 1,
+  "rateNum": 30,
+  "width": 320
+ }
+}

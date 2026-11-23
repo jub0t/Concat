@@ -139,8 +139,8 @@ export component NewVoiceDialog inherits Modal {
 
             Text {
                 text: root.data.listening ? I18n.t("voices.listening") : I18n.t("voices.keptHint");
-                color: Theme.fg-dim;
-                font-size: Theme.fs-sm;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
         }

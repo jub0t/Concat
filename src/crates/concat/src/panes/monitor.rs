@@ -279,7 +279,12 @@ impl MonitorPane {
         match picture {
             Ok(image) => {
                 self.image = image;
-                self.inexact = !exact;
+                // A scrub's picture from a proxy is the right frame at the
+                // proxy's size: near enough while the hand moves, and
+                // followed by the file's own once it rests, as a nearest
+                // picture is. Playback's proxy frames are left as they
+                // are; the paused frame after them reads the file.
+                self.inexact = !exact || (spec.proxy && !spec.moving);
             }
             Err(error) => {
                 log::warn!(
@@ -368,13 +373,15 @@ impl MonitorPane {
             width,
             height,
             moving,
-            // Playback reads the proxies at Half and Quarter; Full plays
-            // the files themselves, or Full would be the proxy blurred up.
-            // With proxies off in Settings it plays the files at every
-            // quality, a proxy left from before included.
-            proxy: studio.prefs.proxies
-                && (studio.playing || studio.source.as_ref().is_some_and(|source| source.playing))
-                && quality > 0,
+            // A scrub reads the proxies at every quality: their every frame
+            // is a keyframe, so the picture under the hand is one decode
+            // away, where the file's own is a walk from a keyframe a second
+            // or two back. The exact frame from the file follows once the
+            // scrub rests (see `show`). Playback reads them at Half and
+            // Quarter; Full plays the files themselves, or Full would be the
+            // proxy blurred up. With scrub copies off in Settings it reads the
+            // files at every quality, a proxy left from before included.
+            proxy: studio.prefs.scrub_copies() && (nearest || (moving && quality > 0)),
             color_space: studio.project().active().video.color_space,
             canvas: studio.project().active().video.canvas,
             nearest,

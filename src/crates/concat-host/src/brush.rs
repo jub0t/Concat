@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use concat_core::Halt;
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
@@ -129,7 +130,7 @@ impl Brushes {
         &self,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<Arc<Brush>, String> {
+    ) -> Result<Arc<Brush>, Halt> {
         if let Some(loaded) = self
             .brush
             .lock()
@@ -188,11 +189,11 @@ impl Brushes {
         &self,
         request: &RegionRequest,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<(), String> {
+    ) -> Result<(), Halt> {
         let job = self.gate.begin("brush reading")?;
         let cancel = job.cancel_handle();
         let Some(at) = request.stroke.at else {
-            return Err("the stroke has no instant".to_owned());
+            return Err("the stroke has no instant".into());
         };
         let _wire = Tripwire::arm(&request.dir());
         let mut store = MaskStore::open(&request.dir());
@@ -227,7 +228,7 @@ impl Brushes {
                 .map_err(|error| error.to_string())?
                 .ok_or_else(|| format!("{}: no picture at the stroke", request.media_path))?;
             if stopped() {
-                return Err("brush reading cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
             let embedding = self.embed(&brush, &request.media_path, seed_ms, &frame)?;
             let region = brush.region(&embedding, &request.stroke.points)?;
@@ -262,7 +263,7 @@ impl Brushes {
                 .ok_or_else(|| "brush: the region before is missing".to_owned())?;
             for (index, &millis) in run.iter().enumerate() {
                 if stopped() {
-                    return Err("brush reading cancelled".to_owned());
+                    return Err(Halt::Cancelled);
                 }
                 let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? else {
                     lost_after(&mut store, &run[index..])?;
@@ -299,7 +300,7 @@ impl Brushes {
                 let mut frames: Vec<(u64, Frame)> = Vec::with_capacity(chunk.len());
                 for &millis in chunk {
                     if stopped() {
-                        return Err("brush reading cancelled".to_owned());
+                        return Err(Halt::Cancelled);
                     }
                     match decoder.next_frame().map_err(|error| error.to_string())? {
                         Some(frame) => frames.push((millis, frame)),

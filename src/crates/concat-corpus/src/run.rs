@@ -59,6 +59,20 @@ const PIP_TOLERANCE: f64 = 0.001;
 const LEVEL_TOLERANCE: f64 = 0.01;
 const LEVEL_SHARE: f64 = 0.05;
 
+/// How far a dissolve's mix may be from the share a case states, and half
+/// how far apart its blocks may read it: a fiftieth. A frame early or late
+/// in a one-second dissolve is a thirtieth off.
+const BLEND_TOLERANCE: f64 = 0.02;
+
+/// The commands that change what is looked at and not the edit: saved,
+/// and never a step to undo.
+const VIEW_STATE: [&str; 2] = ["selectTimeline", "moveTimeline"];
+
+/// How many eight-bit levels a lossy codec may move a flat block by: the
+/// bound on a dimmed picture read out of the export's file, where it is
+/// more than [`BLEND_TOLERANCE`].
+const ENCODED_LEVELS: f64 = 2.5;
+
 /// How far from its place a pip is looked for: under half the gap
 /// between two pips at the fastest speed a case uses.
 const PIP_SEARCH: f64 = 0.15;
@@ -86,7 +100,9 @@ pub fn run_case(name: &str, cases: &Path, out: &Path) -> Report {
     }
     report.settle();
     report.seconds = started.elapsed().as_secs_f64();
-    if report.passed {
+    // `CONCAT_CORPUS_KEEP` keeps a passing case's working files too: its
+    // media, its project as saved and its export, to look at.
+    if report.passed && std::env::var_os("CONCAT_CORPUS_KEEP").is_none() {
         let _ = std::fs::remove_dir_all(dir.join("work"));
         report.export = None;
     }
@@ -148,6 +164,9 @@ fn run(name: &str, cases: &Path, dir: &Path, report: &mut Report) -> Result<(), 
     let output = runner.export(&project)?;
     report.export = Some(output.display().to_string());
     runner.check_export(report, &project, &output)?;
+    if !case.expect.golden.is_empty() {
+        runner.check_goldens(report, &project, cases)?;
+    }
     for twin in &case.twins {
         runner.check_twin(report, &project, twin)?;
     }
@@ -188,6 +207,15 @@ fn make(path: &Path, spec: &Media) -> Result<(), String> {
         Media::Pips { tag, seconds } => sound::write_wav(path, &sound::pips(*tag, *seconds)),
         Media::Tone { tag, seconds } => sound::write_wav(path, &sound::tone(*tag, *seconds)),
     }
+}
+
+/// What a session has to undo.
+struct History {
+    /// The document when nothing could be undone.
+    base: Value,
+    /// The edits that changed it since; `usize::MAX` when the case undid
+    /// or redid some itself and the count is not this check's to make.
+    edits: usize,
 }
 
 struct Runner<'a> {
@@ -274,6 +302,13 @@ impl Runner<'_> {
         for (name, path) in &self.files {
             bindings.insert(format!("file.{name}"), path.to_string_lossy().into_owned());
         }
+        // What there is to undo: the document as it was when nothing could
+        // be undone, and the edits made since. Held to before every save
+        // and reopen, which is where a session's history ends.
+        let mut history = History {
+            base: self.document(&project)?,
+            edits: 0,
+        };
         for (at, step) in self.case.steps.iter().enumerate() {
             let alias = step.get("as").and_then(Value::as_str);
             if alias.is_some_and(|alias| skip.iter().any(|name| name == alias)) {
@@ -282,13 +317,111 @@ impl Runner<'_> {
             if step.get("step").is_some() {
                 let harness: Harness = serde_json::from_value(step.clone())
                     .map_err(|error| format!("step {at} is no harness step: {error}"))?;
+                self.undo_and_redo(report, label, &project, &format!("step {at}"), &history)?;
                 self.harness(report, label, &project, at, &harness)?;
+                history = History {
+                    base: self.document(&project)?,
+                    edits: 0,
+                };
                 continue;
             }
+            let before = self.document(&project)?;
             self.script_step(at, step, &mut bindings)?;
+            let after = self.document(&project)?;
+            match step.get("method").and_then(Value::as_str) {
+                // The case's own undo or redo: what it leaves to undo is
+                // not counted here, only that all of it undoes and redoes.
+                Some("edit.undo" | "edit.redo") => history.edits = usize::MAX,
+                // Whatever cannot be undone moves the start.
+                _ if !self.can_undo(&project)? => {
+                    history = History {
+                        base: after,
+                        edits: 0,
+                    };
+                }
+                // Which timeline is showing and the order of their tabs
+                // are saved with the document and are no step to undo:
+                // what the person is looking at, not the edit.
+                Some("edit.apply")
+                    if step["command"]["op"]
+                        .as_str()
+                        .is_some_and(|op| VIEW_STATE.contains(&op)) => {}
+                // An edit or an import that changed the document is one
+                // step to undo; one that changed nothing is none.
+                _ if after != before && history.edits != usize::MAX => history.edits += 1,
+                _ => {}
+            }
         }
+        self.undo_and_redo(report, label, &project, "the end", &history)?;
         self.round_trip(report, label, &project, "the end", |_| Ok(()))?;
         Ok(project)
+    }
+
+    /// Whether the project has anything to undo.
+    fn can_undo(&mut self, project: &str) -> Result<bool, String> {
+        match self.send(Request::ProjectGet {
+            path: project.to_owned(),
+        })? {
+            Reply::View(view) => Ok(view.can_undo),
+            _ => Err("project.get did not answer with the project".to_owned()),
+        }
+    }
+
+    /// Undoes everything there is to undo and redoes all of it: the
+    /// document goes back to where the history began, in as many steps as
+    /// edits were made, and comes forward to exactly what it was.
+    fn undo_and_redo(
+        &mut self,
+        report: &mut Report,
+        label: &str,
+        project: &str,
+        when: &str,
+        history: &History,
+    ) -> Result<(), String> {
+        let ended = self.document(project)?;
+        let mut undone = 0usize;
+        while self.can_undo(project)? {
+            self.send(Request::EditUndo {
+                path: project.to_owned(),
+            })?;
+            undone += 1;
+            if undone > 10_000 {
+                return Err(format!("{label}: undo never ran out at {when}"));
+            }
+        }
+        if undone == 0 {
+            return Ok(());
+        }
+        let began = self.document(project)?;
+        for _ in 0..undone {
+            self.send(Request::EditRedo {
+                path: project.to_owned(),
+            })?;
+        }
+        let again = self.document(project)?;
+        let counted = history.edits != usize::MAX;
+        let mut wrong = Vec::new();
+        if let Some(path) = difference(&history.base, &began, "") {
+            wrong.push(format!(
+                "undone, the document is not what it was before the edits: it first differs at {path}"
+            ));
+        }
+        if let Some(path) = difference(&ended, &again, "") {
+            wrong.push(format!(
+                "redone, the document is not what the edits left: it first differs at {path}"
+            ));
+        }
+        if counted && undone != history.edits {
+            wrong.push(format!("{} edits took {undone} undos", history.edits));
+        }
+        report.check(
+            format!(
+                "{label}: every edit undoes in one step and redoes to the same document, at {when}"
+            ),
+            wrong.is_empty(),
+            named(&wrong, &format!("{undone} steps back and forward")),
+        );
+        Ok(())
     }
 
     /// Runs one request of the script, binding what it made when it says
@@ -554,12 +687,28 @@ impl Runner<'_> {
     /// and waits for the file.
     fn export(&mut self, project: &str) -> Result<PathBuf, String> {
         let output = Path::new(project).join(format!("{}.mp4", self.name));
+        let mut spec = match &self.case.export {
+            None => ExportSpec::default(),
+            Some(given) => {
+                // The output is the runner's to name; a spec does not read
+                // without one.
+                let mut whole = given.clone();
+                if let Some(object) = whole.as_object_mut() {
+                    object.insert("output".to_owned(), Value::String(String::new()));
+                }
+                let spec: ExportSpec = serde_json::from_value(whole)
+                    .map_err(|error| format!("the case's export is no export spec: {error}"))?;
+                let read = serde_json::to_value(&spec)
+                    .map_err(|error| format!("the export spec does not encode: {error}"))?;
+                covered(given, &read, "")
+                    .map_err(|path| format!("export{path} is not a field the spec reads"))?;
+                spec
+            }
+        };
+        spec.output = output.to_string_lossy().into_owned();
         let reply = self.send(Request::ExportRun {
             path: project.to_owned(),
-            spec: ExportSpec {
-                output: output.to_string_lossy().into_owned(),
-                ..ExportSpec::default()
-            },
+            spec,
         })?;
         let Reply::Started(started) = reply else {
             return Err("export.run did not start a job".to_owned());
@@ -601,13 +750,19 @@ impl Runner<'_> {
             .as_ref()
             .ok_or_else(|| "the export has no picture".to_owned())?;
         let rate = video.frame_rate.fps();
-        let wanted = Rational::new(expect.rate[0], expect.rate[1]);
+        // The file as the case says the export makes it, or as the
+        // timeline is.
+        let (file_frames, file_width, file_height, file_rate) = match &expect.file {
+            Some(file) => (file.frames, file.width, file.height, file.rate),
+            None => (expect.frames, expect.width, expect.height, expect.rate),
+        };
+        let wanted = Rational::new(file_rate[0], file_rate[1]);
         report.check(
             format!(
-                "the file is {}×{} at {}/{} fps",
-                expect.width, expect.height, expect.rate[0], expect.rate[1]
+                "the file is {file_width}×{file_height} at {}/{} fps",
+                file_rate[0], file_rate[1]
             ),
-            video.width == expect.width && video.height == expect.height && rate == wanted,
+            video.width == file_width && video.height == file_height && rate == wanted,
             format!(
                 "it is {}×{} at {}/{} fps",
                 video.width,
@@ -641,25 +796,28 @@ impl Runner<'_> {
 
         let frames = decode(output)?;
         report.check(
-            format!("the file holds {} frames", expect.frames),
-            frames.len() == expect.frames as usize,
+            format!("the file holds {file_frames} frames"),
+            frames.len() == file_frames as usize,
             format!("it holds {}", frames.len()),
         );
 
         let mut wrong = Vec::new();
         let mut worst: f64 = 0.0;
-        for index in 0..expect.frames {
+        for index in 0..file_frames {
+            // The timeline frame this file frame is of, and how much
+            // larger the file draws it.
+            let (of, times) = self.case.file_frame(index);
             let shows = self
                 .case
-                .expected(index)
-                .ok_or_else(|| format!("no run covers frame {index}"))?;
+                .expected(of)
+                .ok_or_else(|| format!("no run covers frame {of}"))?;
             let Some(frame) = frames.get(index as usize) else {
                 wrong.push(format!("frame {index} is missing"));
                 continue;
             };
-            let insets = self.case.expected_insets(index);
+            let insets = self.case.expected_insets(of);
             for shows in std::iter::once(shows).chain(insets) {
-                if let Some(found) = shown_wrong(frame, shows, &mut worst) {
+                if let Some(found) = shown_wrong(frame, enlarged(shows, times), &mut worst, true) {
                     wrong.push(format!("frame {index} {found}"));
                     self.save(report, &format!("export-{index:04}.png"), frame);
                 }
@@ -687,7 +845,7 @@ impl Runner<'_> {
             let seen = self.preview(project, f64::from(index) / fps)?;
             let insets = self.case.expected_insets(index);
             for shows in std::iter::once(shows).chain(insets) {
-                if let Some(found) = shown_wrong(&seen, shows, &mut 0.0) {
+                if let Some(found) = shown_wrong(&seen, shows, &mut 0.0, false) {
                     unlike.push(format!("frame {index} {found}"));
                     self.save(report, &format!("monitor-{index:04}.png"), &seen);
                 }
@@ -845,6 +1003,44 @@ impl Runner<'_> {
         Ok(())
     }
 
+    /// Holds the monitor's frames to the case's stored pictures: what the
+    /// compositor drew, before any encoder, judged as [`crate::golden`]
+    /// judges. A failed picture's page is `golden/index.html` beside the
+    /// report.
+    fn check_goldens(
+        &mut self,
+        report: &mut Report,
+        project: &str,
+        cases: &Path,
+    ) -> Result<(), String> {
+        use crate::golden::{Family, Golden, Mode, Rgba8Image};
+
+        let (backend, adapter) = self.api.adapter().ok_or_else(|| {
+            "the case has golden pictures and there is no graphics adapter to draw them".to_owned()
+        })?;
+        let family = Family::of_adapter(&backend, &adapter);
+        let out = self.dir.parent().unwrap_or(&self.dir).to_path_buf();
+        let mode = Mode::from_env(self.name, &out.join("bless.md"))?;
+        let folder = self.dir.join("golden");
+        let golden = Golden::new(&cases.join(self.name), family, &folder, mode);
+        let fps = self.case.fps();
+        let mut results = Vec::new();
+        for wanted in &self.case.expect.golden {
+            let seen = self.preview(project, f64::from(wanted.frame) / fps)?;
+            let image = Rgba8Image::from_frame(&seen)
+                .ok_or_else(|| format!("the monitor's frame {} is no picture", wanted.frame))?;
+            let result = golden.check(&wanted.name, &image);
+            let mut check = result.to_check();
+            check.detail = format!("{} ({adapter}, {family})", check.detail);
+            report.checks.push(check);
+            results.push(result);
+        }
+        if results.iter().any(|result| !result.ok()) {
+            crate::golden::write_failure_page(&folder, &results)?;
+        }
+        Ok(())
+    }
+
     /// Holds each tone to how loud the case says it is at each instant.
     fn check_levels(&mut self, report: &mut Report, output: &Path) -> Result<(), String> {
         let options = concat_media::AudioOptions {
@@ -895,15 +1091,27 @@ impl Runner<'_> {
         let ours = self.document(project)?;
         let theirs = self.document(&other)?;
         let differ = difference(&ours["timelines"], &theirs["timelines"], "").is_some();
-        report.check(
-            format!("the {} twin's timeline differs from the case's", twin.name),
-            differ,
-            if differ {
-                "it does, so the comparison is of two different edits".to_owned()
-            } else {
-                "they are the same edit, which would make the comparison prove nothing".to_owned()
-            },
-        );
+        if twin.same {
+            report.check(
+                format!("the case's timeline is the {} twin's again", twin.name),
+                !differ,
+                match difference(&ours["timelines"], &theirs["timelines"], "") {
+                    None => "entry for entry".to_owned(),
+                    Some(path) => format!("they first differ at {path}"),
+                },
+            );
+        } else {
+            report.check(
+                format!("the {} twin's timeline differs from the case's", twin.name),
+                differ,
+                if differ {
+                    "it does, so the comparison is of two different edits".to_owned()
+                } else {
+                    "they are the same edit, which would make the comparison prove nothing"
+                        .to_owned()
+                },
+            );
+        }
 
         let fps = self.case.fps();
         let mut unequal = Vec::new();
@@ -934,7 +1142,7 @@ impl Runner<'_> {
                 );
             }
             if let Some(shows) = self.case.expected(index)
-                && let Some(found) = shown_wrong(&mine, shows, &mut 0.0)
+                && let Some(found) = shown_wrong(&mine, shows, &mut 0.0, false)
             {
                 wrong.push(format!("frame {index} {found}"));
                 self.save(report, &format!("preview-{index:04}-case.png"), &mine);
@@ -1031,7 +1239,15 @@ fn decode(path: &Path) -> Result<Vec<Frame>, String> {
 /// What is wrong with `frame` if it does not show `shows`, in words that
 /// follow "frame N"; `worst` keeps the furthest a code block was from its
 /// level.
-fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
+///
+/// `encoded` says the frame came out of the export's file and not from the
+/// monitor: an eight-bit picture a lossy codec has had. A dimmed picture's
+/// light is then known no better than the codec keeps its levels, which
+/// near white is worth more light a level than the usual bound allows -
+/// one encoder left a frame a fortieth dimmer than the last as it was,
+/// two levels' worth - so there the bound is two and a half levels, and
+/// the monitor's frame, drawn before any codec, is what is held tightly.
+fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64, encoded: bool) -> Option<String> {
     match shows {
         Shows::Code(code, at, block) => {
             let reading = code::read_sized(frame, at[0], at[1], block);
@@ -1039,12 +1255,80 @@ fn shown_wrong(frame: &Frame, shows: Shows, worst: &mut f64) -> Option<String> {
             (reading.code != Some(code))
                 .then(|| format!("should be {code}, and reads as {}", describe(&reading)))
         }
+        Shows::Either(first, second, at, block) => {
+            let reading = code::read_sized(frame, at[0], at[1], block);
+            *worst = worst.max(reading.worst);
+            (reading.code != Some(first) && reading.code != Some(second)).then(|| {
+                format!(
+                    "should be {first} or the frame after, and reads as {}",
+                    describe(&reading)
+                )
+            })
+        }
+        Shows::Faded(code, share, at, block) => {
+            // What one level of the white blocks is worth in light, at the
+            // level this share of it shows as.
+            let level = f64::from(code::HIGH) * share.max(1e-6).powf(1.0 / 2.4);
+            let allowed = if encoded {
+                BLEND_TOLERANCE.max(ENCODED_LEVELS * 2.4 * share / level)
+            } else {
+                BLEND_TOLERANCE
+            };
+            match code::read_faded(frame, at[0], at[1], block, code) {
+                None => Some(format!("should be {code} dimmed, and is not that")),
+                Some((found, spread)) => ((found - share).abs() > allowed
+                    || spread > 2.0 * allowed)
+                    .then(|| {
+                        format!(
+                            "should show {share:.3} of {code}, and shows {found:.3} (its blocks {spread:.3} apart)"
+                        )
+                    }),
+            }
+        }
+        Shows::Blend(first, second, share, at, block) => {
+            // At either end the picture is all but one of the two, and
+            // reads as it; in between it is held to its share.
+            let whole = code::read_sized(frame, at[0], at[1], block).code;
+            if (share <= BLEND_TOLERANCE && whole == Some(first))
+                || (share >= 1.0 - BLEND_TOLERANCE && whole == Some(second))
+            {
+                return None;
+            }
+            match code::read_blend(frame, at[0], at[1], block, first, second) {
+                None => Some(format!(
+                    "should be {first} melting into {second}, and is not those two alone"
+                )),
+                Some((found, spread)) => ((found - share).abs() > BLEND_TOLERANCE
+                    || spread > 2.0 * BLEND_TOLERANCE)
+                    .then(|| {
+                        format!(
+                            "should be {share:.3} of the way from {first} into {second}, and is {found:.3} (its blocks {spread:.3} apart)"
+                        )
+                    }),
+            }
+        }
         Shows::Black => {
             let all = [0, 0, frame.width(), frame.height()];
             brightest(frame, &all)
                 .filter(|brightest| *brightest > BLACK)
                 .map(|brightest| format!("should be black, and reaches {brightest}"))
         }
+    }
+}
+
+/// `shows` as a picture `times` larger draws it.
+fn enlarged(shows: Shows, times: u32) -> Shows {
+    let grow = |at: [u32; 2]| [at[0] * times, at[1] * times];
+    match shows {
+        Shows::Code(code, at, block) => Shows::Code(code, grow(at), block * times),
+        Shows::Either(first, second, at, block) => {
+            Shows::Either(first, second, grow(at), block * times)
+        }
+        Shows::Faded(code, share, at, block) => Shows::Faded(code, share, grow(at), block * times),
+        Shows::Blend(first, second, share, at, block) => {
+            Shows::Blend(first, second, share, grow(at), block * times)
+        }
+        Shows::Black => Shows::Black,
     }
 }
 

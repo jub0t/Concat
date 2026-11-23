@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
 use concat_core::SpeedCurve;
 use concat_core::animate::{Animation, Ease as AnimEase, Key as AnimKey, Track as AnimTrack};
 use concat_core::frame::{Frame, Signal};
@@ -625,9 +626,9 @@ impl Reporter<'_> {
         (self.progress)(frame, total, stage);
     }
 
-    fn cancelled(&self) -> Result<(), String> {
+    fn cancelled(&self) -> Result<(), Halt> {
         if self.cancel.load(Ordering::Relaxed) {
-            Err("export cancelled".to_owned())
+            Err(Halt::Cancelled)
         } else {
             Ok(())
         }
@@ -1029,7 +1030,7 @@ fn tail_handle(clip: &ExportClip, frame: f64) -> f64 {
 
 /// Renders `request` and returns the path written, drawing on a device of
 /// its own; [`render_on`] draws on one the caller lends.
-pub fn render(request: &ExportRequest, reporter: Reporter<'_>) -> Result<String, String> {
+pub fn render(request: &ExportRequest, reporter: Reporter<'_>) -> Result<String, Halt> {
     render_on(request, None, reporter)
 }
 
@@ -1045,11 +1046,16 @@ pub fn render(request: &ExportRequest, reporter: Reporter<'_>) -> Result<String,
 /// on Windows laptops with NVIDIA chips it was a road that ended in the
 /// driver at the first frame, taking the app with it and leaving nothing
 /// in the log (issue #202).
+///
+/// An export stopped through the reporter's flag ends with
+/// [`Halt::Cancelled`], which is how a caller knows it from one that
+/// failed: the flag may be set a moment after a failure, and a failure's
+/// words may say anything.
 pub fn render_on(
     request: &ExportRequest,
     compositor: Option<WgpuCompositor>,
     mut reporter: Reporter<'_>,
-) -> Result<String, String> {
+) -> Result<String, Halt> {
     // A clear canvas bound for a format that keeps no alpha is laid over
     // black first, as the frame is drawn, rather than having its alpha
     // dropped by the encoder after: dropped, a soft edge or a glow keeps
@@ -1070,7 +1076,7 @@ pub fn render_on(
         return Err("the effect timeline offset is not a valid time".into());
     }
     if request.clips.is_empty() {
-        return Err("there is nothing on the timeline to export".to_owned());
+        return Err("there is nothing on the timeline to export".into());
     }
 
     let rate = FrameRate::checked(request.rate_num, request.rate_den).ok_or_else(|| {
@@ -1090,7 +1096,8 @@ pub fn render_on(
             request.width,
             request.height,
             concat_core::frame::MAX_SIDE
-        ));
+        )
+        .into());
     }
     let output = PathBuf::from(&request.output);
     // An alpha codec's file is only what it says in its own container: a
@@ -1108,7 +1115,8 @@ pub fn render_on(
                 "{} is written to a .{wanted} file, and {} is not one",
                 request.codec.label(),
                 output.display()
-            ));
+            )
+            .into());
         }
     }
 
@@ -1155,7 +1163,7 @@ pub fn render_on(
 
     let (timeline_end, total_frames) = timeline_extent(&resolved, rate, request.effect_time_offset);
     if total_frames <= 0 {
-        return Err("the timeline is empty".to_owned());
+        return Err("the timeline is empty".into());
     }
 
     // Render into siblings of the output so the move at the end stays on one
@@ -1172,7 +1180,8 @@ pub fn render_on(
         return Err(format!(
             "could not create the folder {}: {error}",
             directory.display()
-        ));
+        )
+        .into());
     }
     // Each in the container the codec is written in, which the muxers pick
     // by the extension: a ProRes picture goes in a QuickTime file, and a
@@ -1199,7 +1208,7 @@ pub fn render_on(
     // way the file was made. The mux used to write it directly, and a mux
     // that failed - the disk full, a read error - left a truncated file
     // where the previous export had been (audit 2026-10-09, finding 4).
-    let result = (|| -> Result<(), String> {
+    let result = (|| -> Result<(), Halt> {
         op.step("render");
         render_picture(
             request,
@@ -1221,8 +1230,12 @@ pub fn render_on(
             op.step("mix audio");
             let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
             let buses = audio_buses(&resolved);
-            audio::mix_to_file_with(&mix, &buses, timeline_end.as_f64(), &mixed)
-                .map_err(|error| error.to_string())?;
+            // Cancel is asked at every frame of the mix, so a long
+            // timeline's stops within the frame it is on.
+            let cancel = reporter.cancel;
+            audio::mix_to_file_until(&mix, &buses, timeline_end.as_f64(), &mixed, &|| {
+                cancel.load(Ordering::Relaxed)
+            })?;
 
             reporter.cancelled()?;
             reporter.emit(total_frames, total_frames, "muxing");
@@ -1232,7 +1245,8 @@ pub fn render_on(
         };
         op.end_step();
         std::fs::rename(finished, &output)
-            .map_err(|error| format!("could not write {}: {error}", output.display()))
+            .map_err(|error| format!("could not write {}: {error}", output.display()))?;
+        Ok(())
     })();
     spent.note(&mut op);
     match &result {
@@ -1248,8 +1262,8 @@ pub fn render_on(
                 }
             ));
         }
-        Err(_) if reporter.cancel.load(Ordering::Relaxed) => op.cancelled(),
-        Err(error) => op.failed(error),
+        Err(Halt::Cancelled) => op.cancelled(),
+        Err(Halt::Failed(error)) => op.failed(error),
     }
 
     let _ = std::fs::remove_file(&silent);
@@ -1641,6 +1655,14 @@ fn headless_sibling() -> Option<WgpuCompositor> {
 }
 
 /// The ladder [`headless`] draws on, made the first time it is asked for.
+/// The adapter the shared headless compositor draws on, as its back end
+/// and its name, once it has drawn a frame; None before, and where there
+/// is none to draw on.
+pub fn headless_adapter() -> Option<(String, String)> {
+    let info = headless_sibling()?.adapter_info();
+    Some((format!("{:?}", info.backend), info.name))
+}
+
 fn headless_ladder() -> &'static std::sync::Mutex<concat_render::Ladder> {
     static HEADLESS: std::sync::OnceLock<std::sync::Mutex<concat_render::Ladder>> =
         std::sync::OnceLock::new();
@@ -1843,7 +1865,7 @@ fn render_picture(
     destination: &Path,
     reporter: &mut Reporter<'_>,
     spent: &mut Spent,
-) -> Result<(), String> {
+) -> Result<(), Halt> {
     let effect_offset = quantise(request.effect_time_offset, rate);
     // Whether the window lent its device: a death under the export is then
     // answered on that device again before anything else (see `recovered`).
@@ -1872,7 +1894,8 @@ fn render_picture(
         return Err(format!(
             "{}×{} is more than {} can draw; the most it takes is {most} a side",
             request.width, request.height, adapter.name
-        ));
+        )
+        .into());
     }
     let mut compositor = Held(Some(Drawer::Gpu(Box::new(gpu))));
     let BuiltTimeline {
@@ -4731,6 +4754,96 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// An export told to stop ends as a cancel, and one that fails ends as
+    /// a failure whatever its words say: a folder named `cancelled` in the
+    /// path it names does not make it one.
+    #[test]
+    fn an_export_tells_its_cancel_from_a_failure_under_a_folder_named_cancelled() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let root = std::env::temp_dir().join(format!(
+            "concat-export-halt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_nanos())
+        ));
+        let folder = root.join("cancelled");
+        std::fs::create_dir_all(&folder).expect("a temp dir");
+        let source = folder.join("source.mp4");
+        let Ok(mut encoder) = Encoder::create(
+            &source,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        ) else {
+            return; // no ffmpeg here
+        };
+        for _ in 0..6 {
+            encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+
+        let mut footage = clip("video", 0, 0.0, 0.2, 0.0);
+        footage.path = source.to_string_lossy().into_owned();
+        footage.media_width = Some(64);
+        footage.media_height = Some(64);
+        let request = |codec: VideoCodec, output: &Path| ExportRequest {
+            canvas: [0, 0, 0, 255],
+            output: output.to_string_lossy().into_owned(),
+            width: 64,
+            height: 64,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 30,
+            preset: "ultrafast".into(),
+            codec,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            effect_time_offset: 0.0,
+            clips: vec![footage.clone()],
+        };
+        let render = |request: &ExportRequest, stop: bool| {
+            let cancel = AtomicBool::new(stop);
+            let mut progress = |_: i64, _: i64, _: &'static str| {};
+            let reporter = Reporter {
+                progress: &mut progress,
+                cancel: &cancel,
+            };
+            render_on(request, None, reporter)
+        };
+
+        // Refused for its name, before a frame is drawn: a failure, with
+        // the folder's name in its words.
+        let misnamed = folder.join("overlay.mp4");
+        let failed = render(&request(VideoCodec::ProRes4444, &misnamed), false)
+            .expect_err("an .mp4 is refused");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed
+                .failure()
+                .is_some_and(|message| message.contains("cancelled")),
+            "the failure names the file, folder and all: {failed}"
+        );
+
+        // Told to stop before its first frame: a cancel, and no file. A
+        // machine with nothing to draw on fails before the flag is looked
+        // at, and that is a failure.
+        let output = folder.join("out.mp4");
+        let stopped = render(&request(VideoCodec::H264, &output), true);
+        if stopped != Err(Halt::Failed(NO_RENDERER.to_owned())) {
+            assert_eq!(stopped, Err(Halt::Cancelled));
+        }
+        assert!(!output.exists(), "a stopped export leaves no file");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// The folder the file goes in is made by the export: a phone's
     /// Movies folder does not exist until the first export (#280).
     #[test]
@@ -4989,7 +5102,12 @@ mod tests {
             }
             let misnamed = dir.join("overlay.mp4");
             let error = render(&request(codec, &misnamed)).expect_err("an .mp4 is refused");
-            assert!(error.contains(codec.container()), "{error}");
+            assert!(
+                error
+                    .failure()
+                    .is_some_and(|message| message.contains(codec.container())),
+                "{error}"
+            );
             assert!(!misnamed.exists());
 
             let output = dir.join(format!("overlay.{}", codec.container()));
@@ -5192,7 +5310,12 @@ mod tests {
         let output = dir.join("effected.mp4");
         let error = render(&request(effected, &output), dead)
             .expect_err("the CPU cannot draw the effect, so the export stops");
-        assert!(error.contains("only the GPU draws"), "{error}");
+        assert!(
+            error
+                .failure()
+                .is_some_and(|message| message.contains("only the GPU draws")),
+            "{error}"
+        );
         assert!(!output.exists(), "no file of frames without the effect");
 
         NO_DEVICE_OPENS.set(false);

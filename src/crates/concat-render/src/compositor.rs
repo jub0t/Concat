@@ -46,8 +46,11 @@ pub trait Compositor {
     }
 
     /// The oldest frame [`Compositor::submit`] started, once it is drawn;
-    /// `None` when none is on its way. A frame the device failed comes back
-    /// black, and [`Compositor::lost`] says so, as after `render`.
+    /// `None` when none is on its way. A frame on a device that was lost
+    /// comes back black, and [`Compositor::lost`] says so, as after
+    /// `render`. A frame that failed on a device that is still there comes
+    /// back as `None` with every frame after it let go: the caller draws
+    /// them again, in order, with `render`.
     fn collect(&mut self) -> Option<Drawn> {
         None
     }

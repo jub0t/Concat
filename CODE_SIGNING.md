@@ -18,8 +18,12 @@ unsigned libraries is still refused.
   <https://github.com/jub0t/concat>, by the workflows in
   [`.github/workflows`](.github/workflows) (`release.yml`, which calls
   `build-app.yml`). Nothing built on a person's machine is released.
-- A release is built only after the tests pass on the tagged commit, and each
-  bundle is launched before it is uploaded (see [`scripts/ci`](scripts/ci)).
+- A release is built only after the tests pass on the tagged commit, and the
+  desktop bundles are launched before they are uploaded (see
+  [`scripts/ci`](scripts/ci)). On phones the launch check runs on an emulator
+  or simulator: Android's is the x86_64 build, so the arm64 APK that phones
+  install is built from the same source but is not itself started by an
+  automated check. Each release's notes say so.
 - The workflows and build scripts are part of the source and are reviewed like
   any other change.
 

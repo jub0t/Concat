@@ -250,6 +250,32 @@ export component Select inherits Rectangle {
         }
     }
 
+    // The list's own ruler: each row as the list draws it, its words and
+    // its detail side by side with the gap between them. The trigger never
+    // shows a detail, so `measure` leaves them out; the list must not, or a
+    // row with both is squeezed into the width of the words alone and
+    // elides each of them (Settings > Downloads).
+    measure-rows := VerticalLayout {
+        x: 0;
+        y: 0;
+        width: 0px;
+        height: 0px;
+        visible: false;
+
+        for option[index] in root.options: HorizontalLayout {
+            spacing: root.detail-gap;
+            Text {
+                text: option;
+                font-size: Theme.fs;
+            }
+            if index < root.details.length && root.details[index] != "": Text {
+                text: root.details[index];
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+            }
+        }
+    }
+
     trigger := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
@@ -277,7 +303,10 @@ export component Select inherits Rectangle {
     /// A marked trigger is only as wide as its icon, and the list it opens
     /// is the one place the options are written, so the list may not
     /// inherit that width.
-    property <length> list-w: Math.max(root.width, measure.preferred-width + 59px + root.avatar-w);
+    property <length> list-w: Math.max(root.width, measure-rows.preferred-width + 59px + root.avatar-w);
+    /// Between a row's words and its detail: wider than the row's own
+    /// 6px, so the two read as a name and a note, not one run of text.
+    property <length> detail-gap: 18px;
 
     list := PopupWindow {
         // Right edge on the trigger's right edge: a list wider than an
@@ -391,6 +420,11 @@ export component Select inherits Rectangle {
                             font-size: Theme.fs;
                             vertical-alignment: center;
                             overflow: elide;
+                        }
+
+                        // Makes the row's 6px gap up to `detail-gap`.
+                        if index < root.details.length && root.details[index] != "": Rectangle {
+                            width: root.detail-gap - 12px;
                         }
 
                         if index < root.details.length: Text {

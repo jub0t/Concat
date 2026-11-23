@@ -30,6 +30,8 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 
+use concat_core::Halt;
+
 use crate::dirs::AppDirs;
 use crate::models;
 
@@ -43,9 +45,6 @@ pub const FIRST_SWITCHABLE: Version = Version::new(0, 2, 5);
 /// GitHub's list of the repository's releases, newest first. A hundred
 /// covers years of releases at this pace.
 const RELEASES_URL: &str = "https://api.github.com/repos/jub0t/Concat/releases?per_page=100";
-
-/// What a download that was stopped says.
-pub const CANCELLED: &str = "the download was cancelled";
 
 /// A release's number: `0.2.5`. A tag carries a `v` in front of it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -433,16 +432,16 @@ pub fn folder(dirs: &AppDirs) -> PathBuf {
 }
 
 /// Fetches `package` into `folder` and checks it against its digest,
-/// reporting `(received, total)` bytes as it goes and stopping when
-/// `cancel` is set. One package at a time: whatever an earlier switch left
-/// in the folder goes first, but a partial of this same package stays and
-/// is resumed.
+/// reporting `(received, total)` bytes as it goes and ending with
+/// [`Halt::Cancelled`] when `cancel` is set. One package at a time:
+/// whatever an earlier switch left in the folder goes first, but a partial
+/// of this same package stays and is resumed.
 pub fn download_package(
     package: &Package,
     folder: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, Halt> {
     std::fs::create_dir_all(folder)
         .map_err(|error| format!("could not create {}: {error}", folder.display()))?;
     let partial = folder.join(format!("{}.part", package.file));
@@ -454,17 +453,10 @@ pub fn download_package(
             }
         }
     }
-    models::download(
-        &package.url,
-        &partial,
-        package.bytes,
-        cancel,
-        CANCELLED,
-        progress,
-    )?;
+    models::download(&package.url, &partial, package.bytes, cancel, progress)?;
     if let Err(error) = models::verify(&partial, &package.sha256) {
         let _ = std::fs::remove_file(&partial);
-        return Err(error);
+        return Err(Halt::Failed(error));
     }
     std::fs::rename(&partial, &done)
         .map_err(|error| format!("could not write {}: {error}", done.display()))?;

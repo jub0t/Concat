@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- SPDX-FileCopyrightText: 2026 Jareer Abdullah -->
+<!-- What the share sheet may read when an export could not reach the gallery. -->
+<paths>
+    <cache-path name="exports" path="exports/" />
+</paths>

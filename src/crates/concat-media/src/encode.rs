@@ -3,6 +3,8 @@
 
 //! Writing RGBA frames back out to a file.
 
+pub mod apart;
+
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -58,9 +60,11 @@ pub enum VideoCodec {
     /// MPEG-4 Part 2, by FFmpeg's own encoder: never an export's, only the
     /// working copies Concat writes for itself on a desktop - a proxy, a
     /// reversed clip's pieces. Every FFmpeg build carries it, it loads no
-    /// driver, and it decodes in about two thirds of H.264's time; at
-    /// x264's quality its files are about half as large again, twice on
-    /// grainy footage. Eight bits. Not in [`VideoCodec::ALL`].
+    /// driver, and it decodes in about two thirds of H.264's time. Written
+    /// with every frame a keyframe, so any frame is one decode away: a
+    /// working copy is scrubbed, and that is worth its files being several
+    /// times larger than a long-GOP copy's. Eight bits. Not in
+    /// [`VideoCodec::ALL`].
     Mpeg4,
 }
 
@@ -835,13 +839,56 @@ fn remember(encoder_name: &'static str, opened: bool) {
     }
 }
 
+/// Told of every encoder about to be opened for [`opens_here`], and then
+/// of what it answered: the helper process's way of saying where it is
+/// (see [`apart`]). Nobody, in the editor itself.
+static TOLD: OnceLock<fn(&str, Option<bool>)> = OnceLock::new();
+
+/// The encoder linked here whose name is `name`, as the name the answers
+/// are remembered under.
+/// Every encoder whose opening this process has found out, and whether it
+/// opened: what an export in a process of its own is handed, so it opens
+/// no encoder the probe already found does not, and asks no question twice.
+pub fn known_encoders() -> Vec<(String, bool)> {
+    opened_before()
+        .lock()
+        .map(|map| {
+            map.iter()
+                .map(|(name, opened)| ((*name).to_owned(), *opened))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Takes another process's word on whether `encoder_name` opens, as
+/// [`known_encoders`] gave it. A name this build does not link is ignored.
+pub fn assume_encoder(encoder_name: &str, opened: bool) {
+    if let Some(name) = linked_name(encoder_name) {
+        remember(name, opened);
+    }
+}
+
+fn linked_name(name: &str) -> Option<&'static str> {
+    VideoCodec::ALL
+        .iter()
+        .flat_map(|codec| [codec.encoders(true), codec.encoders(false)])
+        .flat_map(|names| names.iter().copied())
+        .find(|linked| *linked == name)
+}
+
 /// [`opens`], asked once per encoder and remembered for the process.
 fn opens_here(codec: VideoCodec, encoder_name: &'static str) -> bool {
     if let Some(answer) = probed(encoder_name) {
         return answer;
     }
+    if let Some(tell) = TOLD.get() {
+        tell(encoder_name, None);
+    }
     let answer = opens(codec, encoder_name);
     remember(encoder_name, answer);
+    if let Some(tell) = TOLD.get() {
+        tell(encoder_name, Some(answer));
+    }
     answer
 }
 
@@ -1110,9 +1157,15 @@ fn open_video(
             video.set_bit_rate(kbps as usize * 1000);
         }
     }
-    // MPEG-4 takes its quality the same way, as a quantiser. Two B-frames,
-    // and a keyframe every two seconds, so a scrub through a proxy decodes
-    // no more than that to reach a frame.
+    // MPEG-4 takes its quality the same way, as a quantiser. Every frame a
+    // keyframe, and so no B-frames: MPEG-4 is only ever a working copy - a
+    // proxy, a reversed clip - and a working copy is jumped about in. With
+    // a keyframe every two seconds, a scrub had to decode up to two seconds
+    // of pictures to show one; on a 1080x1920 phone clip that was 440 ms a
+    // jump. With every frame its own keyframe it is one decode, 1.6 ms at
+    // 540x960 on one thread of an i5-6400. The price is disk: that clip's
+    // 540x960 copy is 36 MB where a two-second GOP made it 7.7 MB - about
+    // 48 MB a minute - which a copy that exists to be scrubbed is worth.
     if encoder_name == "mpeg4" {
         if !average && !cbr {
             // SAFETY: `video` owns a live AVCodecContext, and `flags` is a
@@ -1125,15 +1178,18 @@ fn open_video(
                 i32::from(mpeg4_quantiser(options.crf)) * ffmpeg::sys::FF_QP2LAMBDA,
             );
         }
-        video.set_max_b_frames(2);
-        video.set_gop((fps.round().max(1.0) * 2.0) as u32);
+        video.set_max_b_frames(0);
+        video.set_gop(1);
     }
     // An average, on the context as well as in each encoder's own words:
     // the AV1 encoders read the target and the ceiling from there.
     if average {
         let kbps = ceiling(options.bitrate_kbps);
         video.set_bit_rate(kbps as usize * 1000);
-        video.set_max_bit_rate(kbps as usize * 1500);
+        // SVT accepts a maximum bitrate only in CRF mode.
+        if encoder_name != "libsvtav1" {
+            video.set_max_bit_rate(kbps as usize * 1500);
+        }
     }
     let bitrate = format!("{}k", options.bitrate_kbps);
     // The average's ceiling, half again the target, and a buffer of two
@@ -1160,8 +1216,7 @@ fn open_video(
             "coder" => "cabac",
             "allow_skip_frames" => "0",
         },
-        // The context carries the target and the ceiling (above); the
-        // encoder runs its own VBR to them.
+        // The context carries the average bitrate target.
         "libsvtav1" if average => ffmpeg::dict! {
             "preset" => &svt_preset(&options.preset).to_string(),
         },
@@ -2519,6 +2574,35 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn average_av1_export_uses_svt_when_available() {
+        ffi::init();
+        if encoder::find_by_name("libsvtav1").is_none() {
+            return;
+        }
+        let path =
+            std::env::temp_dir().join(format!("concat-av1-average-{}.mp4", std::process::id()));
+        let options = EncodeOptions {
+            codec: VideoCodec::Av1,
+            rate_mode: RateMode::Average,
+            bitrate_kbps: 4000,
+            hardware: false,
+            ..EncodeOptions::default()
+        };
+        let mut encoder =
+            Encoder::create(&path, 320, 180, FrameRate::FILM, &options).expect("opens AV1");
+        assert_eq!(encoder.encoder_name(), "libsvtav1");
+        encoder
+            .write_frame(&Frame::black(320, 180))
+            .expect("writes");
+        encoder.finish().expect("finishes");
+        // Let go of the file before removing it: Windows refuses to delete a
+        // file a handle still holds (os error 32), and the encoder holds its
+        // output until it is dropped.
+        drop(encoder);
+        let _ = std::fs::remove_file(path);
     }
 
     /// An average-bitrate export, the export sheet's: busy pictures come

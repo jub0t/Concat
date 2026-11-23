@@ -57,7 +57,7 @@
 
 use std::collections::HashMap;
 use std::ptr;
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, Once};
 use std::time::Duration;
 
@@ -221,12 +221,16 @@ pub fn hardware_wins(device: HwDevice, codec: ffmpeg::codec::Id, format: Pixel) 
     if device == HwDevice::MediaCodec {
         return mediacodec_decoder(codec, format).is_some();
     }
+    codec != ffmpeg::codec::Id::H264 || deep(format)
+}
+
+/// Whether `format` carries more than eight bits a sample.
+pub(crate) fn deep(format: Pixel) -> bool {
     // SAFETY: a descriptor points into libavutil's static table, and every
     // pixel format has at least one component.
-    let deep = format
+    format
         .descriptor()
-        .is_some_and(|descriptor| unsafe { (*descriptor.as_ptr()).comp[0].depth } > 8);
-    codec != ffmpeg::codec::Id::H264 || deep
+        .is_some_and(|descriptor| unsafe { (*descriptor.as_ptr()).comp[0].depth } > 8)
 }
 
 /// The libavcodec decoder that drives MediaCodec for a stream of `codec`
@@ -345,6 +349,176 @@ pub(crate) fn mediacodec_seat() -> Option<Seat> {
         });
     }
     seat
+}
+
+/// The frame threads a reader decoding on a hwaccel device runs, at most.
+///
+/// The chip decodes; a thread only parses the next picture's headers and
+/// queues it. On an M5 a 4K 10-bit HEVC file read through VideoToolbox in
+/// 1.17 s on one thread and 1.19 s on eight, and 1080p 8-bit HEVC in 1.84 s
+/// against 1.86 s. Yet each frame thread is one more picture the device
+/// holds for the life of the decoder (see [`surface_bytes`]): eight of
+/// them were 200 MB of a Direct3D 11 4K 10-bit reader. Two keeps one
+/// picture queued while the last one is copied back.
+pub(crate) const DEVICE_FRAME_THREADS: u16 = 2;
+
+/// What a hwaccel decoder on `device` holds on the card from the moment it
+/// opens, in bytes: zero where the device's pictures come from a pool that
+/// grows as it is used (VideoToolbox's, MediaCodec's).
+///
+/// Direct3D 11 and VAAPI decode into one array of pictures allocated in
+/// full when the codec meets its first frame, sized as FFmpeg 8.1 sizes it
+/// (`ff_dxva2_common_frame_params`, `ff_decode_get_hw_frames_ctx`): one
+/// work picture, the stream's references - sixteen for H.264 and HEVC,
+/// eight for VP9 and AV1, two for the rest - three more work pictures, and
+/// one a frame thread. Each is the coded size rounded up to 128 for HEVC
+/// and AV1 and to 16 otherwise, in NV12, or P010 for ten bits. A 1080p
+/// HEVC reader on eight threads held 28 such pictures, 93 MB; a 4K 10-bit
+/// one, 700 MB. Nothing counted them, and a scrub across a timeline of
+/// such clips filled a 2 GB card until every draw was refused (#873).
+pub(crate) fn surface_bytes(
+    device: HwDevice,
+    codec: ffmpeg::codec::Id,
+    (width, height): (u32, u32),
+    deep: bool,
+    frame_threads: u16,
+) -> u64 {
+    use ffmpeg::codec::Id;
+    if !matches!(device, HwDevice::D3d11va | HwDevice::Vaapi) {
+        return 0;
+    }
+    let align = if matches!(codec, Id::HEVC | Id::AV1) {
+        128
+    } else {
+        16
+    };
+    let references = match codec {
+        Id::H264 | Id::HEVC => 16,
+        Id::VP9 | Id::AV1 => 8,
+        _ => 2,
+    };
+    let threads = if frame_threads > 1 {
+        u64::from(frame_threads)
+    } else {
+        0
+    };
+    let pictures = 1 + references + 3 + threads;
+    let rounded = |side: u32| u64::from(side.div_ceil(align) * align);
+    let sample = if deep { 2 } else { 1 };
+    // Luma, and chroma at half the height: a sample and a half a pixel.
+    let picture = rounded(width) * rounded(height) * sample * 3 / 2;
+    pictures * picture
+}
+
+/// What the card has for this process at one moment, as the window's
+/// graphics device reads it: the driver's budget and what the process
+/// uses of it now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CardRoom {
+    /// What the driver lets this process have of the card's own memory.
+    /// It shrinks as other programs take theirs.
+    pub budget: u64,
+    /// What this process holds of it now, every device it has opened -
+    /// the window's, the compositor's, the decoders' - together.
+    pub usage: u64,
+}
+
+/// What reads [`CardRoom`] when a reader asks for the device; see
+/// [`set_card_room`].
+type RoomReader = Box<dyn Fn() -> Option<CardRoom> + Send + Sync>;
+
+static CARD_ROOM: std::sync::RwLock<Option<RoomReader>> = std::sync::RwLock::new(None);
+
+/// What every hwaccel decoder open now holds on the card, by
+/// [`surface_bytes`].
+static CHARGED: AtomicU64 = AtomicU64::new(0);
+
+/// Tells the decoders how to read the card's room, which the window can
+/// and this crate cannot: it holds the graphics adapter. Until it is set,
+/// or where it reads nothing, readers open on the device as they always
+/// have.
+pub fn set_card_room(reader: impl Fn() -> Option<CardRoom> + Send + Sync + 'static) {
+    if let Ok(mut slot) = CARD_ROOM.write() {
+        *slot = Some(Box::new(reader));
+    }
+}
+
+/// The share of the card's budget the decoders may hold between them: what
+/// leaves the rest to the window, the compositor's layers - a fifth, at
+/// most - and the effects.
+const DECODER_SHARE: (u64, u64) = (3, 8);
+
+/// What the process may hold of the card's budget, all told, once a new
+/// decoder has opened: the driver refuses past it, and other programs
+/// push the budget down while Concat runs.
+const CARD_CEILING: (u64, u64) = (7, 8);
+
+/// Whether a decoder holding `bytes` may open on a card with `room`, while
+/// the decoders open now hold `charged`. See [`charge`].
+fn fits(room: CardRoom, charged: u64, bytes: u64) -> bool {
+    let share = |(over, under): (u64, u64)| room.budget / under * over;
+    charged.saturating_add(bytes) <= share(DECODER_SHARE)
+        && room.usage.saturating_add(bytes) <= share(CARD_CEILING)
+}
+
+/// The card's memory a hwaccel decoder holds, given back when it drops.
+pub(crate) struct Charge {
+    bytes: u64,
+}
+
+impl Drop for Charge {
+    fn drop(&mut self) {
+        CHARGED.fetch_sub(self.bytes, Ordering::AcqRel);
+    }
+}
+
+impl std::fmt::Debug for Charge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Charge({})", self.bytes)
+    }
+}
+
+/// The card's memory for a decoder that will hold `bytes` of it, or `None`
+/// when that would take the decoders past their share of the card or the
+/// process past its ceiling (see [`DECODER_SHARE`], [`CARD_CEILING`]):
+/// that reader decodes on the CPU instead, which is slower but never takes
+/// the picture down with it. Said once a process. A decoder that holds
+/// nothing up front, or a card whose room cannot be read, is let through.
+pub(crate) fn charge(bytes: u64) -> Option<Charge> {
+    if bytes == 0 {
+        return Some(Charge { bytes: 0 });
+    }
+    let room = CARD_ROOM
+        .read()
+        .ok()
+        .and_then(|reader| reader.as_ref().and_then(|read| read()));
+    let Some(room) = room else {
+        CHARGED.fetch_add(bytes, Ordering::AcqRel);
+        return Some(Charge { bytes });
+    };
+    let admitted = CHARGED
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |charged| {
+            fits(room, charged, bytes).then_some(charged + bytes)
+        })
+        .ok();
+    match admitted {
+        Some(_) => Some(Charge { bytes }),
+        None => {
+            static ONCE: Once = Once::new();
+            ONCE.call_once(|| {
+                let mb = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
+                log::info!(
+                    "hardware: a decoder of {:.0} MB would not fit on the card (budget {:.0} MB, \
+                     Concat uses {:.0} MB, decoders hold {:.0} MB); readers past it decode on the CPU",
+                    mb(bytes),
+                    mb(room.budget),
+                    mb(room.usage),
+                    mb(CHARGED.load(Ordering::Acquire)),
+                );
+            });
+            None
+        }
+    }
 }
 
 /// How long a MediaCodec decoder has to give its first picture the first
@@ -746,6 +920,79 @@ fn type_name(kind: HwDevice) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The card's memory a Direct3D 11 reader holds is FFmpeg's own count
+    /// of pictures at the rounded coded size: 1080p HEVC on eight frame
+    /// threads 28 pictures of 1920x1152 NV12, 4K 10-bit HEVC on the two a
+    /// device reader now runs 22 of 3840x2176 P010, a keyframe reader no
+    /// thread's picture. A pool that grows as it is used holds nothing up
+    /// front.
+    #[test]
+    fn a_decoder_holds_the_pictures_ffmpeg_allocates_for_it() {
+        use ffmpeg::codec::Id;
+        let d3d = HwDevice::D3d11va;
+        assert_eq!(
+            surface_bytes(d3d, Id::HEVC, (1920, 1080), false, 8),
+            28 * 1920 * 1152 * 3 / 2
+        );
+        assert_eq!(
+            surface_bytes(d3d, Id::HEVC, (3840, 2160), true, DEVICE_FRAME_THREADS),
+            22 * 3840 * 2176 * 2 * 3 / 2
+        );
+        assert_eq!(
+            surface_bytes(d3d, Id::H264, (1920, 1080), false, 0),
+            20 * 1920 * 1088 * 3 / 2
+        );
+        assert_eq!(
+            surface_bytes(d3d, Id::VP9, (1280, 720), false, 1),
+            12 * 1280 * 720 * 3 / 2
+        );
+        assert_eq!(
+            surface_bytes(HwDevice::VideoToolbox, Id::HEVC, (3840, 2160), true, 8),
+            0
+        );
+        assert_eq!(
+            surface_bytes(HwDevice::MediaCodec, Id::HEVC, (3840, 2160), true, 8),
+            0
+        );
+    }
+
+    /// On #873's card - a 1.63 GB budget - the decoders stop at three
+    /// eighths of it between them, and none opens that would take the
+    /// process past seven eighths: one 4K 10-bit HEVC reader fits, a
+    /// second does not, and a card already near full takes none.
+    #[test]
+    fn decoders_open_on_the_card_only_while_it_has_room() {
+        use ffmpeg::codec::Id;
+        const MB: u64 = 1024 * 1024;
+        let reader = surface_bytes(
+            HwDevice::D3d11va,
+            Id::HEVC,
+            (3840, 2160),
+            true,
+            DEVICE_FRAME_THREADS,
+        );
+        let room = CardRoom {
+            budget: 1669 * MB,
+            usage: 170 * MB,
+        };
+        assert!(fits(room, 0, reader), "the first fits");
+        let held = CardRoom {
+            usage: room.usage + reader,
+            ..room
+        };
+        assert!(!fits(held, reader, reader), "the second is past the share");
+        let small = surface_bytes(HwDevice::D3d11va, Id::HEVC, (1920, 1080), false, 2);
+        assert!(
+            fits(held, reader, small),
+            "a 1080p one still fits beside it"
+        );
+        let full = CardRoom {
+            usage: 1400 * MB,
+            ..room
+        };
+        assert!(!fits(full, 0, small), "a card near its ceiling takes none");
+    }
 
     /// The CPU keeps 8-bit H.264, which it decodes faster than the chip
     /// can hand frames back; everything heavier goes to the chip, and a

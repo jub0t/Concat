@@ -463,7 +463,7 @@ export component SpeechDialog inherits Modal {
             if root.data.family == 2 && root.data.voice-count == 0 && !root.data.use-sample: Text {
                 text: I18n.t("speech.chatterboxHasNoVoice");
                 color: Theme.danger;
-                font-size: Theme.fs-sm;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
 
@@ -471,8 +471,8 @@ export component SpeechDialog inherits Modal {
             // a surprise: a model that is missing one has never had it.
             if root.data.ready && root.data.family == 2: Text {
                 text: I18n.t("speech.closestStudioVoiceReads");
-                color: Theme.fg-dim;
-                font-size: Theme.fs-sm;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
 
@@ -502,7 +502,7 @@ export component SpeechDialog inherits Modal {
             if !root.data.ready: Text {
                 text: I18n.t("speech.downloadVoiceModelFirst");
                 color: Theme.fg-muted;
-                font-size: Theme.fs-sm;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
         }
@@ -524,7 +524,7 @@ export component SpeechDialog inherits Modal {
             if root.samples.length == 0: Text {
                 text: I18n.t("speech.importClipVoiceFirst");
                 color: Theme.fg-muted;
-                font-size: Theme.fs-sm;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
 
@@ -610,7 +610,7 @@ export component SpeechDialog inherits Modal {
                         horizontal-stretch: 1;
                         text: root.data.message;
                         color: Theme.danger;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
 

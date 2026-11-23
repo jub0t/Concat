@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use concat_core::Halt;
 use concat_media::samples::{AudioDecoder, AudioOptions, SampleFormat};
 use concat_vision::runtime::{Data, Input, Model};
 use realfft::num_complex::Complex32;
@@ -94,12 +95,12 @@ pub fn separate(
     workers: usize,
     cancel: &AtomicBool,
     progress: crate::isolate::Progress<'_>,
-) -> Result<(), String> {
+) -> Result<(), Halt> {
     progress(0.0);
     let channels = channels_of(source, stream)?;
     let samples = length(source, stream, channels, cancel)?;
     if samples == 0 {
-        return Err("the clip's file has no sound to separate".to_owned());
+        return Err("the clip's file has no sound to separate".into());
     }
     progress(0.03);
     // Every sample has its four frames: from the one that starts three
@@ -153,21 +154,19 @@ pub fn separate(
         }
     });
     let failure = failed.into_inner().unwrap_or_else(|e| e.into_inner());
-    let failure = failure.or_else(|| {
-        cancel
-            .load(Ordering::Relaxed)
-            .then(|| "vocal separation cancelled".to_owned())
-    });
-    if let Some(error) = failure {
+    let halt = failure
+        .map(Halt::Failed)
+        .or_else(|| cancel.load(Ordering::Relaxed).then_some(Halt::Cancelled));
+    if let Some(halt) = halt {
         let _ = std::fs::remove_file(&voice_part);
         let _ = std::fs::remove_file(&rest_part);
-        return Err(error);
+        return Err(halt);
     }
     let writer = writer.into_inner().unwrap_or_else(|e| e.into_inner());
     if !writer.seams.is_empty() {
         let _ = std::fs::remove_file(&voice_part);
         let _ = std::fs::remove_file(&rest_part);
-        return Err("vocal separation: a block's seam was never met".to_owned());
+        return Err("vocal separation: a block's seam was never met".into());
     }
     writer.voice.finish()?;
     writer.rest.finish()?;
@@ -220,12 +219,12 @@ fn length(
     stream: Option<usize>,
     channels: usize,
     cancel: &AtomicBool,
-) -> Result<usize, String> {
+) -> Result<usize, Halt> {
     let mut decoder = decoder(source, stream, channels, 0.0, None)?;
     let mut samples = 0;
     while let Some(chunk) = decoder.next_f32().map_err(|error| error.to_string())? {
         if cancel.load(Ordering::Relaxed) {
-            return Err("vocal separation cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
         samples += chunk.len() / channels;
     }

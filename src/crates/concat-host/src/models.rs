@@ -28,6 +28,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
+
 use crate::net::Cause;
 
 /// The repository the mirror lives on.
@@ -284,8 +286,9 @@ fn take_supplied(file: &str) -> Option<PathBuf> {
 /// host said, and [`last_failure`] has it for the window. Each source's
 /// own error is in the log.
 ///
-/// `progress` is called with (received, total); `cancelled` is the error
-/// to return when `cancel` is set.
+/// `progress` is called with (received, total). Setting `cancel` ends
+/// the fetch with [`Halt::Cancelled`], whatever a source was saying when
+/// it stopped.
 pub fn fetch(
     file: &str,
     upstream: &str,
@@ -293,31 +296,31 @@ pub fn fetch(
     estimate: u64,
     sha256: &str,
     cancel: &AtomicBool,
-    cancelled: &str,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<(u64, u64), String> {
+) -> Result<(u64, u64), Halt> {
     record_failure(file, None);
     if let Some(chosen) = take_supplied(file) {
-        return adopt(&chosen, file, partial, sha256, cancel, cancelled, progress);
+        return adopt(&chosen, file, partial, sha256, cancel, progress);
     }
     let mut missed: Vec<(String, Missed)> = Vec::new();
     for url in sources(file, upstream) {
-        match attempt(&url, partial, estimate, cancel, cancelled, progress) {
+        match attempt(&url, partial, estimate, cancel, progress) {
             Ok(totals) => {
                 verify(partial, sha256).inspect_err(|_| {
                     let _ = std::fs::remove_file(partial);
                 })?;
                 return Ok(totals);
             }
-            Err(miss) => {
+            Err(Stopped::Cancelled) => return Err(Halt::Cancelled),
+            Err(Stopped::Missed(miss)) => {
                 if cancel.load(Ordering::Relaxed) {
-                    return Err(cancelled.to_owned());
+                    return Err(Halt::Cancelled);
                 }
                 log::warn!("models: {}", miss.message);
                 // Not the network's doing - a full disk, a folder that
                 // cannot be written - and no other source would fix it.
                 if miss.cause.is_none() {
-                    return Err(miss.message);
+                    return Err(Halt::Failed(miss.message));
                 }
                 let host = url
                     .split_once("://")
@@ -354,11 +357,11 @@ pub fn fetch(
         .map_or("there was nowhere to download it from", |(_, miss)| {
             miss.message.as_str()
         });
-    Err(format!(
+    Err(Halt::Failed(format!(
         "could not download {file} from {}{through}: {}. The last one said: {last}",
         hosts.join(", "),
         cause.describe(),
-    ))
+    )))
 }
 
 /// Installs the person's own copy of `file` as if it had been downloaded:
@@ -371,16 +374,15 @@ fn adopt(
     partial: &Path,
     sha256: &str,
     cancel: &AtomicBool,
-    cancelled: &str,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<(u64, u64), String> {
+) -> Result<(u64, u64), Halt> {
     use sha2::{Digest, Sha256};
     use std::io::{Read, Write};
 
     if sha256.is_empty() {
-        return Err(format!(
+        return Err(Halt::Failed(format!(
             "{file} cannot be checked: the model table carries no digest for it"
-        ));
+        )));
     }
     let mut source = std::fs::File::open(chosen)
         .map_err(|error| format!("could not read {}: {error}", chosen.display()))?;
@@ -395,16 +397,24 @@ fn adopt(
     progress(0, total);
     let result = loop {
         if cancel.load(Ordering::Relaxed) {
-            break Err(cancelled.to_owned());
+            break Err(Halt::Cancelled);
         }
         let read = match source.read(&mut buffer) {
             Ok(0) => break Ok(()),
             Ok(read) => read,
-            Err(error) => break Err(format!("could not read {}: {error}", chosen.display())),
+            Err(error) => {
+                break Err(Halt::Failed(format!(
+                    "could not read {}: {error}",
+                    chosen.display()
+                )));
+            }
         };
         hasher.update(&buffer[..read]);
         if let Err(error) = out.write_all(&buffer[..read]) {
-            break Err(format!("could not write {}: {error}", copy.display()));
+            break Err(Halt::Failed(format!(
+                "could not write {}: {error}",
+                copy.display()
+            )));
         }
         copied += read as u64;
         if copied - reported >= 8 * 1024 * 1024 {
@@ -414,7 +424,7 @@ fn adopt(
     }
     .and_then(|()| {
         out.flush()
-            .map_err(|error| format!("could not write {}: {error}", copy.display()))
+            .map_err(|error| Halt::Failed(format!("could not write {}: {error}", copy.display())))
     });
     drop(out);
     if let Err(error) = result {
@@ -425,10 +435,10 @@ fn adopt(
     if actual != sha256 {
         let _ = std::fs::remove_file(&copy);
         record_failure(file, Some(Failure::NotTheFile));
-        return Err(format!(
+        return Err(Halt::Failed(format!(
             "{} is not {file}: its sha256 is {actual}, where {file}'s is {sha256}",
             chosen.display()
-        ));
+        )));
     }
     std::fs::rename(&copy, partial)
         .map_err(|error| format!("could not write {}: {error}", partial.display()))?;
@@ -439,23 +449,45 @@ fn adopt(
 /// One source that did not answer, or stopped answering.
 struct Missed {
     message: String,
-    /// The network's reason; `None` for a cancel or a local failure.
+    /// The network's reason; `None` for a local failure.
     cause: Option<Cause>,
     proxy: Option<String>,
+}
+
+/// How one [`attempt`] ended without the file.
+enum Stopped {
+    /// `cancel` was set while the bytes were coming.
+    Cancelled,
+    /// The source, or this computer, failed.
+    Missed(Missed),
+}
+
+impl From<Missed> for Stopped {
+    fn from(miss: Missed) -> Stopped {
+        Stopped::Missed(miss)
+    }
 }
 
 /// One attempt at one URL, streamed into `partial`, taking up from
 /// however much of `partial` is already there. [`attempt`] with its
 /// reasons spelled out as text, for a caller that tries its own sources.
+///
+/// Setting `cancel` ends it with [`Halt::Cancelled`], and so does a source
+/// that fails once `cancel` is set, as in [`fetch`]: a stalled connection
+/// is not asked about the flag until its read gives up, and what it gives
+/// up with is the stop that was asked for, not a failure to tell anyone.
 pub fn download(
     url: &str,
     partial: &Path,
     estimate: u64,
     cancel: &AtomicBool,
-    cancelled: &str,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<(u64, u64), String> {
-    attempt(url, partial, estimate, cancel, cancelled, progress).map_err(|miss| miss.message)
+) -> Result<(u64, u64), Halt> {
+    attempt(url, partial, estimate, cancel, progress).map_err(|stopped| match stopped {
+        Stopped::Cancelled => Halt::Cancelled,
+        Stopped::Missed(_) if cancel.load(Ordering::Relaxed) => Halt::Cancelled,
+        Stopped::Missed(miss) => Halt::Failed(miss.message),
+    })
 }
 
 /// One attempt at one URL, streamed into `partial`, taking up from
@@ -472,16 +504,14 @@ pub fn download(
 /// not trusted here.
 ///
 /// `progress` is called with (received, total) every couple of megabytes.
-/// `cancelled` is the error to return when `cancel` is set: the caller's
-/// words, since it knows what was being fetched.
+/// Setting `cancel` ends it with [`Stopped::Cancelled`] at the next chunk.
 fn attempt(
     url: &str,
     partial: &Path,
     estimate: u64,
     cancel: &AtomicBool,
-    cancelled: &str,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<(u64, u64), Missed> {
+) -> Result<(u64, u64), Stopped> {
     use std::io::{Read, Write};
 
     let local = |message: String| Missed {
@@ -516,11 +546,11 @@ fn attempt(
             return Ok((already, already));
         }
         Err(failure) => {
-            return Err(Missed {
+            return Err(Stopped::Missed(Missed {
                 message: format!("{url} did not answer: {failure}"),
                 cause: Some(failure.cause),
                 proxy: failure.proxy,
-            });
+            }));
         }
     };
 
@@ -550,7 +580,7 @@ fn attempt(
     loop {
         if cancel.load(Ordering::Relaxed) {
             // The partial stays: it is where the next attempt picks up.
-            return Err(local(cancelled.to_owned()));
+            return Err(Stopped::Cancelled);
         }
         let read = reader.read(&mut buffer).map_err(|error| Missed {
             message: format!("{url} stopped partway: {error}"),
@@ -572,11 +602,11 @@ fn attempt(
     file.flush()
         .map_err(|error| local(format!("could not write {}: {error}", partial.display())))?;
     if received == 0 {
-        return Err(Missed {
+        return Err(Stopped::Missed(Missed {
             message: format!("{url} came back empty"),
             cause: Some(Cause::Other),
             proxy: None,
-        });
+        }));
     }
     Ok((received, received.max(total)))
 }
@@ -747,7 +777,7 @@ mod tests {
         std::fs::write(&partial, &body[..600_000]).expect("a partial");
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let mut reports = Vec::new();
-        let (received, total) = download(&url, &partial, 0, &cancel, "stopped", &mut |got, of| {
+        let (received, total) = download(&url, &partial, 0, &cancel, &mut |got, of| {
             reports.push((got, of))
         })
         .expect("the rest arrives");
@@ -764,10 +794,138 @@ mod tests {
         );
         // A second request with the file complete: whole again, the
         // server having nothing to add, is still the file.
-        let (received, _) =
-            download(&url, &partial, 0, &cancel, "stopped", &mut |_, _| {}).expect("again");
+        let (received, _) = download(&url, &partial, 0, &cancel, &mut |_, _| {}).expect("again");
         assert!(received > 0);
         let _ = std::fs::remove_file(&partial);
+    }
+
+    /// Serves `body` once to whoever connects, and says where.
+    fn serve_once(body: Vec<u8>) -> String {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        std::thread::spawn(move || {
+            if let Some(Ok(mut stream)) = listener.incoming().next() {
+                let mut head = [0u8; 4096];
+                let _ = stream.read(&mut head);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(&body);
+            }
+        });
+        format!("http://127.0.0.1:{port}")
+    }
+
+    #[test]
+    fn a_download_told_to_stop_ends_as_a_cancel_and_keeps_its_partial() {
+        let url = format!("{}/model.bin", serve_once(vec![3u8; 300_000]));
+        let partial =
+            std::env::temp_dir().join(format!("concat-models-stopped-{}.part", std::process::id()));
+        let _ = std::fs::remove_file(&partial);
+        // Asked to stop before the first byte: the answer arrives, and the
+        // first look at the flag ends it.
+        let cancel = AtomicBool::new(true);
+        let stopped = download(&url, &partial, 0, &cancel, &mut |_, _| {});
+        assert_eq!(stopped, Err(Halt::Cancelled));
+        assert!(
+            std::fs::exists(&partial).unwrap_or(false),
+            "the partial is where the next attempt picks up"
+        );
+        let _ = std::fs::remove_file(&partial);
+    }
+
+    #[test]
+    fn a_download_that_fails_at_an_address_with_cancelled_in_it_is_a_failure() {
+        // A port that was bound and let go: nothing answers on it.
+        let port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+            listener.local_addr().expect("an address").port()
+        };
+        let url = format!("http://127.0.0.1:{port}/cancelled/model.bin");
+        let partial = std::env::temp_dir().join(format!(
+            "concat-models-the-word-{}.part",
+            std::process::id()
+        ));
+        let cancel = AtomicBool::new(false);
+        let failed =
+            download(&url, &partial, 0, &cancel, &mut |_, _| {}).expect_err("nothing answers");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed
+                .failure()
+                .is_some_and(|message| message.contains("cancelled")),
+            "the failure names the address, word and all: {failed}"
+        );
+        // The same dead address once the person has asked to stop: what it
+        // gives up with is the stop that was asked for.
+        let cancel = AtomicBool::new(true);
+        assert_eq!(
+            download(&url, &partial, 0, &cancel, &mut |_, _| {}),
+            Err(Halt::Cancelled)
+        );
+        let _ = std::fs::remove_file(&partial);
+    }
+
+    #[test]
+    fn a_download_that_cannot_write_under_a_folder_named_cancelled_is_a_failure() {
+        let url = format!("{}/model.bin", serve_once(vec![3u8; 4096]));
+        // No such folder, so the partial cannot be created.
+        let partial = std::env::temp_dir()
+            .join(format!("concat-models-absent-{}", std::process::id()))
+            .join("cancelled")
+            .join("model.part");
+        let cancel = AtomicBool::new(false);
+        let failed =
+            download(&url, &partial, 0, &cancel, &mut |_, _| {}).expect_err("nowhere to write");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("could not write") && message.contains("cancelled")
+            ),
+            "{failed}"
+        );
+    }
+
+    #[test]
+    fn a_fetch_of_a_chosen_file_tells_a_cancel_from_a_folder_named_cancelled() {
+        let dir =
+            std::env::temp_dir().join(format!("concat-models-chosen-halt-{}", std::process::id()));
+        let folder = dir.join("cancelled");
+        std::fs::create_dir_all(&folder).expect("a temp dir");
+        let partial = dir.join("model.part");
+        let file = "concat-test-chosen-halt.bin";
+        let digest = "0".repeat(64);
+
+        // A chosen file that is not there: a failure, though its path has
+        // the word in it.
+        supply(file, folder.join("missing.bin"));
+        let cancel = AtomicBool::new(false);
+        let failed = fetch(file, "", &partial, 0, &digest, &cancel, &mut |_, _| {})
+            .expect_err("no such file");
+        assert!(!failed.is_cancelled(), "{failed}");
+        assert!(
+            failed.failure().is_some_and(
+                |message| message.contains("could not read") && message.contains("cancelled")
+            ),
+            "{failed}"
+        );
+
+        // The same fetch told to stop while it copies: a cancel.
+        let chosen = folder.join("there.bin");
+        std::fs::write(&chosen, vec![5u8; 4096]).expect("the chosen file");
+        supply(file, chosen);
+        let cancel = AtomicBool::new(true);
+        let stopped = fetch(file, "", &partial, 0, &digest, &cancel, &mut |_, _| {});
+        assert_eq!(stopped, Err(Halt::Cancelled));
+        assert!(
+            !std::fs::exists(partial.with_extension("chosen")).unwrap_or(true),
+            "the half-made copy is cleared away"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -790,18 +948,14 @@ mod tests {
 
         supply(file, chosen.clone());
         let wrong = "0".repeat(64);
-        let refused = fetch(
-            file,
-            "",
-            &partial,
-            0,
-            &wrong,
-            &cancel,
-            "stopped",
-            &mut |_, _| {},
-        )
-        .expect_err("not the model");
-        assert!(refused.contains("is not"), "{refused}");
+        let refused = fetch(file, "", &partial, 0, &wrong, &cancel, &mut |_, _| {})
+            .expect_err("not the model");
+        assert!(
+            refused
+                .failure()
+                .is_some_and(|message| message.contains("is not")),
+            "{refused}"
+        );
         assert_eq!(last_failure(file), Some(Failure::NotTheFile));
         assert_eq!(std::fs::read(&partial).expect("the partial"), b"half");
         assert!(
@@ -811,16 +965,9 @@ mod tests {
 
         supply(file, chosen.clone());
         let mut last = (0, 0);
-        let totals = fetch(
-            file,
-            "",
-            &partial,
-            0,
-            &digest,
-            &cancel,
-            "stopped",
-            &mut |got, of| last = (got, of),
-        )
+        let totals = fetch(file, "", &partial, 0, &digest, &cancel, &mut |got, of| {
+            last = (got, of)
+        })
         .expect("the model");
         assert_eq!(totals, (body.len() as u64, body.len() as u64));
         assert_eq!(last, totals, "progress ends full");

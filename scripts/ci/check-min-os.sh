@@ -69,6 +69,26 @@ for path in ${lazy[@]+"${lazy[@]}"}; do
   echo "check-min-os: $path is loaded at first use, on macOS $(minimum_of "$bundle/$path") or later"
 done
 
+# A header minimum is not the whole story: a library built for the floor
+# can still call a function the floor lacks, which the linker then binds
+# weakly - null on the older system, and the call jumps to address 0.
+# Accelerate's ACCELERATE_NEW_LAPACK interface is macOS 13.3 and later, and
+# whisper.cpp's matrix products on it crashed every caption run on macOS 12
+# (#862). Any import of it fails the build, whatever --enforce says.
+newlapack=()
+while IFS= read -r -d '' file; do
+  file -b "$file" | grep -q 'Mach-O' || continue
+  if nm -m -u "$file" 2>/dev/null | grep -q 'NEWLAPACK'; then
+    newlapack+=("${file#"$bundle"/}")
+  fi
+done < <(find "$bundle" -type f -print0)
+if [ "${#newlapack[@]}" -gt 0 ]; then
+  for file in "${newlapack[@]}"; do
+    echo "check-min-os: $file calls Accelerate's macOS 13.3 LAPACK interface, missing on older systems" >&2
+  done
+  exit 1
+fi
+
 over=()
 checked=0
 while IFS= read -r -d '' file; do

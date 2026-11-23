@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use concat_core::Halt;
 use concat_host::sounds::{self, Catalogue, Library, Sound};
 use concat_project::Command;
 use slint::SharedString;
@@ -89,7 +90,7 @@ pub enum SoundsMsg {
     /// A Concat sound's download, how far.
     Fetching(String, f32),
     /// A Concat sound's download is done.
-    Fetched(String, Result<PathBuf, String>),
+    Fetched(String, Result<PathBuf, Halt>),
 }
 
 /// The page's state.
@@ -202,8 +203,8 @@ impl SoundsPane {
                             studio.place_sound(&name, &path, track_id, start);
                         }
                     },
-                    Err(error) if error == "cancelled" => {}
-                    Err(error) => {
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
                         studio.notify(&tf("sounds.downloadFailed", &[&name, &error]), true);
                     }
                 }

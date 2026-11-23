@@ -37,7 +37,7 @@ use concat_host::{
     AnalyseRequest, Cutouts, EnhanceRequest, ProjectInfo, RegionRequest, Session, media, projects,
     templates,
 };
-use concat_media::{Pyramid, jpeg};
+use concat_media::Pyramid;
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
@@ -493,6 +493,8 @@ pub enum Gesture {
         /// read live: an `Auto` lane resizes as clips land on it, which
         /// would move the very edges the next event measures against.
         lanes: Vec<f32>,
+        /// The pointer has left the dead zone around the press.
+        started: bool,
     },
     Trim {
         clip: String,
@@ -500,6 +502,8 @@ pub enum Gesture {
         start: f32,
         duration: f32,
         source_start: f32,
+        /// The pointer has left the dead zone around the press.
+        started: bool,
     },
     /// Dragging a transition's duration handle on the timeline.
     TransitionResize {
@@ -1075,6 +1079,8 @@ pub struct Studio {
     /// about a track that the document does not.
     pub lanes: crate::panes::timeline::TimelinePane,
     pub selection: Vec<String>,
+    /// The media bin had the last press: Ctrl+A selects its cards (#696).
+    pub media_focused: bool,
     pub playhead: f32,
     pub playing: bool,
     transport: slint::Timer,
@@ -1970,6 +1976,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::MoveClips { .. } => "Move",
         Command::TrimClip { .. } => "Trim",
         Command::SplitClips { .. } => "Split",
+        Command::DuplicateClips { .. } => "Duplicate",
         Command::ReplaceClipMedia { .. } => "Replace clip's file",
         Command::SetClipEnhanced { on: true, .. } => "Enhance on",
         Command::SetClipEnhanced { .. } => "Enhance off",
@@ -2161,7 +2168,9 @@ fn command_words(command: &Command) -> String {
             format!("{kind}, now {}", file_name_of(&item.path))
         }
         Command::FreezeFrame { time, .. } => format!("{kind} at {time:.2} s"),
-        Command::MergeClips { clip_ids } | Command::RemoveClips { clip_ids, .. } => {
+        Command::MergeClips { clip_ids }
+        | Command::RemoveClips { clip_ids, .. }
+        | Command::DuplicateClips { clip_ids } => {
             format!("{kind} {}", clips_of(clip_ids.len()))
         }
         Command::UpdateClip { patch, .. } => format!("{kind}: {}", patch_words(patch)),
@@ -3109,6 +3118,7 @@ impl Studio {
             waves: RefCell::new(HashMap::new()),
             lanes: crate::panes::timeline::TimelinePane::default(),
             selection: Vec::new(),
+            media_focused: false,
             playhead: 0.0,
             // ~20px a second: a ten-second cut fits a pane at its default width.
             playing: false,

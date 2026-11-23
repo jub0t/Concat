@@ -1,0 +1,25 @@
+{
+  "about": "A four-second clip under a speed curve that rises in a straight line from normal speed at its start to three times at its end. Its average speed is two, so it lasts two seconds, and after t seconds it has played t + t²/2 seconds of its source: output frame k shows the source frame that holds that time, and the pips of source seconds 1, 2 and 3 are heard where the curve reaches them, at 0.732, 1.236 and 1.646 s, at their own pitch. A failure means a speed curve's length, its mapping of timeline time to source time, or its sound's place under the curve changed, or picture and sound follow different curves.",
+  "video": { "width": 320, "height": 180, "rateNum": 30, "rateDen": 1 },
+  "media": {
+    "a": { "kind": "clock", "tag": 1, "width": 320, "height": 180, "rate": [30, 1], "frames": 120, "sound": true }
+  },
+  "steps": [
+    { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clip" },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "setClipSpeedCurve", "clipId": "$clip", "curve": [{ "at": 0, "speed": 1 }, { "at": 1, "speed": 3 }], "ripple": false } },
+    { "step": "closeAndReopen" }
+  ],
+  "expect": {
+    "frames": 60,
+    "width": 320,
+    "height": 180,
+    "rate": [30, 1],
+    "runs": [
+      { "frames": [0, 59], "media": "a", "curve": [[0, 1], [1, 3]] }
+    ],
+    "sound": [
+      { "frames": [0, 59], "media": "a", "from": 0, "curve": [[0, 1], [1, 3]], "known": { "within": 0.002, "why": "Under a curve the sound is laid in grains of 5.3 ms, each at the source position the curve gives its middle, and a pip's first grain starts sounding before the pip does: 1.1 ms early at 2.2 times speed and 1.5 ms at 2.7, where at twice a steady speed it is 0.9 ms. Grains that start on an onset rather than straddle it would end it." } }
+    ]
+  }
+}

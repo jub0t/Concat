@@ -1,0 +1,251 @@
+{
+ "activeTimelineId": "TL1",
+ "clips": [
+  {
+   "duration": 2.0,
+   "fadeIn": 0.0,
+   "fadeOut": 0.0,
+   "filters": [],
+   "id": "c3",
+   "kind": "video",
+   "mediaId": "m1",
+   "name": "a.mov",
+   "offsetX": 0.0,
+   "offsetY": 0.0,
+   "opacity": 1.0,
+   "preservePitch": true,
+   "rotation": 0.0,
+   "scale": 1.0,
+   "sourceStart": 0.0,
+   "speed": 1.0,
+   "start": 0.0,
+   "trackId": "T1",
+   "videoEffects": [
+    {
+     "depth": {
+      "a": 1
+     },
+     "mystery": true
+    }
+   ],
+   "volume": 1.0
+  },
+  {
+   "duration": 2.0,
+   "fadeIn": 0.0,
+   "fadeOut": 0.0,
+   "filters": [],
+   "fromTheFuture": {
+    "keep": "me"
+   },
+   "id": "c4",
+   "kind": "video",
+   "mediaId": "m2",
+   "name": "b.mov",
+   "offsetX": 0.0,
+   "offsetY": 0.0,
+   "opacity": 1.0,
+   "preservePitch": true,
+   "rotation": 0.0,
+   "scale": 1.0,
+   "sourceStart": 0.0,
+   "speed": 1.0,
+   "start": 2.0,
+   "trackId": "T1",
+   "videoEffects": [],
+   "volume": 1.0
+  },
+  {
+   "duration": 1,
+   "id": "c900",
+   "kind": "hologram",
+   "shimmer": [
+    1,
+    2,
+    3
+   ],
+   "start": 10,
+   "trackId": "T1"
+  }
+ ],
+ "concat": "0.1.0",
+ "fonts": [],
+ "media": [
+  {
+   "audioCodec": "pcm_s16le",
+   "audioTracks": [
+    {
+     "channels": 1,
+     "codec": "pcm_s16le",
+     "index": 1,
+     "sampleRate": 48000
+    }
+   ],
+   "duration": 2.0,
+   "frameRate": 30.0,
+   "frameRateFraction": "30/1",
+   "hasAudio": true,
+   "height": 180,
+   "id": "m1",
+   "kind": "video",
+   "name": "a.mov",
+   "path": "/media/a.mov",
+   "videoCodec": "prores",
+   "width": 320
+  },
+  {
+   "audioCodec": "pcm_s16le",
+   "audioTracks": [
+    {
+     "channels": 1,
+     "codec": "pcm_s16le",
+     "index": 1,
+     "sampleRate": 48000
+    }
+   ],
+   "duration": 2.0,
+   "frameRate": 30.0,
+   "frameRateFraction": "30/1",
+   "hasAudio": true,
+   "height": 180,
+   "id": "m2",
+   "kind": "video",
+   "name": "b.mov",
+   "path": "/media/b.mov",
+   "videoCodec": "prores",
+   "width": 320
+  }
+ ],
+ "name": "unknown",
+ "timelines": [
+  {
+   "clips": [
+    {
+     "duration": 2.0,
+     "fadeIn": 0.0,
+     "fadeOut": 0.0,
+     "filters": [],
+     "id": "c3",
+     "kind": "video",
+     "mediaId": "m1",
+     "name": "a.mov",
+     "offsetX": 0.0,
+     "offsetY": 0.0,
+     "opacity": 1.0,
+     "preservePitch": true,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "sourceStart": 0.0,
+     "speed": 1.0,
+     "start": 0.0,
+     "trackId": "T1",
+     "videoEffects": [
+      {
+       "depth": {
+        "a": 1
+       },
+       "mystery": true
+      }
+     ],
+     "volume": 1.0
+    },
+    {
+     "duration": 2.0,
+     "fadeIn": 0.0,
+     "fadeOut": 0.0,
+     "filters": [],
+     "fromTheFuture": {
+      "keep": "me"
+     },
+     "id": "c4",
+     "kind": "video",
+     "mediaId": "m2",
+     "name": "b.mov",
+     "offsetX": 0.0,
+     "offsetY": 0.0,
+     "opacity": 1.0,
+     "preservePitch": true,
+     "rotation": 0.0,
+     "scale": 1.0,
+     "sourceStart": 0.0,
+     "speed": 1.0,
+     "start": 2.0,
+     "trackId": "T1",
+     "videoEffects": [],
+     "volume": 1.0
+    },
+    {
+     "duration": 1,
+     "id": "c900",
+     "kind": "hologram",
+     "shimmer": [
+      1,
+      2,
+      3
+     ],
+     "start": 10,
+     "trackId": "T1"
+    }
+   ],
+   "id": "TL1",
+   "name": "Timeline 1",
+   "tracks": [
+    {
+     "id": "T1",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T2",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T3",
+     "muted": false,
+     "visible": true
+    },
+    {
+     "id": "T4",
+     "muted": false,
+     "visible": true
+    }
+   ],
+   "video": {
+    "height": 180,
+    "rateDen": 1,
+    "rateNum": 30,
+    "width": 320
+   }
+  }
+ ],
+ "tracks": [
+  {
+   "id": "T1",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T2",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T3",
+   "muted": false,
+   "visible": true
+  },
+  {
+   "id": "T4",
+   "muted": false,
+   "visible": true
+  }
+ ],
+ "version": 2,
+ "video": {
+  "height": 180,
+  "rateDen": 1,
+  "rateNum": 30,
+  "width": 320
+ }
+}

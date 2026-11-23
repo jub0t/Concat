@@ -35,6 +35,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use concat_core::Frame;
+use concat_core::Halt;
 use concat_core::time::Rational;
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode,
@@ -253,7 +254,7 @@ impl Enhancers {
         &self,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<Arc<Enhancer>, String> {
+    ) -> Result<Arc<Enhancer>, Halt> {
         if let Some(loaded) = self
             .model
             .lock()
@@ -278,7 +279,7 @@ impl Enhancers {
         &self,
         request: &EnhanceRequest,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<PathBuf, String> {
+    ) -> Result<PathBuf, Halt> {
         if request.target.is_file() {
             return Ok(request.target.clone());
         }
@@ -290,12 +291,12 @@ impl Enhancers {
                 .map_err(|error| format!("{}: {error}", folder.display()))?;
         }
         progress(Progress::Analysing(0.0));
-        let result = if request.still {
-            still(&enhancer, request)
+        if request.still {
+            still(&enhancer, request)?;
         } else {
-            footage(&enhancer, request, &job, progress)
-        };
-        result.map(|()| request.target.clone())
+            footage(&enhancer, request, &job, progress)?;
+        }
+        Ok(request.target.clone())
     }
 
     /// The middle of one frame through the model, at most
@@ -308,12 +309,12 @@ impl Enhancers {
         &self,
         request: &PreviewRequest,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<Preview, String> {
+    ) -> Result<Preview, Halt> {
         let job = self.gate.begin("enhance")?;
         let cancel = job.cancel_handle();
         let enhancer = self.loaded(&cancel, progress)?;
         if job.cancelled() {
-            return Err("enhance cancelled".to_owned());
+            return Err(Halt::Cancelled);
         }
         let frame = frame_at(&request.media_path, request.seconds)?;
         let (width, height) = (frame.width(), frame.height());
@@ -383,7 +384,7 @@ fn footage(
     request: &EnhanceRequest,
     job: &crate::jobs::Job,
     progress: &mut dyn FnMut(Progress),
-) -> Result<(), String> {
+) -> Result<(), Halt> {
     let info = concat_media::probe(&request.media_path).map_err(|error| error.to_string())?;
     let video = info
         .video
@@ -401,7 +402,7 @@ fn footage(
     // bottom is cropped rather than the whole copy refused.
     let (width, height) = vision::size_at(video.width, video.height, request.scale);
     if width == 0 || height == 0 {
-        return Err("the picture is too small to enhance".to_owned());
+        return Err("the picture is too small to enhance".into());
     }
 
     let partial_video = request.target.with_extension("part.mp4");
@@ -435,7 +436,7 @@ fn footage(
         },
     )
     .map_err(|error| error.to_string())?;
-    let encoded = (|| {
+    let encoded = (|| -> Result<(), Halt> {
         let mut count = 0u64;
         // Where the time went, said once at the end: the model is nine
         // tenths of it on a Mac, and the rest is what overlapping the
@@ -466,7 +467,7 @@ fn footage(
             }
             lap(0, &mut t);
             if job.cancelled() {
-                return Err("enhance cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
             let enhanced = match &last {
                 Some((before, answer)) if before.pixels() == frame.pixels() => {
@@ -501,7 +502,8 @@ fn footage(
             per(t[2]),
             per(t[3])
         );
-        encoder.finish().map_err(|error| error.to_string())
+        encoder.finish().map_err(|error| error.to_string())?;
+        Ok(())
     })();
     // Windows will not rename or delete a file something still holds open,
     // and a finished encoder keeps its output open until it is dropped.
@@ -559,7 +561,8 @@ fn footage(
     if finished.is_err() {
         let _ = std::fs::remove_file(&partial_muxed);
     }
-    finished
+    finished?;
+    Ok(())
 }
 
 /// `frame` cut to `width` by `height` from its top-left, or the frame
