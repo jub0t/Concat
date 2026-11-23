@@ -50,7 +50,7 @@
 //! # The rules
 //!
 //! Where a type can hold a rule it does: ids are of their kind, lengths
-//! are more than nothing ([`TickLen`]), a rate or a speed has no zero, a
+//! are more than nothing ([`TickLen`](crate::TickLen)), a rate or a speed has no zero, a
 //! picture's size has no zero side, an order key is a key. The rest are
 //! checked at commit, on what the change list names: a commit that moved
 //! one item checks that item, its lane's neighbours around it, what is
