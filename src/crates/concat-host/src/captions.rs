@@ -9,10 +9,12 @@
 use concat_project::Command;
 use concat_project::model::TextStyle;
 
-/// Where a caption sits, as the sheet's rows offer it: high, middle, low.
+/// Where a caption sits, by the sheet's row: a frame-height fraction from
+/// the centre, positive down. Bottom, centre, top.
 pub const CAPTION_OFFSETS: [f64; 3] = [0.35, 0.0, -0.35];
 
-/// A caption's size as a share of the frame's height: small, medium, large.
+/// A caption's cap height by the sheet's row, as a fraction of the frame:
+/// small, medium, large.
 pub const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
 
 /// The shortest a caption stays up, in seconds: a word on its own is not a

@@ -1047,9 +1047,9 @@ impl Api {
     ) -> Result<EditorView, ApiError> {
         use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, Heard, caption_commands};
         let offset = match placement.unwrap_or("bottom") {
-            "top" => CAPTION_OFFSETS[0],
+            "bottom" => CAPTION_OFFSETS[0],
             "middle" => CAPTION_OFFSETS[1],
-            "bottom" => CAPTION_OFFSETS[2],
+            "top" => CAPTION_OFFSETS[2],
             other => {
                 return Err(ApiError::invalid(format!(
                     "unknown placement {other:?}: top, middle or bottom"
@@ -1931,6 +1931,11 @@ mod tests {
             .find(|clip| (clip.start - 2.0).abs() < 1e-9)
             .expect("the first caption where it was said");
         assert!((first.duration - 1.5).abs() < 1e-9);
+        assert!(
+            first.offset_y < 0.0,
+            "top is above the middle (offsets run down): {}",
+            first.offset_y
+        );
         // One undo takes every caption away.
         let undone = view(ok(api.dispatch(Request::EditUndo { path: path.clone() })));
         assert!(
