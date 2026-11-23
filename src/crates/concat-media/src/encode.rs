@@ -2590,7 +2590,11 @@ mod tests {
             .write_frame(&Frame::black(320, 180))
             .expect("writes");
         encoder.finish().expect("finishes");
-        std::fs::remove_file(path).expect("remove export");
+        // Let go of the file before removing it: Windows refuses to delete a
+        // file a handle still holds (os error 32), and the encoder holds its
+        // output until it is dropped.
+        drop(encoder);
+        let _ = std::fs::remove_file(path);
     }
 
     /// An average-bitrate export, the export sheet's: busy pictures come

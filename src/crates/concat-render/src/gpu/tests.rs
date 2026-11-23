@@ -963,6 +963,9 @@ const EFFECT_FLOOR: std::time::Duration = std::time::Duration::from_millis(5);
 /// seconds (TDR), and a frame stacks several effects on several layers.
 const EFFECT_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// Which value of a knob a corner of the budget test sets it to.
+type Pick = fn(&concat_effects::Param) -> f64;
+
 /// Every built-in effect draws a 4K frame within [`EFFECT_COST`] inverts and
 /// [`EFFECT_BUDGET`], with
 /// its knobs all at their minimum, their default and their maximum. A
@@ -1016,7 +1019,7 @@ fn every_shader_package_draws_a_4k_frame_within_its_budget() {
         let Some(shader) = package.shader() else {
             continue;
         };
-        let corners: [(&str, fn(&concat_effects::Param) -> f64); 3] = [
+        let corners: [(&str, Pick); 3] = [
             ("minimum", |param| param.min),
             ("default", |param| param.default),
             ("maximum", |param| param.max),
