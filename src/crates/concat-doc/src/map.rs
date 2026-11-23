@@ -510,6 +510,54 @@ impl<K: Ord, V, const B: usize> OrdMap<K, V, B> {
             }
         }
     }
+
+    /// The entry with the highest key below `key`: the one just before
+    /// where `key` is, or would go.
+    ///
+    /// What "the clip that started last before this tick" is asked
+    /// with, in the time it takes to look one key up.
+    ///
+    /// ```
+    /// use concat_doc::OrdMap;
+    ///
+    /// let tens: OrdMap<u32, &str> = [(10, "ten"), (20, "twenty")].into_iter().collect();
+    /// assert_eq!(tens.before(&20), Some((&10, &"ten")));
+    /// assert_eq!(tens.before(&15), Some((&10, &"ten")));
+    /// assert_eq!(tens.before(&10), None);
+    /// ```
+    pub fn before<Q>(&self, key: &Q) -> Option<(&K, &V)>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        fn below<'a, K, Q, V>(node: &'a Node<K, V>, key: &Q) -> Option<(&'a K, &'a V)>
+        where
+            K: Borrow<Q>,
+            Q: Ord + ?Sized,
+        {
+            match node {
+                Node::Leaf(entries) => {
+                    let at = entries.partition_point(|(have, _)| have.borrow() < key);
+                    let (found, value) = entries.get(at.checked_sub(1)?)?;
+                    Some((found, value))
+                }
+                Node::Branch(kids) => {
+                    // Every key under a child before this one is below
+                    // this one's low key, which is at or below `key`.
+                    let at = child_index(kids, key);
+                    below(&kids[at].1, key)
+                        .or_else(|| kids[..at].iter().rev().find_map(|(_, kid)| last_of(kid)))
+                }
+            }
+        }
+        fn last_of<K, V>(node: &Node<K, V>) -> Option<(&K, &V)> {
+            match node {
+                Node::Leaf(entries) => entries.last().map(|(key, value)| (key, value)),
+                Node::Branch(kids) => kids.iter().rev().find_map(|(_, kid)| last_of(kid)),
+            }
+        }
+        below(self.root.as_deref()?, key)
+    }
 }
 
 impl<K: Ord + Clone, V: Clone, const B: usize> OrdMap<K, V, B> {

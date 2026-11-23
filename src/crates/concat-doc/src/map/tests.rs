@@ -536,6 +536,17 @@ fn run<const B: usize>(start: Vec<(u32, u32)>, ops: Vec<Op>) -> Result<(), TestC
         for key in was.keys() {
             prop_assert_eq!(copy.get(key), was.get(key));
         }
+        // The entry before a key, at every key there is, either side of
+        // each, and past both ends.
+        let probes = was
+            .keys()
+            .flat_map(|key| [key.saturating_sub(1), *key, key + 1]);
+        for probe in probes.chain([0, u32::MAX]) {
+            prop_assert_eq!(
+                copy.before(&probe).map(|(k, v)| (*k, *v)),
+                was.range(..probe).next_back().map(|(k, v)| (*k, *v))
+            );
+        }
     }
     // What differs between two of them is what the slow way finds: each
     // against the one kept next, against the first and against the last,

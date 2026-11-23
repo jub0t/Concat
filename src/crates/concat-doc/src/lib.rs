@@ -122,6 +122,7 @@ pub mod document;
 pub mod history;
 pub mod id;
 pub mod map;
+pub mod model;
 pub mod table;
 pub mod time;
 
