@@ -379,9 +379,9 @@ impl MonitorPane {
             // or two back. The exact frame from the file follows once the
             // scrub rests (see `show`). Playback reads them at Half and
             // Quarter; Full plays the files themselves, or Full would be the
-            // proxy blurred up. With proxies off in Settings it reads the
+            // proxy blurred up. With scrub copies off in Settings it reads the
             // files at every quality, a proxy left from before included.
-            proxy: studio.prefs.proxies && (nearest || (moving && quality > 0)),
+            proxy: studio.prefs.scrub_copies() && (nearest || (moving && quality > 0)),
             color_space: studio.project().active().video.color_space,
             canvas: studio.project().active().video.canvas,
             nearest,

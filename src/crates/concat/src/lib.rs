@@ -264,6 +264,71 @@ pub(crate) fn close_window(
 /// a few seconds of scrubbing around where the monitor is, at its size.
 const IDLE_FRAMES: usize = 96 * 1024 * 1024;
 
+/// How long one callback may hold the window's thread before the log says
+/// so: past about six frames a drag or a click is felt to stick.
+const SLOW_CALLBACK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How long the window's thread may go without ticking before the log says
+/// it stalled: a drag that sticks for a quarter of a second is a bug to
+/// the person dragging.
+const STALL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// A callback's body as a short name for the log: its first statement,
+/// whitespace folded, at most 80 characters - enough to find it by.
+fn callback_name(body: &str) -> String {
+    let folded: String = body
+        .trim_start_matches('{')
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let first = folded.split(';').next().unwrap_or(&folded).trim();
+    first.chars().take(80).collect()
+}
+
+/// Watches the window's thread from another: a timer on the window's
+/// thread ticks every 50 ms, and a thread of its own logs every stretch of
+/// [`STALL`] or more without a tick, once it is over - a stall in a timer,
+/// in a background job's arrival or in drawing, which no callback's own
+/// timing sees. Returns the timer, which must be kept for the watch to run.
+fn watch_window_thread() -> slint::Timer {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let started = std::time::Instant::now();
+    let ticked = Arc::new(AtomicU64::new(0));
+    let tick = slint::Timer::default();
+    {
+        let ticked = Arc::clone(&ticked);
+        tick.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(50),
+            move || ticked.store(started.elapsed().as_millis() as u64, Ordering::Relaxed),
+        );
+    }
+    let _ = std::thread::Builder::new()
+        .name("concat window watch".into())
+        .spawn(move || {
+            let mut stalled_since: Option<u64> = None;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                let now = started.elapsed().as_millis() as u64;
+                let last = ticked.load(Ordering::Relaxed);
+                // Not before the first tick: the window is still opening.
+                if last == 0 {
+                    continue;
+                }
+                if now.saturating_sub(last) >= STALL.as_millis() as u64 {
+                    stalled_since.get_or_insert(last);
+                } else if let Some(from) = stalled_since.take() {
+                    log::warn!(
+                        "window: the window's thread stalled for {} ms",
+                        last.saturating_sub(from)
+                    );
+                }
+            }
+        });
+    tick
+}
+
 fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint::PlatformError> {
     // What Import and a finished export reach on an iPhone. Android's own
     // crate installs its; iOS runs this crate's binary, so it is here.
@@ -837,17 +902,36 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // return skipped the publish and left the window showing the state from
     // before until the next event republished it: Generate captions from a
     // clip's menu opened the sheet only at the next click (#433).
+    // Every callback from the window is timed, its three parts apart: one
+    // that holds the window's thread past `SLOW_CALLBACK` is said in the
+    // log by its first words, so a window that "froze for a moment" is a
+    // line naming what it was doing, and not an impression. See also
+    // `watch_window_thread` for a stall outside any callback.
     macro_rules! handler {
         ($publish:ident, |$state:ident $(, $arg:ident : $ty:ty)*| $body:block) => {{
             move |$($arg : $ty),*| {
                 Shell::with(|shell, app| {
+                    let began = std::time::Instant::now();
                     {
                         let mut $state = shell.studio.borrow_mut();
                         #[allow(clippy::redundant_closure_call)]
                         (|| $body)();
                     }
+                    let handled = began.elapsed();
                     shell.studio.borrow_mut().refresh_art();
+                    let refreshed = began.elapsed();
                     shell.studio.borrow().$publish(&app, &shell.models);
+                    let total = began.elapsed();
+                    if total >= SLOW_CALLBACK {
+                        log::warn!(
+                            "window: {} held the window's thread {} - {} handling, {} art, {} publishing",
+                            callback_name(stringify!($body)),
+                            concat_log::span(total),
+                            concat_log::span(handled),
+                            concat_log::span(refreshed - handled),
+                            concat_log::span(total - refreshed),
+                        );
+                    }
                 });
             }
         }};
@@ -2951,6 +3035,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // A device that ran out of memory since the last look closes every
     // reader not decoding now instead: a hardware one holds its pictures
     // on the card, and the card is what ran out (#873).
+    // Every stall of the window's thread, in the log; see the function.
+    let _window_watch = watch_window_thread();
+
     // The bin's "Preparing" while scrub copies are written: its cards
     // redrawn twice a second as long as any copy is under way, and once
     // more after the last, so the words go when the copy is there.

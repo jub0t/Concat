@@ -56,7 +56,8 @@ pub enum SettingsMsg {
     /// The log level's row: an index into [`LOG_LEVELS`].
     LogLevelChanged(i32),
     PlayheadStopsChanged(bool),
-    /// The proxies switch: whether large files get a smaller copy to play.
+    /// The scrub copies switch: whether every video gets a small copy that
+    /// a scrub reads; see `Preferences::scrub_copies`.
     ProxiesChanged(bool),
     /// The remember-layout switch: whether a launch opens on the last
     /// session's panels and window size.
@@ -391,10 +392,10 @@ impl SettingsPane {
                 studio.seek(at);
             }
             SettingsMsg::ProxiesChanged(on) => {
-                log::info!("settings: Proxies {}", on_off(on));
-                studio.prefs.proxies = on;
+                log::info!("settings: Scrub copies {}", on_off(on));
+                studio.prefs.scrub_copies = Some(on);
                 studio.prefs.save(&studio.host.dirs);
-                // On, the media already in the project gets its proxies
+                // On, the media already in the project gets its scrub copies
                 // straight away (refresh_art's stamp holds the switch);
                 // off, playback reads the files from the next frame.
             }
@@ -1024,7 +1025,7 @@ impl SettingsPane {
                 .position(|level| *level == log::max_level())
                 .unwrap_or(2) as i32,
             playhead_stops: self.playhead_stops,
-            proxies: studio.prefs.proxies,
+            proxies: studio.prefs.scrub_copies(),
             remember_layout: studio.prefs.remembers_layout(),
             layout_switchable: !crate::platform::phone(),
             gpu: !studio.prefs.draws_in_software(),

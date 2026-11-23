@@ -129,13 +129,19 @@ pub struct Preferences {
     /// it is put. Off by default: a click past the last clip lands there, so
     /// a clip can be dropped at the playhead beyond everything else.
     pub playhead_stops_at_end: bool,
-    /// Proxies: a file larger than HD gets a smaller copy written in the
-    /// background, and playback at Half and Quarter reads that copy. Off
-    /// by default: a proxy is a full re-encode of every large
-    /// file, on the CPU of a phone or through a hardware encoder a laptop
-    /// may not take (an HDR one opened NVENC first), and the person who
-    /// wants one for smoother playback turns it on in Settings.
-    pub proxies: bool,
+    /// Scrub copies: every video gets a small copy written in the
+    /// background, every frame of it a keyframe, which a scrub reads so the
+    /// picture keeps up with the hand, and playback at Half and Quarter
+    /// too; see concat_host::proxy. `None` is the platform's default -
+    /// on for a desktop, where the copy is a 540p software encode of about
+    /// 48 MB a minute; off for a phone, whose copies go through its chip
+    /// and are not every frame a keyframe yet.
+    ///
+    /// Stored as `scrubCopies`. It was `proxies`, off by default when a
+    /// proxy was a full re-encode of every file larger than HD and helped
+    /// playback only; the `false` saved under that name was that default,
+    /// not anyone's choice, so it is left behind with the old name.
+    pub scrub_copies: Option<bool>,
     /// Drawing in software: the window and the compositor on the
     /// platform's software rasteriser (WARP, lavapipe) instead of the GPU,
     /// as the person chose in Settings > General or with `concat
@@ -299,6 +305,12 @@ impl Preferences {
     /// Whether the timeline shows its VU meters; see `vu_meters`.
     pub fn meters_shown(&self) -> bool {
         self.vu_meters.unwrap_or(true)
+    }
+
+    /// Whether videos get scrub copies; see `scrub_copies`.
+    pub fn scrub_copies(&self) -> bool {
+        self.scrub_copies
+            .unwrap_or(!cfg!(any(target_os = "android", target_os = "ios")))
     }
 
     /// Which of `names` — the theme's accents, in its order — the remembered

@@ -42,7 +42,7 @@ impl Studio {
             .project()
             .media
             .iter()
-            .filter(|_| self.prefs.proxies)
+            .filter(|_| self.prefs.scrub_copies())
             .filter(|item| item.kind == model::MediaKind::Video && !item.placeholder)
             .filter(|item| !self.proxied.contains(&item.id))
             .filter_map(|item| {

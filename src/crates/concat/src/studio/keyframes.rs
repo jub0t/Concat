@@ -2177,8 +2177,8 @@ impl Studio {
             self.revision,
             self.on_start,
             self.art_pending.len() + self.posters_pending.len(),
-            // Proxies switched on in Settings are seen to at once.
-            self.prefs.proxies,
+            // Scrub copies switched on in Settings are seen to at once.
+            self.prefs.scrub_copies(),
         );
         if self.art_stamp == Some(stamp) {
             if !self.on_start {

@@ -320,7 +320,7 @@ pub fn write(
             // A percent at a time: the lock is shared with the window,
             // which reads it on every publish of the bin.
             if let Some(expected) = expected
-                && written % (expected / 100.0).ceil().max(1.0) as u64 == 0
+                && written.is_multiple_of((expected / 100.0).ceil().max(1.0) as u64)
             {
                 set_progress(source, Some((written as f64 / expected) as f32));
             }
