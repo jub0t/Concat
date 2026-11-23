@@ -321,7 +321,13 @@ pub fn run<J: Job>(
     cancel: &AtomicBool,
     hear: impl FnMut(Event<J::Progress>),
 ) -> Option<Result<J::Output, Halt>> {
-    run_with::<J>(&|| worker_command::<J>(program), request, policy, cancel, hear)
+    run_with::<J>(
+        &|| worker_command::<J>(program),
+        request,
+        policy,
+        cancel,
+        hear,
+    )
 }
 
 /// The command that starts `program` as `J`'s worker.
@@ -449,12 +455,15 @@ fn once_with<J: Job>(
         return None;
     };
     let name = J::NAME;
-    // The worker's log, into the editor's, line by line as it comes.
+    // The worker's log, into the editor's, line by line as it comes, at the
+    // level the worker wrote it. Under this crate's own target: the log
+    // writes another crate's lines only from a warning up, and a worker's
+    // whole account of an export is information.
     let logger = std::thread::Builder::new()
         .name("concat worker log".into())
         .spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                log::info!(target: "worker", "[{name}] {line}");
+                log::log!(level_of(&line), "[{name}] {line}");
             }
         })
         .ok();
@@ -518,7 +527,7 @@ fn once_with<J: Job>(
                     Err(_) => {
                         // Not ours: a library that printed to standard
                         // output. Kept in the log, not taken as an answer.
-                        log::info!(target: "worker", "[{name}] said {text}");
+                        log::info!("[{name}] said {text}");
                         continue;
                     }
                 };
@@ -568,6 +577,24 @@ fn once_with<J: Job>(
         let _ = logger.join();
     }
     Some(ended)
+}
+
+/// The level a worker wrote one line of its log at, read from the line: the
+/// log writes the level as a word between spaces. A line with none - a
+/// library printing to standard error - is information.
+fn level_of(line: &str) -> log::Level {
+    let words = line.split_whitespace().take(3);
+    for word in words {
+        match word {
+            "ERROR" => return log::Level::Error,
+            "WARN" => return log::Level::Warn,
+            "DEBUG" => return log::Level::Debug,
+            "TRACE" => return log::Level::Trace,
+            "INFO" => return log::Level::Info,
+            _ => {}
+        }
+    }
+    log::Level::Info
 }
 
 /// Hands `report` to the caller and keeps it as the last progress: the
@@ -641,6 +668,26 @@ mod tests {
     }
 
     #[test]
+    fn a_worker_line_keeps_the_level_it_was_written_at() {
+        assert_eq!(
+            level_of("03:55:47.299 ERROR gpu     the device was lost"),
+            log::Level::Error
+        );
+        assert_eq!(
+            level_of("03:55:47.299 WARN  export  slow"),
+            log::Level::Warn
+        );
+        assert_eq!(
+            level_of("03:55:47.299 INFO  export  done"),
+            log::Level::Info
+        );
+        assert_eq!(
+            level_of("a library said ERROR somewhere late"),
+            log::Level::Info
+        );
+    }
+
+    #[test]
     fn a_job_runs_here_with_the_context_a_worker_gives_it() {
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let into = Arc::clone(&seen);
@@ -711,7 +758,10 @@ mod tests {
                 context.progress(&step);
                 std::thread::sleep(Duration::from_millis(50));
             }
-            Ok(format!("counted to {request}{}", if second { " on the CPU" } else { "" }))
+            Ok(format!(
+                "counted to {request}{}",
+                if second { " on the CPU" } else { "" }
+            ))
         }
 
         fn quiet(_last: Option<&u32>) -> Duration {
@@ -731,7 +781,10 @@ mod tests {
 
     /// Runs the stand-in as `play`, counting to 5; what was heard and how
     /// it ended.
-    fn played(play: &'static str, cancel_after: Option<Duration>) -> (Vec<String>, Option<Result<String, Halt>>) {
+    fn played(
+        play: &'static str,
+        cancel_after: Option<Duration>,
+    ) -> (Vec<String>, Option<Result<String, Halt>>) {
         let program = std::env::current_exe().expect("the test binary");
         let make = move || {
             let mut command = Command::new(&program);
@@ -785,7 +838,10 @@ mod tests {
     fn a_worker_that_hangs_is_killed_and_tried_again() {
         let (heard, ended) = played("hang", None);
         assert_eq!(ended, Some(Ok("counted to 5 on the CPU".to_owned())));
-        assert!(heard.iter().any(|line| line.starts_with("retry")), "{heard:?}");
+        assert!(
+            heard.iter().any(|line| line.starts_with("retry")),
+            "{heard:?}"
+        );
     }
 
     /// A job that fails says why, and is not tried again: a second try
@@ -797,7 +853,10 @@ mod tests {
             ended,
             Some(Err(Halt::Failed("the encoder would not open".to_owned())))
         );
-        assert!(!heard.iter().any(|line| line.starts_with("retry")), "{heard:?}");
+        assert!(
+            !heard.iter().any(|line| line.starts_with("retry")),
+            "{heard:?}"
+        );
     }
 
     /// A worker stuck where it never looks at its cancel is killed once
@@ -807,7 +866,14 @@ mod tests {
         let began = Instant::now();
         let (heard, ended) = played("deaf", Some(Duration::from_millis(400)));
         assert_eq!(ended, Some(Err(Halt::Cancelled)));
-        assert!(!heard.iter().any(|line| line.starts_with("retry")), "{heard:?}");
-        assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
+        assert!(
+            !heard.iter().any(|line| line.starts_with("retry")),
+            "{heard:?}"
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            began.elapsed()
+        );
     }
 }
