@@ -628,11 +628,24 @@ impl CaptionsPane {
         let epoch = crate::host::project_epoch();
         spawn_long_in_project(
             move || {
-                transcriber.transcribe(&dirs, &request, move |stage| {
+                let report = move |stage: JobStage| {
                     on_ui_in_project(epoch, move |studio, _, _| {
                         studio.handle(Msg::Captions(CaptionsMsg::Progress(stage)));
                     });
-                })
+                };
+                // In a process of its own where the machine can start one:
+                // whisper failing there costs the captions one run and never
+                // the editor (#673, #736, #715). CONCAT_TRANSCRIBE_IN_PROCESS
+                // keeps it here, as it always was, and so does a phone.
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                if std::env::var_os("CONCAT_TRANSCRIBE_IN_PROCESS").is_none()
+                    && let Ok(program) = std::env::current_exe()
+                    && let Some(heard) =
+                        concat_speech::apart::transcribe(&program, &dirs, &request, report)
+                {
+                    return heard;
+                }
+                transcriber.transcribe(&dirs, &request, report)
             },
             |studio, _, _, result| studio.handle(Msg::Captions(CaptionsMsg::Finished(result))),
         );

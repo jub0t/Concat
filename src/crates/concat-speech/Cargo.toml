@@ -10,6 +10,7 @@ description = "Speech in and out: on-device transcription with whisper.cpp, and 
 concat-core.workspace = true
 concat-host.workspace = true
 concat-media.workspace = true
+concat-worker.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 

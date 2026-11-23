@@ -1494,6 +1494,7 @@ dependencies = [
  "concat-log",
  "concat-media",
  "concat-vision",
+ "concat-worker",
  "log",
  "ort",
  "realfft",

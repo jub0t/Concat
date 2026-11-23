@@ -17,6 +17,7 @@
 //! (whisper.cpp, and ONNX Runtime for Chatterbox) stay out of everything
 //! that does not speak.
 
+pub mod apart;
 #[cfg(feature = "beats")]
 pub mod beats;
 #[cfg(feature = "chatterbox")]
@@ -38,7 +39,7 @@ pub use tts::Speech;
 /// reports once per thirty seconds of sound, Chatterbox every few words - and
 /// `next` is what lets a bar move through the wait without promising more
 /// than the job has done.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum JobStage {
     /// Reading the sound in: a clip's, or the recording a voice is read
     /// from.

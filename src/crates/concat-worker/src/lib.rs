@@ -82,7 +82,7 @@ pub trait Job {
 /// told to stop.
 pub struct Context<P> {
     cancel: Arc<AtomicBool>,
-    report: Box<dyn Fn(&P) + Send + Sync>,
+    report: Arc<dyn Fn(&P) + Send + Sync>,
 }
 
 impl<P> Context<P> {
@@ -100,6 +100,17 @@ impl<P> Context<P> {
     /// one.
     pub fn cancel_flag(&self) -> &AtomicBool {
         &self.cancel
+    }
+
+    /// The same flag, owned, for a thread that outlives this borrow.
+    pub fn cancel_handle(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancel)
+    }
+
+    /// [`Context::progress`] as an owned function, for engine code that
+    /// wants a reporter it can keep: a callback that must be `'static`.
+    pub fn reporter(&self) -> Arc<dyn Fn(&P) + Send + Sync> {
+        Arc::clone(&self.report)
     }
 }
 
@@ -210,7 +221,7 @@ fn serve_job<J: Job>() -> i32 {
     }
     let context = Context {
         cancel,
-        report: Box::new(|progress: &J::Progress| {
+        report: Arc::new(|progress: &J::Progress| {
             say::<&J::Progress, ()>(&Line::Progress(progress));
         }),
     };
@@ -621,7 +632,7 @@ pub fn run_here<J: Job>(
 ) -> Result<J::Output, Halt> {
     let context = Context {
         cancel,
-        report: Box::new(report),
+        report: Arc::new(report),
     };
     J::run(request, &context)
 }

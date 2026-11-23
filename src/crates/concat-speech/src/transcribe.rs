@@ -845,7 +845,7 @@ pub struct TranscriberStatus {
 }
 
 /// One caption, in seconds relative to the transcribed window's start.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Segment {
     /// Seconds from the window's start.
@@ -857,7 +857,7 @@ pub struct Segment {
 }
 
 /// What to transcribe.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscribeRequest {
     /// The media file to transcribe.
@@ -1314,6 +1314,8 @@ impl Transcriber {
     /// Asks the running transcription to stop at its next check.
     pub fn cancel(&self) {
         self.gate.cancel();
+        // And one in a worker of the window's, which this gate does not see.
+        crate::apart::cancel();
     }
 
     /// Whether a transcription is running.

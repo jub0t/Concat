@@ -45,7 +45,10 @@ fn main() -> Result<(), slint::PlatformError> {
     // the window copies into its own, and its answers on standard output.
     if let Ok(Launch::Worker(job)) = &launch {
         let _ = concat_host::logs::open_console(None);
-        let table = [concat_worker::entry::<concat_host::export_apart::Export>()];
+        let table = [
+            concat_worker::entry::<concat_host::export_apart::Export>(),
+            concat_worker::entry::<concat_speech::apart::Transcribe>(),
+        ];
         std::process::exit(concat_worker::serve(&table, job));
     }
     if launch == Ok(Launch::ProbeEncoders) {
