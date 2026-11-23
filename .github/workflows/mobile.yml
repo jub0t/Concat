@@ -427,6 +427,83 @@ jobs:
           path: smoke-android/
           if-no-files-found: warn
 
+  # The native Android app (android-native/): Kotlin and Jetpack Compose over
+  # the engine through UniFFI (crates/concat-mobile), which replaces the
+  # Slint phone UI (.notes plan: native first, then the Slint phone code is
+  # deleted). Built on every push so the engine's phone surface and the
+  # Compose app never drift apart, and its APK and engine library are kept
+  # so the app can be worked on with Gradle alone on a machine too slow to
+  # build the engine for a phone. Not signed with the repository's key and
+  # not shipped yet: its application id is the spike's until it reaches
+  # parity with the Slint app.
+  android-native:
+    name: Android native (arm64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      TARGET: aarch64-linux-android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: The pinned toolchain
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-linux-android
+      - uses: taiki-e/cache-cargo-install-action@9ee83daaa7b96a6fab930949ecf1122bba04a389 # v3.0.8
+        with:
+          tool: cargo-ndk
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
+      # The same cache the Slint APK's job keeps: one FFmpeg build serves both.
+      - name: FFmpeg for Android (cached)
+        id: ffmpeg
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/aarch64-linux-android
+          key: ffmpeg-aarch64-linux-android-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+      - name: FFmpeg for Android
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
+      - name: FFmpeg for Android (save)
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/aarch64-linux-android
+          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
+      - name: Android libraries
+        run: src/scripts/android-libs.sh aarch64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src
+          key: native-aarch64-linux-android
+      # The runner image's JDK 17, which the Android Gradle plugin wants.
+      - name: Java 17
+        run: echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+      - name: The engine and its Kotlin bindings
+        run: android-native/build-rust.sh release 2>&1 | tee build-rust.log
+      - name: The app
+        working-directory: android-native
+        run: ./gradlew --no-daemon assembleRelease 2>&1 | tee ../gradle.log
+      - name: Build logs to the summary (failure only)
+        if: failure()
+        run: |
+          for log in build-rust.log gradle.log; do
+            [ -f "$log" ] || continue
+            { echo "### $log"; echo '```'; tail -n 80 "$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: concat-native-android-arm64
+          path: |
+            android-native/app/build/outputs/apk/release/*.apk
+            android-native/app/src/main/jniLibs/arm64-v8a/*.so
+            android-native/app/src/main/java/uniffi/**
+          if-no-files-found: error
+
   ios:
     name: iOS arm64
     runs-on: macos-15
