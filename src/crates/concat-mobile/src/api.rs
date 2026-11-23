@@ -29,7 +29,7 @@ pub trait ApiEvents: Send + Sync {
 /// The editor's API, as the phone app holds it: one per process.
 #[derive(uniffi::Object)]
 pub struct EditorApi {
-    api: Mutex<Api>,
+    api: Arc<Mutex<Api>>,
 }
 
 #[uniffi::export]
@@ -49,8 +49,12 @@ impl EditorApi {
             config: config_dir.into(),
             data: data_dir.into(),
         };
+        // As the Slint app's settings pane does on open: decode on the
+        // phone's MediaCodec, which takes files its CPU would not.
+        #[cfg(target_os = "android")]
+        concat_media::set_hardware_decode(true);
         Arc::new(EditorApi {
-            api: Mutex::new(Api::with_dirs(dirs, sink)),
+            api: Arc::new(Mutex::new(Api::with_dirs(dirs, sink))),
         })
     }
 
@@ -60,6 +64,13 @@ impl EditorApi {
     /// Blocking; call it off the main thread.
     pub fn call(&self, request: String) -> String {
         call_with(&self.api, &request)
+    }
+
+    /// The picture and sound of `project_path`, which must be open here
+    /// (`project.open` or `project.create` first). One at a time is what a
+    /// phone wants: each holds a GPU device and an audio stream.
+    pub fn preview(&self, project_path: String) -> Result<Arc<crate::Preview>, crate::MobileError> {
+        crate::Preview::open(Arc::clone(&self.api), project_path)
     }
 }
 

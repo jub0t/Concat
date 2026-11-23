@@ -901,6 +901,14 @@ impl Api {
             .ok_or_else(|| not_open(path))
     }
 
+    /// The open project at `path`, read-only: for an embedder that shows it
+    /// as well as editing it through requests - the phone app's preview,
+    /// which draws and plays the edit this API holds, so the two never open
+    /// the folder twice. An error when it is not open here.
+    pub fn open_session(&self, path: &str) -> Result<&Session, ApiError> {
+        self.session(path)
+    }
+
     fn session_mut(&mut self, path: &str) -> Result<&mut Session, ApiError> {
         self.sessions
             .get_mut(&key_of(path))
