@@ -83,6 +83,8 @@ export enum Glyph {
     mask-star,
     chevron-right,
     sparkle,
+    /// the preview's effects comparison: a compact fx mark
+    effects,
     /// the eyedropper: a colour taken off the picture
     pipette,
     eye,
@@ -267,6 +269,12 @@ export component Icon inherits Rectangle {
 
     width: root.size;
     height: root.size;
+
+    // Original fx mark, drawn on the set's 24-unit grid.
+    if root.glyph == Glyph.effects: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 5h-2a3 3 0 0 0-3 3v11 M4 11h7 M14 10l7 9 M21 10l-7 9";
+    }
 
     // lucide/info
     if root.glyph == Glyph.info: Stroked {
