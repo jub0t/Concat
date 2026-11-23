@@ -107,6 +107,8 @@ object Commands {
 
     fun splitClips(clipIds: List<String>, time: Double) = op("splitClips").put("clipIds", ids(clipIds)).put("time", time)
 
+    fun duplicateClips(clipIds: List<String>) = op("duplicateClips").put("clipIds", ids(clipIds))
+
     fun removeClips(clipIds: List<String>, ripple: Boolean = true) =
         op("removeClips").put("clipIds", ids(clipIds)).put("ripple", ripple)
 

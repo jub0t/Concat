@@ -185,36 +185,15 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     }
 
     /**
-     * A copy right after the clip, on its lane. The API has no duplicate
-     * (the window's copy carries a whole clip, which never crosses it), so
-     * this places the same media again and trims and retimes it to match:
-     * two undo steps, and the clip's looks beyond speed and volume stay
-     * behind.
+     * A copy of the whole clip right after it, on its lane, in one undo
+     * step: the edit model's own `duplicateClips`.
      */
     fun duplicate() {
         val clip = selectedClip() ?: return
         change("Duplicate") {
-            if (clip.kind == ClipKind.Text) {
-                val style = clip.text ?: JSONObject().put("content", clip.name)
-                val view = apply(Commands.addTextClip(clip.end, style, clip.duration, clip.trackId))
-                view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
-                return@change view
-            }
-            if (clip.mediaId.isEmpty()) throw IOException("Only a clip of media or a title can be duplicated here.")
-            val added = apply(Commands.addClip(clip.mediaId, clip.trackId, clip.end, ripple = true))
-            val id = added.createdId ?: return@change added
-            val copy = added.clip(id) ?: return@change added
-            val fixes = buildList {
-                if (clip.sourceStart > 1e-6) add(Commands.trimClip(id, "start", clip.sourceStart, ripple = true))
-                // At speed 1 the copy covers its length in source; the original covers duration * speed.
-                val covered = clip.duration * clip.speed
-                val left = copy.duration - clip.sourceStart.coerceAtMost(copy.duration)
-                if (kotlin.math.abs(covered - left) > 1e-3) add(Commands.trimClip(id, "end", covered - left, ripple = true))
-                if (kotlin.math.abs(clip.speed - 1.0) > 1e-6) add(Commands.setClipSpeed(id, clip.speed))
-                if (kotlin.math.abs(clip.volume - 1.0) > 1e-6) add(Commands.updateClip(id, JSONObject().put("volume", clip.volume)))
-            }
-            _ui.update { it.copy(selected = id) }
-            if (fixes.isEmpty()) added else apply(Commands.batch(fixes))
+            val view = apply(Commands.duplicateClips(listOf(clip.id)))
+            view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
+            view
         }
     }
 

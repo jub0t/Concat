@@ -268,6 +268,16 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 }
                 last
             }
+            "duplicateClips" -> {
+                val ids = command.getJSONArray("clipIds").let { a -> (0 until a.length()).map { a.getString(it) } }
+                var first: String? = null
+                for (id in ids.mapNotNull { clip(it) }.sortedByDescending { it.getDouble("start") }) {
+                    val copy = JSONObject(id.toString()).put("id", mint("c")).put("start", id.end())
+                    clips.put(copy)
+                    first = copy.getString("id")
+                }
+                first
+            }
             "removeClips" -> {
                 val ids = command.getJSONArray("clipIds").let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }
                 val removed = clipList().filter { it.getString("id") in ids }
