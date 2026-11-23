@@ -685,6 +685,17 @@ pub enum Command {
         /// The cut point, in timeline seconds.
         time: f64,
     },
+    /// Copies each named clip whole - its look and sound, keys, effects,
+    /// masks, crop and the rest - and lays the copy right after the clip's
+    /// own end on its own lane, or in the nearest gap from there. The
+    /// latest goes first, so a copy never lands where an earlier one still
+    /// waits. A copy has no transition in and no link to the picture its
+    /// sound came off: those belong to its neighbours. The copy of the
+    /// earliest clip is the created id; an unknown clip is skipped.
+    DuplicateClips {
+        /// The clips to copy - normally the selection.
+        clip_ids: Vec<String>,
+    },
     /// Points a clip at another file - the enhanced or reversed copy of
     /// its media - adding the file to the bin first when it is not there.
     /// The clip's length, looks and name are kept, and its in-point unless
@@ -1397,6 +1408,7 @@ pub fn apply(
         | Command::MoveClips { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }
+        | Command::DuplicateClips { .. }
         | Command::FreezeFrame { .. }
         | Command::ReplaceClipMedia { .. }
         | Command::SetClipEnhanced { .. }

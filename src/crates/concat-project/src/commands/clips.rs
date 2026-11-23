@@ -428,6 +428,34 @@ pub(super) fn apply(
             })
         }
 
+        Command::DuplicateClips { clip_ids } => {
+            let timeline = project.active_mut();
+            let mut sources: Vec<Clip> = clip_ids
+                .iter()
+                .filter_map(|id| timeline.clip(id).cloned())
+                .collect();
+            sources.sort_by(|a, b| b.start.total_cmp(&a.start));
+            let mut earliest = None;
+            for source in sources {
+                let mut copy = source.clone();
+                copy.id = mint.next("c");
+                copy.transition_in = None;
+                copy.detached_from = None;
+                copy.start = timeline.nearest_free_start(
+                    &source.track_id,
+                    source.start + source.duration,
+                    source.duration,
+                    &[],
+                );
+                earliest = Some(copy.id.clone());
+                timeline.clips.push(Arc::new(copy));
+            }
+            Ok(Outcome {
+                applied: earliest.is_some(),
+                created_id: earliest,
+            })
+        }
+
         Command::SplitClips { clip_ids, time } => {
             let timeline = project.active_mut();
             let mut created = None;

@@ -2346,6 +2346,45 @@ mod tests {
         );
     }
 
+    /// A duplicate is the clip whole, laid right after it on its lane, in
+    /// one undo step; an unknown clip is skipped, and nothing to copy
+    /// changes nothing.
+    #[test]
+    fn a_duplicate_is_the_whole_clip_right_after_it() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    volume: Some(0.4),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("sets the volume");
+        let outcome = editor
+            .apply(Command::DuplicateClips {
+                clip_ids: vec![clip_id.clone(), "no-such-clip".to_owned()],
+            })
+            .expect("duplicates");
+        let copy_id = outcome.created_id.expect("the copy is named");
+        let timeline = editor.project().active();
+        let source = timeline.clip(&clip_id).expect("the source");
+        let copy = timeline.clip(&copy_id).expect("the copy");
+        assert_eq!(timeline.clips.len(), 2);
+        assert_eq!(copy.start, source.start + source.duration);
+        assert_eq!(copy.duration, source.duration);
+        assert_eq!(copy.track_id, source.track_id);
+        assert_eq!(copy.volume, 0.4, "the copy carries the clip's sound");
+        editor.undo();
+        assert_eq!(editor.project().active().clips.len(), 1, "one undo step");
+        let nothing = editor
+            .apply(Command::DuplicateClips {
+                clip_ids: vec!["no-such-clip".to_owned()],
+            })
+            .expect("a no-op, not an error");
+        assert!(nothing.created_id.is_none());
+    }
+
     #[test]
     fn split_produces_source_continuous_halves_and_merge_rejoins_them() {
         let (mut editor, _, clip_id) = fixture();
