@@ -64,6 +64,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -108,7 +109,7 @@ import kotlinx.coroutines.delay
 private enum class Menu { Root, Audio, Text }
 
 /** A tool's options, open above the toolbar. */
-private enum class Panel { Speed, Volume, Opacity, Fade, Crop, Mask, Animation, TextNew, TextEdit, Effects, Filters, Transitions, Aspect, Background, Captions, Speech, Voiceover }
+private enum class Panel { Speed, Volume, Opacity, Fade, Crop, Mask, Animation, TextNew, TextEdit, Effects, Filters, Transitions, Aspect, Background, Captions, Speech, Voiceover, Stickers, Cover }
 
 /** The panels that belong to the selected clip, closed when it is let go. */
 private val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel.Fade, Panel.Crop, Panel.Mask, Panel.Animation, Panel.TextEdit, Panel.Effects, Panel.Filters)
@@ -204,12 +205,16 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     val pickReplacement = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         model.replace(uri)
     }
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        model.setCoverPicture(uri)
+    }
     val pickReplacementSound = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         model.replace(uri)
     }
     fun addMedia() = pickVisual.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
 
     val view = ui.view
+    val coverImage = remember(ui.cover) { ui.cover?.asImageBitmap() }
     val selected = view?.clip(ui.selected)
     val mainTrackId = view?.let { v -> v.tracks.getOrNull(mainTrackIndex(v))?.id }
 
@@ -250,6 +255,7 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                             position = ui.position,
                             selected = if (inlineEdit != null) null else ui.selected,
                             mainTrackId = mainTrackId,
+                            bounds = ui.bounds,
                             onSelect = {
                                 model.select(it)
                                 if (it != null) menu = Menu.Root
@@ -319,6 +325,11 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                                 panel = Panel.Transitions
                             },
                             onMuteTrack = model::setTrackSoundMuted,
+                            onCover = {
+                                model.select(null)
+                                panel = Panel.Cover
+                            },
+                            cover = coverImage,
                         )
                     }
                     PanelSlot(visible = panel != null, modifier = Modifier.align(Alignment.BottomCenter)) {
@@ -350,6 +361,15 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                                 }, onClose = close)
                                 Panel.Aspect -> view?.let { v -> AspectPanel(v, { model.setAspect(it.width, it.height) }, close) }
                                 Panel.Background -> BackgroundPanel(model::setBackground, close)
+                                Panel.Cover -> CoverPanel(
+                                    ui.cover,
+                                    named = view?.cover != null,
+                                    onFrame = model::setCoverFrame,
+                                    onPicture = { pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    onReset = model::resetCover,
+                                    onClose = close,
+                                )
+                                Panel.Stickers -> StickersPanel(ui.stickers, { card -> model.addSticker(card, stickerName(card)) }, close)
                                 Panel.Captions -> CaptionsSheet(captions, model, preferClip = selected?.id, onDismiss = close)
                                 Panel.Speech -> SpeechSheet(speech, model, onDismiss = close)
                                 Panel.Voiceover -> VoiceoverSheet(voiceover, model, onDismiss = close)
@@ -581,6 +601,7 @@ private fun toolsFor(selected: Clip?, menu: Menu, mainTrackId: String?, panel: P
                 Tool(ConcatIcons.Razor, "Edit", onClick = a.selectMain),
                 Tool(ConcatIcons.Music, "Audio") { a.setMenu(Menu.Audio) },
                 Tool(ConcatIcons.TextMark, "Text") { a.setMenu(Menu.Text) },
+                Tool(ConcatIcons.Sticker, "Stickers", active = panel == Panel.Stickers, onClick = open(Panel.Stickers)),
                 Tool(ConcatIcons.Image, "Overlay", onClick = a.addOverlay),
                 Tool(ConcatIcons.Sparkle, "Effects", active = panel == Panel.Effects) {
                     a.selectMain()

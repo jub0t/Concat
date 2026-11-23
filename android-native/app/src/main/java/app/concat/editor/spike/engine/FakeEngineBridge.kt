@@ -43,6 +43,12 @@ class FakeEngineBridge(context: Context) : EngineBridge {
     private var nextJob = 1
     private val cancelled = HashSet<String>()
 
+    /** The Stickers page's ids, in the engine's order (ShapeStyle::CARDS). */
+    private val stickerIds = listOf(
+        "square", "rounded", "circle", "ring", "triangle", "pentagon", "polygon", "star", "heart",
+        "pill", "parallelogram", "trapezoid", "line", "arrow", "double-arrow",
+    )
+
     internal class Session(val path: String, var view: JSONObject) {
         val undo = ArrayDeque<String>()
         val redo = ArrayDeque<String>()
@@ -89,6 +95,7 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "media.filmstrip" -> FakePictures.filmstrip(request)
         "media.peaks" -> FakePictures.peaks(request, mediaDuration(request.getString("file")))
         "preview.frame" -> previewFrame(request)
+        "project.cover" -> projectCover(request)
         "project.close" -> {
             val session = session(request)
             if (request.optBoolean("save")) write(session)
@@ -103,6 +110,10 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "export.cancel" -> JSONObject().also { cancelled += request.getString("job") }
         "catalogue.list" -> FakeCatalogue.list(request.optString("kind").ifEmpty { null })
         "models.list" -> modelsList()
+        "shapes.list" -> JSONArray().apply {
+            for (id in stickerIds) put(JSONObject().put("id", id).put("style", JSONObject().put("kind", id).put("fill", "#ffffff").put("width", 0.35)))
+        }
+        "clips.bounds" -> session(request).let { session -> fakeBounds(session) }
         "models.download" -> modelsDownload(request.getString("kind"), request.getString("id"))
         "models.delete" -> JSONObject().also { setDownloaded(request.getString("id"), false) }
         "captions.transcribe" -> transcribe(request)
@@ -159,6 +170,30 @@ class FakeEngineBridge(context: Context) : EngineBridge {
     }
 
     /** The placeholder picture at an instant: what the preview paints, as a PNG. */
+    /** `project.cover`: the picture set as the cover, cut to fill; else the frame it names, or one early in. */
+    private fun projectCover(request: JSONObject): JSONObject {
+        val session = session(request)
+        val cover = session.project.optJSONObject("cover")
+        if (cover?.optString("kind") == "picture") {
+            val source = android.graphics.BitmapFactory.decodeFile(cover.optString("path"))
+                ?: throw Refusal("failed", "${cover.optString("path")} would not open")
+            val width = request.optInt("width", 270).coerceIn(8, 2048)
+            val height = request.optInt("height", 480).coerceIn(8, 2048)
+            val scale = maxOf(width.toFloat() / source.width, height.toFloat() / source.height)
+            val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+            val shownW = source.width * scale
+            val shownH = source.height * scale
+            val target = android.graphics.RectF((width - shownW) / 2, (height - shownH) / 2, (width + shownW) / 2, (height + shownH) / 2)
+            Canvas(bitmap).drawBitmap(source, null, target, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+            val output = request.getString("output")
+            File(output).apply { parentFile?.mkdirs() }.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            return JSONObject().put("path", output).put("width", width).put("height", height)
+        }
+        val length = session.clips.objectsList().maxOfOrNull { it.getDouble("start") + it.getDouble("duration") } ?: 0.0
+        val time = if (cover?.optString("kind") == "frame") cover.optDouble("time", 0.0).coerceAtMost(length) else (length * 0.25).coerceAtMost(2.0)
+        return previewFrame(JSONObject(request.toString()).put("time", time))
+    }
+
     private fun previewFrame(request: JSONObject): JSONObject {
         val path = request.getString("path")
         val view = sessions[path]?.view ?: File(path, DOCUMENT).takeIf { it.exists() }?.let { JSONObject(it.readText()) }
@@ -198,6 +233,32 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         val set = downloadedModels()
         if (downloaded) set += id else set -= id
         modelsFile.writeText(JSONArray(set.toList()).toString())
+    }
+
+    /** `clips.bounds` from a reading of each style: about as the painter would, enough for the emulator's box. */
+    private fun fakeBounds(session: Session): JSONArray {
+        val video = session.timeline.optJSONObject("video") ?: JSONObject()
+        val aspect = video.optDouble("width", 1080.0) / video.optDouble("height", 1920.0).coerceAtLeast(1.0)
+        return JSONArray().apply {
+            for (clip in session.clips.objectsList()) {
+                val (width, height) = when (clip.optString("kind")) {
+                    "text" -> {
+                        val style = clip.optJSONObject("text") ?: JSONObject()
+                        val em = style.optDouble("fontSize", 0.09)
+                        val lines = style.optString("content").lines().ifEmpty { listOf("") }
+                        val longest = lines.maxOf { it.length }.coerceAtLeast(1)
+                        (longest * em * 0.6 + em * 0.6) / aspect to lines.size * em * 1.2 + em * 0.5
+                    }
+                    "shape" -> {
+                        val side = clip.optJSONObject("shape")?.optDouble("width", 0.35) ?: 0.35
+                        side / aspect to side
+                    }
+                    else -> continue
+                }
+                put(JSONObject().put("clipId", clip.getString("id")).put("width", width).put("height", height)
+                    .put("offsetX", 0.0).put("offsetY", 0.0))
+            }
+        }
     }
 
     private fun modelsList(): JSONObject {
@@ -582,6 +643,19 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                     .put("volume", 1.0).put("speed", 1.0).put("text", style))
                 id
             }
+            "addShapeClip" -> {
+                val start = max(0.0, command.getDouble("start"))
+                val length = command.optDouble("duration", 3.0).takeIf { !it.isNaN() } ?: 3.0
+                val style = command.optJSONObject("style") ?: JSONObject().put("kind", "square")
+                val track = command.optString("trackId").takeIf { !command.isNull("trackId") && it.isNotEmpty() }
+                    ?: firstFreeAbove(start, start + length)
+                val id = mint("c")
+                clips.put(JSONObject().put("id", id).put("trackId", track).put("mediaId", "")
+                    .put("name", command.optString("name").ifBlank { style.optString("kind") })
+                    .put("kind", "shape").put("start", start).put("duration", length).put("sourceStart", 0.0)
+                    .put("volume", 1.0).put("speed", 1.0).put("shape", style))
+                id
+            }
             "splitClips" -> {
                 val time = command.getDouble("time")
                 val ids = command.getJSONArray("clipIds").let { a -> (0 until a.length()).map { a.getString(it) } }
@@ -629,6 +703,16 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                     clip.put("start", start).put("trackId", track)
                 }
                 null
+            }
+            "moveClipsToNewTrack" -> {
+                // The lane and the move as one step; a move that lands no clip makes no lane.
+                val moves = command.getJSONArray("moves").objectsList().filter { clip(it.getString("clipId")) != null }
+                if (moves.isEmpty()) null
+                else {
+                    val lane = addTrack(session, top = !command.optBoolean("bottom"))
+                    for (move in moves) clip(move.getString("clipId"))?.put("start", max(0.0, move.getDouble("start")))?.put("trackId", lane)
+                    lane
+                }
             }
             "addTrack" -> addTrack(session, top = !command.optBoolean("bottom"))
             "addTransitionClip" -> {
@@ -750,6 +834,12 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 val kept = (clip.optJSONArray("keys") ?: JSONArray()).objectsList()
                     .filterNot { it.optString("property") == property && kotlin.math.abs(it.optDouble("at") - at) < 0.002 }
                 clip.put("keys", JSONArray().apply { kept.forEach { put(it) } })
+                null
+            }
+            "setCover" -> {
+                val cover = command.optJSONObject("cover")
+                if (cover == null) session.project.remove("cover")
+                else session.project.put("cover", JSONObject(cover.toString()).apply { if (has("time")) put("time", max(0.0, getDouble("time"))) })
                 null
             }
             "setTimelineBackground" -> {

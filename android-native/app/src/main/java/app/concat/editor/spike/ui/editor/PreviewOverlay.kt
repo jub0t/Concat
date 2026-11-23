@@ -34,6 +34,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import app.concat.editor.spike.api.Clip
+import app.concat.editor.spike.api.ClipBounds
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.ProjectView
 import app.concat.editor.spike.ui.icons.ConcatIcons
@@ -54,8 +55,13 @@ data class Placement(val scale: Double, val offsetX: Double, val offsetY: Double
     }
 }
 
-/** A clip's box on the frame, in pixels of it: centre, size, and turn. */
-private class Box(val centre: Offset, val width: Float, val height: Float, val degrees: Float) {
+/**
+ * A clip's box on the frame, in pixels of it: centre, size, and turn.
+ * [anchor] is the clip's own position, which a gesture moves and turns it
+ * about; it is the box's centre but for a title aligned to an edge, whose
+ * block the painter lays beside its position.
+ */
+private class Box(val centre: Offset, val width: Float, val height: Float, val degrees: Float, val anchor: Offset = centre) {
     fun contains(point: Offset, slack: Float = 0f): Boolean {
         val local = unrotate(point)
         return abs(local.x) <= width / 2 + slack && abs(local.y) <= height / 2 + slack
@@ -80,27 +86,49 @@ private class Box(val centre: Offset, val width: Float, val height: Float, val d
 
 /**
  * Where [clip] is drawn on a [frame]-sized picture at [placement]: a title's
- * lines at its size, a picture fitted to the frame (by its own aspect when
- * the probe found one).
+ * or shape's block as the engine painted it ([bounds], from `clips.bounds`),
+ * a reading of its style until that comes, and a picture fitted to the
+ * frame (by its own aspect when the probe found one).
  */
-private fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Size): Box {
+private fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Size, bounds: Map<String, ClipBounds>): Box {
     val centre = Offset(
         frame.width / 2f + (placement.offsetX * frame.width).toFloat(),
         frame.height / 2f + (placement.offsetY * frame.height).toFloat(),
     )
     val scale = placement.scale.toFloat()
+    val turn = placement.rotation.toFloat()
+    val painted = bounds[clip.id]?.takeIf { clip.kind == ClipKind.Text || clip.kind == ClipKind.Shape }
+    if (painted != null) {
+        // The block's offset is canvas pixels: it scales and turns with the clip.
+        val px = (painted.offsetX * frame.width).toFloat() * scale
+        val py = (painted.offsetY * frame.height).toFloat() * scale
+        val r = turn * PI.toFloat() / 180f
+        val shift = Offset(px * cos(r) - py * sin(r), px * sin(r) + py * cos(r))
+        return Box(
+            centre + shift,
+            (painted.width * frame.width).toFloat() * scale,
+            (painted.height * frame.height).toFloat() * scale,
+            turn,
+            anchor = centre,
+        )
+    }
     if (clip.kind == ClipKind.Text) {
         val style = clip.text
         val font = ((style?.optDouble("fontSize", 0.09) ?: 0.09).toFloat() * frame.height * scale).coerceAtLeast(6f)
         val lines = (style?.optString("content") ?: clip.name).lines().ifEmpty { listOf("") }
         val longest = lines.maxOf { it.length }.coerceAtLeast(1)
         val pad = font * 0.3f
-        return Box(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, placement.rotation.toFloat())
+        return Box(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, turn)
+    }
+    if (clip.kind == ClipKind.Shape) {
+        // Until it is painted: a figure's default size, a third of the frame's height.
+        val side = 0.35f * frame.height * scale
+        return Box(centre, side, side, turn)
     }
     val media = view.mediaOf(clip)
     val aspect = if (media != null && media.width > 0 && media.height > 0) media.width.toFloat() / media.height else frame.width / frame.height
     val fitted = if (aspect > frame.width / frame.height) Size(frame.width, frame.width / aspect) else Size(frame.height * aspect, frame.height)
-    return Box(centre, fitted.width * scale, fitted.height * scale, placement.rotation.toFloat())
+    return Box(centre, fitted.width * scale, fitted.height * scale, turn)
 }
 
 private enum class Grip { None, Body, Corner }
@@ -119,6 +147,7 @@ fun PreviewOverlay(
     position: Double,
     selected: String?,
     mainTrackId: String?,
+    bounds: Map<String, ClipBounds>,
     onSelect: (String?) -> Unit,
     onCommit: (clipId: String, placement: Placement) -> Unit,
     onEditText: (clipId: String) -> Unit,
@@ -129,6 +158,7 @@ fun PreviewOverlay(
     var guides by remember { mutableStateOf(Pair(false, false)) }
     var moving by remember { mutableStateOf(false) }
     val currentView by rememberUpdatedState(view)
+    val currentBounds by rememberUpdatedState(bounds)
     val currentPosition by rememberUpdatedState(position)
     val currentSelected by rememberUpdatedState(selected)
     val select by rememberUpdatedState(onSelect)
@@ -156,7 +186,7 @@ fun PreviewOverlay(
                     .thenByDescending { it.kind == ClipKind.Text }
                     .thenByDescending { order.indexOf(it.trackId) },
             )
-            .firstOrNull { boxOf(v, it, Placement.of(it), frame).contains(point, 8f) }
+            .firstOrNull { boxOf(v, it, Placement.of(it), frame, currentBounds).contains(point, 8f) }
     }
 
     var lastTap by remember { mutableStateOf(Pair("", 0L)) }
@@ -176,7 +206,7 @@ fun PreviewOverlay(
                 val hit = hitTest(down.position, frame)
                 val over = hit?.takeIf { it.id != chosen?.id && it.trackId != mainTrackId }
                 if (chosen != null) {
-                    val box = boxOf(v, chosen, live?.takeIf { it.first == chosen.id }?.second ?: Placement.of(chosen), frame)
+                    val box = boxOf(v, chosen, live?.takeIf { it.first == chosen.id }?.second ?: Placement.of(chosen), frame, currentBounds)
                     when {
                         box.corners.any { (it - down.position).getDistance() < handleReach } -> grip = Grip.Corner
                         over == null && box.contains(down.position, 6f) -> grip = Grip.Body
@@ -205,8 +235,8 @@ fun PreviewOverlay(
 
                 val start = live?.takeIf { it.first == clip.id }?.second ?: Placement.of(clip)
                 var now = start
-                val startBox = boxOf(v, clip, start, frame)
-                val grabbed = down.position - startBox.centre
+                val startBox = boxOf(v, clip, start, frame, currentBounds)
+                val grabbed = down.position - startBox.anchor
                 var travelled = 0f
                 var twoFingers = false
                 val snapPx = 8.dp.toPx()
@@ -222,17 +252,17 @@ fun PreviewOverlay(
                     var centre: Offset
                     if (grip == Grip.Corner && !twoFingers) {
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        val from = down.position - startBox.centre
-                        val to = change.position - startBox.centre
+                        val from = down.position - startBox.anchor
+                        val to = change.position - startBox.anchor
                         scale = (start.scale * to.getDistance() / max(1f, from.getDistance())).coerceIn(0.05, 8.0)
                         rotation = start.rotation + (atan2(to.y, to.x) - atan2(from.y, from.x)) * 180.0 / PI
-                        centre = startBox.centre
+                        centre = startBox.anchor
                         travelled = max(travelled, (change.position - down.position).getDistance())
                     } else if (pressed.size > 1) {
                         scale = (now.scale * event.calculateZoom()).coerceIn(0.05, 8.0)
                         rotation = now.rotation + event.calculateRotation()
                         val pan = event.calculatePan()
-                        centre = boxOf(v, clip, now, frame).centre + pan
+                        centre = boxOf(v, clip, now, frame, currentBounds).anchor + pan
                         travelled += pan.getDistance() + 20f
                     } else {
                         val change = event.changes.firstOrNull { it.id == down.id } ?: pressed.first()
@@ -295,7 +325,7 @@ fun PreviewOverlay(
         }
         val clip = view.clip(selected)?.takeIf { it.placeable && position >= it.start && position < it.end } ?: return@Canvas
         val placement = live?.takeIf { it.first == clip.id }?.second ?: Placement.of(clip)
-        val box = boxOf(view, clip, placement, frame)
+        val box = boxOf(view, clip, placement, frame, bounds)
         val alpha = appear.value
         val outline = Path().apply {
             val c = box.corners

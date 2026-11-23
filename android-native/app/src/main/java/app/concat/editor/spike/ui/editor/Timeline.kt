@@ -168,7 +168,9 @@ fun Timeline(
     onAddMedia: () -> Unit,
     onTransition: (nextClipId: String) -> Unit,
     onMuteTrack: (trackId: String, muted: Boolean) -> Unit,
+    onCover: () -> Unit,
     modifier: Modifier = Modifier,
+    cover: ImageBitmap? = null,
 ) {
     var pxPerSecond by remember { mutableFloatStateOf(0f) }
     var drag by remember { mutableStateOf<DragPreview?>(null) }
@@ -188,6 +190,7 @@ fun Timeline(
     val addMedia by rememberUpdatedState(onAddMedia)
     val transition by rememberUpdatedState(onTransition)
     val muteTrack by rememberUpdatedState(onMuteTrack)
+    val openCover by rememberUpdatedState(onCover)
 
     // The selection fades in; the playhead's knob springs while a finger is down.
     val selection = remember { Animatable(1f) }
@@ -345,7 +348,7 @@ fun Timeline(
                                 is TimelineButton.Add -> addMedia()
                                 is TimelineButton.Cut -> transition(tapped.nextClipId)
                                 is TimelineButton.Mute -> muteTrack(tapped.trackId, tapped.mute)
-                                TimelineButton.Cover -> scrub(0.0)
+                                TimelineButton.Cover -> openCover()
                                 null -> choose(if (hit?.id == currentSelected) null else hit?.id)
                             }
                             return@awaitEachGesture
@@ -472,7 +475,7 @@ fun Timeline(
                     )
                 }
             }
-            if (main != null) drawMainExtras(measurer, glyphs, media, view, main, selected, ::x)
+            if (main != null) drawMainExtras(measurer, glyphs, media, view, main, selected, cover, ::x)
 
             // The selection: a thick lime frame and chunky white handles.
             val chosen = view.clip(selected)
@@ -681,6 +684,7 @@ private fun DrawScope.glyph(painter: VectorPainter, topLeft: Offset, size: Float
 
 private fun kindGlyph(glyphs: TimelineGlyphs, clip: Clip): VectorPainter = when (clip.kind) {
     ClipKind.Text -> glyphs.text
+    ClipKind.Shape -> glyphs.shapes
     ClipKind.Audio, ClipKind.SoundLayer -> glyphs.music
     ClipKind.Image -> glyphs.image
     ClipKind.Video -> glyphs.film
@@ -897,11 +901,12 @@ private fun DrawScope.drawMainExtras(
     view: ProjectView,
     main: LaneRow,
     selected: String?,
+    cover: ImageBitmap?,
     x: (Double) -> Float,
 ) {
     val clips = view.clips.filter { it.trackId == main.trackId }.sortedBy { it.start }
 
-    // The cover: a square of the first frame, labelled.
+    // The cover: the one the project names, or a square of the first frame; labelled.
     val coverRight = x(0.0) - 12.dp.toPx()
     val side = main.height
     val coverLeft = coverRight - side
@@ -912,7 +917,15 @@ private fun DrawScope.drawMainExtras(
             drawRect(ConcatColors.raised, rect.topLeft, rect.size)
             val first = clips.firstOrNull { it.kind == ClipKind.Video || it.kind == ClipKind.Image }
             val file = first?.let { view.mediaOf(it)?.path }
-            if (first != null && file != null) drawFilmstrip(media, file, first.copy(duration = first.duration.coerceAtMost(0.5)), rect, 1f)
+            if (cover != null) {
+                drawImage(
+                    cover,
+                    dstOffset = IntOffset(rect.left.roundToInt(), rect.top.roundToInt()),
+                    dstSize = IntSize(rect.width.roundToInt(), rect.height.roundToInt()),
+                )
+            } else if (first != null && file != null) {
+                drawFilmstrip(media, file, first.copy(duration = first.duration.coerceAtMost(0.5)), rect, 1f)
+            }
             drawRect(Color.Black.copy(alpha = 0.72f), Offset(rect.left, rect.bottom - 16.dp.toPx()), Size(rect.width, 16.dp.toPx()))
         }
         drawRoundRect(ConcatColors.lineStrong, rect.topLeft, rect.size, CornerRadius(6.dp.toPx()), style = Stroke(1.dp.toPx()))

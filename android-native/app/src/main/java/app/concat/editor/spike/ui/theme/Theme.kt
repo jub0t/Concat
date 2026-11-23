@@ -81,6 +81,7 @@ object KindColors {
         ClipKind.Audio -> audio
         ClipKind.Image -> image
         ClipKind.Text -> text
+        ClipKind.Shape -> shape
         ClipKind.Layer -> adjustment
         ClipKind.SoundLayer -> filter
         ClipKind.Transition -> transition
