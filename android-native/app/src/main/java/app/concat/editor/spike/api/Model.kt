@@ -36,7 +36,41 @@ data class ProjectInfo(
     }
 }
 
-enum class ClipKind { Video, Audio, Image, Text, Layer, Other }
+enum class ClipKind {
+    Video, Audio, Image, Text, Layer, SoundLayer, Transition, Other;
+
+    /** Whether the clip plays sound of its own: what captions can hear. */
+    val hasSound get() = this == Video || this == Audio
+}
+
+/**
+ * One link of a clip's effect chain (`AppliedFilter`): the package, its
+ * knobs as set, and the whole object, so a chain sent back keeps what the
+ * phone does not edit (keys).
+ */
+data class AppliedEffect(val id: String, val params: Map<String, Double>, val enabled: Boolean, val raw: JSONObject) {
+    /** The same link with one knob set. */
+    fun withParam(key: String, value: Double): JSONObject {
+        val out = JSONObject(raw.toString())
+        val params = out.optJSONObject("params") ?: JSONObject()
+        out.put("params", params.put(key, value))
+        return out
+    }
+
+    companion object {
+        fun from(json: JSONObject): AppliedEffect {
+            val params = json.optJSONObject("params")
+            val map = LinkedHashMap<String, Double>()
+            params?.keys()?.forEach { key -> map[key] = params.optDouble(key) }
+            return AppliedEffect(json.optString("id"), map, json.optBoolean("enabled", true), json)
+        }
+
+        /** A new link at the package's defaults. */
+        fun fresh(id: String): JSONObject = JSONObject().put("id", id).put("params", JSONObject()).put("enabled", true)
+
+        fun list(array: JSONArray?): List<AppliedEffect> = array?.objects()?.map(::from) ?: emptyList()
+    }
+}
 
 data class MediaItem(val id: String, val path: String, val name: String, val kind: String, val duration: Double?)
 
@@ -55,6 +89,10 @@ data class Clip(
     val speed: Double,
     /** A title's whole style, as the document holds it. */
     val text: JSONObject?,
+    /** The picture's chain, in order; a transition clip's package is its first link. */
+    val videoEffects: List<AppliedEffect> = emptyList(),
+    /** The sound's chain, in order. */
+    val filters: List<AppliedEffect> = emptyList(),
 ) {
     val end get() = start + duration
 }
@@ -69,7 +107,10 @@ data class ProjectView(
     val canUndo: Boolean,
     val canRedo: Boolean,
     val media: List<MediaItem>,
-    /** The active timeline's lanes, top to bottom. */
+    /**
+     * The active timeline's lanes as the document stores them: bottom
+     * first, the last one drawn on top (concat-project's `AddTrack`).
+     */
     val tracks: List<Track>,
     val clips: List<Clip>,
     val createdId: String?,
@@ -129,6 +170,8 @@ data class ProjectView(
                             "image" -> ClipKind.Image
                             "text" -> ClipKind.Text
                             "layer" -> ClipKind.Layer
+                            "soundLayer" -> ClipKind.SoundLayer
+                            "transition" -> ClipKind.Transition
                             else -> ClipKind.Other
                         },
                         start = it.optDouble("start", 0.0),
@@ -137,6 +180,8 @@ data class ProjectView(
                         volume = it.optDouble("volume", 1.0),
                         speed = it.optDouble("speed", 1.0),
                         text = it.optJSONObject("text"),
+                        videoEffects = AppliedEffect.list(it.optJSONArray("videoEffects")),
+                        filters = AppliedEffect.list(it.optJSONArray("filters")),
                     )
                 }.sortedBy { it.start },
                 createdId = json.optString("createdId").ifEmpty { null },
@@ -176,5 +221,118 @@ sealed interface ApiEvent {
         }
     }
 }
+
+/** One speech model: `models.list`'s `ModelInfo`. */
+data class ModelInfo(
+    val id: String,
+    val label: String,
+    val blurb: String,
+    val family: String,
+    val englishOnly: Boolean,
+    val sizeBytes: Long,
+    val downloaded: Boolean,
+) {
+    companion object {
+        fun from(json: JSONObject) = ModelInfo(
+            id = json.optString("id"),
+            label = json.optString("label").ifBlank { json.optString("id") },
+            blurb = json.optString("blurb"),
+            family = json.optString("family"),
+            englishOnly = json.optBoolean("englishOnly"),
+            sizeBytes = json.optLong("sizeBytes"),
+            downloaded = json.optBoolean("downloaded"),
+        )
+    }
+}
+
+data class VoiceItem(val id: Int, val name: String, val family: String)
+
+/** `models.list`: what hears (captions), what reads aloud, and the voices. */
+data class ModelsInfo(val transcribers: List<ModelInfo>, val speech: List<ModelInfo>, val voices: List<VoiceItem>) {
+    companion object {
+        val EMPTY = ModelsInfo(emptyList(), emptyList(), emptyList())
+
+        fun from(json: JSONObject) = ModelsInfo(
+            transcribers = (json.optJSONArray("transcribers") ?: JSONArray()).objects().map(ModelInfo::from),
+            speech = (json.optJSONArray("speech") ?: JSONArray()).objects().map(ModelInfo::from),
+            voices = (json.optJSONArray("voices") ?: JSONArray()).objects().map {
+                VoiceItem(it.optInt("id"), it.optString("name"), it.optString("family"))
+            },
+        )
+    }
+}
+
+/** One knob of a package: `ParamInfo`. */
+data class ParamInfo(
+    val key: String,
+    val label: String,
+    val type: String,
+    val min: Double,
+    val max: Double,
+    val default: Double,
+    val step: Double,
+    val unit: String,
+    val values: List<Double>,
+    val labels: List<String>,
+) {
+    /** What a slider can show: numbers, a switch, a choice. Colours and points are left to the desktop. */
+    val sliderable get() = type == "float" || type == "int" || type == "bool" || type == "enum"
+
+    companion object {
+        fun from(json: JSONObject): ParamInfo {
+            val values = json.optJSONArray("values")
+            val labels = json.optJSONArray("labels")
+            return ParamInfo(
+                key = json.optString("key"),
+                label = json.optString("label").ifBlank { json.optString("key") },
+                type = json.optString("type", "float"),
+                min = json.optDouble("min", 0.0),
+                max = json.optDouble("max", 1.0),
+                default = json.optDouble("default", 0.0),
+                step = json.optDouble("step", 0.0),
+                unit = json.optString("unit"),
+                values = values?.let { a -> (0 until a.length()).map { a.optDouble(it) } } ?: emptyList(),
+                labels = labels?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+            )
+        }
+    }
+}
+
+/** One effect, filter, sound effect or transition: `catalogue.list`'s `PackageInfo`. */
+data class PackageInfo(
+    val id: String,
+    val name: String,
+    val kind: String,
+    val category: String,
+    val description: String,
+    val intensity: String?,
+    val params: List<ParamInfo>,
+) {
+    companion object {
+        fun from(json: JSONObject) = PackageInfo(
+            id = json.optString("id"),
+            name = json.optString("name").ifBlank { json.optString("id") },
+            kind = json.optString("kind"),
+            category = json.optString("category").ifBlank { "Other" },
+            description = json.optString("description"),
+            intensity = if (json.isNull("intensity")) null else json.optString("intensity").ifEmpty { null },
+            params = (json.optJSONArray("params") ?: JSONArray()).objects().map(ParamInfo::from),
+        )
+    }
+}
+
+/** One stretch of speech heard in a clip, seconds into the clip's sound. */
+data class CaptionSegment(val start: Double, val end: Double, val text: String) {
+    fun toJson(): JSONObject = JSONObject().put("start", start).put("end", end).put("text", text)
+
+    companion object {
+        fun list(array: JSONArray?): List<CaptionSegment> = array?.objects()?.map {
+            CaptionSegment(it.optDouble("start"), it.optDouble("end"), it.optString("text"))
+        } ?: emptyList()
+    }
+}
+
+/** `version`: the build and the contract it speaks. */
+data class VersionInfo(val apiVersion: String, val concat: String, val capabilities: List<String>)
 
 fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }

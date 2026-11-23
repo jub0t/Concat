@@ -90,7 +90,189 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "media.import" -> session(request).let { session -> edit(session) { import(session, request.getString("file")) } }
         "export.run" -> export(request)
         "export.cancel" -> JSONObject().also { cancelled += request.getString("job") }
+        "catalogue.list" -> FakeCatalogue.list(request.optString("kind").ifEmpty { null })
+        "models.list" -> modelsList()
+        "models.download" -> modelsDownload(request.getString("kind"), request.getString("id"))
+        "models.delete" -> JSONObject().also { setDownloaded(request.getString("id"), false) }
+        "captions.transcribe" -> transcribe(request)
+        "captions.place" -> session(request).let { session -> edit(session) { placeCaptions(session, request) } }
+        "captions.cancel", "speech.cancel" -> JSONObject().also { cancelled += request.getString("job") }
+        "speech.speak" -> speak(request)
         else -> throw Refusal("invalid", "the in-memory engine does not answer $method")
+    }
+
+    // -- speech models, captions, reading aloud ----------------------------
+
+    private val modelsFile = File(config, "fake-models.json")
+
+    private fun downloadedModels(): MutableSet<String> = try {
+        JSONArray(modelsFile.readText()).let { a -> (0 until a.length()).map { a.getString(it) }.toMutableSet() }
+    } catch (_: Exception) {
+        mutableSetOf()
+    }
+
+    private fun setDownloaded(id: String, downloaded: Boolean) {
+        val set = downloadedModels()
+        if (downloaded) set += id else set -= id
+        modelsFile.writeText(JSONArray(set.toList()).toString())
+    }
+
+    private fun modelsList(): JSONObject {
+        val have = downloadedModels()
+        fun model(id: String, label: String, blurb: String, family: String, englishOnly: Boolean, size: Long) =
+            JSONObject().put("id", id).put("label", label).put("blurb", blurb).put("family", family)
+                .put("englishOnly", englishOnly).put("sizeBytes", size).put("downloaded", id in have)
+        return JSONObject()
+            .put("transcribers", JSONArray()
+                .put(model("tiny.en", "Tiny (English)", "Fastest; misses more words.", "", true, 75_000_000))
+                .put(model("base", "Base", "Any language; a good balance.", "", false, 142_000_000))
+                .put(model("small", "Small", "Hears best; slowest on a phone.", "", false, 466_000_000)))
+            .put("speech", JSONArray()
+                .put(model("system", "Phone voice", "The voice the phone has; nothing to download.", "system", false, 0)
+                    .put("downloaded", true))
+                .put(model("chatterbox", "Chatterbox", "Natural voices; a large download.", "chatterbox", false, 520_000_000)))
+            .put("voices", JSONArray()
+                .put(JSONObject().put("id", 0).put("name", "Default").put("family", "system"))
+                .put(JSONObject().put("id", 1).put("name", "Ava").put("family", "chatterbox"))
+                .put(JSONObject().put("id", 2).put("name", "Noah").put("family", "chatterbox"))
+                .put(JSONObject().put("id", 3).put("name", "Mia").put("family", "chatterbox")))
+    }
+
+    private fun modelsDownload(kind: String, id: String): JSONObject {
+        if (kind != "transcriber" && kind != "speech") throw Refusal("invalid", "$kind is not a model kind")
+        val size = modelsList().let { all ->
+            (all.getJSONArray("transcribers").objectsList() + all.getJSONArray("speech").objectsList())
+                .firstOrNull { it.getString("id") == id }?.getLong("sizeBytes")
+        } ?: throw Refusal("notFound", "no model $id")
+        val job = "j${nextJob++}"
+        thread(name = "fake-model-$job") {
+            fun send(event: JSONObject) = _events.tryEmit(event.put("job", job).put("id", id).toString())
+            val total = max(1L, size)
+            for (step in 1..40) {
+                if (synchronized(this) { cancelled.remove(job) }) {
+                    send(JSONObject().put("event", "models.failed").put("error", JSONObject().put("code", "cancelled").put("message", "Cancelled.")))
+                    return@thread
+                }
+                send(JSONObject().put("event", "models.progress").put("received", total * step / 40).put("total", total).put("unpacking", step == 40))
+                Thread.sleep(60)
+            }
+            synchronized(this) { setDownloaded(id, true) }
+            send(JSONObject().put("event", "models.done"))
+        }
+        return JSONObject().put("job", job).put("path", "").put("output", "")
+    }
+
+    private fun transcribe(request: JSONObject): JSONObject {
+        val session = session(request)
+        val clipId = request.getString("clipId")
+        val clip = session.clip(clipId) ?: throw Refusal("notFound", "no clip $clipId")
+        val model = request.getString("model")
+        if (model !in downloadedModels()) throw Refusal("refused", "$model is not downloaded")
+        val job = "j${nextJob++}"
+        val path = session.path
+        val heard = clip.getDouble("duration") * clip.getDouble("speed")
+        val from = clip.getDouble("sourceStart")
+        thread(name = "fake-captions-$job") {
+            fun send(event: JSONObject) = _events.tryEmit(event.put("job", job).put("path", path).toString())
+            val stages = listOf("reading" to 6, "loading" to 6, "hearing" to 30)
+            for ((stage, steps) in stages) {
+                for (step in 1..steps) {
+                    if (synchronized(this) { cancelled.remove(job) }) {
+                        send(JSONObject().put("event", "captions.failed").put("error", JSONObject().put("code", "cancelled").put("message", "Cancelled.")))
+                        return@thread
+                    }
+                    send(JSONObject().put("event", "captions.progress").put("stage", stage)
+                        .put("fraction", if (stage == "hearing") step.toDouble() / steps else 0.0))
+                    Thread.sleep(70)
+                }
+            }
+            val segments = JSONArray()
+            var at = 0.0
+            var line = 0
+            while (at < heard - 0.2) {
+                val end = min(heard, at + 2.0)
+                segments.put(JSONObject().put("start", from + at).put("end", from + end).put("text", FAKE_WORDS[line % FAKE_WORDS.size]))
+                at = end
+                line++
+            }
+            send(JSONObject().put("event", "captions.done").put("clipId", clipId).put("segments", segments))
+        }
+        return JSONObject().put("job", job).put("path", path).put("output", "")
+    }
+
+    private fun placeCaptions(session: Session, request: JSONObject): String? {
+        val clip = session.clip(request.getString("clipId")) ?: throw Refusal("notFound", "that clip is gone")
+        val size = when (request.optString("size", "medium")) { "small" -> 0.045; "large" -> 0.09; else -> 0.065 }
+        val offsetY = when (request.optString("placement", "bottom")) { "top" -> -0.35; "middle" -> 0.0; else -> 0.35 }
+        val speed = clip.getDouble("speed")
+        val sourceStart = clip.getDouble("sourceStart")
+        var last: String? = null
+        val segments = request.getJSONArray("segments").objectsList()
+        if (segments.isEmpty()) return null
+        val first = clip.getDouble("start") + (segments.minOf { it.getDouble("start") } - sourceStart) / speed
+        val lastEnd = clip.getDouble("start") + (segments.maxOf { it.getDouble("end") } - sourceStart) / speed
+        val track = session.firstFreeAbove(first, lastEnd)
+        for (segment in segments) {
+            val text = segment.optString("text").trim()
+            if (text.isEmpty()) continue
+            val start = clip.getDouble("start") + (segment.getDouble("start") - sourceStart) / speed
+            val length = max(MIN, (segment.getDouble("end") - segment.getDouble("start")) / speed)
+            val style = JSONObject().put("content", text).put("fontSize", size).put("color", "#ffffff").put("offsetY", offsetY)
+            val id = mint("c")
+            session.clips.put(JSONObject().put("id", id).put("trackId", track).put("mediaId", "").put("name", text)
+                .put("kind", "text").put("start", max(0.0, start)).put("duration", length).put("sourceStart", 0.0)
+                .put("volume", 1.0).put("speed", 1.0).put("text", style))
+            last = id
+        }
+        return last
+    }
+
+    private fun speak(request: JSONObject): JSONObject {
+        val session = session(request)
+        val text = request.getString("text").trim()
+        if (text.isEmpty()) throw Refusal("invalid", "there is nothing to say")
+        val model = request.getString("model")
+        if (model != "system" && model !in downloadedModels()) throw Refusal("refused", "$model is not downloaded")
+        val speed = request.optDouble("speed", 1.0).takeIf { !it.isNaN() && it > 0 } ?: 1.0
+        val job = "j${nextJob++}"
+        val path = session.path
+        val seconds = max(1.0, text.split(Regex("\\s+")).size * 0.38 / speed)
+        val file = File(path, "speech-${System.currentTimeMillis()}.wav")
+        thread(name = "fake-speech-$job") {
+            fun send(event: JSONObject) = _events.tryEmit(event.put("job", job).put("path", path).toString())
+            for (step in 1..25) {
+                if (synchronized(this) { cancelled.remove(job) }) {
+                    send(JSONObject().put("event", "speech.failed").put("error", JSONObject().put("code", "cancelled").put("message", "Cancelled.")))
+                    return@thread
+                }
+                send(JSONObject().put("event", "speech.progress").put("stage", if (step < 5) "loading" else "reading").put("fraction", step / 25.0))
+                Thread.sleep(60)
+            }
+            try {
+                writeTone(file, seconds)
+                send(JSONObject().put("event", "speech.done").put("file", file.absolutePath).put("duration", seconds))
+            } catch (failure: Exception) {
+                send(JSONObject().put("event", "speech.failed").put("error", JSONObject().put("code", "failed").put("message", failure.message ?: "write failed")))
+            }
+        }
+        return JSONObject().put("job", job).put("path", path).put("output", file.absolutePath)
+    }
+
+    /** A quiet hum, as a 16-bit mono WAV, standing in for a voice. */
+    private fun writeTone(file: File, seconds: Double) {
+        val rate = 16_000
+        val samples = (seconds * rate).toInt()
+        val data = java.nio.ByteBuffer.allocate(44 + samples * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        data.put("RIFF".toByteArray()).putInt(36 + samples * 2).put("WAVE".toByteArray())
+        data.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(1).putInt(rate).putInt(rate * 2).putShort(2).putShort(16)
+        data.put("data".toByteArray()).putInt(samples * 2)
+        for (i in 0 until samples) {
+            val t = i.toDouble() / rate
+            val envelope = 0.5 + 0.5 * kotlin.math.sin(2 * Math.PI * 3 * t)
+            data.putShort((kotlin.math.sin(2 * Math.PI * 180 * t) * 3000 * envelope).toInt().toShort())
+        }
+        file.parentFile?.mkdirs()
+        file.writeBytes(data.array())
     }
 
     private fun session(request: JSONObject): Session =
@@ -230,8 +412,9 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 var at = max(0.0, command.getDouble("start"))
                 val total = lengths.sum()
                 val named = command.optString("trackId").takeIf { !command.isNull("trackId") && it.isNotEmpty() }
-                val track = named ?: (tracks.length() - 1 downTo 0).map { tracks.getJSONObject(it).getString("id") }
-                    .firstOrNull { free(it, at, at + total) } ?: addTrack(session, top = false)
+                // The lowest lane free for the whole run: lanes are stored bottom first.
+                val track = named ?: (0 until tracks.length()).map { tracks.getJSONObject(it).getString("id") }
+                    .firstOrNull { free(it, at, at + total) } ?: addTrack(session, top = true)
                 if (named != null && command.optBoolean("ripple") && !free(track, at, at + total)) shift(track, at, total)
                 var last: String? = null
                 items.forEachIndexed { i, item -> last = place(item, track, at, lengths[i]); at += lengths[i] }
@@ -242,8 +425,7 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 val length = command.optDouble("duration", 3.0).takeIf { !it.isNaN() } ?: 3.0
                 val style = command.optJSONObject("style") ?: JSONObject().put("content", "Your text")
                 val track = command.optString("trackId").takeIf { !command.isNull("trackId") && it.isNotEmpty() }
-                    ?: (0 until tracks.length()).map { tracks.getJSONObject(it).getString("id") }
-                        .firstOrNull { free(it, start, start + length) } ?: addTrack(session, top = true)
+                    ?: firstFreeAbove(start, start + length)
                 val id = mint("c")
                 clips.put(JSONObject().put("id", id).put("trackId", track).put("mediaId", "")
                     .put("name", style.optString("content").lineSequence().firstOrNull().orEmpty())
@@ -277,6 +459,41 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                     first = copy.getString("id")
                 }
                 first
+            }
+            "moveClips" -> {
+                val known = tracks.objectsList().map { it.getString("id") }.toSet()
+                val moves = command.getJSONArray("moves").objectsList()
+                val moving = moves.map { it.getString("clipId") }.toSet()
+                for (move in moves) {
+                    val clip = clip(move.getString("clipId")) ?: continue
+                    val track = move.optString("trackId").takeIf { it in known } ?: clip.getString("trackId")
+                    var start = max(0.0, move.getDouble("start"))
+                    val length = clip.getDouble("duration")
+                    // Onto another clip is never where a move lands: the nearest gap that holds it.
+                    val others = clipList().filter { it.getString("trackId") == track && it.getString("id") !in moving }
+                        .map { it.getDouble("start") to it.end() }.sortedBy { it.first }
+                    fun fits(at: Double) = others.none { (s, e) -> s < at + length - 1e-6 && e > at + 1e-6 }
+                    if (!fits(start)) {
+                        val candidates = listOf(0.0) + others.map { it.second } + others.map { it.first - length }
+                        start = candidates.filter { it >= 0 && fits(it) }.minByOrNull { kotlin.math.abs(it - start) } ?: clip.getDouble("start")
+                    }
+                    clip.put("start", start).put("trackId", track)
+                }
+                null
+            }
+            "addTrack" -> addTrack(session, top = !command.optBoolean("bottom"))
+            "addTransitionClip" -> {
+                val start = max(0.0, command.getDouble("start"))
+                val length = command.optDouble("duration", 1.0).takeIf { !it.isNaN() } ?: 1.0
+                val track = command.optString("trackId").takeIf { !command.isNull("trackId") && it.isNotEmpty() }
+                    ?: firstFreeAbove(start, start + length)
+                val id = mint("c")
+                val pkg = command.getString("transitionId")
+                clips.put(JSONObject().put("id", id).put("trackId", track).put("mediaId", "")
+                    .put("name", command.optString("name").ifBlank { pkg }).put("kind", "transition")
+                    .put("start", start).put("duration", length).put("sourceStart", 0.0).put("volume", 1.0).put("speed", 1.0)
+                    .put("videoEffects", JSONArray().put(JSONObject().put("id", pkg).put("params", JSONObject()).put("enabled", true))))
+                id
             }
             "removeClips" -> {
                 val ids = command.getJSONArray("clipIds").let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }
@@ -323,6 +540,14 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 val patch = command.getJSONObject("patch")
                 if (patch.has("volume")) clip.put("volume", max(0.0, patch.getDouble("volume")))
                 if (patch.has("name")) clip.put("name", patch.getString("name"))
+                if (patch.has("opacity")) clip.put("opacity", patch.getDouble("opacity").coerceIn(0.0, 1.0))
+                for (chain in listOf("videoEffects", "filters")) {
+                    if (patch.has(chain)) clip.put(chain, patch.optJSONArray(chain) ?: JSONArray())
+                }
+                if (patch.has("transitionIn")) {
+                    val transition = patch.optJSONObject("transitionIn")
+                    if (transition == null) clip.remove("transitionIn") else clip.put("transitionIn", transition)
+                }
                 if (patch.has("text")) {
                     val text = patch.optJSONObject("text")
                     if (text == null) clip.remove("text") else {
@@ -350,9 +575,17 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         val id = mint("t")
         val track = JSONObject().put("id", id).put("visible", true).put("muted", false)
         val list = session.tracks.objectsList().toMutableList()
-        if (top) list.add(0, track) else list.add(track)
+        // Stored bottom first, as the engine does: the last lane is drawn on top.
+        if (top) list.add(track) else list.add(0, track)
         session.timeline.put("tracks", JSONArray().apply { list.forEach { put(it) } })
         return id
+    }
+
+    /** The first lane free over the span above the highest one taken there, or a new one on top: where a title goes. */
+    private fun Session.firstFreeAbove(start: Double, end: Double): String {
+        val ids = tracks.objectsList().map { it.getString("id") }
+        val floor = ids.indices.filter { !free(ids[it], start, end) }.maxOfOrNull { it + 1 } ?: 0
+        return ids.drop(floor).firstOrNull { free(it, start, end) } ?: addTrack(this, top = true)
     }
 
     private fun import(session: Session, file: String): String? {
@@ -435,6 +668,51 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         private const val TAG = "concat-fake"
         private const val DOCUMENT = "fake-project.json"
         private const val MIN = 1.0 / 60
+        private val FAKE_WORDS = listOf(
+            "This is what the in-memory engine heard.",
+            "Every line can be corrected before it is placed.",
+            "The real engine hears the clip's own sound.",
+            "Captions land over the clip as titles.",
+        )
+    }
+}
+
+/** A handful of packages shaped as `catalogue.list` gives them, for the sheets to show without the engine. */
+private object FakeCatalogue {
+    private fun param(key: String, label: String, min: Double, max: Double, default: Double, step: Double = 0.0, unit: String = "", type: String = "float") =
+        JSONObject().put("key", key).put("label", label).put("type", type).put("min", min).put("max", max).put("default", default)
+            .put("step", step).put("unit", unit).put("animate", true).put("values", JSONArray()).put("labels", JSONArray())
+
+    private fun pkg(id: String, name: String, kind: String, category: String, description: String, vararg params: JSONObject) =
+        JSONObject().put("id", id).put("name", name).put("kind", kind).put("category", category).put("description", description)
+            .put("intensity", if (params.isNotEmpty()) params[0].getString("key") else JSONObject.NULL)
+            .put("params", JSONArray().apply { params.forEach { put(it) } })
+
+    private val all: List<JSONObject> by lazy {
+        listOf(
+            pkg("concat.blur", "Blur", "effect", "Blur", "Softens the picture.", param("radius", "Radius", 0.0, 50.0, 8.0, 1.0, "px")),
+            pkg("concat.zoom-blur", "Zoom blur", "effect", "Blur", "Streaks out from the centre.", param("amount", "Amount", 0.0, 1.0, 0.4)),
+            pkg("concat.glow", "Glow", "effect", "Light", "A bloom around bright parts.", param("strength", "Strength", 0.0, 2.0, 0.8), param("threshold", "Threshold", 0.0, 1.0, 0.6)),
+            pkg("concat.vignette", "Vignette", "effect", "Light", "Darkens the corners.", param("amount", "Amount", 0.0, 1.0, 0.5), param("softness", "Softness", 0.0, 1.0, 0.5)),
+            pkg("concat.shake", "Shake", "effect", "Motion", "A hand-held wobble.", param("strength", "Strength", 0.0, 1.0, 0.3), param("speed", "Speed", 0.1, 10.0, 2.0, 0.1, "Hz")),
+            pkg("concat.pixelate", "Pixelate", "effect", "Stylize", "Big square pixels.", param("size", "Size", 1.0, 100.0, 12.0, 1.0, "px", "int")),
+            pkg("concat.warm", "Warm", "filter", "Colour", "A golden cast.", param("intensity", "Intensity", 0.0, 1.0, 0.7)),
+            pkg("concat.cool", "Cool", "filter", "Colour", "A blue cast.", param("intensity", "Intensity", 0.0, 1.0, 0.7)),
+            pkg("concat.mono", "Mono", "filter", "Black and white", "No colour.", param("intensity", "Intensity", 0.0, 1.0, 1.0)),
+            pkg("concat.noir", "Noir", "filter", "Black and white", "Hard contrast, no colour.", param("intensity", "Intensity", 0.0, 1.0, 1.0)),
+            pkg("concat.vintage", "Vintage", "filter", "Film", "Faded, warm film.", param("intensity", "Intensity", 0.0, 1.0, 0.8)),
+            pkg("concat.echo", "Echo", "audio", "Space", "Repeats the sound.", param("delay", "Delay", 0.05, 1.0, 0.3, 0.01, "s"), param("feedback", "Feedback", 0.0, 0.9, 0.4)),
+            pkg("concat.reverb", "Reverb", "audio", "Space", "A room around the sound.", param("mix", "Mix", 0.0, 1.0, 0.3)),
+            pkg("concat.cross-fade", "Cross fade", "transition", "Basic", "One picture dissolves into the next."),
+            pkg("concat.dip-black", "Dip to black", "transition", "Basic", "Down to black and back up."),
+            pkg("concat.push", "Push", "transition", "Slide", "The next shot pushes this one out.", param("angle", "Direction", 0.0, 360.0, 0.0, 90.0, "°")),
+            pkg("concat.wipe", "Wipe", "transition", "Slide", "A line sweeps across.", param("softness", "Softness", 0.0, 1.0, 0.1)),
+            pkg("concat.zoom", "Zoom", "transition", "Zoom", "Punches into the next shot.", param("amount", "Amount", 0.0, 1.0, 0.5)),
+        )
+    }
+
+    fun list(kind: String?): JSONArray = JSONArray().apply {
+        all.filter { kind == null || it.getString("kind") == kind }.sortedBy { it.getString("id") }.forEach { put(JSONObject(it.toString())) }
     }
 }
 
@@ -531,9 +809,9 @@ private class FakePreview(private val bridge: FakeEngineBridge, private val path
             val clips = timeline?.optJSONArray("clips")?.objectsList().orEmpty()
                 .filter { at >= it.optDouble("start") && at < it.optDouble("start") + it.optDouble("duration") }
             val tracks = timeline?.optJSONArray("tracks")?.objectsList().orEmpty().map { it.optString("id") }
-            // Lanes are top to bottom: the picture is the lowest-indexed lane's.
+            // Lanes are stored bottom first: the picture is the highest lane's.
             val picture = clips.filter { it.optString("kind") == "video" || it.optString("kind") == "image" }
-                .minByOrNull { tracks.indexOf(it.optString("trackId")) }
+                .maxByOrNull { tracks.indexOf(it.optString("trackId")) }
             fill.color = if (picture == null) Color.rgb(24, 24, 24) else
                 Color.HSVToColor(floatArrayOf((picture.optString("mediaId").hashCode() and 0xff) * 360f / 256f, 0.45f, 0.45f))
             canvas.drawRect(frame, fill)

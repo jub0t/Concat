@@ -15,8 +15,9 @@ import androidx.compose.runtime.setValue
 import app.concat.editor.spike.ui.ConcatTheme
 import app.concat.editor.spike.ui.editor.EditorScreen
 import app.concat.editor.spike.ui.projects.ProjectsScreen
+import app.concat.editor.spike.ui.settings.SettingsScreen
 
-/** Two screens: the projects, and the editor on one of them. */
+/** Three screens: the projects, the editor on one of them, and settings. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -28,12 +29,18 @@ class MainActivity : ComponentActivity() {
                 var open by rememberSaveable { mutableStateOf(opening) }
                 // A new editor each time a project opens, even the same one again.
                 var session by rememberSaveable { mutableIntStateOf(0) }
+                var settings by rememberSaveable { mutableStateOf(false) }
                 val path = open
-                if (path == null) {
-                    ProjectsScreen(onOpen = {
-                        session += 1
-                        open = it
-                    })
+                if (path == null && settings) {
+                    SettingsScreen(onBack = { settings = false })
+                } else if (path == null) {
+                    ProjectsScreen(
+                        onOpen = {
+                            session += 1
+                            open = it
+                        },
+                        onSettings = { settings = true },
+                    )
                 } else {
                     EditorScreen(path, session, onClosed = { open = null })
                 }

@@ -24,6 +24,8 @@ object Palette {
         ClipKind.Audio -> Color(0xFF3FA34D)
         ClipKind.Text -> Color(0xFFB0558F)
         ClipKind.Layer -> Color(0xFF8E6BD6)
+        ClipKind.SoundLayer -> Color(0xFF6B8E3F)
+        ClipKind.Transition -> Color(0xFFD68A2F)
         ClipKind.Other -> Color(0xFF5A5A60)
     }
 }

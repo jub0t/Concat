@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.Surface
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.concat.editor.spike.api.AppliedEffect
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.Commands
 import app.concat.editor.spike.api.ProjectView
@@ -54,6 +55,7 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     private val _ui = MutableStateFlow(EditorUi())
     val ui: StateFlow<EditorUi> = _ui
     val exports get() = app.exports
+    val models get() = app.models
 
     @Volatile private var preview: PreviewBridge? = null
     /** The surface waiting for the preview, when it came first. */
@@ -169,6 +171,122 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     }
 
     private suspend fun apply(command: JSONObject) = api.apply(path, command)
+
+    /**
+     * An edit another screen's model makes (captions placed, a file read
+     * aloud): run in turn with every other edit, its reply shown and the
+     * preview refreshed, as [change] does.
+     */
+    fun edit(label: String, body: suspend () -> ProjectView?) = change(label, body)
+
+    /**
+     * A clip dragged to [start] on [target]: `moveClips`, one undo step.
+     * A new lane is `addTrack` first, the move then naming the lane it
+     * minted.
+     */
+    fun move(clipId: String, start: Double, target: LaneTarget) {
+        change("Move") {
+            val trackId = when (target) {
+                is LaneTarget.Existing -> target.trackId
+                LaneTarget.NewTop, LaneTarget.NewBottom -> {
+                    val made = apply(Commands.addTrack(bottom = target == LaneTarget.NewBottom))
+                    made.createdId ?: made.tracks.let { if (target == LaneTarget.NewBottom) it.first() else it.last() }.id
+                }
+            }
+            apply(Commands.moveClips(listOf(Triple(clipId, start.coerceAtLeast(0.0), trackId))))
+        }
+    }
+
+    /** One end of a clip dragged by [delta] seconds: `trimClip`, the lane left as it is. */
+    fun trim(clipId: String, edge: String, delta: Double) {
+        change("Trim") { apply(Commands.trimClip(clipId, edge, delta, ripple = false)) }
+    }
+
+    /** A sound file (read aloud, recorded) into the bin and onto the timeline at [at]. */
+    fun placeSound(file: String, at: Double, label: String) {
+        change(label) {
+            val after = api.import(path, file)
+            val id = after.createdId ?: after.media.firstOrNull { it.path == file || File(it.path).name == File(file).name }?.id
+                ?: return@change after
+            val view = apply(Commands.addClipsInSequence(listOf(id), at))
+            view.createdId?.let { created -> _ui.update { it.copy(selected = created) } }
+            view
+        }
+    }
+
+    // -- effects, filters, transitions --
+
+    /**
+     * A package from the catalogue onto the selected clip: an effect or a
+     * filter at the end of its picture chain (`updateClip` with the whole
+     * `videoEffects`), a sound effect at the end of its sound chain
+     * (`filters`). A transition is a clip of its own, centred on the cut
+     * into the selected clip, or at the playhead with nothing selected.
+     */
+    fun applyPackage(kind: String, packageId: String, name: String) {
+        if (kind == "transition") {
+            val clip = selectedClip()
+            if (clip?.kind == ClipKind.Transition) {
+                // A transition clip selected: it becomes this one, at its defaults.
+                val patch = JSONObject().put("name", name)
+                    .put("videoEffects", org.json.JSONArray().put(AppliedEffect.fresh(packageId)))
+                change("Transition") { apply(Commands.updateClip(clip.id, patch)) }
+                return
+            }
+            val at = clip?.start ?: _ui.value.position
+            val start = (at - 0.5).coerceAtLeast(0.0)
+            change("Transition") {
+                val view = apply(Commands.addTransitionClip(packageId, name, start, duration = 1.0))
+                view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
+                view
+            }
+            return
+        }
+        val clip = selectedClip() ?: return say("Select a clip first.")
+        val field = if (kind == "audio") "filters" else "videoEffects"
+        val chain = (if (kind == "audio") clip.filters else clip.videoEffects).map { it.raw }
+        change(name) { apply(Commands.setChain(clip.id, field, chain + AppliedEffect.fresh(packageId))) }
+    }
+
+    private val liveChains = Channel<Triple<String, String, List<JSONObject>>>(Channel.CONFLATED)
+
+    init {
+        viewModelScope.launch {
+            for ((clipId, field, chain) in liveChains) {
+                edits.withLock {
+                    try {
+                        val view = apply(Commands.setChain(clipId, field, chain))
+                        withContext(Dispatchers.IO) { preview?.refresh() }
+                        _ui.update { it.copy(view = view) }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Log.w(TAG, "live parameter failed", error)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * One link of a chain changed as a slider moves: the newest whole chain
+     * wins, so a drag sends only what the engine can keep up with.
+     */
+    fun setLink(clipId: String, field: String, index: Int, link: JSONObject) {
+        val clip = _ui.value.view?.clip(clipId) ?: return
+        val chain = (if (field == "filters") clip.filters else clip.videoEffects).map { it.raw }.toMutableList()
+        if (index !in chain.indices) return
+        chain[index] = link
+        liveChains.trySend(Triple(clipId, field, chain))
+    }
+
+    fun removeLink(clipId: String, field: String, index: Int) {
+        val clip = _ui.value.view?.clip(clipId) ?: return
+        val chain = (if (field == "filters") clip.filters else clip.videoEffects).map { it.raw }.toMutableList()
+        if (index !in chain.indices) return
+        chain.removeAt(index)
+        change("Remove") { apply(Commands.setChain(clipId, field, chain)) }
+    }
 
     fun undo() = change("Undo") { api.undo(path) }
     fun redo() = change("Redo") { api.redo(path) }

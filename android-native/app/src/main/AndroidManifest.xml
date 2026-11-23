@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Voiceover: recording from the microphone, asked for at run time. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Speech models downloaded by the engine. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- The export's foreground service and its progress notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />

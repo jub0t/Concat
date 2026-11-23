@@ -25,6 +25,15 @@ class ApiException(val code: String, override val message: String) : Exception(m
 class ConcatApi(val engine: EngineBridge) {
     val events: Flow<ApiEvent> = engine.events.mapNotNull { ApiEvent.parse(it) }
 
+    /** Every event as its JSON object: captions, models and speech read these. */
+    val rawEvents: Flow<JSONObject> = engine.events.mapNotNull {
+        try {
+            JSONObject(it)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** Sends one request; its `result`, or the error thrown. */
     suspend fun request(request: JSONObject): Any = withContext(Dispatchers.IO) {
         val text = request.toString()
@@ -82,6 +91,61 @@ class ConcatApi(val engine: EngineBridge) {
 
     suspend fun exportCancel(job: String) = request(method("export.cancel").put("job", job))
 
+    suspend fun version(): VersionInfo {
+        val json = request(method("version")) as JSONObject
+        val caps = json.optJSONArray("capabilities")
+        return VersionInfo(
+            json.optString("apiVersion"),
+            json.optString("concat"),
+            caps?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+        )
+    }
+
+    /** The packages of one kind ("effect", "filter", "audio", "transition"), or all. */
+    suspend fun catalogue(kind: String? = null): List<PackageInfo> {
+        val request = method("catalogue.list").apply { if (kind != null) put("kind", kind) }
+        return (request(request) as? JSONArray)?.objects()?.map(PackageInfo::from) ?: emptyList()
+    }
+
+    // -- speech models --
+
+    suspend fun models(): ModelsInfo = ModelsInfo.from(request(method("models.list")) as JSONObject)
+
+    /** Starts a download; the job's name. [kind] is "transcriber" or "speech". */
+    suspend fun modelsDownload(kind: String, id: String): String =
+        (request(method("models.download").put("kind", kind).put("id", id)) as JSONObject).getString("job")
+
+    suspend fun modelsDelete(kind: String, id: String) = request(method("models.delete").put("kind", kind).put("id", id))
+
+    // -- captions --
+
+    /** Starts hearing [clipId]; the job's name. Its words come in `captions.done`. */
+    suspend fun captionsTranscribe(path: String, clipId: String, model: String, language: String?): String {
+        val request = method("captions.transcribe").put("path", path).put("clipId", clipId).put("model", model)
+        if (!language.isNullOrBlank()) request.put("language", language)
+        return (request(request) as JSONObject).getString("job")
+    }
+
+    /** Puts [segments] over [clipId] as titles, one undo step. */
+    suspend fun captionsPlace(path: String, clipId: String, segments: List<CaptionSegment>, placement: String, size: String) = view(
+        method("captions.place").put("path", path).put("clipId", clipId)
+            .put("segments", JSONArray().apply { segments.forEach { put(it.toJson()) } })
+            .put("placement", placement).put("size", size),
+    )
+
+    suspend fun captionsCancel(job: String) = request(method("captions.cancel").put("job", job))
+
+    // -- reading aloud --
+
+    /** Starts reading [text] into a file in the project; the job's name. */
+    suspend fun speechSpeak(path: String, text: String, model: String, voice: Int, speed: Double): String =
+        (request(
+            method("speech.speak").put("path", path).put("text", text).put("model", model)
+                .put("voice", voice).put("speed", speed),
+        ) as JSONObject).getString("job")
+
+    suspend fun speechCancel(job: String) = request(method("speech.cancel").put("job", job))
+
     private fun method(name: String) = JSONObject().put("method", name)
 
     private companion object {
@@ -119,6 +183,26 @@ object Commands {
         op("trimClip").put("clipId", clipId).put("edge", edge).put("delta", delta).put("ripple", ripple)
 
     fun updateClip(clipId: String, patch: JSONObject) = op("updateClip").put("clipId", clipId).put("patch", patch)
+
+    /** Clips to new starts and lanes in one undo step: `{"op":"moveClips","moves":[{clipId,start,trackId}]}`. */
+    fun moveClips(moves: List<Triple<String, Double, String>>) = op("moveClips").put(
+        "moves",
+        JSONArray().apply {
+            moves.forEach { (clip, start, track) -> put(JSONObject().put("clipId", clip).put("start", start).put("trackId", track)) }
+        },
+    )
+
+    /** A new lane, on top of the others unless [bottom]. */
+    fun addTrack(bottom: Boolean) = op("addTrack").put("bottom", bottom)
+
+    /** A transition as a clip of its own over the lanes beneath it. */
+    fun addTransitionClip(transitionId: String, name: String, start: Double, duration: Double? = null, trackId: String? = null) =
+        op("addTransitionClip").put("transitionId", transitionId).put("name", name).put("start", start)
+            .put("trackId", trackId ?: JSONObject.NULL).apply { if (duration != null) put("duration", duration) }
+
+    /** A whole chain as `updateClip` replaces it: [field] is "videoEffects" or "filters". */
+    fun setChain(clipId: String, field: String, chain: List<JSONObject>) =
+        updateClip(clipId, JSONObject().put(field, JSONArray().apply { chain.forEach { put(it) } }))
 
     fun batch(commands: List<JSONObject>) = op("batch").put("commands", JSONArray().apply { commands.forEach { put(it) } })
 

@@ -73,7 +73,7 @@ import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.ui.Palette
 import app.concat.editor.spike.ui.timecode
 
-private enum class Sheet { None, Text, Speed, Volume, Export }
+private enum class Sheet { None, Text, Speed, Volume, Export, Captions, Speech, Voiceover, Effects, Filters, Transitions }
 
 @Composable
 fun EditorScreen(path: String, session: Int, onClosed: () -> Unit) {
@@ -82,9 +82,31 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit) {
         key = "$path#$session",
         factory = viewModelFactory { initializer { EditorViewModel(application, path) } },
     )
+    // The sheets' own models, one each per open project: their jobs outlive the sheet.
+    val captions: CaptionsViewModel = viewModel(
+        key = "$path#$session#captions",
+        factory = viewModelFactory { initializer { CaptionsViewModel(application, path) } },
+    )
+    val speech: SpeechViewModel = viewModel(
+        key = "$path#$session#speech",
+        factory = viewModelFactory { initializer { SpeechViewModel(application, path) } },
+    )
+    val voiceover: VoiceoverViewModel = viewModel(
+        key = "$path#$session#voiceover",
+        factory = viewModelFactory { initializer { VoiceoverViewModel(application) } },
+    )
+    val catalogue: CatalogueViewModel = viewModel(
+        key = "catalogue",
+        factory = viewModelFactory { initializer { CatalogueViewModel(application) } },
+    )
     val ui by model.ui.collectAsStateWithLifecycle()
     var sheet by remember { mutableStateOf(Sheet.None) }
     var editingText by remember { mutableStateOf<String?>(null) }
+    var adjustFirst by remember { mutableStateOf(false) }
+    fun shelf(which: Sheet, adjust: Boolean = false) {
+        adjustFirst = adjust
+        sheet = which
+    }
 
     // Pause when the app is covered; save when it is no longer seen.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -167,7 +189,15 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit) {
         // Timeline.
         Box(Modifier.fillMaxWidth().height(200.dp)) {
             if (view != null) {
-                Timeline(view, ui.position, ui.selected, onScrub = model::scrubTo, onSelect = model::select)
+                Timeline(
+                    view,
+                    ui.position,
+                    ui.selected,
+                    onScrub = model::scrubTo,
+                    onSelect = model::select,
+                    onMove = model::move,
+                    onTrim = model::trim,
+                )
             }
         }
 
@@ -185,6 +215,16 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit) {
                     sheet = Sheet.Text
                 }
                 Tool("Audio", glyph = "♪") { pickAudio.launch(arrayOf("audio/*")) }
+                Tool("Captions", glyph = "CC") { sheet = Sheet.Captions }
+                Tool("Read aloud", glyph = "❝") { sheet = Sheet.Speech }
+                Tool("Voiceover", glyph = "◉") { sheet = Sheet.Voiceover }
+                Tool("Transition", glyph = "⋈") { shelf(Sheet.Transitions) }
+            } else if (selected.kind == ClipKind.Transition) {
+                Tool("Done", glyph = "✓") { model.select(null) }
+                Tool("Adjust", glyph = "≡") { shelf(Sheet.Transitions, adjust = true) }
+                Tool("Change", glyph = "⋈") { shelf(Sheet.Transitions) }
+                Tool("Duplicate", glyph = "⧉") { model.duplicate() }
+                Tool("Delete", icon = Icons.Filled.Delete) { model.delete() }
             } else {
                 Tool("Done", glyph = "✓") { model.select(null) }
                 if (selected.kind == ClipKind.Text) {
@@ -202,6 +242,14 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit) {
                 if (selected.kind == ClipKind.Video || selected.kind == ClipKind.Audio) {
                     Tool("Volume", glyph = "◁)") { sheet = Sheet.Volume }
                 }
+                if (selected.kind.hasSound) {
+                    Tool("Captions", glyph = "CC") { sheet = Sheet.Captions }
+                }
+                Tool("Effects", glyph = "✦") { shelf(Sheet.Effects) }
+                if (selected.kind != ClipKind.Audio) {
+                    Tool("Filters", glyph = "◐") { shelf(Sheet.Filters) }
+                }
+                Tool("Transition", glyph = "⋈") { shelf(Sheet.Transitions) }
             }
         }
     }
@@ -228,6 +276,12 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit) {
             }
         }
         Sheet.Export -> ExportSheet(model, onDismiss = { sheet = Sheet.None })
+        Sheet.Captions -> CaptionsSheet(captions, model, preferClip = selected?.id, onDismiss = { sheet = Sheet.None })
+        Sheet.Speech -> SpeechSheet(speech, model, onDismiss = { sheet = Sheet.None })
+        Sheet.Voiceover -> VoiceoverSheet(voiceover, model, onDismiss = { sheet = Sheet.None })
+        Sheet.Effects -> CatalogueSheet(Shelf.Effects, catalogue, model, adjustFirst, onDismiss = { sheet = Sheet.None })
+        Sheet.Filters -> CatalogueSheet(Shelf.Filters, catalogue, model, adjustFirst, onDismiss = { sheet = Sheet.None })
+        Sheet.Transitions -> CatalogueSheet(Shelf.Transitions, catalogue, model, adjustFirst, onDismiss = { sheet = Sheet.None })
         Sheet.None -> Unit
     }
 
