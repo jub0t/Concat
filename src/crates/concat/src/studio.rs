@@ -1976,6 +1976,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::MoveClips { .. } => "Move",
         Command::TrimClip { .. } => "Trim",
         Command::SplitClips { .. } => "Split",
+        Command::DuplicateClips { .. } => "Duplicate",
         Command::ReplaceClipMedia { .. } => "Replace clip's file",
         Command::SetClipEnhanced { on: true, .. } => "Enhance on",
         Command::SetClipEnhanced { .. } => "Enhance off",
@@ -2167,7 +2168,9 @@ fn command_words(command: &Command) -> String {
             format!("{kind}, now {}", file_name_of(&item.path))
         }
         Command::FreezeFrame { time, .. } => format!("{kind} at {time:.2} s"),
-        Command::MergeClips { clip_ids } | Command::RemoveClips { clip_ids, .. } => {
+        Command::MergeClips { clip_ids }
+        | Command::RemoveClips { clip_ids, .. }
+        | Command::DuplicateClips { clip_ids } => {
             format!("{kind} {}", clips_of(clip_ids.len()))
         }
         Command::UpdateClip { patch, .. } => format!("{kind}: {}", patch_words(patch)),

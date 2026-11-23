@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_core::Halt;
+use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, caption_clip};
 use concat_project::Command;
 use concat_project::model::{ClipKind, TextStyle};
 use concat_project::srt;
@@ -34,11 +35,6 @@ use crate::panes::settings::installed;
 use crate::studio::Studio;
 use crate::ui::CaptionsSheetData;
 
-/// Where a caption sits, by the sheet's row: a frame-height fraction from
-/// the centre, positive down. Bottom, centre, top.
-const CAPTION_OFFSETS: [f64; 3] = [0.35, 0.0, -0.35];
-/// A caption's cap height by the sheet's row, as a fraction of the frame.
-const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
 /// A rough speaking rate, for a script's timing and the speech sheet's
 /// estimate.
 pub const CHARS_PER_SECOND: f32 = 14.0;
@@ -892,47 +888,6 @@ fn source_label(name: &str, start: f64) -> String {
         format!("{name} · {hours}:{minutes:02}:{seconds:02}")
     } else {
         format!("{name} · {minutes}:{seconds:02}")
-    }
-}
-
-/// One caption as a title clip: its words, when and for how long, and
-/// its look.
-fn caption_clip(
-    text: String,
-    start: f64,
-    duration: f64,
-    look: (f64, f64),
-    base: Option<&TextStyle>,
-) -> Command {
-    let (offset_y, font_size) = look;
-    // The kept look where there is one - family, weight, colours, stroke,
-    // shadow, background - at the caption's own size and place; the
-    // bundled face otherwise.
-    let style = match base {
-        Some(base) => TextStyle {
-            content: text,
-            font_size,
-            max_width: 0.0,
-            max_height: 0.0,
-            // Runs are some words' looks, and these are other words.
-            runs: Vec::new(),
-            ..base.clone()
-        },
-        None => TextStyle {
-            content: text,
-            font_family: "Hanken Grotesk".to_owned(),
-            font_size,
-            font_weight: 600.0,
-            ..TextStyle::default()
-        },
-    };
-    Command::AddTextClip {
-        track_id: None,
-        above: true,
-        start,
-        style: Some(style),
-        duration: Some(duration),
-        offset_y: Some(offset_y),
     }
 }
 
