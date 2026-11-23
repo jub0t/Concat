@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     AppliedFilter, AudioTrack, Background, BeatMarks, Clip, ClipKind, ClipMotion, ColorRange,
-    ColorSpace, Crop, CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty,
-    Mask, MediaItem, MediaKind, MediaOrigin, Project, RunStyle, ShapeStyle, SpeedPoint, Stabilize,
-    Stroke, TextStyle, Timeline, Track, Transition, VideoSettings, VoiceMix,
+    ColorSpace, Cover, Crop, CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase,
+    KeyProperty, Mask, MediaItem, MediaKind, MediaOrigin, Project, RunStyle, ShapeStyle,
+    SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings, VoiceMix,
 };
 
 mod audio;
@@ -80,7 +80,9 @@ pub struct ClipMove {
     /// New timeline position in seconds, floored at 0.
     pub start: f64,
     /// Destination track. An unknown id moves the clip in time but leaves it
-    /// on its current track.
+    /// on its current track. Absent reads as unknown, which is what
+    /// [`Command::MoveClipsToNewTrack`] wants, its lane not having one yet.
+    #[serde(default)]
     pub track_id: String,
 }
 
@@ -653,6 +655,19 @@ pub enum Command {
         /// Where each clip is going.
         moves: Vec<ClipMove>,
     },
+    /// Moves clips onto a lane made for them, in one edit: the lane and
+    /// the move are one undo step, which an `AddTrack` then a `MoveClips`
+    /// are not. The lane goes on top, or with `bottom` under every other;
+    /// each move's `trackId` is ignored and may be left out. A move that
+    /// lands no clip (every id unknown, or the clips covering each other)
+    /// makes no lane either. `createdId` is the new lane's id.
+    MoveClipsToNewTrack {
+        /// Where each clip is going in time.
+        moves: Vec<ClipMove>,
+        /// Under every other lane rather than on top of them.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        bottom: bool,
+    },
     /// Drags one edge of a clip. A head trim moves the in-point with the
     /// edge (scaled by speed) so the remaining pixels do not slide; either
     /// edge stops at the sixtieth-of-a-second minimum duration. An unknown
@@ -972,6 +987,12 @@ pub enum Command {
         /// timeline already removed from its old slot. Clamped to the end.
         index: usize,
     },
+    /// Sets the project's cover, or with None goes back to a frame early in
+    /// the edit. A frame's time is floored at 0.
+    SetCover {
+        /// The cover.
+        cover: Option<Cover>,
+    },
     /// Registers a font file for titles. A path already registered is a
     /// no-op, so re-adding cannot duplicate.
     AddFont {
@@ -1264,7 +1285,9 @@ impl Command {
             Command::SetClipVoice { voice, .. } => voice
                 .as_ref()
                 .is_some_and(|voice| bad([voice.voice, voice.background])),
-            Command::MoveClips { moves } => bad(moves.iter().map(|wanted| wanted.start)),
+            Command::MoveClips { moves } | Command::MoveClipsToNewTrack { moves, .. } => {
+                bad(moves.iter().map(|wanted| wanted.start))
+            }
             Command::TrimClip { delta, .. } => bad([*delta]),
             Command::SplitClips { time, .. } => bad([*time]),
             Command::FreezeFrame { time, duration, .. } => bad([*time]) || bad(*duration),
@@ -1337,6 +1360,9 @@ impl Command {
                 .into_iter()
                 .flatten()
                 .copied()),
+            Command::SetCover {
+                cover: Some(Cover::Frame { time }),
+            } => bad([*time]),
             _ => false,
         }
     }
@@ -1406,6 +1432,7 @@ pub fn apply(
         | Command::AddLayerClip { .. }
         | Command::AddTransitionClip { .. }
         | Command::MoveClips { .. }
+        | Command::MoveClipsToNewTrack { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }
         | Command::DuplicateClips { .. }
@@ -1449,6 +1476,7 @@ pub fn apply(
         | Command::RemoveTimeline { .. }
         | Command::RenameTimeline { .. }
         | Command::SelectTimeline { .. }
-        | Command::MoveTimeline { .. }) => timelines::apply(project, mint, command),
+        | Command::MoveTimeline { .. }
+        | Command::SetCover { .. }) => timelines::apply(project, mint, command),
     }
 }

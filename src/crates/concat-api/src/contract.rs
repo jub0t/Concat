@@ -13,8 +13,8 @@ use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
 
 use crate::message::{
-    API_VERSION, ApiError, Done, ErrorCode, Event, JobStatus, ModelsInfo, PackageInfo, PeaksInfo,
-    Picture, Request, Started, VersionInfo, Written,
+    API_VERSION, ApiError, ClipBounds, Done, ErrorCode, Event, JobStatus, ModelsInfo, PackageInfo,
+    PeaksInfo, Picture, Request, ShapeCard, Started, VersionInfo, Written,
 };
 
 /// Where the published document lives: the website (ConcatApp/website)
@@ -86,14 +86,18 @@ fn reply_schema(method: &str, generator: &mut SchemaGenerator) -> Option<Value> 
             "description": "The `concat.json` a save would write, as it stands."
         }),
         "media.probe" => of::<MediaSummary>(generator),
+        "project.cover" => of::<Written>(generator),
         "catalogue.list" => of::<Vec<PackageInfo>>(generator),
         "template.list" => of::<Vec<TemplateInfo>>(generator),
         "template.save" => of::<TemplateInfo>(generator),
-        "export.run" | "captions.transcribe" | "models.download" | "speech.speak"
-        | "clips.reverse" => {
-            of::<Started>(generator)
-        }
+        "export.run"
+        | "captions.transcribe"
+        | "models.download"
+        | "speech.speak"
+        | "clips.reverse" => of::<Started>(generator),
         "models.list" => of::<ModelsInfo>(generator),
+        "shapes.list" => of::<Vec<ShapeCard>>(generator),
+        "clips.bounds" => of::<Vec<ClipBounds>>(generator),
         "media.filmstrip" => of::<Picture>(generator),
         "media.peaks" => of::<PeaksInfo>(generator),
         "export.status" => of::<JobStatus>(generator),

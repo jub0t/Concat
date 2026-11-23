@@ -306,6 +306,12 @@ pub fn catalogue() -> Vec<Tool> {
             "moveClips",
         ),
         command(
+            "clips_move_to_new_lane",
+            "Move clips onto a new lane",
+            "Moves clips onto a lane made for them, in one undoable step: each to a new `start` (seconds), the lane on top or with `bottom: true` under every other. Its id is `createdId`. A move that lands no clip makes no lane.",
+            "moveClipsToNewTrack",
+        ),
+        command(
             "clips_remove",
             "Delete clips",
             "Deletes clips from the active timeline. `ripple: true` closes the gaps they leave on their lanes, and on the main lane the other lanes follow while the timeline's linkage is on (`timeline_linkage`); false leaves the gaps.",
@@ -432,6 +438,29 @@ pub fn catalogue() -> Vec<Tool> {
             "List effects",
             "Every effect package this build has - id, name, kind (\"effect\", \"filter\", \"audio\", \"transition\" or \"generator\"), category and each parameter's key, range, default and unit - so an effect chain, a layer or a transition can be built correctly. `kind` narrows the list.",
             "catalogue.list",
+            Raw,
+        )
+        .reading(),
+        method(
+            "project_cover",
+            "Write the project's cover",
+            "Writes the project's cover to `output` as a PNG: the picture or frame set with `edit_apply` and a `setCover` command ({\"kind\":\"frame\",\"time\":s} or {\"kind\":\"picture\",\"path\":file}), or with none a frame early in the edit. `width` and `height` default to the timeline's.",
+            "project.cover",
+            Raw,
+        ),
+        method(
+            "clips_bounds",
+            "Where titles and shapes are drawn",
+            "Each title's and shape's painted block in the active timeline, as the renderer measured it: `width` and `height` as fractions of the frame, and `offsetX`/`offsetY`, where the block's centre sits from the clip's position. Sizes are before the clip's scale.",
+            "clips.bounds",
+            Raw,
+        )
+        .reading(),
+        method(
+            "shapes_list",
+            "List stickers",
+            "Every card on the Stickers page, in order: its `id` and the `style` it places. Lay one with `edit_apply` and an `addShapeClip` command carrying the card's style, so it lands as the editor's own card would.",
+            "shapes.list",
             Raw,
         )
         .reading(),
@@ -1022,6 +1051,10 @@ mod tests {
                 json!({ "path": "/tmp/Cut", "moves": [{ "clipId": "c1", "start": 0.0, "trackId": "t2" }] }),
             ),
             (
+                "clips_move_to_new_lane",
+                json!({ "path": "/tmp/Cut", "moves": [{ "clipId": "c1", "start": 2.0 }], "bottom": true }),
+            ),
+            (
                 "clips_remove",
                 json!({ "path": "/tmp/Cut", "clipIds": ["c1"], "ripple": false }),
             ),
@@ -1100,6 +1133,12 @@ mod tests {
             ),
             ("effects_list", json!({ "kind": "transition" })),
             ("template_list", json!({})),
+            ("shapes_list", json!({})),
+            ("clips_bounds", json!({ "path": "/tmp/Cut" })),
+            (
+                "project_cover",
+                json!({ "path": "/tmp/Cut", "output": "/tmp/cover.png", "width": 270, "height": 480 }),
+            ),
             (
                 "template_instantiate",
                 json!({ "template": "/t", "location": "/tmp", "name": "From", "fills": [{ "mediaId": "m1", "file": "/tmp/a.mp4" }] }),

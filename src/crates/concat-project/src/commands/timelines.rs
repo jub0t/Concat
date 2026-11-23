@@ -180,6 +180,21 @@ pub(super) fn apply(
             })
         }
 
+        Command::SetCover { cover } => {
+            let cover = cover.map(|cover| match cover {
+                Cover::Frame { time } => Cover::Frame {
+                    time: time.max(0.0),
+                },
+                picture @ Cover::Picture { .. } => picture,
+            });
+            let applied = project.cover != cover;
+            project.cover = cover;
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
         _ => unreachable!("commands::apply routes only this module's commands here"),
     }
 }

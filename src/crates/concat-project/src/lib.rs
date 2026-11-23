@@ -1032,6 +1032,88 @@ mod tests {
         assert_eq!(start_of(&editor, &b[0]), 15.0);
     }
 
+    /// A cover is an edit like any other: set, undone, saved, and a frame
+    /// before the start is the start.
+    #[test]
+    fn a_cover_is_set_undone_and_written_with_the_document() {
+        use crate::model::Cover;
+        let (mut editor, _media_id, _clip_id) = fixture();
+        editor
+            .apply(Command::SetCover {
+                cover: Some(Cover::Frame { time: -3.0 }),
+            })
+            .expect("sets");
+        assert_eq!(editor.project().cover, Some(Cover::Frame { time: 0.0 }));
+        let written = serde_json::to_value(editor.project()).expect("writes");
+        assert_eq!(
+            written["cover"],
+            serde_json::json!({ "kind": "frame", "time": 0.0 })
+        );
+        assert!(editor.undo());
+        assert_eq!(editor.project().cover, None);
+        let read: Command =
+            serde_json::from_str(r#"{"op":"setCover","cover":{"kind":"picture","path":"/a.png"}}"#)
+                .expect("reads");
+        editor.apply(read).expect("sets");
+        assert_eq!(
+            editor.project().cover,
+            Some(Cover::Picture {
+                path: "/a.png".to_owned()
+            })
+        );
+        let none = serde_json::to_value(Project::new()).expect("writes");
+        assert!(none.get("cover").is_none(), "no cover, no field");
+    }
+
+    /// A drag past the top or bottom lane: the lane and the move are one
+    /// undo step, and a move that lands nothing leaves no empty lane.
+    #[test]
+    fn a_move_onto_a_new_lane_is_one_undo_step() {
+        let (mut editor, _media_id, clip_id) = fixture();
+        let lanes = editor.project().active().tracks.len();
+        let move_of = |clip: &str| ClipMove {
+            clip_id: clip.to_owned(),
+            start: 4.0,
+            track_id: String::new(),
+        };
+        let made = editor
+            .apply(Command::MoveClipsToNewTrack {
+                moves: vec![move_of(&clip_id)],
+                bottom: true,
+            })
+            .expect("moves");
+        let timeline = editor.project().active();
+        let lane = made.created_id.expect("the lane's id");
+        assert_eq!(timeline.tracks.len(), lanes + 1);
+        assert_eq!(timeline.tracks[0].id, lane, "under every other");
+        let clip = timeline.clip(&clip_id).expect("there");
+        assert_eq!((clip.track_id.as_str(), clip.start), (lane.as_str(), 4.0));
+
+        assert!(editor.undo());
+        let timeline = editor.project().active();
+        assert_eq!(timeline.tracks.len(), lanes, "the lane goes with the move");
+        assert_eq!(timeline.clip(&clip_id).expect("there").start, 0.0);
+
+        let nothing = editor
+            .apply(Command::MoveClipsToNewTrack {
+                moves: vec![move_of("gone")],
+                bottom: false,
+            })
+            .expect("tolerated");
+        assert!(!nothing.applied && nothing.created_id.is_none());
+        assert_eq!(editor.project().active().tracks.len(), lanes);
+
+        // On the wire a move's lane may be left out.
+        let read: Command = serde_json::from_str(
+            r#"{"op":"moveClipsToNewTrack","moves":[{"clipId":"c1","start":1.0}]}"#,
+        )
+        .expect("reads");
+        assert!(matches!(
+            read,
+            Command::MoveClipsToNewTrack { bottom: false, .. }
+        ));
+    }
+
     /// A drag hands the engine one shift in f32. Clips laid end to end must
     /// still butt after it, however late they sit: a run that came back
     /// overlapping by a hair was refused whole, and the drag did nothing.

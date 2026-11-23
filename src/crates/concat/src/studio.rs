@@ -1974,6 +1974,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::SetClipVoice { .. } => "Voice isolation off",
         Command::AddCutoutStroke { .. } => "Smart brush stroke",
         Command::MoveClips { .. } => "Move",
+        Command::MoveClipsToNewTrack { .. } => "Move to a new lane",
         Command::TrimClip { .. } => "Trim",
         Command::SplitClips { .. } => "Split",
         Command::DuplicateClips { .. } => "Duplicate",
@@ -2017,6 +2018,8 @@ fn command_kind(command: &Command) -> &'static str {
                 "Unmute track"
             }
         }
+        Command::SetCover { cover: Some(_) } => "Set cover",
+        Command::SetCover { cover: None } => "Cover from the edit",
         Command::AddTimeline => "New timeline",
         Command::RemoveTimeline { .. } => "Delete timeline",
         Command::SetTimelineVideo { .. } => "Project settings",
@@ -2143,7 +2146,9 @@ fn command_words(command: &Command) -> String {
         | Command::ClearClipKey { at, .. }
         | Command::ClearEffectKey { at, .. }
         | Command::ClearMaskKey { at, .. } => format!("{kind} at {at:.2} s"),
-        Command::MoveClips { moves } => format!("{kind} {}", clips_of(moves.len())),
+        Command::MoveClips { moves } | Command::MoveClipsToNewTrack { moves, .. } => {
+            format!("{kind} {}", clips_of(moves.len()))
+        }
         Command::TrimClip {
             edge,
             delta,

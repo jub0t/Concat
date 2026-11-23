@@ -313,6 +313,31 @@ pub(super) fn apply(
             })
         }
 
+        Command::MoveClipsToNewTrack { moves, bottom } => {
+            // Staged, so a move that lands nothing leaves no empty lane.
+            let mut staged = project.clone();
+            let made = super::tracks::apply(&mut staged, mint, Command::AddTrack { bottom })?;
+            let Some(track_id) = made.created_id else {
+                return Ok(Outcome::default());
+            };
+            let moves = moves
+                .into_iter()
+                .map(|wanted| ClipMove {
+                    track_id: track_id.clone(),
+                    ..wanted
+                })
+                .collect();
+            let moved = apply(&mut staged, mint, Command::MoveClips { moves })?;
+            if !moved.applied {
+                return Ok(Outcome::default());
+            }
+            *project = staged;
+            Ok(Outcome {
+                created_id: Some(track_id),
+                applied: true,
+            })
+        }
+
         Command::TrimClip {
             clip_id,
             edge,

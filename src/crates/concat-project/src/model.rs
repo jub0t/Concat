@@ -2168,6 +2168,27 @@ impl ShapeStyle {
         }
     }
 
+    /// Every card on the Stickers page, in the order it shows them: each
+    /// an id [`ShapeStyle::preset`] knows. The ids are written into project
+    /// files and named by the API's `shapes.list`, so they are stable.
+    pub const CARDS: [&'static str; 15] = [
+        "square",
+        "rounded",
+        "circle",
+        "ring",
+        "triangle",
+        "pentagon",
+        "polygon",
+        "star",
+        "heart",
+        "pill",
+        "parallelogram",
+        "trapezoid",
+        "line",
+        "arrow",
+        "double-arrow",
+    ];
+
     /// The look a library card places: a figure, and for the cards that
     /// are a figure set a particular way - a rounded square, a hexagon -
     /// that setting. None for an id no card has.
@@ -3697,6 +3718,11 @@ pub struct Project {
     /// to the first timeline if it somehow does not.
     #[serde(default)]
     pub active_timeline_id: String,
+    /// The picture the project is shown by - its card on the projects
+    /// screen, the square at the head of the phone's timeline. None is a
+    /// frame early in the edit, whichever the caller picks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<Cover>,
     /// Top-level fields this build does not know, kept so they round-trip.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -3707,6 +3733,28 @@ pub struct Project {
     /// it is never sent anywhere but the document.
     #[serde(skip)]
     pub unread: crate::unread::Unread,
+}
+
+/// What a project's cover is: a frame of its edit, or a picture of its own.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Cover {
+    /// The active timeline's frame at `time` seconds, as it renders -
+    /// titles and all - so it follows the edit.
+    Frame {
+        /// Seconds into it, floored at 0.
+        time: f64,
+    },
+    /// A picture from disk, fitted to the frame and cut at its edges.
+    Picture {
+        /// The file.
+        path: String,
+    },
 }
 
 /// A media reference that points to a non-existent file.
@@ -3749,6 +3797,7 @@ impl Project {
                 extra: Map::new(),
             })],
             active_timeline_id: "TL1".to_owned(),
+            cover: None,
             unread: crate::unread::Unread::default(),
         }
     }
@@ -3961,5 +4010,15 @@ mod shape_tests {
             Some(LineHead::Arrow)
         );
         assert!(ShapeStyle::preset("nonsense").is_none());
+    }
+
+    #[test]
+    fn every_card_is_a_preset_and_every_figure_has_a_card() {
+        for id in ShapeStyle::CARDS {
+            assert!(ShapeStyle::preset(id).is_some(), "{id}");
+        }
+        for kind in ShapeKind::ALL {
+            assert!(ShapeStyle::CARDS.contains(&kind.id()), "{}", kind.id());
+        }
     }
 }

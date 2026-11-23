@@ -304,6 +304,35 @@ pub enum Request {
         #[serde(default)]
         per_second: Option<f32>,
     },
+    /// The project's cover as a PNG: the picture `edit.apply` `setCover`
+    /// chose, the frame it names, or with none a frame early in the edit.
+    /// What a projects screen's card and a phone's cover square show.
+    #[serde(rename = "project.cover")]
+    ProjectCover {
+        /// The project folder.
+        path: String,
+        /// The file to write.
+        output: String,
+        /// Picture width; the timeline's when absent.
+        #[serde(default)]
+        width: Option<u32>,
+        /// Picture height; the timeline's when absent.
+        #[serde(default)]
+        height: Option<u32>,
+    },
+    /// Where each title and shape is drawn, as the painter measured it:
+    /// what a transform box is drawn from, so it sits on the words rather
+    /// than on a guess at them. Sizes are before the clip's own scale.
+    #[serde(rename = "clips.bounds")]
+    ClipsBounds {
+        /// The project folder.
+        path: String,
+    },
+    /// The Stickers page: every figure card, in order, each with the look
+    /// it places. A caller lays one with `edit.apply` `addShapeClip`, the
+    /// card's `style` as the command's, so it lands as the window's would.
+    #[serde(rename = "shapes.list")]
+    ShapesList,
     /// Every speech model on offer, for hearing (captions) and for reading
     /// aloud (speech), whether each is downloaded, and the voices.
     #[serde(rename = "models.list")]
@@ -535,8 +564,44 @@ pub enum Reply {
     Done(Done),
     /// [`Request::ModelsList`].
     Models(ModelsInfo),
+    /// [`Request::ShapesList`].
+    Shapes(Vec<ShapeCard>),
+    /// [`Request::ClipsBounds`].
+    Bounds(Vec<ClipBounds>),
     /// [`Request::MediaPeaks`].
     Peaks(PeaksInfo),
+}
+
+/// One title's or shape's painted block, in fractions of the frame, before
+/// the clip's scale, stretch and turn - the caller applies its placement,
+/// keyed or live, as the compositor does.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipBounds {
+    /// The text or shape clip.
+    pub clip_id: String,
+    /// The block's width, a fraction of the frame's width.
+    pub width: f64,
+    /// The block's height, a fraction of the frame's height.
+    pub height: f64,
+    /// Where the block's centre sits from the clip's position, a fraction
+    /// of the frame's width: zero for a centred title, half a block for
+    /// one aligned left. It scales and turns with the clip.
+    pub offset_x: f64,
+    /// The same down the frame, a fraction of its height.
+    pub offset_y: f64,
+}
+
+/// One card on the Stickers page.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapeCard {
+    /// The card's id, stable: what `ShapeStyle` names as a preset.
+    pub id: String,
+    /// The look the card places, for `addShapeClip`'s `style`.
+    pub style: concat_project::model::ShapeStyle,
 }
 
 /// A sound's loudness outline: one slice each `1 / per_second` seconds.
