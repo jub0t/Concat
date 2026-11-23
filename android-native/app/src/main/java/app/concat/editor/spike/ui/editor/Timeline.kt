@@ -347,12 +347,11 @@ fun Timeline(
             }
         }
         if (view.clips.isEmpty()) {
-            drawText(
-                measurer,
-                "Add media to start",
-                Offset(centre + 12.dp.toPx(), top + lanes.height / 2f - 8.dp.toPx()),
-                TextStyle(color = Palette.muted, fontSize = 13.sp),
-            )
+            val hint = measurer.measure("Add media to start", TextStyle(color = Palette.muted, fontSize = 13.sp))
+            val x = centre + 12.dp.toPx()
+            if (x + hint.size.width <= size.width) {
+                drawText(hint, topLeft = Offset(x, top + lanes.height / 2f - 8.dp.toPx()))
+            }
         }
 
         // The playhead.
@@ -402,7 +401,14 @@ private fun DrawScope.drawRuler(measurer: TextMeasurer, position: Double, scale:
         val at = centre + ((tick - position) * scale).toFloat()
         drawLine(Palette.muted, Offset(at, top - 6.dp.toPx()), Offset(at, top), strokeWidth = 1f)
         val seconds = tick.toLong()
-        drawText(measurer, "%d:%02d".format(seconds / 60, seconds % 60), Offset(at + 3f, 2f), label)
+        // Measured first and drawn only where it fits: drawText given a place
+        // past the right edge asks for a negative width and throws, which
+        // closed the app the moment a new project's timeline was drawn.
+        val text = measurer.measure("%d:%02d".format(seconds / 60, seconds % 60), label)
+        val x = at + 3f
+        if (x >= 0f && x + text.size.width <= size.width) {
+            drawText(text, topLeft = Offset(x, 2f))
+        }
         tick += step
     }
 }
