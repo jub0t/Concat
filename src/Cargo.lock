@@ -1412,6 +1412,7 @@ name = "concat-mobile"
 version = "0.2.12"
 dependencies = [
  "android_logger",
+ "concat-api",
  "concat-core",
  "concat-export",
  "concat-host",
@@ -1424,6 +1425,7 @@ dependencies = [
  "ndk-sys 0.6.0+11769913",
  "pollster",
  "raw-window-handle",
+ "serde_json",
  "thiserror 2.0.20",
  "uniffi",
  "wgpu",

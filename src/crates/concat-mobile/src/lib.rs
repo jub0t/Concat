@@ -23,7 +23,10 @@ use concat_host::Session;
 use concat_host::playback::{ClipSpec, Playback, PlaybackEvents};
 use concat_project::Command;
 
+mod api;
 mod render;
+
+pub use api::{ApiEvents, EditorApi};
 
 #[cfg(target_os = "android")]
 mod jni;
