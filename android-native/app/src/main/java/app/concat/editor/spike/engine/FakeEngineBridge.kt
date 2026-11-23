@@ -77,7 +77,18 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "project.create" -> create(request)
         "project.open" -> open(request.getString("path")).viewOut()
         "project.get" -> session(request).viewOut()
-        "project.save" -> session(request).let { write(it); JSONObject() }
+        "project.save" -> session(request).let { session ->
+            request.optString("name").takeIf { !request.isNull("name") && it.isNotBlank() }?.let { name ->
+                session.view.getJSONObject("settings").put("name", name.trim())
+                remember(info(session))
+            }
+            write(session)
+            JSONObject()
+        }
+        "project.setVideo" -> session(request).let { session -> edit(session) { setVideo(session, request.getJSONObject("video")) } }
+        "media.filmstrip" -> FakePictures.filmstrip(request)
+        "media.peaks" -> FakePictures.peaks(request, mediaDuration(request.getString("file")))
+        "preview.frame" -> previewFrame(request)
         "project.close" -> {
             val session = session(request)
             if (request.optBoolean("save")) write(session)
@@ -99,6 +110,66 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "captions.cancel", "speech.cancel" -> JSONObject().also { cancelled += request.getString("job") }
         "speech.speak" -> speak(request)
         else -> throw Refusal("invalid", "the in-memory engine does not answer $method")
+    }
+
+    // -- frames, strips and outlines ----------------------------------------
+
+    private fun setVideo(session: Session, video: JSONObject): String? {
+        val width = video.optInt("width")
+        val height = video.optInt("height")
+        if (width <= 0 || height <= 0) throw Refusal("invalid", "a frame needs a size")
+        val current = session.timeline.optJSONObject("video") ?: JSONObject()
+        current.put("width", width).put("height", height)
+            .put("rateNum", video.optLong("rateNum", current.optLong("rateNum", 30)))
+            .put("rateDen", video.optLong("rateDen", current.optLong("rateDen", 1)))
+        session.timeline.put("video", current)
+        session.view.getJSONObject("settings").put("width", width).put("height", height)
+        return null
+    }
+
+    /** A file's length, from any open project's bin, or by asking the file. */
+    private fun mediaDuration(file: String): Double {
+        for (session in sessions.values) {
+            session.media.objectsList().firstOrNull { it.optString("path") == file }?.let { item ->
+                if (!item.isNull("duration")) return item.optDouble("duration", 5.0)
+            }
+        }
+        return try {
+            MediaMetadataRetriever().run {
+                setDataSource(file)
+                val ms = extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                release()
+                (ms ?: 5000L) / 1000.0
+            }
+        } catch (_: Exception) {
+            5.0
+        }
+    }
+
+    /** The placeholder picture at an instant: what the preview paints, as a PNG. */
+    private fun previewFrame(request: JSONObject): JSONObject {
+        val path = request.getString("path")
+        val view = sessions[path]?.view ?: File(path, DOCUMENT).takeIf { it.exists() }?.let { JSONObject(it.readText()) }
+            ?: throw Refusal("notOpen", "$path is not a project")
+        val video = view.optJSONObject("project")?.optJSONArray("timelines")?.optJSONObject(0)?.optJSONObject("video")
+        val frameWidth = video?.optInt("width", 1080) ?: 1080
+        val frameHeight = video?.optInt("height", 1920) ?: 1920
+        var width = request.optInt("width", 0)
+        var height = request.optInt("height", 0)
+        if (width <= 0 && height <= 0) { width = frameWidth / 4; height = frameHeight / 4 }
+        if (width <= 0) width = (height * frameWidth.toDouble() / frameHeight).toInt()
+        if (height <= 0) height = (width * frameHeight.toDouble() / frameWidth).toInt()
+        val bitmap = android.graphics.Bitmap.createBitmap(width.coerceIn(8, 2048), height.coerceIn(8, 2048), android.graphics.Bitmap.Config.ARGB_8888)
+        FakeFrame.paint(Canvas(bitmap), view, request.optDouble("time", 0.0), showClock = false)
+        val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        val output = request.optString("output").takeIf { !request.isNull("output") && it.isNotEmpty() }
+        return if (output != null) {
+            File(output).apply { parentFile?.mkdirs() }.writeBytes(bytes)
+            JSONObject().put("output", output).put("width", bitmap.width).put("height", bitmap.height)
+        } else {
+            JSONObject().put("width", bitmap.width).put("height", bitmap.height)
+                .put("png", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+        }
     }
 
     // -- speech models, captions, reading aloud ----------------------------
@@ -217,11 +288,11 @@ class FakeEngineBridge(context: Context) : EngineBridge {
             if (text.isEmpty()) continue
             val start = clip.getDouble("start") + (segment.getDouble("start") - sourceStart) / speed
             val length = max(MIN, (segment.getDouble("end") - segment.getDouble("start")) / speed)
-            val style = JSONObject().put("content", text).put("fontSize", size).put("color", "#ffffff").put("offsetY", offsetY)
+            val style = JSONObject().put("content", text).put("fontSize", size).put("color", "#ffffff")
             val id = mint("c")
             session.clips.put(JSONObject().put("id", id).put("trackId", track).put("mediaId", "").put("name", text)
                 .put("kind", "text").put("start", max(0.0, start)).put("duration", length).put("sourceStart", 0.0)
-                .put("volume", 1.0).put("speed", 1.0).put("text", style))
+                .put("volume", 1.0).put("speed", 1.0).put("text", style).put("offsetY", offsetY))
             last = id
         }
         return last
@@ -287,7 +358,9 @@ class FakeEngineBridge(context: Context) : EngineBridge {
     // -- projects -----------------------------------------------------------
 
     private fun recents(): JSONArray = try {
-        JSONArray(recentsFile.readText())
+        // A folder deleted behind the editor's back is no longer a recent.
+        val all = JSONArray(recentsFile.readText())
+        JSONArray().apply { all.objectsList().filter { File(it.optString("path"), DOCUMENT).exists() }.forEach { put(it) } }
     } catch (_: Exception) {
         JSONArray()
     }
@@ -327,6 +400,11 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         val file = File(path, DOCUMENT)
         if (!file.exists()) throw Refusal("failed", "no project in $path")
         val session = Session(path, JSONObject(file.readText()))
+        // Ids minted from here on must not be ones the document already holds
+        // (the counter starts again with every process).
+        val taken = (session.clips.objectsList() + session.media.objectsList() + session.tracks.objectsList())
+            .mapNotNull { Regex("^[a-z]+(\\d+)$").find(it.optString("id"))?.groupValues?.get(1)?.toIntOrNull() }
+        nextId = max(nextId, (taken.maxOrNull() ?: 0) + 1)
         sessions[path] = session
         remember(info(session))
         return session
@@ -541,6 +619,8 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 if (patch.has("volume")) clip.put("volume", max(0.0, patch.getDouble("volume")))
                 if (patch.has("name")) clip.put("name", patch.getString("name"))
                 if (patch.has("opacity")) clip.put("opacity", patch.getDouble("opacity").coerceIn(0.0, 1.0))
+                for (flag in listOf("muted", "flipH", "flipV")) if (patch.has(flag)) clip.put(flag, patch.getBoolean(flag))
+                for (fade in listOf("fadeIn", "fadeOut")) if (patch.has(fade)) clip.put(fade, max(0.0, patch.getDouble(fade)))
                 for (chain in listOf("videoEffects", "filters")) {
                     if (patch.has(chain)) clip.put(chain, patch.optJSONArray(chain) ?: JSONArray())
                 }
@@ -554,6 +634,43 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                         clip.put("text", text).put("name", text.optString("content").lineSequence().firstOrNull().orEmpty())
                     }
                 }
+                null
+            }
+            "setClipTransform" -> {
+                val clip = clip(command.getString("clipId")) ?: return null
+                fun take(key: String) = command.optDouble(key).takeIf { command.has(key) && !command.isNull(key) && !it.isNaN() }
+                take("scale")?.let { clip.put("scale", it.coerceIn(0.05, 8.0)) }
+                take("offsetX")?.let { clip.put("offsetX", it.coerceIn(-3.0, 3.0)) }
+                take("offsetY")?.let { clip.put("offsetY", it.coerceIn(-3.0, 3.0)) }
+                take("rotation")?.let {
+                    var r = it % 360.0
+                    if (r > 180) r -= 360
+                    if (r <= -180) r += 360
+                    clip.put("rotation", r)
+                }
+                null
+            }
+            "setClipKey" -> {
+                val clip = clip(command.getString("clipId")) ?: return null
+                val property = command.getString("property")
+                val at = command.getDouble("at").coerceIn(0.0, 1.0)
+                val keys = (clip.optJSONArray("keys") ?: JSONArray()).objectsList()
+                    .filterNot { it.optString("property") == property && kotlin.math.abs(it.optDouble("at") - at) < 0.002 }
+                val added = keys + JSONObject().put("property", property).put("at", at).put("value", command.getDouble("value")).put("ease", "linear")
+                clip.put("keys", JSONArray().apply { added.sortedWith(compareBy({ it.optString("property") }, { it.optDouble("at") })).forEach { put(it) } })
+                null
+            }
+            "clearClipKey" -> {
+                val clip = clip(command.getString("clipId")) ?: return null
+                val property = command.getString("property")
+                val at = command.getDouble("at")
+                val kept = (clip.optJSONArray("keys") ?: JSONArray()).objectsList()
+                    .filterNot { it.optString("property") == property && kotlin.math.abs(it.optDouble("at") - at) < 0.002 }
+                clip.put("keys", JSONArray().apply { kept.forEach { put(it) } })
+                null
+            }
+            "setTimelineBackground" -> {
+                timeline.put("background", command.getJSONObject("background"))
                 null
             }
             else -> throw Refusal("invalid", "the in-memory engine does not apply $op")
@@ -784,9 +901,6 @@ private class FakePreview(private val bridge: FakeEngineBridge, private val path
 
     override fun release() = detachSurface()
 
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER }
-
     private fun paint(surface: Surface) {
         val canvas: Canvas = try {
             surface.lockCanvas(null)
@@ -794,50 +908,177 @@ private class FakePreview(private val bridge: FakeEngineBridge, private val path
             return
         }
         try {
-            canvas.drawColor(Color.BLACK)
-            val timeline = view?.optJSONObject("project")?.optJSONArray("timelines")?.optJSONObject(0)
-            val video = timeline?.optJSONObject("video")
-            val aspect = (video?.optDouble("width", 1080.0) ?: 1080.0) / (video?.optDouble("height", 1920.0) ?: 1920.0)
-            val w = canvas.width.toFloat()
-            val h = canvas.height.toFloat()
-            val frame = if (w / h > aspect) {
-                val fw = (h * aspect).toFloat(); RectF((w - fw) / 2, 0f, (w + fw) / 2, h)
-            } else {
-                val fh = (w / aspect).toFloat(); RectF(0f, (h - fh) / 2, w, (h + fh) / 2)
-            }
-            val at = position()
-            val clips = timeline?.optJSONArray("clips")?.objectsList().orEmpty()
-                .filter { at >= it.optDouble("start") && at < it.optDouble("start") + it.optDouble("duration") }
-            val tracks = timeline?.optJSONArray("tracks")?.objectsList().orEmpty().map { it.optString("id") }
-            // Lanes are stored bottom first: the picture is the highest lane's.
-            val picture = clips.filter { it.optString("kind") == "video" || it.optString("kind") == "image" }
-                .maxByOrNull { tracks.indexOf(it.optString("trackId")) }
-            fill.color = if (picture == null) Color.rgb(24, 24, 24) else
-                Color.HSVToColor(floatArrayOf((picture.optString("mediaId").hashCode() and 0xff) * 360f / 256f, 0.45f, 0.45f))
-            canvas.drawRect(frame, fill)
-            text.textSize = frame.height() * 0.03f
-            text.color = Color.argb(160, 255, 255, 255)
-            canvas.drawText(picture?.optString("name") ?: "no picture here", frame.centerX(), frame.bottom - text.textSize * 2, text)
-            canvas.drawText("in-memory engine  %.2f s".format(at), frame.centerX(), frame.top + text.textSize * 2, text)
-            for (title in clips.filter { it.optString("kind") == "text" }) {
-                val style = title.optJSONObject("text") ?: continue
-                text.textSize = (style.optDouble("fontSize", 0.09) * frame.height()).toFloat()
-                text.color = try {
-                    Color.parseColor(style.optString("color", "#ffffff"))
-                } catch (_: Exception) {
-                    Color.WHITE
-                }
-                var y = frame.centerY()
-                for (line in style.optString("content").lines()) {
-                    canvas.drawText(line, frame.centerX(), y, text)
-                    y += text.textSize * 1.2f
-                }
-            }
+            FakeFrame.paint(canvas, view, position(), showClock = true)
         } finally {
             try {
                 surface.unlockCanvasAndPost(canvas)
             } catch (_: Exception) {
             }
         }
+    }
+}
+
+/**
+ * The in-memory engine's picture at an instant, on any canvas: the
+ * preview's Surface and `preview.frame`'s PNG. Pictures are gradients with
+ * their names; titles are drawn where their transform puts them.
+ */
+internal object FakeFrame {
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+
+    @Synchronized
+    fun paint(canvas: Canvas, view: JSONObject?, at: Double, showClock: Boolean) {
+        canvas.drawColor(Color.rgb(14, 14, 16))
+        val timeline = view?.optJSONObject("project")?.optJSONArray("timelines")?.optJSONObject(0)
+        val video = timeline?.optJSONObject("video")
+        val aspect = (video?.optDouble("width", 1080.0) ?: 1080.0) / (video?.optDouble("height", 1920.0) ?: 1920.0)
+        val w = canvas.width.toFloat()
+        val h = canvas.height.toFloat()
+        val frame = if (w / h > aspect) {
+            val fw = (h * aspect).toFloat(); RectF((w - fw) / 2, 0f, (w + fw) / 2, h)
+        } else {
+            val fh = (w / aspect).toFloat(); RectF(0f, (h - fh) / 2, w, (h + fh) / 2)
+        }
+        val background = timeline?.optJSONObject("background")
+        fill.shader = null
+        fill.color = when (background?.optString("kind")) {
+            "color" -> try {
+                Color.parseColor(background.optString("color"))
+            } catch (_: Exception) {
+                Color.BLACK
+            }
+            "blur" -> Color.rgb(40, 44, 52)
+            else -> Color.BLACK
+        }
+        canvas.drawRect(frame, fill)
+        val clips = timeline?.optJSONArray("clips")?.objectsList().orEmpty()
+            .filter { at >= it.optDouble("start") && at < it.optDouble("start") + it.optDouble("duration") }
+        val tracks = timeline?.optJSONArray("tracks")?.objectsList().orEmpty().map { it.optString("id") }
+        canvas.save()
+        canvas.clipRect(frame)
+        // Lanes are stored bottom first: lower lanes are drawn first, under the rest.
+        for (clip in clips.sortedBy { tracks.indexOf(it.optString("trackId")) }) {
+            val kind = clip.optString("kind")
+            if (kind != "video" && kind != "image" && kind != "text") continue
+            val scale = clip.optDouble("scale", 1.0).toFloat()
+            val cx = frame.centerX() + clip.optDouble("offsetX", 0.0).toFloat() * frame.width()
+            val cy = frame.centerY() + clip.optDouble("offsetY", 0.0).toFloat() * frame.height()
+            val opacity = (clip.optDouble("opacity", 1.0) * 255).toInt().coerceIn(0, 255)
+            canvas.save()
+            canvas.rotate(clip.optDouble("rotation", 0.0).toFloat(), cx, cy)
+            if (kind == "text") {
+                val style = clip.optJSONObject("text") ?: JSONObject()
+                text.textSize = (style.optDouble("fontSize", 0.09) * frame.height() * scale).toFloat().coerceAtLeast(4f)
+                text.typeface = if (style.optDouble("fontWeight", 700.0) >= 600) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+                text.color = try {
+                    Color.parseColor(style.optString("color", "#ffffff"))
+                } catch (_: Exception) {
+                    Color.WHITE
+                }
+                text.alpha = opacity
+                text.setShadowLayer(text.textSize * 0.08f, 0f, text.textSize * 0.04f, Color.argb(160, 0, 0, 0))
+                val lines = style.optString("content").lines()
+                val lineHeight = text.textSize * 1.2f
+                var y = cy - lineHeight * (lines.size - 1) / 2f + text.textSize * 0.35f
+                for (line in lines) {
+                    canvas.drawText(line, cx, y, text)
+                    y += lineHeight
+                }
+                text.clearShadowLayer()
+            } else {
+                val hue = (clip.optString("mediaId").hashCode() and 0xff) * 360f / 256f
+                val bw = frame.width() * scale
+                val bh = frame.height() * scale
+                val box = RectF(cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2)
+                fill.shader = android.graphics.LinearGradient(
+                    box.left, box.top, box.right, box.bottom,
+                    Color.HSVToColor(floatArrayOf(hue, 0.55f, 0.6f)),
+                    Color.HSVToColor(floatArrayOf((hue + 50f) % 360f, 0.6f, 0.28f)),
+                    android.graphics.Shader.TileMode.CLAMP,
+                )
+                fill.alpha = opacity
+                canvas.drawRect(box, fill)
+                fill.shader = null
+                fill.alpha = 255
+                text.textSize = frame.height() * 0.028f
+                text.color = Color.argb(150, 255, 255, 255)
+                text.typeface = android.graphics.Typeface.DEFAULT
+                canvas.drawText(clip.optString("name"), cx, box.bottom - text.textSize * 2, text)
+            }
+            canvas.restore()
+        }
+        canvas.restore()
+        if (showClock) {
+            text.textSize = frame.height() * 0.022f
+            text.color = Color.argb(120, 255, 255, 255)
+            text.typeface = android.graphics.Typeface.DEFAULT
+            canvas.drawText("in-memory engine  %.2f s".format(at), frame.centerX(), frame.top + text.textSize * 2, text)
+        }
+    }
+}
+
+/** Stand-ins for the engine's filmstrips and sound outlines: gradient tiles with their frame number, and a made-up wave. */
+internal object FakePictures {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(210, 255, 255, 255)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+
+    @Synchronized
+    fun filmstrip(request: JSONObject): JSONObject {
+        val file = request.getString("file")
+        val count = request.optInt("count", 8).coerceIn(1, 60)
+        val height = request.optInt("height", 96).coerceIn(16, 240)
+        val from = request.optDouble("from", 0.0).takeIf { !it.isNaN() } ?: 0.0
+        val to = request.optDouble("to", from + 5.0).takeIf { !it.isNaN() } ?: (from + 5.0)
+        val tile = height
+        val bitmap = android.graphics.Bitmap.createBitmap(tile * count, height, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val base = (File(file).name.hashCode() and 0xff) * 360f / 256f
+        for (i in 0 until count) {
+            val t = from + (i + 0.5) * (to - from) / count
+            val hue = (base + t.toFloat() * 9f) % 360f
+            val left = (i * tile).toFloat()
+            paint.shader = android.graphics.LinearGradient(
+                left, 0f, left + tile, height.toFloat(),
+                Color.HSVToColor(floatArrayOf(hue, 0.55f, 0.75f)),
+                Color.HSVToColor(floatArrayOf((hue + 40f) % 360f, 0.7f, 0.32f)),
+                android.graphics.Shader.TileMode.CLAMP,
+            )
+            canvas.drawRect(left, 0f, left + tile, height.toFloat(), paint)
+            paint.shader = null
+            // A horizon and a sun, so the tiles read as pictures of something.
+            paint.color = Color.argb(60, 0, 0, 0)
+            canvas.drawRect(left, height * 0.68f, left + tile, height.toFloat(), paint)
+            paint.color = Color.argb(110, 255, 255, 255)
+            canvas.drawCircle(left + tile * (0.3f + 0.4f * ((t.toFloat() * 0.13f) % 1f)), height * 0.36f, tile * 0.1f, paint)
+            paint.color = Color.argb(80, 0, 0, 0)
+            canvas.drawRect(left + tile - 1f, 0f, left + tile.toFloat(), height.toFloat(), paint)
+            label.textSize = height * 0.16f
+            canvas.drawText("${(t * 30).toInt()}", left + height * 0.08f, height * 0.92f, label)
+        }
+        val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        return JSONObject().put("width", bitmap.width).put("height", bitmap.height)
+            .put("png", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+    }
+
+    fun peaks(request: JSONObject, duration: Double): JSONObject {
+        val perSecond = request.optDouble("perSecond", 20.0).takeIf { !it.isNaN() && it > 0 } ?: 20.0
+        val n = max(1, (duration * perSecond).toInt())
+        val seed = request.getString("file").hashCode()
+        val random = java.util.Random(seed.toLong())
+        val low = JSONArray()
+        val high = JSONArray()
+        for (i in 0 until n) {
+            val t = i / perSecond
+            val phrase = 0.5 + 0.5 * kotlin.math.sin(t * 1.7 + seed % 7)
+            val beat = 0.6 + 0.4 * kotlin.math.abs(kotlin.math.sin(t * Math.PI * 2))
+            val level = (0.12 + 0.75 * phrase * beat * (0.7 + 0.3 * random.nextDouble())).coerceIn(0.0, 1.0)
+            high.put(level)
+            low.put(-level * (0.85 + 0.1 * random.nextDouble()))
+        }
+        return JSONObject().put("min", low).put("max", high).put("perSecond", perSecond)
     }
 }

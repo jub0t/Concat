@@ -91,7 +91,7 @@ fun ModelPicker(
                             fontSize = 12.sp,
                         )
                         !model.downloaded -> OutlinedButton(onClick = { onDownload(model) }) { Text("Download") }
-                        picked -> Text("✓", color = Palette.accent, fontSize = 18.sp)
+                        picked -> app.concat.editor.spike.ui.components.ConcatIcon(app.concat.editor.spike.ui.icons.ConcatIcons.Check, tint = Palette.accent, size = 20.dp)
                     }
                 }
                 if (downloading != null) {

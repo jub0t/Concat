@@ -288,6 +288,19 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         change("Remove") { apply(Commands.setChain(clipId, field, chain)) }
     }
 
+    /** Several links off one clip at once, (field, index) each: one undo step. */
+    fun removeLinks(clipId: String, links: List<Pair<String, Int>>) {
+        val clip = _ui.value.view?.clip(clipId) ?: return
+        if (links.isEmpty()) return
+        val commands = listOf("videoEffects", "filters").mapNotNull { field ->
+            val gone = links.filter { it.first == field }.map { it.second }.toSet()
+            if (gone.isEmpty()) return@mapNotNull null
+            val chain = (if (field == "filters") clip.filters else clip.videoEffects).map { it.raw }
+            Commands.setChain(clipId, field, chain.filterIndexed { i, _ -> i !in gone })
+        }
+        change("Remove") { apply(if (commands.size == 1) commands[0] else Commands.batch(commands)) }
+    }
+
     fun undo() = change("Undo") { api.undo(path) }
     fun redo() = change("Redo") { api.redo(path) }
 
@@ -325,15 +338,112 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         change("Volume") { apply(Commands.updateClip(clip.id, JSONObject().put("volume", volume))) }
     }
 
+    fun setOpacity(opacity: Double) {
+        val clip = selectedClip() ?: return
+        change("Opacity") { apply(Commands.updateClip(clip.id, JSONObject().put("opacity", opacity.coerceIn(0.0, 1.0)))) }
+    }
+
+    fun setFades(fadeIn: Double, fadeOut: Double) {
+        val clip = selectedClip() ?: return
+        change("Fade") { apply(Commands.updateClip(clip.id, JSONObject().put("fadeIn", fadeIn).put("fadeOut", fadeOut))) }
+    }
+
+    fun toggleMute() {
+        val clip = selectedClip() ?: return
+        change(if (clip.muted) "Unmute" else "Mute") { apply(Commands.updateClip(clip.id, JSONObject().put("muted", !clip.muted))) }
+    }
+
+    /** The main track's own sound off or on, every clip on it in one undo step. */
+    fun setTrackSoundMuted(trackId: String, muted: Boolean) {
+        val clips = _ui.value.view?.clips?.filter { it.trackId == trackId && it.kind == ClipKind.Video }.orEmpty()
+        if (clips.isEmpty()) return
+        change(if (muted) "Mute" else "Unmute") {
+            apply(Commands.batch(clips.map { Commands.updateClip(it.id, JSONObject().put("muted", muted)) }))
+        }
+    }
+
+    fun flip() {
+        val clip = selectedClip() ?: return
+        change("Flip") { apply(Commands.updateClip(clip.id, JSONObject().put("flipH", !clip.flipH))) }
+    }
+
+    /**
+     * A picture placed on the preview: `setClipTransform`, one undo step
+     * at the end of the gesture. Scale over the fitted size, offsets as
+     * fractions of the frame, clockwise degrees.
+     */
+    fun setTransform(clipId: String, scale: Double, offsetX: Double, offsetY: Double, rotation: Double) {
+        change("Move") { apply(Commands.setClipTransform(clipId, scale, offsetX, offsetY, rotation)) }
+    }
+
+    fun resetTransform() {
+        val clip = selectedClip() ?: return
+        setTransform(clip.id, 1.0, 0.0, 0.0, 0.0)
+    }
+
+    /**
+     * The keyframe diamond: the selected clip's placement and opacity keyed
+     * where the playhead is, or those keys taken off when it already sits
+     * on one.
+     */
+    fun toggleKeyframe() {
+        val clip = selectedClip() ?: return
+        if (clip.duration <= 0) return
+        val at = ((_ui.value.position - clip.start) / clip.duration).coerceIn(0.0, 1.0)
+        val tolerance = 0.5 / ((_ui.value.view?.fps ?: 30.0) * clip.duration)
+        val properties = listOf(
+            "scale" to clip.scale, "offsetX" to clip.offsetX, "offsetY" to clip.offsetY,
+            "rotation" to clip.rotation, "opacity" to clip.opacity,
+        )
+        if (clip.keyedAt(at, tolerance)) {
+            val commands = clip.keys.flatMap { (property, ats) ->
+                ats.filter { kotlin.math.abs(it - at) <= tolerance }.map { Commands.clearClipKey(clip.id, property, it) }
+            }
+            change("Keyframe") { apply(Commands.batch(commands)) }
+        } else {
+            change("Keyframe") { apply(Commands.batch(properties.map { (name, value) -> Commands.setClipKey(clip.id, name, at, value) })) }
+        }
+    }
+
+    /** The frame's shape: `project.setVideo`, the rate kept. */
+    fun setAspect(width: Int, height: Int) {
+        val view = _ui.value.view ?: return
+        if (view.width == width && view.height == height) return
+        change("Aspect") { api.setVideo(path, width, height, view.rateNum, view.rateDen) }
+    }
+
+    fun setBackground(background: JSONObject) {
+        val view = _ui.value.view ?: return
+        change("Background") { apply(Commands.setTimelineBackground(view.timelineId, background)) }
+    }
+
+    fun rename(name: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        change("Rename") {
+            api.rename(path, clean)
+            api.get(path)
+        }
+    }
+
+    /** The clip under the playhead on [trackId], selected: the Edit tool. */
+    fun selectAtPlayhead(trackId: String?) {
+        val view = _ui.value.view ?: return
+        val at = _ui.value.position
+        val clip = view.clips.firstOrNull { (trackId == null || it.trackId == trackId) && at >= it.start && at < it.end }
+            ?: view.clips.filter { trackId == null || it.trackId == trackId }.minByOrNull { kotlin.math.abs(it.start - at) }
+        select(clip?.id)
+    }
+
     /** A new title at the playhead, or the selected one restyled when [clipId] names it. */
-    fun saveText(clipId: String?, content: String, fontSize: Double, color: String) {
+    fun saveText(clipId: String?, content: String, fontSize: Double, color: String, fontWeight: Double? = null) {
         if (content.isBlank()) return
         val existing = _ui.value.view?.clip(clipId)
         change("Text") {
             if (existing != null) {
-                apply(Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text))))
+                apply(Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text, fontWeight))))
             } else {
-                val view = apply(Commands.addTextClip(_ui.value.position, Commands.textStyle(content, fontSize, color)))
+                val view = apply(Commands.addTextClip(_ui.value.position, Commands.textStyle(content, fontSize, color, fontWeight = fontWeight)))
                 view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
                 view
             }
@@ -360,6 +470,28 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
             if (ids.isEmpty()) return@change view
             val start = if (audio) _ui.value.position else view?.pictureEnd ?: 0.0
             apply(Commands.addClipsInSequence(ids, start))
+        }
+    }
+
+    /**
+     * Picked pictures over the main track: each onto a new lane on top, at
+     * the playhead, as CapCut's Overlay does.
+     */
+    fun importOverlay(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        change("Overlay") {
+            var view: ProjectView? = null
+            for (uri in uris) {
+                val file = withContext(Dispatchers.IO) { copyIn(uri) }
+                val after = api.import(path, file.absolutePath)
+                val id = after.createdId ?: after.media.firstOrNull { it.path == file.absolutePath || File(it.path).name == file.name }?.id
+                    ?: continue
+                val lane = apply(Commands.addTrack(bottom = false))
+                val trackId = lane.createdId ?: lane.tracks.last().id
+                view = apply(Commands.addClip(id, trackId, _ui.value.position, ripple = false))
+                view.createdId?.let { created -> _ui.update { it.copy(selected = created) } }
+            }
+            view
         }
     }
 
@@ -417,12 +549,43 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
                 try {
                     shown?.pause()
                     shown?.release()
+                    writeCard()
                     api.close(path, save = true)
                 } catch (error: Exception) {
                     Log.w(TAG, "close failed", error)
                 }
             }
             done()
+        }
+    }
+
+    /**
+     * The projects screen's card for this project: a frame from the edit
+     * (`preview.frame` to a PNG in the folder) and its length, written as
+     * the editor closes.
+     */
+    private suspend fun writeCard() {
+        val view = _ui.value.view ?: return
+        val folder = File(path)
+        try {
+            File(folder, CARD).writeText(
+                JSONObject().put("duration", view.duration).put("clips", view.clips.size)
+                    .put("savedAt", System.currentTimeMillis()).toString(),
+            )
+        } catch (error: Exception) {
+            Log.w(TAG, "no card for $path", error)
+        }
+        if (view.clips.isEmpty()) {
+            File(folder, THUMBNAIL).delete()
+            return
+        }
+        val tall = view.height >= view.width
+        val width = if (tall) 270 else 480
+        val height = (width * view.height.toDouble() / view.width.coerceAtLeast(1)).toInt()
+        try {
+            api.previewFrameTo(path, (view.duration * 0.25).coerceAtMost(2.0), File(folder, THUMBNAIL).absolutePath, width, height)
+        } catch (error: Exception) {
+            Log.w(TAG, "no thumbnail for $path: ${error.message}")
         }
     }
 
@@ -440,5 +603,8 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         private const val TAG = "concat-editor"
         /** Vulkan, falling back to OpenGL ES inside the engine. */
         private const val MODE = "vulkan"
+        /** The projects screen's card for a project: its frame and its facts, in its folder. */
+        const val THUMBNAIL = ".concat-thumb.png"
+        const val CARD = ".concat-card.json"
     }
 }

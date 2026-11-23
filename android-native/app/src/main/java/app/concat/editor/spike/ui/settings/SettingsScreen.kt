@@ -19,8 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import app.concat.editor.spike.ui.icons.ConcatIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,7 +88,7 @@ fun SettingsScreen(onBack: () -> Unit, model: SettingsViewModel = viewModel()) {
     Column(Modifier.fillMaxSize().background(Palette.background).safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Palette.text)
+                Icon(ConcatIcons.ChevronLeft, contentDescription = "Back", tint = Palette.text)
             }
             Text("Settings", color = Palette.text, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
         }

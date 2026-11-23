@@ -72,7 +72,16 @@ data class AppliedEffect(val id: String, val params: Map<String, Double>, val en
     }
 }
 
-data class MediaItem(val id: String, val path: String, val name: String, val kind: String, val duration: Double?)
+data class MediaItem(
+    val id: String,
+    val path: String,
+    val name: String,
+    val kind: String,
+    val duration: Double?,
+    /** The picture's size, when the probe found one. */
+    val width: Int = 0,
+    val height: Int = 0,
+)
 
 data class Track(val id: String, val visible: Boolean, val muted: Boolean)
 
@@ -93,8 +102,29 @@ data class Clip(
     val videoEffects: List<AppliedEffect> = emptyList(),
     /** The sound's chain, in order. */
     val filters: List<AppliedEffect> = emptyList(),
+    /** Placement (concat-project's `Clip`): a multiplier over the fitted size. */
+    val scale: Double = 1.0,
+    /** Offset from centred, as a fraction of the frame's width; positive is right. */
+    val offsetX: Double = 0.0,
+    /** The same down the frame's height; positive is down. */
+    val offsetY: Double = 0.0,
+    /** Clockwise degrees about the picture's centre. */
+    val rotation: Double = 0.0,
+    val opacity: Double = 1.0,
+    val muted: Boolean = false,
+    val flipH: Boolean = false,
+    val fadeIn: Double = 0.0,
+    val fadeOut: Double = 0.0,
+    /** The instants keyed, `0..=1` into the clip, of each property that has keys. */
+    val keys: Map<String, List<Double>> = emptyMap(),
 ) {
     val end get() = start + duration
+
+    /** Whether the preview can move it about: a title, a picture, a layer over the main track. */
+    val placeable get() = kind == ClipKind.Text || kind == ClipKind.Image || kind == ClipKind.Video || kind == ClipKind.Other
+
+    /** Whether any property is keyed within half a frame of [at] (0..1 into the clip). */
+    fun keyedAt(at: Double, tolerance: Double): Boolean = keys.values.any { list -> list.any { kotlin.math.abs(it - at) <= tolerance } }
 }
 
 /** `EditorView`: what every project and edit method replies with. */
@@ -114,6 +144,8 @@ data class ProjectView(
     val tracks: List<Track>,
     val clips: List<Clip>,
     val createdId: String?,
+    /** The active timeline's id: what the timeline commands name. */
+    val timelineId: String = "",
 ) {
     val fps: Double get() = rateNum.toDouble() / rateDen.coerceAtLeast(1)
     val duration: Double get() = clips.maxOfOrNull { it.end } ?: 0.0
@@ -153,6 +185,8 @@ data class ProjectView(
                         name = it.optString("name"),
                         kind = it.optString("kind"),
                         duration = if (it.isNull("duration")) null else it.optDouble("duration"),
+                        width = it.optInt("width"),
+                        height = it.optInt("height"),
                     )
                 },
                 tracks = (timeline.optJSONArray("tracks") ?: JSONArray()).objects().map {
@@ -182,10 +216,28 @@ data class ProjectView(
                         text = it.optJSONObject("text"),
                         videoEffects = AppliedEffect.list(it.optJSONArray("videoEffects")),
                         filters = AppliedEffect.list(it.optJSONArray("filters")),
+                        scale = it.optDouble("scale", 1.0).takeIf { v -> !v.isNaN() } ?: 1.0,
+                        offsetX = it.optDouble("offsetX", 0.0).takeIf { v -> !v.isNaN() } ?: 0.0,
+                        offsetY = it.optDouble("offsetY", 0.0).takeIf { v -> !v.isNaN() } ?: 0.0,
+                        rotation = it.optDouble("rotation", 0.0).takeIf { v -> !v.isNaN() } ?: 0.0,
+                        opacity = it.optDouble("opacity", 1.0).takeIf { v -> !v.isNaN() } ?: 1.0,
+                        muted = it.optBoolean("muted"),
+                        flipH = it.optBoolean("flipH"),
+                        fadeIn = it.optDouble("fadeIn", 0.0).takeIf { v -> !v.isNaN() } ?: 0.0,
+                        fadeOut = it.optDouble("fadeOut", 0.0).takeIf { v -> !v.isNaN() } ?: 0.0,
+                        keys = keysOf(it.optJSONArray("keys")),
                     )
                 }.sortedBy { it.start },
                 createdId = json.optString("createdId").ifEmpty { null },
+                timelineId = timeline.optString("id"),
             )
+        }
+
+        /** `[{"property": "scale", "at": 0.2, "value": 1.1, "ease": ...}]`: the instants each property is keyed at. */
+        private fun keysOf(json: JSONArray?): Map<String, List<Double>> {
+            if (json == null) return emptyMap()
+            return json.objects().filter { !it.optDouble("at").isNaN() }
+                .groupBy({ it.optString("property") }, { it.optDouble("at") })
         }
     }
 }

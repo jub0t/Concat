@@ -48,6 +48,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.ui.Palette
+import app.concat.editor.spike.ui.components.ToolPanel
+import app.concat.editor.spike.ui.theme.ConcatColors
 import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -186,14 +188,13 @@ fun VoiceoverSheet(voiceover: VoiceoverViewModel, editor: EditorViewModel, onDis
         onDismiss()
     }
 
-    ModalBottomSheet(onDismissRequest = close) {
+    ToolPanel("Voiceover", onClose = close, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
         Column(
             Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            SheetTitle("Voiceover")
-            ui.error?.let { Text(it, color = Palette.accent, fontSize = 12.sp) }
+            ui.error?.let { Text(it, color = ConcatColors.warn, fontSize = 12.sp) }
             when (val state = ui.state) {
                 VoiceoverState.Idle -> {
                     SectionLabel("Records from the microphone and lands at the playhead.")
@@ -211,7 +212,7 @@ fun VoiceoverSheet(voiceover: VoiceoverViewModel, editor: EditorViewModel, onDis
                 is VoiceoverState.Recording -> {
                     val whole = state.elapsed.toLong()
                     Text(
-                        "● %d:%02d.%d".format(whole / 60, whole % 60, ((state.elapsed - whole) * 10).toInt()),
+                        "REC %d:%02d.%d".format(whole / 60, whole % 60, ((state.elapsed - whole) * 10).toInt()),
                         color = Color(0xFFFF375F),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 20.sp,

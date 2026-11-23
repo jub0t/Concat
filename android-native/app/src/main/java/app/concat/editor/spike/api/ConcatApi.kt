@@ -12,6 +12,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** A file's sound outline: `media.peaks`. */
+class Peaks(val min: FloatArray, val max: FloatArray, val perSecond: Float)
+
 /** A refusal from the API: its `code` ("refused", "notOpen", ...) and the sentence to show. */
 class ApiException(val code: String, override val message: String) : Exception(message)
 
@@ -66,6 +69,58 @@ class ConcatApi(val engine: EngineBridge) {
     suspend fun open(path: String) = view(method("project.open").put("path", path))
     suspend fun get(path: String) = view(method("project.get").put("path", path))
     suspend fun save(path: String) = request(method("project.save").put("path", path))
+
+    /** Writes the document under a new name: `project.save` with `name`. */
+    suspend fun rename(path: String, name: String) = request(method("project.save").put("path", path).put("name", name))
+
+    /** Sets the active timeline's frame and rate, one undo step: `project.setVideo`. */
+    suspend fun setVideo(path: String, width: Int, height: Int, rateNum: Long, rateDen: Long) = view(
+        method("project.setVideo").put("path", path)
+            .put("video", JSONObject().put("width", width).put("height", height).put("rateNum", rateNum).put("rateDen", rateDen)),
+    )
+
+    // -- pictures and sound outlines for the timeline --
+    //
+    // Plain JSON requests like every other, so both bridges carry them
+    // without a binding of their own.
+
+    /**
+     * `media.filmstrip`: [count] pictures of [file] side by side at
+     * [height] pixels, evenly across [from]..[to] seconds of it, as PNG
+     * bytes. The reply's picture is `png` (concat-api's `Picture`); an
+     * older build's `pngBase64` is read too.
+     */
+    suspend fun mediaFilmstrip(file: String, from: Double, to: Double, count: Int, height: Int): ByteArray {
+        val reply = request(
+            method("media.filmstrip").put("file", file).put("from", from).put("to", to)
+                .put("count", count.coerceIn(1, 60)).put("height", height.coerceIn(16, 240)),
+        ) as JSONObject
+        return decodePicture(reply)
+    }
+
+    /** `media.peaks`: the loudness outline of [file]'s sound, [perSecond] slices a second. */
+    suspend fun mediaPeaks(path: String?, file: String, perSecond: Int = 20): Peaks {
+        val reply = request(
+            method("media.peaks").put("path", path ?: JSONObject.NULL).put("file", file)
+                .put("stream", JSONObject.NULL).put("perSecond", perSecond),
+        ) as JSONObject
+        fun floats(name: String): FloatArray {
+            val array = reply.optJSONArray(name) ?: return FloatArray(0)
+            return FloatArray(array.length()) { array.optDouble(it).toFloat() }
+        }
+        return Peaks(floats("min"), floats("max"), reply.optDouble("perSecond", perSecond.toDouble()).toFloat())
+    }
+
+    /** `preview.frame`: the true frame at [time], written to [output] as a PNG. */
+    suspend fun previewFrameTo(path: String, time: Double, output: String, width: Int, height: Int) = request(
+        method("preview.frame").put("path", path).put("time", time).put("output", output).put("width", width).put("height", height),
+    )
+
+    private fun decodePicture(reply: JSONObject): ByteArray {
+        val text = reply.optString("png").ifEmpty { reply.optString("pngBase64") }
+        if (text.isEmpty()) throw ApiException("failed", "no picture in the reply")
+        return android.util.Base64.decode(text, android.util.Base64.DEFAULT)
+    }
     suspend fun close(path: String, save: Boolean) = request(method("project.close").put("path", path).put("save", save))
     suspend fun undo(path: String) = view(method("edit.undo").put("path", path))
     suspend fun redo(path: String) = view(method("edit.redo").put("path", path))
@@ -184,6 +239,27 @@ object Commands {
 
     fun updateClip(clipId: String, patch: JSONObject) = op("updateClip").put("clipId", clipId).put("patch", patch)
 
+    /**
+     * The picture's placement: concat-project's `SetClipTransform` (the
+     * transform is not in `ClipPatch`). Scale over the fitted size,
+     * offsets as fractions of the frame (positive right and down),
+     * clockwise degrees.
+     */
+    fun setClipTransform(clipId: String, scale: Double, offsetX: Double, offsetY: Double, rotation: Double) =
+        op("setClipTransform").put("clipId", clipId).put("scale", scale).put("offsetX", offsetX)
+            .put("offsetY", offsetY).put("rotation", rotation)
+
+    /** One key on one property ("scale", "offsetX", "offsetY", "rotation", "opacity", "volume"), [at] 0..1 into the clip. */
+    fun setClipKey(clipId: String, property: String, at: Double, value: Double) =
+        op("setClipKey").put("clipId", clipId).put("property", property).put("at", at).put("value", value)
+
+    fun clearClipKey(clipId: String, property: String, at: Double) =
+        op("clearClipKey").put("clipId", clipId).put("property", property).put("at", at)
+
+    /** What fills the frame behind the lowest picture: `{"kind":"none"}`, `{"kind":"blur","amount":..}`, `{"kind":"color","color":"#rrggbb"}`. */
+    fun setTimelineBackground(timelineId: String, background: JSONObject) =
+        op("setTimelineBackground").put("timelineId", timelineId).put("background", background)
+
     /** Clips to new starts and lanes in one undo step: `{"op":"moveClips","moves":[{clipId,start,trackId}]}`. */
     fun moveClips(moves: List<Triple<String, Double, String>>) = op("moveClips").put(
         "moves",
@@ -207,6 +283,7 @@ object Commands {
     fun batch(commands: List<JSONObject>) = op("batch").put("commands", JSONArray().apply { commands.forEach { put(it) } })
 
     /** A title's style: the document's `TextStyle`; fields left out take its defaults. */
-    fun textStyle(content: String, fontSize: Double, color: String, base: JSONObject? = null): JSONObject =
+    fun textStyle(content: String, fontSize: Double, color: String, base: JSONObject? = null, fontWeight: Double? = null): JSONObject =
         JSONObject(base?.toString() ?: "{}").put("content", content).put("fontSize", fontSize).put("color", color)
+            .apply { if (fontWeight != null) put("fontWeight", fontWeight) }
 }

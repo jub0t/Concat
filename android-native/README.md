@@ -44,3 +44,21 @@ folder, and so does CI's `android-native` job. `EngineFactory` loads
 
 On Windows, set `JAVA_HOME` to Android Studio's `jbr` and point
 `local.properties` at the SDK (`sdk.dir=C:/Users/<you>/AppData/Local/Android/Sdk`).
+
+## Design
+
+The look follows `.notes/MOBILE_DESIGN.md`: the desktop's dark theme with
+the lime accent, CapCut's editor layout.
+
+- `ui/theme/Theme.kt`: the tokens from `src/crates/concat/ui/theme/dark.slint`
+  (surfaces, text, accent, status and clip-kind colours), Inter (bundled in
+  `res/font`, licence in `assets/licenses`), spacing, radii, the editor's
+  measurements and motion.
+- `ui/icons/ConcatIcons.kt` is generated, never edited: the desktop's glyphs
+  from `src/crates/concat/ui/icons.slint` as `ImageVector`s. After a change
+  to icons.slint, run `python android-native/scripts/icons_from_slint.py`.
+- The timeline's filmstrips and waveforms come from `media.filmstrip` and
+  `media.peaks` through `media/MediaCache.kt`, an in-memory LRU cache; the
+  in-memory engine paints stand-ins for both.
+- The projects screen shows the frame and length the editor leaves in each
+  project folder as it closes (`.concat-thumb.png`, `.concat-card.json`).

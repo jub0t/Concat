@@ -43,6 +43,8 @@ import app.concat.editor.spike.api.errorMessage
 import app.concat.editor.spike.api.wasCancelled
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.ui.Palette
+import app.concat.editor.spike.ui.components.ToolPanel
+import app.concat.editor.spike.ui.theme.ConcatColors
 import app.concat.editor.spike.ui.timecode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -191,13 +193,12 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ToolPanel("Auto captions", onClose = onDismiss, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).imePadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SheetTitle("Captions")
-            ui.error?.let { Text(it, color = Palette.accent, fontSize = 12.sp) }
+            ui.error?.let { Text(it, color = ConcatColors.warn, fontSize = 12.sp) }
             when (ui.step) {
                 CaptionsStep.Setup -> Column(
                     Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
@@ -233,7 +234,7 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
                 }
                 CaptionsStep.Hearing -> {
                     JobProgress(ui.stage, ui.fraction)
-                    SectionLabel("It carries on if you close this sheet.")
+                    SectionLabel("It carries on if you close this panel.")
                     OutlinedButton(onClick = captions::cancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
                 }
                 CaptionsStep.Review -> {
