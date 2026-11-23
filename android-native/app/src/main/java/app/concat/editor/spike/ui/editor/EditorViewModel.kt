@@ -14,7 +14,10 @@ import androidx.lifecycle.viewModelScope
 import app.concat.editor.spike.api.AppliedEffect
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.Commands
+import app.concat.editor.spike.api.JobTracker
 import app.concat.editor.spike.api.ProjectView
+import app.concat.editor.spike.api.errorMessage
+import app.concat.editor.spike.api.wasCancelled
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.engine.PreviewBridge
 import app.concat.editor.spike.export.ExportPreset
@@ -41,6 +44,8 @@ data class EditorUi(
     val playing: Boolean = false,
     val busy: Boolean = false,
     val message: String? = null,
+    /** The clip a reverse is being written for, and how far it is (0..1). */
+    val reversing: Pair<String, Float>? = null,
 )
 
 /**
@@ -328,6 +333,90 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
+    /**
+     * The picture under the playhead held for a second: `clips.freeze`, the
+     * hold left selected. The playhead has to be inside the clip.
+     */
+    fun freeze() {
+        val clip = selectedClip() ?: return
+        val at = _ui.value.position
+        val edge = 1.0 / (_ui.value.view?.fps ?: 30.0)
+        if (at <= clip.start + edge || at >= clip.end - edge) return say("Move the playhead inside the clip to freeze it.")
+        change("Freeze") {
+            val view = api.clipsFreeze(path, clip.id, at)
+            view.clips.firstOrNull { it.trackId == clip.trackId && kotlin.math.abs(it.start - at) < 1e-6 }
+                ?.let { hold -> _ui.update { it.copy(selected = hold.id) } }
+            view
+        }
+    }
+
+    /** A picked file in place of the selected clip's, its place, length and look kept. */
+    fun replace(uri: Uri?) {
+        val clip = selectedClip() ?: return
+        if (uri == null) return
+        change("Replace") {
+            val file = withContext(Dispatchers.IO) { copyIn(uri) }
+            api.clipsReplace(path, clip.id, file.absolutePath)
+        }
+    }
+
+    private val reverses = JobTracker("reverse", ::onReverse)
+
+    init {
+        viewModelScope.launch { api.rawEvents.collect { reverses.offer(it) } }
+    }
+
+    /**
+     * The selected clip's span written backwards (`clips.reverse`, a job),
+     * then shown from the copy (`clips.useReversed`) as one undo step.
+     */
+    fun reverse() {
+        val clip = selectedClip() ?: return
+        if (_ui.value.reversing != null) return say("A reverse is already running.")
+        _ui.update { it.copy(reversing = clip.id to 0f) }
+        reverses.expect()
+        viewModelScope.launch {
+            try {
+                reverses.start(api.clipsReverse(path, clip.id))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                reverses.stop()
+                _ui.update { it.copy(reversing = null) }
+                say(error.message ?: "The reverse did not start.")
+            }
+        }
+    }
+
+    fun cancelReverse() {
+        val job = reverses.job ?: return
+        viewModelScope.launch {
+            try {
+                api.reverseCancel(job)
+            } catch (error: Exception) {
+                Log.w(TAG, "reverse cancel failed", error)
+            }
+        }
+    }
+
+    private fun onReverse(event: JSONObject) {
+        when (event.optString("event")) {
+            "reverse.progress" -> _ui.update { ui ->
+                ui.copy(reversing = ui.reversing?.copy(second = event.optDouble("fraction", 0.0).toFloat()))
+            }
+            "reverse.done" -> {
+                reverses.stop()
+                _ui.update { it.copy(reversing = null) }
+                change("Reverse") { api.clipsUseReversed(path, event) }
+            }
+            "reverse.failed" -> {
+                reverses.stop()
+                _ui.update { it.copy(reversing = null) }
+                if (!event.wasCancelled()) say(event.errorMessage())
+            }
+        }
+    }
+
     fun setSpeed(speed: Double) {
         val clip = selectedClip() ?: return
         change("Speed") { apply(Commands.setClipSpeed(clip.id, speed)) }
@@ -346,6 +435,12 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     fun setFades(fadeIn: Double, fadeOut: Double) {
         val clip = selectedClip() ?: return
         change("Fade") { apply(Commands.updateClip(clip.id, JSONObject().put("fadeIn", fadeIn).put("fadeOut", fadeOut))) }
+    }
+
+    /** A crop, mask or animation patch ([ClipLook.kt]) onto the selected clip: one undo step. */
+    fun setLook(label: String, patch: JSONObject) {
+        val clip = selectedClip() ?: return
+        change(label) { apply(Commands.updateClip(clip.id, patch)) }
     }
 
     fun toggleMute() {

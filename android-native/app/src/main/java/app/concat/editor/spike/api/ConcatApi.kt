@@ -201,6 +201,31 @@ class ConcatApi(val engine: EngineBridge) {
 
     suspend fun speechCancel(job: String) = request(method("speech.cancel").put("job", job))
 
+    // -- clip operations that need the host: a frame grabbed, a file probed or written --
+
+    /** The picture at [time] held for [duration] seconds: split, hold, ripple, one undo step. */
+    suspend fun clipsFreeze(path: String, clipId: String, time: Double, duration: Double = 1.0) = view(
+        method("clips.freeze").put("path", path).put("clipId", clipId).put("time", time).put("duration", duration),
+    )
+
+    /** The clip pointed at [file], keeping its place, length and look. */
+    suspend fun clipsReplace(path: String, clipId: String, file: String) = view(
+        method("clips.replace").put("path", path).put("clipId", clipId).put("file", file),
+    )
+
+    /** Starts writing the clip's span backwards; the job's name. `reverse.done` then says where. */
+    suspend fun clipsReverse(path: String, clipId: String): String =
+        (request(method("clips.reverse").put("path", path).put("clipId", clipId)) as JSONObject).getString("job")
+
+    /** The clip shown from the copy a `reverse.done` [event] named. */
+    suspend fun clipsUseReversed(path: String, event: JSONObject) = view(
+        method("clips.useReversed").put("path", path).put("clipId", event.getString("clipId"))
+            .put("file", event.getString("file")).put("sourceStart", event.getDouble("sourceStart"))
+            .put("covered", event.getDouble("covered")),
+    )
+
+    suspend fun reverseCancel(job: String) = request(method("reverse.cancel").put("job", job))
+
     private fun method(name: String) = JSONObject().put("method", name)
 
     private companion object {

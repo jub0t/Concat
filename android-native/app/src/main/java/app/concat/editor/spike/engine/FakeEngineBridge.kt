@@ -109,6 +109,18 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "captions.place" -> session(request).let { session -> edit(session) { placeCaptions(session, request) } }
         "captions.cancel", "speech.cancel" -> JSONObject().also { cancelled += request.getString("job") }
         "speech.speak" -> speak(request)
+        "clips.freeze" -> session(request).let { session -> edit(session) { freeze(session, request) } }
+        "clips.replace" -> session(request).let { session -> edit(session) { replace(session, request) } }
+        "clips.reverse" -> reverse(request)
+        "clips.useReversed" -> session(request).let { session ->
+            edit(session) {
+                // The fake writes no copy: the clip is only marked as shown backwards.
+                val clip = session.clip(request.getString("clipId")) ?: throw Refusal("invalid", "no such clip")
+                clip.put("name", clip.optString("name").removeSuffix(" (reversed)") + " (reversed)")
+                null
+            }
+        }
+        "reverse.cancel" -> JSONObject().also { cancelled += request.getString("job") }
         else -> throw Refusal("invalid", "the in-memory engine does not answer $method")
     }
 
@@ -327,6 +339,65 @@ class FakeEngineBridge(context: Context) : EngineBridge {
             }
         }
         return JSONObject().put("job", job).put("path", path).put("output", file.absolutePath)
+    }
+
+    /** `clips.freeze`: the clip split at `time`, a hold of it laid between, the lane moved on. */
+    private fun freeze(session: Session, request: JSONObject): String? = with(session) {
+        val clip = clip(request.getString("clipId")) ?: throw Refusal("invalid", "no such clip")
+        val kind = clip.optString("kind")
+        if (kind != "video" && kind != "image") throw Refusal("invalid", "only a picture holds")
+        val time = request.getDouble("time")
+        val hold = request.optDouble("duration", 1.0).takeIf { !it.isNaN() && it > 0 } ?: 1.0
+        val start = clip.getDouble("start")
+        if (time <= start + MIN || time >= clip.end() - MIN) throw Refusal("invalid", "$time s is not inside the clip")
+        val track = clip.getString("trackId")
+        shift(track, time, hold, except = clip.getString("id"))
+        val tail = JSONObject(clip.toString()).put("id", mint("c")).put("start", time + hold)
+            .put("duration", clip.end() - time)
+            .put("sourceStart", clip.getDouble("sourceStart") + (time - start) * clip.getDouble("speed"))
+        val id = mint("c")
+        val still = JSONObject(clip.toString()).put("id", id).put("start", time).put("duration", hold)
+            .put("name", "Freeze").put("speed", 1.0)
+        clip.put("duration", time - start)
+        clips.put(still)
+        clips.put(tail)
+        id
+    }
+
+    /** `clips.replace`: the file imported, the clip pointed at it in place. */
+    private fun replace(session: Session, request: JSONObject): String? = with(session) {
+        val clip = clip(request.getString("clipId")) ?: throw Refusal("invalid", "no such clip")
+        val file = request.getString("file")
+        import(session, file)
+        val media = media.objectsList().firstOrNull { it.getString("path") == file } ?: throw Refusal("failed", "$file would not import")
+        clip.put("mediaId", media.getString("id")).put("name", media.optString("name"))
+        null
+    }
+
+    /** `clips.reverse`: a job that pretends to write the copy. */
+    private fun reverse(request: JSONObject): JSONObject {
+        val session = session(request)
+        val clip = session.clip(request.getString("clipId")) ?: throw Refusal("invalid", "no such clip")
+        if (clip.optString("kind") !in setOf("video", "audio")) throw Refusal("invalid", "nothing to reverse")
+        val job = "j${nextJob++}"
+        val path = session.path
+        val clipId = clip.getString("id")
+        val sourceStart = clip.getDouble("sourceStart")
+        val covered = clip.getDouble("duration") * clip.getDouble("speed")
+        thread(name = "fake-reverse-$job") {
+            fun send(event: JSONObject) = _events.tryEmit(event.put("job", job).put("path", path).put("clipId", clipId).toString())
+            for (step in 1..20) {
+                if (synchronized(this) { cancelled.remove(job) }) {
+                    send(JSONObject().put("event", "reverse.failed").put("error", JSONObject().put("code", "cancelled").put("message", "Cancelled.")))
+                    return@thread
+                }
+                send(JSONObject().put("event", "reverse.progress").put("fraction", step / 20.0))
+                Thread.sleep(80)
+            }
+            send(JSONObject().put("event", "reverse.done").put("file", File(path, "cache/reversed-$clipId.mp4").absolutePath)
+                .put("sourceStart", sourceStart).put("covered", covered))
+        }
+        return JSONObject().put("job", job).put("path", path).put("output", "")
     }
 
     /** A quiet hum, as a 16-bit mono WAV, standing in for a voice. */
@@ -624,9 +695,21 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 for (chain in listOf("videoEffects", "filters")) {
                     if (patch.has(chain)) clip.put(chain, patch.optJSONArray(chain) ?: JSONArray())
                 }
-                if (patch.has("transitionIn")) {
-                    val transition = patch.optJSONObject("transitionIn")
-                    if (transition == null) clip.remove("transitionIn") else clip.put("transitionIn", transition)
+                // Absent leaves it alone, null takes it off, a value replaces it.
+                for (field in listOf("transitionIn", "crop", "motion")) {
+                    if (patch.has(field)) {
+                        val value = patch.optJSONObject(field)
+                        if (value == null) clip.remove(field) else clip.put(field, value)
+                    }
+                }
+                if (patch.has("masks")) {
+                    val masks = patch.optJSONArray("masks") ?: JSONArray()
+                    // The engine mints an id for a mask that has none.
+                    for (i in 0 until masks.length()) {
+                        val mask = masks.getJSONObject(i)
+                        if (mask.optString("id").isEmpty()) mask.put("id", mint("mask-"))
+                    }
+                    clip.put("masks", masks)
                 }
                 if (patch.has("text")) {
                     val text = patch.optJSONObject("text")

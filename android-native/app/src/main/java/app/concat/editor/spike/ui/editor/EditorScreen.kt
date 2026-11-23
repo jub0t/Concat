@@ -108,10 +108,10 @@ import kotlinx.coroutines.delay
 private enum class Menu { Root, Audio, Text }
 
 /** A tool's options, open above the toolbar. */
-private enum class Panel { Speed, Volume, Opacity, Fade, TextNew, TextEdit, Effects, Filters, Transitions, Aspect, Background, Captions, Speech, Voiceover }
+private enum class Panel { Speed, Volume, Opacity, Fade, Crop, Mask, Animation, TextNew, TextEdit, Effects, Filters, Transitions, Aspect, Background, Captions, Speech, Voiceover }
 
 /** The panels that belong to the selected clip, closed when it is let go. */
-private val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel.Fade, Panel.TextEdit, Panel.Effects, Panel.Filters)
+private val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel.Fade, Panel.Crop, Panel.Mask, Panel.Animation, Panel.TextEdit, Panel.Effects, Panel.Filters)
 
 /** One tool of the bottom toolbar. */
 private class Tool(val icon: ImageVector, val label: String, val enabled: Boolean = true, val active: Boolean = false, val onClick: () -> Unit)
@@ -200,6 +200,12 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     }
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         model.import(uris, audio = true)
+    }
+    val pickReplacement = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        model.replace(uri)
+    }
+    val pickReplacementSound = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        model.replace(uri)
     }
     fun addMedia() = pickVisual.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
 
@@ -323,6 +329,9 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                                 Panel.Volume -> selected?.let { VolumePanel(it, model::setVolume, model::toggleMute, close) }
                                 Panel.Opacity -> selected?.let { OpacityPanel(it, model::setOpacity, close) }
                                 Panel.Fade -> selected?.let { FadePanel(it, model::setFades, close) }
+                                Panel.Crop -> selected?.let { CropPanel(it, { patch -> model.setLook("Crop", patch) }, close) }
+                                Panel.Mask -> selected?.let { MaskPanel(it, { patch -> model.setLook("Mask", patch) }, close) }
+                                Panel.Animation -> selected?.let { AnimationPanel(it, { patch -> model.setLook("Animation", patch) }, close) }
                                 Panel.TextNew -> TextPanel(null, { c, s, col, wt -> model.saveText(null, c, s, col, wt) }, close)
                                 Panel.TextEdit -> selected?.let { clip ->
                                     TextPanel(clip, { c, s, col, wt -> model.saveText(clip.id, c, s, col, wt) }, close)
@@ -366,6 +375,11 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                             addMedia = ::addMedia,
                             addOverlay = { pickOverlay.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
                             addAudio = { pickAudio.launch(arrayOf("audio/*")) },
+                            replace = { sound ->
+                                if (sound) pickReplacementSound.launch(arrayOf("audio/*"))
+                                else pickReplacement.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            },
+                            reversing = ui.reversing,
                             selectMain = { model.selectAtPlayhead(mainTrackId) },
                             split = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -546,6 +560,10 @@ private class ToolActions(
     val addMedia: () -> Unit,
     val addOverlay: () -> Unit,
     val addAudio: () -> Unit,
+    /** A file picked to stand in for the selected clip's: a sound file when true. */
+    val replace: (Boolean) -> Unit,
+    /** The clip a reverse is being written for, and how far it is. */
+    val reversing: Pair<String, Float>?,
     val selectMain: () -> Unit,
     val split: () -> Unit,
     val catalogue: (Shelf, Boolean) -> Unit,
@@ -624,6 +642,19 @@ private fun toolsFor(selected: Clip?, menu: Menu, mainTrackId: String?, panel: P
         add(Tool(ConcatIcons.Sliders, "Adjust") { a.catalogue(Shelf.Effects, true) })
         if (selected.kind != ClipKind.Audio) add(Tool(ConcatIcons.Eye, "Opacity", active = panel == Panel.Opacity, onClick = open(Panel.Opacity)))
         if (picture) add(Tool(ConcatIcons.FlipH, "Flip", active = selected.flipH, onClick = m::flip))
+        if (selected.placeable) add(Tool(ConcatIcons.Wand, "Animation", active = panel == Panel.Animation, onClick = open(Panel.Animation)))
+        if (picture) add(Tool(ConcatIcons.Frame, "Crop", active = panel == Panel.Crop, onClick = open(Panel.Crop)))
+        if (picture) add(Tool(ConcatIcons.MaskCircle, "Mask", active = panel == Panel.Mask, onClick = open(Panel.Mask)))
+        if (picture) add(Tool(ConcatIcons.Pause, "Freeze", onClick = m::freeze))
+        if (selected.kind == ClipKind.Video || selected.kind == ClipKind.Audio) {
+            val running = a.reversing
+            when {
+                running?.first == selected.id ->
+                    add(Tool(ConcatIcons.Reverse, "Reversing ${(running.second * 100).toInt()}%", active = true, onClick = m::cancelReverse))
+                else -> add(Tool(ConcatIcons.Reverse, "Reverse", enabled = running == null, onClick = m::reverse))
+            }
+        }
+        if (picture || selected.kind == ClipKind.Audio) add(Tool(ConcatIcons.Import, "Replace") { a.replace(selected.kind == ClipKind.Audio) })
         if (selected.kind == ClipKind.Video) add(Tool(if (selected.muted) ConcatIcons.VolumeOff else ConcatIcons.Volume, if (selected.muted) "Unmute" else "Mute", onClick = m::toggleMute))
         if (selected.placeable) add(Tool(ConcatIcons.Reset, "Reset", enabled = moved, onClick = m::resetTransform))
         if (selected.kind.hasSound) add(Tool(ConcatIcons.Rows, "Captions", active = panel == Panel.Captions, onClick = open(Panel.Captions)))

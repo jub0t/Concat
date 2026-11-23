@@ -117,6 +117,12 @@ data class Clip(
     val fadeOut: Double = 0.0,
     /** The instants keyed, `0..=1` into the clip, of each property that has keys. */
     val keys: Map<String, List<Double>> = emptyMap(),
+    /** The crop (`left`, `top`, `right`, `bottom`, each `0..1` cut off), or none. */
+    val crop: JSONObject? = null,
+    /** The masks, top first, as the document holds them. */
+    val masks: List<JSONObject> = emptyList(),
+    /** The entrance (`in`), exit (`out`) and loop (`loop`), or none. */
+    val motion: JSONObject? = null,
 ) {
     val end get() = start + duration
 
@@ -226,6 +232,9 @@ data class ProjectView(
                         fadeIn = it.optDouble("fadeIn", 0.0).takeIf { v -> !v.isNaN() } ?: 0.0,
                         fadeOut = it.optDouble("fadeOut", 0.0).takeIf { v -> !v.isNaN() } ?: 0.0,
                         keys = keysOf(it.optJSONArray("keys")),
+                        crop = it.optJSONObject("crop"),
+                        masks = it.optJSONArray("masks")?.let { list -> (0 until list.length()).mapNotNull { i -> list.optJSONObject(i) } }.orEmpty(),
+                        motion = it.optJSONObject("motion"),
                     )
                 }.sortedBy { it.start },
                 createdId = json.optString("createdId").ifEmpty { null },
