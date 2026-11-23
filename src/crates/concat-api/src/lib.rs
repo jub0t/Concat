@@ -58,8 +58,8 @@ use concat_project::model::VideoSettings;
 
 pub use message::{
     API_VERSION, ApiError, CaptionSegment, Dirs, Done, ErrorCode, Event, ExportSpec, Fill,
-    JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo, Picture, Reply, Request,
-    Response, Started, VersionInfo, VoiceItem, Written,
+    JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo, PeaksInfo, Picture, Reply,
+    Request, Response, Started, VersionInfo, VoiceItem, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -516,6 +516,30 @@ impl Api {
                 Ok(Reply::Done(Done {}))
             }
             Request::ModelsList => Ok(Reply::Models(self.models()?)),
+            Request::MediaFilmstrip {
+                file,
+                from,
+                to,
+                count,
+                height,
+            } => Ok(Reply::Picture(filmstrip(&file, from, to, count, height)?)),
+            Request::MediaPeaks {
+                path,
+                file,
+                stream,
+                per_second,
+            } => {
+                let project = match path.as_deref() {
+                    Some(path) => Some(self.session(path)?.path().to_owned()),
+                    None => None,
+                };
+                Ok(Reply::Peaks(peaks(
+                    &file,
+                    stream,
+                    project.as_deref(),
+                    per_second,
+                )?))
+            }
             Request::ModelsDownload { kind, id } => {
                 Ok(Reply::Started(self.download_model(&kind, id)?))
             }
@@ -1332,6 +1356,75 @@ impl Api {
     }
 }
 
+/// [`Request::MediaFilmstrip`].
+fn filmstrip(
+    file: &str,
+    from: Option<f64>,
+    to: Option<f64>,
+    count: u32,
+    height: u32,
+) -> Result<Picture, ApiError> {
+    let strip = media::filmstrip_between(
+        file,
+        from.unwrap_or(0.0),
+        to.unwrap_or(f64::INFINITY),
+        count,
+        height,
+    )
+    .map_err(ApiError::failed)?;
+    let mut png = Vec::new();
+    encode_png(&mut png, strip.width(), strip.height(), strip.pixels())
+        .map_err(|error| ApiError::failed(format!("could not encode the strip: {error}")))?;
+    Ok(Picture {
+        width: strip.width(),
+        height: strip.height(),
+        png: base64::engine::general_purpose::STANDARD.encode(png),
+    })
+}
+
+/// [`Request::MediaPeaks`]: the file's outline, gathered down to
+/// `per_second` slices a second.
+fn peaks(
+    file: &str,
+    stream: Option<u32>,
+    project: Option<&str>,
+    per_second: Option<f32>,
+) -> Result<PeaksInfo, ApiError> {
+    let peaks = media::peaks(file, stream, project).map_err(ApiError::failed)?;
+    Ok(gather_peaks(
+        &peaks.min,
+        &peaks.max,
+        peaks.buckets_per_second,
+        per_second.unwrap_or(20.0),
+    ))
+}
+
+/// Slices of `own` a second gathered into `wanted` a second, each the
+/// lowest and highest of the slices it covers. Never finer than `own`.
+fn gather_peaks(min: &[f32], max: &[f32], own: f32, wanted: f32) -> PeaksInfo {
+    let wanted = wanted.clamp(1.0, own.max(1.0));
+    let step = (own / wanted).max(1.0) as f64;
+    let total = min.len().min(max.len());
+    let slices = ((total as f64) / step).ceil() as usize;
+    let mut out_min = Vec::with_capacity(slices);
+    let mut out_max = Vec::with_capacity(slices);
+    for slice in 0..slices {
+        let first = (slice as f64 * step) as usize;
+        let last = (((slice + 1) as f64 * step) as usize)
+            .min(total)
+            .max(first + 1);
+        let low = min[first..last].iter().copied().fold(0.0_f32, f32::min);
+        let high = max[first..last].iter().copied().fold(0.0_f32, f32::max);
+        out_min.push(low);
+        out_max.push(high);
+    }
+    PeaksInfo {
+        min: out_min,
+        max: out_max,
+        per_second: (own as f64 / step) as f32,
+    }
+}
+
 /// A job's halt as the error its failed event carries.
 fn halt_error(halt: Halt, cancelled: &str) -> ApiError {
     match halt {
@@ -1716,6 +1809,20 @@ mod tests {
             video: None,
         }));
         scratch.path().join(name).to_string_lossy().into_owned()
+    }
+
+    /// Slices gather to the asked resolution, each keeping the extremes of
+    /// what it covers, and never finer than the file's own.
+    #[test]
+    fn peaks_gather_to_the_resolution_asked() {
+        let min = [-0.1, -0.5, -0.2, -0.9, -0.3];
+        let max = [0.2, 0.1, 0.8, 0.3, 0.4];
+        let gathered = gather_peaks(&min, &max, 100.0, 50.0);
+        assert_eq!(gathered.per_second, 50.0);
+        assert_eq!(gathered.min, vec![-0.5, -0.9, -0.3]);
+        assert_eq!(gathered.max, vec![0.2, 0.8, 0.4]);
+        let same = gather_peaks(&min, &max, 100.0, 400.0);
+        assert_eq!(same.min.len(), 5, "never finer than the file's own");
     }
 
     #[test]

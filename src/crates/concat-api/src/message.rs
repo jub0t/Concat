@@ -267,6 +267,43 @@ pub enum Request {
         /// The job [`Started`] named.
         job: String,
     },
+    /// A strip of `count` pictures from a video file, side by side at
+    /// `height` pixels, evenly across `from`..`to` seconds of it (the whole
+    /// file when absent): what a clip's body on a timeline is tiled with.
+    /// A tile that will not decode takes its nearest neighbour's picture.
+    #[serde(rename = "media.filmstrip")]
+    MediaFilmstrip {
+        /// The video file.
+        file: String,
+        /// Seconds into it where the strip starts; 0 when absent.
+        #[serde(default)]
+        from: Option<f64>,
+        /// Seconds into it where the strip ends; its end when absent.
+        #[serde(default)]
+        to: Option<f64>,
+        /// How many pictures, 1 to 60.
+        count: u32,
+        /// Their height in pixels, 16 to 240.
+        height: u32,
+    },
+    /// The loudness outline of a file's sound: the lowest and highest
+    /// sample in each slice of it, `per_second` slices a second, what a
+    /// waveform is drawn from. Cached in the project's folder when `path`
+    /// names an open project.
+    #[serde(rename = "media.peaks")]
+    MediaPeaks {
+        /// The open project whose cache keeps the outline, if any.
+        #[serde(default)]
+        path: Option<String>,
+        /// The file.
+        file: String,
+        /// Which of its sound streams, by index; the first when absent.
+        #[serde(default)]
+        stream: Option<u32>,
+        /// Slices a second, 1 to the file's own resolution; 20 when absent.
+        #[serde(default)]
+        per_second: Option<f32>,
+    },
     /// Every speech model on offer, for hearing (captions) and for reading
     /// aloud (speech), whether each is downloaded, and the voices.
     #[serde(rename = "models.list")]
@@ -428,6 +465,21 @@ pub enum Reply {
     Done(Done),
     /// [`Request::ModelsList`].
     Models(ModelsInfo),
+    /// [`Request::MediaPeaks`].
+    Peaks(PeaksInfo),
+}
+
+/// A sound's loudness outline: one slice each `1 / per_second` seconds.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeaksInfo {
+    /// The lowest sample in each slice, in -1..0.
+    pub min: Vec<f32>,
+    /// The highest sample in each slice, in 0..1.
+    pub max: Vec<f32>,
+    /// Slices a second.
+    pub per_second: f32,
 }
 
 /// The speech models and voices on offer.
