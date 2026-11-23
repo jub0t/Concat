@@ -960,7 +960,7 @@ component CatalogueCard inherits Rectangle {
                     height: parent.height;
                     text: root.item.label;
                     color: root.item.enabled ? Theme.fg : Theme.fg-dim;
-                    font-size: Theme.fs-sm;
+                    font-size: Theme.fs-prose;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     wrap: word-wrap;
@@ -2608,7 +2608,7 @@ export component MediaPane inherits Rectangle {
                     if Sounds.mine.length > 0: Text {
                         text: I18n.t("sounds.mineHint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     SoundList {
@@ -2626,7 +2626,7 @@ export component MediaPane inherits Rectangle {
                     if root.audio-category == 10: Text {
                         text: I18n.t("voices.hint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     VoiceList {
@@ -2797,7 +2797,7 @@ export component MediaPane inherits Rectangle {
                     Text {
                         text: I18n.t("mediaPane.adjustmentLayerHint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     AdjustmentShelf {
@@ -2822,7 +2822,7 @@ export component MediaPane inherits Rectangle {
                     if root.catalogue-luts.length > 0: Text {
                         text: I18n.t("mediaPane.lutsHint");
                         color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
                     ShelfGrid {

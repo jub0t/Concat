@@ -368,8 +368,8 @@ component OutputSection inherits DialogSection {
     // Export rather than found in the file.
     if root.data.see-through && !root.data.keeps-alpha: Text {
         text: I18n.t("export.noTransparency");
-        color: Theme.fg-dim;
-        font-size: Theme.fs-sm;
+        color: Theme.fg-muted;
+        font-size: Theme.fs-prose;
         wrap: word-wrap;
     }
 
@@ -464,7 +464,7 @@ component ExportFooter inherits VerticalLayout {
                 horizontal-stretch: 1;
                 text: root.data.message;
                 color: Theme.danger;
-                font-size: Theme.fs-sm;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
 

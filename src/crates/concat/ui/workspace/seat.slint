@@ -4,7 +4,7 @@
 import { Theme } from "../theme/theme.slint";
 import { Payload } from "../util.slint";
 import { DockSide } from "../dock.slint";
-import { PaneKind } from "pane-switcher.slint";
+import { PaneGrip, PaneKind } from "pane-switcher.slint";
 import { Editor } from "../editor.slint";
 import { ConfigPane } from "config-pane.slint";
 import { MediaPane, SourcePreview } from "media-pane.slint";
@@ -80,6 +80,20 @@ export component Seat inherits Rectangle {
                 : x < root.width / 2 ? DockSide.left : DockSide.right)
             : (!root.splits-down ? DockSide.centre
                 : y < root.height / 2 ? DockSide.top : DockSide.bottom);
+    }
+
+    // The header strip as a handle. First of the children, so it lies under
+    // every panel and the header's own buttons, tabs and chips keep their
+    // presses; see `PaneGrip`. The timeline's header is its tab strip (a 1px
+    // rule and 32px of tabs); every other panel's is the shared 52px bar
+    // (see PaneHeader).
+    PaneGrip {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.kind == PaneKind.timeline ? 33px : 52px;
+        kind: root.kind;
+        seat: root.index;
     }
 
     if root.kind == PaneKind.media: MediaPane {

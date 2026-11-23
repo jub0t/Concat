@@ -170,7 +170,7 @@ export component CaptionsForm inherits VerticalLayout {
             if !root.data.ready: Text {
                 text: I18n.t("captions.downloadTranscriberModelFirst");
                 color: Theme.fg-muted;
-                font-size: Theme.fs-sm;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
         }
@@ -261,8 +261,8 @@ export component CaptionsForm inherits VerticalLayout {
                 text: root.from-voice
                     ? I18n.t("captions.oneTitlePerPhrase")
                     : I18n.t("captions.oneTitlePerSentence");
-                color: Theme.fg-dim;
-                font-size: Theme.fs-sm;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-prose;
                 wrap: word-wrap;
             }
         }
@@ -293,7 +293,7 @@ export component CaptionsForm inherits VerticalLayout {
                         horizontal-stretch: 1;
                         text: root.data.message;
                         color: Theme.danger;
-                        font-size: Theme.fs-sm;
+                        font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
 
