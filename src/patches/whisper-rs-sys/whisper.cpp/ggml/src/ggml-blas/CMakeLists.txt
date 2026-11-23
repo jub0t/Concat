@@ -16,8 +16,11 @@ if (BLAS_FOUND)
                             )
 
     if (${GGML_BLAS_VENDOR} MATCHES "Apple")
-        add_compile_definitions(ACCELERATE_NEW_LAPACK)
-        add_compile_definitions(ACCELERATE_LAPACK_ILP64)
+        # Concat: Accelerate's classic interface, not ACCELERATE_NEW_LAPACK.
+        # The new one's cblas_sgemm$NEWLAPACK$ILP64 is macOS 13.3 and later;
+        # built for macOS 12 it is weakly linked, null on 12.x and 13.0-13.2,
+        # and the first matrix product jumped to address 0 (Concat #862).
+        # The classic cblas_sgemm is the same routine on every macOS.
         add_compile_definitions(GGML_BLAS_USE_ACCELERATE)
     elseif ("${BLAS_INCLUDE_DIRS}" STREQUAL "")
         # BLAS_INCLUDE_DIRS is missing in FindBLAS.cmake.

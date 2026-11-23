@@ -101,6 +101,10 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=wrapper.h");
+    // Concat: and when the sources it builds change. With wrapper.h alone,
+    // a patch to whisper.cpp's own build files (#862) was never compiled
+    // where the build folder was kept: locally, and from CI's cache.
+    println!("cargo:rerun-if-changed=whisper.cpp");
 
     // Concat: GGML_BACKEND_DL=ON in the environment builds whisper and ggml
     // as shared libraries and each CPU backend as a module ggml loads at run
