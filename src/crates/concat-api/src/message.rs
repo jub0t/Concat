@@ -224,6 +224,96 @@ pub enum Request {
         /// The job [`Started`] named.
         job: String,
     },
+    /// Hears what is said in one clip, with a speech model that is
+    /// installed, as a job: [`Event::CaptionsProgress`] as it goes, ending
+    /// in [`Event::CaptionsDone`] with what was heard or
+    /// [`Event::CaptionsFailed`]. Nothing is placed yet:
+    /// [`Request::CaptionsPlace`] does that, so the words can be read and
+    /// corrected first. One transcription runs at a time.
+    #[serde(rename = "captions.transcribe")]
+    CaptionsTranscribe {
+        /// The project folder.
+        path: String,
+        /// The clip whose sound is heard: a video or a sound clip.
+        clip_id: String,
+        /// The speech model's id, as the models list names it.
+        model: String,
+        /// The language spoken, as a code ("en", "pt"); found by ear when
+        /// absent. An English-only model ignores it.
+        #[serde(default)]
+        language: Option<String>,
+    },
+    /// Puts heard words on the timeline as captions over their clip, each
+    /// a title where it was said: one undo step.
+    #[serde(rename = "captions.place")]
+    CaptionsPlace {
+        /// The project folder.
+        path: String,
+        /// The clip the words were heard in.
+        clip_id: String,
+        /// What was heard, as [`Event::CaptionsDone`] gave it or corrected.
+        segments: Vec<CaptionSegment>,
+        /// "top", "middle" or "bottom"; bottom when absent.
+        #[serde(default)]
+        placement: Option<String>,
+        /// "small", "medium" or "large"; medium when absent.
+        #[serde(default)]
+        size: Option<String>,
+    },
+    /// Stops the running transcription. Its job then ends with
+    /// [`Event::CaptionsFailed`] carrying [`ErrorCode::Cancelled`].
+    #[serde(rename = "captions.cancel")]
+    CaptionsCancel {
+        /// The job [`Started`] named.
+        job: String,
+    },
+    /// Every speech model on offer, for hearing (captions) and for reading
+    /// aloud (speech), whether each is downloaded, and the voices.
+    #[serde(rename = "models.list")]
+    ModelsList,
+    /// Downloads one model, as a job: [`Event::ModelsProgress`] as the
+    /// bytes come, ending in [`Event::ModelsDone`] or
+    /// [`Event::ModelsFailed`]. One download of each kind runs at a time.
+    #[serde(rename = "models.download")]
+    ModelsDownload {
+        /// "transcriber" (captions) or "speech".
+        kind: String,
+        /// The model's id, as [`Request::ModelsList`] names it.
+        id: String,
+    },
+    /// Removes a downloaded model, unless it is in use.
+    #[serde(rename = "models.delete")]
+    ModelsDelete {
+        /// "transcriber" or "speech".
+        kind: String,
+        /// The model's id.
+        id: String,
+    },
+    /// Reads text aloud into a sound file in the project's folder, as a
+    /// job: [`Event::SpeechProgress`] as it goes, ending in
+    /// [`Event::SpeechDone`] with the file, or [`Event::SpeechFailed`].
+    /// Nothing is placed: import the file and put it on the timeline.
+    #[serde(rename = "speech.speak")]
+    SpeechSpeak {
+        /// The project folder, where the file lands.
+        path: String,
+        /// What to say.
+        text: String,
+        /// The speech model's id.
+        model: String,
+        /// The voice's id, one the model's family reads with.
+        voice: i32,
+        /// Speaking rate, 1.0 the voice's own; 1.0 when absent.
+        #[serde(default)]
+        speed: Option<f32>,
+    },
+    /// Stops the running reading. Its job then ends with
+    /// [`Event::SpeechFailed`] carrying [`ErrorCode::Cancelled`].
+    #[serde(rename = "speech.cancel")]
+    SpeechCancel {
+        /// The job [`Started`] named.
+        job: String,
+    },
 
     /// Composites the true frame at one instant. Written as a PNG to
     /// `output` when there is one, and handed back inline as a
@@ -336,6 +426,56 @@ pub enum Reply {
     Picture(Picture),
     /// Methods with nothing to say beyond having worked.
     Done(Done),
+    /// [`Request::ModelsList`].
+    Models(ModelsInfo),
+}
+
+/// The speech models and voices on offer.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelsInfo {
+    /// Models that hear speech, for captions.
+    pub transcribers: Vec<ModelInfo>,
+    /// Models that read text aloud.
+    pub speech: Vec<ModelInfo>,
+    /// The voices the speech models read with.
+    pub voices: Vec<VoiceItem>,
+}
+
+/// One speech model.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfo {
+    /// The id to download, delete and run it by.
+    pub id: String,
+    /// Its name, for a person.
+    pub label: String,
+    /// One line on what it trades away.
+    pub blurb: String,
+    /// The family of voices it reads with: "chatterbox" or "system"; empty
+    /// for a transcriber.
+    pub family: String,
+    /// Whether it understands English alone (transcribers).
+    pub english_only: bool,
+    /// About how much it downloads, in bytes.
+    pub size_bytes: u64,
+    /// Whether it is on this machine and ready.
+    pub downloaded: bool,
+}
+
+/// One voice a speech model reads with.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceItem {
+    /// The id [`Request::SpeechSpeak`] takes.
+    pub id: i32,
+    /// Its name.
+    pub name: String,
+    /// The family of models that read with it.
+    pub family: String,
 }
 
 /// The build and the contract it speaks.
@@ -403,6 +543,20 @@ pub struct Started {
     pub path: String,
     /// The file it will write.
     pub output: String,
+}
+
+/// One stretch of speech heard in a clip: seconds into the clip's own
+/// sound, and the words.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionSegment {
+    /// Seconds into the clip's sound where it starts.
+    pub start: f64,
+    /// Seconds into the clip's sound where it ends.
+    pub end: f64,
+    /// What was said.
+    pub text: String,
 }
 
 /// Where a job is in its life.
@@ -726,6 +880,108 @@ pub enum Event {
         /// went wrong.
         error: ApiError,
     },
+    /// A transcription moved on.
+    #[serde(rename = "captions.progress")]
+    CaptionsProgress {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// "reading" the sound, "loading" the model, or "hearing".
+        stage: String,
+        /// How far the hearing is, `0..=1`; 0 in the stages before it.
+        fraction: f32,
+    },
+    /// A transcription finished: what was heard, ready for
+    /// [`Request::CaptionsPlace`]. The job is over.
+    #[serde(rename = "captions.done")]
+    CaptionsDone {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// The clip that was heard.
+        clip_id: String,
+        /// What was heard, in order; empty when nothing was said.
+        segments: Vec<CaptionSegment>,
+    },
+    /// A transcription did not finish. The job is over.
+    #[serde(rename = "captions.failed")]
+    CaptionsFailed {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// Why: [`ErrorCode::Cancelled`] when asked to stop, otherwise what
+        /// went wrong.
+        error: ApiError,
+    },
+    /// A model's download moved on.
+    #[serde(rename = "models.progress")]
+    ModelsProgress {
+        /// The job.
+        job: String,
+        /// The model.
+        id: String,
+        /// Bytes received.
+        received: u64,
+        /// Bytes in all, as the server said or the table estimates.
+        total: u64,
+        /// True while an archive is unpacked after its bytes are in.
+        unpacking: bool,
+    },
+    /// A model is downloaded and ready. The job is over.
+    #[serde(rename = "models.done")]
+    ModelsDone {
+        /// The job.
+        job: String,
+        /// The model.
+        id: String,
+    },
+    /// A model did not download. The job is over.
+    #[serde(rename = "models.failed")]
+    ModelsFailed {
+        /// The job.
+        job: String,
+        /// The model.
+        id: String,
+        /// Why.
+        error: ApiError,
+    },
+    /// A reading aloud moved on.
+    #[serde(rename = "speech.progress")]
+    SpeechProgress {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// "loading" the model or "reading".
+        stage: String,
+        /// How far the reading is, `0..=1`.
+        fraction: f32,
+    },
+    /// The text was read into a file. The job is over.
+    #[serde(rename = "speech.done")]
+    SpeechDone {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// The sound file written, ready for `media.import`.
+        file: String,
+        /// Its length in seconds.
+        duration: f64,
+    },
+    /// The reading did not finish. The job is over.
+    #[serde(rename = "speech.failed")]
+    SpeechFailed {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// Why.
+        error: ApiError,
+    },
 }
 
 impl Event {
@@ -747,7 +1003,16 @@ impl Event {
             | Event::StabilizeProgress { job, .. }
             | Event::ExportProgress { job, .. }
             | Event::ExportDone { job, .. }
-            | Event::ExportFailed { job, .. } => job,
+            | Event::ExportFailed { job, .. }
+            | Event::CaptionsProgress { job, .. }
+            | Event::CaptionsDone { job, .. }
+            | Event::CaptionsFailed { job, .. }
+            | Event::ModelsProgress { job, .. }
+            | Event::ModelsDone { job, .. }
+            | Event::ModelsFailed { job, .. }
+            | Event::SpeechProgress { job, .. }
+            | Event::SpeechDone { job, .. }
+            | Event::SpeechFailed { job, .. } => job,
         }
     }
 }

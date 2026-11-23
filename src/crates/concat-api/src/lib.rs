@@ -57,8 +57,9 @@ use concat_project::Command;
 use concat_project::model::VideoSettings;
 
 pub use message::{
-    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, JobState, JobStatus,
-    PackageInfo, ParamInfo, Picture, Reply, Request, Response, Started, VersionInfo, Written,
+    API_VERSION, ApiError, CaptionSegment, Dirs, Done, ErrorCode, Event, ExportSpec, Fill,
+    JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo, Picture, Reply, Request,
+    Response, Started, VersionInfo, VoiceItem, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -69,7 +70,7 @@ const DEFAULT_PRESET: &str = "medium";
 
 /// What every build of the API serves, before what is decided by the
 /// build or the embedder is added; see [`VersionInfo::capabilities`].
-const CAPABILITIES: &[&str] = &["events"];
+const CAPABILITIES: &[&str] = &["events", "captions", "models", "speech"];
 
 /// The JSON Schema of [`Request`]: one alternative per method, each the
 /// object its params are with `method` naming it, and every type a request
@@ -252,6 +253,10 @@ pub struct Api {
     book: Arc<job::Book>,
     /// [`VersionInfo::capabilities`], in the order they were added.
     capabilities: Vec<String>,
+    /// The speech model, kept loaded between transcriptions.
+    transcriber: Arc<concat_speech::Transcriber>,
+    /// The reading-aloud model, kept loaded between readings.
+    speech: Arc<concat_speech::Speech>,
 }
 
 /// A way to stop the jobs of one [`Api`] from any thread, without waiting
@@ -311,6 +316,8 @@ impl Api {
             jobs: Jobs::default(),
             dirs,
             capabilities: CAPABILITIES.iter().map(|name| (*name).to_owned()).collect(),
+            transcriber: Arc::new(concat_speech::Transcriber::new()),
+            speech: Arc::new(concat_speech::Speech::new()),
         }
     }
 
@@ -483,6 +490,52 @@ impl Api {
                 Ok(Reply::Template(self.save_template(&path, &name)?))
             }
             Request::ExportRun { path, spec } => Ok(Reply::Started(self.export(&path, &spec)?)),
+            Request::CaptionsTranscribe {
+                path,
+                clip_id,
+                model,
+                language,
+            } => Ok(Reply::Started(
+                self.transcribe(&path, &clip_id, model, language)?,
+            )),
+            Request::CaptionsPlace {
+                path,
+                clip_id,
+                segments,
+                placement,
+                size,
+            } => view(self.place_captions(
+                &path,
+                &clip_id,
+                &segments,
+                placement.as_deref(),
+                size.as_deref(),
+            )?),
+            Request::CaptionsCancel { job } => {
+                self.cancel_transcription(&job)?;
+                Ok(Reply::Done(Done {}))
+            }
+            Request::ModelsList => Ok(Reply::Models(self.models()?)),
+            Request::ModelsDownload { kind, id } => {
+                Ok(Reply::Started(self.download_model(&kind, id)?))
+            }
+            Request::ModelsDelete { kind, id } => {
+                self.delete_model(&kind, &id)?;
+                Ok(Reply::Done(Done {}))
+            }
+            Request::SpeechSpeak {
+                path,
+                text,
+                model,
+                voice,
+                speed,
+            } => Ok(Reply::Started(
+                self.speak(&path, text, model, voice, speed)?,
+            )),
+            Request::SpeechCancel { job } => {
+                self.cancel_reading(&job)?;
+                Ok(Reply::Done(Done {}))
+            }
             Request::ExportCancel { job } => {
                 self.cancel(&job)?;
                 Ok(Reply::Done(Done {}))
@@ -901,6 +954,369 @@ impl Api {
             .ok_or_else(|| not_open(path))
     }
 
+    /// [`Request::CaptionsTranscribe`]: the clip's sound heard on the
+    /// scheduler's background lane, its words coming back as an event.
+    fn transcribe(
+        &mut self,
+        path: &str,
+        clip_id: &str,
+        model: String,
+        language: Option<String>,
+    ) -> Result<Started, ApiError> {
+        let (request, project_path) = {
+            let session = self.session(path)?;
+            let project = session.project();
+            let clip = project
+                .active()
+                .clip(clip_id)
+                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
+            let media = project
+                .media_by_id(&clip.media_id)
+                .ok_or_else(|| ApiError::invalid(format!("clip {clip_id} has no file to hear")))?;
+            let request = concat_speech::transcribe::TranscribeRequest {
+                path: media.path.clone(),
+                audio_stream: clip.audio_stream,
+                source_start: clip.source_start,
+                window: clip.duration * clip.speed,
+                language: (!concat_speech::transcribe::english_only(&model))
+                    .then_some(language)
+                    .flatten(),
+                model_id: model,
+            };
+            (request, session.path().to_owned())
+        };
+        let started = Started {
+            job: self.jobs.mint(),
+            path: project_path.clone(),
+            output: String::new(),
+        };
+        let job = started.job.clone();
+        let clip_id = clip_id.to_owned();
+        let transcriber = Arc::clone(&self.transcriber);
+        let dirs = self.dirs.clone();
+        let events = Arc::clone(&self.events);
+        self.background(started, "transcription", move || {
+            let said = {
+                let (job, path, events) = (job.clone(), project_path.clone(), Arc::clone(&events));
+                move |stage: concat_speech::JobStage| {
+                    let (stage, fraction) = match stage {
+                        concat_speech::JobStage::Reading => ("reading", 0.0),
+                        concat_speech::JobStage::Loading => ("loading", 0.0),
+                        concat_speech::JobStage::Working { done, .. } => ("hearing", done),
+                    };
+                    events(Event::CaptionsProgress {
+                        job: job.clone(),
+                        path: path.clone(),
+                        stage: stage.to_owned(),
+                        fraction,
+                    });
+                }
+            };
+            match transcriber.transcribe(&dirs, &request, said) {
+                Ok(segments) => Event::CaptionsDone {
+                    job,
+                    path: project_path,
+                    clip_id,
+                    segments: segments
+                        .into_iter()
+                        .map(|segment| CaptionSegment {
+                            start: segment.start,
+                            end: segment.end,
+                            text: segment.text,
+                        })
+                        .collect(),
+                },
+                Err(halt) => Event::CaptionsFailed {
+                    job,
+                    path: project_path,
+                    error: halt_error(halt, "The transcription was cancelled"),
+                },
+            }
+        })
+    }
+
+    /// [`Request::CaptionsPlace`]: one title a stretch of speech, over the
+    /// clip it was heard in, in one undo step.
+    fn place_captions(
+        &mut self,
+        path: &str,
+        clip_id: &str,
+        segments: &[CaptionSegment],
+        placement: Option<&str>,
+        size: Option<&str>,
+    ) -> Result<EditorView, ApiError> {
+        use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, Heard, caption_commands};
+        let offset = match placement.unwrap_or("bottom") {
+            "top" => CAPTION_OFFSETS[0],
+            "middle" => CAPTION_OFFSETS[1],
+            "bottom" => CAPTION_OFFSETS[2],
+            other => {
+                return Err(ApiError::invalid(format!(
+                    "unknown placement {other:?}: top, middle or bottom"
+                )));
+            }
+        };
+        let font_size = match size.unwrap_or("medium") {
+            "small" => CAPTION_SIZES[0],
+            "medium" => CAPTION_SIZES[1],
+            "large" => CAPTION_SIZES[2],
+            other => {
+                return Err(ApiError::invalid(format!(
+                    "unknown size {other:?}: small, medium or large"
+                )));
+            }
+        };
+        let (start, speed) = {
+            let session = self.session(path)?;
+            let clip =
+                session.project().active().clip(clip_id).ok_or_else(|| {
+                    ApiError::invalid(format!("no clip {clip_id} on the timeline"))
+                })?;
+            (clip.start, clip.speed)
+        };
+        let heard: Vec<Heard> = segments
+            .iter()
+            .map(|segment| Heard {
+                start: segment.start,
+                end: segment.end,
+                text: segment.text.clone(),
+            })
+            .collect();
+        let commands = caption_commands(&heard, start, speed, (offset, font_size), None);
+        if commands.is_empty() {
+            return Err(ApiError::invalid("there are no words to place"));
+        }
+        self.apply(path, Command::Batch { commands })
+    }
+
+    /// [`Request::ModelsList`].
+    fn models(&self) -> Result<ModelsInfo, ApiError> {
+        let heard = concat_speech::Transcriber::status(&self.dirs).map_err(ApiError::failed)?;
+        let read = concat_speech::Speech::status(&self.dirs).map_err(ApiError::failed)?;
+        let family = |family: concat_speech::tts::Family| match family {
+            concat_speech::tts::Family::Chatterbox => "chatterbox".to_owned(),
+            concat_speech::tts::Family::System => "system".to_owned(),
+        };
+        Ok(ModelsInfo {
+            transcribers: heard
+                .models
+                .into_iter()
+                .map(|model| ModelInfo {
+                    id: model.id,
+                    label: model.label,
+                    blurb: model.blurb,
+                    family: String::new(),
+                    english_only: model.english_only,
+                    size_bytes: model.size_bytes,
+                    downloaded: model.downloaded,
+                })
+                .collect(),
+            speech: read
+                .models
+                .into_iter()
+                .map(|model| ModelInfo {
+                    id: model.id,
+                    label: model.label,
+                    blurb: model.blurb,
+                    family: family(model.family),
+                    english_only: false,
+                    size_bytes: model.size_bytes,
+                    downloaded: model.downloaded,
+                })
+                .collect(),
+            voices: read
+                .voices
+                .into_iter()
+                .map(|voice| VoiceItem {
+                    id: voice.id,
+                    name: voice.name,
+                    family: family(voice.family),
+                })
+                .collect(),
+        })
+    }
+
+    /// Starts `work` on the scheduler's background lane as job `started`,
+    /// its outcome the event `work` hands back.
+    fn background(
+        &mut self,
+        started: Started,
+        label: &'static str,
+        work: impl FnOnce() -> Event + Send + 'static,
+    ) -> Result<Started, ApiError> {
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.book
+            .start(JobStatus::running(&started.job, &started.path, ""), cancel);
+        let events = Arc::clone(&self.events);
+        use concat_host::jobs::sched::{End, Job, Lane};
+        let ticket = concat_host::jobs::scheduler().submit_then(
+            Job::infallible(Lane::Background, move |_| events(work())).label(label),
+            |_| {},
+        );
+        if let Some(End::Refused(why)) = ticket.end() {
+            self.book.abandon(&started.job);
+            return Err(ApiError::failed(format!(
+                "could not start the {label}: {why:?}"
+            )));
+        }
+        self.jobs.running.push((started.job.clone(), ticket));
+        Ok(started)
+    }
+
+    /// [`Request::ModelsDownload`].
+    fn download_model(&mut self, kind: &str, id: String) -> Result<Started, ApiError> {
+        let speech = match kind {
+            "transcriber" => false,
+            "speech" => true,
+            other => {
+                return Err(ApiError::invalid(format!(
+                    "unknown kind {other:?}: transcriber or speech"
+                )));
+            }
+        };
+        let started = Started {
+            job: self.jobs.mint(),
+            path: String::new(),
+            output: String::new(),
+        };
+        let job = started.job.clone();
+        let dirs = self.dirs.clone();
+        let events = Arc::clone(&self.events);
+        let transcriber = Arc::clone(&self.transcriber);
+        let reader = Arc::clone(&self.speech);
+        self.background(started, "model download", move || {
+            let progress = {
+                let (job, events) = (job.clone(), Arc::clone(&events));
+                move |step: concat_speech::DownloadProgress| {
+                    events(Event::ModelsProgress {
+                        job: job.clone(),
+                        id: step.id,
+                        received: step.received,
+                        total: step.total,
+                        unpacking: step.unpacking,
+                    });
+                }
+            };
+            let outcome = if speech {
+                reader.download_model(&dirs, &id, progress)
+            } else {
+                transcriber.download_model(&dirs, &id, progress)
+            };
+            match outcome {
+                Ok(()) => Event::ModelsDone { job, id },
+                Err(halt) => Event::ModelsFailed {
+                    job,
+                    id,
+                    error: halt_error(halt, "The download was cancelled"),
+                },
+            }
+        })
+    }
+
+    /// [`Request::ModelsDelete`].
+    fn delete_model(&mut self, kind: &str, id: &str) -> Result<(), ApiError> {
+        match kind {
+            "transcriber" => self.transcriber.delete_model(&self.dirs, id),
+            "speech" => self.speech.delete_model(&self.dirs, id),
+            other => {
+                return Err(ApiError::invalid(format!(
+                    "unknown kind {other:?}: transcriber or speech"
+                )));
+            }
+        }
+        .map_err(ApiError::failed)
+    }
+
+    /// [`Request::SpeechSpeak`].
+    fn speak(
+        &mut self,
+        path: &str,
+        text: String,
+        model: String,
+        voice: i32,
+        speed: Option<f32>,
+    ) -> Result<Started, ApiError> {
+        if text.trim().is_empty() {
+            return Err(ApiError::invalid("there is no text to read"));
+        }
+        let project = self.session(path)?.path().to_owned();
+        let request = concat_speech::tts::SpeakRequest {
+            model_id: model,
+            voice,
+            reference: None,
+            text,
+            speed: speed.unwrap_or(1.0),
+            project: project.clone(),
+        };
+        let started = Started {
+            job: self.jobs.mint(),
+            path: project.clone(),
+            output: String::new(),
+        };
+        let job = started.job.clone();
+        let dirs = self.dirs.clone();
+        let events = Arc::clone(&self.events);
+        let reader = Arc::clone(&self.speech);
+        self.background(started, "reading", move || {
+            let progress = {
+                let (job, path, events) = (job.clone(), project.clone(), Arc::clone(&events));
+                move |stage: concat_speech::JobStage| {
+                    let (stage, fraction) = match stage {
+                        concat_speech::JobStage::Reading | concat_speech::JobStage::Loading => {
+                            ("loading", 0.0)
+                        }
+                        concat_speech::JobStage::Working { done, .. } => ("reading", done),
+                    };
+                    events(Event::SpeechProgress {
+                        job: job.clone(),
+                        path: path.clone(),
+                        stage: stage.to_owned(),
+                        fraction,
+                    });
+                }
+            };
+            match reader.speak(&dirs, &request, progress) {
+                Ok(said) => Event::SpeechDone {
+                    job,
+                    path: project,
+                    file: said.path,
+                    duration: said.duration,
+                },
+                Err(halt) => Event::SpeechFailed {
+                    job,
+                    path: project,
+                    error: halt_error(halt, "The reading was cancelled"),
+                },
+            }
+        })
+    }
+
+    /// [`Request::SpeechCancel`].
+    fn cancel_reading(&mut self, job: &str) -> Result<(), ApiError> {
+        self.jobs.reap(&self.book);
+        if !self.jobs.running.iter().any(|(name, _)| name == job) {
+            return Err(ApiError::new(
+                ErrorCode::NotFound,
+                format!("no job {job} is running"),
+            ));
+        }
+        self.speech.cancel();
+        Ok(())
+    }
+
+    /// [`Request::CaptionsCancel`].
+    fn cancel_transcription(&mut self, job: &str) -> Result<(), ApiError> {
+        self.jobs.reap(&self.book);
+        if !self.jobs.running.iter().any(|(name, _)| name == job) {
+            return Err(ApiError::new(
+                ErrorCode::NotFound,
+                format!("no job {job} is running"),
+            ));
+        }
+        self.transcriber.cancel();
+        Ok(())
+    }
+
     /// The open project at `path`, read-only: for an embedder that shows it
     /// as well as editing it through requests - the phone app's preview,
     /// which draws and plays the edit this API holds, so the two never open
@@ -913,6 +1329,14 @@ impl Api {
         self.sessions
             .get_mut(&key_of(path))
             .ok_or_else(|| not_open(path))
+    }
+}
+
+/// A job's halt as the error its failed event carries.
+fn halt_error(halt: Halt, cancelled: &str) -> ApiError {
+    match halt {
+        Halt::Cancelled => ApiError::new(ErrorCode::Cancelled, cancelled),
+        Halt::Failed(message) => ApiError::failed(message),
     }
 }
 
@@ -1299,7 +1723,10 @@ mod tests {
         let (mut api, _scratch, _events) = api();
         let base = api.version();
         assert_eq!(base.api_version, API_VERSION);
-        assert_eq!(base.capabilities, vec!["events".to_owned()]);
+        assert_eq!(
+            base.capabilities,
+            ["events", "captions", "models", "speech"].map(str::to_owned)
+        );
         assert!(!base.capabilities.iter().any(|name| name == "gpu"));
 
         api.add_capability("json-rpc");
@@ -1308,7 +1735,7 @@ mod tests {
         let served = serde_json::to_value(ok(api.dispatch(Request::Version))).expect("JSON");
         assert_eq!(
             served["capabilities"],
-            json!(["events", "json-rpc", "grpc"]),
+            json!(["events", "captions", "models", "speech", "json-rpc", "grpc"]),
             "each name once, in the order added"
         );
     }
@@ -1457,6 +1884,81 @@ mod tests {
         assert!(mask.invert && (mask.feather - 0.3).abs() < 1e-12);
         let width = mask.value_at("width", 0.5);
         assert!((width - 0.7).abs() < 1e-12, "the key rides: {width}");
+    }
+
+    /// Heard words go on the timeline as one title each, where they were
+    /// said over their clip, in one undo step; a request with no words, or
+    /// for a clip that is not there, is refused.
+    #[test]
+    fn heard_words_are_placed_as_captions_over_their_clip() {
+        let (mut api, scratch, _) = api();
+        let path = project(&mut api, &scratch, "Captioned");
+        let added = view(ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddMedia {
+                item: still("/nowhere/still.png"),
+            }),
+        })));
+        let placed = view(ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddClipAtFirstFree {
+                media_id: added.created_id.expect("minted"),
+                start: 2.0,
+            }),
+        })));
+        let clip_id = placed.project.active().clips[0].id.clone();
+        let request: Request = serde_json::from_value(json!({
+            "method": "captions.place", "path": path, "clipId": clip_id,
+            "segments": [
+                { "start": 0.0, "end": 1.5, "text": " Hello there " },
+                { "start": 1.5, "end": 1.6, "text": "   " },
+                { "start": 2.0, "end": 3.0, "text": "again" }
+            ],
+            "placement": "top"
+        }))
+        .expect("parses");
+        let captioned = view(ok(api.dispatch(request)));
+        let titles: Vec<_> = captioned
+            .project
+            .active()
+            .clips
+            .iter()
+            .filter(|clip| clip.kind == concat_project::model::ClipKind::Text)
+            .collect();
+        assert_eq!(titles.len(), 2, "the silent stretch is left out");
+        let first = titles
+            .iter()
+            .find(|clip| (clip.start - 2.0).abs() < 1e-9)
+            .expect("the first caption where it was said");
+        assert!((first.duration - 1.5).abs() < 1e-9);
+        // One undo takes every caption away.
+        let undone = view(ok(api.dispatch(Request::EditUndo { path: path.clone() })));
+        assert!(
+            undone
+                .project
+                .active()
+                .clips
+                .iter()
+                .all(|clip| clip.kind != concat_project::model::ClipKind::Text)
+        );
+        err(api.dispatch(Request::CaptionsPlace {
+            path: path.clone(),
+            clip_id: clip_id.clone(),
+            segments: Vec::new(),
+            placement: None,
+            size: None,
+        }));
+        err(api.dispatch(Request::CaptionsPlace {
+            path,
+            clip_id: "no-such-clip".to_owned(),
+            segments: vec![CaptionSegment {
+                start: 0.0,
+                end: 1.0,
+                text: "hi".to_owned(),
+            }],
+            placement: None,
+            size: None,
+        }));
     }
 
     #[test]

@@ -13,8 +13,8 @@ use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
 
 use crate::message::{
-    API_VERSION, ApiError, Done, ErrorCode, Event, JobStatus, PackageInfo, Picture, Request,
-    Started, VersionInfo, Written,
+    API_VERSION, ApiError, Done, ErrorCode, Event, JobStatus, ModelsInfo, PackageInfo, Picture,
+    Request, Started, VersionInfo, Written,
 };
 
 /// Where the published document lives: the website (ConcatApp/website)
@@ -73,8 +73,10 @@ fn reply_schema(method: &str, generator: &mut SchemaGenerator) -> Option<Value> 
         | "edit.undo"
         | "edit.redo"
         | "media.import"
-        | "template.instantiate" => of::<EditorView>(generator),
-        "project.close" | "project.save" | "export.cancel" => of::<Done>(generator),
+        | "template.instantiate"
+        | "captions.place" => of::<EditorView>(generator),
+        "project.close" | "project.save" | "export.cancel" | "captions.cancel"
+        | "models.delete" | "speech.cancel" => of::<Done>(generator),
         "project.list" => of::<Vec<ProjectInfo>>(generator),
         "project.document" => json!({
             "type": "object",
@@ -84,7 +86,10 @@ fn reply_schema(method: &str, generator: &mut SchemaGenerator) -> Option<Value> 
         "catalogue.list" => of::<Vec<PackageInfo>>(generator),
         "template.list" => of::<Vec<TemplateInfo>>(generator),
         "template.save" => of::<TemplateInfo>(generator),
-        "export.run" => of::<Started>(generator),
+        "export.run" | "captions.transcribe" | "models.download" | "speech.speak" => {
+            of::<Started>(generator)
+        }
+        "models.list" => of::<ModelsInfo>(generator),
         "export.status" => of::<JobStatus>(generator),
         "preview.frame" => json!({
             "description": "The file written when the request names an `output`; the picture itself when it does not.",

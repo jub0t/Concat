@@ -102,13 +102,47 @@ impl Book {
                 status.frame = status.total;
                 status.fraction = 1.0;
             }
-            Event::ExportFailed { error, .. } => {
+            Event::ExportFailed { error, .. }
+            | Event::CaptionsFailed { error, .. }
+            | Event::ModelsFailed { error, .. }
+            | Event::SpeechFailed { error, .. } => {
                 status.state = if error.code == ErrorCode::Cancelled {
                     JobState::Cancelled
                 } else {
                     JobState::Failed
                 };
                 status.error = Some(error.clone());
+            }
+            Event::CaptionsProgress {
+                stage, fraction, ..
+            } => {
+                status.stage = Some(stage.clone());
+                status.fraction = f64::from(*fraction).clamp(0.0, 1.0);
+            }
+            Event::CaptionsDone { .. } | Event::ModelsDone { .. } => {
+                status.state = JobState::Done;
+                status.fraction = 1.0;
+            }
+            Event::SpeechDone { file, .. } => {
+                status.state = JobState::Done;
+                status.output = file.clone();
+                status.fraction = 1.0;
+            }
+            Event::SpeechProgress {
+                stage, fraction, ..
+            } => {
+                status.stage = Some(stage.clone());
+                status.fraction = f64::from(*fraction).clamp(0.0, 1.0);
+            }
+            Event::ModelsProgress {
+                received, total, ..
+            } => {
+                status.stage = Some("download".to_owned());
+                status.fraction = if *total > 0 {
+                    (*received as f64 / *total as f64).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
             }
         }
         if status.state != JobState::Running {
