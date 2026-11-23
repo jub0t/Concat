@@ -186,6 +186,8 @@ impl Lane {
     }
 }
 
+type PinnedMoment = (Arc<Moment>, Vec<Arc<Frame>>);
+
 /// What the playback jobs share with the prefetcher: the cursor as last
 /// reported, and the frames decoded ahead of it, held until passed.
 struct Shared {
@@ -193,14 +195,13 @@ struct Shared {
     cursor: Mutex<Option<Cursor>>,
     /// Bumped on every cursor: a job made for an older one is stale.
     generation: AtomicU64,
-    /// Frames decoded ahead, by instant, held so the pool's eviction
+    /// Frames decoded ahead, with their requests, held so the pool's eviction
     /// cannot take them before they are shown; released once passed.
-    pinned: Mutex<Vec<(f64, Vec<Arc<Frame>>)>>,
+    pinned: Mutex<Vec<PinnedMoment>>,
     /// A frame's worth of slack, in seconds, when deciding what is passed.
     slack: Mutex<f64>,
-    /// The output frames queued and not yet decoded, by index, so a
-    /// cursor that carries on asks only for frames nobody has asked for.
-    queued: Mutex<Vec<i64>>,
+    /// The output frames queued and not yet decoded, by instant and request.
+    queued: Mutex<Vec<Arc<Moment>>>,
 }
 
 /// The scheduler: owns the readers, decodes ahead of the transport, and
@@ -306,43 +307,57 @@ impl Prefetcher {
         // Read under `queued`: a job pins its frames before it leaves
         // `queued`, so an instant is in one or the other here, never
         // between them and queued twice.
-        let held: Vec<i64> = {
-            let mut pinned = lock(&self.shared.pinned);
-            pinned.retain(|(time, _)| !cursor.passed(*time, frame_seconds));
-            pinned.iter().map(|(time, _)| index(*time)).collect()
-        };
+        let mut pinned = lock(&self.shared.pinned);
+        pinned.retain(|(moment, _)| !cursor.passed(moment.time, frame_seconds));
         if !continues {
             queue.lanes[Priority::Playback as usize].clear();
             queued.clear();
         }
         for moment in ahead {
             let at = index(moment.time);
-            if queued.contains(&at) || held.contains(&at) {
+            // At the same instant the monitor can ask for different
+            // sources, colour options or a different preview size.
+            let same =
+                |existing: &Moment| index(existing.time) == at && existing.frames == moment.frames;
+            if queued.iter().any(|existing| same(existing))
+                || pinned.iter().any(|(existing, _)| same(existing))
+            {
                 continue;
             }
-            queued.push(at);
+            queued.retain(|existing| index(existing.time) != at);
+            pinned.retain(|(existing, _)| index(existing.time) != at);
+            let moment = Arc::new(moment);
+            queued.push(Arc::clone(&moment));
             let shared = Arc::clone(&self.shared);
             queue.lanes[Priority::Playback as usize].push_back(Box::new(move || {
-                let current = || shared.generation.load(Ordering::Acquire) == generation;
-                if !current() {
+                let entry = |queued: &[Arc<Moment>]| {
+                    queued
+                        .iter()
+                        .position(|queued| Arc::ptr_eq(queued, &moment))
+                        .filter(|_| shared.generation.load(Ordering::Acquire) == generation)
+                };
+                if entry(&lock(&shared.queued)).is_none() {
                     return;
                 }
                 let slack = *lock(&shared.slack);
-                if !lock(&shared.cursor).is_some_and(|now| now.passed(moment.time, slack)) {
-                    let frames: Vec<Arc<Frame>> = moment
+                let passed = lock(&shared.cursor).is_some_and(|now| now.passed(moment.time, slack));
+                let frames = (!passed).then(|| {
+                    moment
                         .frames
                         .iter()
                         .filter_map(|request| shared.pool.frame(request).ok())
-                        .collect();
-                    if current() {
-                        lock(&shared.pinned).push((moment.time, frames));
+                        .collect()
+                });
+                let mut queued = lock(&shared.queued);
+                if let Some(entry) = entry(&queued) {
+                    if let Some(frames) = frames {
+                        lock(&shared.pinned).push((moment, frames));
                     }
-                }
-                if current() {
-                    lock(&shared.queued).retain(|queued| *queued != at);
+                    queued.swap_remove(entry);
                 }
             }));
         }
+        drop(pinned);
         drop(queued);
         drop(queue);
         self.lane.ready.notify_all();
@@ -373,7 +388,7 @@ impl Prefetcher {
     pub fn held_instants(&self) -> Vec<f64> {
         lock(&self.shared.pinned)
             .iter()
-            .map(|(time, _)| *time)
+            .map(|(moment, _)| moment.time)
             .collect()
     }
 
@@ -758,6 +773,35 @@ mod tests {
             "{:?}",
             prefetcher.held_instants()
         );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn playback_replaces_a_held_request_when_its_sdr_profile_changes() {
+        let path = crate::pool::tests::counting_video("prefetch-profile", 32, 30);
+        let pool = Arc::new(ReaderPool::new(1 << 20, 2));
+        let prefetcher = Prefetcher::new(pool, 1);
+        let frame_seconds = 1.0 / 30.0;
+        let request = FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(2), 16, 16);
+        for (time, iphone_sdr) in [(0.0, false), (frame_seconds, true)] {
+            prefetcher.advance(
+                Cursor {
+                    time,
+                    direction: Direction::Forward,
+                    rate: 1.0,
+                },
+                frame_seconds,
+                vec![Moment {
+                    time: 2.0 * frame_seconds,
+                    frames: vec![request.clone().iphone_sdr(iphone_sdr)],
+                }],
+            );
+            prefetcher.drain();
+            let pinned = lock(&prefetcher.shared.pinned);
+            assert_eq!(pinned.len(), 1);
+            assert_eq!(pinned[0].0.frames[0].iphone_sdr, iphone_sdr);
+            assert_eq!(pinned[0].1.len(), 1);
+        }
         let _ = std::fs::remove_file(&path);
     }
 

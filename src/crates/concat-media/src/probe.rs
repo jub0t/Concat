@@ -43,6 +43,8 @@ pub struct VideoStream {
     /// What the stream's tags say its picture is: HLG or PQ by its
     /// transfer, a wide SDR by its primaries, SDR where they say nothing.
     pub signal: Signal,
+    /// The selected stream has the HLG-compatible Dolby Vision 8.4 configuration.
+    pub iphone_dolby_vision: bool,
     /// Where the stream's keyframes are, in order, in seconds from the
     /// file's own start (see `ffi::origin`), as the container's index has
     /// them: the pictures a seek can show without decoding any other.
@@ -234,6 +236,7 @@ fn video_stream(
         cadence: FrameRate::new(cadence),
         color_range: ColorRange::from_ffmpeg(ffmpeg::color::Range::from(range)),
         signal,
+        iphone_dolby_vision: crate::decode::is_iphone_dolby_vision_stream(stream),
         keyframes: keyframes(stream, origin),
     })
 }

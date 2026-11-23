@@ -383,6 +383,7 @@ impl MonitorPane {
             // files at every quality, a proxy left from before included.
             proxy: studio.prefs.scrub_copies() && (nearest || (moving && quality > 0)),
             color_space: studio.project().active().video.color_space,
+            source_monitor: studio.source.is_some(),
             canvas: studio.project().active().video.canvas,
             nearest,
         };

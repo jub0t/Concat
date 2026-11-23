@@ -121,6 +121,8 @@ pub struct FrameRequest {
     /// go straight to the GPU. Only with `any_size`, since a fit here is
     /// FFmpeg on eight bits. See [`DecodeOptions::deep`].
     pub deep: bool,
+    /// Use the iPhone Dolby Vision 8.4 input profile on an SDR timeline.
+    pub iphone_sdr: bool,
 }
 
 impl FrameRequest {
@@ -139,6 +141,7 @@ impl FrameRequest {
             range: None,
             any_size: false,
             deep: false,
+            iphone_sdr: false,
         }
     }
 
@@ -191,6 +194,12 @@ impl FrameRequest {
         self
     }
 
+    /// Enables the iPhone Dolby Vision 8.4 profile for eligible sources.
+    pub fn iphone_sdr(mut self, enabled: bool) -> Self {
+        self.iphone_sdr = enabled;
+        self
+    }
+
     /// Reads the proxy where there is one. See [`FrameRequest::proxy`].
     pub fn from_proxy(mut self, proxy: bool) -> Self {
         self.proxy = proxy;
@@ -224,6 +233,8 @@ struct SourceKey {
     /// (see [`DecodeOptions::deep`]) - a different picture from the
     /// tone-mapped eight bits.
     deep: bool,
+    /// Read through the SDR input profile.
+    iphone_sdr: bool,
 }
 
 /// A treated frame's identity: the source frame and what was done to it.
@@ -417,19 +428,7 @@ struct Reader {
 }
 
 impl Reader {
-    fn open(
-        path: &Path,
-        width: u32,
-        height: u32,
-        chain: Option<&str>,
-        pre: Option<&str>,
-        range: Option<ColorRange>,
-        deep: bool,
-        rate: FrameRate,
-        still: bool,
-        index: i64,
-        keyframes: bool,
-    ) -> Result<Self> {
+    fn open(key: &ReaderKey, facts: &MediaFacts, index: i64) -> Result<Self> {
         // Unpaced, so every source frame comes out with its own timestamp
         // and the index is read from that; a seek lands on the keyframe at
         // or before the target and the pull rolls forward from there.
@@ -440,28 +439,29 @@ impl Reader {
         // A reader here walks a few frames to the one the monitor wants, and
         // past eight threads the walk was no faster (scrub_feel).
         let mut options = DecodeOptions::default()
-            .starting_at(rate.time_of_frame(index))
-            .scaled_to(width, height)
-            .in_range(range)
-            .deep(deep)
+            .starting_at(facts.rate.time_of_frame(index))
+            .scaled_to(key.width, key.height)
+            .in_range(key.range)
+            .deep(key.deep)
+            .iphone_sdr(key.iphone_sdr)
             .threaded(reader_threads());
-        if keyframes {
+        if key.keyframes {
             options = options.nearest_keyframes();
         }
-        if still {
+        if facts.still {
             // One frame, served for every time, and never sought: a seek
             // on a single-image JPEG leaves FFmpeg's image demuxer with
             // nothing left to read, so the picture would never come back.
             // Repeating keeps the frame coming after the end instead.
             options = options.repeating();
         }
-        if let Some(chain) = chain {
+        if let Some(chain) = key.chain.as_deref() {
             options = options.filtered(chain);
         }
-        if let Some(pre) = pre {
+        if let Some(pre) = key.pre.as_deref() {
             options = options.prefiltered(pre);
         }
-        let decoder = Decoder::open(path, &options)?;
+        let decoder = Decoder::open(&key.path, &options)?;
         Ok(Self {
             decoder,
             next_index: i64::MIN,
@@ -531,6 +531,8 @@ struct MediaFacts {
     /// The picture's displayed size, for a file with one: what the levels
     /// are halvings of.
     size: Option<(u32, u32)>,
+    /// The original can use its Dolby Vision metadata on an SDR timeline.
+    iphone_dolby_vision: bool,
     /// Where the keyframes are, as the probe found them; see
     /// [`crate::VideoStream::keyframes`]. Empty for a still and for a
     /// container with no index.
@@ -554,20 +556,37 @@ impl MediaFacts {
     }
 }
 
-/// One reader's identity: the file, the decode size, the baked chains.
 /// A reader's identity: the file, the level, the crop and the chain, the
-/// range, deep, and whether it reads keyframes only - a scrub's, which
+/// colour options, and whether it reads keyframes only - a scrub's, which
 /// never shares a decoder with the readers that walk to an exact frame.
-type ReaderKey = (
-    PathBuf,
-    u32,
-    u32,
-    Option<String>,
-    Option<String>,
-    Option<ColorRange>,
-    bool,
-    bool,
-);
+#[derive(PartialEq, Eq)]
+struct ReaderKey {
+    path: PathBuf,
+    width: u32,
+    height: u32,
+    chain: Option<String>,
+    pre: Option<String>,
+    range: Option<ColorRange>,
+    deep: bool,
+    iphone_sdr: bool,
+    keyframes: bool,
+}
+
+impl ReaderKey {
+    fn new(source: &SourceKey, chain: Option<&str>, pre: Option<&str>, keyframes: bool) -> Self {
+        Self {
+            path: source.path.clone(),
+            width: source.width,
+            height: source.height,
+            chain: chain.map(str::to_owned),
+            pre: pre.map(str::to_owned),
+            range: source.range,
+            deep: source.deep,
+            iphone_sdr: source.iphone_sdr,
+            keyframes,
+        }
+    }
+}
 
 /// One warm reader as the pool sees it, without taking the reader's lock.
 struct Warm {
@@ -855,6 +874,7 @@ impl ReaderPool {
                     still: true,
                     frames: None,
                     size: None,
+                    iphone_dolby_vision: false,
                     keyframes: Arc::from([]),
                 }),
             );
@@ -950,9 +970,13 @@ impl ReaderPool {
 
     /// The file a request reads: its proxy when it asks for one and the
     /// file has one, the file itself otherwise.
-    fn path_for(&self, request: &FrameRequest) -> PathBuf {
+    fn path_for(&self, request: &FrameRequest, iphone_sdr: bool) -> PathBuf {
         if request.proxy
             && let Some(proxy) = self.proxy_of(&request.path)
+            && !(iphone_sdr
+                && self
+                    .facts_for(&request.path, request.still)
+                    .is_ok_and(|facts| facts.iphone_dolby_vision))
         {
             return proxy;
         }
@@ -963,8 +987,19 @@ impl ReaderPool {
     /// reads, its facts, and the key of the frame at the level that covers
     /// the request.
     fn locate(&self, request: &FrameRequest) -> Result<(Arc<MediaFacts>, SourceKey)> {
+        self.locate_with_profile(
+            request,
+            request.iphone_sdr && crate::iphone_sdr::available(),
+        )
+    }
+
+    fn locate_with_profile(
+        &self,
+        request: &FrameRequest,
+        iphone_sdr: bool,
+    ) -> Result<(Arc<MediaFacts>, SourceKey)> {
         Self::count(&self.counters.asked);
-        let mut path = self.path_for(request);
+        let mut path = self.path_for(request, iphone_sdr);
         let facts = match self.facts_for(&path, request.still) {
             Ok(facts) => facts,
             // A proxy that cannot be read - the cache cleared under the
@@ -1005,6 +1040,9 @@ impl ReaderPool {
         // here is FFmpeg, which takes eight bits.
         let deep =
             request.deep && request.any_size && request.pre.is_none() && request.chain.is_none();
+        // The proxy was transcoded without the original's Dolby Vision
+        // metadata. Other sources share their usual cache entries.
+        let iphone_sdr = iphone_sdr && path == request.path && facts.iphone_dolby_vision;
         Ok((
             facts,
             SourceKey {
@@ -1014,6 +1052,7 @@ impl ReaderPool {
                 index,
                 range,
                 deep,
+                iphone_sdr,
             },
         ))
     }
@@ -1116,16 +1155,7 @@ impl ReaderPool {
         // on light footage, or on a slow drag, that is a few frames, and
         // the picture under the pointer is the one to show.
         let walk = {
-            let exact = (
-                key.path.clone(),
-                key.width,
-                key.height,
-                None,
-                None,
-                key.range,
-                key.deep,
-                false,
-            );
+            let exact = ReaderKey::new(&key, None, None, false);
             let roll = self
                 .readers
                 .lock()
@@ -1204,9 +1234,7 @@ impl ReaderPool {
     ) -> Result<(i64, Arc<Frame>)> {
         let path = key.path.as_path();
         let aim = facts.rate.frame_at(seek);
-        let shared = self.reader(
-            path, key.width, key.height, None, None, key.range, key.deep, facts, aim, true,
-        )?;
+        let shared = self.reader(key, None, None, facts, aim, true)?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -1294,18 +1322,39 @@ impl ReaderPool {
         range: Option<ColorRange>,
         deep: bool,
     ) -> Result<Arc<Frame>> {
+        self.frame_at_with(
+            &FrameRequest::new(path, time, width, height)
+                .as_still(still)
+                .filtered(chain)
+                .prefiltered(pre)
+                .in_range(range)
+                .deep_when_untreated(deep),
+        )
+    }
+
+    /// Export's exact-size decode with the request's colour options.
+    /// Reads the original file and bakes both filter chains into the decoder.
+    pub fn frame_at_with(&self, request: &FrameRequest) -> Result<Arc<Frame>> {
         Self::count(&self.counters.asked);
-        let chain = chain.filter(|chain| !chain.trim().is_empty());
-        let pre = pre.filter(|pre| !pre.trim().is_empty());
-        let facts = self.facts_for(path, still)?;
-        let index = facts.index_at(time);
+        let path = request.path.as_path();
+        let (width, height) = request.size;
+        let chain = request
+            .chain
+            .as_deref()
+            .filter(|chain| !chain.trim().is_empty());
+        let pre = request.pre.as_deref().filter(|pre| !pre.trim().is_empty());
+        let facts = self.facts_for(path, request.still)?;
+        let index = facts.index_at(request.time);
         let source_key = SourceKey {
             path: path.to_path_buf(),
             width,
             height,
             index,
-            range,
-            deep: deep && chain.is_none() && pre.is_none(),
+            range: request.range,
+            deep: request.deep && chain.is_none() && pre.is_none(),
+            iphone_sdr: request.iphone_sdr
+                && facts.iphone_dolby_vision
+                && crate::iphone_sdr::available(),
         };
         if chain.is_none() && pre.is_none() {
             return self.source_frame(&facts, &source_key);
@@ -1335,9 +1384,7 @@ impl ReaderPool {
             self.remember_treated(key, Arc::clone(&frame));
             return Ok(frame);
         }
-        let shared = self.reader(
-            path, width, height, chain, pre, range, false, &facts, index, false,
-        )?;
+        let shared = self.reader(&key.source, chain, pre, &facts, index, false)?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -1372,9 +1419,7 @@ impl ReaderPool {
             self.remember_source(key.clone(), Arc::clone(&frame));
             return Ok(frame);
         }
-        let shared = self.reader(
-            path, key.width, key.height, None, None, key.range, key.deep, facts, key.index, false,
-        )?;
+        let shared = self.reader(key, None, None, facts, key.index, false)?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -1523,6 +1568,7 @@ impl ReaderPool {
                     still: true,
                     frames: None,
                     size: None,
+                    iphone_dolby_vision: false,
                     keyframes: Arc::from([]),
                 }
             } else {
@@ -1552,6 +1598,10 @@ impl ReaderPool {
                     still: false,
                     frames,
                     size,
+                    iphone_dolby_vision: info
+                        .video
+                        .as_ref()
+                        .is_some_and(|video| video.iphone_dolby_vision),
                     keyframes: info
                         .video
                         .as_ref()
@@ -1574,33 +1624,20 @@ impl ReaderPool {
     /// reader is the caller's job, under the reader's own lock.
     fn reader(
         &self,
-        path: &Path,
-        width: u32,
-        height: u32,
+        source: &SourceKey,
         chain: Option<&str>,
         pre: Option<&str>,
-        range: Option<ColorRange>,
-        deep: bool,
         facts: &MediaFacts,
         target: i64,
         keyframes: bool,
     ) -> Result<Arc<Mutex<Reader>>> {
-        let key = (
-            path.to_path_buf(),
-            width,
-            height,
-            chain.map(str::to_owned),
-            pre.map(str::to_owned),
-            range,
-            deep,
-            keyframes,
-        );
+        let key = ReaderKey::new(source, chain, pre, keyframes);
         {
             let mut readers = self
                 .readers
                 .lock()
                 .map_err(|_| crate::error::Error::NoFrame {
-                    path: path.to_path_buf(),
+                    path: source.path.clone(),
                 })?;
             if let Some(reader) = readers.claim(&key, target) {
                 return Ok(reader);
@@ -1610,19 +1647,7 @@ impl ReaderPool {
         // Opened outside the lock: opening a file and seeking it is the slow
         // part, and nobody else needs to wait for it. A decode in flight on
         // an evicted reader finishes on its own handle.
-        let reader = Reader::open(
-            path,
-            width,
-            height,
-            chain,
-            pre,
-            range,
-            deep,
-            facts.rate,
-            facts.still,
-            target,
-            keyframes,
-        )?;
+        let reader = Reader::open(&key, facts, target)?;
         if let Ok(mut ways) = self.ways.lock() {
             let decoder = &reader.decoder;
             let way = match decoder.hardware() {
@@ -1636,7 +1661,7 @@ impl ReaderPool {
             .readers
             .lock()
             .map_err(|_| crate::error::Error::NoFrame {
-                path: path.to_path_buf(),
+                path: source.path.clone(),
             })?;
         if let Some(reader) = readers.claim(&key, target) {
             // Someone else opened a reader for this ground meanwhile, or
@@ -1773,6 +1798,43 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_sdr_profile_reads_dolby_vision_from_the_original() {
+        let pool = ReaderPool::with_defaults();
+        let original = PathBuf::from("original.mov");
+        let proxy = PathBuf::from("proxy.mp4");
+        let facts = |iphone_dolby_vision| {
+            Arc::new(MediaFacts {
+                rate: FrameRate::THIRTY,
+                still: false,
+                frames: None,
+                size: Some((64, 32)),
+                iphone_dolby_vision,
+                keyframes: Arc::from([]),
+            })
+        };
+        pool.facts.lock().unwrap().extend([
+            (original.clone(), facts(true)),
+            (proxy.clone(), facts(false)),
+        ]);
+        pool.adopt_proxy(&original, proxy.clone());
+
+        let request = FrameRequest::new(&original, Rational::ZERO, 64, 32);
+        let proxy_request = request.clone().from_proxy(true).iphone_sdr(true);
+        let (_, profiled) = pool.locate_with_profile(&proxy_request, true).unwrap();
+        let (_, unprofiled) = pool.locate(&request).unwrap();
+        let (_, stand_in) = pool.locate_with_profile(&proxy_request, false).unwrap();
+        assert_eq!(profiled.path, original);
+        assert_eq!(stand_in.path, proxy);
+        assert_ne!(profiled, unprofiled);
+        assert!(profiled.iphone_sdr);
+        assert!(!stand_in.iphone_sdr);
+        assert!(
+            ReaderKey::new(&profiled, None, None, false)
+                != ReaderKey::new(&unprofiled, None, None, false)
+        );
+    }
+
+    #[test]
     fn the_cache_evicts_least_recently_used_within_budget() {
         // Frames are 16 bytes each (2x2); budget holds exactly two.
         let mut cache = FrameCache::new(32);
@@ -1783,6 +1845,7 @@ pub(crate) mod tests {
             index,
             range: None,
             deep: false,
+            iphone_sdr: false,
         };
         cache.insert(key(0), Arc::new(Frame::black(2, 2)));
         cache.insert(key(1), Arc::new(Frame::black(2, 2)));
@@ -1843,6 +1906,7 @@ pub(crate) mod tests {
                 index: 0,
                 range: None,
                 deep: false,
+                iphone_sdr: false,
             },
             Arc::new(Frame::black(2, 2)),
         );

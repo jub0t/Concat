@@ -50,6 +50,8 @@ pub struct FrameSpec {
     /// What the timeline is output in: an HDR one keeps its clips' light
     /// above white and is rolled off for the SDR screen.
     pub color_space: ColorSpace,
+    /// The monitor is showing a source file on its own.
+    pub source_monitor: bool,
     /// What shows where no picture covers the frame; see
     /// `VideoSettings::canvas`.
     pub canvas: [u8; 4],
@@ -81,6 +83,7 @@ struct PlanEntry {
     height: u32,
     rate: (i64, i64),
     color_space: ColorSpace,
+    source_monitor: bool,
     canvas: [u8; 4],
     plan: Arc<concat_export::PreviewPlan>,
 }
@@ -299,12 +302,13 @@ impl Monitor {
             && entry.height == spec.height
             && entry.rate == rate
             && entry.color_space == spec.color_space
+            && entry.source_monitor == spec.source_monitor
             && entry.canvas == spec.canvas
             && (Arc::ptr_eq(&entry.clips, &clips) || *entry.clips == *clips)
         {
             return Arc::clone(&entry.plan);
         }
-        let plan = Arc::new(concat_export::preview_plan(
+        let plan = concat_export::preview_plan(
             &clips,
             spec.width,
             spec.height,
@@ -312,13 +316,19 @@ impl Monitor {
             rate.1,
             spec.color_space,
             spec.canvas,
-        ));
+        );
+        let plan = Arc::new(if spec.source_monitor {
+            plan.for_source_monitor()
+        } else {
+            plan
+        });
         *slot = Some(PlanEntry {
             clips,
             width: spec.width,
             height: spec.height,
             rate,
             color_space: spec.color_space,
+            source_monitor: spec.source_monitor,
             canvas: spec.canvas,
             plan: Arc::clone(&plan),
         });

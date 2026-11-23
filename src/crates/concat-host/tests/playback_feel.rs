@@ -98,6 +98,7 @@ fn playback_feel() {
         moving: true,
         proxy: false,
         color_space: Default::default(),
+        source_monitor: false,
         canvas: [0, 0, 0, 255],
         nearest: false,
     };
