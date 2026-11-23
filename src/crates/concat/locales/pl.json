@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "W tym projekcie nie ma nic takiego.",
   "mediaPane.nothingReadAloudYet": "Nic jeszcze nie przeczytano na głos. Zamiana tekstu na mowę umieszcza tu swój głos.",
   "mediaPane.nothingRenderedYetRight": "Nic jeszcze nie wyrenderowano. Kliknij prawym przyciskiem klip na osi czasu i wyrenderuj jego dźwięk, aby trafił tutaj.",
+  "mediaPane.preparing": "Przygotowywanie {0}%",
   "mediaPane.processed": "Przetworzone",
   "mediaPane.reloadCustomEffects": "Wczytaj ponownie własne efekty",
   "mediaPane.saveProjectTemplate": "Zapisz ten projekt jako szablon",

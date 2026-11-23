@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Rien de ce genre dans ce projet.",
   "mediaPane.nothingReadAloudYet": "Rien n'a encore été lu. La synthèse vocale dépose sa voix ici.",
   "mediaPane.nothingRenderedYetRight": "Rien de rendu pour l'instant. Faites un clic droit sur un clip de la timeline et rendez son son pour le déposer ici.",
+  "mediaPane.preparing": "Préparation {0} %",
   "mediaPane.processed": "Traité",
   "mediaPane.reloadCustomEffects": "Recharger les effets personnalisés",
   "mediaPane.saveProjectTemplate": "Enregistrer ce projet comme modèle",

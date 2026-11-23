@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "اس پروجیکٹ میں اس قسم کا کچھ نہیں۔",
   "mediaPane.nothingReadAloudYet": "ابھی کچھ بلند آواز میں نہیں پڑھا گیا۔ ٹیکسٹ ٹو اسپیچ اپنی آواز یہاں رکھتا ہے۔",
   "mediaPane.nothingRenderedYetRight": "ابھی کچھ رینڈر نہیں ہوا۔ ٹائم لائن پر کسی کلپ پر رائٹ کلک کریں اور اس کی آواز رینڈر کر کے یہاں لائیں۔",
+  "mediaPane.preparing": "تیاری جاری ہے {0}%",
   "mediaPane.processed": "پروسیس شدہ",
   "mediaPane.reloadCustomEffects": "حسبِ منشا ایفیکٹس دوبارہ لوڈ کریں",
   "mediaPane.saveProjectTemplate": "اس پروجیکٹ کو ٹیمپلیٹ کے طور پر محفوظ کریں",

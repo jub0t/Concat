@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Nada desse tipo neste projeto.",
   "mediaPane.nothingReadAloudYet": "Nada foi lido ainda. Texto para fala deixa sua voz aqui.",
   "mediaPane.nothingRenderedYetRight": "Nada renderizado ainda. Clique com o botão direito num clipe na linha do tempo e renderize o som dele para colocá-lo aqui.",
+  "mediaPane.preparing": "Preparando {0}%",
   "mediaPane.processed": "Processado",
   "mediaPane.reloadCustomEffects": "Recarregar efeitos personalizados",
   "mediaPane.saveProjectTemplate": "Salvar este projeto como modelo",

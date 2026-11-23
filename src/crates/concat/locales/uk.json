@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "У цьому проєкті нічого такого немає.",
   "mediaPane.nothingReadAloudYet": "Ще нічого не озвучено. Синтез мовлення складає сюди свої голоси.",
   "mediaPane.nothingRenderedYetRight": "Ще нічого не відрендерено. Клацніть правою кнопкою кліп на часовій шкалі й відрендеріть його звук, щоб він з’явився тут.",
+  "mediaPane.preparing": "Підготовка {0}%",
   "mediaPane.processed": "Оброблене",
   "mediaPane.reloadCustomEffects": "Перезавантажити власні ефекти",
   "mediaPane.saveProjectTemplate": "Зберегти цей проєкт як шаблон",

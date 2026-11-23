@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "이 프로젝트에 해당 종류의 항목이 없습니다.",
   "mediaPane.nothingReadAloudYet": "아직 읽어 준 것이 없습니다. 텍스트 음성 변환의 음성이 여기에 들어옵니다.",
   "mediaPane.nothingRenderedYetRight": "아직 렌더링한 것이 없습니다. 타임라인의 클립을 오른쪽 클릭해 사운드를 렌더링하면 여기에 들어옵니다.",
+  "mediaPane.preparing": "준비 중 {0}%",
   "mediaPane.processed": "처리됨",
   "mediaPane.reloadCustomEffects": "사용자 지정 효과 다시 불러오기",
   "mediaPane.saveProjectTemplate": "이 프로젝트를 템플릿으로 저장",

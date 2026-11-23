@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "ไม่มีรายการประเภทนี้ในโปรเจกต์",
   "mediaPane.nothingReadAloudYet": "ยังไม่มีการอ่านออกเสียง เสียงพูดจากการแปลงข้อความจะมาอยู่ที่นี่",
   "mediaPane.nothingRenderedYetRight": "ยังไม่มีอะไรเรนเดอร์ คลิกขวาที่คลิปบนไทม์ไลน์แล้วเรนเดอร์เสียงเพื่อนำมาไว้ที่นี่",
+  "mediaPane.preparing": "กำลังเตรียม {0}%",
   "mediaPane.processed": "ที่ประมวลผลแล้ว",
   "mediaPane.reloadCustomEffects": "โหลดเอฟเฟกต์กำหนดเองใหม่",
   "mediaPane.saveProjectTemplate": "บันทึกโปรเจกต์นี้เป็นเทมเพลต",

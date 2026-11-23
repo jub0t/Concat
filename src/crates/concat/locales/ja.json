@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "この種類のものはこのプロジェクトにありません。",
   "mediaPane.nothingReadAloudYet": "まだ何も読み上げていません。テキスト読み上げの音声はここに入ります。",
   "mediaPane.nothingRenderedYetRight": "まだ何もレンダリングしていません。タイムラインのクリップを右クリックしてサウンドをレンダリングすると、ここに入ります。",
+  "mediaPane.preparing": "準備中 {0}%",
   "mediaPane.processed": "処理済み",
   "mediaPane.reloadCustomEffects": "カスタムエフェクトを再読み込み",
   "mediaPane.saveProjectTemplate": "このプロジェクトをテンプレートとして保存",

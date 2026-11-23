@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Nothing of that kind in this project.",
   "mediaPane.nothingReadAloudYet": "Nothing read aloud yet. Text to speech puts its voice here.",
   "mediaPane.nothingRenderedYetRight": "Nothing rendered yet. Right-click a clip on the timeline and render its sound to put it here.",
+  "mediaPane.preparing": "Preparing {0}%",
   "mediaPane.processed": "Processed",
   "mediaPane.reloadCustomEffects": "Reload custom effects",
   "mediaPane.saveProjectTemplate": "Save this project as a template",

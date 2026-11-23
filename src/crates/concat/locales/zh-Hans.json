@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "此项目中没有此类内容。",
   "mediaPane.nothingReadAloudYet": "还没有朗读内容。文字转语音生成的语音会放在这里。",
   "mediaPane.nothingRenderedYetRight": "还没有渲染内容。在时间线上右键点击片段并渲染其声音，结果就会出现在这里。",
+  "mediaPane.preparing": "正在准备 {0}%",
   "mediaPane.processed": "已处理",
   "mediaPane.reloadCustomEffects": "重新加载自定义效果",
   "mediaPane.saveProjectTemplate": "将此项目保存为模板",

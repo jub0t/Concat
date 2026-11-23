@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Bu layihədə belə bir şey yoxdur.",
   "mediaPane.nothingReadAloudYet": "Hələ heç nə səsləndirilməyib. Mətndən nitqə səsini buraya qoyur.",
   "mediaPane.nothingRenderedYetRight": "Hələ heç nə render edilməyib. Zaman xəttində klipə sağ klik edib səsini render edin ki, buraya düşsün.",
+  "mediaPane.preparing": "Hazırlanır {0}%",
   "mediaPane.processed": "Emal edilmiş",
   "mediaPane.reloadCustomEffects": "Fərdi effektləri yenidən yüklə",
   "mediaPane.saveProjectTemplate": "Bu layihəni şablon kimi saxla",

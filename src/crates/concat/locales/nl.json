@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Niets van dat soort in dit project.",
   "mediaPane.nothingReadAloudYet": "Nog niets voorgelezen. Tekst-naar-spraak zet zijn stem hier.",
   "mediaPane.nothingRenderedYetRight": "Nog niets gerenderd. Klik met rechts op een clip op de tijdlijn en render het geluid om het hier te zetten.",
+  "mediaPane.preparing": "Voorbereiden {0}%",
   "mediaPane.processed": "Verwerkt",
   "mediaPane.reloadCustomEffects": "Eigen effecten opnieuw laden",
   "mediaPane.saveProjectTemplate": "Dit project opslaan als sjabloon",

@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "لا شيء من هذا النوع في هذا المشروع.",
   "mediaPane.nothingReadAloudYet": "لم تتم قراءة شيء بصوت عالٍ بعد. تضع ميزة تحويل النص إلى كلام صوتها هنا.",
   "mediaPane.nothingRenderedYetRight": "لم يُصيَّر شيء بعد. انقر بزر الفأرة الأيمن على مقطع في المخطط الزمني وصيِّر صوته لوضعه هنا.",
+  "mediaPane.preparing": "جارٍ التحضير {0}%",
   "mediaPane.processed": "مُعالَج",
   "mediaPane.reloadCustomEffects": "إعادة تحميل التأثيرات المخصّصة",
   "mediaPane.saveProjectTemplate": "حفظ هذا المشروع كقالب",

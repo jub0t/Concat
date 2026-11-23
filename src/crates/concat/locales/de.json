@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Nichts dieser Art in diesem Projekt.",
   "mediaPane.nothingReadAloudYet": "Noch nichts vorgelesen. Text zu Sprache legt seine Stimme hier ab.",
   "mediaPane.nothingRenderedYetRight": "Noch nichts gerendert. Klicke mit rechts auf einen Clip auf der Zeitleiste und rendere seinen Ton, um ihn hier abzulegen.",
+  "mediaPane.preparing": "Wird vorbereitet {0} %",
   "mediaPane.processed": "Verarbeitet",
   "mediaPane.reloadCustomEffects": "Eigene Effekte neu laden",
   "mediaPane.saveProjectTemplate": "Dieses Projekt als Vorlage speichern",

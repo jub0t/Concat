@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "هیچ موردی از این نوع در این پروژه وجود ندارد.",
   "mediaPane.nothingReadAloudYet": "هنوز چیزی خوانده نشده است. تبدیل متن به گفتار صدای خود را اینجا می‌گذارد.",
   "mediaPane.nothingRenderedYetRight": "هنوز چیزی رندر نشده است. روی یک کلیپ در تایم‌لاین راست‌کلیک کنید و صدای آن را رندر کنید تا اینجا قرار بگیرد.",
+  "mediaPane.preparing": "در حال آماده‌سازی {0}٪",
   "mediaPane.processed": "پردازش‌شده",
   "mediaPane.reloadCustomEffects": "بارگذاری مجدد افکت‌های سفارشی",
   "mediaPane.saveProjectTemplate": "ذخیره این پروژه به‌عنوان قالب",

@@ -59,6 +59,10 @@ export struct MediaItemData {
     /// it is not selected: the number a phone's pick wears, and the order
     /// Add lays the picks down in.
     pick: int,
+    /// How far its scrub copy is, 0 to 1, while one is being written; -1
+    /// once it is there, or for a file that gets none. Until then a scrub
+    /// over it reads the file itself and lags; see concat_host::proxy.
+    preparing: float,
 }
 
 // ── the page strip ───────────────────────────────────────────────────────────
@@ -575,6 +579,36 @@ export component MediaCard inherits Rectangle {
                         font-family: Theme.font-technical;
                         font-size: Theme.fs-xs;
                     }
+                }
+
+                // Its scrub copy being written: what CapCut calls processing.
+                // Until it is there a scrub over the file reads the file itself
+                // and lags behind the hand, so the card says so, with how far
+                // it has got - a line along the foot of the tile, and the words
+                // on the scrim top left, where nothing else of the card sits.
+                if root.item.preparing >= 0: Rectangle {
+                    x: 4px;
+                    y: 4px;
+                    width: preparing.width + 7px;
+                    height: preparing.height + 2px;
+                    border-radius: Theme.r-xs;
+                    background: Theme.scrim;
+
+                    preparing := Text {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        text: I18n.t1("mediaPane.preparing", Math.round(root.item.preparing * 100));
+                        color: Theme.on-scrim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-xs;
+                    }
+                }
+                if root.item.preparing >= 0: Rectangle {
+                    x: 0;
+                    y: parent.height - 2px;
+                    width: parent.width * Math.clamp(root.item.preparing, 0, 1);
+                    height: 2px;
+                    background: Theme.accent;
                 }
 
                 // The card that is playing, or on the monitor: how far it has

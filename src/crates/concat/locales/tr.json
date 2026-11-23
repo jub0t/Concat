@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Bu projede o türden bir şey yok.",
   "mediaPane.nothingReadAloudYet": "Henüz hiçbir şey seslendirilmedi. Metinden konuşma sesini buraya bırakır.",
   "mediaPane.nothingRenderedYetRight": "Henüz hiçbir şey işlenmedi. Zaman çizelgesinde bir klibe sağ tıklayıp sesini işleyerek buraya koyun.",
+  "mediaPane.preparing": "Hazırlanıyor %{0}",
   "mediaPane.processed": "İşlenmiş",
   "mediaPane.reloadCustomEffects": "Özel efektleri yeniden yükle",
   "mediaPane.saveProjectTemplate": "Bu projeyi şablon olarak kaydet",

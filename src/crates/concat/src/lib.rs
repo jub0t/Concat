@@ -2951,6 +2951,23 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // A device that ran out of memory since the last look closes every
     // reader not decoding now instead: a hardware one holds its pictures
     // on the card, and the card is what ran out (#873).
+    // The bin's "Preparing" while scrub copies are written: its cards
+    // redrawn twice a second as long as any copy is under way, and once
+    // more after the last, so the words go when the copy is there.
+    let preparing = slint::Timer::default();
+    let was_preparing = std::cell::Cell::new(false);
+    preparing.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(500),
+        move || {
+            let now = concat_host::proxy::any_preparing();
+            let before = was_preparing.replace(now);
+            if now || before {
+                Shell::with(|shell, _| shell.studio.borrow().publish_bin(&shell.models));
+            }
+        },
+    );
+
     let reader_sweep = slint::Timer::default();
     let quiet = std::cell::Cell::new((u64::MAX, false));
     let pressure = std::cell::Cell::new(concat_render::memory::pressure());

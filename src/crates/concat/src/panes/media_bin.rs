@@ -570,6 +570,7 @@ impl MediaBin {
                         .iter()
                         .position(|id| *id == item.id)
                         .map_or(0, |at| at as i32 + 1),
+                    preparing: concat_host::proxy::progress(&item.path).unwrap_or(-1.0),
                 }
             })
             .collect()

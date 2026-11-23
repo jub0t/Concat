@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "此專案中沒有此類內容。",
   "mediaPane.nothingReadAloudYet": "尚無朗讀內容。文字轉語音產生的語音會放在這裡。",
   "mediaPane.nothingRenderedYetRight": "尚無渲染內容。在時間軸上的片段按右鍵並渲染其聲音，結果就會出現在這裡。",
+  "mediaPane.preparing": "正在準備 {0}%",
   "mediaPane.processed": "已處理",
   "mediaPane.reloadCustomEffects": "重新載入自訂效果",
   "mediaPane.saveProjectTemplate": "將此專案儲存為範本",

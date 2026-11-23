@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Tidak ada yang sejenis itu di proyek ini.",
   "mediaPane.nothingReadAloudYet": "Belum ada yang dibacakan. Teks ke ucapan menaruh suaranya di sini.",
   "mediaPane.nothingRenderedYetRight": "Belum ada yang dirender. Klik kanan klip di linimasa dan render suaranya untuk menaruhnya di sini.",
+  "mediaPane.preparing": "Menyiapkan {0}%",
   "mediaPane.processed": "Diproses",
   "mediaPane.reloadCustomEffects": "Muat ulang efek kustom",
   "mediaPane.saveProjectTemplate": "Simpan proyek ini sebagai template",

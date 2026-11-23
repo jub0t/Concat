@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "इस प्रोजेक्ट में इस तरह का कुछ नहीं है।",
   "mediaPane.nothingReadAloudYet": "अभी कुछ भी पढ़कर नहीं सुनाया गया। टेक्स्ट से आवाज़ अपनी आवाज़ यहां रखता है।",
   "mediaPane.nothingRenderedYetRight": "अभी कुछ रेंडर नहीं हुआ। टाइमलाइन पर किसी क्लिप पर राइट-क्लिक करें और उसकी ध्वनि रेंडर करके यहां लाएं।",
+  "mediaPane.preparing": "तैयार हो रहा है {0}%",
   "mediaPane.processed": "प्रोसेस किए गए",
   "mediaPane.reloadCustomEffects": "कस्टम इफ़ेक्ट फिर से लोड करें",
   "mediaPane.saveProjectTemplate": "इस प्रोजेक्ट को टेम्पलेट के रूप में सेव करें",

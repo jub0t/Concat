@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Dự án này không có thứ nào như vậy.",
   "mediaPane.nothingReadAloudYet": "Chưa có gì được đọc to. Chuyển văn bản thành giọng nói sẽ đặt giọng của nó ở đây.",
   "mediaPane.nothingRenderedYetRight": "Chưa kết xuất gì. Nhấp chuột phải vào clip trên timeline và kết xuất âm thanh của nó để đưa vào đây.",
+  "mediaPane.preparing": "Đang chuẩn bị {0}%",
   "mediaPane.processed": "Đã xử lý",
   "mediaPane.reloadCustomEffects": "Tải lại hiệu ứng tùy chỉnh",
   "mediaPane.saveProjectTemplate": "Lưu dự án này làm mẫu",

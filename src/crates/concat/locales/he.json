@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "אין בפרויקט הזה שום דבר מהסוג הזה.",
   "mediaPane.nothingReadAloudYet": "עדיין לא הוקרא כלום. המרת טקסט לדיבור מניחה את הקול שלה כאן.",
   "mediaPane.nothingRenderedYetRight": "עדיין לא רונדר כלום. יש ללחוץ לחיצה ימנית על קליפ בציר הזמן ולרנדר את הצליל שלו כדי להוסיף אותו לכאן.",
+  "mediaPane.preparing": "בהכנה {0}%",
   "mediaPane.processed": "מעובדים",
   "mediaPane.reloadCustomEffects": "טעינה מחדש של אפקטים מותאמים",
   "mediaPane.saveProjectTemplate": "שמירת הפרויקט הזה כתבנית",

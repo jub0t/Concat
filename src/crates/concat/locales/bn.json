@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "এই প্রজেক্টে ওই ধরনের কিছু নেই।",
   "mediaPane.nothingReadAloudYet": "এখনো কিছু পড়ে শোনানো হয়নি। টেক্সট টু স্পিচ তার ভয়েস এখানে রাখে।",
   "mediaPane.nothingRenderedYetRight": "এখনো কিছু রেন্ডার হয়নি। টাইমলাইনে ক্লিপে রাইট-ক্লিক করে এর শব্দ রেন্ডার করুন, তাহলে এখানে আসবে।",
+  "mediaPane.preparing": "প্রস্তুত হচ্ছে {0}%",
   "mediaPane.processed": "প্রসেসড",
   "mediaPane.reloadCustomEffects": "কাস্টম ইফেক্ট রিলোড করুন",
   "mediaPane.saveProjectTemplate": "এই প্রজেক্ট টেমপ্লেট হিসেবে সেভ করুন",

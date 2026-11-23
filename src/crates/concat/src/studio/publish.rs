@@ -57,6 +57,13 @@ impl Studio {
         self.publish_dock(app, models);
     }
 
+    /// The bin's cards and nothing else: what the scrub copies' progress
+    /// needs redrawn while they are written, without the lanes and the
+    /// rest of the window a whole publish would rebuild twice a second.
+    pub fn publish_bin(&self, models: &Models) {
+        super::sync(&models.media, self.media.rows(self));
+    }
+
     /// The project's saved state and the toast, and nothing else: what a
     /// save changes. The autosave publishes only this - a whole publish a
     /// second and a half after every edit was all cost (#622).

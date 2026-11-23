@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Niente di questo tipo in questo progetto.",
   "mediaPane.nothingReadAloudYet": "Non è stato ancora letto nulla. La sintesi vocale lascia qui la sua voce.",
   "mediaPane.nothingRenderedYetRight": "Ancora nulla di renderizzato. Fai clic destro su una clip sulla timeline e renderizza il suo suono per metterlo qui.",
+  "mediaPane.preparing": "Preparazione {0}%",
   "mediaPane.processed": "Elaborati",
   "mediaPane.reloadCustomEffects": "Ricarica gli effetti personalizzati",
   "mediaPane.saveProjectTemplate": "Salva questo progetto come modello",

@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "В этом проекте ничего такого нет.",
   "mediaPane.nothingReadAloudYet": "Пока ничего не озвучено. Озвучивание текста кладёт свой голос сюда.",
   "mediaPane.nothingRenderedYetRight": "Пока ничего не отрендерено. Щёлкните клип на таймлайне правой кнопкой и отрендерите его звук, чтобы он попал сюда.",
+  "mediaPane.preparing": "Подготовка {0}%",
   "mediaPane.processed": "Обработанное",
   "mediaPane.reloadCustomEffects": "Перезагрузить пользовательские эффекты",
   "mediaPane.saveProjectTemplate": "Сохранить этот проект как шаблон",

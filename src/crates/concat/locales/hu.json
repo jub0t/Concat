@@ -381,6 +381,7 @@
   "mediaPane.nothingKindProject": "Ebben a projektben nincs ilyen.",
   "mediaPane.nothingReadAloudYet": "Még nincs felolvasott szöveg. A szövegfelolvasás ide teszi a hangot.",
   "mediaPane.nothingRenderedYetRight": "Még nincs renderelt elem. Kattints jobb gombbal egy klipre az idővonalon, és rendereld a hangját, hogy ide kerüljön.",
+  "mediaPane.preparing": "Előkészítés {0}%",
   "mediaPane.processed": "Feldolgozott",
   "mediaPane.reloadCustomEffects": "Egyéni effektek újratöltése",
   "mediaPane.saveProjectTemplate": "Projekt mentése sablonként",
