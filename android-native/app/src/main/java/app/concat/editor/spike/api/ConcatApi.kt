@@ -267,6 +267,9 @@ object Commands {
         op("addTextClip").put("trackId", trackId ?: JSONObject.NULL).put("above", true).put("start", start)
             .put("style", style).apply { if (duration != null) put("duration", duration) }
 
+    /** A caption lane's look ([look] is `{style, offsetY}`), every caption on it restyled to match, words kept. */
+    fun setCaptionLook(trackId: String, look: JSONObject) = op("setCaptionLook").put("trackId", trackId).put("look", look)
+
     /** The project's cover: a frame at [time], a picture at [picture], or with neither back to a frame early in. */
     fun setCover(time: Double? = null, picture: String? = null) = op("setCover").put(
         "cover",

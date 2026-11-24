@@ -161,7 +161,12 @@ fun colourOf(hex: String): Color = try {
  * restyled. The words in a field that takes the keyboard at once.
  */
 @Composable
-fun TextPanel(existing: Clip?, onSave: (content: String, size: Double, colour: String, weight: Double) -> Unit, onClose: () -> Unit) {
+fun TextPanel(
+    existing: Clip?,
+    onSave: (content: String, size: Double, colour: String, weight: Double) -> Unit,
+    onClose: () -> Unit,
+    caption: Boolean = false,
+) {
     val style = existing?.text
     var content by remember(existing?.id) { mutableStateOf(style?.optString("content") ?: "") }
     // The document's size is a fraction of the frame's height.
@@ -175,7 +180,8 @@ fun TextPanel(existing: Clip?, onSave: (content: String, size: Double, colour: S
         onClose()
     }
 
-    ToolPanel(if (existing == null) "Add text" else "Text", onClose = onClose, onConfirm = ::save) {
+    ToolPanel(if (existing == null) "Add text" else if (caption) "Caption" else "Text", onClose = onClose, onConfirm = ::save) {
+        if (caption) PanelLabel("The words are this caption's; the look changes every caption.")
         BasicTextField(
             value = content,
             onValueChange = { content = it },

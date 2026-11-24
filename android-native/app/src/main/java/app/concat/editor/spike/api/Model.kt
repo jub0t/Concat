@@ -83,7 +83,8 @@ data class MediaItem(
     val height: Int = 0,
 )
 
-data class Track(val id: String, val visible: Boolean, val muted: Boolean)
+/** One lane; [captions] is a caption lane's shared look (`{style, offsetY}`), none for any other. */
+data class Track(val id: String, val visible: Boolean, val muted: Boolean, val captions: JSONObject? = null)
 
 data class Clip(
     val id: String,
@@ -199,7 +200,7 @@ data class ProjectView(
                     )
                 },
                 tracks = (timeline.optJSONArray("tracks") ?: JSONArray()).objects().map {
-                    Track(it.optString("id"), it.optBoolean("visible", true), it.optBoolean("muted"))
+                    Track(it.optString("id"), it.optBoolean("visible", true), it.optBoolean("muted"), it.optJSONObject("captions"))
                 },
                 clips = (timeline.optJSONArray("clips") ?: JSONArray()).objects().map {
                     Clip(

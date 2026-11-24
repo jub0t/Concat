@@ -589,8 +589,17 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     fun saveText(clipId: String?, content: String, fontSize: Double, color: String, fontWeight: Double? = null) {
         if (content.isBlank()) return
         val existing = _ui.value.view?.clip(clipId)
+        val lane = existing?.let { clip -> _ui.value.view?.tracks?.firstOrNull { it.id == clip.trackId } }
+        val captions = lane?.captions
         change("Text") {
-            if (existing != null) {
+            if (existing != null && lane != null && captions != null) {
+                // A caption: its words are its own, its look is the lane's,
+                // and the lane's look restyles every caption on it - one edit.
+                val words = Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text, fontWeight)))
+                val style = Commands.textStyle("", fontSize, color, captions.optJSONObject("style"), fontWeight)
+                val look = JSONObject(captions.toString()).put("style", style)
+                apply(Commands.batch(listOf(words, Commands.setCaptionLook(lane.id, look))))
+            } else if (existing != null) {
                 apply(Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text, fontWeight))))
             } else {
                 val view = apply(Commands.addTextClip(_ui.value.position, Commands.textStyle(content, fontSize, color, fontWeight = fontWeight)))

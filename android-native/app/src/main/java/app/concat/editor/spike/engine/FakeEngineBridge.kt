@@ -368,6 +368,11 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 .put("volume", 1.0).put("speed", 1.0).put("text", style).put("offsetY", offsetY))
             last = id
         }
+        // A caption lane: its look shared, as the engine's PlaceCaptions makes it.
+        session.tracks.objectsList().firstOrNull { it.optString("id") == track }?.put(
+            "captions",
+            JSONObject().put("style", JSONObject().put("fontSize", size).put("color", "#ffffff")).put("offsetY", offsetY),
+        )
         return last
     }
 
@@ -834,6 +839,23 @@ class FakeEngineBridge(context: Context) : EngineBridge {
                 val kept = (clip.optJSONArray("keys") ?: JSONArray()).objectsList()
                     .filterNot { it.optString("property") == property && kotlin.math.abs(it.optDouble("at") - at) < 0.002 }
                 clip.put("keys", JSONArray().apply { kept.forEach { put(it) } })
+                null
+            }
+            "setCaptionLook" -> {
+                val trackId = command.getString("trackId")
+                val look = command.optJSONObject("look")
+                val lane = tracks.objectsList().firstOrNull { it.optString("id") == trackId }
+                if (lane != null) {
+                    if (look == null) lane.remove("captions") else lane.put("captions", JSONObject(look.toString()))
+                    if (look != null) {
+                        for (clip in clipList().filter { it.optString("trackId") == trackId && it.optString("kind") == "text" }) {
+                            val old = clip.optJSONObject("text") ?: JSONObject()
+                            val style = JSONObject(look.optJSONObject("style")?.toString() ?: "{}")
+                                .put("content", old.optString("content")).apply { old.optJSONArray("runs")?.let { put("runs", it) } }
+                            clip.put("text", style).put("offsetY", look.optDouble("offsetY", 0.0))
+                        }
+                    }
+                }
                 null
             }
             "setCover" -> {

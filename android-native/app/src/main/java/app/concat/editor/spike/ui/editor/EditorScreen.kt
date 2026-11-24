@@ -345,7 +345,12 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                                 Panel.Animation -> selected?.let { AnimationPanel(it, { patch -> model.setLook("Animation", patch) }, close) }
                                 Panel.TextNew -> TextPanel(null, { c, s, col, wt -> model.saveText(null, c, s, col, wt) }, close)
                                 Panel.TextEdit -> selected?.let { clip ->
-                                    TextPanel(clip, { c, s, col, wt -> model.saveText(clip.id, c, s, col, wt) }, close)
+                                    TextPanel(
+                                        clip,
+                                        { c, s, col, wt -> model.saveText(clip.id, c, s, col, wt) },
+                                        close,
+                                        caption = view?.tracks?.firstOrNull { it.id == clip.trackId }?.captions != null,
+                                    )
                                 }
                                 Panel.Effects -> PackagePanel(Shelf.Effects, catalogue, model, onMore = {
                                     catalogueAdjust = false
