@@ -23,7 +23,7 @@ use super::index::lowest;
 use super::item::{Content, Item, LinkKind, MediaCut, Take};
 use super::look::{ShapeStyle, Title};
 use super::media::{Media, MediaKind};
-use super::sequence::{Background, Marker};
+use super::sequence::{Background, Cover, Marker};
 use super::timing::{TimeCurve, TimeMap, dur_in_range, len_in_range, tick_in_range};
 use super::{Model, ModelChanges};
 
@@ -31,8 +31,8 @@ use super::{Model, ModelChanges};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Violation {
     /// What is at fault: the item, lane, mask or other thing whose own
-    /// value breaks the rule. `None` for the document's fonts, which
-    /// have no ids.
+    /// value breaks the rule. `None` for the document's fonts and its
+    /// cover, which have no ids.
     pub id: Option<AnyId>,
     /// Which rule.
     pub rule: Rule,
@@ -1286,6 +1286,22 @@ pub(crate) fn fonts(cx: &mut Check<'_>) {
                 },
             });
         }
+    }
+}
+
+pub(crate) fn cover(cx: &mut Check<'_>) {
+    if cx.changes.cover.is_none() {
+        return;
+    }
+    if let Some(Cover::Frame { into }) = cx.after.cover {
+        let rule = if !dur_in_range(into) {
+            Rule::OutOfRange { what: "cover" }
+        } else if into < TickDur::ZERO {
+            Rule::Negative { what: "cover" }
+        } else {
+            return;
+        };
+        cx.found.push(Violation { id: None, rule });
     }
 }
 

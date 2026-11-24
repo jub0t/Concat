@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
-//! Sequences and their lanes, markers, the document's fonts, the view
-//! and what is held unread.
+//! Sequences and their lanes, markers, the document's fonts and cover,
+//! the view and what is held unread.
 
 use std::num::NonZeroU32;
 
@@ -198,6 +198,28 @@ pub struct Font {
     pub family: String,
     /// Where the file is. No two fonts share one.
     pub path: String,
+}
+
+/// What a project is shown by: its card among the projects, the square
+/// at the head of the phone's timeline.
+///
+/// Choosing it is an edit like any other, and a step of undo; which
+/// sequence is showing is not, so a frame is of the one showing when the
+/// cover is drawn, and follows the edit.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Cover {
+    /// A frame of the sequence showing, as it renders, titles and all.
+    Frame {
+        /// How far into the sequence; not below zero.
+        into: TickDur,
+    },
+    /// A picture from disk, fitted to the frame and cut at its edges.
+    Picture {
+        /// Where the file is.
+        path: String,
+    },
+    /// A cover this build does not know.
+    Unknown(Raw),
 }
 
 /// What is showing: view state, saved with the document and never a

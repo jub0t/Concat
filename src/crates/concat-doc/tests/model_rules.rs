@@ -11,11 +11,11 @@ mod fixture;
 use std::collections::BTreeMap;
 
 use concat_doc::model::{
-    Animated, Background, BrushTool, CaptionLook, Color, Content, Crop, Cutout, CutoutMode, Ease,
-    Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind, Loop,
-    Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw, Residual,
-    Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke, Subject,
-    TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind,
+    Animated, Background, BrushTool, CaptionLook, Color, Content, Cover, Crop, Cutout, CutoutMode,
+    Ease, Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind,
+    Loop, Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw,
+    Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke,
+    Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind,
     VoiceMix,
 };
 use concat_doc::{
@@ -109,7 +109,7 @@ fn every_table_is_compared_checked_and_shown() {
         Model::TABLES,
         ["media", "sequences", "lanes", "items", "held"]
     );
-    assert_eq!(Model::VALUES, ["fonts", "view", "residual"]);
+    assert_eq!(Model::VALUES, ["fonts", "cover", "view", "residual"]);
     // Every table answers for its ids, and so do the ids held inside
     // items.
     let mut fx = fixture();
@@ -202,6 +202,19 @@ fn a_tick_past_the_range_is_refused() {
                 })
                 .unwrap();
         },
+    );
+    // How far in the cover's frame is.
+    let broken = refused(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Frame {
+            into: TickDur::new(TICK_LIMIT + 1),
+        });
+    });
+    assert_eq!(
+        broken,
+        vec![Violation {
+            id: None,
+            rule: Rule::OutOfRange { what: "cover" }
+        }]
     );
 }
 
@@ -1807,6 +1820,17 @@ fn a_negative_length_is_refused() {
             what: "content.enhanced.copy_start"
         }
     }));
+    // How far in the cover's frame is.
+    let broken = refused(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Frame { into: dur(-3.0) });
+    });
+    assert_eq!(
+        broken,
+        vec![Violation {
+            id: None,
+            rule: Rule::Negative { what: "cover" }
+        }]
+    );
 }
 
 #[test]
@@ -2449,6 +2473,82 @@ fn a_caption_lane_restyled_is_one_step_and_each_caption_keeps_its_words() {
             .unwrap();
     });
     assert_eq!(plain.items.index().on_lane(fx.high).count(), 3);
+}
+
+// --- The cover -----------------------------------------------------------------
+
+#[test]
+fn a_cover_is_a_step_of_undo_and_the_sequence_showing_is_not() {
+    let fx = fixture();
+    let mut history: History<Model, (), ()> = History::new(fx.doc.clone(), Default::default());
+    // A frame two seconds in.
+    let mut draft = history.current().begin("Set cover", Origin(0));
+    draft.cover = Some(Cover::Frame { into: dur(2.0) });
+    let commit = draft.commit().unwrap();
+    assert!(commit.changes().cover.is_some());
+    assert_eq!(
+        history.record(commit, HistoryEntry::new(vec![], (), ())),
+        Ok(Recorded::Step)
+    );
+    // A picture of its own instead, then none: each a step.
+    for cover in [
+        Some(Cover::Picture {
+            path: "/covers/a.png".into(),
+        }),
+        None,
+    ] {
+        let mut draft = history.current().begin("Set cover", Origin(0));
+        draft.cover = cover;
+        let commit = draft.commit().unwrap();
+        assert_eq!(
+            history.record(commit, HistoryEntry::new(vec![], (), ())),
+            Ok(Recorded::Step)
+        );
+    }
+    assert_eq!(history.undo_len(), 3);
+    // Showing another sequence is view, and leaves the cover alone.
+    let mut draft = history.current().begin("Add timeline", Origin(0));
+    let second: SequenceId = draft.mint().unwrap();
+    draft
+        .sequences
+        .insert(
+            second,
+            Sequence::new("Timeline 2", concat_doc::model::Frame::hd()),
+        )
+        .unwrap();
+    draft.view.tabs.push(second);
+    let commit = draft.commit().unwrap();
+    history
+        .record(commit, HistoryEntry::new(vec![], (), ()))
+        .unwrap();
+    let mut draft = history.current().begin("Select", Origin(0));
+    draft.view.showing = Some(second);
+    let commit = draft.commit().unwrap();
+    assert_eq!(
+        history.record(commit, HistoryEntry::new(vec![], (), ())),
+        Ok(Recorded::View)
+    );
+    // Undone past the timeline and the cover taken off: the picture,
+    // then the frame, then none.
+    history.undo().unwrap();
+    let undone = history.undo().unwrap();
+    assert_eq!(
+        undone.document.cover,
+        Some(Cover::Picture {
+            path: "/covers/a.png".into()
+        })
+    );
+    let undone = history.undo().unwrap();
+    assert_eq!(undone.document.cover, Some(Cover::Frame { into: dur(2.0) }));
+    let undone = history.undo().unwrap();
+    assert_eq!(undone.document.cover, None);
+    // The start of the edit is a frame.
+    let doc = apply(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Frame {
+            into: TickDur::ZERO,
+        });
+    });
+    assert!(doc.cover.is_some());
 }
 
 // --- The index -------------------------------------------------------------------

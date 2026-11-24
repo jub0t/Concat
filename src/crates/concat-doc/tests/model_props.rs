@@ -6,8 +6,8 @@
 //!
 //! Long random runs of edits - items placed, moved, trimmed, retimed and
 //! taken away, sounds detached, sequences nested, lanes added, reordered,
-//! made caption lanes and taken away, files re-probed and removed,
-//! several at once - are
+//! made caption lanes and taken away, files re-probed and removed, the
+//! cover set, several at once - are
 //! committed to a project. After every one:
 //!
 //! - the commit was accepted exactly when the same tables, read as a
@@ -23,12 +23,13 @@ mod fixture;
 use std::sync::Arc;
 
 use concat_doc::model::{
-    CaptionLook, Content, Effect, EffectId, Item, ItemId, Items, Lane, LaneId, Lanes, Link,
+    CaptionLook, Content, Cover, Effect, EffectId, Item, ItemId, Items, Lane, LaneId, Lanes, Link,
     LinkKind, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Sequence, SequenceId, Speed,
     Take, TimeMap, Title,
 };
 use concat_doc::{
-    Document, Draft, MAX_COUNTER, Mint, Origin, Rejected, TICKS_PER_SECOND, Tick, TickLen, Writer,
+    Document, Draft, MAX_COUNTER, Mint, Origin, Rejected, TICKS_PER_SECOND, Tick, TickDur, TickLen,
+    Writer,
 };
 use fixture::*;
 use proptest::prelude::*;
@@ -115,6 +116,11 @@ enum Op {
     RemoveSequence {
         sequence: Index,
     },
+    /// The cover set to a frame, now and then before the start, which is
+    /// refused; or to none.
+    Cover {
+        into: Option<i8>,
+    },
     /// Several of the others in one draft.
     Together(Vec<Op>),
 }
@@ -144,6 +150,7 @@ fn simple() -> impl Strategy<Value = Op> {
         1 => Just(Op::AddSequence),
         1 => (any::<Index>(), 0..4_u8).prop_map(|(lane, look)| Op::Captions { lane, look }),
         1 => any::<Index>().prop_map(|sequence| Op::RemoveSequence { sequence }),
+        1 => prop::option::of(-4..40_i8).prop_map(|into| Op::Cover { into }),
     ]
 }
 
@@ -418,6 +425,11 @@ fn run(draft: &mut Draft<Model>, op: &Op) {
                     draft.view.showing = next;
                 }
             }
+        }
+        Op::Cover { into } => {
+            draft.cover = into.map(|n| Cover::Frame {
+                into: TickDur::new(i64::from(n) * QUARTER),
+            });
         }
         Op::Together(ops) => {
             for op in ops {

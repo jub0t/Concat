@@ -22,10 +22,10 @@
 //! | `items` | [`Item`] | its lane, start, length, window, content, look, sound, chains, masks, markers, tie |
 //! | `held` | [`Held`] | an entry of a file that could not be taken in, as its text |
 //!
-//! and three plain values: the `fonts` the person added, the document's
-//! own unknown fields (`residual`), and the [`View`]: which sequence is
-//! showing and the order of the tabs, which is saved and is no step of
-//! undo.
+//! and four plain values: the `fonts` the person added, the [`Cover`]
+//! the project is shown by, the document's own unknown fields
+//! (`residual`), and the [`View`]: which sequence is showing and the
+//! order of the tabs, which is saved and is no step of undo.
 //!
 //! An item's place is absolute: its lane and its start tick. Nothing is
 //! a list index, so a move changes one item, and two writers naming ids
@@ -141,7 +141,8 @@
 //!     lane's look as the title it makes; and the rest listed with the
 //!     test. *numbers_outside_their_field_are_refused*
 //! 35. A length kept as a distance - a fade, a marker's length, where an
-//!     enhanced copy starts - is not below zero. *a_negative_length_is_refused*
+//!     enhanced copy starts, how far in a cover's frame is - is not below
+//!     zero. *a_negative_length_is_refused*
 //! 36. An effect names its package. *an_effect_of_no_package_is_refused*
 //! 37. An effect's knob has a name and a value or keys.
 //!     *an_empty_knob_is_refused*
@@ -231,7 +232,7 @@ pub use media::{
     BeatMarks, ColorRange, ColorSpace, Media, MediaKind, MediaOrigin, Size, SoundStream,
 };
 pub use order::{NotAnOrderKey, OrderKey};
-pub use sequence::{Background, Color, Font, Frame, Held, Lane, Marker, Sequence, View};
+pub use sequence::{Background, Color, Cover, Font, Frame, Held, Lane, Marker, Sequence, View};
 pub use timing::{
     FASTEST, SLOWEST, Speed, TICK_LIMIT, TimeCurve, TimeMap, TimePoint, dur_in_range, len_in_range,
     tick_in_range,
@@ -371,6 +372,9 @@ model! {
     values {
         /// The fonts the person added from disk.
         fonts: Vec<Font>, check::fonts;
+        /// The picture the project is shown by; none is a frame early in
+        /// the edit, whichever the caller picks.
+        cover: Option<Cover>, check::cover;
         /// Which sequence is showing, and the order of the tabs: view
         /// state.
         view: View, check::view;
