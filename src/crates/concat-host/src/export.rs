@@ -86,6 +86,7 @@ pub fn request_for(
     let video = project.active().video;
     let mut clips = concat_export::flatten::flatten_timeline_in(project, None, Some(project_dir));
     clips.extend(titles);
+    let resume = resume_for(project, &clips);
     ExportRequest {
         output: spec.output.clone(),
         width: video.width,
@@ -104,7 +105,33 @@ pub fn request_for(
         effect_time_offset: 0.0,
         canvas: video.canvas,
         clips,
+        resume,
     }
+}
+
+/// What the edit is, so an export of it that stops is taken up where it
+/// stopped (see `concat_export::parts`): the project as it would be saved,
+/// and every file its clips read by size and time of change, so a file
+/// replaced under the same name is not taken for the one already drawn.
+/// None when the project will not write, and the export starts over.
+fn resume_for(
+    project: &concat_project::model::Project,
+    clips: &[ExportClip],
+) -> Option<concat_export::parts::Resume> {
+    let mut text = serde_json::to_string(project).ok()?;
+    let mut paths: Vec<&str> = clips.iter().map(|clip| clip.path.as_str()).collect();
+    paths.sort_unstable();
+    paths.dedup();
+    for path in paths {
+        let stamp = std::fs::metadata(path)
+            .map(|meta| (meta.len(), meta.modified().ok()))
+            .ok();
+        text.push_str(&format!("\n{path} {stamp:?}"));
+    }
+    Some(concat_export::parts::Resume {
+        key: concat_export::parts::digest(&text),
+        ..Default::default()
+    })
 }
 
 /// Renders `request` and returns the path written, reporting through

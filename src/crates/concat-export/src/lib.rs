@@ -23,6 +23,7 @@
 mod ahead;
 pub mod chains;
 pub mod flatten;
+pub mod parts;
 mod resolve;
 #[cfg(test)]
 mod speed_curve_tests;
@@ -563,6 +564,11 @@ pub struct ExportRequest {
     pub canvas: [u8; 4],
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
+    /// What lets this export be taken up again where it stopped, when
+    /// whoever flattened it can say what the edit is; see [`parts`].
+    /// None: an export that stops starts over.
+    #[serde(skip)]
+    pub resume: Option<parts::Resume>,
 }
 
 /// The engine's word for a document's colour range: the two enums are one
@@ -1190,6 +1196,25 @@ pub fn render_on(
     let container = request.codec.container();
     let sound_container = if container == "webm" { "webm" } else { "m4a" };
     let silent = directory.join(format!(".{stem}.concat-video.{container}"));
+    // Written in parts when whoever flattened the edit can say what it
+    // is, so an export that stops is taken up where it stopped.
+    let plan = request.resume.as_ref().map(|resume| parts::Plan {
+        folder: parts::folder_for(&output),
+        container,
+        ranges: parts::ranges(total_frames, rate, resume.part_frames),
+        identity: format!(
+            "{}\n{}x{} {}/{} {:?} {} {total_frames}\n{}",
+            resume.key,
+            request.width,
+            request.height,
+            request.rate_num,
+            request.rate_den,
+            request.canvas,
+            request.effect_time_offset,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        stop_after: resume.stop_after,
+    });
     let mixed = directory.join(format!(".{stem}.concat-audio.{sound_container}"));
     let muxed = directory.join(format!(".{stem}.concat-muxed.{container}"));
 
@@ -1218,6 +1243,7 @@ pub fn render_on(
             &visible,
             transitions,
             &silent,
+            plan.as_ref(),
             &mut reporter,
             &mut spent,
         )?;
@@ -1269,6 +1295,20 @@ pub fn render_on(
     let _ = std::fs::remove_file(&silent);
     let _ = std::fs::remove_file(&mixed);
     let _ = std::fs::remove_file(&muxed);
+    // The parts are kept only for an export that failed, which the next
+    // export of the same edit takes up; one that finished or was stopped
+    // on purpose leaves nothing behind.
+    if let Some(plan) = &plan {
+        match &result {
+            Err(Halt::Failed(_)) if plan.folder.is_dir() => log::info!(
+                "export: the parts written are kept in {}; exporting again takes up from there",
+                plan.folder.display()
+            ),
+            _ => {
+                let _ = std::fs::remove_dir_all(&plan.folder);
+            }
+        }
+    }
 
     result.map(|()| output.to_string_lossy().into_owned())
 }
@@ -1863,6 +1903,7 @@ fn render_picture(
     visible: &[&ExportClip],
     transitions: Vec<TransitionSpan>,
     destination: &Path,
+    plan: Option<&parts::Plan>,
     reporter: &mut Reporter<'_>,
     spent: &mut Spent,
 ) -> Result<(), Halt> {
@@ -1953,19 +1994,31 @@ fn render_picture(
         } else {
             "rendering"
         };
-        let (path, size, settings) = (
-            destination.to_path_buf(),
-            (request.width, request.height),
-            options.clone(),
-        );
-        let mut writer = Writer::start(destination, move || {
+        let (size, settings) = ((request.width, request.height), options.clone());
+        let open: parts::Open = Arc::new(move |path: &Path| {
             if hdr {
-                Encoder::create_hdr(&path, size.0, size.1, rate, &settings, signal)
+                Encoder::create_hdr(path, size.0, size.1, rate, &settings, signal)
             } else {
-                Encoder::create(&path, size.0, size.1, rate, &settings)
+                Encoder::create(path, size.0, size.1, rate, &settings)
             }
-        })
+        });
+        // Whole, or in parts taken up where a stopped export left them;
+        // what it encodes with is part of what the parts are for, so a
+        // pass begun again on the CPU's encoder starts the parts afresh.
+        let mut writer = parts::Split::start(
+            destination,
+            total_frames,
+            rate,
+            plan,
+            &format!("{options:?} hdr {hdr} {signal:?}"),
+            parts::warm_up(rate, !cutouts.is_empty()),
+            open,
+        )
         .map_err(|error| failed_encoding(&error, &options))?;
+        let first = writer.first();
+        if writer.taken_up() {
+            reporter.emit(first, total_frames, stage);
+        }
         // The encoder's own YUV out of the device where it takes one: the
         // frame is converted where it was drawn, and comes back at a byte
         // and a half a pixel rather than four.
@@ -1984,7 +2037,7 @@ fn render_picture(
         // times without any seeking - including retimed clips. Each reads on
         // a thread of its own, ahead of the drawing, and is opened a moment
         // before its run begins; see `ahead`.
-        let mut feeds = ahead::Feeds::new(read_lead(rate), spent.decoding.clone());
+        let mut feeds = ahead::Feeds::new(read_lead(rate), spent.decoding.clone()).from(first);
         let paced = |layer: &PlannedLayer| {
             // Aspect-correct: decode at the source's fitted size and let
             // the compositor place it, rather than stretching to the frame
@@ -2037,7 +2090,7 @@ fn render_picture(
             std::collections::VecDeque::new();
         while compositor.compositor().collect().is_some() {}
 
-        for index in 0..total_frames {
+        for index in first..total_frames {
             reporter.cancelled()?;
 
             let reading = std::time::Instant::now();
@@ -2234,6 +2287,9 @@ fn render_picture(
                 again_in_software(&error, &mut options, written, total_frames)?;
                 reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
                 continue 'pass;
+            }
+            if let Some(why) = writer.halt() {
+                return Err(Halt::Failed(why));
             }
 
             // Retire decoders whose run has finished, so a long timeline does
@@ -3521,6 +3577,7 @@ pub fn preview_plan(
         effect_time_offset: 0.0,
         canvas,
         clips: Vec::new(),
+        resume: None,
     };
     PreviewPlan {
         built: build_timeline(&shim, rate, &visible, transitions),
@@ -4806,6 +4863,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage.clone()],
+            resume: None,
         };
         let render = |request: &ExportRequest, stop: bool| {
             let cancel = AtomicBool::new(stop);
@@ -4894,6 +4952,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage],
+            resume: None,
         };
         assert!(!nested.exists());
         let cancel = AtomicBool::new(false);
@@ -4976,6 +5035,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage],
+            resume: None,
         };
         let cancel = AtomicBool::new(false);
         let mut progress = |_: i64, _: i64, _: &'static str| {};
@@ -5079,6 +5139,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage.clone(), sound.clone()],
+            resume: None,
         };
         let render = |request: &ExportRequest| {
             let cancel = AtomicBool::new(false);
@@ -5272,6 +5333,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![clip],
+            resume: None,
         };
         let render = |request: &ExportRequest, lent: WgpuCompositor| {
             let cancel = AtomicBool::new(false);
@@ -5387,6 +5449,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![clip],
+            resume: None,
         };
         let middles = |clip: ExportClip, name: &str, lent: WgpuCompositor| {
             let cancel = AtomicBool::new(false);
@@ -5785,6 +5848,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: pictures.into_iter().chain([sound]).collect(),
+            resume: None,
         };
         let cancel = AtomicBool::new(false);
         let mut progress = |_: i64, _: i64, _: &'static str| {};

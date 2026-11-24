@@ -2849,3 +2849,6 @@ fn consolidation_keeps_the_global_frame_grid_at_fractional_starts() {
 
 #[path = "export/consolidate.rs"]
 mod consolidate;
+
+#[path = "export/resume.rs"]
+mod resume;

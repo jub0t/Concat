@@ -199,6 +199,15 @@ impl Feeds {
         }
     }
 
+    /// The same, for a pass whose first frame is `first`: an export taken
+    /// up again part way (see `parts`). Nothing before it is looked at,
+    /// so no run that ended there is opened, and each run on `first` opens
+    /// at its source time there.
+    pub(crate) fn from(mut self, first: i64) -> Self {
+        self.looked = first - 1;
+        self
+    }
+
     /// Opens every run that begins by `index + lead`, given `plan_at` to
     /// plan a frame and `open` to say how a layer's decoder is opened and
     /// how many bytes its frames are.

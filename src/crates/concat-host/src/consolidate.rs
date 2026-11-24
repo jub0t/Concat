@@ -133,6 +133,7 @@ impl Consolidation {
             hdr,
             effect_time_offset: start,
             clips,
+            resume: None,
         }
     }
 }

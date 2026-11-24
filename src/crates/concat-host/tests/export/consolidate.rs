@@ -419,7 +419,7 @@ const UNLIT: u8 = 30;
 /// step from its neighbours': the CPU encoders the CI runners write with
 /// move a flat colour by more than such a step, and a frame read back
 /// eleven levels off looked like one three frames earlier.
-fn counting(path: &Path) {
+pub(super) fn counting(path: &Path) {
     let options = EncodeOptions {
         codec: VideoCodec::H264,
         preset: "ultrafast".to_owned(),
@@ -460,7 +460,7 @@ fn counting(path: &Path) {
 /// The number a read-back frame of [`counting`] shows, or None where it
 /// shows no footage - a gap. Each block is read at its centre against the
 /// level half-way between lit and unlit.
-fn number_of(frame: &Frame) -> Option<u32> {
+pub(super) fn number_of(frame: &Frame) -> Option<u32> {
     let block = frame.width() / COUNT_BLOCKS;
     let lit = |slot: u32| {
         let [r, g, b, _] = frame
