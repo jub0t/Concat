@@ -2643,6 +2643,55 @@ fn a_copy_of_an_item_holds_ids_of_its_own() {
     assert!(undone.document.same_content(&fx.doc));
 }
 
+#[test]
+fn a_move_onto_a_new_lane_is_one_commit_on_top_or_under_every_other() {
+    let mut fx = fixture();
+    let clip = place(&mut fx.doc, cut(fx.low, 0.0, 2.0, fx.video));
+    for bottom in [false, true] {
+        let mut made = None;
+        let doc = apply(&fx.doc, |draft| {
+            let stack: Vec<OrderKey> = draft
+                .lanes
+                .index()
+                .of(fx.seq)
+                .map(|(_, key)| key.clone())
+                .collect();
+            let order = if bottom {
+                OrderKey::between(None, stack.first())
+            } else {
+                OrderKey::between(stack.last(), None)
+            };
+            let lane: LaneId = draft.mint().unwrap();
+            draft
+                .lanes
+                .insert(lane, Lane::new(fx.seq, order.unwrap()))
+                .unwrap();
+            draft
+                .items
+                .update(clip, |item| {
+                    item.lane = lane;
+                    item.start = at(4.0);
+                })
+                .unwrap();
+            made = Some(lane);
+        });
+        let lane = made.unwrap();
+        let stack: Vec<LaneId> = doc.lanes.index().of(fx.seq).map(|(id, _)| id).collect();
+        let wanted = if bottom {
+            vec![lane, fx.low, fx.high]
+        } else {
+            vec![fx.low, fx.high, lane]
+        };
+        assert_eq!(stack, wanted);
+        assert_eq!(doc.items.index().at(lane, at(4.0)), Some(clip));
+        let changes = doc.changes_since(&fx.doc);
+        assert_eq!(
+            (changes.lanes.added.len(), changes.items.replaced.len()),
+            (1, 1)
+        );
+    }
+}
+
 // --- The index -------------------------------------------------------------------
 
 #[test]
