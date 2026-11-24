@@ -37,9 +37,12 @@ impl Studio {
             if Cutouts::outstanding(&request) == 0 {
                 continue;
             }
+            let dir =
+                concat_vision::mask_dir(&request.project, &request.media_path, request.subject);
+            if self.failed_analyses.contains(&dir) {
+                continue;
+            }
             if Cutouts::tripped(&request) {
-                let dir =
-                    concat_vision::mask_dir(&request.project, &request.media_path, request.subject);
                 if self.tripped_strokes.insert(dir) {
                     log::warn!(
                         "cutout: skipped Remove background on a file: Concat closed while analysing it last time, and would again"
@@ -48,10 +51,10 @@ impl Studio {
                 }
                 continue;
             }
-            next = Some((id, request));
+            next = Some((id, request, dir));
             break;
         }
-        let Some((id, request)) = next else {
+        let Some((id, request, dir)) = next else {
             return;
         };
         self.cutout_jobs.insert(id.clone(), (false, 0.0));
@@ -80,9 +83,9 @@ impl Studio {
                         });
                     }
                 });
-                (id, result)
+                (id, dir, result)
             },
-            |studio, _, _, (id, result)| {
+            |studio, _, _, (id, dir, result)| {
                 studio.cutout_jobs.remove(&id);
                 match result {
                     Ok(_) => {
@@ -93,7 +96,10 @@ impl Studio {
                     }
                     Err(Halt::Cancelled) => {}
                     Err(Halt::Failed(error)) => {
+                        studio.failed_analyses.insert(dir);
                         studio.notify(&tf("studio.removeBackground", &[&error]), true);
+                        // The next clip waiting has its turn.
+                        studio.ensure_cutouts();
                     }
                 }
             },
@@ -125,6 +131,9 @@ impl Studio {
                 continue;
             }
             let dir = concat_host::Stabilizers::dir(&request);
+            if self.failed_analyses.contains(&dir) {
+                continue;
+            }
             if concat_host::Stabilizers::tripped(&request) {
                 if self.stabilize_retry.remove(&media_id) {
                     concat_host::jobs::Tripwire::clear(&dir);
@@ -140,10 +149,10 @@ impl Studio {
                     continue;
                 }
             }
-            next = Some((media_id, request));
+            next = Some((media_id, request, dir));
             break;
         }
-        let Some((media_id, request)) = next else {
+        let Some((media_id, request, dir)) = next else {
             return;
         };
         self.stabilize_jobs.insert(media_id.clone(), 0.0);
@@ -165,9 +174,9 @@ impl Studio {
                         });
                     }
                 });
-                (media_id, result)
+                (media_id, dir, result)
             },
-            |studio, _, _, (media_id, result)| {
+            |studio, _, _, (media_id, dir, result)| {
                 studio.stabilize_jobs.remove(&media_id);
                 match result {
                     Ok(_) => {
@@ -179,7 +188,9 @@ impl Studio {
                     }
                     Err(Halt::Cancelled) => {}
                     Err(Halt::Failed(error)) => {
+                        studio.failed_analyses.insert(dir);
                         studio.notify(&tf("studio.stabilize", &[&error]), true);
+                        studio.ensure_stabilizers();
                     }
                 }
             },
@@ -312,7 +323,7 @@ impl Studio {
         let ask_in = out_dir.clone();
         crate::host::after_dialog(
             move || {
-                if cfg!(any(target_os = "android", target_os = "ios")) {
+                if cfg!(target_os = "ios") {
                     return Some(ask_in.join(&suggested));
                 }
                 let chosen = crate::platform::save_file(
@@ -948,6 +959,11 @@ impl Studio {
         };
         if mode == 2 {
             self.painting = true;
+        }
+        // Turned on anew: an analysis that failed is tried again, since
+        // the person asked.
+        if clip.cutout.is_none() && cutout.is_some() {
+            self.failed_analyses.clear();
         }
         if cutout != clip.cutout {
             self.apply(Command::SetClipCutout {

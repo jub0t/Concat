@@ -7,12 +7,6 @@ use super::*;
 impl Studio {
     // ── speech ──
 
-    /// Packs the open project into the template library.
-    /// Where the user's own looks live: one package folder each.
-    pub fn looks_dir(dirs: &concat_host::dirs::AppDirs) -> std::path::PathBuf {
-        dirs.config.join("effects")
-    }
-
     /// Where the effect cards are kept: drawn once, read on every launch.
     pub fn cards_dir(dirs: &concat_host::dirs::AppDirs) -> std::path::PathBuf {
         dirs.data.join("cards")
@@ -79,7 +73,7 @@ impl Studio {
     }
 
     /// Rebuilds the catalogue from the built-ins and the packages in
-    /// `looks_dir`, and says in the window what would not load: the first
+    /// `AppDirs::effects`, and says in the window what would not load: the first
     /// reason and how many more, with every reason in the log, so an
     /// author sees a manifest or shader fault where they are looking
     /// rather than in a file they may not know exists. Returns how many
@@ -93,7 +87,7 @@ impl Studio {
         const TRIAL_SIDE: u32 = 512;
         /// How long that trial may take before the package is refused.
         const TRIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-        let dir = Self::looks_dir(&self.host.dirs);
+        let dir = self.host.dirs.effects();
         // Looks an earlier build imported, onto the format 2 look first.
         for id in concat_effects::looks::upgrade(&dir) {
             log::info!("effects: the imported look {id} now reads its table in light");
@@ -177,7 +171,7 @@ impl Studio {
 
     /// One tick of the watch: whether the catalogue was rebuilt.
     fn poll_packages(&mut self) -> bool {
-        let now = concat_effects::package_stamp(&Self::looks_dir(&self.host.dirs));
+        let now = concat_effects::package_stamp(&self.host.dirs.effects());
         if now == self.packages_seen {
             self.packages_pending = None;
             return false;
@@ -206,12 +200,12 @@ impl Studio {
     }
 
     /// Imports one or more `.cube` tables as looks: each becomes a package
-    /// folder under `looks_dir` - a manifest that names the table, a shader
+    /// folder under `AppDirs::effects` - a manifest that names the table, a shader
     /// that reads it, the table (see `concat_effects::looks`) - and the
     /// catalogue is rebuilt so the Adjustments page's LUTs shelf shows
     /// them, their cards drawn by their own shaders. Says how many arrived.
     pub fn import_luts(&mut self, paths: Vec<std::path::PathBuf>) {
-        let dir = Self::looks_dir(&self.host.dirs);
+        let dir = self.host.dirs.effects();
         let mut imported = 0;
         for path in paths {
             match concat_effects::looks::import(&dir, &path) {

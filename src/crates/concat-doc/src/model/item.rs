@@ -10,13 +10,16 @@
 //! or a transition. A field that a kind does not read (a title's level)
 //! is kept and does nothing, as the published API has it.
 
-use crate::document::Weigh;
-use crate::id::{AnyId, TypedId};
+use std::collections::BTreeMap;
+
+use crate::document::{Draft, Weigh};
+use crate::id::{AnyId, MintError, TypedId};
 use crate::time::{Tick, TickDur, TickLen};
 
+use super::Model;
 use super::animated::Animated;
 use super::effect::{Effect, Mask};
-use super::ids::{Entry, ItemId, LaneId, MediaId, Raw, Residual, SequenceId, known};
+use super::ids::{Entry, ItemId, LaneId, MaskId, MediaId, Raw, Residual, SequenceId, known};
 use super::look::{ShapeStyle, Title};
 use super::sequence::{Background, Marker};
 use super::timing::TimeMap;
@@ -132,6 +135,44 @@ impl Item {
         ids.extend(known(&self.masks).map(|mask| mask.id.any()));
         ids.extend(known(&self.markers).map(|marker| marker.id.any()));
         ids
+    }
+
+    /// The item as a copy of it holds it: every effect, mask and marker
+    /// in it, the package of the transition it is or has on its cut
+    /// included, given a new id from the draft's count, and each effect
+    /// that works inside one of its masks working inside that mask's
+    /// copy. Everything else is as it is, for the edit making the copy
+    /// to place and to tie as it means to.
+    ///
+    /// Those ids are held once in the document (rule 44), so a copy made
+    /// by cloning the item is refused at commit. An entry this build
+    /// could not read is copied as its text: what is inside it, an id
+    /// included, cannot be seen here.
+    pub fn with_new_ids(&self, draft: &mut Draft<Model>) -> Result<Item, MintError> {
+        let mut copy = self.clone();
+        let mut masks: BTreeMap<MaskId, MaskId> = BTreeMap::new();
+        for mask in copy.masks.iter_mut().filter_map(Entry::known_mut) {
+            let new = draft.mint()?;
+            masks.insert(mask.id, new);
+            mask.id = new;
+        }
+        let chains = copy.effects.iter_mut().chain(copy.filters.iter_mut());
+        for effect in chains.filter_map(Entry::known_mut) {
+            effect.id = draft.mint()?;
+            if let Some(new) = effect.mask.and_then(|mask| masks.get(&mask)) {
+                effect.mask = Some(*new);
+            }
+        }
+        if let Content::Transition(effect) = &mut copy.content {
+            effect.id = draft.mint()?;
+        }
+        if let Some(cut) = &mut copy.cut_in {
+            cut.effect.id = draft.mint()?;
+        }
+        for marker in copy.markers.iter_mut().filter_map(Entry::known_mut) {
+            marker.id = draft.mint()?;
+        }
+        Ok(copy)
     }
 }
 

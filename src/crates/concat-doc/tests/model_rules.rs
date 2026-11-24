@@ -11,11 +11,12 @@ mod fixture;
 use std::collections::BTreeMap;
 
 use concat_doc::model::{
-    Animated, Background, BrushTool, Color, Content, Crop, Cutout, CutoutMode, Ease, Effect,
-    EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind, Loop, Marker,
-    MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw, Residual, Rule,
-    Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke, Subject, TICK_LIMIT,
-    Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind, VoiceMix,
+    Animated, Background, BrushTool, CaptionLook, Color, Content, Cover, Crop, Cutout, CutoutMode,
+    Ease, Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind,
+    Loop, Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw,
+    Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke,
+    Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind,
+    VoiceMix,
 };
 use concat_doc::{
     ChangeSet, Document, Entry as HistoryEntry, History, Origin, Recorded, Rejected, Tick, TickDur,
@@ -108,7 +109,7 @@ fn every_table_is_compared_checked_and_shown() {
         Model::TABLES,
         ["media", "sequences", "lanes", "items", "held"]
     );
-    assert_eq!(Model::VALUES, ["fonts", "view", "residual"]);
+    assert_eq!(Model::VALUES, ["fonts", "cover", "view", "residual"]);
     // Every table answers for its ids, and so do the ids held inside
     // items.
     let mut fx = fixture();
@@ -201,6 +202,19 @@ fn a_tick_past_the_range_is_refused() {
                 })
                 .unwrap();
         },
+    );
+    // How far in the cover's frame is.
+    let broken = refused(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Frame {
+            into: TickDur::new(TICK_LIMIT + 1),
+        });
+    });
+    assert_eq!(
+        broken,
+        vec![Violation {
+            id: None,
+            rule: Rule::OutOfRange { what: "cover" }
+        }]
     );
 }
 
@@ -1379,6 +1393,25 @@ fn a_number_that_is_not_a_number_is_refused() {
                 .unwrap();
         },
     );
+    // Where a caption lane's captions sit.
+    assert_refused(
+        &fx.doc,
+        fx.high,
+        Rule::NotFinite {
+            what: "captions.offset_y",
+        },
+        |draft| {
+            draft
+                .lanes
+                .update(fx.high, |lane| {
+                    lane.captions = Some(CaptionLook {
+                        offset_y: f64::NAN,
+                        ..CaptionLook::default()
+                    })
+                })
+                .unwrap();
+        },
+    );
 }
 
 /// One field set outside what it can mean, and the name the refusal
@@ -1690,6 +1723,27 @@ fn numbers_outside_their_field_are_refused() {
                 .unwrap();
         },
     );
+    // A caption lane's look, as the title it makes.
+    for (what, change) in [
+        (
+            "title.font_size",
+            Box::new(|t: &mut Title| t.font_size = 0.0) as Box<dyn Fn(&mut Title)>,
+        ),
+        ("title.font_weight", Box::new(|t| t.font_weight = 950.0)),
+        ("title.opacity", Box::new(|t| t.opacity = 2.0)),
+        ("title.plate_radius", Box::new(|t| t.plate_radius = -0.1)),
+    ] {
+        assert_refused(&fx.doc, fx.high, Rule::OutOfBounds { what }, |draft| {
+            draft
+                .lanes
+                .update(fx.high, |lane| {
+                    let mut look = CaptionLook::default();
+                    change(&mut look.title);
+                    lane.captions = Some(look);
+                })
+                .unwrap();
+        });
+    }
 }
 
 #[test]
@@ -1766,6 +1820,17 @@ fn a_negative_length_is_refused() {
             what: "content.enhanced.copy_start"
         }
     }));
+    // How far in the cover's frame is.
+    let broken = refused(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Frame { into: dur(-3.0) });
+    });
+    assert_eq!(
+        broken,
+        vec![Violation {
+            id: None,
+            rule: Rule::Negative { what: "cover" }
+        }]
+    );
 }
 
 #[test]
@@ -2255,6 +2320,376 @@ fn a_font_added_twice_is_refused() {
             }
         }]
     );
+}
+
+// --- 49. Captions -------------------------------------------------------------
+
+#[test]
+fn a_caption_look_with_words_is_refused() {
+    let fx = fixture();
+    assert_refused(&fx.doc, fx.high, Rule::CaptionWords, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| {
+                lane.captions = Some(CaptionLook {
+                    title: Title::default(),
+                    offset_y: 0.3,
+                })
+            })
+            .unwrap();
+    });
+    assert_refused(&fx.doc, fx.high, Rule::CaptionWords, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| {
+                let mut look = CaptionLook::default();
+                look.title.runs = vec![TextRun {
+                    start: 0,
+                    end: 1,
+                    ..TextRun::default()
+                }];
+                lane.captions = Some(look);
+            })
+            .unwrap();
+    });
+    // The look alone, with no words, is a caption lane.
+    let doc = apply(&fx.doc, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| lane.captions = Some(CaptionLook::default()))
+            .unwrap();
+    });
+    assert!(doc.lanes.get(fx.high).unwrap().captions.is_some());
+}
+
+/// A caption lane's captions in the look given: ordinary titles, each
+/// with its own words, placed one after another.
+fn captions_in(fx: &mut Fixture, look: &CaptionLook, words: &[&str]) -> Vec<ItemId> {
+    let mut made = Vec::new();
+    fx.doc = apply(&fx.doc, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| lane.captions = Some(look.clone()))
+            .unwrap();
+        for (n, said) in words.iter().enumerate() {
+            let mut caption = Item::new(
+                fx.high,
+                at(n as f64),
+                len(1.0),
+                Content::Title(look.title_for(*said, Vec::new())),
+            );
+            caption.picture.offset_y = Animated::fixed(look.offset_y);
+            let id: ItemId = draft.mint().unwrap();
+            draft.items.insert(id, caption).unwrap();
+            made.push(id);
+        }
+    });
+    made
+}
+
+#[test]
+fn a_caption_lane_restyled_is_one_step_and_each_caption_keeps_its_words() {
+    let mut fx = fixture();
+    let look = CaptionLook {
+        offset_y: 0.35,
+        ..CaptionLook::default()
+    };
+    let captions = captions_in(&mut fx, &look, &["Hello", "there", "again"]);
+    // One word of the second styled apart, which a restyle keeps.
+    let red = TextRun {
+        start: 0,
+        end: 5,
+        color: Some(Color::rgb(255, 0, 0)),
+        ..TextRun::default()
+    };
+    fx.doc = apply(&fx.doc, |draft| {
+        draft
+            .items
+            .update(captions[1], |item| title_of(item).runs = vec![red.clone()])
+            .unwrap();
+    });
+    let mut history: History<Model, (), ()> = History::new(fx.doc.clone(), Default::default());
+
+    // "Apply to all": the lane's look and every caption on it, one change.
+    let mut bold = look.clone();
+    bold.title.font_weight = 900.0;
+    bold.title.plate = Some(Color::BLACK);
+    bold.offset_y = -0.35;
+    let mut draft = history.current().begin("Restyle captions", Origin(0));
+    draft
+        .lanes
+        .update(fx.high, |lane| lane.captions = Some(bold.clone()))
+        .unwrap();
+    for id in &captions {
+        draft
+            .items
+            .update(*id, |item| {
+                let title = title_of(item);
+                *title = bold.title_for(title.content.clone(), title.runs.clone());
+                item.picture.offset_y = Animated::fixed(bold.offset_y);
+            })
+            .unwrap();
+    }
+    let commit = draft.commit().unwrap();
+    assert_eq!(commit.changes().lanes.replaced.len(), 1);
+    assert_eq!(commit.changes().items.replaced.len(), 3);
+    history
+        .record(commit, HistoryEntry::new(vec![], (), ()))
+        .unwrap();
+    assert_eq!(history.undo_len(), 1);
+    let doc = history.current().clone();
+    let words: Vec<(String, Vec<TextRun>, f64)> = captions
+        .iter()
+        .map(|id| {
+            let item = doc.items.get(*id).unwrap();
+            let Content::Title(title) = &item.content else {
+                panic!("a caption is a title");
+            };
+            assert_eq!(title.font_weight, 900.0);
+            assert_eq!(title.plate, Some(Color::BLACK));
+            (
+                title.content.clone(),
+                title.runs.clone(),
+                item.picture.offset_y.value,
+            )
+        })
+        .collect();
+    assert_eq!(
+        words,
+        vec![
+            ("Hello".into(), vec![], -0.35),
+            ("there".into(), vec![red], -0.35),
+            ("again".into(), vec![], -0.35),
+        ]
+    );
+    // Undone, the lane and its captions are as they were.
+    let undone = history.undo().unwrap();
+    assert!(undone.document.same_content(&fx.doc));
+    // A plain lane again: the captions stay, as titles.
+    let plain = apply(&fx.doc, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| lane.captions = None)
+            .unwrap();
+    });
+    assert_eq!(plain.items.index().on_lane(fx.high).count(), 3);
+}
+
+// --- The cover -----------------------------------------------------------------
+
+#[test]
+fn a_cover_is_a_step_of_undo_and_the_sequence_showing_is_not() {
+    let fx = fixture();
+    let mut history: History<Model, (), ()> = History::new(fx.doc.clone(), Default::default());
+    // A frame two seconds in.
+    let mut draft = history.current().begin("Set cover", Origin(0));
+    draft.cover = Some(Cover::Frame { into: dur(2.0) });
+    let commit = draft.commit().unwrap();
+    assert!(commit.changes().cover.is_some());
+    assert_eq!(
+        history.record(commit, HistoryEntry::new(vec![], (), ())),
+        Ok(Recorded::Step)
+    );
+    // A picture of its own instead, then none: each a step.
+    for cover in [
+        Some(Cover::Picture {
+            path: "/covers/a.png".into(),
+        }),
+        None,
+    ] {
+        let mut draft = history.current().begin("Set cover", Origin(0));
+        draft.cover = cover;
+        let commit = draft.commit().unwrap();
+        assert_eq!(
+            history.record(commit, HistoryEntry::new(vec![], (), ())),
+            Ok(Recorded::Step)
+        );
+    }
+    assert_eq!(history.undo_len(), 3);
+    // Showing another sequence is view, and leaves the cover alone.
+    let mut draft = history.current().begin("Add timeline", Origin(0));
+    let second: SequenceId = draft.mint().unwrap();
+    draft
+        .sequences
+        .insert(
+            second,
+            Sequence::new("Timeline 2", concat_doc::model::Frame::hd()),
+        )
+        .unwrap();
+    draft.view.tabs.push(second);
+    let commit = draft.commit().unwrap();
+    history
+        .record(commit, HistoryEntry::new(vec![], (), ()))
+        .unwrap();
+    let mut draft = history.current().begin("Select", Origin(0));
+    draft.view.showing = Some(second);
+    let commit = draft.commit().unwrap();
+    assert_eq!(
+        history.record(commit, HistoryEntry::new(vec![], (), ())),
+        Ok(Recorded::View)
+    );
+    // Undone past the timeline and the cover taken off: the picture,
+    // then the frame, then none.
+    history.undo().unwrap();
+    let undone = history.undo().unwrap();
+    assert_eq!(
+        undone.document.cover,
+        Some(Cover::Picture {
+            path: "/covers/a.png".into()
+        })
+    );
+    let undone = history.undo().unwrap();
+    assert_eq!(undone.document.cover, Some(Cover::Frame { into: dur(2.0) }));
+    let undone = history.undo().unwrap();
+    assert_eq!(undone.document.cover, None);
+    // The start of the edit is a frame.
+    let doc = apply(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Frame {
+            into: TickDur::ZERO,
+        });
+    });
+    assert!(doc.cover.is_some());
+}
+
+// --- Copies --------------------------------------------------------------------
+
+/// A clip holding one of everything with an id: an effect working inside
+/// its mask, a sound filter, a transition on its cut, and a marker.
+fn clip_holding_everything(fx: &mut Fixture) -> ItemId {
+    let mut made = None;
+    fx.doc = apply(&fx.doc, |draft| {
+        let mut item = cut(fx.low, 0.0, 2.0, fx.video);
+        let mask: MaskId = draft.mint().unwrap();
+        item.masks.push(Entry::Known(Mask::circle(mask)));
+        let mut mono = Effect::new(draft.mint().unwrap(), "concat.mono");
+        mono.mask = Some(mask);
+        item.effects.push(Entry::Known(mono));
+        item.filters.push(Entry::Known(Effect::new(
+            draft.mint().unwrap(),
+            "concat.gain",
+        )));
+        item.cut_in = Some(concat_doc::model::CutIn {
+            effect: Effect::new(draft.mint().unwrap(), "concat.dissolve"),
+            len: len(0.5),
+        });
+        item.markers.push(Entry::Known(Marker {
+            id: draft.mint().unwrap(),
+            at: at(1.0),
+            len: TickDur::ZERO,
+            name: "Beat".into(),
+            color: None,
+            residual: Residual::default(),
+        }));
+        item.sound.volume = Animated::fixed(0.4);
+        let id: ItemId = draft.mint().unwrap();
+        draft.items.insert(id, item).unwrap();
+        made = Some(id);
+    });
+    made.unwrap()
+}
+
+#[test]
+fn a_copy_of_an_item_holds_ids_of_its_own() {
+    let mut fx = fixture();
+    let clip = clip_holding_everything(&mut fx);
+    let source = Item::clone(fx.doc.items.get(clip).unwrap());
+    let laid_after = |mut copy: Item| {
+        copy.start = at(2.0);
+        copy
+    };
+    // A clone holds the clip's own ids, which are the clip's.
+    let broken = refused(&fx.doc, |draft| {
+        let id: ItemId = draft.mint().unwrap();
+        draft.items.insert(id, laid_after(source.clone())).unwrap();
+    });
+    assert!(
+        broken
+            .iter()
+            .any(|v| matches!(v.rule, Rule::IdTwice { with } if with == clip.any())),
+        "{broken:?}"
+    );
+    // A copy takes new ones, and its effect works inside its own mask.
+    let mut history: History<Model, (), ()> = History::new(fx.doc.clone(), Default::default());
+    let mut draft = history.current().begin("Duplicate", Origin(0));
+    let copy = source.with_new_ids(&mut draft).unwrap();
+    let id: ItemId = draft.mint().unwrap();
+    draft.items.insert(id, laid_after(copy)).unwrap();
+    let commit = draft.commit().unwrap();
+    assert_eq!(commit.changes().nested.0.len(), source.nested_ids().len());
+    history
+        .record(commit, HistoryEntry::new(vec![], (), ()))
+        .unwrap();
+    let doc = history.current().clone();
+    let copy = doc.items.get(id).unwrap();
+    let theirs = source.nested_ids();
+    for id in copy.nested_ids() {
+        assert!(!theirs.contains(&id), "{id} is the clip's");
+        assert!(doc.contains(id));
+    }
+    let mask = copy.masks[0].known().unwrap().id;
+    assert_eq!(copy.effects[0].known().unwrap().mask, Some(mask));
+    // Everything else is the clip's.
+    let mut same = Item::clone(copy);
+    same.start = source.start;
+    assert_eq!(
+        same.picture, source.picture,
+        "the copy carries the clip's look"
+    );
+    assert_eq!(same.sound, source.sound, "and its sound");
+    assert_eq!(same.content, source.content);
+    // One step, undone whole.
+    assert_eq!(history.undo_len(), 1);
+    let undone = history.undo().unwrap();
+    assert!(undone.document.same_content(&fx.doc));
+}
+
+#[test]
+fn a_move_onto_a_new_lane_is_one_commit_on_top_or_under_every_other() {
+    let mut fx = fixture();
+    let clip = place(&mut fx.doc, cut(fx.low, 0.0, 2.0, fx.video));
+    for bottom in [false, true] {
+        let mut made = None;
+        let doc = apply(&fx.doc, |draft| {
+            let stack: Vec<OrderKey> = draft
+                .lanes
+                .index()
+                .of(fx.seq)
+                .map(|(_, key)| key.clone())
+                .collect();
+            let order = if bottom {
+                OrderKey::between(None, stack.first())
+            } else {
+                OrderKey::between(stack.last(), None)
+            };
+            let lane: LaneId = draft.mint().unwrap();
+            draft
+                .lanes
+                .insert(lane, Lane::new(fx.seq, order.unwrap()))
+                .unwrap();
+            draft
+                .items
+                .update(clip, |item| {
+                    item.lane = lane;
+                    item.start = at(4.0);
+                })
+                .unwrap();
+            made = Some(lane);
+        });
+        let lane = made.unwrap();
+        let stack: Vec<LaneId> = doc.lanes.index().of(fx.seq).map(|(id, _)| id).collect();
+        let wanted = if bottom {
+            vec![lane, fx.low, fx.high]
+        } else {
+            vec![fx.low, fx.high, lane]
+        };
+        assert_eq!(stack, wanted);
+        assert_eq!(doc.items.index().at(lane, at(4.0)), Some(clip));
+        let changes = doc.changes_since(&fx.doc);
+        assert_eq!(
+            (changes.lanes.added.len(), changes.items.replaced.len()),
+            (1, 1)
+        );
+    }
 }
 
 // --- The index -------------------------------------------------------------------

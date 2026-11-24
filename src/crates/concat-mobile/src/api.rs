@@ -26,6 +26,49 @@ pub trait ApiEvents: Send + Sync {
     fn event(&self, json: String);
 }
 
+/// The phone's own text-to-speech, as the app hands it over: the read-aloud
+/// "Phone voice". The engine calls [`PhoneVoice::say`] on a worker thread,
+/// once per piece of the text, and joins the files.
+#[uniffi::export(callback_interface)]
+pub trait PhoneVoice: Send + Sync {
+    /// Says `text` into a WAV at `path`, at `rate` times the voice's own
+    /// speed, and returns once the file is written: `None`, or why not.
+    fn say(&self, text: String, path: String, rate: f32) -> Option<String>;
+}
+
+/// Offers `voice` to read aloud with, from now on. The app calls it once its
+/// text-to-speech has started, so a phone with none never lists a voice
+/// that cannot read; the first call wins.
+#[uniffi::export]
+pub fn set_phone_voice(voice: Box<dyn PhoneVoice>) {
+    concat_speech::tts::set_system_voice(Box::new(
+        move |text: &str, path: &std::path::Path, rate: f32| match voice.say(
+            text.to_owned(),
+            path.to_string_lossy().into_owned(),
+            rate,
+        ) {
+            None => Ok(()),
+            Some(why) => Err(why),
+        },
+    ));
+}
+
+/// How the phone stays awake while a job runs: an export, a transcription
+/// or a download takes minutes, and a screen that timed out half a minute
+/// in took the work down with it (#695).
+#[uniffi::export(callback_interface)]
+pub trait KeepAwake: Send + Sync {
+    /// `true` when the first job starts, `false` when the last one ends.
+    fn stay_awake(&self, on: bool);
+}
+
+/// Hands the engine the phone's way of staying awake, for every job from
+/// now on. The first call wins.
+#[uniffi::export]
+pub fn set_keep_awake(hook: Box<dyn KeepAwake>) {
+    concat_host::awake::install(Box::new(move |on| hook.stay_awake(on)));
+}
+
 /// The editor's API, as the phone app holds it: one per process.
 #[derive(uniffi::Object)]
 pub struct EditorApi {

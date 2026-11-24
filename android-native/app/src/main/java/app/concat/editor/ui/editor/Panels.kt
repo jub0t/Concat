@@ -316,7 +316,8 @@ private fun LinkStrength(
     val high = knob.max.toFloat().coerceAtLeast(low + 1e-3f)
     Column(Modifier.padding(horizontal = Spacing.lg)) {
         ValueSlider(
-            "${pkg.name} · ${knob.label}",
+            // The effect's name says what its strength is; another knob is named after it.
+            if (knob.key == pkg.intensity) pkg.name else "${pkg.name} ${knob.label.lowercase()}",
             value,
             low..high,
             { if (knob.type == "int" || knob.step >= 1) "%.0f%s".format(it, knob.unit) else "%.2f%s".format(it, knob.unit) },

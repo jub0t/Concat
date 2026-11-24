@@ -4,9 +4,10 @@
 //! The model's checks and its index against slower ways of finding the
 //! same.
 //!
-//! Long random runs of edits - items placed, moved, trimmed, retimed and
-//! taken away, sounds detached, sequences nested, lanes added, reordered
-//! and taken away, files re-probed and removed, several at once - are
+//! Long random runs of edits - items placed, copied, moved, trimmed,
+//! retimed and taken away, sounds detached, sequences nested, lanes added, reordered,
+//! made caption lanes and taken away, files re-probed and removed, the
+//! cover set, several at once - are
 //! committed to a project. After every one:
 //!
 //! - the commit was accepted exactly when the same tables, read as a
@@ -22,12 +23,13 @@ mod fixture;
 use std::sync::Arc;
 
 use concat_doc::model::{
-    Content, Effect, EffectId, Item, ItemId, Items, Lane, LaneId, Lanes, Link, LinkKind, Mask,
-    MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Sequence, SequenceId, Speed, Take, TimeMap,
-    Title,
+    CaptionLook, Content, Cover, Effect, EffectId, Item, ItemId, Items, Lane, LaneId, Lanes, Link,
+    LinkKind, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Sequence, SequenceId, Speed,
+    Take, TimeMap, Title,
 };
 use concat_doc::{
-    Document, Draft, MAX_COUNTER, Mint, Origin, Rejected, TICKS_PER_SECOND, Tick, TickLen, Writer,
+    Document, Draft, MAX_COUNTER, Mint, Origin, Rejected, TICKS_PER_SECOND, Tick, TickDur, TickLen,
+    Writer,
 };
 use fixture::*;
 use proptest::prelude::*;
@@ -73,6 +75,12 @@ enum Op {
         item: Index,
         lane: Index,
     },
+    /// A copy laid right after the item on its lane: with ids of its
+    /// own, or now and then a plain clone, refused when it holds any.
+    Duplicate {
+        item: Index,
+        fresh: bool,
+    },
     Move {
         item: Index,
         lane: Index,
@@ -105,8 +113,19 @@ enum Op {
         media: Index,
     },
     AddSequence,
+    /// A lane made a caption lane, or a plain one again; now and then
+    /// with a look that has words, which is refused.
+    Captions {
+        lane: Index,
+        look: u8,
+    },
     RemoveSequence {
         sequence: Index,
+    },
+    /// The cover set to a frame, now and then before the start, which is
+    /// refused; or to none.
+    Cover {
+        into: Option<i8>,
     },
     /// Several of the others in one draft.
     Together(Vec<Op>),
@@ -124,6 +143,8 @@ fn simple() -> impl Strategy<Value = Op> {
             Op::Nest { lane, start, len, sequence }
         }),
         2 => (any::<Index>(), any::<Index>()).prop_map(|(item, lane)| Op::Detach { item, lane }),
+        2 => (any::<Index>(), prop::bool::weighted(0.8))
+            .prop_map(|(item, fresh)| Op::Duplicate { item, fresh }),
         6 => (any::<Index>(), any::<Index>(), 0..40_u8)
             .prop_map(|(item, lane, start)| Op::Move { item, lane, start }),
         4 => (any::<Index>(), 0..20_u8, 1..20_u8)
@@ -135,7 +156,9 @@ fn simple() -> impl Strategy<Value = Op> {
         1 => (any::<Index>(), 1..60_u8).prop_map(|(media, len)| Op::Reprobe { media, len }),
         1 => any::<Index>().prop_map(|media| Op::RemoveMedia { media }),
         1 => Just(Op::AddSequence),
+        1 => (any::<Index>(), 0..4_u8).prop_map(|(lane, look)| Op::Captions { lane, look }),
         1 => any::<Index>().prop_map(|sequence| Op::RemoveSequence { sequence }),
+        1 => prop::option::of(-4..40_i8).prop_map(|into| Op::Cover { into }),
     ]
 }
 
@@ -293,6 +316,23 @@ fn run(draft: &mut Draft<Model>, op: &Op) {
             let id: ItemId = draft.mint().unwrap();
             draft.items.insert(id, sound).unwrap();
         }
+        Op::Duplicate { item, fresh } => {
+            let Some(item) = pick(&items_of(draft), item) else {
+                return;
+            };
+            let of = Item::clone(draft.items.get(item).unwrap());
+            let mut copy = if *fresh {
+                of.with_new_ids(draft).unwrap()
+            } else {
+                of.clone()
+            };
+            let Some(end) = of.end() else {
+                return;
+            };
+            copy.start = end;
+            let id: ItemId = draft.mint().unwrap();
+            draft.items.insert(id, copy).unwrap();
+        }
         Op::Move { item, lane, start } => {
             let (Some(item), Some(lane)) =
                 (pick(&items_of(draft), item), pick(&lanes_of(draft), lane))
@@ -388,6 +428,19 @@ fn run(draft: &mut Draft<Model>, op: &Op) {
                 .insert(lane, Lane::new(id, OrderKey::middle()))
                 .unwrap();
         }
+        Op::Captions { lane, look } => {
+            if let Some(lane) = pick(&lanes_of(draft), lane) {
+                let look = match look {
+                    0 => None,
+                    1 => Some(CaptionLook {
+                        title: Title::default(),
+                        offset_y: 0.0,
+                    }),
+                    _ => Some(CaptionLook::default()),
+                };
+                draft.lanes.update(lane, |l| l.captions = look).unwrap();
+            }
+        }
         Op::RemoveSequence { sequence } => {
             if let Some(sequence) = pick(&sequences_of(draft), sequence) {
                 draft.sequences.remove(sequence).unwrap();
@@ -397,6 +450,11 @@ fn run(draft: &mut Draft<Model>, op: &Op) {
                     draft.view.showing = next;
                 }
             }
+        }
+        Op::Cover { into } => {
+            draft.cover = into.map(|n| Cover::Frame {
+                into: TickDur::new(i64::from(n) * QUARTER),
+            });
         }
         Op::Together(ops) => {
             for op in ops {

@@ -63,6 +63,12 @@ pub struct Order {
     /// opened. The worker opens none the probe found does not.
     #[serde(default)]
     pub encoders: Vec<(String, bool)>,
+    /// The ids of the imported packages the window's catalogue holds -
+    /// the ones it loaded and whose shaders passed its trial. The worker
+    /// loads the same folder and keeps these alone: a worker that loaded
+    /// none exported the edit without every imported effect and look the
+    /// preview showed, and said nothing.
+    pub packages: Vec<String>,
 }
 
 /// An export's progress on the wire: [`Progress`] with its stage as text.
@@ -129,6 +135,11 @@ impl Order {
             rate_num,
             rate_den,
             encoders: concat_media::encode::known_encoders(),
+            packages: concat_effects::Catalogue::builtin()
+                .packages()
+                .filter(|package| package.folder.is_some())
+                .map(|package| package.id().to_owned())
+                .collect(),
         }
     }
 
@@ -177,6 +188,7 @@ impl concat_worker::Job for Export {
         }
         let spec = order.spec().map_err(Halt::Failed)?;
         let dirs = crate::dirs::AppDirs::locate().map_err(Halt::Failed)?;
+        install_packages(&dirs.effects(), &order.packages);
         let titles = crate::titles::Titles::new(&dirs);
         let cancel = context.cancel_flag();
         let Some(titles) = titles.clips_unless(&order.project, order.width, order.height, cancel)
@@ -209,6 +221,33 @@ impl concat_worker::Job for Export {
     }
 }
 
+/// Loads the imported packages in `dir` that the window holds, `kept`,
+/// and leaves out the rest: one the window refused - a shader that failed
+/// its trial there - is not drawn here either.
+fn install_packages(dir: &Path, kept: &[String]) {
+    if kept.is_empty() {
+        return;
+    }
+    let errors = concat_effects::Catalogue::install_with(dir, &mut |package| {
+        if kept.iter().any(|id| id == package.id()) {
+            Ok(())
+        } else {
+            Err("the window left it out".to_owned())
+        }
+    });
+    let loaded = concat_effects::Catalogue::builtin()
+        .packages()
+        .filter(|package| package.folder.is_some())
+        .count();
+    log::info!(
+        "export: {loaded} of the window's {} imported packages loaded",
+        kept.len()
+    );
+    for error in errors {
+        log::warn!("export: an imported package was not loaded: {error}");
+    }
+}
+
 /// The window's side: runs `order` in a worker of `program`, then once
 /// more drawing on the CPU if that worker died, and hands back how it
 /// went. `None` when no worker could be started at all, and the window
@@ -235,6 +274,64 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A package folder in `dir` named `id`: the built-in Mono, renamed.
+    fn imported(dir: &Path, id: &str) {
+        let from =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../concat-effects/packages/concat.mono");
+        let to = dir.join(id);
+        std::fs::create_dir_all(&to).expect("package folder");
+        for name in ["effect.toml", "effect.wgsl", "fixtures.toml"] {
+            let text = std::fs::read_to_string(from.join(name)).expect("built-in Mono");
+            std::fs::write(to.join(name), text.replace("concat.mono", id)).expect("written");
+        }
+    }
+
+    /// The worker draws what the window holds: the imported packages it
+    /// kept, beside the built-ins, and not one it left out.
+    #[test]
+    fn the_worker_loads_the_imported_packages_the_window_kept() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        imported(dir.path(), "user.kept");
+        imported(dir.path(), "user.refused");
+        install_packages(dir.path(), &["user.kept".to_owned()]);
+        let catalogue = concat_effects::Catalogue::builtin();
+        let has = |id: &str| catalogue.packages().any(|package| package.id() == id);
+        assert!(has("user.kept"), "the kept package is drawn");
+        assert!(!has("user.refused"), "the one the window left out is not");
+        assert!(has("concat.mono"), "the built-ins stay");
+    }
+
+    /// An order carries the ids of the imported packages the window holds,
+    /// and no built-in's.
+    #[test]
+    fn an_order_names_only_imported_packages() {
+        let spec = ExportSpec {
+            output: "out.mp4".into(),
+            crf: 18,
+            preset: "veryfast".into(),
+            codec: VideoCodec::H264,
+            ten_bit: false,
+            rate_mode: RateMode::ALL[0],
+            bitrate_kbps: 0,
+            color_range: ColorRange::parse("limited").expect("a range"),
+            hdr: false,
+        };
+        let order = Order::new(
+            concat_project::model::Project::default(),
+            PathBuf::from("."),
+            &spec,
+            1920,
+            1080,
+            30,
+            1,
+        );
+        assert!(
+            order.packages.iter().all(|id| !id.starts_with("concat.")),
+            "built-ins are the worker's own: {:?}",
+            order.packages
+        );
+    }
 
     #[test]
     fn a_step_reads_back_as_the_window_knows_it() {

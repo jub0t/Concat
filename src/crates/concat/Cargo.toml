@@ -9,8 +9,8 @@ description = "Concat, the editor window: the Slint front end that drives the en
 
 # The product's name is the binary's name, unsuffixed: `concat` is what a
 # user launches, and the concat-* crates are what it is made of. The window
-# itself is the library, so that the binary here and the Android activity
-# in concat-android are each a few lines over the same code.
+# itself is the library, so that the desktop and iOS entry points are each a
+# few lines over the same code.
 [lib]
 path = "src/lib.rs"
 
@@ -38,12 +38,10 @@ path = "src/main.rs"
 # to wgpu 30; nothing shipped it, and the Nix package, its one user, now
 # links Skia's prebuilt binaries (flake.nix).
 #
-# Three platforms, three feature sets. The desktop and iOS draw through the
-# winit backend, iOS without the system tray; Android draws through Slint's
-# android-activity backend, which owns the window and the renderer itself
-# (see platform.rs). The renderer and wgpu features are the same on all
-# three.
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# Two feature sets: the desktop and iOS both draw through the winit
+# backend, iOS without the system tray. The renderer and wgpu features are
+# the same on both.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
 # Where the desktop really is: Windows' known folder, which OneDrive may
 # have moved, and the XDG user dirs, which name it in the desktop's own
 # language. New projects default to a folder on it.
@@ -85,7 +83,7 @@ libc = "0.2"
 
 # `_exit`, the way out past the C++ libraries' static destructors; see
 # `leave` in lib.rs.
-[target.'cfg(any(target_os = "macos", target_os = "android"))'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
 [target.'cfg(target_os = "ios")'.dependencies]
@@ -115,20 +113,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSObject",
     "NSString",
     "NSURL",
-] }
-
-[target.'cfg(target_os = "android")'.dependencies]
-slint = { version = "1.18", default-features = false, features = [
-    "std",
-    "backend-android-activity-06",
-    "renderer-software",
-    "renderer-skia",
-    "accessibility",
-    "compat-1-2",
-    "unstable-wgpu-30",
-    # The base fonts registered for the window from the bytes concat-text
-    # embeds, so a preset card is drawn in its own face; see fonts.rs.
-    "unstable-fontique-011",
 ] }
 
 [dependencies]

@@ -18,14 +18,14 @@
 //! |---|---|---|
 //! | `media` | [`Media`] | a file in the bin and what its probe found |
 //! | `sequences` | [`Sequence`] | a timeline: frame, rate, background, markers |
-//! | `lanes` | [`Lane`] | its sequence, its place in the stack, its toggles |
+//! | `lanes` | [`Lane`] | its sequence, its place in the stack, its toggles, a caption lane's look |
 //! | `items` | [`Item`] | its lane, start, length, window, content, look, sound, chains, masks, markers, tie |
 //! | `held` | [`Held`] | an entry of a file that could not be taken in, as its text |
 //!
-//! and three plain values: the `fonts` the person added, the document's
-//! own unknown fields (`residual`), and the [`View`]: which sequence is
-//! showing and the order of the tabs, which is saved and is no step of
-//! undo.
+//! and four plain values: the `fonts` the person added, the [`Cover`]
+//! the project is shown by, the document's own unknown fields
+//! (`residual`), and the [`View`]: which sequence is showing and the
+//! order of the tabs, which is saved and is no step of undo.
 //!
 //! An item's place is absolute: its lane and its start tick. Nothing is
 //! a list index, so a move changes one item, and two writers naming ids
@@ -137,10 +137,12 @@
 //!     opacities, feathers and roundness from 0 to 1; a scale and a
 //!     stretch above zero; a level and a gain not below zero; a crop
 //!     leaving something of the picture; a weight from 100 to 900; a
-//!     polygon of 3 to 12 sides and a star of 3 to 24 points; and the
-//!     rest listed with the test. *numbers_outside_their_field_are_refused*
+//!     polygon of 3 to 12 sides and a star of 3 to 24 points; a caption
+//!     lane's look as the title it makes; and the rest listed with the
+//!     test. *numbers_outside_their_field_are_refused*
 //! 35. A length kept as a distance - a fade, a marker's length, where an
-//!     enhanced copy starts - is not below zero. *a_negative_length_is_refused*
+//!     enhanced copy starts, how far in a cover's frame is - is not below
+//!     zero. *a_negative_length_is_refused*
 //! 36. An effect names its package. *an_effect_of_no_package_is_refused*
 //! 37. An effect's knob has a name and a value or keys.
 //!     *an_empty_knob_is_refused*
@@ -156,7 +158,8 @@
 //!     item plays whole. *a_sound_tied_to_another_file_is_refused*
 //! 43. A sound is not detached from a detached sound.
 //!     *a_sound_tied_to_a_sound_is_refused*
-//! 44. Every effect, mask and marker id is held once in the document.
+//! 44. Every effect, mask and marker id is held once in the document,
+//!     so a copy of an item takes new ones ([`Item::with_new_ids`]).
 //!     *an_effect_id_used_twice_is_refused*
 //! 45. Every effect, mask and marker id is one the document's mint made.
 //!     *a_nested_id_the_mint_never_made_is_refused*
@@ -167,6 +170,11 @@
 //! 47. A document with a sequence has one showing.
 //!     *a_document_with_sequences_shows_one*
 //! 48. No two fonts are one file. *a_font_added_twice_is_refused*
+//!
+//! **Captions**
+//!
+//! 49. A caption lane's look has no words and no runs of its own: each
+//!     caption's are the caption's. *a_caption_look_with_words_is_refused*
 //!
 //! The empty document keeps every rule (*an_empty_document_is_valid*).
 //! A random run of edits is checked two ways, by what changed and by
@@ -218,14 +226,14 @@ pub use item::{
     VoiceKind, VoiceMix,
 };
 pub use look::{
-    Gradient, LineHead, ShapeKind, ShapeShadow, ShapeStyle, StrokeAlign, StrokeDash, TextAlign,
-    TextCase, TextRun, Title,
+    CaptionLook, Gradient, LineHead, ShapeKind, ShapeShadow, ShapeStyle, StrokeAlign, StrokeDash,
+    TextAlign, TextCase, TextRun, Title,
 };
 pub use media::{
     BeatMarks, ColorRange, ColorSpace, Media, MediaKind, MediaOrigin, Size, SoundStream,
 };
 pub use order::{NotAnOrderKey, OrderKey};
-pub use sequence::{Background, Color, Font, Frame, Held, Lane, Marker, Sequence, View};
+pub use sequence::{Background, Color, Cover, Font, Frame, Held, Lane, Marker, Sequence, View};
 pub use timing::{
     FASTEST, SLOWEST, Speed, TICK_LIMIT, TimeCurve, TimeMap, TimePoint, dur_in_range, len_in_range,
     tick_in_range,
@@ -365,6 +373,9 @@ model! {
     values {
         /// The fonts the person added from disk.
         fonts: Vec<Font>, check::fonts;
+        /// The picture the project is shown by; none is a frame early in
+        /// the edit, whichever the caller picks.
+        cover: Option<Cover>, check::cover;
         /// Which sequence is showing, and the order of the tabs: view
         /// state.
         view: View, check::view;

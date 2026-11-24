@@ -25,6 +25,9 @@ serde_json.workspace = true
 concat-effects.workspace = true
 concat-host.workspace = true
 clap.workspace = true
+# What `api` and `serve` could not load, on standard error with the
+# engine's own lines.
+log = "0.4"
 
 [features]
 # `serve --grpc`. Off by default; see concat-server.

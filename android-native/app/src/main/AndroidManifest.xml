@@ -14,6 +14,14 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- Read aloud's phone voice: from Android 11 an app sees no text-to-speech
+         engine unless it says it looks for one. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ConcatApplication"
         android:label="Concat"

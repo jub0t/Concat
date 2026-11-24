@@ -80,9 +80,6 @@ export component ToastLayer inherits Rectangle {
     /// A phone's card is as wide as the screen allows, and pauses while a
     /// finger is on it rather than under a pointer it does not have.
     in property <bool> phone;
-    /// The phone's log goes to its share sheet; a desk's is shown in its
-    /// folder. The same action, named as Settings › About names it.
-    in property <bool> shares-log;
     /// The screen's own edges, on a phone: the card sits 16px inside them.
     in property <length> inset-bottom;
     in property <length> inset-left;
@@ -315,7 +312,7 @@ export component ToastLayer inherits Rectangle {
                 alignment: start;
 
                 NoticeAction {
-                    label: root.shares-log ? I18n.t("settings.shareTheLog") : I18n.t("settings.showTheLog");
+                    label: I18n.t("settings.showTheLog");
                     clicked => { root.show-log(); }
                 }
 

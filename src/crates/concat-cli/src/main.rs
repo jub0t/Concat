@@ -134,7 +134,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     // A crash names the module it happened in on standard error, as the
     // window's does; see concat-host's crash.rs.
     concat_host::crash::catch();
-    match Cli::parse().command {
+    // The engine's log on standard error, as the MCP server's: standard
+    // output stays the commands' answers, and a script's run says what the
+    // engine did - an export resumed, an encoder refused - where it used to
+    // say nothing. No file, so scripted runs never push the window's own
+    // logs out of the folder.
+    let _ = concat_host::logs::open_console(None);
+    let command = Cli::parse().command;
+    // The imported effects and looks, for the commands that draw an edit
+    // through the API: without them an edit that uses one exported without
+    // it. Without the window's shader trial, which needs its device.
+    if matches!(command, Command::Api { .. } | Command::Serve { .. })
+        && let Ok(dirs) = concat_host::AppDirs::locate()
+    {
+        for error in concat_effects::Catalogue::install(&dirs.effects()) {
+            log::warn!("effects: an imported package was not loaded: {error}");
+        }
+    }
+    match command {
         Command::Probe { path } => probe(&path),
         Command::Render {
             input,

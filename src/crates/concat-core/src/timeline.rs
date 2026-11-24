@@ -98,6 +98,12 @@ pub struct Clip {
     /// How it comes on, goes off and moves in between, over its keys; see
     /// [`Motion`]. None for none.
     pub motion: Option<Motion>,
+    /// One moment of another clip, held for this one's whole span: every
+    /// key, move and keyed mask or effect number reads that moment, not
+    /// this clip's own time. A transition's stand-in holds the clip it
+    /// extends at its cut; read at its own time, the stand-in replayed the
+    /// clip's moves and keys squeezed into the transition.
+    pub frozen: Option<Frozen>,
     /// How the clip's colour meets what is beneath it.
     pub blend: Blend,
     /// One frame, held: every instant of the clip maps to `source_start`,
@@ -220,6 +226,27 @@ impl Default for Transform {
     }
 }
 
+/// A moment of a clip: `local` seconds into it, of `length`. See
+/// [`Clip::frozen`].
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Frozen {
+    /// Seconds into the clip.
+    pub local: f64,
+    /// The clip's length, in seconds.
+    pub length: f64,
+}
+
+impl Frozen {
+    /// Where the moment falls in the clip, `0..=1`.
+    pub fn fraction(self) -> f64 {
+        if self.length > 0.0 {
+            (self.local / self.length).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+}
+
 impl Clip {
     /// A clip that starts at the beginning of its media and is fully opaque.
     pub fn new(media: MediaRef, start: Rational, duration: Rational) -> Self {
@@ -236,6 +263,7 @@ impl Clip {
             retime: None,
             animation: None,
             motion: None,
+            frozen: None,
             blend: Blend::Normal,
             hold: false,
             masks: Vec::new(),
@@ -245,6 +273,9 @@ impl Clip {
 
     /// Where in the clip `time` falls, `0..=1`; zero outside it.
     pub fn fraction_at(&self, time: Rational) -> f64 {
+        if let Some(frozen) = self.frozen {
+            return frozen.fraction();
+        }
         if self.duration.is_zero() {
             return 0.0;
         }
@@ -275,8 +306,10 @@ impl Clip {
     /// Where the clip's moves have it at `time`; None for a clip with none.
     pub fn pose_at(&self, time: Rational) -> Option<Pose> {
         let motion = self.motion.as_ref().filter(|motion| !motion.is_empty())?;
-        let local = (time - self.start).as_f64();
-        Some(motion.pose_at(local, self.duration.as_f64()))
+        Some(match self.frozen {
+            Some(frozen) => motion.pose_at(frozen.local, frozen.length),
+            None => motion.pose_at((time - self.start).as_f64(), self.duration.as_f64()),
+        })
     }
 
     /// The masks at `time`, top first: each one's keyed numbers at their

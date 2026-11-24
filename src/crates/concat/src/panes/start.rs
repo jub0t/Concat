@@ -185,9 +185,9 @@ impl Default for StartPane {
 /// On an iPhone the folder is made here, so that the Files app shows it
 /// from the first launch and not only from the first project.
 fn default_location() -> String {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     let desktop = dirs::desktop_dir();
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(target_os = "ios")]
     let desktop = None;
     let location = location_on(std::env::consts::OS, desktop, home_folder);
     if cfg!(target_os = "ios")
@@ -204,14 +204,12 @@ fn default_location() -> String {
 /// Where a new project goes on `os`: a Concat folder on the desktop. The
 /// desktop the system names, not `~/Desktop`: on Windows OneDrive often
 /// moves it, and on Linux it is called what the desktop's language calls
-/// it. A phone has no desk. An Android phone's projects live at the top of
-/// the folder the file manager shows for the app. An iPhone's live in the
+/// it. A phone has no desk: an iPhone's live in the
 /// app's Documents, the one folder of its sandbox the Files app can show:
 /// `~/Desktop` there is a folder the app is not allowed to make, and every
 /// new project failed with EPERM. https://github.com/jub0t/Concat/issues/299
 fn location_on(os: &str, desktop: Option<PathBuf>, home: impl Fn(&str) -> String) -> String {
     match os {
-        "android" => home("Concat"),
         "ios" => home("Documents/Concat"),
         _ => desktop
             .map(|desktop| desktop.join("Concat").to_string_lossy().into_owned())
@@ -631,7 +629,6 @@ mod tests {
             "/home/Documents/Concat"
         );
         assert_eq!(location_on("ios", None, home), "/home/Documents/Concat");
-        assert_eq!(location_on("android", None, home), "/home/Concat");
         assert_eq!(
             PathBuf::from(location_on("macos", desktop(), home)),
             Path::new("/desk").join("Concat")

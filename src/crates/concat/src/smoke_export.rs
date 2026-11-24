@@ -120,9 +120,7 @@ pub(crate) fn drive(clip: PathBuf) -> slint::Timer {
                                     );
                                     crate::leave(0);
                                 }
-                                // On a phone the file may have gone on into
-                                // the gallery, where no path reaches it.
-                                _ if written.is_empty() || cfg!(target_os = "android") => {
+                                _ if written.is_empty() => {
                                     log::info!("smoke: export finished in {secs:.1} s · {written}");
                                     crate::leave(0);
                                 }

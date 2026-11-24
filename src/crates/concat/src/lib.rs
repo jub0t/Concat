@@ -9,8 +9,8 @@
 //! to it; nothing here decides what an edit means.
 //!
 //! A library so that every entry point is a few lines: `main.rs` on the
-//! desktop and on iOS, and the `concat-android` activity on Android. Each
-//! one calls [`run`].
+//! desktop and on iOS. Each one calls [`run`]. Android's app is its own,
+//! over `concat-mobile`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -47,27 +47,19 @@ mod keymap;
 mod meters;
 mod motion_tiles;
 mod platform;
-/// How a phone keeps its screen on while a job runs; see
-/// `concat_host::awake`.
-#[cfg(target_os = "android")]
-pub use concat_host::awake::install as install_awake;
 /// What a phone's own crate installs before the window runs: the way to
 /// the system's file picker, and where a finished export is put so the
 /// phone shows it. See `platform::pick_files_async` and
 /// `platform::publish_export`.
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 pub use platform::{
     ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
 };
-#[cfg(target_os = "android")]
-pub use platform::{LinkOpener, install_link_opener};
-#[cfg(target_os = "android")]
-pub use platform::{LogSharer, install_log_sharer, log_file_name, note_last_exit};
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 pub use platform::{MicrophoneAccess, install_microphone_access};
 /// What a backend's hooks say of the window, for safe start: it drew a
-/// frame, or the person used it. On a desktop `DropHandler` says it; on
-/// Android, the activity's event listener. See `start_watch`.
+/// frame, or the person used it. On a desktop `DropHandler` says it. See
+/// `start_watch`.
 pub use start_watch::{window_drew, window_touched};
 #[cfg(test)]
 mod close_gate_tests;
@@ -85,7 +77,7 @@ mod sysinfo;
 mod wayland_drop;
 /// Elsewhere the listener is a name that starts nothing, so platform.rs
 /// reads the same on every desktop.
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(target_os = "linux"))]
 mod wayland_drop {
     /// Nothing to listen to: no desktop but Linux draws through Wayland.
     pub struct Listener;
@@ -476,7 +468,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // The launch screen's version line, and whether its drop zone is
     // offered: a drag in from the system is a desk's (see platform.rs).
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
-    app.set_can_drop(cfg!(not(any(target_os = "android", target_os = "ios"))));
+    app.set_can_drop(cfg!(not(target_os = "ios")));
     app.set_capcut(concat_host::capcut::drafts_folder().is_some());
 
     // The user's own packages - imported looks, and any effect folder they
@@ -485,22 +477,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // first thing the window says.
     let mut studio = Studio::new(host);
     studio.set_phone(phone);
-    // A phone whose last run died says so once, now, and offers its log;
-    // the next launch reads this run, which did not (#560).
-    #[cfg(target_os = "android")]
-    if platform::last_run_died() {
-        log::info!("start: the last run died; offering its log");
-        studio.confirm = Some(studio::Confirm::LastRunClosed);
-    }
     if safe {
-        // Each key in a call of its own: scripts/locales.py finds a key by
-        // the literal inside `t(...)`, and one held in a variable is lost.
-        let notice = if cfg!(target_os = "android") {
-            i18n::t("start.safeModePhone")
-        } else {
-            i18n::t("start.safeMode")
-        };
-        studio.notify(&notice, false);
+        studio.notify(&i18n::t("start.safeMode"), false);
     } else if platform::no_graphics_driver() {
         // The machine's own state, not a choice: what makes Concat slow
         // here, and what fixes it, said once.
@@ -621,7 +599,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // forbids it - the encoders are asked here, as they were.
     host::spawn_long(
         || {
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            #[cfg(not(target_os = "ios"))]
             if let Ok(program) = std::env::current_exe()
                 && let Err(why) =
                     concat_media::encode::apart::ask(&program, &[concat_media::encode::apart::FLAG])
@@ -3149,24 +3127,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         }
         leave(1);
     }
-    // Android ends the loop when it destroys the activity - Back on the
-    // launch screen, or the system taking it back - with no close request
-    // first, and the process then left without a save: the edits since the
-    // last autosave were lost and the project's lock was left behind. A
-    // desktop's every way out closes the project before the loop ends.
-    #[cfg(target_os = "android")]
-    Shell::with(|shell, _| {
-        let mut studio = shell.studio.borrow_mut();
-        closing("by the system");
-        if studio.session.is_some()
-            && let Err(error) = studio.close_project()
-        {
-            log::error!(
-                "close: saving {} as the system ended the app failed: {error}; it closes without it",
-                studio.project_name
-            );
-        }
-    });
     stop_exports();
     drop(startup_mark);
     leave(0);
@@ -3303,20 +3263,12 @@ fn stop_exports() {
 /// Task Manager kill or a crash an update fixed left fast machines drawing
 /// every hover on it (#476). Settings > General's GPU switch goes back
 /// sooner. On Windows and Linux, which have a software rasteriser to draw
-/// on, and on Android, where the safe way is OpenGL ES in place of Vulkan:
-/// a phone whose Vulkan driver dies on the first frame closed on every
-/// launch, and the backend's fall back to OpenGL ES only catches a surface
-/// that fails to open (#507). A Mac draws the window on Skia's own
+/// on. A Mac draws the window on Skia's own
 /// rasteriser and keeps the compositor on Metal: an Iris Pro or a patched
 /// Radeon whose Metal compiler failed as the device opened never showed a
 /// window at all (#600, #423).
 fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
-    if !cfg!(any(
-        windows,
-        target_os = "linux",
-        target_os = "android",
-        target_os = "macos"
-    )) {
+    if !cfg!(any(windows, target_os = "linux", target_os = "macos")) {
         return (None, false);
     }
     let Ok(dirs) = concat_host::AppDirs::locate() else {
@@ -3333,12 +3285,7 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     // own lines only say that it is so. A person on a fast GPU drawing on
     // the CPU, and nothing in the log saying why, could not be told apart
     // from a driver that would not open.
-    // On Android "software" is OpenGL ES in place of Vulkan, not the CPU.
-    let how = if cfg!(target_os = "android") {
-        "drawing on OpenGL ES in place of Vulkan"
-    } else {
-        "drawing in software"
-    };
+    let how = "drawing in software";
     match std::env::var("CONCAT_GPU") {
         // Set before Concat started: it wins over the setting either way.
         Ok(value) if value.trim().eq_ignore_ascii_case("software") => {
@@ -3368,10 +3315,7 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     }
     if preferences.draws_in_software() && std::env::var_os("CONCAT_GPU").is_none() {
         // SAFETY: on a desk the process is single-threaded here, as for the
-        // scale above. On Android the activity's glue thread is running, but
-        // it is Java's and reads no environment; Rust's own readers take
-        // the same lock this does. On Android the variable means OpenGL ES
-        // in place of Vulkan (the Skia patch reads it), not the CPU.
+        // scale above.
         unsafe { std::env::set_var("CONCAT_GPU", "software") };
     }
     // Said on every launch it holds, not only the first: the person on
@@ -3423,21 +3367,11 @@ pub fn draw_in_software() {
 /// rest of the run - so a quit after any transcription died of SIGABRT in
 /// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
 /// that way itself when it opts into sudden termination.
-///
-/// And on Android, which Rust does not count as Linux. There `exit`
-/// destroys the system libraries' static mutexes while the runtime's own
-/// threads - binder's, and any thread in Java's file I/O - still take
-/// them: the mutex of libandroidio's AsynchronousCloseMonitor, which every
-/// blocking Java read and write locks, and one of libgui's. The thread
-/// that took one next aborted ("FORTIFY: pthread_mutex_lock called on a
-/// destroyed mutex"), after the export had finished. Those threads are the
-/// system's, not ours to stop first, and Android ends an app's process
-/// with a kill, never an `exit`, so nothing on a phone needs the handlers.
 fn leave(code: i32) -> ! {
     // The log's last line: a run that got here ended in order, whatever
     // its code, and the next run reads the lack of this line as a crash.
     concat_host::logs::end();
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -3446,7 +3380,7 @@ fn leave(code: i32) -> ! {
         // this one's is touched after it.
         unsafe { libc::_exit(code) }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "android")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     std::process::exit(code);
 }
 

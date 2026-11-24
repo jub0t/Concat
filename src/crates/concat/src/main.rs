@@ -76,6 +76,15 @@ fn main() -> Result<(), slint::PlatformError> {
             })
             .unwrap_or_default();
         let _ = concat_host::logs::open_console(None);
+        // The imported effects and looks, as the window has them: an
+        // agent's export of an edit that uses one drew it without.
+        // Without the window's shader trial, which needs its device; a
+        // package that hangs here hangs this server, not an editor.
+        if let Ok(dirs) = concat_host::AppDirs::locate() {
+            for error in concat_effects::Catalogue::install(&dirs.effects()) {
+                log::warn!("effects: an imported package was not loaded: {error}");
+            }
+        }
         return concat_mcp::run(mode).map_err(|error| {
             log::error!("api: the MCP server for an agent stopped: {error}; Concat exits");
             slint::PlatformError::Other(error)

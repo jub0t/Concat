@@ -23,7 +23,7 @@ use super::index::lowest;
 use super::item::{Content, Item, LinkKind, MediaCut, Take};
 use super::look::{ShapeStyle, Title};
 use super::media::{Media, MediaKind};
-use super::sequence::{Background, Marker};
+use super::sequence::{Background, Cover, Marker};
 use super::timing::{TimeCurve, TimeMap, dur_in_range, len_in_range, tick_in_range};
 use super::{Model, ModelChanges};
 
@@ -31,8 +31,8 @@ use super::{Model, ModelChanges};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Violation {
     /// What is at fault: the item, lane, mask or other thing whose own
-    /// value breaks the rule. `None` for the document's fonts, which
-    /// have no ids.
+    /// value breaks the rule. `None` for the document's fonts and its
+    /// cover, which have no ids.
     pub id: Option<AnyId>,
     /// Which rule.
     pub rule: Rule,
@@ -198,6 +198,9 @@ pub enum Rule {
         /// Which run, counted from zero.
         index: usize,
     },
+    /// A caption lane's look holds words or runs of its own, which are
+    /// each caption's.
+    CaptionWords,
     /// A sequence is open in two tabs.
     TabTwice,
     /// The document has sequences and none is showing.
@@ -597,6 +600,15 @@ pub(crate) fn lanes(cx: &mut Check<'_>) {
             .collect();
         for other in others {
             cx.fault(id, Rule::LaneOrderTaken { with: other });
+        }
+        if let Some(look) = &lane.captions {
+            let any = id.any();
+            // Its numbers are a title's, and where it sits an offset's.
+            title(cx, any, &look.title);
+            cx.number(any, "captions.offset_y", look.offset_y, Domain::Any);
+            if !look.title.content.is_empty() || !look.title.runs.is_empty() {
+                cx.fault(any, Rule::CaptionWords);
+            }
         }
     }
     // A lane that went takes nothing with it, and what was beneath a
@@ -1274,6 +1286,22 @@ pub(crate) fn fonts(cx: &mut Check<'_>) {
                 },
             });
         }
+    }
+}
+
+pub(crate) fn cover(cx: &mut Check<'_>) {
+    if cx.changes.cover.is_none() {
+        return;
+    }
+    if let Some(Cover::Frame { into }) = cx.after.cover {
+        let rule = if !dur_in_range(into) {
+            Rule::OutOfRange { what: "cover" }
+        } else if into < TickDur::ZERO {
+            Rule::Negative { what: "cover" }
+        } else {
+            return;
+        };
+        cx.found.push(Violation { id: None, rule });
     }
 }
 

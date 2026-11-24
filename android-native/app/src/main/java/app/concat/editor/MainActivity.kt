@@ -4,6 +4,7 @@
 package app.concat.editor
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -13,11 +14,16 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import app.concat.editor.engine.Wakefulness
 import app.concat.editor.ui.EngineFailedScreen
 import app.concat.editor.ui.editor.EditorScreen
 import app.concat.editor.ui.projects.ProjectsScreen
 import app.concat.editor.ui.settings.SettingsScreen
 import app.concat.editor.ui.theme.ConcatTheme
+import kotlinx.coroutines.launch
 
 /** Three screens: the projects, the editor on one of them, and settings. */
 class MainActivity : ComponentActivity() {
@@ -37,6 +43,18 @@ class MainActivity : ComponentActivity() {
             return
         }
         Smoke.run(concat)
+        // The screen stays on while the engine runs a job (#695).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                Wakefulness.held.collect { held ->
+                    if (held) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
+            }
+        }
         setContent {
             ConcatTheme {
                 var open by rememberSaveable { mutableStateOf(opening) }

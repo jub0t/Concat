@@ -149,7 +149,7 @@ impl Studio {
         // With the studio unborrowed too; see `host::after_dialog`.
         crate::host::after_dialog(
             move || {
-                if cfg!(any(target_os = "android", target_os = "ios")) {
+                if cfg!(target_os = "ios") {
                     return Some(out_dir.join(&suggested));
                 }
                 let chosen = crate::platform::save_file(

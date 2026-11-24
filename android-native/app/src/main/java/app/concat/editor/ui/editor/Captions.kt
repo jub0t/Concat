@@ -210,7 +210,7 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
                         SectionLabel("Clip")
                         ChoiceChips(sound.map { it.id }, ui.clipId ?: "", { id ->
                             val clip = sound.first { it.id == id }
-                            "${clip.name.ifBlank { clip.kind.name }.take(18)} · ${timecode(clip.start, view?.fps ?: 30.0)}"
+                            "${clip.name.ifBlank { clip.kind.name }.take(18)} at ${timecode(clip.start, view?.fps ?: 30.0)}"
                         }, captions::chooseClip)
                     }
                     SectionLabel("Speech model")
