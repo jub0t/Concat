@@ -1277,10 +1277,10 @@ pub fn render_on(
     spent.note(&mut op);
     match &result {
         Ok(()) => {
-            let fps = spent.frames as f64 / op.elapsed().as_secs_f64().max(1e-9);
+            let fps = spent.drawn() as f64 / op.elapsed().as_secs_f64().max(1e-9);
             op.done(format_args!(
                 "{} frames at {fps:.1} fps{}",
-                spent.frames,
+                spent.drawn(),
                 if spent.on_cpu {
                     ", drawn on the CPU"
                 } else {
@@ -2016,6 +2016,7 @@ fn render_picture(
         )
         .map_err(|error| failed_encoding(&error, &options))?;
         let first = writer.first();
+        spent.first = first;
         if writer.taken_up() {
             reporter.emit(first, total_frames, stage);
         }
@@ -2561,9 +2562,12 @@ struct Spent {
     /// The output's size and frames a second.
     size: (u32, u32),
     fps: f64,
-    /// The frames the picture has, and how many were drawn.
+    /// The frames the picture has, the one after the last drawn, and the
+    /// first this run drew: an export taken up from its parts starts past
+    /// the frames an earlier run wrote (see [`Spent::drawn`]).
     total: i64,
     frames: i64,
+    first: i64,
     /// The adapter the picture was drawn on, as the drivers name it.
     adapter: String,
     /// How many times the device died under the export; see `recovered`.
@@ -2602,6 +2606,13 @@ struct Spent {
 }
 
 impl Spent {
+    /// The frames this run drew. Counting from frame 0 credited a run taken
+    /// up from its parts with the frames an earlier run wrote, and said it
+    /// drew faster than it did.
+    fn drawn(&self) -> i64 {
+        (self.frames - self.first).max(0)
+    }
+
     /// A pass begins, on `encoder`: what the last one spent is for a file
     /// nobody will finish.
     fn pass(&mut self, encoder: &str) {
@@ -2650,7 +2661,8 @@ impl Spent {
         if self.cpu_frames > 0 {
             op.note(format_args!(
                 "{} of {} frames drawn on the CPU, faster than that adapter",
-                self.cpu_frames, self.frames
+                self.cpu_frames,
+                self.drawn()
             ));
         }
         if self.losses > 0 {
@@ -2660,12 +2672,18 @@ impl Spent {
                 if self.losses == 1 { "" } else { "s" }
             ));
         }
-        let drawn = self.frames as f64 / self.picture.as_secs_f64().max(1e-9);
+        if self.first > 0 {
+            op.note(format_args!(
+                "taken up at frame {} of {}: the frames before it were written by an earlier run",
+                self.first, self.total
+            ));
+        }
+        let drawn = self.drawn() as f64 / self.picture.as_secs_f64().max(1e-9);
         op.note(format_args!(
             "picture {} of {} frames at {drawn:.1} fps: planning {}, waiting for footage {}, \
              seeking footage {} for {} frames, drawing {}, waiting for the encoder {}, encoding {} \
              alongside",
-            self.frames,
+            self.drawn(),
             self.total,
             span(self.reading.saturating_sub(self.footage + self.seeking)),
             span(self.footage),
