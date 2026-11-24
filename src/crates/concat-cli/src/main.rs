@@ -140,7 +140,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // say nothing. No file, so scripted runs never push the window's own
     // logs out of the folder.
     let _ = concat_host::logs::open_console(None);
-    match Cli::parse().command {
+    let command = Cli::parse().command;
+    // The imported effects and looks, for the commands that draw an edit
+    // through the API: without them an edit that uses one exported without
+    // it. Without the window's shader trial, which needs its device.
+    if matches!(command, Command::Api { .. } | Command::Serve { .. })
+        && let Ok(dirs) = concat_host::AppDirs::locate()
+    {
+        for error in concat_effects::Catalogue::install(&dirs.effects()) {
+            log::warn!("effects: an imported package was not loaded: {error}");
+        }
+    }
+    match command {
         Command::Probe { path } => probe(&path),
         Command::Render {
             input,

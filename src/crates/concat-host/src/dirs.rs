@@ -103,6 +103,13 @@ impl AppDirs {
         }
     }
 
+    /// The effect packages and looks the user imported, each in a folder
+    /// of its own. Read by the window, and by every process that draws
+    /// the edit apart from it: an export's worker, an agent's server.
+    pub fn effects(&self) -> PathBuf {
+        self.config.join("effects")
+    }
+
     /// Where what the user made and cannot download again is kept - the
     /// Audio page's own sounds, the voices they cloned: `data` everywhere
     /// but an iPhone, whose `data` is `Caches`, which the phone may empty
