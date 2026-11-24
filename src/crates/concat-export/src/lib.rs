@@ -299,6 +299,11 @@ pub struct ExportClip {
     /// `Clip::motion`.
     #[serde(default)]
     pub motion: Option<concat_project::model::ClipMotion>,
+    /// A moment of the clip this one stands in for, held: `(seconds into
+    /// it, its length)`. Set on a transition's stand-ins, never read from
+    /// a request; see `concat_core::timeline::Clip::frozen`.
+    #[serde(skip)]
+    pub frozen: Option<(f64, f64)>,
     /// Draw the cutout tinted over the whole picture instead of cutting
     /// it: the view while the clip's brushes are in use. Preview only.
     #[serde(default)]
@@ -436,6 +441,7 @@ impl ExportClip {
             has_audio: None,
             cutout: None,
             motion: None,
+            frozen: None,
             masks: Vec::new(),
             mask_dir: String::new(),
             stabilize: None,
@@ -954,10 +960,9 @@ fn last_frame_held(clip: &ExportClip, start: f64, length: f64, frame: f64) -> Ex
 }
 
 /// `clip` placed at `start` for `length` seconds with no sound, no fades,
-/// no transitions and no speed of its own, and every property it keys held
-/// where its keys leave it at its head (`head`) or its tail: keys are
-/// absolute and a keyed property's constant is the neutral value, so the
-/// end of each ride becomes the copy's constant.
+/// no transitions and no speed of its own, and held at its head (`head`)
+/// or its tail: its keys, its moves and its masks' and effects' keyed
+/// numbers all read that one moment of it for the copy's whole span.
 fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip {
     let mut held = clip.clone();
     held.start = start;
@@ -974,33 +979,11 @@ fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip
     held.video_fade_in = 0.0;
     held.transition_shapes.clear();
     held.roles.clear();
-    let ends: Vec<(String, f64)> = [
-        "scale", "offsetX", "offsetY", "rotation", "stretchX", "stretchY", "opacity",
-    ]
-    .into_iter()
-    .filter_map(|property| {
-        let keys = held.animation.iter().filter(|key| key.property == property);
-        let end = if head {
-            keys.min_by(|a, b| a.at.total_cmp(&b.at))
-        } else {
-            keys.max_by(|a, b| a.at.total_cmp(&b.at))
-        };
-        end.map(|key| (property.to_owned(), key.value))
-    })
-    .collect();
-    held.animation.clear();
-    for (property, value) in ends {
-        match property.as_str() {
-            "scale" => held.scale = value,
-            "offsetX" => held.offset_x = value,
-            "offsetY" => held.offset_y = value,
-            "rotation" => held.rotation = value,
-            "stretchX" => held.stretch_x = value,
-            "stretchY" => held.stretch_y = value,
-            "opacity" => held.opacity = value,
-            _ => {}
-        }
-    }
+    // A copy of a copy holds what the first one held.
+    held.frozen = clip.frozen.or(Some((
+        if head { 0.0 } else { clip.duration },
+        clip.duration,
+    )));
     held
 }
 
@@ -4119,6 +4102,91 @@ mod tests {
             before.source_start
         );
         assert!(before.muted);
+    }
+
+    /// A transition's stand-ins hold the clips they extend at the cut: the
+    /// outgoing side as its last instant has it, the incoming as its first.
+    /// Read at their own time, a stand-in replayed its clip's entrance or
+    /// exit and keys squeezed into the transition, then the clip played
+    /// them again from the cut (audit 2026-11-15, E3).
+    #[test]
+    fn a_transitions_stand_ins_hold_their_clips_moves_and_keys_at_the_cut() {
+        use concat_project::model::{ClipMotion, ClipMove};
+        let moving = |kind: &str| {
+            Some(ClipMove {
+                kind: kind.into(),
+                seconds: 0.5,
+            })
+        };
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 5.0),
+            transition_clip("concat.dissolve", 1.5, 1.0, 1),
+        ];
+        for footage in &mut clips[..2] {
+            footage.media_duration = Some(10.0);
+        }
+        clips[0].motion = Some(ClipMotion {
+            exit: moving("slide-right"),
+            ..Default::default()
+        });
+        clips[0].animation = vec![
+            ExportKey {
+                property: "scale".into(),
+                at: 0.0,
+                value: 1.0,
+                ease: linear_ease(),
+            },
+            ExportKey {
+                property: "scale".into(),
+                at: 1.0,
+                value: 2.0,
+                ease: linear_ease(),
+            },
+        ];
+        clips[1].motion = Some(ClipMotion {
+            enter: moving("slide-left"),
+            ..Default::default()
+        });
+        let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+        let timeline = &plan.built.timeline;
+        let engine: Vec<&concat_core::timeline::Clip> = timeline
+            .tracks()
+            .flat_map(|(_, track)| track.clips().iter())
+            .filter_map(|id| timeline.clip(*id))
+            .collect();
+        let at = |seconds: f64| Rational::approximate(seconds).expect("a time");
+        let own = |start: f64| {
+            engine
+                .iter()
+                .find(|clip| clip.frozen.is_none() && (clip.start.as_f64() - start).abs() < 1e-6)
+                .unwrap_or_else(|| panic!("the clip at {start}"))
+        };
+        let (outgoing, incoming) = (own(0.0), own(2.0));
+        let stand_ins: Vec<_> = engine.iter().filter(|clip| clip.frozen.is_some()).collect();
+        assert_eq!(stand_ins.len(), 2, "one stand-in a side");
+        for stand_in in stand_ins {
+            let tail = stand_in.start >= outgoing.start + outgoing.duration;
+            // Both at the cut itself: the outgoing clip's exit has ended
+            // there, and the incoming one's entrance begins.
+            let (clip, cut) = (if tail { outgoing } else { incoming }, at(2.0));
+            let (early, late) = (
+                stand_in.start,
+                stand_in.start + stand_in.duration - at(1.0 / 30.0),
+            );
+            for moment in [early, late] {
+                assert_eq!(
+                    stand_in.pose_at(moment),
+                    clip.pose_at(cut),
+                    "tail {tail}: pose"
+                );
+                let (held, real) = (stand_in.transform_at(moment), clip.transform_at(cut));
+                assert!(
+                    (held.scale - real.scale).abs() < 0.05,
+                    "tail {tail}: scale {held:?} {real:?}"
+                );
+            }
+        }
     }
 
     /// A clip with nothing past its out-point holds its last frame into the
