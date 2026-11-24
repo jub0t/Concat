@@ -13,10 +13,11 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Background, BeatMarks, Clip, ClipKind, ClipMotion, ColorRange,
-    ColorSpace, Crop, CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase, KeyProperty,
-    Mask, MediaChapter, MediaItem, MediaKind, MediaOrigin, Project, RunStyle, ShapeStyle,
-    SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings, VoiceMix,
+    AppliedFilter, AudioTrack, Background, BeatMarks, CaptionCue, CaptionLook, Clip, ClipKind,
+    ClipMotion, ColorRange, ColorSpace, Cover, Crop, CustomFont, Cutout, CutoutMode, Enhanced,
+    Framing, KeyEase, KeyProperty, Mask, MediaChapter, MediaItem, MediaKind, MediaOrigin, Project,
+    RunStyle, ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track, Transition,
+    VideoSettings, VoiceMix,
 };
 
 mod audio;
@@ -80,7 +81,9 @@ pub struct ClipMove {
     /// New timeline position in seconds, floored at 0.
     pub start: f64,
     /// Destination track. An unknown id moves the clip in time but leaves it
-    /// on its current track.
+    /// on its current track. Absent reads as unknown, which is what
+    /// [`Command::MoveClipsToNewTrack`] wants, its lane not having one yet.
+    #[serde(default)]
     pub track_id: String,
 }
 
@@ -409,6 +412,34 @@ pub enum Command {
         /// language, which the document cannot know.
         name: String,
     },
+    /// Lays captions on a caption lane, as one edit: each a title clip in
+    /// the lane's look with its own words. With no `trackId` a caption
+    /// lane is made on top for them and `look` is its look; a lane named
+    /// keeps the look it has, or takes `look` when it has none. Cues are
+    /// laid in time order; one that runs into the next ends where the next
+    /// begins, and one that would land on a clip already there moves to
+    /// the nearest gap. Cues with no words are left out. `createdId` is the
+    /// lane's id.
+    PlaceCaptions {
+        /// The lane; None makes a caption lane on top.
+        #[serde(default)]
+        track_id: Option<String>,
+        /// The look a new caption lane takes.
+        look: CaptionLook,
+        /// What to say, and when.
+        cues: Vec<CaptionCue>,
+    },
+    /// Sets a caption lane's look and restyles every title on it to match,
+    /// each keeping its words and any word styled apart: what "apply to
+    /// all" is, as one small edit however many captions there are. None
+    /// makes it a plain lane again and leaves its titles as they are. An
+    /// unknown lane is a no-op.
+    SetCaptionLook {
+        /// The lane.
+        track_id: String,
+        /// The look, or None.
+        look: Option<CaptionLook>,
+    },
     /// Places a layer: a look or an effect over a span of the timeline that
     /// treats everything beneath it. No media; the chain starts as the one
     /// package named, at its defaults, and the clip's opacity is how hard it
@@ -655,6 +686,19 @@ pub enum Command {
     MoveClips {
         /// Where each clip is going.
         moves: Vec<ClipMove>,
+    },
+    /// Moves clips onto a lane made for them, in one edit: the lane and
+    /// the move are one undo step, which an `AddTrack` then a `MoveClips`
+    /// are not. The lane goes on top, or with `bottom` under every other;
+    /// each move's `trackId` is ignored and may be left out. A move that
+    /// lands no clip (every id unknown, or the clips covering each other)
+    /// makes no lane either. `createdId` is the new lane's id.
+    MoveClipsToNewTrack {
+        /// Where each clip is going in time.
+        moves: Vec<ClipMove>,
+        /// Under every other lane rather than on top of them.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        bottom: bool,
     },
     /// Drags one edge of a clip. A head trim moves the in-point with the
     /// edge (scaled by speed) so the remaining pixels do not slide; either
@@ -975,6 +1019,12 @@ pub enum Command {
         /// timeline already removed from its old slot. Clamped to the end.
         index: usize,
     },
+    /// Sets the project's cover, or with None goes back to a frame early in
+    /// the edit. A frame's time is floored at 0.
+    SetCover {
+        /// The cover.
+        cover: Option<Cover>,
+    },
     /// Registers a font file for titles. A path already registered is a
     /// no-op, so re-adding cannot duplicate.
     AddFont {
@@ -1185,6 +1235,19 @@ impl Command {
         fn bad(values: impl IntoIterator<Item = f64>) -> bool {
             values.into_iter().any(|value| !value.is_finite())
         }
+        // A look's numbers are a title's: checked as the title they make.
+        fn bad_look(look: &CaptionLook) -> bool {
+            !look.offset_y.is_finite()
+                || Command::AddTextClip {
+                    track_id: None,
+                    above: true,
+                    start: 0.0,
+                    style: Some(look.style.clone()),
+                    duration: None,
+                    offset_y: None,
+                }
+                .has_non_finite()
+        }
         fn bad_stroke(stroke: &Stroke) -> bool {
             bad([stroke.size]) || bad(stroke.at) || stroke.points.iter().any(|point| bad(*point))
         }
@@ -1267,7 +1330,9 @@ impl Command {
             Command::SetClipVoice { voice, .. } => voice
                 .as_ref()
                 .is_some_and(|voice| bad([voice.voice, voice.background])),
-            Command::MoveClips { moves } => bad(moves.iter().map(|wanted| wanted.start)),
+            Command::MoveClips { moves } | Command::MoveClipsToNewTrack { moves, .. } => {
+                bad(moves.iter().map(|wanted| wanted.start))
+            }
             Command::TrimClip { delta, .. } => bad([*delta]),
             Command::SplitClips { time, .. } => bad([*time]),
             Command::FreezeFrame { time, duration, .. } => bad([*time]) || bad(*duration),
@@ -1340,6 +1405,15 @@ impl Command {
                 .into_iter()
                 .flatten()
                 .copied()),
+            Command::SetCover {
+                cover: Some(Cover::Frame { time }),
+            } => bad([*time]),
+            Command::PlaceCaptions { look, cues, .. } => {
+                cues.iter().any(|cue| bad([cue.start, cue.duration])) || bad_look(look)
+            }
+            Command::SetCaptionLook {
+                look: Some(look), ..
+            } => bad_look(look),
             _ => false,
         }
     }
@@ -1405,10 +1479,13 @@ pub fn apply(
         | Command::AddClipAtFirstFree { .. }
         | Command::AddClipsInSequence { .. }
         | Command::AddTextClip { .. }
+        | Command::PlaceCaptions { .. }
+        | Command::SetCaptionLook { .. }
         | Command::AddShapeClip { .. }
         | Command::AddLayerClip { .. }
         | Command::AddTransitionClip { .. }
         | Command::MoveClips { .. }
+        | Command::MoveClipsToNewTrack { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }
         | Command::DuplicateClips { .. }
@@ -1452,6 +1529,7 @@ pub fn apply(
         | Command::RemoveTimeline { .. }
         | Command::RenameTimeline { .. }
         | Command::SelectTimeline { .. }
-        | Command::MoveTimeline { .. }) => timelines::apply(project, mint, command),
+        | Command::MoveTimeline { .. }
+        | Command::SetCover { .. }) => timelines::apply(project, mint, command),
     }
 }

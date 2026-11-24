@@ -14,7 +14,7 @@
 #   the version ort is built against), pinned by digest in
 #   scripts/ci/deps.lock. mobile-env.sh points ORT_LIB_LOCATION at it.
 #
-# cargo-apk packages the whole tree through concat-android's manifest.
+# android-native/build-rust.sh copies what the engine links into the app's jniLibs.
 set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android or x86_64-linux-android}

@@ -45,9 +45,25 @@ folder, and so does CI's `android-native` job. `EngineFactory` loads
 On Windows, set `JAVA_HOME` to Android Studio's `jbr` and point
 `local.properties` at the SDK (`sdk.dir=C:/Users/<you>/AppData/Local/Android/Sdk`).
 
+This is the app that ships as `app.concat.editor`, the Slint app's id, so
+it installs over it as an update: same key (CI signs a release with the
+repository's), a version code that continues the old numbering (see
+`app/build.gradle.kts`), and the same folders, so projects in recents,
+downloaded models and settings carry over. A release build refuses to be
+made without the engine, and one whose engine will not load shows why
+instead of running on the in-memory stand-in.
+
+```sh
+# An emulator on an x86_64 machine, with CI's export check (Smoke.kt):
+./build-rust.sh release x86_64-linux-android
+./gradlew :app:assembleRelease -Pabis=x86_64 -Psmoke=true
+../scripts/ci/smoke-android.sh --export ../src/crates/concat-media/fixtures/picture-starts-late.mov \
+  app/build/outputs/apk/release/app-release.apk
+```
+
 ## Design
 
-The look follows `.notes/MOBILE_DESIGN.md`: the desktop's dark theme with
+The look follows the design notes (MOBILE_DESIGN.md): the desktop's dark theme with
 the lime accent, CapCut's editor layout.
 
 - `ui/theme/Theme.kt`: the tokens from `src/crates/concat/ui/theme/dark.slint`

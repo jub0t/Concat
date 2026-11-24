@@ -1240,19 +1240,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "concat-android"
-version = "0.2.12"
-dependencies = [
- "android-build",
- "android_logger",
- "concat",
- "jni 0.22.4",
- "libc",
- "log",
- "slint",
-]
-
-[[package]]
 name = "concat-api"
 version = "0.2.12"
 dependencies = [

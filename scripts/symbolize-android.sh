@@ -8,11 +8,12 @@
 #
 #   symbolize-android.sh LIBRARY [TRACE]
 #
-# LIBRARY is the unstripped libconcat_android.so of the build the trace
+# LIBRARY is the unstripped libconcat_mobile.so (libconcat_android.so before
+# 0.2.13) of the build the trace
 # came from: the "symbols-concat-<version>-<target>" artifact of that
 # build's "Build for phones" run (kept 90 days). TRACE is a Concat log, an
 # ANR dump or a tombstone, or standard input when it is left out. Every
-# line naming libconcat_android.so with a "pc" is read, and the offset after
+# line naming the engine library with a "pc" is read, and the offset after
 # "pc" is looked up in LIBRARY.
 #
 # The trace's BuildId (when it gives one) is checked against LIBRARY's: a
@@ -44,9 +45,9 @@ symbolizer=$(tool llvm-symbolizer)
 readelf=$(tool llvm-readelf)
 
 text=$(cat "$trace")
-ours=$(printf '%s\n' "$text" | grep 'libconcat_android\.so' | grep -E '(^|[^[:alnum:]])pc [0-9a-fA-F]+' || true)
+ours=$(printf '%s\n' "$text" | grep -E 'libconcat_(mobile|android)\.so' | grep -E '(^|[^[:alnum:]])pc [0-9a-fA-F]+' || true)
 if [ -z "$ours" ]; then
-  echo "no frame in libconcat_android.so in the trace" >&2
+  echo "no frame in libconcat_mobile.so (or libconcat_android.so) in the trace" >&2
   exit 1
 fi
 
@@ -61,7 +62,7 @@ fi
 # thread's block opens with its quoted name.
 printf '%s\n' "$text" | awk '
   /^[[:space:]]*"/ { sub(/^[[:space:]]+/, ""); thread = $0; next }
-  /libconcat_android\.so/ && match($0, /(^|[^[:alnum:]])pc [0-9a-fA-F]+/) {
+  /libconcat_(mobile|android)\.so/ && match($0, /(^|[^[:alnum:]])pc [0-9a-fA-F]+/) {
     pc = substr($0, RSTART, RLENGTH); sub(/.*pc /, "", pc)
     frame = "#?"; if (match($0, /#[0-9]+ pc/)) { frame = substr($0, RSTART, RLENGTH - 3) }
     if (thread != shown) { print "T " thread; shown = thread }

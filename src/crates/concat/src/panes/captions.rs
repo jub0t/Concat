@@ -20,8 +20,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_core::Halt;
-use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, caption_clip};
+use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, place_captions};
 use concat_project::Command;
+use concat_project::model::CaptionCue;
 use concat_project::model::{ClipKind, TextStyle};
 use concat_project::srt;
 use concat_speech::JobStage;
@@ -242,22 +243,19 @@ impl CaptionsPane {
                         };
                         let look = subject.look;
                         let (base, font) = caption_base(studio);
-                        let commands: Vec<Command> = segments
+                        let cues: Vec<CaptionCue> = segments
                             .into_iter()
-                            .filter_map(|segment| {
-                                let text = segment.text.trim().to_owned();
-                                (!text.is_empty()).then(|| {
-                                    caption_clip(
-                                        text,
-                                        subject.start + segment.start / subject.speed,
-                                        ((segment.end - segment.start) / subject.speed).max(0.2),
-                                        look,
-                                        base.as_ref(),
-                                    )
-                                })
+                            .filter(|segment| !segment.text.trim().is_empty())
+                            .map(|segment| CaptionCue {
+                                start: subject.start + segment.start / subject.speed,
+                                duration: ((segment.end - segment.start) / subject.speed).max(0.2),
+                                text: segment.text.trim().to_owned(),
                             })
                             .collect();
-                        let count = commands.len();
+                        let count = cues.len();
+                        let commands: Vec<Command> = place_captions(cues, look, base.as_ref())
+                            .into_iter()
+                            .collect();
                         self.open = false;
                         if count == 0 {
                             log::info!("captions: placed none · nothing was said in the clip");
@@ -325,12 +323,15 @@ impl CaptionsPane {
         };
         let look = self.look();
         let (base, font) = caption_base(studio);
+        let count = cues
+            .iter()
+            .filter(|cue| !cue.text.trim().is_empty())
+            .count();
         let commands = srt_commands(cues, look, base.as_ref());
         if commands.is_empty() {
             self.message = t("captions.noSubtitlesInFile");
             return;
         }
-        let count = commands.len();
         self.open = false;
         log::info!(
             "captions: placed {count} captions from the subtitles in {}",
@@ -540,15 +541,22 @@ impl CaptionsPane {
         let look = self.look();
         let mut at = f64::from(studio.playhead);
         let (base, font) = caption_base(studio);
-        let commands: Vec<Command> = lines
+        let cues: Vec<CaptionCue> = lines
             .into_iter()
             .map(|(text, seconds)| {
-                let command = caption_clip(text, at, seconds, look, base.as_ref());
+                let cue = CaptionCue {
+                    start: at,
+                    duration: seconds,
+                    text,
+                };
                 at += seconds;
-                command
+                cue
             })
             .collect();
-        let count = commands.len();
+        let count = cues.len();
+        let commands: Vec<Command> = place_captions(cues, look, base.as_ref())
+            .into_iter()
+            .collect();
         self.open = false;
         log::info!(
             "captions: placed {count} captions from a script, from {:.2} s",
@@ -754,18 +762,16 @@ fn language_at(index: i32) -> Option<String> {
 /// generated speech segments. The title command applies the engine's minimum
 /// clip duration where needed.
 fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>) -> Vec<Command> {
-    cues.into_iter()
+    let cues = cues
+        .into_iter()
         .filter(|cue| !cue.text.trim().is_empty())
-        .map(|cue| {
-            caption_clip(
-                cue.text.trim().to_owned(),
-                cue.start,
-                cue.end - cue.start,
-                look,
-                base,
-            )
+        .map(|cue| CaptionCue {
+            start: cue.start,
+            duration: cue.end - cue.start,
+            text: cue.text.trim().to_owned(),
         })
-        .collect()
+        .collect();
+    place_captions(cues, look, base).into_iter().collect()
 }
 
 /// The lane an SRT export writes out.

@@ -10,27 +10,46 @@ plugins {
 // and runs on the in-memory FakeEngineBridge. See ../README.md.
 val hasEngineBindings = file("src/main/java/uniffi").isDirectory
 
+// The version is the workspace's (src/Cargo.toml), as every other build of
+// Concat reads it. The version code continues the one the Slint app's
+// packager gave every release (1 << 24, then major, minor and patch a byte
+// each: 0.2.12 is 16777740), so this app installs over it as an update.
+val concatVersion: String = Regex("""(?m)^version\s*=\s*"([^"]+)"""")
+    .find(rootProject.file("../src/Cargo.toml").readText())
+    ?.groupValues?.get(1)
+    ?: throw GradleException("no version in src/Cargo.toml")
+val concatVersionCode: Int = concatVersion.substringBefore('-').split('.').map { it.toInt() }
+    .let { (major, minor, patch) -> (1 shl 24) + (major shl 16) + (minor shl 8) + patch }
+
+// The ABIs to package: the phones' arm64 unless told otherwise
+// (-Pabis=arm64-v8a,x86_64 for an emulator on an x86_64 runner).
+val abis: List<String> = (findProperty("abis") as String? ?: "arm64-v8a").split(',').map { it.trim() }
+
 android {
-    namespace = "app.concat.editor.spike"
+    namespace = "app.concat.editor"
     compileSdk = 35
     // The NDK the engine is built with; AGP strips the .so's symbols with it.
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        // Never app.concat.editor: this installs beside the shipping app.
-        applicationId = "app.concat.editor.spike"
+        // The shipping app's id: this replaces the Slint app on the phone.
+        applicationId = "app.concat.editor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.0.1-spike"
-        ndk { abiFilters += "arm64-v8a" }
+        versionCode = concatVersionCode
+        versionName = concatVersion
+        ndk { abiFilters += abis }
         buildConfigField("boolean", "ENGINE_BINDINGS", hasEngineBindings.toString())
+        // CI's emulator build only (-Psmoke=true): exports a pushed clip on
+        // launch, see Smoke.kt. The APK that ships never carries it.
+        buildConfigField("boolean", "SMOKE", (findProperty("smoke") == "true").toString())
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // The debug key, so the spike's release build installs as-is.
+            // Signed with the debug key here; a release's APK is signed over
+            // again with the repository's key in CI (mobile.yml).
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -71,4 +90,14 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     // UniFFI's Kotlin calls the engine through JNA.
     implementation("net.java.dev.jna:jna:5.15.0@aar")
+}
+
+// A release build without the engine would run on the in-memory stand-in,
+// which keeps nothing: refuse to make one.
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    doFirst {
+        if (!hasEngineBindings) {
+            throw GradleException("a release build needs the engine: run build-rust.sh first")
+        }
+    }
 }

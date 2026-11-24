@@ -27,9 +27,7 @@ pub(super) fn apply(
             let tracks = (1..=4)
                 .map(|_| Track {
                     id: mint.next("t"),
-                    visible: true,
-                    muted: false,
-                    extra: Default::default(),
+                    ..Track::default()
                 })
                 .collect();
             // Born at the frame of the timeline you were looking at: the
@@ -177,6 +175,21 @@ pub(super) fn apply(
             Ok(Outcome {
                 created_id: None,
                 applied: true,
+            })
+        }
+
+        Command::SetCover { cover } => {
+            let cover = cover.map(|cover| match cover {
+                Cover::Frame { time } => Cover::Frame {
+                    time: time.max(0.0),
+                },
+                picture @ Cover::Picture { .. } => picture,
+            });
+            let applied = project.cover != cover;
+            project.cover = cover;
+            Ok(Outcome {
+                created_id: None,
+                applied,
             })
         }
 

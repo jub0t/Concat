@@ -54,12 +54,12 @@ use concat_host::stabilize::{StabilizeRequest, Stabilizers};
 use concat_host::templates::{self, SlotFill};
 use concat_host::{ProjectInfo, Session, Titles, lock, media, projects};
 use concat_project::Command;
-use concat_project::model::VideoSettings;
+use concat_project::model::{Cover, VideoSettings};
 
 pub use message::{
-    API_VERSION, ApiError, CaptionSegment, Dirs, Done, ErrorCode, Event, ExportSpec, Fill,
-    JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo, PeaksInfo, Picture, Reply,
-    Request, Response, Started, VersionInfo, VoiceItem, Written,
+    API_VERSION, ApiError, CaptionSegment, ClipBounds, Dirs, Done, ErrorCode, Event, ExportSpec,
+    Fill, JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo, PeaksInfo, Picture,
+    Reply, Request, Response, ShapeCard, Started, VersionInfo, VoiceItem, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -483,6 +483,18 @@ impl Api {
             Request::MediaImport { path, file } => view(self.import(&path, &file)?),
             Request::CatalogueList { kind } => Ok(Reply::Packages(catalogue(kind.as_deref())?)),
             Request::TemplateList => Ok(Reply::Templates(templates::list(&self.dirs.config))),
+            Request::ShapesList => Ok(Reply::Shapes(shape_cards())),
+            Request::ClipsBounds { path } => Ok(Reply::Bounds(self.bounds(&path)?)),
+            Request::ProjectCover {
+                path,
+                output,
+                width,
+                height,
+            } => Ok(Reply::Written(self.cover(
+                &path,
+                &output,
+                width.zip(height),
+            )?)),
             Request::TemplateInstantiate {
                 template,
                 location,
@@ -920,6 +932,27 @@ impl Api {
         Ok(())
     }
 
+    /// [`Request::ClipsBounds`]: each title's and shape's block as the
+    /// painter left it at the timeline's own size, in fractions of it.
+    fn bounds(&self, path: &str) -> Result<Vec<ClipBounds>, ApiError> {
+        let session = self.session(path)?;
+        let settings = session.settings();
+        let (width, height) = checked_size(settings.width, settings.height)?;
+        let (w, h) = (f64::from(width), f64::from(height));
+        Ok(self
+            .titles
+            .clips_live(session.project(), width, height)
+            .into_iter()
+            .map(|title| ClipBounds {
+                clip_id: title.clip_id,
+                width: f64::from(title.block.0) / w,
+                height: f64::from(title.block.1) / h,
+                offset_x: f64::from(title.offset.0) / w,
+                offset_y: f64::from(title.offset.1) / h,
+            })
+            .collect())
+    }
+
     /// The timeline's titles painted for a `width` × `height` frame, as
     /// the stills that stand in for them.
     fn title_clips(&self, session: &Session, width: u32, height: u32) -> Vec<ExportClip> {
@@ -941,6 +974,39 @@ impl Api {
     ) -> Result<Written, ApiError> {
         self.writable(output)?;
         let (width, height, pixels) = self.pixels(path, time, size)?;
+        write_png(Path::new(output), width, height, &pixels)?;
+        Ok(Written {
+            path: output.to_owned(),
+            width,
+            height,
+        })
+    }
+
+    /// [`Request::ProjectCover`]: the cover, to a file.
+    pub fn cover(
+        &mut self,
+        path: &str,
+        output: &str,
+        size: Option<(u32, u32)>,
+    ) -> Result<Written, ApiError> {
+        self.writable(output)?;
+        let session = self.session(path)?;
+        let settings = session.settings();
+        let (width, height) = size.unwrap_or((settings.width, settings.height));
+        let (width, height) = checked_size(width, height)?;
+        let cover = session.project().cover.clone();
+        let length = session.project().active().duration();
+        let pixels = match cover {
+            Some(Cover::Picture { path: file }) => picture_cover(&file, width, height)?,
+            Some(Cover::Frame { time }) => {
+                self.pixels(path, time.min(length), Some((width, height)))?
+                    .2
+            }
+            None => {
+                self.pixels(path, early_frame(length), Some((width, height)))?
+                    .2
+            }
+        };
         write_png(Path::new(output), width, height, &pixels)?;
         Ok(Written {
             path: output.to_owned(),
@@ -979,7 +1045,9 @@ impl Api {
         let (width, height) = size.unwrap_or((settings.width, settings.height));
         let (width, height) = checked_size(width, height)?;
         let mut clips = session.flattened_clips();
-        clips.extend(self.title_clips(session, width, height));
+        // Painted at the timeline's size in memory, whatever size this
+        // frame is: the compositor scales them as it scales any picture.
+        clips.extend(self.title_pictures(path)?);
         let pixels = self
             .monitor
             .frame(
@@ -1097,7 +1165,9 @@ impl Api {
         placement: Option<&str>,
         size: Option<&str>,
     ) -> Result<EditorView, ApiError> {
-        use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, Heard, caption_commands};
+        use concat_host::captions::{
+            CAPTION_OFFSETS, CAPTION_SIZES, Heard, heard_cues, place_captions,
+        };
         let offset = match placement.unwrap_or("bottom") {
             "bottom" => CAPTION_OFFSETS[0],
             "middle" => CAPTION_OFFSETS[1],
@@ -1134,11 +1204,12 @@ impl Api {
                 text: segment.text.clone(),
             })
             .collect();
-        let commands = caption_commands(&heard, start, speed, (offset, font_size), None);
-        if commands.is_empty() {
+        let Some(command) =
+            place_captions(heard_cues(&heard, start, speed), (offset, font_size), None)
+        else {
             return Err(ApiError::invalid("there are no words to place"));
-        }
-        self.apply(path, Command::Batch { commands })
+        };
+        self.apply(path, command)
     }
 
     /// [`Request::ModelsList`].
@@ -1602,6 +1673,31 @@ impl Api {
         self.session(path)
     }
 
+    /// The open project's titles, captions and shapes as the pictures the
+    /// compositor draws, for an embedder that shows the edit itself: each
+    /// painted in memory at the timeline's own size - once, whatever size
+    /// the preview is drawn at - and held in the process's reader pool
+    /// under a name no file has, which any monitor of this process reads.
+    /// Only the ones not painted yet are painted; an edit to one caption
+    /// paints that one. Add them to [`Session::flattened_clips`], which
+    /// leaves them out.
+    pub fn title_pictures(&self, path: &str) -> Result<Vec<ExportClip>, ApiError> {
+        let session = self.session(path)?;
+        let settings = session.settings();
+        let (width, height) = checked_size(settings.width, settings.height)?;
+        Ok(self
+            .titles
+            .clips_live(session.project(), width, height)
+            .into_iter()
+            .map(|title| {
+                if let Some(held) = title.held {
+                    self.monitor.hold_sparse(Path::new(&title.clip.path), held);
+                }
+                title.clip
+            })
+            .collect())
+    }
+
     fn session_mut(&mut self, path: &str) -> Result<&mut Session, ApiError> {
         self.sessions
             .get_mut(&key_of(path))
@@ -1817,6 +1913,53 @@ impl ExportJob {
         }
         Ok(())
     }
+}
+
+/// The frame a project is shown by when it names no cover: a quarter of
+/// the way in, and never past two seconds, so a long edit is known by its
+/// opening rather than by some middle.
+fn early_frame(length: f64) -> f64 {
+    (length * 0.25).clamp(0.0, 2.0)
+}
+
+/// A picture from disk as a `width` × `height` cover: fitted to fill it,
+/// cut at the edges that spill, as a card crops.
+fn picture_cover(file: &str, width: u32, height: u32) -> Result<Vec<u8>, ApiError> {
+    let summary = media::probe(file).map_err(ApiError::failed)?;
+    let video = summary
+        .video
+        .ok_or_else(|| ApiError::invalid(format!("{file} has no picture")))?;
+    let aspect = f64::from(video.width.max(1)) / f64::from(video.height.max(1));
+    // Decoded just wide enough that its height covers the frame's too.
+    let across = (f64::from(height) * aspect).ceil().max(f64::from(width)) as u32;
+    let still = media::still_at(file, 0.0, across).map_err(ApiError::failed)?;
+    let (sw, sh) = (still.width(), still.height());
+    let scale = (f64::from(sw) / f64::from(width)).min(f64::from(sh) / f64::from(height));
+    let left = (f64::from(sw) - f64::from(width) * scale) / 2.0;
+    let top = (f64::from(sh) - f64::from(height) * scale) / 2.0;
+    let mut pixels = Vec::with_capacity(width as usize * height as usize * 4);
+    for y in 0..height {
+        let sy = ((top + (f64::from(y) + 0.5) * scale) as u32).min(sh - 1);
+        for x in 0..width {
+            let sx = ((left + (f64::from(x) + 0.5) * scale) as u32).min(sw - 1);
+            pixels.extend_from_slice(&still.pixel(sx, sy).unwrap_or([0, 0, 0, 255]));
+        }
+    }
+    Ok(pixels)
+}
+
+/// [`Request::ShapesList`]: every Stickers card with the look it places.
+fn shape_cards() -> Vec<ShapeCard> {
+    use concat_project::model::ShapeStyle;
+    ShapeStyle::CARDS
+        .into_iter()
+        .filter_map(|id| {
+            Some(ShapeCard {
+                id: id.to_owned(),
+                style: ShapeStyle::preset(id)?,
+            })
+        })
+        .collect()
 }
 
 /// [`Request::CatalogueList`]: the built-in packages plus whatever

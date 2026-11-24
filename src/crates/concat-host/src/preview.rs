@@ -202,6 +202,13 @@ impl Monitor {
         concat_export::headless_adapter()
     }
 
+    /// Holds a title the pool serves under `path`, a content key, as the
+    /// part of its canvas with ink; once per name. See
+    /// `ReaderPool::hold_sparse`.
+    pub fn hold_sparse(&self, path: &std::path::Path, still: Arc<concat_media::SparseStill>) {
+        self.pool.hold_sparse(path, still);
+    }
+
     /// Makes `frame` the still the pool serves under `path`, a name no
     /// file has; see `ReaderPool::hold_still`.
     pub fn hold_still(&self, path: &std::path::Path, frame: Arc<concat_core::frame::Frame>) {

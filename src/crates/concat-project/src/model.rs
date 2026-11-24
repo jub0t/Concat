@@ -292,6 +292,13 @@ pub struct Track {
     pub visible: bool,
     /// Audio on this track is silent when true.
     pub muted: bool,
+    /// A caption lane's shared look: every caption on it is a title in
+    /// this style, its own words aside, and one change to it restyles them
+    /// all as one edit (`SetCaptionLook`). None for any other lane. The
+    /// captions stay ordinary title clips, so a build that does not know
+    /// this field still shows and exports them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captions: Option<CaptionLook>,
     /// Fields this build does not know, kept so they round-trip.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -303,9 +310,49 @@ impl Default for Track {
             id: String::new(),
             visible: true,
             muted: false,
+            captions: None,
             extra: Map::new(),
         }
     }
+}
+
+/// How the captions on a caption lane look and where they sit.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CaptionLook {
+    /// The style every caption is drawn in. Its `content` and `runs` are
+    /// not used: each caption's words, and any word styled apart, are its
+    /// own.
+    pub style: TextStyle,
+    /// How far from the frame's centre they sit, a fraction of its height,
+    /// positive down.
+    pub offset_y: f64,
+}
+
+impl CaptionLook {
+    /// `words` in this look: the style with the caption's own words and
+    /// word looks, which the look leaves alone.
+    pub fn style_for(&self, words: &str, runs: Vec<TextRun>) -> TextStyle {
+        TextStyle {
+            content: words.to_owned(),
+            runs,
+            ..self.style.clone()
+        }
+    }
+}
+
+/// One caption to place: when, for how long, and its words.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionCue {
+    /// Seconds on the timeline.
+    pub start: f64,
+    /// Seconds it stays up.
+    pub duration: f64,
+    /// What it says.
+    pub text: String,
 }
 
 /// One applied audio filter or video effect: a catalogue id plus whatever
@@ -2185,6 +2232,27 @@ impl ShapeStyle {
         }
     }
 
+    /// Every card on the Stickers page, in the order it shows them: each
+    /// an id [`ShapeStyle::preset`] knows. The ids are written into project
+    /// files and named by the API's `shapes.list`, so they are stable.
+    pub const CARDS: [&'static str; 15] = [
+        "square",
+        "rounded",
+        "circle",
+        "ring",
+        "triangle",
+        "pentagon",
+        "polygon",
+        "star",
+        "heart",
+        "pill",
+        "parallelogram",
+        "trapezoid",
+        "line",
+        "arrow",
+        "double-arrow",
+    ];
+
     /// The look a library card places: a figure, and for the cards that
     /// are a figure set a particular way - a rounded square, a hexagon -
     /// that setting. None for an id no card has.
@@ -3714,6 +3782,11 @@ pub struct Project {
     /// to the first timeline if it somehow does not.
     #[serde(default)]
     pub active_timeline_id: String,
+    /// The picture the project is shown by - its card on the projects
+    /// screen, the square at the head of the phone's timeline. None is a
+    /// frame early in the edit, whichever the caller picks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<Cover>,
     /// Top-level fields this build does not know, kept so they round-trip.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -3724,6 +3797,28 @@ pub struct Project {
     /// it is never sent anywhere but the document.
     #[serde(skip)]
     pub unread: crate::unread::Unread,
+}
+
+/// What a project's cover is: a frame of its edit, or a picture of its own.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Cover {
+    /// The active timeline's frame at `time` seconds, as it renders -
+    /// titles and all - so it follows the edit.
+    Frame {
+        /// Seconds into it, floored at 0.
+        time: f64,
+    },
+    /// A picture from disk, fitted to the frame and cut at its edges.
+    Picture {
+        /// The file.
+        path: String,
+    },
 }
 
 /// A media reference that points to a non-existent file.
@@ -3766,6 +3861,7 @@ impl Project {
                 extra: Map::new(),
             })],
             active_timeline_id: "TL1".to_owned(),
+            cover: None,
             unread: crate::unread::Unread::default(),
         }
     }
@@ -3978,5 +4074,15 @@ mod shape_tests {
             Some(LineHead::Arrow)
         );
         assert!(ShapeStyle::preset("nonsense").is_none());
+    }
+
+    #[test]
+    fn every_card_is_a_preset_and_every_figure_has_a_card() {
+        for id in ShapeStyle::CARDS {
+            assert!(ShapeStyle::preset(id).is_some(), "{id}");
+        }
+        for kind in ShapeKind::ALL {
+            assert!(ShapeStyle::CARDS.contains(&kind.id()), "{}", kind.id());
+        }
     }
 }

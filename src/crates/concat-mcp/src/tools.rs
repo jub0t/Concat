@@ -306,6 +306,12 @@ pub fn catalogue() -> Vec<Tool> {
             "moveClips",
         ),
         command(
+            "clips_move_to_new_lane",
+            "Move clips onto a new lane",
+            "Moves clips onto a lane made for them, in one undoable step: each to a new `start` (seconds), the lane on top or with `bottom: true` under every other. Its id is `createdId`. A move that lands no clip makes no lane.",
+            "moveClipsToNewTrack",
+        ),
+        command(
             "clips_remove",
             "Delete clips",
             "Deletes clips from the active timeline. `ripple: true` closes the gaps they leave on their lanes, and on the main lane the other lanes follow while the timeline's linkage is on (`timeline_linkage`); false leaves the gaps.",
@@ -390,7 +396,7 @@ pub fn catalogue() -> Vec<Tool> {
         Tool {
             name: "captions_add",
             title: "Add captions",
-            description: "Places a run of captions in one undoable step: one title per entry, from `start` to `end` seconds, each on a lane above the picture. `style` applies to all of them (its `content` is ignored); without one they look like the window's captions - Hanken Grotesk, weight 600, 0.04 of the frame high. `offsetY` is where they sit, as a fraction of frame height from the centre: 0.35 (the default) is near the bottom, 0 the middle, -0.35 the top.",
+            description: "Places a run of captions in one undoable step: one title per entry, from `start` to `end` seconds, on a caption lane of their own above the picture (its id is `createdId`; restyle them all at once with `edit_apply` and a `setCaptionLook` command). `style` applies to all of them (its `content` is ignored); without one they look like the window's captions - Hanken Grotesk, weight 600, 0.04 of the frame high. `offsetY` is where they sit, as a fraction of frame height from the centre: 0.35 (the default) is near the bottom, 0 the middle, -0.35 the top.",
             read_only: false,
             destructive: false,
             idempotent: false,
@@ -432,6 +438,29 @@ pub fn catalogue() -> Vec<Tool> {
             "List effects",
             "Every effect package this build has - id, name, kind (\"effect\", \"filter\", \"audio\", \"transition\" or \"generator\"), category and each parameter's key, range, default and unit - so an effect chain, a layer or a transition can be built correctly. `kind` narrows the list.",
             "catalogue.list",
+            Raw,
+        )
+        .reading(),
+        method(
+            "project_cover",
+            "Write the project's cover",
+            "Writes the project's cover to `output` as a PNG: the picture or frame set with `edit_apply` and a `setCover` command ({\"kind\":\"frame\",\"time\":s} or {\"kind\":\"picture\",\"path\":file}), or with none a frame early in the edit. `width` and `height` default to the timeline's.",
+            "project.cover",
+            Raw,
+        ),
+        method(
+            "clips_bounds",
+            "Where titles and shapes are drawn",
+            "Each title's and shape's painted block in the active timeline, as the renderer measured it: `width` and `height` as fractions of the frame, and `offsetX`/`offsetY`, where the block's centre sits from the clip's position. Sizes are before the clip's scale.",
+            "clips.bounds",
+            Raw,
+        )
+        .reading(),
+        method(
+            "shapes_list",
+            "List stickers",
+            "Every card on the Stickers page, in order: its `id` and the `style` it places. Lay one with `edit_apply` and an `addShapeClip` command carrying the card's style, so it lands as the editor's own card would.",
+            "shapes.list",
             Raw,
         )
         .reading(),
@@ -779,7 +808,7 @@ fn mask(mut arguments: Value) -> Result<Request, ApiError> {
     )
 }
 
-/// `captions_add`: one batch of titles.
+/// `captions_add`: one `placeCaptions`, on a caption lane of their own.
 fn captions(mut arguments: Value) -> Result<Request, ApiError> {
     let invalid = |why: &str| ApiError::invalid(format!("invalid arguments: {why}"));
     let fields = arguments
@@ -815,7 +844,7 @@ fn captions(mut arguments: Value) -> Result<Request, ApiError> {
     if let Some(unknown) = fields.keys().next() {
         return Err(invalid(&format!("unknown field `{unknown}`")));
     }
-    let mut commands = Vec::with_capacity(captions.len());
+    let mut cues = Vec::with_capacity(captions.len());
     for (index, caption) in captions.iter().enumerate() {
         let number = |key: &str| caption.get(key).and_then(Value::as_f64);
         let (Some(start), Some(end), Some(text)) = (
@@ -832,21 +861,21 @@ fn captions(mut arguments: Value) -> Result<Request, ApiError> {
                 "caption {index} ends at {end} s, not after its start at {start} s"
             )));
         }
-        let mut style = style.clone();
-        style["content"] = json!(text);
-        commands.push(json!({
-            "op": "addTextClip",
-            "trackId": null,
-            "above": true,
-            "start": start,
-            "duration": end - start,
-            "style": style,
-            "offsetY": offset,
-        }));
+        cues.push(json!({ "start": start, "duration": end - start, "text": text }));
     }
+    let mut style = style;
+    style["content"] = json!("");
     request(
         "edit.apply",
-        json!({ "path": path, "command": { "op": "batch", "commands": commands } }),
+        json!({
+            "path": path,
+            "command": {
+                "op": "placeCaptions",
+                "trackId": null,
+                "look": { "style": style, "offsetY": offset },
+                "cues": cues,
+            },
+        }),
     )
 }
 
@@ -1022,6 +1051,10 @@ mod tests {
                 json!({ "path": "/tmp/Cut", "moves": [{ "clipId": "c1", "start": 0.0, "trackId": "t2" }] }),
             ),
             (
+                "clips_move_to_new_lane",
+                json!({ "path": "/tmp/Cut", "moves": [{ "clipId": "c1", "start": 2.0 }], "bottom": true }),
+            ),
+            (
                 "clips_remove",
                 json!({ "path": "/tmp/Cut", "clipIds": ["c1"], "ripple": false }),
             ),
@@ -1100,6 +1133,12 @@ mod tests {
             ),
             ("effects_list", json!({ "kind": "transition" })),
             ("template_list", json!({})),
+            ("shapes_list", json!({})),
+            ("clips_bounds", json!({ "path": "/tmp/Cut" })),
+            (
+                "project_cover",
+                json!({ "path": "/tmp/Cut", "output": "/tmp/cover.png", "width": 270, "height": 480 }),
+            ),
             (
                 "template_instantiate",
                 json!({ "template": "/t", "location": "/tmp", "name": "From", "fills": [{ "mediaId": "m1", "file": "/tmp/a.mp4" }] }),

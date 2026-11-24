@@ -4,7 +4,7 @@
 //! The two things UniFFI cannot carry: the app's `Context` (which cpal's
 //! AAudio host reads through ndk-context to size its buffers) and a
 //! `Surface` (whose ANativeWindow the render thread draws on). Both are
-//! plain JNI functions on `app.concat.editor.spike.ConcatNative`, which the
+//! plain JNI functions on `app.concat.editor.ConcatNative`, which the
 //! Kotlin side reaches after `System.loadLibrary("concat_mobile")`.
 
 use jni_sys::{JNIEnv, jclass, jlong, jobject};
@@ -12,7 +12,7 @@ use jni_sys::{JNIEnv, jclass, jlong, jobject};
 /// `ConcatNative.init(context)`: logcat, and the JavaVM and Context for
 /// ndk-context. Once per process; later calls do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_init(
+pub unsafe extern "system" fn Java_app_concat_editor_ConcatNative_init(
     env: *mut JNIEnv,
     _class: jclass,
     context: jobject,
@@ -22,7 +22,7 @@ pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_init(
         android_logger::init_once(
             android_logger::Config::default()
                 .with_max_level(log::LevelFilter::Info)
-                .with_tag("concat-spike"),
+                .with_tag("concat"),
         );
         // SAFETY: env is the calling thread's JNIEnv, valid for this call.
         unsafe {
@@ -36,7 +36,7 @@ pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_init(
             let global = functions.NewGlobalRef.expect("NewGlobalRef")(env, context);
             ndk_context::initialize_android_context(vm.cast(), global.cast());
         }
-        log::info!("concat-spike {} native side up", env!("CARGO_PKG_VERSION"));
+        log::info!("concat {} native side up", env!("CARGO_PKG_VERSION"));
     });
 }
 
@@ -44,7 +44,7 @@ pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_init(
 /// with one reference acquired, as a long, or 0. `Engine.attachSurface`
 /// takes that reference over.
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_app_concat_editor_spike_ConcatNative_windowFromSurface(
+pub unsafe extern "system" fn Java_app_concat_editor_ConcatNative_windowFromSurface(
     env: *mut JNIEnv,
     _class: jclass,
     surface: jobject,

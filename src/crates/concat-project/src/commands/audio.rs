@@ -75,9 +75,7 @@ pub(super) fn apply(
                             let id = mint.next("t");
                             timeline.tracks.push(Track {
                                 id: id.clone(),
-                                visible: true,
-                                muted: false,
-                                extra: Default::default(),
+                                ..Track::default()
                             });
                             id
                         }

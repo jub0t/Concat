@@ -704,6 +704,9 @@ pub struct ReaderPool {
     /// chain a plan asks - see [`ReaderPool::hold_still`]. The newest
     /// [`STILLS_HELD`] stay.
     memory: Mutex<HeldStills>,
+    /// Titles held as the part of their canvas that has ink; see
+    /// [`ReaderPool::hold_sparse`]. Kept by bytes, newest last.
+    sparse: Mutex<HeldSparse>,
     /// The stand-in for each file that has one; see
     /// [`ReaderPool::adopt_proxy`].
     proxies: Mutex<HashMap<PathBuf, PathBuf>>,
@@ -728,6 +731,69 @@ type HeldStills = (
     std::collections::VecDeque<PathBuf>,
 );
 
+/// A picture that is mostly nothing: a `canvas`-sized transparent frame
+/// with `block` at `at` and no ink anywhere else. A title or a caption is
+/// one - its words over a frame-sized canvas - and held this way it costs
+/// its words' pixels, not the frame's, while every reader of it still sees
+/// the whole canvas: the fit, the masks and the effects measure against
+/// that, as they did when the canvas was painted whole.
+#[derive(Debug)]
+pub struct SparseStill {
+    /// The picture's whole size.
+    pub canvas: (u32, u32),
+    /// Where `block`'s top-left corner sits on the canvas.
+    pub at: (u32, u32),
+    /// The part with ink.
+    pub block: Arc<Frame>,
+}
+
+impl SparseStill {
+    /// The canvas at `width` by `height`: the block scaled by the factors
+    /// that take the canvas there, set where that scale puts it, on
+    /// transparency. Only the block is scaled, so a caption at a quarter
+    /// of its size costs its words, not the frame.
+    pub fn at_size(&self, width: u32, height: u32) -> Result<Frame> {
+        let (width, height) = (width.max(1), height.max(1));
+        let mut out = Frame::transparent(width, height);
+        if self.block.width() == 0 || self.block.height() == 0 {
+            return Ok(out);
+        }
+        let sx = f64::from(width) / f64::from(self.canvas.0.max(1));
+        let sy = f64::from(height) / f64::from(self.canvas.1.max(1));
+        let left = (f64::from(self.at.0) * sx).floor();
+        let top = (f64::from(self.at.1) * sy).floor();
+        let right = (f64::from(self.at.0 + self.block.width()) * sx).ceil();
+        let bottom = (f64::from(self.at.1 + self.block.height()) * sy).ceil();
+        let size = (
+            ((right - left) as u32).max(1),
+            ((bottom - top) as u32).max(1),
+        );
+        if size == (self.block.width(), self.block.height()) {
+            out.blit(&self.block, left as u32, top as u32);
+        } else {
+            let scaled = crate::treat::treat_to(&self.block, size.0, size.1, "")?;
+            out.blit(&scaled, left as u32, top as u32);
+        }
+        Ok(out)
+    }
+
+    /// Bytes of pixels held.
+    pub fn bytes(&self) -> usize {
+        self.block.pixels().len()
+    }
+}
+
+/// The sparse stills held, the order they came in, and their bytes.
+type HeldSparse = (
+    HashMap<PathBuf, Arc<SparseStill>>,
+    std::collections::VecDeque<PathBuf>,
+    usize,
+);
+
+/// What the sparse stills may hold, in bytes of pixels: a caption's words
+/// at 1080p are a few hundred kilobytes, so a thousand and more of them.
+const SPARSE_BYTES: usize = 384 * 1024 * 1024;
+
 /// How many in-memory stills the pool keeps. Each is a frame, mostly
 /// transparent, at the monitor's size; a drag makes a few dozen a second
 /// and shows one.
@@ -750,6 +816,7 @@ impl ReaderPool {
             }),
             facts: Mutex::new(HashMap::new()),
             memory: Mutex::new((HashMap::new(), std::collections::VecDeque::new())),
+            sparse: Mutex::new((HashMap::new(), std::collections::VecDeque::new(), 0)),
             proxies: Mutex::new(HashMap::new()),
             pace: Mutex::new(HashMap::new()),
             counters: Counters::default(),
@@ -861,9 +928,71 @@ impl ReaderPool {
         }
     }
 
-    /// The still held under `path`, if one is.
-    fn held_still(&self, path: &Path) -> Option<Arc<Frame>> {
-        self.memory.lock().ok()?.0.get(path).cloned()
+    /// Holds `still` under `path`: a name no file has, and one that means
+    /// these pixels for good - a painting's content key. A name held
+    /// already is left as it is, with the frames cut from it: a timeline of
+    /// captions is handed in again on every step of a drag, and when each
+    /// hand-in dropped its cuts the monitor cut every caption again. The
+    /// oldest go once the held stills pass [`SPARSE_BYTES`].
+    pub fn hold_sparse(&self, path: &Path, still: Arc<SparseStill>) {
+        {
+            let Ok(mut held) = self.sparse.lock() else {
+                return;
+            };
+            let (stills, order, bytes) = &mut *held;
+            if stills.contains_key(path) {
+                return;
+            }
+            *bytes += still.bytes();
+            stills.insert(path.to_path_buf(), still);
+            order.push_back(path.to_path_buf());
+            while *bytes > SPARSE_BYTES && order.len() > 1 {
+                if let Some(oldest) = order.pop_front()
+                    && let Some(gone) = stills.remove(&oldest)
+                {
+                    *bytes -= gone.bytes();
+                }
+            }
+        }
+        if let Ok(mut facts) = self.facts.lock() {
+            facts.entry(path.to_path_buf()).or_insert_with(|| {
+                Arc::new(MediaFacts {
+                    rate: FrameRate::THIRTY,
+                    still: true,
+                    frames: None,
+                    size: None,
+                    keyframes: Arc::from([]),
+                })
+            });
+        }
+    }
+
+    /// Whether a sparse still is held under `path`.
+    pub fn holds_sparse(&self, path: &Path) -> bool {
+        self.sparse
+            .lock()
+            .is_ok_and(|held| held.0.contains_key(path))
+    }
+
+    /// The still held under `path`, if one is, at `width` by `height`
+    /// through `chain` (empty for none), which runs on the picture's own
+    /// pixels before the scale. A sparse one with no chain is set on its
+    /// canvas at that size directly; with one, on its whole canvas first,
+    /// so a crop in the chain cuts what it always cut.
+    fn held_at(&self, path: &Path, width: u32, height: u32, chain: &str) -> Option<Result<Frame>> {
+        let sparse = self.sparse.lock().ok()?.0.get(path).cloned();
+        if let Some(sparse) = sparse {
+            if chain.trim().is_empty() {
+                return Some(sparse.at_size(width, height));
+            }
+            return Some(
+                sparse
+                    .at_size(sparse.canvas.0, sparse.canvas.1)
+                    .and_then(|whole| crate::treat::treat_to(&whole, width, height, chain)),
+            );
+        }
+        let source = self.memory.lock().ok()?.0.get(path).cloned()?;
+        Some(crate::treat::treat_to(&source, width, height, chain))
     }
 
     /// Makes `proxy` the file read for `original` by every request that
@@ -1324,13 +1453,13 @@ impl ReaderPool {
         }
         // A still held in memory has no file to open: it is cut to the size
         // and through the chain asked for, here, and kept like any frame.
-        if let Some(source) = self.held_still(path) {
-            let spec: String = [pre, chain]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(",");
-            let frame = Arc::new(crate::treat::treat_to(&source, width, height, &spec)?);
+        let spec: String = [pre, chain]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(",");
+        if let Some(made) = self.held_at(path, width, height, &spec) {
+            let frame = Arc::new(made?);
             Self::count(&self.counters.treated);
             self.remember_treated(key, Arc::clone(&frame));
             return Ok(frame);
@@ -1367,8 +1496,8 @@ impl ReaderPool {
         let path = key.path.as_path();
         // A still held in memory has no file to open: it is cut to the
         // level asked for, here, and kept like any frame.
-        if let Some(source) = self.held_still(path) {
-            let frame = Arc::new(crate::treat::treat_to(&source, key.width, key.height, "")?);
+        if let Some(made) = self.held_at(path, key.width, key.height, "") {
+            let frame = Arc::new(made?);
             self.remember_source(key.clone(), Arc::clone(&frame));
             return Ok(frame);
         }
@@ -1830,6 +1959,52 @@ pub(crate) mod tests {
             255,
             "the old cut is gone with the old still"
         );
+    }
+
+    /// A sparse still reads as its whole canvas, the block where it sits,
+    /// at any size; and a name held again is the same pixels, so its cut
+    /// frames stay rather than being made again.
+    #[test]
+    fn a_sparse_still_is_its_canvas_at_any_size_and_held_once() {
+        let pool = ReaderPool::new(64 * 1024 * 1024, 2);
+        let path = Path::new("memory://titles/sparse");
+        let mut block = Frame::black(16, 8);
+        block.fill([255, 255, 255, 255]);
+        let still = Arc::new(SparseStill {
+            canvas: (64, 32),
+            at: (32, 16),
+            block: Arc::new(block),
+        });
+        pool.hold_sparse(path, Arc::clone(&still));
+        assert!(pool.holds_sparse(path));
+        let whole = pool
+            .frame(&FrameRequest::new(path, Rational::ZERO, 64, 32).as_still(true))
+            .expect("its own size");
+        assert_eq!((whole.width(), whole.height()), (64, 32));
+        assert_eq!(
+            whole.pixel(0, 0),
+            Some([0, 0, 0, 0]),
+            "nothing off the block"
+        );
+        assert_eq!(
+            whole.pixel(40, 20),
+            Some([255, 255, 255, 255]),
+            "the block in place"
+        );
+        let half = pool
+            .frame(&FrameRequest::new(path, Rational::ZERO, 32, 16).as_still(true))
+            .expect("half size");
+        assert_eq!(
+            half.pixel(20, 10).map(|p| p[3]),
+            Some(255),
+            "the block, halved"
+        );
+        assert_eq!(half.pixel(4, 4).map(|p| p[3]), Some(0));
+        pool.hold_sparse(path, still);
+        let again = pool
+            .frame(&FrameRequest::new(path, Rational::ZERO, 32, 16).as_still(true))
+            .expect("half size again");
+        assert!(Arc::ptr_eq(&half, &again), "the cut frame was kept");
     }
 
     #[test]

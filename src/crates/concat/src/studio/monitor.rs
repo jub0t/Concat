@@ -4,6 +4,11 @@
 
 use super::*;
 
+/// How many titles a change in flight paints on the window's thread: the
+/// one being changed, or the few a batch edit touches. More than that are
+/// a timeline not painted yet, and wait for the painter's thread.
+const LIVE_AT_ONCE: usize = 4;
+
 impl Studio {
     // ── the monitor ──
 
@@ -55,52 +60,38 @@ impl Studio {
                 None,
                 Some(&project_dir),
             );
-            // Titles, painted to pictures and rejoined; see concat-host's titles.
-            if self.echo.is_some() {
-                // A change in flight: the titles are painted in memory at
-                // the monitor's size and handed to it as pixels - no file
-                // per pointer step - and the blocks they report are scaled
-                // back up to the output's terms, which the stage measures
-                // in. Nothing is written until the change is committed.
-                let (shown_w, shown_h) = crate::panes::monitor::MonitorPane::frame_size(
-                    self.quality_of(),
-                    (width, height),
-                );
-                let scale = f64::from(shown_w) / f64::from(width);
-                let up = |px: u32| (f64::from(px) / scale).round() as u32;
-                let up_off = |px: i32| (f64::from(px) / scale).round() as i32;
-                for title in self
-                    .host
+            // Titles, painted to pictures and rejoined; see concat-host's
+            // titles. Always at the output's own size, whatever the
+            // monitor's quality: a title is painted once, the monitor
+            // scales it like any picture, and Quarter, Half and Full share
+            // one painting - where each quality, and each change in flight,
+            // painted every caption again at its own size. Held in memory
+            // as its words alone, and handed to the monitor once each.
+            let (titles, complete) = if self.echo.is_some() {
+                // A change in flight: the title being changed is painted
+                // on the spot, the rest are the paintings already held. A
+                // timeline not painted yet is left to the painter below.
+                self.host
                     .titles
-                    .clips_live(self.project(), shown_w, shown_h)
-                {
-                    self.title_blocks.insert(
-                        title.clip_id,
-                        (
-                            (up(title.block.0), up(title.block.1)),
-                            (up_off(title.offset.0), up_off(title.offset.1)),
-                        ),
-                    );
-                    if let Some(frame) = title.frame {
-                        self.host
-                            .monitor
-                            .hold_still(std::path::Path::new(&title.clip.path), frame);
-                    }
-                    clips.push(title.clip);
-                }
+                    .clips_live_within(self.project(), width, height, LIVE_AT_ONCE)
             } else {
                 // The titles painted already; the rest are painted on a
                 // thread of their own and the frame asked for again when
                 // they are in. A transcribed interview is hundreds of
                 // captions, and painting them here held the window.
-                let (titles, complete) = self.host.titles.ready(self.project(), width, height);
-                for title in titles {
-                    self.title_blocks
-                        .insert(title.clip_id, (title.block, title.offset));
-                    clips.push(title.clip);
+                self.host.titles.ready_live(self.project(), width, height)
+            };
+            for title in titles {
+                self.title_blocks
+                    .insert(title.clip_id, (title.block, title.offset));
+                if let Some(held) = title.held {
+                    self.host
+                        .monitor
+                        .hold_sparse(std::path::Path::new(&title.clip.path), held);
                 }
-                painted_all = complete;
+                clips.push(title.clip);
             }
+            painted_all = complete;
             let clips = std::sync::Arc::new(clips);
             // Kept only once every title is in it, so the frame after the
             // painter is done flattens again and finds them.
@@ -178,7 +169,7 @@ impl Studio {
         let project = self.project().clone();
         crate::host::spawn_in_project_publishing(
             move || {
-                titles.clips(&project, width, height);
+                titles.paint_live_all(&project, width, height);
             },
             |studio, _, _, ()| {
                 studio.titles_painting = false;

@@ -57,14 +57,14 @@ Tools are named for what they do, and their argument schemas are generated from 
 | Projects | `project_list`, `project_create`, `project_open`, `project_save`, `project_close`, `project_set_video` |
 | Reading | `timeline_read` (compact: lanes, clips in time order, media, ids), `project_get` (everything), `concat_version` |
 | Media | `media_probe`, `media_import` |
-| Editing | `clip_add`, `clips_add_sequence`, `clip_trim`, `clips_split`, `clips_move`, `clips_remove`, `clip_update`, `clip_transform`, `clip_speed`, `clip_frame`, `track_add`, `timeline_linkage` |
+| Editing | `clip_add`, `clips_add_sequence`, `clip_trim`, `clips_split`, `clips_move`, `clips_move_to_new_lane`, `clips_remove`, `clip_update`, `clip_transform`, `clip_speed`, `clip_frame`, `track_add`, `timeline_linkage` |
 | Picture | `clip_masks`, `mask_key_set`, `clip_stabilize`, `timeline_background` |
-| Titles and captions | `title_add`, `title_style_words` (some words in another colour, weight, size...), `title_clear_word_styles`, `captions_add` |
+| Titles and captions | `title_add`, `shapes_list` (the Stickers cards and the style each places), `title_style_words` (some words in another colour, weight, size...), `title_clear_word_styles`, `captions_add` (on a caption lane of their own; restyle them all with `edit_apply` and `setCaptionLook`) |
 | Keyframes and effects | `keyframe_set`, `keyframe_clear`, `effects_list`, `effect_layer_add`, `effect_key_set` |
 | Anything else | `edit_apply` (any edit command, or a batch of them as one undo step), `edit_undo`, `edit_redo` |
 | Templates | `template_list`, `template_instantiate` |
 | Export | `export_start`, `export_status`, `export_wait` (with progress), `export_cancel` |
-| Looking | `preview_frame` (the composited frame as an image) |
+| Looking | `preview_frame` (the composited frame as an image), `project_cover` (the project's cover as a PNG), `clips_bounds` (where each title and shape is drawn) |
 
 Edits stay in memory until `project_save`, as in the window. Times are seconds; a keyframe's position is a fraction of its clip (0 to 1); sizes and offsets are fractions of the frame.
 

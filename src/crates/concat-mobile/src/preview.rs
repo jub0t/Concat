@@ -69,7 +69,16 @@ impl Preview {
             .map_err(|error| MobileError::Failed {
                 reason: error.message,
             })?;
-        let clips = Arc::new(session.flattened_clips());
+        // The titles, captions and shapes too, which the flattening leaves
+        // out: painted once at the timeline's size and held in memory.
+        let mut clips = session.flattened_clips();
+        clips.extend(
+            api.title_pictures(&self.path)
+                .map_err(|error| MobileError::Failed {
+                    reason: error.message,
+                })?,
+        );
+        let clips = Arc::new(clips);
         let specs = audio_specs(&clips);
         self.playback
             .set_clips(std::path::PathBuf::from(session.path()), specs);
