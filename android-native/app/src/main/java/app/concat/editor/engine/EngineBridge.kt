@@ -52,6 +52,12 @@ interface PreviewBridge {
 
     /** Lets the preview's device and audio stream go. */
     fun release()
+
+    /**
+     * Whether the preview moved to a slower way of drawing because the
+     * phone's graphics failed under it; the editor says so.
+     */
+    fun slower(): Boolean = false
 }
 
 /** Why a release build has no engine: it shows this rather than run on the stand-in. */

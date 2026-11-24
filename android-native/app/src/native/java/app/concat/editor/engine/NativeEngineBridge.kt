@@ -85,6 +85,7 @@ private class NativePreview(private val preview: Preview) : PreviewBridge {
     override fun position(): Double = preview.position()
     override fun duration(): Double = preview.duration()
     override fun isPlaying(): Boolean = preview.isPlaying()
+    override fun slower(): Boolean = preview.stats().fallbacks > 0uL
     override fun release() {
         preview.detachSurface()
         preview.close()

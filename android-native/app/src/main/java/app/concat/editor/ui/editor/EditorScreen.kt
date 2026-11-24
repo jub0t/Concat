@@ -250,6 +250,7 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                     val (w, h) = if (roomW / roomH > aspect) Pair(roomH * aspect, roomH) else Pair(roomW, roomW / aspect)
                     Box(Modifier.size(w, h).background(Color.Black)) {
                         PreviewSurface(model, Modifier.fillMaxSize())
+                        if (ui.previewSlower) SlowerPreviewNote(Modifier.align(Alignment.BottomCenter))
                         PreviewOverlay(
                             view = view,
                             position = ui.position,
@@ -729,6 +730,23 @@ private fun RenameDialog(current: String, onDismiss: () -> Unit, onRename: (Stri
         text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true) },
         confirmButton = { TextButton(onClick = { onRename(name) }, enabled = name.isNotBlank()) { Text("Rename") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Said over the preview once it draws the slower way: this phone's graphics
+ * failed under it, so playback may stutter. Exports are not affected.
+ */
+@Composable
+private fun SlowerPreviewNote(modifier: Modifier) {
+    Text(
+        "Preview runs in a slower mode on this phone. Exports are not affected.",
+        modifier = modifier
+            .padding(6.dp)
+            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        style = ConcatType.caption,
+        color = ConcatColors.fgMuted,
     )
 }
 

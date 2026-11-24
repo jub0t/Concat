@@ -296,6 +296,18 @@ fn run(rx: mpsc::Receiver<Msg>, playback: Arc<Playback>, stats: Arc<Mutex<Stats>
             }
         }
 
+        // A device that is gone, or that refuses every frame, gives the
+        // preview to the next rung down on the same window, and the frame
+        // under the playhead is drawn again there.
+        if let Some(described) = target::recover(&mut target) {
+            stat(&|stats| {
+                stats.renderer = described.clone();
+                stats.fallbacks += 1;
+            });
+            if !playing && pending.is_none() {
+                pending = Some((playback.position_now(), Instant::now()));
+            }
+        }
         let (Some(drawing), Some(doc)) = (target.as_mut(), doc.as_ref()) else {
             continue;
         };
@@ -398,6 +410,7 @@ fn spec(doc: &Doc, at: f64, size: (u32, u32), moving: bool) -> concat_host::prev
 mod target {
     use std::ptr::NonNull;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
     use std::time::Instant;
 
     use concat_host::preview::Monitor;
@@ -415,7 +428,19 @@ mod target {
         queue: wgpu::Queue,
         monitor: Monitor,
         backend: wgpu::Backends,
+        /// Set when the driver says the device is gone; see [`GpuTarget::broken`].
+        lost: Arc<AtomicBool>,
     }
+
+    /// The lowest rung a lost device has sent this process to: 0 Vulkan,
+    /// 1 OpenGL ES, 2 the CPU. A later attach - the screen back from the
+    /// background, another project - starts there rather than handing the
+    /// preview to a driver that already failed it.
+    static FLOOR: AtomicU8 = AtomicU8::new(0);
+
+    /// Draws that failed in a row before the device is given up on: a
+    /// driver that refuses every frame without saying it is lost.
+    const FAILURES: u32 = 3;
 
     /// Kept between attaches on this thread only.
     static KEPT: std::sync::Mutex<Option<KeptDevice>> = std::sync::Mutex::new(None);
@@ -428,6 +453,8 @@ mod target {
 
     pub struct GpuTarget {
         gpu: Device,
+        /// Draws that failed in a row; see [`FAILURES`].
+        failures: u32,
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
         pipeline: wgpu::RenderPipeline,
@@ -474,24 +501,72 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             // SAFETY: the Kotlin side hands over the reference
             // ANativeWindow_fromSurface acquired; this owns it now.
             let window = unsafe { NativeWindow::from_ptr(pointer) };
-            match mode {
-                "cpu" => Ok(Target::Cpu(CpuTarget {
-                    window,
-                    monitor: Monitor::new(),
-                    geometry: (0, 0),
-                    size: (width, height),
-                })),
-                "gl" => GpuTarget::new(window, width, height, wgpu::Backends::GL)
-                    .map(|target| Target::Gpu(Box::new(target))),
-                _ => GpuTarget::new(window.clone(), width, height, wgpu::Backends::VULKAN)
-                    .or_else(|error| {
-                        log::warn!(
-                            "Vulkan would not draw on the surface ({error}); trying OpenGL ES"
-                        );
-                        GpuTarget::new(window, width, height, wgpu::Backends::GL)
-                    })
-                    .map(|target| Target::Gpu(Box::new(target))),
+            let floor = FLOOR.load(Ordering::Relaxed);
+            let rung = match mode {
+                "cpu" => 2,
+                "gl" => 1,
+                _ => 0,
             }
+            .max(floor);
+            Ok(Target::from_rung(window, width, height, rung))
+        }
+
+        /// The preview on `window` at `rung` or, where that will not draw,
+        /// the next one down; the CPU always draws.
+        fn from_rung(window: NativeWindow, width: u32, height: u32, rung: u8) -> Target {
+            for (at, backend) in [(0, wgpu::Backends::VULKAN), (1, wgpu::Backends::GL)] {
+                if rung > at {
+                    continue;
+                }
+                match GpuTarget::new(window.clone(), width, height, backend) {
+                    Ok(target) => return Target::Gpu(Box::new(target)),
+                    Err(error) => log::warn!("{backend:?} would not draw on the surface ({error})"),
+                }
+            }
+            Target::cpu(window, width, height)
+        }
+
+        fn cpu(window: NativeWindow, width: u32, height: u32) -> Target {
+            Target::Cpu(CpuTarget {
+                window,
+                monitor: Monitor::new(),
+                geometry: (0, 0),
+                size: (width, height),
+            })
+        }
+
+        /// Whether the device under the preview is gone or keeps failing,
+        /// and the preview has to move to the next rung down.
+        fn broken(&self) -> bool {
+            match self {
+                Target::Gpu(gpu) => gpu.broken(),
+                Target::Cpu(_) => false,
+            }
+        }
+
+        /// The preview one rung down on the same window, the device given
+        /// up rather than kept for the next attach; later attaches in this
+        /// process start at that rung too.
+        fn fall_back(self) -> Target {
+            let Target::Gpu(gpu) = self else {
+                return self;
+            };
+            let rung = if gpu.gpu.backend == wgpu::Backends::VULKAN {
+                1
+            } else {
+                2
+            };
+            FLOOR.fetch_max(rung, Ordering::Relaxed);
+            let (width, height) = (gpu.config.width, gpu.config.height);
+            let window = gpu._window.clone();
+            drop(gpu);
+            let next = Target::from_rung(window, width, height, rung);
+            log::warn!(
+                "the preview's {} device was lost; it draws on {} now",
+                if rung == 1 { "Vulkan" } else { "OpenGL ES" },
+                next.describe()
+            );
+            next
         }
 
         pub fn describe(&self) -> String {
@@ -541,6 +616,18 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                 Target::Cpu(cpu) => cpu.draw(doc, at, moving),
             }
         }
+    }
+
+    /// When the preview's device is gone or keeps failing, moves it a
+    /// rung down on the same window; the new renderer, said, when it did.
+    pub fn recover(slot: &mut Option<Target>) -> Option<String> {
+        if !slot.as_ref().is_some_and(Target::broken) {
+            return None;
+        }
+        let next = slot.take()?.fall_back();
+        let described = next.describe();
+        *slot = Some(next);
+        Some(described)
     }
 
     impl GpuTarget {
@@ -601,6 +688,12 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                     device.on_uncaptured_error(Arc::new(|error: wgpu::Error| {
                         log::error!("GPU error: {error}");
                     }));
+                    let lost = Arc::new(AtomicBool::new(false));
+                    let noting = Arc::clone(&lost);
+                    device.set_device_lost_callback(move |reason, message| {
+                        log::error!("the preview's GPU device was lost ({reason:?}): {message}");
+                        noting.store(true, Ordering::Relaxed);
+                    });
                     let monitor = Monitor::with_gpu(device.clone(), queue.clone());
                     Device {
                         instance: instance.clone(),
@@ -609,6 +702,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                         queue,
                         monitor,
                         backend,
+                        lost,
                     }
                 }
             };
@@ -707,6 +801,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             log::info!("{described}");
             Ok(GpuTarget {
                 gpu,
+                failures: 0,
                 surface,
                 config,
                 pipeline,
@@ -717,20 +812,49 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             })
         }
 
+        fn broken(&self) -> bool {
+            self.gpu.lost.load(Ordering::Relaxed) || self.failures >= FAILURES
+        }
+
         fn draw(&mut self, doc: &Doc, at: f64, moving: bool) -> Drawn {
+            lose_when_asked(&self.gpu.device);
+            // The driver's word that the device is gone arrives when the
+            // device is polled; without this a draw on a lost device fails
+            // in whichever step touches it first and never says why.
+            let _ = self.gpu.device.poll(wgpu::PollType::Poll);
+            if self.gpu.lost.load(Ordering::Relaxed) {
+                return Err("the GPU device was lost".to_owned());
+            }
             let size = fit(
                 (doc.settings.width, doc.settings.height),
                 (self.config.width, self.config.height),
             );
             let spec = spec(doc, at, size, moving);
             let started = Instant::now();
+            // A frame that cannot be read is the footage's failure, not
+            // the device's, and does not count against it.
             let sources =
                 self.gpu
                     .monitor
                     .frame_sources(Arc::clone(&doc.clips), &doc.settings, spec)?;
             let decoded = started.elapsed();
             let drawing = Instant::now();
-            let texture = self.gpu.monitor.texture_of(&sources, spec)?;
+            let drawn = self.blit(doc, &sources, spec);
+            match &drawn {
+                Ok(()) => self.failures = 0,
+                Err(_) => self.failures += 1,
+            }
+            drawn.map(|()| (decoded, drawing.elapsed()))
+        }
+
+        /// Draws the frame `sources` make onto the surface.
+        fn blit(
+            &mut self,
+            doc: &Doc,
+            sources: &concat_export::PreviewSources,
+            spec: concat_host::preview::FrameSpec,
+        ) -> Result<(), String> {
+            let texture = self.gpu.monitor.texture_of(sources, spec)?;
             let frame = match self.surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(frame)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -799,7 +923,44 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             }
             self.gpu.queue.submit([encoder.finish()]);
             self.gpu.queue.present(frame);
-            Ok((decoded, drawing.elapsed()))
+            Ok(())
+        }
+    }
+
+    /// For trying the fall back on a phone or an emulator: each new value
+    /// of the system property `debug.concat.lose_gpu`
+    /// (`adb shell setprop debug.concat.lose_gpu 1`, then 2, ...) destroys
+    /// the preview's device once, as a driver that gives up would. Only the
+    /// shell may set a `debug.` property.
+    fn lose_when_asked(device: &wgpu::Device) {
+        unsafe extern "C" {
+            /// Bionic's reader of a system property: the value's length,
+            /// at most PROP_VALUE_MAX - 1 bytes and a nul.
+            fn __system_property_get(
+                name: *const std::ffi::c_char,
+                value: *mut std::ffi::c_char,
+            ) -> std::ffi::c_int;
+        }
+        static SEEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+        let name = c"debug.concat.lose_gpu";
+        let mut value = [0u8; 92];
+        // SAFETY: the buffer is PROP_VALUE_MAX (92) bytes, as the call needs.
+        let length = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr().cast()) };
+        if length <= 0 {
+            return;
+        }
+        let value = String::from_utf8_lossy(&value[..length as usize]).into_owned();
+        let mut seen = SEEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if seen.as_deref() == Some(value.as_str()) {
+            return;
+        }
+        let first = seen.is_none();
+        *seen = Some(value);
+        // The value there at start is the one before this process, not a
+        // request of its own.
+        if !first {
+            log::warn!("debug.concat.lose_gpu: destroying the preview's device as asked");
+            device.destroy();
         }
     }
 
@@ -872,6 +1033,14 @@ mod target {
         }
         pub fn draw(&mut self, _: &Doc, _: f64, _: bool) -> Drawn {
             match *self {}
+        }
+    }
+
+    /// Nothing to recover off Android.
+    pub fn recover(slot: &mut Option<Target>) -> Option<String> {
+        match slot {
+            Some(target) => match *target {},
+            None => None,
         }
     }
 }

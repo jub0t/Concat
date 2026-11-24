@@ -49,6 +49,8 @@ data class EditorUi(
     val selected: String? = null,
     val position: Double = 0.0,
     val playing: Boolean = false,
+    /** The preview draws the slower way: the phone's graphics failed under it. */
+    val previewSlower: Boolean = false,
     val busy: Boolean = false,
     val message: String? = null,
     /** The clip a reverse is being written for, and how far it is (0..1). */
@@ -151,8 +153,10 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
             while (true) {
                 val shown = preview
                 if (shown != null && SystemClock.uptimeMillis() - scrubbedAt > 300) {
-                    val (at, playing) = withContext(Dispatchers.IO) { shown.position() to shown.isPlaying() }
-                    _ui.update { it.copy(position = at, playing = playing) }
+                    val (at, playing, slower) = withContext(Dispatchers.IO) {
+                        Triple(shown.position(), shown.isPlaying(), shown.slower())
+                    }
+                    _ui.update { it.copy(position = at, playing = playing, previewSlower = slower) }
                 }
                 delay(if (_ui.value.playing) 33 else 250)
             }

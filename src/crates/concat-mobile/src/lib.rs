@@ -108,6 +108,10 @@ pub struct Stats {
     pub audio_peak: f64,
     /// The last error the render thread hit, or "".
     pub last_error: String,
+    /// How many times the preview moved a rung down - Vulkan to OpenGL ES
+    /// to the CPU - because its device was lost or kept failing. Above
+    /// nought, the preview is drawing the slower way and the app says so.
+    pub fallbacks: u64,
 }
 
 /// The clock playback reports, kept for the shell to read.
