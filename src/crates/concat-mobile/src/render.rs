@@ -6,7 +6,7 @@
 //! The host's rule is that a monitor frame is decoded anywhere and drawn
 //! only on the thread that owns the device (`Monitor::texture_of`). With no
 //! Slint renderer here, this thread is that owner: it makes the wgpu device
-//! on the Surface's ANativeWindow, hands it to a `Monitor::with_gpu`, and
+//! on the Surface's ANativeWindow, hands it to a `Monitor::with_gpu_watching`, and
 //! draws each frame's texture straight onto the Surface - no readback, which
 //! the Slint phone build cannot avoid today (its monitor composites on the
 //! CPU, platform.rs). The CPU path (`Monitor::frame` into a locked
@@ -410,7 +410,7 @@ fn spec(doc: &Doc, at: f64, size: (u32, u32), moving: bool) -> concat_host::prev
 mod target {
     use std::ptr::NonNull;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
     use std::time::Instant;
 
     use concat_host::preview::Monitor;
@@ -685,8 +685,14 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                             ..Default::default()
                         }))
                         .map_err(|error| format!("no device: {error}"))?;
-                    device.on_uncaptured_error(Arc::new(|error: wgpu::Error| {
-                        log::error!("GPU error: {error}");
+                    // Counted, so the compositor fails a frame drawn under
+                    // an error no scope caught; three such in a row send
+                    // the preview down the ladder like any failed draw.
+                    let uncaught = Arc::new(AtomicU64::new(0));
+                    let counted = Arc::clone(&uncaught);
+                    device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
+                        counted.fetch_add(1, Ordering::Relaxed);
+                        log::error!("the preview's GPU refused a drawing: {error}");
                     }));
                     let lost = Arc::new(AtomicBool::new(false));
                     let noting = Arc::clone(&lost);
@@ -694,7 +700,12 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                         log::error!("the preview's GPU device was lost ({reason:?}): {message}");
                         noting.store(true, Ordering::Relaxed);
                     });
-                    let monitor = Monitor::with_gpu(device.clone(), queue.clone());
+                    let monitor = Monitor::with_gpu_watching(
+                        device.clone(),
+                        queue.clone(),
+                        Arc::clone(&lost),
+                        uncaught,
+                    );
                     Device {
                         instance: instance.clone(),
                         adapter,

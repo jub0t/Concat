@@ -9,7 +9,7 @@
 //! different file - the window debounces and drops stale results, so a slow
 //! decode never wedges anything but itself.
 //!
-//! With the `gpu` feature and a device from [`Monitor::with_gpu`], a frame
+//! With the `gpu` feature and a device from [`Monitor::with_gpu_watching`], a frame
 //! is drawn on that device and handed back as a texture: decoded pictures
 //! go up once, the composite happens where it is shown, and no pixel comes
 //! back down. A frame is therefore two calls and not one -
@@ -109,13 +109,7 @@ impl Monitor {
 
     /// A monitor that composites on `device` - the window's - so
     /// [`Monitor::texture_of`] yields textures the window shows as they
-    /// are.
-    #[cfg(feature = "gpu")]
-    pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
-        Self::with_gpu_watching(device, queue, Arc::default(), Arc::default())
-    }
-
-    /// [`Monitor::with_gpu`] on a device whose lost callback sets `lost`:
+    /// are. The device's lost callback sets `lost`:
     /// from then on the monitor's frames are errors, not black pictures
     /// drawn on a device that is gone. Its uncaptured-error handler adds
     /// to `uncaught`, so a frame drawn under an error no scope caught is
