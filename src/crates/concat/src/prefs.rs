@@ -309,8 +309,7 @@ impl Preferences {
 
     /// Whether videos get scrub copies; see `scrub_copies`.
     pub fn scrub_copies(&self) -> bool {
-        self.scrub_copies
-            .unwrap_or(!cfg!(any(target_os = "android", target_os = "ios")))
+        self.scrub_copies.unwrap_or(!cfg!(target_os = "ios"))
     }
 
     /// Which of `names` — the theme's accents, in its order — the remembered
@@ -365,7 +364,6 @@ impl Preferences {
     /// The multiplier the window backend takes for a percent: the percent
     /// over a hundred, which is what `SLINT_SCALE_FACTOR` parses.
     // A phone sets its size the system's way and never scales by this.
-    #[cfg_attr(target_os = "android", allow(dead_code))]
     pub fn scale_factor(percent: u32) -> f64 {
         f64::from(percent) / 100.0
     }

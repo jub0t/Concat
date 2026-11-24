@@ -570,7 +570,7 @@ impl ExportPane {
                 // phone, a sandbox that forbids it - or when
                 // CONCAT_EXPORT_IN_PROCESS is set, the export runs here, as
                 // it always did.
-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                #[cfg(not(target_os = "ios"))]
                 if std::env::var_os("CONCAT_EXPORT_IN_PROCESS").is_none()
                     && let Ok(program) = std::env::current_exe()
                 {

@@ -9,10 +9,6 @@
 //! Created before the backend is selected, because Slint takes the device at
 //! selection time; `None` when the machine offers no adapter, and then the
 //! window renders the way it did without one.
-//!
-//! On Android the backend owns its device and none is shared, so the type
-//! is carried and never opened there; see platform.rs.
-#![cfg_attr(target_os = "android", allow(dead_code))]
 
 use std::sync::OnceLock;
 

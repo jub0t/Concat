@@ -18,7 +18,7 @@
 //! which they can only do to a window they can see. Fifteen seconds of a
 //! running loop stays as a floor, for a window that never says it drew.
 //! The frame and the person are told here by the backends' own hooks:
-//! `DropHandler` on a desktop, the activity's event listener on Android.
+//! `DropHandler` on a desktop.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -43,8 +43,8 @@ pub(crate) const SAFE_AFTER: Duration = Duration::from_secs(15);
 /// Its file is removed when the launch starts, and when the watch drops
 /// on any orderly way out. Not on [`StartWatch::keep`], for a window that
 /// could not run, and not when the watch drops while a panic unwinds
-/// before the first frame: on Android a panic unwinds (the release build
-/// is not `panic = "abort"`), and a launch that panicked before it ever
+/// before the first frame: a panic unwinds (the release build is not
+/// `panic = "abort"`), and a launch that panicked before it ever
 /// drew is a failed start as much as one a driver killed. A panic after
 /// the first frame is a bug of the app's, not a reason to draw slowly.
 pub(crate) struct StartWatch {

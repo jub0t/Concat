@@ -675,7 +675,7 @@ pub fn pick_files_then(
     filter: Option<(String, &'static [&'static str])>,
     then: impl FnOnce(&mut Studio, &App, &Models, Vec<std::path::PathBuf>) + Send + 'static,
 ) {
-    if cfg!(any(target_os = "android", target_os = "ios")) {
+    if cfg!(target_os = "ios") {
         let _ = slint::invoke_from_event_loop(move || {
             let filter = filter.as_ref().map(|(name, list)| (name.as_str(), *list));
             crate::platform::pick_files_async(&title, filter, move |paths| {

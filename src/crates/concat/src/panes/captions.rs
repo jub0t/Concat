@@ -361,7 +361,7 @@ impl CaptionsPane {
             .as_ref()
             .map(|session| PathBuf::from(session.path()))
             .unwrap_or_else(|| PathBuf::from(crate::studio::home_folder("Documents")));
-        if cfg!(any(target_os = "android", target_os = "ios")) {
+        if cfg!(target_os = "ios") {
             let path = unique_path(&folder, &name);
             self.export_srt(studio, &path);
             return;
@@ -645,7 +645,7 @@ impl CaptionsPane {
                 // whisper failing there costs the captions one run and never
                 // the editor (#673, #736, #715). CONCAT_TRANSCRIBE_IN_PROCESS
                 // keeps it here, as it always was, and so does a phone.
-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                #[cfg(not(target_os = "ios"))]
                 if std::env::var_os("CONCAT_TRANSCRIBE_IN_PROCESS").is_none()
                     && let Ok(program) = std::env::current_exe()
                     && let Some(heard) =
