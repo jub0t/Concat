@@ -1919,7 +1919,7 @@ impl ExportJob {
 /// the way in, and never past two seconds, so a long edit is known by its
 /// opening rather than by some middle.
 fn early_frame(length: f64) -> f64 {
-    (length * 0.25).min(2.0).max(0.0)
+    (length * 0.25).clamp(0.0, 2.0)
 }
 
 /// A picture from disk as a `width` × `height` cover: fitted to fill it,
