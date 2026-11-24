@@ -3140,3 +3140,32 @@ fn the_memory_of_a_real_device_reads() {
         );
     }
 }
+
+/// #875: on Windows the compositor asks DX12 alone, its GPU and then WARP,
+/// and below them the CPU draws. A rung of every API wgpu was built with
+/// added OpenGL, and an MCP preview whose DX12 rungs failed stepped onto
+/// NVIDIA's GL driver and died in it with the whole process.
+#[cfg(windows)]
+#[test]
+fn windows_rungs_ask_dx12_alone() {
+    for software_only in [false, true] {
+        let rungs = WgpuCompositor::rungs_for(software_only);
+        assert!(!rungs.is_empty());
+        for rung in &rungs {
+            assert_eq!(rung.backends, wgpu::Backends::DX12, "{rungs:?}");
+        }
+    }
+    assert_eq!(
+        WgpuCompositor::rungs_for(false),
+        [
+            Rung {
+                backends: wgpu::Backends::DX12,
+                software: false
+            },
+            Rung {
+                backends: wgpu::Backends::DX12,
+                software: true
+            },
+        ]
+    );
+}

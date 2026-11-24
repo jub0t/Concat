@@ -263,7 +263,14 @@ impl Upscaler {
     /// `side` pixels across, on the first GPU that opens - `None` where
     /// there is none, and the caller runs the model the slow way.
     pub fn new(layers: &[ConvLayer], scale: u32, side: u32) -> Option<Upscaler> {
-        let instance = wgpu::Instance::default();
+        // The compositor's first hardware rung, never wgpu's defaults:
+        // those ask every API wgpu was built with, OpenGL on Windows
+        // included, and leave DX12's shader compiler to whichever
+        // dxcompiler.dll is on PATH (see `crate::gpu::instance_for`).
+        let rung = crate::WgpuCompositor::rungs()
+            .into_iter()
+            .find(|rung| !rung.software)?;
+        let instance = crate::gpu::instance_for(rung);
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()

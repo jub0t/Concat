@@ -405,6 +405,27 @@ fn rung_flags(software: bool) -> wgpu::InstanceFlags {
     }
 }
 
+/// The wgpu instance a device on `rung` is asked of: its APIs, its flags
+/// ([`rung_flags`]), the memory budget, and FXC for DX12's shaders.
+pub(crate) fn instance_for(rung: Rung) -> wgpu::Instance {
+    let mut descriptor = wgpu::InstanceDescriptor {
+        backends: rung.backends,
+        flags: rung_flags(rung.software),
+        memory_budget_thresholds: memory_budget(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    };
+    // FXC, never wgpu's default `Auto`: Concat ships no dxcompiler.dll,
+    // so `Auto` loads whichever one Windows finds on PATH - Obsidian's or
+    // another Electron app's - and a build that does not match wgpu, or
+    // needs instructions the CPU lacks, kills the process at the first
+    // shader (0xc000001d). FXC is in System32 and is what every machine
+    // without a stray DXC already compiles with (#418). WGPU_DX12_COMPILER
+    // still picks another, for trying DXC on a real GPU (#297).
+    descriptor.backend_options.dx12.shader_compiler =
+        wgpu::Dx12Compiler::from_env().unwrap_or(wgpu::Dx12Compiler::Fxc);
+    wgpu::Instance::new(descriptor)
+}
+
 /// Whether `CONCAT_WARP_SHADERS=optimised` asks for WARP's shaders to be
 /// compiled as a GPU's are; see [`rung_flags`].
 fn warp_shaders_optimised() -> bool {
@@ -1318,7 +1339,7 @@ impl WgpuCompositor {
     }
 
     /// [`WgpuCompositor::new`]'s order of asking: the platform's own API,
-    /// then every API wgpu was built with. `software_only` leaves the
+    /// then, except on Windows, every API wgpu was built with. `software_only` leaves the
     /// hardware adapters out.
     fn own_api_first(software_only: bool) -> Option<Self> {
         Self::rungs_for(software_only)
@@ -1365,8 +1386,18 @@ impl WgpuCompositor {
         } else {
             &[false, true]
         };
-        [own, wgpu::Backends::all()]
-            .into_iter()
+        // Then every API wgpu was built with - but not on Windows, where
+        // that adds OpenGL alone, and OpenGL there is a driver's least-run
+        // path: an MCP preview whose DX12 adapters both failed stepped onto
+        // NVIDIA's GL driver and died in it with the whole process (#875).
+        // Below DX12's two the CPU draws instead, slower, and says so.
+        let apis: &[wgpu::Backends] = if cfg!(windows) {
+            &[own]
+        } else {
+            &[own, wgpu::Backends::all()]
+        };
+        apis.iter()
+            .copied()
             .flat_map(|backends| {
                 choices
                     .iter()
@@ -1379,22 +1410,7 @@ impl WgpuCompositor {
     /// opens no device there.
     pub fn on_rung(rung: Rung) -> Option<Self> {
         let Rung { backends, software } = rung;
-        let mut descriptor = wgpu::InstanceDescriptor {
-            backends,
-            flags: rung_flags(software),
-            memory_budget_thresholds: memory_budget(),
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        };
-        // FXC, never wgpu's default `Auto`: Concat ships no dxcompiler.dll,
-        // so `Auto` loads whichever one Windows finds on PATH - Obsidian's or
-        // another Electron app's - and a build that does not match wgpu, or
-        // needs instructions the CPU lacks, kills the process at the first
-        // shader (0xc000001d). FXC is in System32 and is what every machine
-        // without a stray DXC already compiles with (#418). WGPU_DX12_COMPILER
-        // still picks another, for trying DXC on a real GPU (#297).
-        descriptor.backend_options.dx12.shader_compiler =
-            wgpu::Dx12Compiler::from_env().unwrap_or(wgpu::Dx12Compiler::Fxc);
-        let instance = wgpu::Instance::new(descriptor);
+        let instance = instance_for(rung);
         {
             let adapter =
                 match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
