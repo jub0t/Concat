@@ -853,7 +853,7 @@ fn sparse_of(width: u32, height: u32, rgba: &[u8]) -> Option<SparseStill> {
         let Some((first, _)) = inked.next() else {
             continue;
         };
-        let last = inked.last().map_or(first, |(x, _)| x);
+        let last = inked.next_back().map_or(first, |(x, _)| x);
         left = left.min(first as u32);
         right = right.max(last as u32 + 1);
         top = top.min(y as u32);
