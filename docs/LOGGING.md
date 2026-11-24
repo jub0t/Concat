@@ -92,11 +92,11 @@ When Android closes Concat as not responding (an ANR), the next launch on
 Android 11 and later writes two `last run` warnings: what the system said,
 and under it `the threads of ... when the system gave up on it`, the system's
 own dump of the Java main thread and of every thread standing in Concat's
-library, up to 40 frames each. The window's thread is `android_main`, listed
-first after the main thread. Frames in Concat look like this:
+library, up to 40 frames each. The screens run on the main thread, listed
+first. Frames in Concat look like this:
 
 ```text
-#06 pc 000000000b739820  libconcat_android.so (BuildId: e21abbfd2b1e...)
+#06 pc 000000000b739820  libconcat_mobile.so (BuildId: e21abbfd2b1e...)
 ```
 
 A frame in Concat's library names the offset after `pc`, and the function
@@ -106,7 +106,7 @@ phones" run, for 90 days. Download the one for the version in the log's
 `build` line, then:
 
 ```sh
-scripts/symbolize-android.sh libconcat_android-0.2.12-aarch64-linux-android.so concat-20261115-101500.log
+scripts/symbolize-android.sh libconcat_mobile-0.2.13-aarch64-linux-android.so concat-20261115-101500.log
 ```
 
 It names the function of each Concat frame (the library carries no line

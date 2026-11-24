@@ -2,7 +2,7 @@
 # The build environment for a phone, as shell exports:
 #
 #   eval "$(scripts/mobile-env.sh aarch64-linux-android)"
-#   cargo ndk -t arm64-v8a --platform 26 build -p concat-android
+#   cargo ndk -t arm64-v8a --platform 26 build -p concat-mobile
 #
 #   eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
 #   cargo build -p concat --target aarch64-apple-ios
@@ -64,7 +64,7 @@ case "$target" in
     #
     # Every library the APK carries is linked for 16 KB pages, as FFmpeg's
     # already is (ffmpeg-mobile.sh): a phone whose kernel uses them refuses
-    # a library aligned to 4 KB, and v0.2.8's libconcat_android.so was.
+    # a library aligned to 4 KB, and v0.2.8's engine library was.
     # And it carries a build ID, which rustc does not ask the linker for:
     # a phone's crash or hang names the library's frames by offset and
     # BuildId, and without one nothing ties a trace to the symbols CI kept

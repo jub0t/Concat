@@ -46,7 +46,7 @@
 # device's properties. CI uploads that folder. The package is
 # app.concat.editor unless --package names another.
 #
-# --export CLIP needs an APK built with concat-android's `smoke` feature
+# --export CLIP needs an APK built with Gradle's -Psmoke=true (Smoke.kt)
 # (never the one that ships). The clip is pushed into the app's files
 # folder as smoke-export.<extension>, where that build finds it at start, makes a
 # project of it and exports it through the window's own messages
@@ -194,7 +194,7 @@ fi
 adb shell pm path "$package" > /dev/null 2>&1 || fail "$package is not installed"
 
 # The activity the launcher would start, asked of the package manager
-# rather than written down: cargo-apk names it, not this script.
+# rather than written down: the app's manifest names it, not this script.
 activity=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$package" 2>/dev/null \
   | tr -d '\r' | tail -n 1)
 case "$activity" in

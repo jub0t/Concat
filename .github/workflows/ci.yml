@@ -162,20 +162,13 @@ jobs:
         working-directory: src
         run: |
           set -o pipefail
-          cargo clippy --workspace --exclude concat --exclude concat-android --all-targets -- -D warnings 2>&1 | tee clippy.log
+          cargo clippy --workspace --exclude concat --all-targets -- -D warnings 2>&1 | tee clippy.log
       - name: Clippy (the window)
         timeout-minutes: 30
         working-directory: src
         run: |
           set -o pipefail
           cargo clippy -p concat --lib --profile test -- -D warnings 2>&1 | tee clippy-window.log
-      - name: Clippy (the Android shell)
-        timeout-minutes: 25
-        working-directory: src
-        run: |
-          set -o pipefail
-          cargo clippy -p concat-android --all-targets --no-deps -- -D warnings 2>&1 | tee clippy-shell.log
-
       # The tests are compiled in a step of their own, so a slow compile
       # and a slow test are told apart by which step ran out of time. One
       # job at a time and no debug info, to stay inside the runner's
@@ -257,7 +250,7 @@ jobs:
       # failures in it into annotations on the run (scripts/ci/annotate.py).
       - name: Failures to annotations (failure only)
         if: failure()
-        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/clippy-shell.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log src/clippy-grpc.log src/nextest-grpc.log
+        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log src/clippy-grpc.log src/nextest-grpc.log
 
       - name: Keep the test report (failure only)
         if: failure()
