@@ -4,6 +4,9 @@
 package app.concat.editor.ui.settings
 
 import android.app.Application
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import app.concat.editor.ui.icons.ConcatIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,9 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -49,6 +53,8 @@ import app.concat.editor.api.VersionInfo
 import app.concat.editor.concat
 import app.concat.editor.models.sizeLabel
 import app.concat.editor.ui.Palette
+import app.concat.editor.ui.icons.ConcatIcons
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -118,6 +124,14 @@ fun SettingsScreen(onBack: () -> Unit, model: SettingsViewModel = viewModel()) {
                     if (!version?.capabilities.isNullOrEmpty()) About("Serves", version?.capabilities.orEmpty().joinToString(", "))
                 }
             }
+            item {
+                val context = LocalContext.current
+                var noLog by remember { mutableStateOf(false) }
+                OutlinedButton(onClick = { noLog = !shareLatestLog(context) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Share the log")
+                }
+                if (noLog) Text("There is no log yet.", color = Palette.muted, fontSize = 12.sp)
+            }
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
@@ -180,4 +194,26 @@ private fun ModelRow(info: ModelInfo, progress: Float?, onDownload: () -> Unit, 
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
     }
+}
+
+/**
+ * Hands this run's log - the newest file in the engine's log folder - to
+ * the share sheet, for a bug report. False when there is none.
+ */
+private fun shareLatestLog(context: Context): Boolean {
+    val folder = File(context.filesDir, "app.concat.editor/logs")
+    val newest = folder.listFiles { file -> file.isFile && file.name.endsWith(".log") }
+        ?.maxByOrNull { it.lastModified() }
+        ?: return false
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", newest)
+    val send = Intent(Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(Intent.EXTRA_STREAM, uri)
+        .putExtra(Intent.EXTRA_SUBJECT, "Concat log ${newest.name}")
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    // The chooser reads the file too, for its preview; the grant reaches
+    // it through the clip.
+    send.clipData = ClipData.newRawUri(newest.name, uri)
+    context.startActivity(Intent.createChooser(send, "Share the log").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    return true
 }

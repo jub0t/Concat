@@ -34,7 +34,7 @@ class NativeEngineBridge(context: Context) : EngineBridge {
 
     init {
         // Loads the library, and hands it the JavaVM and Context first.
-        ConcatNative.init(context.applicationContext)
+        ConcatNative.init(context.applicationContext, context.filesDir.absolutePath)
         // Settings, recents, templates and models in one folder, the one the
         // Slint app used (its XDG bases were the files folder, under the
         // host's identifier), so an update over it keeps every project in

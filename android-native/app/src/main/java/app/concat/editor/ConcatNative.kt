@@ -13,8 +13,11 @@ object ConcatNative {
         System.loadLibrary("concat_mobile")
     }
 
-    /** Logcat, and the JavaVM + Context that cpal's AAudio host reads. */
-    @JvmStatic external fun init(context: Context)
+    /**
+     * The log - a file in [files], which Settings shares, and logcat - and
+     * the JavaVM + Context that cpal's AAudio host reads.
+     */
+    @JvmStatic external fun init(context: Context, files: String)
 
     /** The Surface's ANativeWindow with one reference acquired; 0 for none. */
     @JvmStatic external fun windowFromSurface(surface: Surface): Long
