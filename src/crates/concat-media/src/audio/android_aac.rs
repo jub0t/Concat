@@ -27,8 +27,17 @@ const FRAME: usize = 1024;
 /// MediaCodec's BUFFER_FLAG_CODEC_CONFIG and BUFFER_FLAG_END_OF_STREAM.
 const CODEC_CONFIG: u32 = 2;
 const END_OF_STREAM: u32 = 4;
-/// How long a dequeue waits before the loop looks the other way.
+/// How long a dequeue waits before the loop looks the other way: for an
+/// input buffer while the encoder is full, and for the last packets at the
+/// end of the stream. Packets ready mid-stream are taken without waiting
+/// (see [`Aac::drain`]).
 const WAIT: Duration = Duration::from_millis(10);
+/// Bytes of mix gathered before they go to the encoder: four frames, the
+/// 16 KiB an input buffer of Android's encoder holds. Each buffer costs a
+/// call into the codec's own process to take it, one to queue it and more
+/// to collect what comes out; fed a frame at a time, those calls and not
+/// the encoding were most of the mix's time.
+const BATCH: usize = 4 * FRAME * CHANNELS * 2;
 /// How many samples Android's encoder holds its sound back by, which its
 /// timestamps do not say: its packets are stamped from the first sample
 /// fed, as if the encoder had no delay, and a click fed at 1.000 s decodes
@@ -142,11 +151,17 @@ impl Aac {
 
     /// Takes the packets that are ready, or with `to_end` every one up to
     /// the encoder's end of stream.
+    ///
+    /// Mid-stream it does not wait: the encoder works apart from the feed,
+    /// and a packet is rarely out by the time the next frame goes in. With
+    /// [`WAIT`] here every frame fed - 21 ms of sound - slept 10 ms for a
+    /// packet not there yet, and a phone mixed at about the speed it plays.
     fn drain(&mut self, out: &mut Vec<Packet>, to_end: bool) -> Result<()> {
+        let wait = if to_end { WAIT } else { Duration::ZERO };
         while !self.finished {
             match self
                 .codec
-                .dequeue_output_buffer(WAIT)
+                .dequeue_output_buffer(wait)
                 .map_err(|error| self.fail(format!("output: {error}")))?
             {
                 DequeuedOutputBufferInfoResult::Buffer(buffer) => {
@@ -270,6 +285,7 @@ pub(super) fn mix(
     };
 
     let mut packets = Vec::new();
+    let mut pending: Vec<u8> = Vec::with_capacity(BATCH + FRAME * CHANNELS * 2);
     run_mix(
         clips,
         buses,
@@ -282,14 +298,20 @@ pub(super) fn mix(
                 return Err(Error::Cancelled);
             }
             let bytes = mixed.samples() * CHANNELS * 2;
-            aac.feed(&mixed.data(0)[..bytes], false, &mut packets)?;
+            pending.extend_from_slice(&mixed.data(0)[..bytes]);
+            if pending.len() < BATCH {
+                return Ok(());
+            }
+            aac.feed(&pending, false, &mut packets)?;
+            pending.clear();
             write(&mut packets, &mut output)
         },
     )?;
-    // The encoder's delay and a frame more of silence, so the mix's last
-    // samples come out of it before the end of the stream.
-    let tail = vec![0u8; (DELAY as usize + FRAME) * CHANNELS * 2];
-    aac.feed(&tail, false, &mut packets)?;
+    // What is gathered, then the encoder's delay and a frame more of
+    // silence, so the mix's last samples come out of it before the end of
+    // the stream.
+    pending.resize(pending.len() + (DELAY as usize + FRAME) * CHANNELS * 2, 0);
+    aac.feed(&pending, false, &mut packets)?;
     aac.feed(&[], true, &mut packets)?;
     write(&mut packets, &mut output)?;
     output
