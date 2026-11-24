@@ -713,7 +713,13 @@ fn opus_encoder() -> Result<(&'static str, Sample)> {
 /// its own for it there; FFmpeg's elsewhere, a Linux system's. A phone's
 /// is Android's own, outside FFmpeg (see `android_aac`). Both platform
 /// encoders here take 16-bit samples.
-fn aac_encoder() -> Result<(&'static str, Sample)> {
+///
+/// Every one linked, best first, for the mix to open in turn: being linked
+/// is not being able. Windows' encoder is a Media Foundation transform that
+/// a machine may fail to create even with its DLLs in place, and every
+/// MP4 and MOV export there then failed at the mix while FFmpeg's own
+/// encoder, linked beside it, was never asked (#876).
+fn aac_encoders() -> Result<Vec<(&'static str, Sample)>> {
     let platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
         Some("aac_at")
     } else if cfg!(target_os = "windows") {
@@ -721,21 +727,33 @@ fn aac_encoder() -> Result<(&'static str, Sample)> {
     } else {
         None
     };
-    if let Some(name) = platform
-        && encoder::find_by_name(name).is_some()
-    {
-        return Ok((
-            name,
-            Sample::I16(ffmpeg::util::format::sample::Type::Packed),
-        ));
+    let candidates: Vec<(&'static str, Sample)> = platform
+        .map(|name| {
+            (
+                name,
+                Sample::I16(ffmpeg::util::format::sample::Type::Packed),
+            )
+        })
+        .into_iter()
+        .chain([("aac", MIX_FORMAT)])
+        .filter(|(name, _)| encoder::find_by_name(name).is_some())
+        .collect();
+    if candidates.is_empty() {
+        return Err(Error::Missing {
+            what: "encoder",
+            name: "aac".to_owned(),
+        });
     }
-    if encoder::find_by_name("aac").is_some() {
-        return Ok(("aac", MIX_FORMAT));
-    }
-    Err(Error::Missing {
-        what: "encoder",
-        name: "aac".to_owned(),
-    })
+    Ok(candidates)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Encoders a test has this thread's mixes treat as failing to open,
+    /// as a machine whose Media Foundation cannot create the AAC transform
+    /// does; and the one the last mix on this thread opened.
+    static REFUSED: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
+    static OPENED: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
 }
 
 /// Mixes `clips` into one audio file at `destination`: 16-bit PCM for a
@@ -777,6 +795,55 @@ pub fn mix_to_file_until(
     mixed
 }
 
+/// `codec_name` opened for the mix at 48 kHz stereo in `mix_format`, or
+/// why it would not open, in FFmpeg's own words.
+fn open_mix_encoder(
+    codec_name: &'static str,
+    mix_format: Sample,
+    wav: bool,
+    global_header: bool,
+    destination: &Path,
+) -> Result<(ffmpeg::Codec, encoder::audio::Encoder)> {
+    let codec = encoder::find_by_name(codec_name).ok_or_else(|| Error::Missing {
+        what: "encoder",
+        name: codec_name.to_owned(),
+    })?;
+    let mut audio = ffmpeg::codec::Context::new_with_codec(codec)
+        .encoder()
+        .audio()
+        .map_err(|error| ffi::fail("audio encoder", destination, error))?;
+    audio.set_rate(MIX_RATE as i32);
+    audio.set_format(mix_format);
+    audio.set_ch_layout(ChannelLayout::STEREO);
+    if !wav {
+        audio.set_bit_rate(192_000);
+    }
+    audio.set_time_base(ffmpeg::Rational::new(1, MIX_RATE as i32));
+    if global_header {
+        audio.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
+    }
+    // FFmpeg's own Opus encoder is still marked experimental, and opens
+    // only when told that is all right; libopus needs no such word.
+    if codec_name == "opus" {
+        audio.compliance(ffmpeg::codec::Compliance::Experimental);
+    }
+    #[cfg(test)]
+    if REFUSED.with(|refused| refused.borrow().contains(&codec_name)) {
+        return Err(ffi::fail(
+            "open encoder",
+            destination,
+            ffmpeg::Error::Other {
+                errno: libc::ENOSYS,
+            },
+        ));
+    }
+    ffi::begin();
+    let encoder = audio
+        .open()
+        .map_err(|error| ffi::fail_said("open encoder", destination, error))?;
+    Ok((codec, encoder))
+}
+
 fn mix_into(
     clips: &[AudioClip],
     buses: &[AudioBus],
@@ -801,15 +868,15 @@ fn mix_into(
         }
         return android_aac::mix(clips, buses, duration, destination, cancelled);
     }
-    let (codec_name, mix_format) = if wav {
-        (
+    let candidates = if wav {
+        vec![(
             "pcm_s16le",
             Sample::I16(ffmpeg::util::format::sample::Type::Packed),
-        )
+        )]
     } else if opus {
-        opus_encoder()?
+        vec![opus_encoder()?]
     } else {
-        aac_encoder()?
+        aac_encoders()?
     };
     // A bad chain is refused before any file is opened.
     for chain in clips
@@ -820,40 +887,38 @@ fn mix_into(
         validate_chain(chain)?;
     }
 
-    // The encoder, and the file it writes into.
-    let codec = encoder::find_by_name(codec_name).ok_or_else(|| Error::Missing {
-        what: "encoder",
-        name: codec_name.to_owned(),
-    })?;
+    // The file, and the first encoder that opens for it. Nothing is
+    // written to the file until one has.
     let mut output = ffmpeg::format::output(destination)
         .map_err(|error| ffi::fail("create", destination, error))?;
     let global_header = output
         .format()
         .flags()
         .contains(ffmpeg::format::Flags::GLOBAL_HEADER);
-    let mut audio = ffmpeg::codec::Context::new_with_codec(codec)
-        .encoder()
-        .audio()
-        .map_err(|error| ffi::fail("audio encoder", destination, error))?;
-    audio.set_rate(MIX_RATE as i32);
-    audio.set_format(mix_format);
-    audio.set_ch_layout(ChannelLayout::STEREO);
-    if !wav {
-        audio.set_bit_rate(192_000);
+    let mut failure = None;
+    let mut opened = None;
+    for (codec_name, mix_format) in candidates {
+        match open_mix_encoder(codec_name, mix_format, wav, global_header, destination) {
+            Ok((codec, encoder)) => {
+                opened = Some((codec_name, mix_format, codec, encoder));
+                break;
+            }
+            Err(error) => {
+                log::warn!("{codec_name} would not open for the mix: {error}");
+                failure = Some(error);
+            }
+        }
     }
-    audio.set_time_base(ffmpeg::Rational::new(1, MIX_RATE as i32));
-    if global_header {
-        audio.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
-    }
-    // FFmpeg's own Opus encoder is still marked experimental, and opens
-    // only when told that is all right; libopus needs no such word.
-    if codec_name == "opus" {
-        audio.compliance(ffmpeg::codec::Compliance::Experimental);
-    }
-    ffi::begin();
-    let mut encoder = audio
-        .open()
-        .map_err(|error| ffi::fail_said("open encoder", destination, error))?;
+    let Some((codec_name, mix_format, codec, mut encoder)) = opened else {
+        drop(output);
+        let _ = std::fs::remove_file(destination);
+        return Err(failure.unwrap_or_else(|| Error::Missing {
+            what: "encoder",
+            name: "audio".to_owned(),
+        }));
+    };
+    #[cfg(test)]
+    OPENED.with(|opened| opened.set(Some(codec_name)));
     // PCM accepts variable-size frames. Use blocks rather than one sample
     // per packet; run_mix keeps the final block's exact sample count.
     // Windows' AAC encoder takes frames of any size too and states none,
@@ -2233,6 +2298,47 @@ mod tests {
             }
             assert!(audible, "{}: the tone is heard", codec.label());
         }
+        std::fs::remove_dir_all(dir).expect("removes test files");
+    }
+
+    #[test]
+    fn an_aac_encoder_that_will_not_open_hands_the_mix_to_the_next() {
+        // #876: on Windows, Media Foundation failing to create its AAC
+        // transform failed every MP4 export at the mix; FFmpeg's own AAC
+        // encoder, linked beside it, takes the mix now.
+        let dir = std::env::temp_dir().join(format!("concat-aac-fallback-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("creates a folder");
+        let source = dir.join("tone.wav");
+        tone_wav(&source, 0.25);
+        let piece = AudioClip {
+            path: source,
+            duration: 0.25,
+            ..clip("")
+        };
+        let output = dir.join("saved.m4a");
+        REFUSED.with(|refused| *refused.borrow_mut() = vec!["aac_mf", "aac_at"]);
+        let mixed = mix_to_file(std::slice::from_ref(&piece), 0.25, &output);
+        let opened = OPENED.with(std::cell::Cell::take);
+
+        // And with no AAC encoder that opens, the mix fails in the last
+        // one's words and leaves no file behind.
+        REFUSED.with(|refused| *refused.borrow_mut() = vec!["aac_mf", "aac_at", "aac"]);
+        let refused = dir.join("refused.m4a");
+        let none = mix_to_file(&[piece], 0.25, &refused);
+        REFUSED.with(|refused| refused.borrow_mut().clear());
+
+        mixed.expect("saves AAC through the next encoder");
+        assert_eq!(opened, Some("aac"));
+        let input = ffmpeg::format::input(&output).expect("opens the saved file");
+        let stream = input
+            .streams()
+            .best(ffmpeg::media::Type::Audio)
+            .expect("has audio");
+        assert_eq!(stream.parameters().id(), ffmpeg::codec::Id::AAC);
+        drop(input);
+        let error = none.expect_err("no encoder opens");
+        assert!(error.to_string().contains("open encoder"), "{error}");
+        assert!(!refused.exists());
         std::fs::remove_dir_all(dir).expect("removes test files");
     }
 
