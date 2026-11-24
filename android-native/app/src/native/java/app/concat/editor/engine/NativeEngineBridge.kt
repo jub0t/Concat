@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import uniffi.concat_mobile.ApiEvents
 import uniffi.concat_mobile.EditorApi
+import uniffi.concat_mobile.KeepAwake
 import uniffi.concat_mobile.Preview
+import uniffi.concat_mobile.setKeepAwake
 
 /**
  * The engine itself, through the UniFFI bindings build-rust.sh generates.
@@ -56,6 +58,11 @@ class NativeEngineBridge(context: Context) : EngineBridge {
         // Starts the phone's text-to-speech, which offers itself to read
         // aloud once it is up.
         phoneVoice = AndroidPhoneVoice(context)
+        setKeepAwake(object : KeepAwake {
+            override fun stayAwake(on: Boolean) {
+                Wakefulness.held.value = on
+            }
+        })
     }
 
     override fun call(request: String): String = api.call(request)

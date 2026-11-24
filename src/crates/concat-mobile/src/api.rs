@@ -53,6 +53,22 @@ pub fn set_phone_voice(voice: Box<dyn PhoneVoice>) {
     ));
 }
 
+/// How the phone stays awake while a job runs: an export, a transcription
+/// or a download takes minutes, and a screen that timed out half a minute
+/// in took the work down with it (#695).
+#[uniffi::export(callback_interface)]
+pub trait KeepAwake: Send + Sync {
+    /// `true` when the first job starts, `false` when the last one ends.
+    fn stay_awake(&self, on: bool);
+}
+
+/// Hands the engine the phone's way of staying awake, for every job from
+/// now on. The first call wins.
+#[uniffi::export]
+pub fn set_keep_awake(hook: Box<dyn KeepAwake>) {
+    concat_host::awake::install(Box::new(move |on| hook.stay_awake(on)));
+}
+
 /// The editor's API, as the phone app holds it: one per process.
 #[derive(uniffi::Object)]
 pub struct EditorApi {
