@@ -36,7 +36,7 @@ pub unsafe extern "system" fn Java_app_concat_editor_ConcatNative_init(
             let global = functions.NewGlobalRef.expect("NewGlobalRef")(env, context);
             ndk_context::initialize_android_context(vm.cast(), global.cast());
         }
-        log::info!("concat {} native side up", env!("CARGO_PKG_VERSION"));
+        log::info!("Concat {} starting", env!("CARGO_PKG_VERSION"));
     });
 }
 
