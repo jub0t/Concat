@@ -1309,6 +1309,12 @@ pub struct Studio {
     /// Media whose stabilization was turned on anew, so an analysis the
     /// app died in last time is tried again rather than skipped.
     stabilize_retry: HashSet<String>,
+    /// Cutout and stabilize analyses that failed, by the folder each
+    /// writes: not started again by themselves - offline, every edit
+    /// started the model's download again and said the same thing again -
+    /// until the person turns the feature on anew or the project opens
+    /// again. A changed subject or stretch is another folder, tried as new.
+    failed_analyses: HashSet<std::path::PathBuf>,
     /// The mask the Mask section and the monitor work on, by id: see
     /// `masks`. None, or an id the selected clip does not have, is its
     /// first.
@@ -3215,6 +3221,7 @@ impl Studio {
             curve_selected: (String::new(), Vec::new()),
             speed_grabbed: None,
             stabilize_retry: HashSet::new(),
+            failed_analyses: HashSet::new(),
             mask_focus: None,
             enhance_jobs: HashMap::new(),
             enhance_scale: 0.0,

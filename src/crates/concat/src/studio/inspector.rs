@@ -68,6 +68,7 @@ impl Studio {
                 // Turned on anew: a measurement the app died in is tried
                 // again, since the person asked.
                 self.stabilize_retry.insert(media_id);
+                self.failed_analyses.clear();
             }
             // Where the playhead sits in the clip: a keyed property is written
             // there, as a key.

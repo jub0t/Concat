@@ -427,6 +427,7 @@ impl Studio {
         self.cutout_jobs.clear();
         self.stabilize_jobs.clear();
         self.stabilize_retry.clear();
+        self.failed_analyses.clear();
         self.cancel_voices();
         self.region_job = None;
         self.picking = None;
