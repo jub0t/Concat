@@ -1696,6 +1696,17 @@ impl WgpuCompositor {
         self
     }
 
+    /// This compositor on a device whose uncaptured-error handler, the
+    /// caller's, adds one to `uncaught` for every error no scope caught:
+    /// a composite drawn under one is then known to be wrong (see
+    /// [`Compositor::render`]), as on a device this opened itself, whose
+    /// handler counts into it. A device the window opened handed its
+    /// compositor a count nothing ever added to.
+    pub fn counting(mut self, uncaught: std::sync::Arc<std::sync::atomic::AtomicU64>) -> Self {
+        self.uncaught = uncaught;
+        self
+    }
+
     /// A second compositor on this one's device, with pipelines, pools and
     /// caches of its own: work on another thread - the effect cards -
     /// shares the GPU's time with this one and nothing else, so it never

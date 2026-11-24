@@ -41,6 +41,10 @@ pub struct Gpu {
     /// Set when the device is lost, for the monitor's compositor to stop
     /// drawing on it (see `WgpuCompositor::watching`).
     pub lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// How many errors no scope caught the device has reported, for the
+    /// monitor's compositor to know a frame drawn under one is wrong (see
+    /// `WgpuCompositor::counting`).
+    pub uncaught: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Gpu {
@@ -188,9 +192,14 @@ impl Gpu {
         // An error no scope caught goes to the log too. wgpu's default
         // handler panics, and on this device that is the window's thread:
         // a texture past the limit, asked for by anything that draws on it,
-        // took the app down where a bad frame would do.
+        // took the app down where a bad frame would do. Counted for the
+        // compositors drawing on it as well, so a frame drawn under one is
+        // known to be wrong (see `WgpuCompositor::counting`).
         let on = adapter.clone();
+        let uncaught = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counted = std::sync::Arc::clone(&uncaught);
         device.on_uncaptured_error(std::sync::Arc::new(move |error: wgpu::Error| {
+            counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             log::error!(
                 "gpu: something drawing on the window's device was refused: {error}; that drawing is skipped"
             );
@@ -206,6 +215,7 @@ impl Gpu {
             device,
             queue,
             lost,
+            uncaught,
         })
     }
 
