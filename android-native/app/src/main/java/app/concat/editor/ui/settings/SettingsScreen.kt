@@ -53,6 +53,7 @@ import app.concat.editor.api.VersionInfo
 import app.concat.editor.concat
 import app.concat.editor.models.sizeLabel
 import app.concat.editor.ui.Palette
+import app.concat.editor.ui.editor.ModelFacts
 import app.concat.editor.ui.icons.ConcatIcons
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -176,11 +177,7 @@ private fun ModelRow(info: ModelInfo, progress: Float?, onDownload: () -> Unit, 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(info.label, color = Palette.text, fontWeight = FontWeight.Medium)
-                Text(
-                    listOfNotNull(info.blurb.ifBlank { null }, sizeLabel(info.sizeBytes), "English only".takeIf { info.englishOnly }).joinToString(" · "),
-                    color = Palette.muted,
-                    fontSize = 11.sp,
-                )
+                ModelFacts(info)
             }
             when {
                 progress != null -> Text("${(progress * 100).toInt()}%", color = Palette.accent, fontSize = 12.sp)

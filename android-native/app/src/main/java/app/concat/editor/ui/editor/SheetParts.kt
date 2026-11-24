@@ -53,6 +53,17 @@ fun <T> ChoiceChips(options: List<T>, selected: T, label: (T) -> String, onSelec
  * The models of one kind, one row each: picked when downloaded, a
  * Download button (and its progress) when not.
  */
+/**
+ * What a model row says under the model's name: what it is for, then its
+ * size and whether it hears English alone, each on a line of its own.
+ */
+@Composable
+fun ModelFacts(model: ModelInfo) {
+    model.blurb.ifBlank { null }?.let { Text(it, color = Palette.muted, fontSize = 11.sp) }
+    Text(sizeLabel(model.sizeBytes).replaceFirstChar { it.uppercase() }, color = Palette.muted, fontSize = 11.sp)
+    if (model.englishOnly) Text("English only", color = Palette.muted, fontSize = 11.sp)
+}
+
 @Composable
 fun ModelPicker(
     models: List<ModelInfo>,
@@ -76,12 +87,7 @@ fun ModelPicker(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(model.label, color = Palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text(
-                            listOfNotNull(model.blurb.ifBlank { null }, sizeLabel(model.sizeBytes), "English only".takeIf { model.englishOnly })
-                                .joinToString(" · "),
-                            color = Palette.muted,
-                            fontSize = 11.sp,
-                        )
+                        ModelFacts(model)
                     }
                     Spacer(Modifier.width(8.dp))
                     when {
