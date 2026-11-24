@@ -134,6 +134,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // A crash names the module it happened in on standard error, as the
     // window's does; see concat-host's crash.rs.
     concat_host::crash::catch();
+    // The engine's log on standard error, as the MCP server's: standard
+    // output stays the commands' answers, and a script's run says what the
+    // engine did - an export resumed, an encoder refused - where it used to
+    // say nothing. No file, so scripted runs never push the window's own
+    // logs out of the folder.
+    let _ = concat_host::logs::open_console(None);
     match Cli::parse().command {
         Command::Probe { path } => probe(&path),
         Command::Render {
