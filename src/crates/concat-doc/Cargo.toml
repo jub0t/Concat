@@ -13,12 +13,19 @@ description = "The document's core: whole ticks for time, typed ids that are nev
 # way.
 serde = { version = "1", features = ["derive"] }
 
+# A save is flushed through the drive's own cache on Apple systems
+# (F_FULLFSYNC), which a plain fsync stops short of; rustix says it
+# without unsafe code here.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+rustix = { version = "1.1", features = ["fs"] }
+
 [dev-dependencies]
 # The tests run long random lists of edits against a model too simple to
 # be wrong: a plain sorted map per table, copied whole at every step.
 proptest = "1"
 proptest-state-machine = "0.9"
 serde_json.workspace = true
+tempfile = "3"
 
 [lints]
 workspace = true

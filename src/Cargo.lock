@@ -1279,8 +1279,10 @@ version = "0.2.12"
 dependencies = [
  "proptest",
  "proptest-state-machine",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

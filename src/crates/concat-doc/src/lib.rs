@@ -123,6 +123,7 @@ pub mod history;
 pub mod id;
 pub mod map;
 pub mod model;
+pub mod save;
 pub mod table;
 pub mod time;
 
