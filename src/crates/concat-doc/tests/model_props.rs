@@ -4,8 +4,8 @@
 //! The model's checks and its index against slower ways of finding the
 //! same.
 //!
-//! Long random runs of edits - items placed, moved, trimmed, retimed and
-//! taken away, sounds detached, sequences nested, lanes added, reordered,
+//! Long random runs of edits - items placed, copied, moved, trimmed,
+//! retimed and taken away, sounds detached, sequences nested, lanes added, reordered,
 //! made caption lanes and taken away, files re-probed and removed, the
 //! cover set, several at once - are
 //! committed to a project. After every one:
@@ -75,6 +75,12 @@ enum Op {
         item: Index,
         lane: Index,
     },
+    /// A copy laid right after the item on its lane: with ids of its
+    /// own, or now and then a plain clone, refused when it holds any.
+    Duplicate {
+        item: Index,
+        fresh: bool,
+    },
     Move {
         item: Index,
         lane: Index,
@@ -137,6 +143,8 @@ fn simple() -> impl Strategy<Value = Op> {
             Op::Nest { lane, start, len, sequence }
         }),
         2 => (any::<Index>(), any::<Index>()).prop_map(|(item, lane)| Op::Detach { item, lane }),
+        2 => (any::<Index>(), prop::bool::weighted(0.8))
+            .prop_map(|(item, fresh)| Op::Duplicate { item, fresh }),
         6 => (any::<Index>(), any::<Index>(), 0..40_u8)
             .prop_map(|(item, lane, start)| Op::Move { item, lane, start }),
         4 => (any::<Index>(), 0..20_u8, 1..20_u8)
@@ -307,6 +315,23 @@ fn run(draft: &mut Draft<Model>, op: &Op) {
             });
             let id: ItemId = draft.mint().unwrap();
             draft.items.insert(id, sound).unwrap();
+        }
+        Op::Duplicate { item, fresh } => {
+            let Some(item) = pick(&items_of(draft), item) else {
+                return;
+            };
+            let of = Item::clone(draft.items.get(item).unwrap());
+            let mut copy = if *fresh {
+                of.with_new_ids(draft).unwrap()
+            } else {
+                of.clone()
+            };
+            let Some(end) = of.end() else {
+                return;
+            };
+            copy.start = end;
+            let id: ItemId = draft.mint().unwrap();
+            draft.items.insert(id, copy).unwrap();
         }
         Op::Move { item, lane, start } => {
             let (Some(item), Some(lane)) =

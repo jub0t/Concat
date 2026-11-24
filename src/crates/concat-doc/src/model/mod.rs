@@ -158,7 +158,8 @@
 //!     item plays whole. *a_sound_tied_to_another_file_is_refused*
 //! 43. A sound is not detached from a detached sound.
 //!     *a_sound_tied_to_a_sound_is_refused*
-//! 44. Every effect, mask and marker id is held once in the document.
+//! 44. Every effect, mask and marker id is held once in the document,
+//!     so a copy of an item takes new ones ([`Item::with_new_ids`]).
 //!     *an_effect_id_used_twice_is_refused*
 //! 45. Every effect, mask and marker id is one the document's mint made.
 //!     *a_nested_id_the_mint_never_made_is_refused*

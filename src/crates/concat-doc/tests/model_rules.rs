@@ -2551,6 +2551,98 @@ fn a_cover_is_a_step_of_undo_and_the_sequence_showing_is_not() {
     assert!(doc.cover.is_some());
 }
 
+// --- Copies --------------------------------------------------------------------
+
+/// A clip holding one of everything with an id: an effect working inside
+/// its mask, a sound filter, a transition on its cut, and a marker.
+fn clip_holding_everything(fx: &mut Fixture) -> ItemId {
+    let mut made = None;
+    fx.doc = apply(&fx.doc, |draft| {
+        let mut item = cut(fx.low, 0.0, 2.0, fx.video);
+        let mask: MaskId = draft.mint().unwrap();
+        item.masks.push(Entry::Known(Mask::circle(mask)));
+        let mut mono = Effect::new(draft.mint().unwrap(), "concat.mono");
+        mono.mask = Some(mask);
+        item.effects.push(Entry::Known(mono));
+        item.filters.push(Entry::Known(Effect::new(
+            draft.mint().unwrap(),
+            "concat.gain",
+        )));
+        item.cut_in = Some(concat_doc::model::CutIn {
+            effect: Effect::new(draft.mint().unwrap(), "concat.dissolve"),
+            len: len(0.5),
+        });
+        item.markers.push(Entry::Known(Marker {
+            id: draft.mint().unwrap(),
+            at: at(1.0),
+            len: TickDur::ZERO,
+            name: "Beat".into(),
+            color: None,
+            residual: Residual::default(),
+        }));
+        item.sound.volume = Animated::fixed(0.4);
+        let id: ItemId = draft.mint().unwrap();
+        draft.items.insert(id, item).unwrap();
+        made = Some(id);
+    });
+    made.unwrap()
+}
+
+#[test]
+fn a_copy_of_an_item_holds_ids_of_its_own() {
+    let mut fx = fixture();
+    let clip = clip_holding_everything(&mut fx);
+    let source = Item::clone(fx.doc.items.get(clip).unwrap());
+    let laid_after = |mut copy: Item| {
+        copy.start = at(2.0);
+        copy
+    };
+    // A clone holds the clip's own ids, which are the clip's.
+    let broken = refused(&fx.doc, |draft| {
+        let id: ItemId = draft.mint().unwrap();
+        draft.items.insert(id, laid_after(source.clone())).unwrap();
+    });
+    assert!(
+        broken
+            .iter()
+            .any(|v| matches!(v.rule, Rule::IdTwice { with } if with == clip.any())),
+        "{broken:?}"
+    );
+    // A copy takes new ones, and its effect works inside its own mask.
+    let mut history: History<Model, (), ()> = History::new(fx.doc.clone(), Default::default());
+    let mut draft = history.current().begin("Duplicate", Origin(0));
+    let copy = source.with_new_ids(&mut draft).unwrap();
+    let id: ItemId = draft.mint().unwrap();
+    draft.items.insert(id, laid_after(copy)).unwrap();
+    let commit = draft.commit().unwrap();
+    assert_eq!(commit.changes().nested.0.len(), source.nested_ids().len());
+    history
+        .record(commit, HistoryEntry::new(vec![], (), ()))
+        .unwrap();
+    let doc = history.current().clone();
+    let copy = doc.items.get(id).unwrap();
+    let theirs = source.nested_ids();
+    for id in copy.nested_ids() {
+        assert!(!theirs.contains(&id), "{id} is the clip's");
+        assert!(doc.contains(id));
+    }
+    let mask = copy.masks[0].known().unwrap().id;
+    assert_eq!(copy.effects[0].known().unwrap().mask, Some(mask));
+    // Everything else is the clip's.
+    let mut same = Item::clone(copy);
+    same.start = source.start;
+    assert_eq!(
+        same.picture, source.picture,
+        "the copy carries the clip's look"
+    );
+    assert_eq!(same.sound, source.sound, "and its sound");
+    assert_eq!(same.content, source.content);
+    // One step, undone whole.
+    assert_eq!(history.undo_len(), 1);
+    let undone = history.undo().unwrap();
+    assert!(undone.document.same_content(&fx.doc));
+}
+
 // --- The index -------------------------------------------------------------------
 
 #[test]
