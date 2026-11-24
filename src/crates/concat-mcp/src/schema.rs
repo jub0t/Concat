@@ -463,7 +463,10 @@ mod tests {
         // editable figures (#288), 61 KB of it the whole edit vocabulary
         // under edit_apply; cutting nested descriptions to one sentence
         // saved only 7% and lost what agents need. A type that grows past
-        // these is worth a look before it ships.
+        // these is worth a look before it ships. 2026-11-24: 190 KB, for the
+        // cover, stickers, bounds, new-lane and caption-lane commands; a
+        // caption-restyle tool was left to edit_apply rather than carry a
+        // second copy of the title style.
         let toolbox = crate::tools::Toolbox::new();
         let sizes: Vec<(String, usize)> = toolbox
             .list()
@@ -471,7 +474,7 @@ mod tests {
             .map(|tool| (tool["name"].to_string(), tool.to_string().len()))
             .collect();
         let total: usize = sizes.iter().map(|(_, size)| size).sum();
-        assert!(total < 180_000, "{total}: {sizes:?}");
+        assert!(total < 190_000, "{total}: {sizes:?}");
         for (name, size) in &sizes {
             assert!(*size < 72_000, "{name}: {size}");
         }

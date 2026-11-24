@@ -275,6 +275,13 @@ pub struct Track {
     pub visible: bool,
     /// Audio on this track is silent when true.
     pub muted: bool,
+    /// A caption lane's shared look: every caption on it is a title in
+    /// this style, its own words aside, and one change to it restyles them
+    /// all as one edit (`SetCaptionLook`). None for any other lane. The
+    /// captions stay ordinary title clips, so a build that does not know
+    /// this field still shows and exports them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captions: Option<CaptionLook>,
     /// Fields this build does not know, kept so they round-trip.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -286,9 +293,49 @@ impl Default for Track {
             id: String::new(),
             visible: true,
             muted: false,
+            captions: None,
             extra: Map::new(),
         }
     }
+}
+
+/// How the captions on a caption lane look and where they sit.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CaptionLook {
+    /// The style every caption is drawn in. Its `content` and `runs` are
+    /// not used: each caption's words, and any word styled apart, are its
+    /// own.
+    pub style: TextStyle,
+    /// How far from the frame's centre they sit, a fraction of its height,
+    /// positive down.
+    pub offset_y: f64,
+}
+
+impl CaptionLook {
+    /// `words` in this look: the style with the caption's own words and
+    /// word looks, which the look leaves alone.
+    pub fn style_for(&self, words: &str, runs: Vec<TextRun>) -> TextStyle {
+        TextStyle {
+            content: words.to_owned(),
+            runs,
+            ..self.style.clone()
+        }
+    }
+}
+
+/// One caption to place: when, for how long, and its words.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionCue {
+    /// Seconds on the timeline.
+    pub start: f64,
+    /// Seconds it stays up.
+    pub duration: f64,
+    /// What it says.
+    pub text: String,
 }
 
 /// One applied audio filter or video effect: a catalogue id plus whatever

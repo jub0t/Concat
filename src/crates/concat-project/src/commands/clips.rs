@@ -162,6 +162,106 @@ pub(super) fn apply(
             })
         }
 
+        Command::PlaceCaptions {
+            track_id,
+            look,
+            cues,
+        } => {
+            let timeline = project.active_mut();
+            let track_id = match track_id {
+                Some(id) => {
+                    let track = timeline
+                        .tracks
+                        .iter_mut()
+                        .find(|track| track.id == id)
+                        .ok_or(CommandError::TrackGone)?;
+                    track.captions.get_or_insert(look);
+                    id
+                }
+                None => {
+                    let id = fresh_track(timeline, mint);
+                    if let Some(track) = timeline.tracks.iter_mut().find(|track| track.id == id) {
+                        track.captions = Some(look);
+                    }
+                    id
+                }
+            };
+            let look = timeline
+                .track(&track_id)
+                .and_then(|track| track.captions.clone())
+                .unwrap_or_default();
+            let mut cues: Vec<CaptionCue> = cues
+                .into_iter()
+                .filter(|cue| !cue.text.trim().is_empty())
+                .collect();
+            cues.sort_by(|a, b| a.start.total_cmp(&b.start));
+            let mut placed = 0;
+            for (index, cue) in cues.iter().enumerate() {
+                let start = cue.start.max(0.0);
+                // A cue running into the next ends where the next begins.
+                let until = cues
+                    .get(index + 1)
+                    .map_or(f64::INFINITY, |next| next.start.max(0.0));
+                let duration = cue.duration.min(until - start).max(MIN_CLIP_DURATION);
+                let start = timeline.nearest_free_start(&track_id, start, duration, &[]);
+                let id = mint.next("c");
+                let words = cue.text.trim();
+                let mut clip = Clip::blank(
+                    id,
+                    track_id.clone(),
+                    ClipKind::Text,
+                    first_line(words),
+                    start,
+                    duration,
+                );
+                clip.offset_y = look.offset_y.clamp(-MAX_OFFSET, MAX_OFFSET);
+                clip.text = Some(look.style_for(words, Vec::new()));
+                timeline.clips.push(Arc::new(clip));
+                placed += 1;
+            }
+            Ok(Outcome {
+                created_id: Some(track_id),
+                applied: placed > 0,
+            })
+        }
+
+        Command::SetCaptionLook { track_id, look } => {
+            let timeline = project.active_mut();
+            let Some(track) = timeline
+                .tracks
+                .iter_mut()
+                .find(|track| track.id == track_id)
+            else {
+                return Ok(Outcome::default());
+            };
+            let mut applied = track.captions != look;
+            track.captions = look.clone();
+            if let Some(look) = look {
+                let offset_y = look.offset_y.clamp(-MAX_OFFSET, MAX_OFFSET);
+                for clip in timeline.clips.iter_mut() {
+                    if clip.track_id != track_id || clip.kind != ClipKind::Text {
+                        continue;
+                    }
+                    let (words, runs) = clip
+                        .text
+                        .as_ref()
+                        .map(|text| (text.content.clone(), text.runs.clone()))
+                        .unwrap_or_default();
+                    let style = look.style_for(&words, runs);
+                    if clip.text.as_ref() != Some(&style) || clip.offset_y != offset_y {
+                        let clip = Arc::make_mut(clip);
+                        clip.text = Some(style);
+                        clip.offset_y = offset_y;
+                        applied = true;
+                    }
+                }
+            }
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
         Command::AddShapeClip {
             track_id,
             above,
@@ -1083,9 +1183,7 @@ fn fresh_track(timeline: &mut Timeline, mint: &mut IdMint) -> String {
     let id = mint.next("t");
     timeline.tracks.push(Track {
         id: id.clone(),
-        visible: true,
-        muted: false,
-        extra: Default::default(),
+        ..Track::default()
     });
     id
 }

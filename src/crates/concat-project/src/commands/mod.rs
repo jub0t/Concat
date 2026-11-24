@@ -13,10 +13,11 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Background, BeatMarks, Clip, ClipKind, ClipMotion, ColorRange,
-    ColorSpace, Cover, Crop, CustomFont, Cutout, CutoutMode, Enhanced, Framing, KeyEase,
-    KeyProperty, Mask, MediaItem, MediaKind, MediaOrigin, Project, RunStyle, ShapeStyle,
-    SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings, VoiceMix,
+    AppliedFilter, AudioTrack, Background, BeatMarks, CaptionCue, CaptionLook, Clip, ClipKind,
+    ClipMotion, ColorRange, ColorSpace, Cover, Crop, CustomFont, Cutout, CutoutMode, Enhanced,
+    Framing, KeyEase, KeyProperty, Mask, MediaItem, MediaKind, MediaOrigin, Project, RunStyle,
+    ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track, Transition,
+    VideoSettings, VoiceMix,
 };
 
 mod audio;
@@ -407,6 +408,34 @@ pub enum Command {
         /// What the lane calls it: the figure's name in the interface's
         /// language, which the document cannot know.
         name: String,
+    },
+    /// Lays captions on a caption lane, as one edit: each a title clip in
+    /// the lane's look with its own words. With no `trackId` a caption
+    /// lane is made on top for them and `look` is its look; a lane named
+    /// keeps the look it has, or takes `look` when it has none. Cues are
+    /// laid in time order; one that runs into the next ends where the next
+    /// begins, and one that would land on a clip already there moves to
+    /// the nearest gap. Cues with no words are left out. `createdId` is the
+    /// lane's id.
+    PlaceCaptions {
+        /// The lane; None makes a caption lane on top.
+        #[serde(default)]
+        track_id: Option<String>,
+        /// The look a new caption lane takes.
+        look: CaptionLook,
+        /// What to say, and when.
+        cues: Vec<CaptionCue>,
+    },
+    /// Sets a caption lane's look and restyles every title on it to match,
+    /// each keeping its words and any word styled apart: what "apply to
+    /// all" is, as one small edit however many captions there are. None
+    /// makes it a plain lane again and leaves its titles as they are. An
+    /// unknown lane is a no-op.
+    SetCaptionLook {
+        /// The lane.
+        track_id: String,
+        /// The look, or None.
+        look: Option<CaptionLook>,
     },
     /// Places a layer: a look or an effect over a span of the timeline that
     /// treats everything beneath it. No media; the chain starts as the one
@@ -1203,6 +1232,19 @@ impl Command {
         fn bad(values: impl IntoIterator<Item = f64>) -> bool {
             values.into_iter().any(|value| !value.is_finite())
         }
+        // A look's numbers are a title's: checked as the title they make.
+        fn bad_look(look: &CaptionLook) -> bool {
+            !look.offset_y.is_finite()
+                || Command::AddTextClip {
+                    track_id: None,
+                    above: true,
+                    start: 0.0,
+                    style: Some(look.style.clone()),
+                    duration: None,
+                    offset_y: None,
+                }
+                .has_non_finite()
+        }
         fn bad_stroke(stroke: &Stroke) -> bool {
             bad([stroke.size]) || bad(stroke.at) || stroke.points.iter().any(|point| bad(*point))
         }
@@ -1363,6 +1405,12 @@ impl Command {
             Command::SetCover {
                 cover: Some(Cover::Frame { time }),
             } => bad([*time]),
+            Command::PlaceCaptions { look, cues, .. } => {
+                cues.iter().any(|cue| bad([cue.start, cue.duration])) || bad_look(look)
+            }
+            Command::SetCaptionLook {
+                look: Some(look), ..
+            } => bad_look(look),
             _ => false,
         }
     }
@@ -1428,6 +1476,8 @@ pub fn apply(
         | Command::AddClipAtFirstFree { .. }
         | Command::AddClipsInSequence { .. }
         | Command::AddTextClip { .. }
+        | Command::PlaceCaptions { .. }
+        | Command::SetCaptionLook { .. }
         | Command::AddShapeClip { .. }
         | Command::AddLayerClip { .. }
         | Command::AddTransitionClip { .. }

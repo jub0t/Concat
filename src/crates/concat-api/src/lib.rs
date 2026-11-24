@@ -1165,7 +1165,9 @@ impl Api {
         placement: Option<&str>,
         size: Option<&str>,
     ) -> Result<EditorView, ApiError> {
-        use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, Heard, caption_commands};
+        use concat_host::captions::{
+            CAPTION_OFFSETS, CAPTION_SIZES, Heard, heard_cues, place_captions,
+        };
         let offset = match placement.unwrap_or("bottom") {
             "bottom" => CAPTION_OFFSETS[0],
             "middle" => CAPTION_OFFSETS[1],
@@ -1202,11 +1204,12 @@ impl Api {
                 text: segment.text.clone(),
             })
             .collect();
-        let commands = caption_commands(&heard, start, speed, (offset, font_size), None);
-        if commands.is_empty() {
+        let Some(command) =
+            place_captions(heard_cues(&heard, start, speed), (offset, font_size), None)
+        else {
             return Err(ApiError::invalid("there are no words to place"));
-        }
-        self.apply(path, Command::Batch { commands })
+        };
+        self.apply(path, command)
     }
 
     /// [`Request::ModelsList`].

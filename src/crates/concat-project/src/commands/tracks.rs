@@ -20,9 +20,7 @@ pub(super) fn apply(
             let id = mint.next("t");
             let track = Track {
                 id: id.clone(),
-                visible: true,
-                muted: false,
-                extra: Default::default(),
+                ..Track::default()
             };
             // The stack is stored bottom first: the last track is the lane
             // drawn on top.

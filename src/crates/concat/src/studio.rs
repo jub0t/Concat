@@ -2018,6 +2018,9 @@ fn command_kind(command: &Command) -> &'static str {
                 "Unmute track"
             }
         }
+        Command::PlaceCaptions { .. } => "Add captions",
+        Command::SetCaptionLook { look: Some(_), .. } => "Caption style",
+        Command::SetCaptionLook { look: None, .. } => "Captions to titles",
         Command::SetCover { cover: Some(_) } => "Set cover",
         Command::SetCover { cover: None } => "Cover from the edit",
         Command::AddTimeline => "New timeline",
