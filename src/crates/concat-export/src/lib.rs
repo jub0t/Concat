@@ -1234,40 +1234,76 @@ pub fn render_on(
     // that failed - the disk full, a read error - left a truncated file
     // where the previous export had been (audit 2026-10-09, finding 4).
     let result = (|| -> Result<(), Halt> {
-        op.step("render");
-        render_picture(
-            request,
-            compositor,
-            rate,
-            total_frames,
-            &visible,
-            transitions,
-            &silent,
-            plan.as_ref(),
-            &mut reporter,
-            &mut spent,
-        )?;
+        // The sound is mixed on a thread of its own while the picture is
+        // drawn: it needs nothing of the picture, and mixed after it, every
+        // export took its whole mix on top - on a phone, a third of the
+        // export. Cancel is asked at every frame of the mix, so a long
+        // timeline's stops within the frame it is on; a picture that fails
+        // stops the mix the same way.
+        let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
+        let buses = audio_buses(&resolved);
+        let cancel = reporter.cancel;
+        let picture_failed = AtomicBool::new(false);
+        let (picture, sound_mixed) = std::thread::scope(|scope| {
+            let mixing = (!sound.is_empty()).then(|| {
+                let (mix, buses, mixed, picture_failed) = (&mix, &buses, &mixed, &picture_failed);
+                std::thread::Builder::new()
+                    .name("export mix".to_owned())
+                    .spawn_scoped(scope, move || {
+                        let began = std::time::Instant::now();
+                        audio::mix_to_file_until(mix, buses, timeline_end.as_f64(), mixed, &|| {
+                            cancel.load(Ordering::Relaxed) || picture_failed.load(Ordering::Relaxed)
+                        })
+                        .map(|()| began.elapsed())
+                    })
+            });
+            op.step("render");
+            let picture = render_picture(
+                request,
+                compositor,
+                rate,
+                total_frames,
+                &visible,
+                transitions,
+                &silent,
+                plan.as_ref(),
+                &mut reporter,
+                &mut spent,
+            );
+            if picture.is_err() {
+                picture_failed.store(true, Ordering::Relaxed);
+            }
+            let sound_mixed = mixing.map(|spawned| {
+                let thread = spawned.map_err(|error| {
+                    Halt::Failed(format!("could not start the sound's mix: {error}"))
+                })?;
+                if picture.is_ok() && !thread.is_finished() {
+                    // What is left of the mix once the picture is done.
+                    reporter.emit(0, total_frames, "mixing audio");
+                    op.step("mix audio");
+                }
+                match thread.join() {
+                    Ok(mixed) => mixed.map_err(Halt::from),
+                    Err(_) => Err(Halt::Failed("the sound's mix panicked".to_owned())),
+                }
+            });
+            (picture, sound_mixed)
+        });
+        picture?;
 
-        let finished = if sound.is_empty() {
-            &silent
-        } else {
-            reporter.cancelled()?;
-            reporter.emit(0, total_frames, "mixing audio");
-            op.step("mix audio");
-            let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
-            let buses = audio_buses(&resolved);
-            // Cancel is asked at every frame of the mix, so a long
-            // timeline's stops within the frame it is on.
-            let cancel = reporter.cancel;
-            audio::mix_to_file_until(&mix, &buses, timeline_end.as_f64(), &mixed, &|| {
-                cancel.load(Ordering::Relaxed)
-            })?;
-
-            reporter.cancelled()?;
-            reporter.emit(total_frames, total_frames, "muxing");
-            op.step("mux");
-            audio::mux(&silent, &mixed, &muxed).map_err(|error| error.to_string())?;
-            &muxed
+        let finished = match sound_mixed {
+            None => &silent,
+            Some(took) => {
+                op.note(format_args!(
+                    "sound mixed alongside the picture in {}",
+                    concat_log::span(took?)
+                ));
+                reporter.cancelled()?;
+                reporter.emit(total_frames, total_frames, "muxing");
+                op.step("mux");
+                audio::mux(&silent, &mixed, &muxed).map_err(|error| error.to_string())?;
+                &muxed
+            }
         };
         op.end_step();
         std::fs::rename(finished, &output)
