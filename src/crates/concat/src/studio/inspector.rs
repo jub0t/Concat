@@ -21,7 +21,12 @@ impl Studio {
         if self.mask_set(field, f64::from(value)) {
             return;
         }
-        let mut ids = self.edit_targets();
+        // A title's look on a caption is every caption's on its lane.
+        let mut ids = if text_style_field(field) {
+            self.style_targets()
+        } else {
+            self.edit_targets()
+        };
         // A batch of sounds takes the level alone; see `batch_volume`.
         let batch_volume = ids.is_empty() && field == ClipField::Volume;
         if batch_volume {
@@ -428,7 +433,12 @@ impl Studio {
     }
 
     fn set_text_at(&mut self, field: ClipTextField, value: &str, caret: Option<usize>) {
-        let ids = self.edit_targets();
+        // The words are the caption's own; its face is its lane's.
+        let ids = if field == ClipTextField::Content {
+            self.edit_targets()
+        } else {
+            self.style_targets()
+        };
         if ids.is_empty() {
             return;
         }
@@ -482,6 +492,33 @@ impl Studio {
         self.commit_pending = true;
         self.request_preview();
     }
+}
+
+/// Whether `field` is part of a title's look - what a caption shares with
+/// every caption on its lane - rather than its placement, timing or chain.
+fn text_style_field(field: ClipField) -> bool {
+    matches!(
+        field,
+        ClipField::FontSize
+            | ClipField::FontWeight
+            | ClipField::Italic
+            | ClipField::Underline
+            | ClipField::Strikethrough
+            | ClipField::TextCase
+            | ClipField::TextOpacity
+            | ClipField::Align
+            | ClipField::StrokeWidth
+            | ClipField::Shadow
+            | ClipField::LineHeight
+            | ClipField::Tracking
+            | ClipField::TextWidth
+            | ClipField::TextHeight
+            | ClipField::StrokeOpacity
+            | ClipField::BackgroundOpacity
+            | ClipField::BackgroundRadius
+            | ClipField::BackgroundPaddingX
+            | ClipField::BackgroundPaddingY
+    )
 }
 
 /// One of the Shape section's numbers onto `shape`. A switch turned on

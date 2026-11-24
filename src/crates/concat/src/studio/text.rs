@@ -137,7 +137,8 @@ impl Studio {
             self.style_words(&id, start, end, &patch);
             return;
         }
-        let ids = self.edit_targets();
+        // A caption's colours are its lane's: every caption's.
+        let ids = self.style_targets();
         if ids.is_empty() {
             return;
         }
@@ -383,6 +384,31 @@ impl Studio {
         }
         if commands.is_empty() {
             return;
+        }
+        // A caption lane restyled (the batch `style_targets` made of it):
+        // its look follows, so the lane keeps
+        // one look and captions laid on it later take this one.
+        if ids.len() > 1
+            && let Some(first) = ids.first()
+            && let Some(after) = echo.active().clip(first)
+            && let Some(style) = after.text.as_ref()
+            && let Some(track) = self.timeline().track(&after.track_id)
+            && let Some(look) = track.captions.as_ref()
+        {
+            let next = model::CaptionLook {
+                style: TextStyle {
+                    content: String::new(),
+                    runs: Vec::new(),
+                    ..style.clone()
+                },
+                offset_y: look.offset_y,
+            };
+            if next.style != look.style {
+                commands.push(Command::SetCaptionLook {
+                    track_id: after.track_id.clone(),
+                    look: Some(next),
+                });
+            }
         }
         // One undo step per gesture, not per pointer move: a commit that
         // changes the same things on the same clips as the last, within a

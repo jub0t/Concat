@@ -372,6 +372,42 @@ impl Studio {
             .collect()
     }
 
+    /// The titles a change to a title's look writes to: [`Self::edit_targets`],
+    /// except that a caption selected alone stands for every title on its
+    /// caption lane - a caption lane has one look, so restyling a caption
+    /// restyles them all (`Track::captions`), as one undo step. Its words,
+    /// effects, masks and keys stay its own; only the look is shared.
+    pub fn style_targets(&self) -> Vec<String> {
+        let ids = self.edit_targets();
+        let [only] = ids.as_slice() else {
+            return ids;
+        };
+        let Some(clip) = self.clip(only) else {
+            return ids;
+        };
+        let lane = clip.track_id.clone();
+        let caption_lane = clip.kind == model::ClipKind::Text
+            && !self.locked(&lane)
+            && self
+                .timeline()
+                .track(&lane)
+                .is_some_and(|track| track.captions.is_some());
+        if !caption_lane {
+            return ids;
+        }
+        let mut lane_titles: Vec<String> = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|other| other.track_id == lane && other.kind == model::ClipKind::Text)
+            .map(|other| other.id.clone())
+            .collect();
+        // The selected one first: a batch's knobs read the first clip.
+        lane_titles.retain(|id| id != only);
+        lane_titles.insert(0, only.clone());
+        lane_titles
+    }
+
     pub(super) fn volume_targets(&self) -> Vec<String> {
         crate::batch_volume::targets(self.project(), &self.selection, |track| self.locked(track))
     }
