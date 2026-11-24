@@ -130,11 +130,15 @@ fn reapply_ui_scale(delay: std::time::Duration) {
 /// was pressed then takes the focus itself if it wants it - another input
 /// does, so a click from one field into the next still lands a caret.
 ///
-/// And on Linux, the window's edges. X11 and Wayland take the resize
-/// borders away with the decorations, where Windows keeps them, so a
-/// press within a few pixels of the frame is handed to the window manager
-/// as a resize (winit's `drag_resize_window`) before Slint sees it, and
-/// the pointer wears the matching arrow while it is there.
+/// And on Linux and Windows, the window's edges. X11 and Wayland take the
+/// resize borders away with the decorations, and so, in effect, does
+/// Windows: winit keeps WS_THICKFRAME on an undecorated window but makes
+/// its client area the whole window, so Windows finds client area at
+/// every edge and corner and nothing a pixel outside, and the window could
+/// be maximised but not resized (#878). A press within a few pixels of the
+/// frame is handed to the window manager as a resize (winit's
+/// `drag_resize_window`) before Slint sees it, and the pointer wears the
+/// matching arrow while it is there.
 #[cfg(not(target_os = "android"))]
 struct DropHandler {
     pending: Vec<PathBuf>,
@@ -159,7 +163,8 @@ struct DropHandler {
     on_focused: Box<dyn Fn()>,
     /// The event loop is ending, by any road: see `start` in lib.rs.
     on_exiting: Box<dyn Fn()>,
-    /// Whether this window draws its own resize edges: Linux, undecorated.
+    /// Whether this window draws its own resize edges: Linux and Windows,
+    /// undecorated.
     edges: bool,
     /// The edge the pointer is on, while it is on one.
     edge: Option<ResizeDirection>,
@@ -227,11 +232,7 @@ impl DropHandler {
             on_pressed_away: Box::new(on_pressed_away),
             on_focused: Box::new(on_focused),
             on_exiting: Box::new(on_exiting),
-            edges: cfg!(not(any(
-                target_os = "macos",
-                target_os = "windows",
-                target_os = "ios"
-            ))) && !phone(),
+            edges: cfg!(not(any(target_os = "macos", target_os = "ios"))) && !phone(),
             edge: None,
         }
     }
@@ -554,9 +555,11 @@ pub fn select_backend(
     //
     // Everywhere else the decorations go entirely and the strip carries its
     // own minimise, maximise and close. On Windows winit keeps WS_SIZEBOX
-    // when the caption goes, so the edges still resize, and the undecorated
-    // shadow keeps the DWM drop shadow the caption would otherwise have
-    // taken with it.
+    // when the caption goes, but no border of the window is left outside
+    // its client area for it to act on, so the window resizes from its own
+    // edges as on Linux (see `DropHandler`, #878); the undecorated shadow
+    // keeps the DWM drop shadow the caption would otherwise have taken
+    // with it.
     //
     // The attributes below are the window's first state; what keeps the
     // decorations off is the Slint window's `no-frame` (app.slint), which
