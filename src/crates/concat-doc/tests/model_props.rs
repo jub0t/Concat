@@ -5,8 +5,9 @@
 //! same.
 //!
 //! Long random runs of edits - items placed, moved, trimmed, retimed and
-//! taken away, sounds detached, sequences nested, lanes added, reordered
-//! and taken away, files re-probed and removed, several at once - are
+//! taken away, sounds detached, sequences nested, lanes added, reordered,
+//! made caption lanes and taken away, files re-probed and removed,
+//! several at once - are
 //! committed to a project. After every one:
 //!
 //! - the commit was accepted exactly when the same tables, read as a
@@ -22,9 +23,9 @@ mod fixture;
 use std::sync::Arc;
 
 use concat_doc::model::{
-    Content, Effect, EffectId, Item, ItemId, Items, Lane, LaneId, Lanes, Link, LinkKind, Mask,
-    MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Sequence, SequenceId, Speed, Take, TimeMap,
-    Title,
+    CaptionLook, Content, Effect, EffectId, Item, ItemId, Items, Lane, LaneId, Lanes, Link,
+    LinkKind, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Sequence, SequenceId, Speed,
+    Take, TimeMap, Title,
 };
 use concat_doc::{
     Document, Draft, MAX_COUNTER, Mint, Origin, Rejected, TICKS_PER_SECOND, Tick, TickLen, Writer,
@@ -105,6 +106,12 @@ enum Op {
         media: Index,
     },
     AddSequence,
+    /// A lane made a caption lane, or a plain one again; now and then
+    /// with a look that has words, which is refused.
+    Captions {
+        lane: Index,
+        look: u8,
+    },
     RemoveSequence {
         sequence: Index,
     },
@@ -135,6 +142,7 @@ fn simple() -> impl Strategy<Value = Op> {
         1 => (any::<Index>(), 1..60_u8).prop_map(|(media, len)| Op::Reprobe { media, len }),
         1 => any::<Index>().prop_map(|media| Op::RemoveMedia { media }),
         1 => Just(Op::AddSequence),
+        1 => (any::<Index>(), 0..4_u8).prop_map(|(lane, look)| Op::Captions { lane, look }),
         1 => any::<Index>().prop_map(|sequence| Op::RemoveSequence { sequence }),
     ]
 }
@@ -387,6 +395,19 @@ fn run(draft: &mut Draft<Model>, op: &Op) {
                 .lanes
                 .insert(lane, Lane::new(id, OrderKey::middle()))
                 .unwrap();
+        }
+        Op::Captions { lane, look } => {
+            if let Some(lane) = pick(&lanes_of(draft), lane) {
+                let look = match look {
+                    0 => None,
+                    1 => Some(CaptionLook {
+                        title: Title::default(),
+                        offset_y: 0.0,
+                    }),
+                    _ => Some(CaptionLook::default()),
+                };
+                draft.lanes.update(lane, |l| l.captions = look).unwrap();
+            }
         }
         Op::RemoveSequence { sequence } => {
             if let Some(sequence) = pick(&sequences_of(draft), sequence) {

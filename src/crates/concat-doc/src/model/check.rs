@@ -198,6 +198,9 @@ pub enum Rule {
         /// Which run, counted from zero.
         index: usize,
     },
+    /// A caption lane's look holds words or runs of its own, which are
+    /// each caption's.
+    CaptionWords,
     /// A sequence is open in two tabs.
     TabTwice,
     /// The document has sequences and none is showing.
@@ -597,6 +600,15 @@ pub(crate) fn lanes(cx: &mut Check<'_>) {
             .collect();
         for other in others {
             cx.fault(id, Rule::LaneOrderTaken { with: other });
+        }
+        if let Some(look) = &lane.captions {
+            let any = id.any();
+            // Its numbers are a title's, and where it sits an offset's.
+            title(cx, any, &look.title);
+            cx.number(any, "captions.offset_y", look.offset_y, Domain::Any);
+            if !look.title.content.is_empty() || !look.title.runs.is_empty() {
+                cx.fault(any, Rule::CaptionWords);
+            }
         }
     }
     // A lane that went takes nothing with it, and what was beneath a

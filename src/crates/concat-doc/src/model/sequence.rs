@@ -10,6 +10,7 @@ use crate::document::Weigh;
 use crate::time::{Rate, Tick, TickDur};
 
 use super::ids::{Entry, MarkerId, MediaId, Raw, Residual, SequenceId};
+use super::look::CaptionLook;
 use super::media::ColorSpace;
 use super::order::OrderKey;
 
@@ -137,7 +138,7 @@ impl Background {
 }
 
 /// A lane: one layer of a sequence's stack. Any kind of item goes on
-/// any lane.
+/// any lane, a caption lane included.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Lane {
     /// The sequence it is in. A lane stays in the sequence it was made
@@ -150,18 +151,23 @@ pub struct Lane {
     pub visible: bool,
     /// Whether its sound is silent.
     pub muted: bool,
+    /// A caption lane's look, which its captions are placed in and
+    /// restyled to as one edit; none for any other lane.
+    pub captions: Option<CaptionLook>,
     /// Fields this build does not know.
     pub residual: Residual,
 }
 
 impl Lane {
-    /// A visible, sounding lane of a sequence, at a place in its stack.
+    /// A visible, sounding lane of a sequence, at a place in its stack,
+    /// not a caption lane.
     pub fn new(sequence: SequenceId, order: OrderKey) -> Lane {
         Lane {
             sequence,
             order,
             visible: true,
             muted: false,
+            captions: None,
             residual: Residual::default(),
         }
     }
@@ -232,7 +238,10 @@ impl Weigh for Sequence {
 
 impl Weigh for Lane {
     fn weight(&self) -> usize {
-        std::mem::size_of::<Lane>() + self.order.as_str().len() + self.residual.weight()
+        let look = self.captions.as_ref().map_or(0, |look| {
+            std::mem::size_of::<CaptionLook>() + look.title.font_family.len()
+        });
+        std::mem::size_of::<Lane>() + self.order.as_str().len() + look + self.residual.weight()
     }
 }
 

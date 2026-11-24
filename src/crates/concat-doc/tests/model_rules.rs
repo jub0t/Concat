@@ -11,11 +11,12 @@ mod fixture;
 use std::collections::BTreeMap;
 
 use concat_doc::model::{
-    Animated, Background, BrushTool, Color, Content, Crop, Cutout, CutoutMode, Ease, Effect,
-    EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind, Loop, Marker,
-    MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw, Residual, Rule,
-    Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke, Subject, TICK_LIMIT,
-    Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind, VoiceMix,
+    Animated, Background, BrushTool, CaptionLook, Color, Content, Crop, Cutout, CutoutMode, Ease,
+    Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind, Loop,
+    Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw, Residual,
+    Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke, Subject,
+    TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind,
+    VoiceMix,
 };
 use concat_doc::{
     ChangeSet, Document, Entry as HistoryEntry, History, Origin, Recorded, Rejected, Tick, TickDur,
@@ -1379,6 +1380,25 @@ fn a_number_that_is_not_a_number_is_refused() {
                 .unwrap();
         },
     );
+    // Where a caption lane's captions sit.
+    assert_refused(
+        &fx.doc,
+        fx.high,
+        Rule::NotFinite {
+            what: "captions.offset_y",
+        },
+        |draft| {
+            draft
+                .lanes
+                .update(fx.high, |lane| {
+                    lane.captions = Some(CaptionLook {
+                        offset_y: f64::NAN,
+                        ..CaptionLook::default()
+                    })
+                })
+                .unwrap();
+        },
+    );
 }
 
 /// One field set outside what it can mean, and the name the refusal
@@ -1690,6 +1710,27 @@ fn numbers_outside_their_field_are_refused() {
                 .unwrap();
         },
     );
+    // A caption lane's look, as the title it makes.
+    for (what, change) in [
+        (
+            "title.font_size",
+            Box::new(|t: &mut Title| t.font_size = 0.0) as Box<dyn Fn(&mut Title)>,
+        ),
+        ("title.font_weight", Box::new(|t| t.font_weight = 950.0)),
+        ("title.opacity", Box::new(|t| t.opacity = 2.0)),
+        ("title.plate_radius", Box::new(|t| t.plate_radius = -0.1)),
+    ] {
+        assert_refused(&fx.doc, fx.high, Rule::OutOfBounds { what }, |draft| {
+            draft
+                .lanes
+                .update(fx.high, |lane| {
+                    let mut look = CaptionLook::default();
+                    change(&mut look.title);
+                    lane.captions = Some(look);
+                })
+                .unwrap();
+        });
+    }
 }
 
 #[test]
@@ -2255,6 +2296,159 @@ fn a_font_added_twice_is_refused() {
             }
         }]
     );
+}
+
+// --- 49. Captions -------------------------------------------------------------
+
+#[test]
+fn a_caption_look_with_words_is_refused() {
+    let fx = fixture();
+    assert_refused(&fx.doc, fx.high, Rule::CaptionWords, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| {
+                lane.captions = Some(CaptionLook {
+                    title: Title::default(),
+                    offset_y: 0.3,
+                })
+            })
+            .unwrap();
+    });
+    assert_refused(&fx.doc, fx.high, Rule::CaptionWords, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| {
+                let mut look = CaptionLook::default();
+                look.title.runs = vec![TextRun {
+                    start: 0,
+                    end: 1,
+                    ..TextRun::default()
+                }];
+                lane.captions = Some(look);
+            })
+            .unwrap();
+    });
+    // The look alone, with no words, is a caption lane.
+    let doc = apply(&fx.doc, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| lane.captions = Some(CaptionLook::default()))
+            .unwrap();
+    });
+    assert!(doc.lanes.get(fx.high).unwrap().captions.is_some());
+}
+
+/// A caption lane's captions in the look given: ordinary titles, each
+/// with its own words, placed one after another.
+fn captions_in(fx: &mut Fixture, look: &CaptionLook, words: &[&str]) -> Vec<ItemId> {
+    let mut made = Vec::new();
+    fx.doc = apply(&fx.doc, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| lane.captions = Some(look.clone()))
+            .unwrap();
+        for (n, said) in words.iter().enumerate() {
+            let mut caption = Item::new(
+                fx.high,
+                at(n as f64),
+                len(1.0),
+                Content::Title(look.title_for(*said, Vec::new())),
+            );
+            caption.picture.offset_y = Animated::fixed(look.offset_y);
+            let id: ItemId = draft.mint().unwrap();
+            draft.items.insert(id, caption).unwrap();
+            made.push(id);
+        }
+    });
+    made
+}
+
+#[test]
+fn a_caption_lane_restyled_is_one_step_and_each_caption_keeps_its_words() {
+    let mut fx = fixture();
+    let look = CaptionLook {
+        offset_y: 0.35,
+        ..CaptionLook::default()
+    };
+    let captions = captions_in(&mut fx, &look, &["Hello", "there", "again"]);
+    // One word of the second styled apart, which a restyle keeps.
+    let red = TextRun {
+        start: 0,
+        end: 5,
+        color: Some(Color::rgb(255, 0, 0)),
+        ..TextRun::default()
+    };
+    fx.doc = apply(&fx.doc, |draft| {
+        draft
+            .items
+            .update(captions[1], |item| title_of(item).runs = vec![red.clone()])
+            .unwrap();
+    });
+    let mut history: History<Model, (), ()> = History::new(fx.doc.clone(), Default::default());
+
+    // "Apply to all": the lane's look and every caption on it, one change.
+    let mut bold = look.clone();
+    bold.title.font_weight = 900.0;
+    bold.title.plate = Some(Color::BLACK);
+    bold.offset_y = -0.35;
+    let mut draft = history.current().begin("Restyle captions", Origin(0));
+    draft
+        .lanes
+        .update(fx.high, |lane| lane.captions = Some(bold.clone()))
+        .unwrap();
+    for id in &captions {
+        draft
+            .items
+            .update(*id, |item| {
+                let title = title_of(item);
+                *title = bold.title_for(title.content.clone(), title.runs.clone());
+                item.picture.offset_y = Animated::fixed(bold.offset_y);
+            })
+            .unwrap();
+    }
+    let commit = draft.commit().unwrap();
+    assert_eq!(commit.changes().lanes.replaced.len(), 1);
+    assert_eq!(commit.changes().items.replaced.len(), 3);
+    history
+        .record(commit, HistoryEntry::new(vec![], (), ()))
+        .unwrap();
+    assert_eq!(history.undo_len(), 1);
+    let doc = history.current().clone();
+    let words: Vec<(String, Vec<TextRun>, f64)> = captions
+        .iter()
+        .map(|id| {
+            let item = doc.items.get(*id).unwrap();
+            let Content::Title(title) = &item.content else {
+                panic!("a caption is a title");
+            };
+            assert_eq!(title.font_weight, 900.0);
+            assert_eq!(title.plate, Some(Color::BLACK));
+            (
+                title.content.clone(),
+                title.runs.clone(),
+                item.picture.offset_y.value,
+            )
+        })
+        .collect();
+    assert_eq!(
+        words,
+        vec![
+            ("Hello".into(), vec![], -0.35),
+            ("there".into(), vec![red], -0.35),
+            ("again".into(), vec![], -0.35),
+        ]
+    );
+    // Undone, the lane and its captions are as they were.
+    let undone = history.undo().unwrap();
+    assert!(undone.document.same_content(&fx.doc));
+    // A plain lane again: the captions stay, as titles.
+    let plain = apply(&fx.doc, |draft| {
+        draft
+            .lanes
+            .update(fx.high, |lane| lane.captions = None)
+            .unwrap();
+    });
+    assert_eq!(plain.items.index().on_lane(fx.high).count(), 3);
 }
 
 // --- The index -------------------------------------------------------------------

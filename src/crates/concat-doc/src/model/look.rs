@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 
 //! What titles and shapes are: the two items that draw their own
-//! picture.
+//! picture. And the look a caption lane gives the titles on it.
 //!
 //! Sizes are shares of the frame's height (a title's line length of its
 //! width), so what was composed against one frame size lands the same at
@@ -93,6 +93,50 @@ impl Default for Title {
             plate_padding_y: 0.018,
             plate_radius: 0.0135,
             runs: Vec::new(),
+        }
+    }
+}
+
+/// How the captions on a caption lane look and where they sit: the one
+/// look that restyling the lane gives every caption on it.
+///
+/// The captions themselves stay ordinary titles on the lane, each with
+/// the whole of its look, so whatever draws a title draws a caption, and
+/// a caption restyled on its own is a title like any other. The lane's
+/// look is what the next caption placed there takes, and what "apply to
+/// all" puts back on every one.
+#[derive(Clone, PartialEq, Debug)]
+pub struct CaptionLook {
+    /// The look, as a title holds it. It has no words and no runs of its
+    /// own: each caption's words, and any of them styled apart, are the
+    /// caption's.
+    pub title: Title,
+    /// Down from centred, as a share of the frame's height: where a
+    /// caption's `picture.offset_y` is put.
+    pub offset_y: f64,
+}
+
+impl CaptionLook {
+    /// A caption of these words in this look: the look's title, with the
+    /// words and the stretches of them styled apart.
+    pub fn title_for(&self, words: impl Into<String>, runs: Vec<TextRun>) -> Title {
+        Title {
+            content: words.into(),
+            runs,
+            ..self.title.clone()
+        }
+    }
+}
+
+impl Default for CaptionLook {
+    /// A title's own look, with no words, centred.
+    fn default() -> CaptionLook {
+        CaptionLook {
+            title: Title {
+                content: String::new(),
+                ..Title::default()
+            },
+            offset_y: 0.0,
         }
     }
 }

@@ -18,7 +18,7 @@
 //! |---|---|---|
 //! | `media` | [`Media`] | a file in the bin and what its probe found |
 //! | `sequences` | [`Sequence`] | a timeline: frame, rate, background, markers |
-//! | `lanes` | [`Lane`] | its sequence, its place in the stack, its toggles |
+//! | `lanes` | [`Lane`] | its sequence, its place in the stack, its toggles, a caption lane's look |
 //! | `items` | [`Item`] | its lane, start, length, window, content, look, sound, chains, masks, markers, tie |
 //! | `held` | [`Held`] | an entry of a file that could not be taken in, as its text |
 //!
@@ -137,8 +137,9 @@
 //!     opacities, feathers and roundness from 0 to 1; a scale and a
 //!     stretch above zero; a level and a gain not below zero; a crop
 //!     leaving something of the picture; a weight from 100 to 900; a
-//!     polygon of 3 to 12 sides and a star of 3 to 24 points; and the
-//!     rest listed with the test. *numbers_outside_their_field_are_refused*
+//!     polygon of 3 to 12 sides and a star of 3 to 24 points; a caption
+//!     lane's look as the title it makes; and the rest listed with the
+//!     test. *numbers_outside_their_field_are_refused*
 //! 35. A length kept as a distance - a fade, a marker's length, where an
 //!     enhanced copy starts - is not below zero. *a_negative_length_is_refused*
 //! 36. An effect names its package. *an_effect_of_no_package_is_refused*
@@ -167,6 +168,11 @@
 //! 47. A document with a sequence has one showing.
 //!     *a_document_with_sequences_shows_one*
 //! 48. No two fonts are one file. *a_font_added_twice_is_refused*
+//!
+//! **Captions**
+//!
+//! 49. A caption lane's look has no words and no runs of its own: each
+//!     caption's are the caption's. *a_caption_look_with_words_is_refused*
 //!
 //! The empty document keeps every rule (*an_empty_document_is_valid*).
 //! A random run of edits is checked two ways, by what changed and by
@@ -218,8 +224,8 @@ pub use item::{
     VoiceKind, VoiceMix,
 };
 pub use look::{
-    Gradient, LineHead, ShapeKind, ShapeShadow, ShapeStyle, StrokeAlign, StrokeDash, TextAlign,
-    TextCase, TextRun, Title,
+    CaptionLook, Gradient, LineHead, ShapeKind, ShapeShadow, ShapeStyle, StrokeAlign, StrokeDash,
+    TextAlign, TextCase, TextRun, Title,
 };
 pub use media::{
     BeatMarks, ColorRange, ColorSpace, Media, MediaKind, MediaOrigin, Size, SoundStream,
