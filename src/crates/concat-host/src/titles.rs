@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 
 use concat_core::frame::Frame;
 use concat_core::shader::RevealMap;
+use concat_media::SparseStill;
 
 use concat_export::flatten::export_base;
 use concat_export::{ClipKind, ExportClip};
@@ -48,10 +49,10 @@ pub struct TitleClip {
     /// right for a left-aligned one, whose block starts at the clip's
     /// position. See `concat_text::Align`.
     pub offset: (i32, i32),
-    /// The pixels, when the title was painted live rather than to disk:
-    /// what the monitor is to show under `clip.path`, a name no file has.
-    /// See [`Titles::clips_live`].
-    pub frame: Option<Arc<Frame>>,
+    /// The pixels, when the title was painted in memory rather than to
+    /// disk: what the monitor is to hold under `clip.path`, a name no file
+    /// has, as the part of the canvas with ink. See [`Titles::clips_live`].
+    pub held: Option<Arc<SparseStill>>,
 }
 
 /// What is painted: a title's words or a shape's figure. One painter for
@@ -88,19 +89,22 @@ pub struct Titles {
     /// most recently asked for of the rest, so a width dragged back and
     /// forth over the same values paints each once.
     live: Mutex<LivePaintings>,
+    /// The live painting last shown of each clip, by its id: what stands
+    /// in while its new look paints. See [`Titles::ready_live`].
+    shown: Mutex<HashMap<String, u64>>,
 }
 
 /// The live paintings kept, in bytes of pixels, beyond the ones the
-/// timeline is showing; see [`LivePaintings`]. Each is a picture the
-/// frame's size - 8 MB at 1080p, 33 MB at 4K - so a count cost four times
-/// as much on a 4K timeline as on an HD one. 128 MB keeps sixteen HD
-/// paintings or four 4K ones.
+/// timeline is showing; see [`LivePaintings`]. Each is held as the part of
+/// its canvas with ink - a caption's line of words, a few hundred
+/// kilobytes at 1080p, where the whole canvas was 8 MB - so this keeps
+/// hundreds.
 const LIVE_BYTES: usize = 128 * 1024 * 1024;
 
 /// The most the paintings of the titles on the timeline may hold between
-/// them, in bytes of pixels: 64 HD titles, or 256 at the monitor's half
-/// size. Past it the first painted are kept and the rest painted again
-/// each time; see [`LivePaintings::keep`].
+/// them, in bytes of pixels: well over a thousand captions' words. Past it
+/// the first painted are kept and the rest painted again each time; see
+/// [`LivePaintings::keep`].
 const LIVE_CEILING: usize = 512 * 1024 * 1024;
 
 /// A `1 / part` share of a machine's `total` memory, never less than
@@ -118,7 +122,7 @@ fn live_share(total: Option<u64>, part: u64, floor: usize) -> usize {
 /// One live painting, and the pass that last asked for it.
 struct LivePainting {
     art: Art,
-    frame: Arc<Frame>,
+    held: Arc<SparseStill>,
     used: u64,
 }
 
@@ -161,12 +165,17 @@ impl LivePaintings {
     }
 
     /// The painting under `key`, now the most recently used.
-    fn get(&mut self, key: u64) -> Option<(Art, Arc<Frame>)> {
+    fn get(&mut self, key: u64) -> Option<(Art, Arc<SparseStill>)> {
         let pass = self.pass;
         self.kept.get_mut(&key).map(|painting| {
             painting.used = pass;
-            (painting.art.clone(), Arc::clone(&painting.frame))
+            (painting.art.clone(), Arc::clone(&painting.held))
         })
+    }
+
+    /// Whether a painting is kept under `key`, without counting it a use.
+    fn has(&self, key: u64) -> bool {
+        self.kept.contains_key(&key)
     }
 
     /// Keeps a painting under `key`. Over the budget, the least recently
@@ -174,15 +183,15 @@ impl LivePaintings {
     /// with nothing else left, the one just painted is not kept: the ones
     /// painted before it stay for the next pass, rather than each pushing
     /// out the one it will want next. The newest is always kept alone.
-    fn keep(&mut self, key: u64, art: Art, frame: Arc<Frame>) {
-        let size = frame.pixels().len();
+    fn keep(&mut self, key: u64, art: Art, held: Arc<SparseStill>) {
+        let size = held.bytes();
         let painting = LivePainting {
             art,
-            frame,
+            held,
             used: self.pass,
         };
         if let Some(old) = self.kept.insert(key, painting) {
-            self.bytes -= old.frame.pixels().len();
+            self.bytes -= old.held.bytes();
         }
         self.bytes += size;
         while self.bytes > self.budget {
@@ -202,7 +211,7 @@ impl LivePaintings {
 
     fn drop_key(&mut self, key: u64) {
         if let Some(gone) = self.kept.remove(&key) {
-            self.bytes -= gone.frame.pixels().len();
+            self.bytes -= gone.held.bytes();
         }
     }
 }
@@ -221,6 +230,7 @@ impl Titles {
                 live_share(crate::memory::total(), 32, LIVE_BYTES),
                 live_share(crate::memory::total(), 8, LIVE_CEILING),
             )),
+            shown: Mutex::new(HashMap::new()),
         }
     }
 
@@ -270,6 +280,61 @@ impl Titles {
             .0
     }
 
+    /// [`Titles::clips_live`] without painting: the titles painted in
+    /// memory already, and whether that is every one - what a window draws
+    /// while [`Titles::paint_live_all`] paints the rest off its thread.
+    pub fn ready_live(&self, project: &Project, width: u32, height: u32) -> (Vec<TitleClip>, bool) {
+        self.clips_with(project, width, height, true, false, None)
+            .unwrap_or_default()
+    }
+
+    /// For a change in flight: [`Titles::clips_live`] when `most` titles or
+    /// fewer are not painted in memory yet - the one being changed, and so
+    /// painted on the spot - and [`Titles::ready_live`] otherwise, leaving
+    /// a timeline of captions not yet painted to [`Titles::paint_live_all`]
+    /// rather than holding the window while it paints them all.
+    pub fn clips_live_within(
+        &self,
+        project: &Project,
+        width: u32,
+        height: u32,
+        most: usize,
+    ) -> (Vec<TitleClip>, bool) {
+        let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
+        let missing = {
+            let live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+            let mut seen = HashSet::new();
+            keys_of(project, width, height, (&plain_text, &plain_shape))
+                .into_iter()
+                .flatten()
+                .filter(|(key, _)| seen.insert(*key) && !live.has(*key))
+                .count()
+        };
+        if missing <= most {
+            (self.clips_live(project, width, height), true)
+        } else {
+            self.ready_live(project, width, height)
+        }
+    }
+
+    /// Paints in memory every title on the timeline not painted there yet,
+    /// on every core: the work [`Titles::ready_live`] leaves.
+    pub fn paint_live_all(&self, project: &Project, width: u32, height: u32) {
+        let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
+        let keys = keys_of(project, width, height, (&plain_text, &plain_shape));
+        self.paint_ahead(project, width, height, true, &keys, &|| false);
+        // One alone is left to the pass by paint_ahead; paint it here.
+        for (key, painting) in keys.into_iter().flatten() {
+            if !self.live.lock().unwrap_or_else(|e| e.into_inner()).has(key) {
+                let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+                let fonts = self.fonts_for(project, &mut fonts);
+                if let Err(error) = self.paint_live(fonts, key, painting, width, height) {
+                    log::warn!("title: {error}");
+                }
+            }
+        }
+    }
+
     /// The titles as image clips, and whether every one is there: `paint`
     /// paints those that are not, and without it they are left out. None
     /// once `cancel` is set.
@@ -304,9 +369,34 @@ impl Titles {
             if stopped() {
                 return None;
             }
-            if !paint && !live && self.kept_painting(key, width, height).is_none() {
+            let key = if paint {
+                key
+            } else if live {
+                let held = self.live.lock().unwrap_or_else(|e| e.into_inner());
+                if held.has(key) {
+                    key
+                } else {
+                    complete = false;
+                    // Its new look not painted yet: the last one shown of
+                    // this clip stands in until it is, so an edit to every
+                    // caption at once leaves them showing, not gone.
+                    let shown = self.shown.lock().unwrap_or_else(|e| e.into_inner());
+                    match shown.get(&clip.id).copied().filter(|last| held.has(*last)) {
+                        Some(last) => last,
+                        None => continue,
+                    }
+                }
+            } else if self.kept_painting(key, width, height).is_none() {
                 complete = false;
                 continue;
+            } else {
+                key
+            };
+            if live {
+                self.shown
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(clip.id.clone(), key);
             }
             let Some(index) = timeline
                 .tracks
@@ -318,12 +408,12 @@ impl Titles {
             let track = &timeline.tracks[index];
             let painted = if live {
                 self.painted_live(project, key, painting, width, height)
-                    .map(|(path, art, frame)| (path, art, Some(frame)))
+                    .map(|(path, art, held)| (path, art, Some(held)))
             } else {
                 self.painted(project, key, painting, width, height)
                     .map(|(path, art)| (path, art, None))
             };
-            let (path, art, frame) = match painted {
+            let (path, art, held) = match painted {
                 Ok(art) => art,
                 Err(error) => {
                     log::warn!("title {}: {error}", clip.id);
@@ -411,7 +501,7 @@ impl Titles {
                 },
                 block: art.block,
                 offset: art.offset,
-                frame,
+                held,
             });
         }
         Some((out, complete))
@@ -426,7 +516,7 @@ impl Titles {
         painting: Painting<'_>,
         width: u32,
         height: u32,
-    ) -> Result<(PathBuf, Art, Arc<Frame>), String> {
+    ) -> Result<(PathBuf, Art, Arc<SparseStill>), String> {
         if let Some(found) = self.live_painting(key) {
             return Ok(found);
         }
@@ -436,14 +526,14 @@ impl Titles {
     }
 
     /// The live painting kept under `key`, if there is one.
-    fn live_painting(&self, key: u64) -> Option<(PathBuf, Art, Arc<Frame>)> {
+    fn live_painting(&self, key: u64) -> Option<(PathBuf, Art, Arc<SparseStill>)> {
         let path = PathBuf::from(format!("memory://titles/{key:016x}"));
-        let (art, frame) = self
+        let (art, held) = self
             .live
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(key)?;
-        Some((path, art, frame))
+        Some((path, art, held))
     }
 
     /// Paints one style in memory with `fonts`, and keeps it under `key`.
@@ -454,7 +544,7 @@ impl Titles {
         painting: Painting<'_>,
         width: u32,
         height: u32,
-    ) -> Result<(PathBuf, Art, Arc<Frame>), String> {
+    ) -> Result<(PathBuf, Art, Arc<SparseStill>), String> {
         let path = PathBuf::from(format!("memory://titles/{key:016x}"));
         let rendered = match painting {
             Painting::Title(style) => {
@@ -472,16 +562,16 @@ impl Titles {
             canvas: (rendered.width, rendered.height),
             reveal: reveal_of(&rendered.words, rendered.width, rendered.height),
         };
-        let frame = Arc::new(
-            Frame::from_rgba(rendered.width, rendered.height, rendered.rgba)
+        let held = Arc::new(
+            sparse_of(rendered.width, rendered.height, &rendered.rgba)
                 .ok_or_else(|| "the painter returned a frame of the wrong size".to_owned())?,
         );
         self.live.lock().unwrap_or_else(|e| e.into_inner()).keep(
             key,
             art.clone(),
-            Arc::clone(&frame),
+            Arc::clone(&held),
         );
-        Ok((path, art, frame))
+        Ok((path, art, held))
     }
 
     /// The PNG for one style at one frame size, painted if it is not on disk
@@ -743,6 +833,51 @@ fn key_of(project: &Project, painting: Painting<'_>, width: u32, height: u32) ->
 /// larger for a title whose ink runs past the frame - mostly transparent, so this is tens of megabytes at most; above it the
 /// oldest go, and a title that is still in use paints again.
 const TITLES_KEPT: usize = 400;
+
+/// A `width` by `height` straight-alpha canvas as the part of it with ink:
+/// the smallest box holding every pixel that is not wholly transparent,
+/// and where it sits. A caption is a line of words on a frame-sized
+/// canvas, so this is a twentieth of the frame or less. None for pixels
+/// that are not that canvas.
+fn sparse_of(width: u32, height: u32, rgba: &[u8]) -> Option<SparseStill> {
+    let row = width as usize * 4;
+    if rgba.len() != row * height as usize {
+        return None;
+    }
+    let (mut left, mut top, mut right, mut bottom) = (width, height, 0u32, 0u32);
+    for (y, line) in rgba.chunks_exact(row.max(4)).enumerate() {
+        let mut inked = line
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(_, px)| px[3] != 0);
+        let Some((first, _)) = inked.next() else {
+            continue;
+        };
+        let last = inked.last().map_or(first, |(x, _)| x);
+        left = left.min(first as u32);
+        right = right.max(last as u32 + 1);
+        top = top.min(y as u32);
+        bottom = y as u32 + 1;
+    }
+    if right <= left || bottom <= top {
+        return Some(SparseStill {
+            canvas: (width, height),
+            at: (0, 0),
+            block: Arc::new(Frame::transparent(1, 1)),
+        });
+    }
+    let (bw, bh) = (right - left, bottom - top);
+    let mut pixels = Vec::with_capacity(bw as usize * bh as usize * 4);
+    for y in top..bottom {
+        let from = y as usize * row + left as usize * 4;
+        pixels.extend_from_slice(&rgba[from..from + bw as usize * 4]);
+    }
+    Some(SparseStill {
+        canvas: (width, height),
+        at: (left, top),
+        block: Arc::new(Frame::from_rgba(bw, bh, pixels)?),
+    })
+}
 
 /// Removes the oldest painted titles until `keep` remain. Sidecars go with
 /// their PNGs. Best effort throughout: a file that will not go is left.
@@ -1335,9 +1470,53 @@ mod tests {
             Some((canvas_w, canvas_h))
         );
         let live = titles.clips_live(editor.project(), 640, 360);
-        let frame = live[0].frame.as_ref().expect("painted live");
-        assert_eq!((frame.width(), frame.height()), (canvas_w, canvas_h));
+        let held = live[0].held.as_ref().expect("painted live");
+        assert_eq!(held.canvas, (canvas_w, canvas_h));
         assert_eq!(live[0].clip.overscan, clip.overscan);
+        let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
+    }
+
+    /// A title painted in memory is held as its words alone - a fraction of
+    /// the canvas - and set back on its canvas it is the painter's canvas
+    /// pixel for pixel. `ready_live` paints nothing; `paint_live_all` does.
+    #[test]
+    fn a_live_title_is_held_as_its_ink_and_is_its_canvas_whole() {
+        let dirs = scratch("live_sparse");
+        let mut editor = Editor::new();
+        let style = concat_project::model::TextStyle {
+            content: "a caption".to_owned(),
+            ..Default::default()
+        };
+        editor
+            .apply(Command::AddTextClip {
+                above: false,
+                track_id: None,
+                start: 0.0,
+                style: Some(style.clone()),
+                duration: Some(3.0),
+                offset_y: None,
+            })
+            .expect("a title is added");
+        let titles = Titles::new(&dirs);
+        let (none, complete) = titles.ready_live(editor.project(), 640, 360);
+        assert!(none.is_empty() && !complete, "nothing painted yet");
+        titles.paint_live_all(editor.project(), 640, 360);
+        let (live, complete) = titles.ready_live(editor.project(), 640, 360);
+        assert!(complete);
+        let held = live[0].held.as_ref().expect("held in memory");
+        assert!(
+            held.bytes() * 8 < 640 * 360 * 4,
+            "the words, not the canvas: {} bytes",
+            held.bytes()
+        );
+        let whole = held.at_size(held.canvas.0, held.canvas.1).expect("whole");
+        let painted = concat_text::render_frame(&Fonts::new(), &title_style(&style), 640, 360)
+            .expect("paints");
+        assert_eq!(
+            (whole.width(), whole.height()),
+            (painted.width, painted.height)
+        );
+        assert!(whole.pixels() == painted.rgba.as_slice(), "the same pixels");
         let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
     }
 
@@ -1376,8 +1555,8 @@ mod tests {
             .zip(&second)
             .filter(|(before, after)| {
                 !Arc::ptr_eq(
-                    before.frame.as_ref().expect("live"),
-                    after.frame.as_ref().expect("live"),
+                    before.held.as_ref().expect("live"),
+                    after.held.as_ref().expect("live"),
                 )
             })
             .count();
@@ -1395,8 +1574,14 @@ mod tests {
             canvas: (4, 4),
             reveal: Arc::new(RevealMap::from_rects(1, 1, &[])),
         };
-        let frame = || Arc::new(Frame::transparent(4, 4));
-        let size = frame().pixels().len();
+        let frame = || {
+            Arc::new(SparseStill {
+                canvas: (4, 4),
+                at: (0, 0),
+                block: Arc::new(Frame::transparent(4, 4)),
+            })
+        };
+        let size = frame().bytes();
         let mut live = LivePaintings::new(2 * size, 3 * size);
 
         live.begin();

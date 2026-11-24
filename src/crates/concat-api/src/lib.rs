@@ -941,7 +941,7 @@ impl Api {
         let (w, h) = (f64::from(width), f64::from(height));
         Ok(self
             .titles
-            .clips(session.project(), width, height)
+            .clips_live(session.project(), width, height)
             .into_iter()
             .map(|title| ClipBounds {
                 clip_id: title.clip_id,
@@ -1045,7 +1045,9 @@ impl Api {
         let (width, height) = size.unwrap_or((settings.width, settings.height));
         let (width, height) = checked_size(width, height)?;
         let mut clips = session.flattened_clips();
-        clips.extend(self.title_clips(session, width, height));
+        // Painted at the timeline's size in memory, whatever size this
+        // frame is: the compositor scales them as it scales any picture.
+        clips.extend(self.title_pictures(path)?);
         let pixels = self
             .monitor
             .frame(
@@ -1666,6 +1668,31 @@ impl Api {
     /// the folder twice. An error when it is not open here.
     pub fn open_session(&self, path: &str) -> Result<&Session, ApiError> {
         self.session(path)
+    }
+
+    /// The open project's titles, captions and shapes as the pictures the
+    /// compositor draws, for an embedder that shows the edit itself: each
+    /// painted in memory at the timeline's own size - once, whatever size
+    /// the preview is drawn at - and held in the process's reader pool
+    /// under a name no file has, which any monitor of this process reads.
+    /// Only the ones not painted yet are painted; an edit to one caption
+    /// paints that one. Add them to [`Session::flattened_clips`], which
+    /// leaves them out.
+    pub fn title_pictures(&self, path: &str) -> Result<Vec<ExportClip>, ApiError> {
+        let session = self.session(path)?;
+        let settings = session.settings();
+        let (width, height) = checked_size(settings.width, settings.height)?;
+        Ok(self
+            .titles
+            .clips_live(session.project(), width, height)
+            .into_iter()
+            .map(|title| {
+                if let Some(held) = title.held {
+                    self.monitor.hold_sparse(Path::new(&title.clip.path), held);
+                }
+                title.clip
+            })
+            .collect())
     }
 
     fn session_mut(&mut self, path: &str) -> Result<&mut Session, ApiError> {
