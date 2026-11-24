@@ -861,7 +861,7 @@ impl PickKinds {
 }
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]
-enum MediaKind {
+pub(crate) enum MediaKind {
     Video,
     Audio,
     Image,
@@ -869,7 +869,7 @@ enum MediaKind {
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]
 /// Which kind of media a file with this extension is, if it is media.
-fn media_kind(extension: &str) -> Option<MediaKind> {
+pub(crate) fn media_kind(extension: &str) -> Option<MediaKind> {
     match extension.to_ascii_lowercase().as_str() {
         "mp4" | "mov" | "mkv" | "webm" | "avi" | "m4v" | "mts" | "m2ts" | "3gp" => {
             Some(MediaKind::Video)
