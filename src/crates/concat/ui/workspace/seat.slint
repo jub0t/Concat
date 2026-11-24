@@ -11,6 +11,7 @@ import { MediaPane, SourcePreview } from "media-pane.slint";
 import { PreviewPane } from "preview-pane.slint";
 import { TimelinePane } from "timeline-pane.slint";
 import { KeyframesPane } from "keyframes-pane.slint";
+import { SpeechPane } from "speech-pane.slint";
 
 // One box of the workspace, showing whichever view its `kind` names.
 //
@@ -410,6 +411,18 @@ export component Seat inherits Rectangle {
             clip-set(field, value) => { Editor.clip-set(field, value); }
             adjust-set(key, value) => { Editor.adjust-set(key, value); }
             clip-commit => { Editor.clip-commit(); }
+    }
+
+    if root.kind == PaneKind.speech: SpeechPane {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+
+            pane-picked(kind) => { root.picked(kind); }
+            pane-seat: root.index;
+            pane-removable: Editor.seats.length > 1;
+            pane-removed => { root.removed(); }
     }
 
     if root.kind == PaneKind.timeline: TimelinePane {

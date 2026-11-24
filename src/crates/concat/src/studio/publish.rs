@@ -169,6 +169,14 @@ impl Studio {
         if compact != self.compact {
             std::mem::swap(&mut self.dock, &mut self.dock_aside);
             self.compact = compact;
+            // Text to speech moves with the window: open in the wide dock,
+            // it is the compact one's sheet, and a sheet open as the window
+            // widens becomes its pane - or, closed meanwhile, its pane goes.
+            if compact {
+                self.speech_docked = self.dock.contains(crate::ui::PaneKind::Speech);
+            } else {
+                self.speech_to_dock();
+            }
         }
     }
 

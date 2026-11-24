@@ -2124,7 +2124,8 @@ impl Studio {
             &models.speech_sample_details,
             self.speech.sample_detail_rows(self),
         );
-        app.set_speech(self.speech.data(self));
+        app.global::<crate::ui::Speech>()
+            .set_data(self.speech.data(self));
         app.set_new_voice(self.speech.new_voice_data());
         // The Audio page.
         sync(&models.sounds_mine, self.sounds.mine());

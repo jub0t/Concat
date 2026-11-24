@@ -51,7 +51,7 @@ import {
 } from "dialogs/relink.slint";
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
-import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
+import { Speech, SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { NewVoiceData, NewVoiceDialog } from "dialogs/new-voice.slint";
 import { AvatarData } from "primitives/avatar.slint";
 import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
@@ -182,6 +182,7 @@ export {
     ProjectSheetData,
     CaptionsSheetData,
     SpeechSheetData,
+    Speech,
     VoiceoverData,
     SoundCardData,
     Sounds,
@@ -239,7 +240,7 @@ export component App inherits Window {
         }
     }
     property <bool> sheet-open: root.export.open || root.settings.open
-        || root.project-sheet.open || root.captions.open || root.speech.open
+        || root.project-sheet.open || root.captions.open || Speech.data.open
         || root.start.composing || root.new-voice.open;
     changed sheet-open => {
         if (!root.sheet-open) {
@@ -446,9 +447,8 @@ export component App inherits Window {
     callback project-canvas-changed(value: color);
     callback project-apply();
 
-    /// The two speech sheets: captions from a clip's sound, and a title's
-    /// words - or any words - read aloud. Their option lists come from what
-    /// is installed, so they are handed over as models.
+    /// Captions from a clip's sound. The option lists come from what is
+    /// installed, so they are handed over as models.
     in property <CaptionsSheetData> captions;
     in property <[string]> caption-models;
     in property <[string]> caption-languages;
@@ -465,34 +465,8 @@ export component App inherits Window {
     callback captions-import-srt();
     callback captions-export-srt();
 
-    in property <SpeechSheetData> speech;
-    in property <[string]> speech-models;
-    in property <[string]> speech-model-details;
-    in property <[string]> speech-voices;
-    in property <[string]> speech-voice-details;
-    /// Each voice's avatar; see Avatar.
-    in property <[AvatarData]> speech-voice-avatars;
-    /// The recordings in the bin a voice can be taken from: their names,
-    /// their waveforms as path commands, and their lengths.
-    in property <[string]> speech-samples;
-    in property <[string]> speech-sample-waves;
-    in property <[string]> speech-sample-details;
-    callback speech-closed();
-    callback speech-text-edited(text: string);
-    callback speech-voice-changed(index: int);
-    callback speech-model-changed(index: int);
-    callback speech-speed-changed(value: float);
-    callback speech-reference-start-changed(seconds: float);
-    callback speech-use-sample-changed(on: bool);
-    callback speech-sample-changed(index: int);
-    /// See SpeechDialog.insert-tag: a string cut Rust does for the sheet.
-    pure callback speech-insert-tag(text: string, tag: string, at: int) -> string;
-    callback speech-begin();
-    callback speech-cancel();
-    callback speech-save-name-edited(name: string);
-    callback speech-pick-picture();
-    callback speech-save-voice();
-    callback speech-clear-style();
+    // Text to speech is the Speech global's (dialogs/speech.slint), which
+    // the sheet below and the dock's pane both read.
 
     /// The Voices shelf's New voice sheet: a recording picked to be kept
     /// as a voice; see NewVoiceDialog.
@@ -684,8 +658,8 @@ export component App inherits Window {
                 // A floating card closes with its job running, which goes
                 // on and is there again when it is opened; a phone's sheet
                 // busy with a job keeps itself, as its × is gone.
-                if (root.speech.open && (root.front-tool == "speech" || !root.captions.open)) {
-                    if (!root.sheets-fill || !root.speech.running) { root.speech-closed(); }
+                if (Speech.data.open && (root.front-tool == "speech" || !root.captions.open)) {
+                    if (!root.sheets-fill || !Speech.data.running) { Speech.closed(); }
                     return accept;
                 }
                 if (root.captions.open) {
@@ -917,31 +891,6 @@ export component App inherits Window {
             y: 0;
             width: root.width;
             height: root.height;
-            data: root.speech;
-            models: root.speech-models;
-            model-details: root.speech-model-details;
-            voices: root.speech-voices;
-            voice-details: root.speech-voice-details;
-            voice-avatars: root.speech-voice-avatars;
-            samples: root.speech-samples;
-            sample-waves: root.speech-sample-waves;
-            sample-details: root.speech-sample-details;
-
-            closed => { root.speech-closed(); }
-            text-edited(text) => { root.speech-text-edited(text); }
-            voice-changed(index) => { root.speech-voice-changed(index); }
-            model-changed(index) => { root.speech-model-changed(index); }
-            speed-changed(value) => { root.speech-speed-changed(value); }
-            reference-start-changed(seconds) => { root.speech-reference-start-changed(seconds); }
-            use-sample-changed(on) => { root.speech-use-sample-changed(on); }
-            sample-changed(index) => { root.speech-sample-changed(index); }
-            insert-tag(text, tag, at) => { return root.speech-insert-tag(text, tag, at); }
-            begin => { root.speech-begin(); }
-            cancel => { root.speech-cancel(); }
-            save-name-edited(name) => { root.speech-save-name-edited(name); }
-            pick-picture => { root.speech-pick-picture(); }
-            save-voice => { root.speech-save-voice(); }
-            clear-style => { root.speech-clear-style(); }
         }
     }
 

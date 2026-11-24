@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+// Text to speech as a pane of the dock, the way Keyframes is one: the
+// script, the voice and the read, beside the timeline for as long as they
+// are wanted, where a card floating over the editor covered the very clips
+// the speech was being written for. The tray's Speak tool and File › Text
+// to speech put it in the dock; its switcher takes it out, moves it or
+// swaps it for another view, and the read goes on either way. The body is
+// the sheet's own (SpeechForm), read off the Speech global, so a phone's
+// sheet and a desk's pane are one tool.
+
+import { I18n } from "../i18n.slint";
+import { SpeechForm } from "../dialogs/speech.slint";
+import { Pane, PaneHeader, PaneScroll } from "pane.slint";
+import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+
+export component SpeechPane inherits Pane {
+    in property <int> pane-seat;
+    in property <bool> pane-removable;
+    callback pane-picked(kind: PaneKind);
+    callback pane-removed();
+
+    PaneHeader {
+        title: I18n.t("speech.textToSpeech");
+
+        VerticalLayout {
+            alignment: center;
+            PaneSwitcher {
+                kind: PaneKind.speech;
+                seat: root.pane-seat;
+                removable: root.pane-removable;
+                picked(kind) => { root.pane-picked(kind); }
+                removed => { root.pane-removed(); }
+            }
+        }
+    }
+
+    PaneScroll {
+        vertical-stretch: 1;
+        SpeechForm { }
+    }
+}

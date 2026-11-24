@@ -40,7 +40,7 @@ use crate::panes::captions::CHARS_PER_SECOND;
 use crate::panes::pace::{Pace, Stage, Timings};
 use crate::panes::settings::installed;
 use crate::studio::Studio;
-use crate::ui::{NewVoiceData, SpeechSheetData};
+use crate::ui::{NewVoiceData, PaneKind, SpeechSheetData};
 
 /// The default Chatterbox voice: Elizabeth, the first recording Concat
 /// carries.
@@ -252,6 +252,49 @@ pub struct SpeechPane {
     /// Each saved voice's picture, read once, by its id: the rows are
     /// published on every frame of playback.
     pictures: std::cell::RefCell<std::collections::HashMap<String, slint::Image>>,
+}
+
+/// On a desk with room in its dock, Text to speech is a pane of it, as
+/// Keyframes is; on a phone or in the compact dock it is a sheet. The pane
+/// being in the dock and the tool being open are one fact there, kept so
+/// from whichever side moved: the tool opened or closed (the tray's Speak,
+/// the menu, the Voices shelf, the sheet's ×), or the dock changed by hand
+/// (the switcher put the pane in, took it out, or swapped it away).
+impl Studio {
+    /// After the tool was opened or closed, or the window crossed
+    /// `COMPACT_WIDTH`: an open tool gets its pane where there is room for
+    /// one, and a closed one gives its pane back. A dock of one seat keeps
+    /// it, as a window with no seats has nowhere to put anything back.
+    pub(crate) fn speech_to_dock(&mut self) {
+        let docked = self.dock.contains(PaneKind::Speech);
+        if self.speech.open && !docked && !self.compact && !self.meters.phone {
+            crate::add_pane(self, PaneKind::Speech);
+        } else if !self.speech.open
+            && docked
+            && matches!(self.dock, crate::dock::Dock::Split { .. })
+            && let Some(path) = self.dock.path_of(PaneKind::Speech)
+        {
+            self.dock.remove_leaf(&path);
+        }
+        self.speech_docked = self.dock.contains(PaneKind::Speech);
+        if self.speech_docked != docked {
+            self.remember_layout_soon();
+        }
+    }
+
+    /// After the dock changed by hand: a pane put in opens the tool on what
+    /// is selected, the way the menu does, and one taken out puts the tool
+    /// away. A read under way goes on either way, and shows again with the
+    /// pane.
+    pub(crate) fn speech_from_dock(&mut self) {
+        let docked = self.dock.contains(PaneKind::Speech);
+        if docked && !self.speech.open {
+            self.handle(Msg::Speech(SpeechMsg::Open));
+        } else if !docked && self.speech_docked && self.speech.open {
+            self.speech.open = false;
+        }
+        self.speech_docked = self.dock.contains(PaneKind::Speech);
+    }
 }
 
 impl SpeechPane {
@@ -916,7 +959,9 @@ impl SpeechPane {
         let length = sample.and_then(|item| item.duration).unwrap_or(0.0);
         let named = self.offered().len();
         SpeechSheetData {
-            open: self.open,
+            // The sheet, which is up only while the dock is not showing the
+            // tool as its pane.
+            open: self.open && !studio.dock.contains(PaneKind::Speech),
             text: self.text.as_str().into(),
             voice: self
                 .saved_voice

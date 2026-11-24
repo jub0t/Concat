@@ -1145,6 +1145,9 @@ pub struct Studio {
     pub dock_aside: Dock,
     /// Whether `dock` is the compact one.
     pub compact: bool,
+    /// Whether `dock` held the Text to speech pane when last looked at, so
+    /// a dock change can tell the pane taken out from one never put in.
+    pub speech_docked: bool,
     pub workspace: (f32, f32),
     pub divider_press: Option<(usize, f32, f32)>,
     pub gesture: Gesture,
@@ -3160,6 +3163,7 @@ impl Studio {
             dock,
             dock_aside,
             compact: false,
+            speech_docked: false,
             workspace: (0.0, 0.0),
             divider_press: None,
             gesture: Gesture::None,

@@ -138,6 +138,21 @@ impl Dock {
         }
     }
 
+    /// Where the first view of this kind is, as a path from the root.
+    pub fn path_of(&self, kind: PaneKind) -> Option<Vec<bool>> {
+        match self {
+            Dock::Leaf(held) => (*held == kind).then(Vec::new),
+            Dock::Split { first, second, .. } => {
+                let (step, mut path) = match first.path_of(kind) {
+                    Some(path) => (false, path),
+                    None => (true, second.path_of(kind)?),
+                };
+                path.insert(0, step);
+                Some(path)
+            }
+        }
+    }
+
     pub fn kind_at(&self, index: usize) -> Option<PaneKind> {
         match self.at(&self.leaf_path(index)?) {
             Dock::Leaf(kind) => Some(*kind),
@@ -309,6 +324,7 @@ fn pane_name(kind: PaneKind) -> &'static str {
         PaneKind::Inspector => "inspector",
         PaneKind::Timeline => "timeline",
         PaneKind::Keyframes => "keyframes",
+        PaneKind::Speech => "speech",
     }
 }
 
@@ -319,6 +335,7 @@ fn pane_of(name: &str) -> Option<PaneKind> {
         "inspector" => PaneKind::Inspector,
         "timeline" => PaneKind::Timeline,
         "keyframes" => PaneKind::Keyframes,
+        "speech" => PaneKind::Speech,
         _ => return None,
     })
 }
@@ -432,6 +449,21 @@ mod saved_tests {
         let json = serde_json::to_string(&saved).unwrap();
         let read: SavedDock = serde_json::from_str(&json).unwrap();
         assert_eq!(Dock::from_saved(&read).unwrap().to_saved(), saved);
+    }
+
+    #[test]
+    fn a_view_is_found_by_its_kind_and_taken_out_by_that_path() {
+        let mut dock = default_dock();
+        let path = dock.path_of(PaneKind::Inspector).unwrap();
+        assert!(matches!(dock.at(&path), Dock::Leaf(PaneKind::Inspector)));
+        let timeline = dock.path_of(PaneKind::Timeline).unwrap();
+        dock.split_leaf(&timeline, PaneKind::Speech, DockSide::Right);
+        let speech = dock.path_of(PaneKind::Speech).unwrap();
+        assert!(matches!(dock.at(&speech), Dock::Leaf(PaneKind::Speech)));
+        dock.remove_leaf(&speech);
+        assert!(!dock.contains(PaneKind::Speech));
+        assert!(dock.path_of(PaneKind::Speech).is_none());
+        assert_eq!(dock.to_saved(), default_dock().to_saved());
     }
 
     #[test]

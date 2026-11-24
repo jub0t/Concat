@@ -679,14 +679,22 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         app.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
         editor.set_caption_models(ModelRc::from(models.caption_models.clone()));
         editor.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
-        app.set_speech_models(ModelRc::from(models.speech_models.clone()));
-        app.set_speech_model_details(ModelRc::from(models.speech_model_details.clone()));
-        app.set_speech_voices(ModelRc::from(models.speakers.clone()));
-        app.set_speech_voice_details(ModelRc::from(models.speaker_details.clone()));
-        app.set_speech_voice_avatars(ModelRc::from(models.speaker_avatars.clone()));
-        app.set_speech_samples(ModelRc::from(models.speech_samples.clone()));
-        app.set_speech_sample_waves(ModelRc::from(models.speech_sample_waves.clone()));
-        app.set_speech_sample_details(ModelRc::from(models.speech_sample_details.clone()));
+        app.global::<Speech>()
+            .set_models(ModelRc::from(models.speech_models.clone()));
+        app.global::<Speech>()
+            .set_model_details(ModelRc::from(models.speech_model_details.clone()));
+        app.global::<Speech>()
+            .set_voices(ModelRc::from(models.speakers.clone()));
+        app.global::<Speech>()
+            .set_voice_details(ModelRc::from(models.speaker_details.clone()));
+        app.global::<Speech>()
+            .set_voice_avatars(ModelRc::from(models.speaker_avatars.clone()));
+        app.global::<Speech>()
+            .set_samples(ModelRc::from(models.speech_samples.clone()));
+        app.global::<Speech>()
+            .set_sample_waves(ModelRc::from(models.speech_sample_waves.clone()));
+        app.global::<Speech>()
+            .set_sample_details(ModelRc::from(models.speech_sample_details.clone()));
         app.global::<Sounds>()
             .set_mine(ModelRc::from(models.sounds_mine.clone()));
         app.global::<Sounds>()
@@ -1033,13 +1041,18 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         // whichever is showing.
         state.set_compact(width < studio::COMPACT_WIDTH);
     }));
-    editor.on_dock_set(on_dock!(|state, seat: i32, kind: PaneKind| {
+    // These three can put Text to speech in the dock or take it out, which
+    // opens or puts away the tool itself, so the whole window is published
+    // and not the seats alone.
+    editor.on_dock_set(on_window!(|state, seat: i32, kind: PaneKind| {
         let Some(path) = state.dock.leaf_path(seat.max(0) as usize) else {
             return;
         };
         if let Dock::Leaf(held) = state.dock.at_mut(&path) {
             *held = kind;
         }
+        state.speech_from_dock();
+        state.remember_layout_soon();
     }));
     editor.on_dock_dropped(on_dock!(|state, from: i32, onto: i32, side: DockSide| {
         let (from, onto) = (from.max(0) as usize, onto.max(0) as usize);
@@ -1069,8 +1082,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         state.dock.split_leaf(&onto_path, taken, side);
         state.dock.remove_leaf(&from_path);
     }));
-    editor.on_dock_add(on_dock!(|state, kind: PaneKind| {
+    editor.on_dock_add(on_window!(|state, kind: PaneKind| {
         add_pane(&mut state, kind);
+        state.speech_from_dock();
+        state.remember_layout_soon();
     }));
     // Not on a phone or in the compact dock: there the two seats are the
     // monitor and the timeline, and a third would squeeze both.
@@ -1079,11 +1094,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             add_pane(&mut state, PaneKind::Keyframes);
         }
     }));
-    editor.on_dock_remove(on_dock!(|state, seat: i32| {
+    editor.on_dock_remove(on_window!(|state, seat: i32| {
         let Some(path) = state.dock.leaf_path(seat.max(0) as usize) else {
             return;
         };
         state.dock.remove_leaf(&path);
+        state.speech_from_dock();
+        state.remember_layout_soon();
     }));
     editor.on_divider_pressed(on_dock!(|state, index: i32| {
         let index = index.max(0) as usize;
@@ -1877,10 +1894,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     }));
     // Text to speech keeps the sample it reads in as a voice of the
     // user's own, with a name and a picture.
-    app.on_speech_save_name_edited(on_window!(|state, name: SharedString| {
-        state.handle(Msg::Speech(SpeechMsg::SaveNameEdited(name.to_string())));
-    }));
-    app.on_speech_pick_picture(|| {
+    app.global::<Speech>()
+        .on_save_name_edited(on_window!(|state, name: SharedString| {
+            state.handle(Msg::Speech(SpeechMsg::SaveNameEdited(name.to_string())));
+        }));
+    app.global::<Speech>().on_pick_picture(|| {
         host::pick_files_then(
             i18n::t("speech.picture"),
             Some((
@@ -1894,10 +1912,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             },
         );
     });
-    app.on_speech_save_voice(on_window!(|state| {
+    app.global::<Speech>().on_save_voice(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::SaveVoice));
     }));
-    app.on_speech_clear_style(on_window!(|state| {
+    app.global::<Speech>().on_clear_style(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::ClearStyle));
     }));
     {}
@@ -2649,39 +2667,47 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     editor.on_captions_export_srt(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::ExportSrt));
     }));
-    app.on_speech_closed(on_window!(|state| {
+    app.global::<Speech>().on_closed(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Close));
     }));
-    app.on_speech_text_edited(on_window!(|state, text: SharedString| {
-        state.handle(Msg::Speech(SpeechMsg::TextEdited(text.to_string())));
-    }));
-    app.on_speech_voice_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::VoiceChanged(index)));
-    }));
-    app.on_speech_model_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::ModelChanged(index)));
-    }));
-    app.on_speech_speed_changed(on_window!(|state, value: f32| {
-        state.handle(Msg::Speech(SpeechMsg::SpeedChanged(value)));
-    }));
-    app.on_speech_reference_start_changed(on_window!(|state, seconds: f32| {
-        state.handle(Msg::Speech(SpeechMsg::ReferenceStartChanged(seconds)));
-    }));
-    app.on_speech_use_sample_changed(on_window!(|state, on: bool| {
-        state.handle(Msg::Speech(SpeechMsg::UseSampleChanged(on)));
-    }));
-    app.on_speech_sample_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::SampleChanged(index)));
-    }));
+    app.global::<Speech>()
+        .on_text_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Speech(SpeechMsg::TextEdited(text.to_string())));
+        }));
+    app.global::<Speech>()
+        .on_voice_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Speech(SpeechMsg::VoiceChanged(index)));
+        }));
+    app.global::<Speech>()
+        .on_model_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Speech(SpeechMsg::ModelChanged(index)));
+        }));
+    app.global::<Speech>()
+        .on_speed_changed(on_window!(|state, value: f32| {
+            state.handle(Msg::Speech(SpeechMsg::SpeedChanged(value)));
+        }));
+    app.global::<Speech>()
+        .on_reference_start_changed(on_window!(|state, seconds: f32| {
+            state.handle(Msg::Speech(SpeechMsg::ReferenceStartChanged(seconds)));
+        }));
+    app.global::<Speech>()
+        .on_use_sample_changed(on_window!(|state, on: bool| {
+            state.handle(Msg::Speech(SpeechMsg::UseSampleChanged(on)));
+        }));
+    app.global::<Speech>()
+        .on_sample_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Speech(SpeechMsg::SampleChanged(index)));
+        }));
     // A string cut, and nothing of the window's: the sheet keeps the text,
     // Rust only knows where a character starts.
-    app.on_speech_insert_tag(|text: SharedString, tag: SharedString, at: i32| {
-        panes::speech::insert_tag(text.as_str(), tag.as_str(), at.max(0) as usize).into()
-    });
-    app.on_speech_begin(on_window!(|state| {
+    app.global::<Speech>()
+        .on_insert_tag(|text: SharedString, tag: SharedString, at: i32| {
+            panes::speech::insert_tag(text.as_str(), tag.as_str(), at.max(0) as usize).into()
+        });
+    app.global::<Speech>().on_begin(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Begin));
     }));
-    app.on_speech_cancel(on_window!(|state| {
+    app.global::<Speech>().on_cancel(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Cancel));
     }));
 

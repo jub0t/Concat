@@ -40,6 +40,14 @@ impl Studio {
                 log::error!("project: opening {name} failed: {error}; {left}");
             }
         }
+        // A Text to speech pane the layout brought back, or one the last
+        // project left up, opens on this project's selection and bin.
+        if opened.is_ok() && self.dock.contains(crate::ui::PaneKind::Speech) && !self.speech.running
+        {
+            self.handle(crate::panes::Msg::Speech(
+                crate::panes::speech::SpeechMsg::Open,
+            ));
+        }
         opened
     }
 
@@ -534,6 +542,7 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.speech);
                 pane.update(msg, self);
                 self.speech = pane;
+                self.speech_to_dock();
             }
             crate::panes::Msg::Voiceover(msg) => {
                 let mut pane = std::mem::take(&mut self.voiceover);
