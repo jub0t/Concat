@@ -1406,6 +1406,7 @@ dependencies = [
  "concat-host",
  "concat-media",
  "concat-project",
+ "concat-speech",
  "jni-sys 0.3.1",
  "log",
  "ndk 0.9.0",

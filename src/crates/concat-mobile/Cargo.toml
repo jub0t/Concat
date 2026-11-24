@@ -20,6 +20,7 @@ concat-host = { workspace = true, features = ["gpu"] }
 concat-project.workspace = true
 concat-export.workspace = true
 concat-media.workspace = true
+concat-speech.workspace = true
 uniffi = "=0.32.2"
 thiserror.workspace = true
 log = "0.4"

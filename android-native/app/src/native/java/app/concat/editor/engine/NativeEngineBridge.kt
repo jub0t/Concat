@@ -32,6 +32,9 @@ class NativeEngineBridge(context: Context) : EngineBridge {
 
     private val api: EditorApi
 
+    /** Held for the process: the phone's text-to-speech stays bound while it lives. */
+    private val phoneVoice: AndroidPhoneVoice
+
     init {
         // Loads the library, and hands it the JavaVM and Context first.
         ConcatNative.init(context.applicationContext, context.filesDir.absolutePath)
@@ -50,6 +53,9 @@ class NativeEngineBridge(context: Context) : EngineBridge {
                 }
             },
         )
+        // Starts the phone's text-to-speech, which offers itself to read
+        // aloud once it is up.
+        phoneVoice = AndroidPhoneVoice(context)
     }
 
     override fun call(request: String): String = api.call(request)

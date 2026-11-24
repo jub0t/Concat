@@ -183,7 +183,7 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
             ModelPicker(models.info.speech, ui.model, models.downloads, { speech.chooseModel(it.id) }, store::download)
             if (voices.isNotEmpty()) {
                 SectionLabel("Voice")
-                ChoiceChips(voices.map { it.id }, ui.voice ?: -1, { id -> voices.first { it.id == id }.name }, speech::chooseVoice)
+                ChoiceChips(voices.map { it.id }, ui.voice ?: -1, { id -> voiceName(voices.first { it.id == id }.name) }, speech::chooseVoice)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("Speed")
@@ -204,4 +204,14 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
             Spacer(Modifier.navigationBarsPadding().padding(bottom = 8.dp))
         }
     }
+}
+
+/**
+ * A voice's name as a person says it: "bf_ruth" is Ruth (the prefix is
+ * its accent and gender), the phone's voice is the phone's.
+ */
+internal fun voiceName(name: String): String = when (name) {
+    "system_default" -> "Phone's default"
+    "chatterbox_clone" -> "The selected clip's voice"
+    else -> name.substringAfter('_').replaceFirstChar { it.uppercase() }
 }
