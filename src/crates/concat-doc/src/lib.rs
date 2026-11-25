@@ -119,6 +119,7 @@
 #![forbid(unsafe_code)]
 
 pub mod document;
+pub mod file;
 pub mod history;
 pub mod id;
 pub mod map;
