@@ -463,7 +463,8 @@ fn an_id_named_by_what_is_set_aside_is_never_made_again() {
     let fx = fixture();
     // An item on a lane the file does not have: set aside for it, and
     // the lane's id with it.
-    let item = "\"items\":{\n  \"c20\":{\"lane\":\"t950\",\"start\":0,\"len\":1,\"content\":\"layer\"}\n}";
+    let item =
+        "\"items\":{\n  \"c20\":{\"lane\":\"t950\",\"start\":0,\"len\":1,\"content\":\"layer\"}\n}";
     let text = file::write(&fx.doc).replace("\"items\":{}", item);
     let (back, notes) = open_saying(&text);
     assert_eq!(back.held.len(), 1);
