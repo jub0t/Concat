@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.rgb-flash"
+name = "RGB Flash"
+kind = "effect"
+category = "Flash"
+shelves = ["Glitch"]
+order = 5
+intensity = "amount"
+description = "Red, green and blue jump apart in a bright hit and snap back, again and again."
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 70
+
+[[param]]
+key = "speed"
+label = "Speed"
+unit = "/s"
+min = 0.5
+max = 8
+step = 0.5
+default = 2
+
+[[param]]
+key = "split"
+label = "Split"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[wgsl]
+entry = "effect.wgsl"
+
+[card]
+moment = 0.03

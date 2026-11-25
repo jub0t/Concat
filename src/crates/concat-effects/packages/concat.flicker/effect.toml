@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.flicker"
+name = "Flicker"
+kind = "effect"
+category = "Flash"
+order = 3
+intensity = "amount"
+description = "The light stutters and dips at random, like a failing bulb or an old projector."
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 55
+
+[[param]]
+key = "speed"
+label = "Speed"
+unit = "/s"
+min = 2
+max = 30
+step = 1
+default = 12
+
+[wgsl]
+entry = "effect.wgsl"

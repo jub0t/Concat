@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.strobe"
+name = "Strobe"
+kind = "effect"
+category = "Flash"
+order = 2
+intensity = "amount"
+description = "Flashes of light over and over at a steady speed, like a club light."
+
+[[param]]
+key = "speed"
+label = "Speed"
+unit = "/s"
+min = 1
+max = 20
+step = 0.5
+default = 6
+
+[[param]]
+key = "amount"
+label = "Brightness"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 90
+
+[[param]]
+key = "colour"
+label = "Colour"
+type = "color"
+min = 0
+max = 4294967295
+default = 4294967295
+
+[wgsl]
+entry = "effect.wgsl"
+
+[card]
+moment = 0.02
