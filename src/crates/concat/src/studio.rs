@@ -38,11 +38,27 @@ use concat_host::{
     templates,
 };
 use concat_media::Pyramid;
-use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
-use concat_project::model::{
-    self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
+use concat_doc::commands::{ClipMove, Command, Edge as TrimEdge, ItemPatch, KeyProperty, LaneFlag};
+use concat_doc::model::{
+    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, TextAlign, Title,
 };
-use concat_project::{Command, PlayheadSide};
+use concat_doc::{AnyId, Document, Tick, TickDur, TickLen};
+
+use crate::doc_view::{self, Kind};
+
+/// The item an edit made, as the panels hold its id.
+fn made_item(created: Option<AnyId>) -> Option<String> {
+    created
+        .and_then(|id| id.typed::<ItemId>())
+        .map(|id| id.to_string())
+}
+
+/// The colour the sequence showing is output in; SDR with none.
+fn colour_of_showing(doc: &Doc) -> model::ColorSpace {
+    doc_view::sequence(doc).map_or(model::ColorSpace::Sdr, |sequence| {
+        sequence.frame.color.clone()
+    })
+}
 
 mod backdrop;
 mod beats;
@@ -618,8 +634,8 @@ pub struct ColourPick {
 /// Whether a clip of this kind has a picture of its own to take a colour
 /// off: a video or a still, decoded from its file. A title or a shape is
 /// drawn, and has no file to read the pixel from.
-fn picks_colour(kind: model::ClipKind) -> bool {
-    matches!(kind, model::ClipKind::Video | model::ClipKind::Image)
+fn picks_colour(kind: Kind) -> bool {
+    matches!(kind, Kind::Video | Kind::Image)
 }
 
 /// The colour about `(u, v)` of `frame`, in fractions of it: the mean of
@@ -1031,12 +1047,12 @@ pub struct Studio {
 
     // ── the edit ──
     pub session: Option<Session>,
-    /// A clone of the project a gesture is mutating. `project()` reads it
+    /// A copy of the document a gesture is changing. `doc()` reads it
     /// while it exists; a command replaces it.
-    pub echo: Option<Project>,
-    /// Stands in for a project when none is open, so every reader has
-    /// something to read.
-    empty: Project,
+    pub echo: Option<Doc>,
+    /// The session's document as of its last change, taken once per change
+    /// so every reader has it by reference; empty when nothing is open.
+    document: Document<Doc>,
     /// Unsaved changes, and the timer that writes them.
     dirty: bool,
     autosave: slint::Timer,
@@ -1333,7 +1349,11 @@ pub struct Studio {
     curve_selected: (String, Vec<usize>),
     /// The curve as it was when a drag of the chosen points began: each
     /// move is measured from it, so a point held at a limit does not drift.
-    speed_grabbed: Option<Vec<model::SpeedPoint>>,
+    speed_grabbed: Option<Vec<concat_doc::commands::SpeedPoint>>,
+    /// The speed graph's points as the person last set them on a clip,
+    /// with the time map they made: the document keeps only the map, and
+    /// while the map is the same one these are what the graph shows.
+    curve_points: HashMap<ItemId, (model::TimeMap, Vec<concat_doc::commands::SpeedPoint>)>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
@@ -3116,7 +3136,7 @@ impl Studio {
             library: Default::default(),
             session: None,
             echo: None,
-            empty: Project::new(),
+            document: Document::default(),
             dirty: false,
             autosave: slint::Timer::default(),
             media: crate::panes::media_bin::MediaBin::default(),
@@ -3223,6 +3243,7 @@ impl Studio {
             voice_failed: HashSet::new(),
             curve_selected: (String::new(), Vec::new()),
             speed_grabbed: None,
+            curve_points: HashMap::new(),
             stabilize_retry: HashSet::new(),
             failed_analyses: HashSet::new(),
             mask_focus: None,

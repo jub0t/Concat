@@ -920,6 +920,7 @@
   "studio.stabilize": "防抖：{0}",
   "studio.stabilizeSkipped": "Concat 在测量片段抖动时关闭了，因此跳过该片段的防抖并打开项目。关闭再打开防抖即可重试。",
   "studio.stereo": "立体声",
+  "studio.stillHasNoSound": "静态图片没有可以滤镜处理的声音",
   "studio.textToSpeech": "文字转语音…",
   "studio.timelineNowHdr": "{0} 因加入第一个 HDR 片段，现在是 HDR (HLG)。可在“修改”中改回。",
   "studio.track": "轨道 {0}",

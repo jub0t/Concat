@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabilizálás: {0}",
   "studio.stabilizeSkipped": "A Concat bezáródott egy klip remegésének mérése közben, ezért a stabilizálása kimarad, és a projekt megnyílik. Kapcsold ki, majd be a Stabilizálást az újrapróbáláshoz.",
   "studio.stereo": "sztereó",
+  "studio.stillHasNoSound": "Az állóképnek nincs szűrhető hangja",
   "studio.textToSpeech": "Szövegfelolvasás…",
   "studio.timelineNowHdr": "{0} mostantól HDR (HLG) az első HDR klipje miatt. A Módosítás visszaállíthatja.",
   "studio.track": "{0}. sáv",

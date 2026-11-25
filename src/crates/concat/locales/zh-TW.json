@@ -920,6 +920,7 @@
   "studio.stabilize": "防手震：{0}",
   "studio.stabilizeSkipped": "Concat 在測量片段晃動時關閉了，因此略過該片段的防手震並開啟專案。關閉再開啟防手震即可重試。",
   "studio.stereo": "立體聲",
+  "studio.stillHasNoSound": "靜態圖片沒有可套用濾鏡的聲音",
   "studio.textToSpeech": "文字轉語音…",
   "studio.timelineNowHdr": "{0} 因加入第一個 HDR 片段，現在是 HDR (HLG)。可在「修改」中改回。",
   "studio.track": "軌道 {0}",

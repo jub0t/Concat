@@ -920,6 +920,7 @@
   "studio.stabilize": "لرزش‌گیر: {0}",
   "studio.stabilizeSkipped": "Concat هنگام اندازه‌گیری لرزش یک کلیپ بسته شد، پس لرزش‌گیر آن رد می‌شود و پروژه باز می‌شود. برای تلاش دوباره، لرزش‌گیر را خاموش و دوباره روشن کنید.",
   "studio.stereo": "Stereo",
+  "studio.stillHasNoSound": "تصویر ثابت صدایی برای فیلتر کردن ندارد",
   "studio.textToSpeech": "تبدیل متن به گفتار…",
   "studio.timelineNowHdr": "{0} اکنون HDR (HLG) است، به خاطر نخستین کلیپ HDR آن. در «ویرایش» می‌توانید آن را برگردانید.",
   "studio.track": "ترک {0}",

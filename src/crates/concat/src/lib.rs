@@ -33,6 +33,7 @@ mod ui {
 
 mod batch_volume;
 mod chips;
+mod doc_view;
 mod dock;
 mod fonts;
 mod format;
@@ -69,6 +70,7 @@ mod presets;
 mod smoke_export;
 mod source;
 mod speed_ramp;
+mod srt;
 mod start_watch;
 mod studio;
 mod sysinfo;

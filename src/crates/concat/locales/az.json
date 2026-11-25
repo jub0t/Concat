@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabilləşdir: {0}",
   "studio.stabilizeSkipped": "Concat klipin titrəməsini ölçərkən bağlandı, ona görə onun stabilləşdirilməsi atlanır və layihə açılır. Yenidən cəhd etmək üçün Stabilləşdir-i söndürüb yenidən yandırın.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Şəkildə süzgəcdən keçiriləcək səs yoxdur",
   "studio.textToSpeech": "Mətndən nitqə…",
   "studio.timelineNowHdr": "{0} indi HDR (HLG)-dir, ilk HDR klipi üçün. Dəyişdir onu geri qaytara bilər.",
   "studio.track": "Trek {0}",

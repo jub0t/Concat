@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabiliziraj: {0}",
   "studio.stabilizeSkipped": "Concat se zatvorio dok je mjerio podrhtavanje isječka, pa se njegova stabilizacija preskače i projekt se otvara. Isključi pa ponovno uključi Stabiliziraj za novi pokušaj.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Fotografija nema zvuka za filtriranje",
   "studio.textToSpeech": "Tekst u govor…",
   "studio.timelineNowHdr": "{0} je sada HDR (HLG), zbog prvog HDR isječka. U Izmijeni ga možete vratiti.",
   "studio.track": "Traka {0}",

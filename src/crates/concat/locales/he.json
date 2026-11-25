@@ -920,6 +920,7 @@
   "studio.stabilize": "ייצוב: {0}",
   "studio.stabilizeSkipped": "Concat נסגר בזמן מדידת הרעידות של קליפ, ולכן הייצוב שלו מדולג והפרויקט נפתח. כבו והפעילו שוב את הייצוב כדי לנסות שוב.",
   "studio.stereo": "סטריאו",
+  "studio.stillHasNoSound": "לתמונה סטטית אין צליל לסנן",
   "studio.textToSpeech": "המרת טקסט לדיבור…",
   "studio.timelineNowHdr": "{0} הוא עכשיו HDR (HLG), בשביל קליפ ה-HDR הראשון שלו. ״שינוי״ יכול להחזיר אותו.",
   "studio.track": "ערוץ {0}",

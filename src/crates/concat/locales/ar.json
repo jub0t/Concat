@@ -920,6 +920,7 @@
   "studio.stabilize": "تثبيت الصورة: {0}",
   "studio.stabilizeSkipped": "أُغلق Concat أثناء قياس اهتزاز مقطع، لذا يُتخطّى تثبيته ويُفتح المشروع. أوقف تثبيت الصورة ثم فعّله مجددًا لإعادة المحاولة.",
   "studio.stereo": "ستيريو",
+  "studio.stillHasNoSound": "الصورة الثابتة ليس فيها صوت لتصفيته",
   "studio.textToSpeech": "تحويل النص إلى كلام…",
   "studio.timelineNowHdr": "أصبح {0} الآن HDR (HLG)، من أجل أول مقطع HDR فيه. يمكن لـ«تعديل» إعادته.",
   "studio.track": "المسار {0}",

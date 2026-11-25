@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabilisieren: {0}",
   "studio.stabilizeSkipped": "Concat wurde beim Messen des Wackelns eines Clips geschlossen, daher wird seine Stabilisierung übersprungen und das Projekt öffnet sich. Schalte Stabilisieren aus und wieder ein, um es erneut zu versuchen.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Ein Standbild hat keinen Ton zum Filtern",
   "studio.textToSpeech": "Text zu Sprache…",
   "studio.timelineNowHdr": "{0} ist jetzt HDR (HLG), wegen seines ersten HDR-Clips. Unter „Ändern“ lässt es sich zurückstellen.",
   "studio.track": "Track {0}",

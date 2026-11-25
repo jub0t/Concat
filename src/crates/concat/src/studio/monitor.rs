@@ -22,18 +22,18 @@ impl Studio {
 
     /// What the monitor draws at the playhead: the document flattened with
     /// its titles, plus the frame's own additions - a look being shown, a
-    /// cutout being painted - and the session's settings. None without a
-    /// project.
+    /// cutout being painted - and the frame they are drawn to. None without
+    /// a project.
     pub fn preview_clips(
         &mut self,
     ) -> Option<(
         std::sync::Arc<Vec<concat_export::ExportClip>>,
-        concat_project::DocumentSettings,
+        model::Frame,
     )> {
         let session = self.session.as_ref()?;
         // A library file on the monitor: its clip alone, flattened once.
         if let Some(source) = self.source.as_ref() {
-            return Some((std::sync::Arc::clone(&source.clips), session.settings()));
+            return Some((std::sync::Arc::clone(&source.clips), session.frame()));
         }
         // The echo when there is one: a picture being dragged on the stage
         // is drawn where the pointer has it, not where the document last
@@ -55,11 +55,8 @@ impl Studio {
         let clips = if cached {
             std::sync::Arc::clone(&self.flat.as_ref().expect("checked").3)
         } else {
-            let mut clips = concat_export::flatten::flatten_timeline_in(
-                self.project(),
-                None,
-                Some(&project_dir),
-            );
+            let mut clips =
+                concat_export::flatten::flatten_timeline_in(self.doc(), None, Some(&project_dir));
             // Titles, painted to pictures and rejoined; see concat-host's
             // titles. Always at the output's own size, whatever the
             // monitor's quality: a title is painted once, the monitor
@@ -73,13 +70,13 @@ impl Studio {
                 // timeline not painted yet is left to the painter below.
                 self.host
                     .titles
-                    .clips_live_within(self.project(), width, height, LIVE_AT_ONCE)
+                    .clips_live_within(self.doc(), width, height, LIVE_AT_ONCE)
             } else {
                 // The titles painted already; the rest are painted on a
                 // thread of their own and the frame asked for again when
                 // they are in. A transcribed interview is hundreds of
                 // captions, and painting them here held the window.
-                self.host.titles.ready_live(self.project(), width, height)
+                self.host.titles.ready_live(self.doc(), width, height)
             };
             for title in titles {
                 self.title_blocks
@@ -107,7 +104,7 @@ impl Studio {
         // frame only, as the layer it would be: over every track, the
         // whole way along, at full strength. The timeline is as it was.
         if let Some(filter_id) = self.audition.clone() {
-            let effects = vec![AppliedFilter::new(filter_id)];
+            let effects = vec![doc_view::new_effect(&filter_id)];
             let track = clips
                 .iter()
                 .map(|flat| flat.track)
@@ -132,9 +129,9 @@ impl Studio {
         // stroke shows what it grabbed against what it left.
         if self.painting
             && let Some(target) = self.paint_target()
-            && let Some(media) = self.project().media_by_id(&target.media_id)
+            && let Some(media) = doc_view::media_of(self.doc(), target)
         {
-            let (path, start) = (media.path.clone(), target.start);
+            let (path, start) = (media.path.clone(), doc_view::start_s(target));
             if let Some(flat) = own
                 .get_or_insert_with(|| (*clips).clone())
                 .iter_mut()
@@ -144,7 +141,7 @@ impl Studio {
             }
         }
         let clips = own.map(std::sync::Arc::new).unwrap_or(clips);
-        let settings = session.settings();
+        let settings = session.frame();
         if !painted_all {
             self.paint_titles(width, height);
         }
@@ -166,7 +163,7 @@ impl Studio {
         self.titles_painting = true;
         self.titles_tried = Some(attempt);
         let titles = std::sync::Arc::clone(&self.host.titles);
-        let project = self.project().clone();
+        let project = Doc::clone(self.doc());
         crate::host::spawn_in_project_publishing(
             move || {
                 titles.paint_live_all(&project, width, height);
@@ -230,7 +227,7 @@ impl Studio {
                         let mut studio = shell.studio.borrow_mut();
                         let end = studio.duration();
                         let position = studio.host.playback.position_now() as f32;
-                        let fps = studio.project().active().video.rate();
+                        let fps = doc_view::rate(studio.doc());
                         let frame = (f64::from(position) * fps + 1e-6).floor() as i64;
                         if position < end && shown == Some(frame) {
                             return;

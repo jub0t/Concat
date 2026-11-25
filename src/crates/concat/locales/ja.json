@@ -920,6 +920,7 @@
   "studio.stabilize": "手ぶれ補正: {0}",
   "studio.stabilizeSkipped": "クリップの揺れの測定中に Concat が終了したため、その手ぶれ補正をスキップしてプロジェクトを開きます。やり直すには、手ぶれ補正をオフにしてからもう一度オンにしてください。",
   "studio.stereo": "ステレオ",
+  "studio.stillHasNoSound": "静止画にはフィルターをかける音声がありません",
   "studio.textToSpeech": "テキスト読み上げ…",
   "studio.timelineNowHdr": "最初の HDR クリップが入ったため、{0} は HDR (HLG) になりました。「変更」で元に戻せます。",
   "studio.track": "トラック {0}",

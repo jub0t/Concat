@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabilkan: {0}",
   "studio.stabilizeSkipped": "Concat tertutup saat mengukur guncangan sebuah klip, jadi stabilisasinya dilewati dan proyek dibuka. Matikan lalu nyalakan lagi Stabilkan untuk mencoba ulang.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Gambar diam tidak punya suara untuk difilter",
   "studio.textToSpeech": "Teks ke ucapan…",
   "studio.timelineNowHdr": "{0} kini HDR (HLG), mengikuti klip HDR pertamanya. Ubah dapat mengembalikannya.",
   "studio.track": "Trek {0}",

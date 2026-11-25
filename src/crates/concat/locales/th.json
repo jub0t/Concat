@@ -920,6 +920,7 @@
   "studio.stabilize": "กันสั่น: {0}",
   "studio.stabilizeSkipped": "Concat ปิดไปขณะวัดการสั่นของคลิป จึงข้ามการกันสั่นของคลิปนั้นและเปิดโปรเจกต์ ปิดแล้วเปิดกันสั่นอีกครั้งเพื่อลองใหม่",
   "studio.stereo": "สเตอริโอ",
+  "studio.stillHasNoSound": "ภาพนิ่งไม่มีเสียงให้ใส่ฟิลเตอร์",
   "studio.textToSpeech": "แปลงข้อความเป็นเสียงพูด…",
   "studio.timelineNowHdr": "{0} เป็น HDR (HLG) แล้ว ตามคลิป HDR คลิปแรก ใช้ แก้ไข เพื่อเปลี่ยนกลับได้",
   "studio.track": "แทร็ก {0}",

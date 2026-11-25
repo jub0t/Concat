@@ -920,6 +920,7 @@
   "studio.stabilize": "Estabilizar: {0}",
   "studio.stabilizeSkipped": "Concat se cerró mientras medía la vibración de un clip, así que se omite su estabilización y el proyecto se abre. Desactiva y vuelve a activar Estabilizar para reintentarlo.",
   "studio.stereo": "estéreo",
+  "studio.stillHasNoSound": "Una imagen fija no tiene sonido que filtrar",
   "studio.textToSpeech": "Texto a voz…",
   "studio.timelineNowHdr": "{0} ahora es HDR (HLG), por su primer clip HDR. En Modificar puedes volver atrás.",
   "studio.track": "Pista {0}",

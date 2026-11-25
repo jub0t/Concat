@@ -131,6 +131,8 @@ pollster.workspace = true
 concat-core.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
+# The document: its model, its commands and its ids.
+concat-doc.workspace = true
 concat-export.workspace = true
 # The compositor's limits the window's device is opened with
 # (`gpu::MEMORY_BUDGET`); linked through the host already.

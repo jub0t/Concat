@@ -226,49 +226,47 @@ impl Studio {
         editor.set_beats_note(beats.note.into());
         editor.set_beats_on(beats.on);
         editor.set_beats_marks(beats.marks);
-        let project = self.project();
+        let doc = self.doc();
         sync(
             &models.tabs,
-            project
-                .timelines
+            doc.view
+                .tabs
                 .iter()
-                .map(|timeline| TimelineTabData {
-                    id: timeline.id.as_str().into(),
-                    name: timeline.name.as_str().into(),
+                .filter_map(|id| Some((*id, doc.sequences.get(*id)?)))
+                .map(|(id, sequence)| TimelineTabData {
+                    id: doc_view::text(id),
+                    name: sequence.name.as_str().into(),
                 })
                 .collect(),
         );
 
-        let timeline = self.timeline();
         let mut top = 0.0;
         sync(
             &models.tracks,
-            timeline
-                .tracks
-                .iter()
+            doc_view::lanes(doc)
+                .into_iter()
                 .rev()
-                .map(|lane| {
-                    let height = self.lane_height(lane);
+                .filter_map(|id| Some((id, doc_view::lane(doc, id)?)))
+                .map(|(id, lane)| {
+                    let height = self.lane_height(id);
+                    let key = id.to_string();
                     // Eye drops picture from the composite. Enable it when the
                     // lane has any picture, when it is empty, or when it is
                     // already hidden (so picture can be brought back). Dim
                     // only on a visible lane that holds only audio / sound
                     // layers (#833); the slot stays so header columns align.
-                    let shows_eye = !lane.visible
-                        || timeline.clips.iter().any(|clip| {
-                            clip.track_id == lane.id
-                                && !matches!(
-                                    clip.kind,
-                                    model::ClipKind::Audio | model::ClipKind::SoundLayer
-                                )
-                        })
-                        || !timeline.clips.iter().any(|clip| clip.track_id == lane.id);
+                    let mut on = doc_view::on_lane(doc, id).peekable();
+                    let empty = on.peek().is_none();
+                    let pictured = on.any(|(_, clip)| {
+                        !matches!(self.kind(clip), Kind::Audio | Kind::SoundLayer)
+                    });
+                    let shows_eye = !lane.visible || pictured || empty;
                     let row = TrackData {
-                        id: lane.id.as_str().into(),
+                        id: key.as_str().into(),
                         visible: lane.visible,
                         muted: lane.muted,
-                        locked: self.locked(&lane.id),
-                        size: self.lane_size(&lane.id),
+                        locked: self.locked(&key),
+                        size: self.lane_size(&key),
                         height,
                         top,
                         shows_eye,
@@ -282,49 +280,50 @@ impl Studio {
         // Only the clips near the view: what the lanes show plus a screen
         // either side; see `TimelinePane::published_span`.
         let span = self.lanes.published_span();
+        let picked = self
+            .selected_transition()
+            .is_some()
+            .then(|| self.transition_selected.clone())
+            .flatten();
         sync(
             &models.clips,
-            timeline
-                .clips
-                .iter()
-                .filter(|clip| {
+            self.clips()
+                .into_iter()
+                .filter(|(_, clip)| {
                     crate::panes::timeline::TimelinePane::shows(
                         span,
-                        clip.start as f32,
-                        clip.duration as f32,
+                        doc_view::start_s(clip) as f32,
+                        doc_view::len_s(clip) as f32,
                     )
                 })
-                .map(|clip| {
-                    let wave =
-                        if matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video) {
-                            self.wave(clip)
-                        } else {
-                            Default::default()
-                        };
+                .map(|(id, clip)| {
+                    let kind = self.kind(clip);
+                    let wave = if matches!(kind, Kind::Audio | Kind::Video) {
+                        self.wave(clip)
+                    } else {
+                        Default::default()
+                    };
                     let marks = self.beat_marks(clip);
                     ClipData {
-                        id: clip.id.as_str().into(),
+                        id: id.as_str().into(),
                         name: clip.name.as_str().into(),
-                        kind: kind_of(clip),
-                        row: self.row_of(&clip.track_id),
-                        start: clip.start as f32,
-                        duration: clip.duration as f32,
-                        selected: self.selection.iter().any(|id| id == &clip.id),
-                        transition_selected: self
-                            .selected_transition()
-                            .is_some_and(|picked| picked.id == clip.id),
-                        fx: clip.video_effects.iter().any(|effect| effect.enabled),
+                        kind: kind_of(doc, clip),
+                        row: self.row_of_lane(clip.lane),
+                        start: doc_view::start_s(clip) as f32,
+                        duration: doc_view::len_s(clip) as f32,
+                        selected: self.selection.iter().any(|held| *held == id),
+                        transition_selected: picked.as_deref() == Some(id.as_str()),
+                        fx: doc_view::chain(&clip.effects)
+                            .iter()
+                            .any(|effect| effect.enabled),
                         transition_duration: clip
-                            .transition_in
+                            .cut_in
                             .as_ref()
-                            .map(|transition| transition.duration as f32)
-                            .unwrap_or(0.0),
-                        fade_in: clip.fade_in as f32,
-                        fade_out: clip.fade_out as f32,
-                        volume: clip.volume as f32,
-                        text_body: clip
-                            .text
-                            .as_ref()
+                            .map_or(0.0, |cut| doc_view::len_secs(cut.len) as f32),
+                        fade_in: doc_view::dur_secs(clip.sound.fade_in) as f32,
+                        fade_out: doc_view::dur_secs(clip.sound.fade_out) as f32,
+                        volume: clip.sound.volume.value as f32,
+                        text_body: doc_view::title(clip)
                             .map(|text| text.content.as_str())
                             .unwrap_or_default()
                             .into(),
@@ -341,18 +340,18 @@ impl Studio {
         );
 
         // What is under the playhead. The topmost picture wins, the way the
-        // compositor stacks them.
-        let playhead = f64::from(self.playhead);
-        let showing = timeline
-            .clips
-            .iter()
-            .filter(|clip| {
-                (clip.kind.is_visual()
-                    || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
+        // compositor stacks them: the lanes come bottom first, so the last
+        // one found.
+        let playhead = doc_view::tick(f64::from(self.playhead));
+        let showing = doc_view::items(doc)
+            .into_iter()
+            .filter(|(_, clip)| {
+                self.kind(clip).is_visual()
                     && clip.start <= playhead
-                    && playhead < clip.start + clip.duration
+                    && playhead < doc_view::end(clip)
             })
-            .max_by_key(|clip| -self.row_of(&clip.track_id));
+            .map(|(_, clip)| clip)
+            .last();
         // A picture from the bin on the monitor is shown whatever is under
         // the timeline's playhead: in a new project there is nothing, and
         // its frame was decoded and then hidden (#464).
@@ -361,7 +360,9 @@ impl Studio {
             .as_ref()
             .filter(|source| source.kind != model::MediaKind::Audio);
         editor.set_has_picture(source.is_some() || showing.is_some());
-        editor.set_see_through(self.project().active().video.canvas[3] < 255);
+        editor.set_see_through(
+            doc_view::sequence(doc).is_some_and(|sequence| sequence.frame.canvas.a < 255),
+        );
         editor.set_preview_clip_name(
             source
                 .map(|source| source.name.as_str())
@@ -426,10 +427,14 @@ impl Studio {
             self.key_editor_rows(),
             same_key_row,
         );
+        // How far into the selected clip the playhead is, 0 to 1 of it.
         app.global::<KeyEditor>().set_at(
             self.sole_selection()
                 .and_then(|id| self.clip(&id))
-                .map_or(0.0, |clip| place_in(clip, self.playhead) as f32),
+                .map_or(0.0, |clip| {
+                    let at = doc_view::content_at(clip, doc_view::tick(f64::from(self.playhead)));
+                    doc_view::share_of(clip, at) as f32
+                }),
         );
         self.publish_speed_ramp(app, models);
         let rows = self.key_rows();
@@ -464,10 +469,11 @@ impl Studio {
         editor.set_library_audition(self.audition_of().unwrap_or("").into());
         editor.set_inspector_jump_tab(self.inspector_jump.1.into());
         editor.set_inspector_jump_section(self.inspector_jump.2.into());
-        let active = project
-            .timelines
+        let active = doc
+            .view
+            .tabs
             .iter()
-            .position(|timeline| timeline.id == project.active_timeline_id)
+            .position(|id| Some(*id) == doc_view::showing(doc))
             .unwrap_or(0);
         editor.set_timeline_current_tab(active as i32);
         editor.set_playhead(self.playhead);
@@ -479,7 +485,7 @@ impl Studio {
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
         editor.set_magnetic(self.prefs.magnetic());
-        editor.set_linkage(self.timeline().linkage);
+        editor.set_linkage(doc_view::sequence(doc).is_some_and(|sequence| sequence.linkage));
         editor.set_trim_follow(self.prefs.trim_follow);
         editor.set_meters_shown(self.prefs.meters_shown());
         editor.set_preview_axis(self.prefs.preview_axis);
@@ -508,54 +514,47 @@ impl Studio {
         });
 
         // The selected clip's chains, as the inspector's two stacks.
-        let (video, audio) = match self.sole_selection().and_then(|id| self.clip(&id)) {
-            Some(clip) => (
-                clip.video_effects
-                    .iter()
-                    .enumerate()
-                    .map(|(index, effect)| EffectData {
-                        id: index as i32 + 1,
-                        name: label_of(&effect.id).into(),
-                        audio: false,
-                    })
-                    .collect(),
-                clip.filters
-                    .iter()
-                    .enumerate()
-                    .map(|(index, filter)| EffectData {
-                        id: index as i32 + 1000,
-                        name: label_of(&filter.id).into(),
-                        audio: true,
-                    })
-                    .collect(),
-            ),
-            None => (Vec::new(), Vec::new()),
-        };
+        let sole = self.sole_selection();
+        let clip = sole.as_deref().and_then(|id| self.clip(id));
+        let effects = clip.map_or_else(Vec::new, |clip| doc_view::chain(&clip.effects));
+        let filters = clip.map_or_else(Vec::new, |clip| doc_view::chain(&clip.filters));
+        let kind = clip.map(|clip| self.kind(clip));
+        let video: Vec<EffectData> = effects
+            .iter()
+            .enumerate()
+            .map(|(index, effect)| EffectData {
+                id: index as i32 + 1,
+                name: label_of(&effect.package).into(),
+                audio: false,
+            })
+            .collect();
+        let audio: Vec<EffectData> = filters
+            .iter()
+            .enumerate()
+            .map(|(index, filter)| EffectData {
+                id: index as i32 + 1000,
+                name: label_of(&filter.package).into(),
+                audio: true,
+            })
+            .collect();
         sync(&models.video_effects, video);
         sync(&models.audio_effects, audio);
 
         // The same chains as the inspector's stacks see them: a row per
         // link and a row per knob, from the catalogue's manifests.
-        let (visual, visual_params, sound, sound_params) =
-            match self.sole_selection().and_then(|id| self.clip(&id)) {
-                Some(clip) => {
-                    let (visual, visual_params) = chain_rows(&clip.video_effects);
-                    let (sound, sound_params) = chain_rows(&clip.filters);
-                    (visual, visual_params, sound, sound_params)
-                }
-                None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
-            };
+        let (visual, visual_params) = chain_rows(&effects);
+        let (sound, sound_params) = chain_rows(&filters);
         sync(&models.applied_visual, visual);
         sync(&models.visual_params, visual_params);
         sync(
             &models.visual_colours,
-            match self.sole_selection().and_then(|id| self.clip(&id)) {
-                Some(clip) => chain_colours(
-                    &clip.video_effects,
-                    picks_colour(clip.kind),
+            match kind {
+                Some(kind) => chain_colours(
+                    &effects,
+                    picks_colour(kind),
                     self.picking
                         .as_ref()
-                        .filter(|pick| pick.clip == clip.id)
+                        .filter(|pick| Some(pick.clip.as_str()) == sole.as_deref())
                         .map(|pick| (pick.entry, pick.key.as_str())),
                 ),
                 None => Vec::new(),
@@ -563,36 +562,32 @@ impl Studio {
         );
         sync_with(
             &models.visual_choices,
-            match self.sole_selection().and_then(|id| self.clip(&id)) {
-                Some(clip) => chain_choices(&clip.video_effects),
-                None => Vec::new(),
-            },
+            chain_choices(&effects),
             same_chain_choice,
         );
         sync(&models.applied_audio, sound);
         sync(&models.audio_params, sound_params);
+        let graded_clip = kind.is_some_and(graded);
         sync(
             &models.adjust_params,
-            match self.sole_selection().and_then(|id| self.clip(&id)) {
-                Some(clip) if graded(clip.kind) => {
-                    adjust_rows(&clip.video_effects, self.key_point().map(|(_, at)| at))
-                }
-                _ => Vec::new(),
+            if graded_clip {
+                adjust_rows(&effects, self.key_point().map(|(_, at)| at))
+            } else {
+                Vec::new()
             },
         );
 
         // The wheels and curves: the chain's by link, the colour panel's
         // keyable at the playhead. Each curve's points go into the model
         // kept for it.
-        let clip = self.sole_selection().and_then(|id| self.clip(&id));
-        let (visual_wheels, visual_curves) =
-            clip.map_or_else(Default::default, |clip| chain_grading(&clip.video_effects));
-        let (adjust_wheels, adjust_curves) = match (clip, Catalogue::builtin().get(ADJUST_ID)) {
-            (Some(clip), Some(package)) if graded(clip.kind) => grading_rows(
+        let (visual_wheels, visual_curves) = chain_grading(&effects);
+        let (adjust_wheels, adjust_curves) = match Catalogue::builtin().get(ADJUST_ID) {
+            Some(package) if graded_clip => grading_rows(
                 package,
-                clip.video_effects
+                effects
                     .iter()
-                    .find(|entry| entry.id == ADJUST_ID),
+                    .copied()
+                    .find(|entry| entry.package == ADJUST_ID),
                 -1,
                 Some(self.key_point().map(|(_, at)| at)),
             ),

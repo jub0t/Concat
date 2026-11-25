@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabilize: {0}",
   "studio.stabilizeSkipped": "Concat closed while measuring a clip's shake, so its stabilization is skipped and the project opens. Turn Stabilize off and on again to retry.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "A still has no sound to filter",
   "studio.textToSpeech": "Text to speech…",
   "studio.timelineNowHdr": "{0} is now HDR (HLG), for its first HDR clip. Modify can set it back.",
   "studio.track": "Track {0}",

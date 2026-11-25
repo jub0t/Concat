@@ -920,6 +920,7 @@
   "studio.stabilize": "Sabitle: {0}",
   "studio.stabilizeSkipped": "Concat bir klibin titremesini ölçerken kapandı, bu yüzden klibin sabitlemesi atlanıyor ve proje açılıyor. Yeniden denemek için Sabitle'yi kapatıp yeniden açın.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Durağan görüntüde filtrelenecek ses yok",
   "studio.textToSpeech": "Metinden konuşma…",
   "studio.timelineNowHdr": "{0} ilk HDR klibi nedeniyle artık HDR (HLG). Değiştir'den geri alabilirsiniz.",
   "studio.track": "Track {0}",

@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabiliser : {0}",
   "studio.stabilizeSkipped": "Concat s'est fermé pendant la mesure des tremblements d'un clip : sa stabilisation est ignorée et le projet s'ouvre. Désactivez puis réactivez Stabiliser pour réessayer.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Une image fixe n'a pas de son à filtrer",
   "studio.textToSpeech": "Synthèse vocale…",
   "studio.timelineNowHdr": "{0} est maintenant en HDR (HLG), pour son premier clip HDR. Modifier permet de revenir en arrière.",
   "studio.track": "Track {0}",

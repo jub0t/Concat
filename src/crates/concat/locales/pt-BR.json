@@ -920,6 +920,7 @@
   "studio.stabilize": "Estabilizar: {0}",
   "studio.stabilizeSkipped": "O Concat fechou enquanto media o tremor de um clipe, então a estabilização dele é ignorada e o projeto abre. Desative e ative Estabilizar de novo para tentar outra vez.",
   "studio.stereo": "estéreo",
+  "studio.stillHasNoSound": "Uma imagem estática não tem som para filtrar",
   "studio.textToSpeech": "Texto para fala…",
   "studio.timelineNowHdr": "{0} agora é HDR (HLG), por causa do primeiro clipe HDR. Em Modificar dá para voltar.",
   "studio.track": "Faixa {0}",

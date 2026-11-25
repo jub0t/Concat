@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use concat_project::Command;
+use concat_doc::commands::Command;
 
 use crate::studio::Studio;
 use crate::ui::{TimelineTool, TrackSize};
@@ -144,8 +144,9 @@ impl TimelinePane {
                 studio.prefs.save(&studio.host.dirs);
             }
             TimelineMsg::LinkageChanged(on) => {
-                let timeline_id = studio.timeline().id.clone();
-                studio.apply(Command::SetTimelineLinkage { timeline_id, on });
+                if let Some(sequence) = crate::doc_view::showing(studio.doc()) {
+                    studio.apply(Command::SetTimelineLinkage { sequence, on });
+                }
             }
             TimelineMsg::MagneticToggled => {
                 let on = !studio.prefs.magnetic();

@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabiliseren: {0}",
   "studio.stabilizeSkipped": "Concat sloot tijdens het meten van het schudden van een clip, dus de stabilisatie ervan wordt overgeslagen en het project opent. Zet Stabiliseren uit en weer aan om het opnieuw te proberen.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Een stilstaand beeld heeft geen geluid om te filteren",
   "studio.textToSpeech": "Tekst naar spraak…",
   "studio.timelineNowHdr": "{0} is nu HDR (HLG), vanwege de eerste HDR-clip. Via Wijzigen kun je het terugzetten.",
   "studio.track": "Spoor {0}",

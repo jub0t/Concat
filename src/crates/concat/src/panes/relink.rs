@@ -7,14 +7,38 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use concat_project::Command;
-use concat_project::model::{MediaKind, MissingMedia};
+use concat_doc::commands::Command;
+use concat_doc::model::{MediaId, MediaKind, Model};
 use slint::VecModel;
 
 use crate::i18n::{t, tf};
 use crate::platform;
 use crate::studio::Studio;
 use crate::ui::{MissingMediaItem, RelinkData};
+
+/// A file of the bin that is not where the project says it is: its id as
+/// the panels hold it, what the bin calls it, and the path it had.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MissingMedia {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+}
+
+/// Every file of the bin whose path names nothing on disk, in the bin's
+/// order. A template's slot, which has no path of its own, is not missing.
+pub fn missing_media(doc: &Model) -> Vec<MissingMedia> {
+    crate::doc_view::bin(doc)
+        .filter(|(_, media)| {
+            !media.placeholder && !media.path.is_empty() && !Path::new(&media.path).is_file()
+        })
+        .map(|(id, media)| MissingMedia {
+            id: id.to_string(),
+            name: media.name.clone(),
+            path: media.path.clone(),
+        })
+        .collect()
+}
 
 /// Everything that can happen to the relink dialog.
 #[derive(Clone, Debug)]
@@ -103,8 +127,11 @@ impl RelinkPane {
         if studio.session.is_none() {
             return;
         }
+        let Some(media) = crate::doc_view::parse::<MediaId>(id) else {
+            return;
+        };
         studio.apply(Command::RemoveMedia {
-            media_id: id.to_owned(),
+            media,
         });
         self.items.retain(|item| item.id != id);
         self.dismissed.remove(id);
@@ -177,9 +204,12 @@ impl RelinkPane {
             return;
         }
         let total = self.items.len();
+        let Some(media) = crate::doc_view::parse::<MediaId>(id) else {
+            return;
+        };
         let mut commands = vec![Command::UpdateMediaPath {
-            media_id: id.to_owned(),
-            new_path: path.to_string_lossy().to_string(),
+            media,
+            path: path.to_string_lossy().to_string(),
         }];
         if let Some(folder) = path.parent() {
             commands.extend(self.matches(&index_folder(folder, false), Some(id)));
@@ -201,8 +231,8 @@ impl RelinkPane {
                 let name = Path::new(&item.path).file_name()?.to_str()?;
                 let found = index.get(name)?;
                 Some(Command::UpdateMediaPath {
-                    media_id: item.id.clone(),
-                    new_path: found.to_string_lossy().to_string(),
+                    media: crate::doc_view::parse(&item.id)?,
+                    path: found.to_string_lossy().to_string(),
                 })
             })
             .collect()
@@ -219,7 +249,7 @@ impl RelinkPane {
         if !commands.is_empty() {
             studio.apply(Command::Batch { commands });
         }
-        let remaining = studio.project().missing_media();
+        let remaining = missing_media(studio.committed());
         let still: HashSet<&str> = remaining.iter().map(|item| item.id.as_str()).collect();
         self.dismissed.retain(|id| still.contains(id.as_str()));
         self.open = !remaining.is_empty();
@@ -232,31 +262,15 @@ impl RelinkPane {
     pub fn data(&self, studio: &Studio) -> RelinkData {
         // How many clips each missing file is in, across every timeline:
         // what its Remove takes with it.
+        let doc = studio.committed();
         let clips_of = |id: &str| -> i32 {
-            studio.session.as_ref().map_or(0, |session| {
-                session
-                    .project()
-                    .timelines
-                    .iter()
-                    .map(|timeline| {
-                        timeline
-                            .clips
-                            .iter()
-                            .filter(|clip| clip.media_id == id)
-                            .count()
-                    })
-                    .sum::<usize>() as i32
-            })
+            crate::doc_view::parse::<MediaId>(id)
+                .map_or(0, |media| doc.items.index().using_media(media).count()) as i32
         };
         let kind_of = |id: &str| -> i32 {
-            let kind = studio.session.as_ref().and_then(|session| {
-                session
-                    .project()
-                    .media
-                    .iter()
-                    .find(|media| media.id == id)
-                    .map(|media| media.kind)
-            });
+            let kind = crate::doc_view::parse::<MediaId>(id)
+                .and_then(|media| crate::doc_view::media(doc, media))
+                .map(|media| &media.kind);
             match kind {
                 Some(MediaKind::Audio) => 1,
                 Some(MediaKind::Image) => 2,
@@ -334,6 +348,34 @@ mod tests {
             name: format!("{id}.mp4"),
             path: path.to_owned(),
         }
+    }
+
+    /// A file not on disk is missing; one on disk, and a template's slot,
+    /// are not.
+    #[test]
+    fn missing_media_is_the_bin_without_its_files() {
+        let mut bench = crate::doc_view::bench::Bench::new();
+        let gone = bench.add_media("gone.mp4", MediaKind::Video, 2.0);
+        let here = bench.add_media("here.mp4", MediaKind::Video, 2.0);
+        let folder =
+            std::env::temp_dir().join(format!("concat-relink-test-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let on_disk = folder.join("here.mp4");
+        std::fs::write(&on_disk, b"x").unwrap();
+        bench.apply(&Command::UpdateMediaPath {
+            media: here,
+            path: on_disk.to_string_lossy().into_owned(),
+        });
+        let missing = missing_media(bench.doc());
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].id, gone.to_string());
+        assert_eq!(missing[0].name, "gone.mp4");
+        bench.apply(&Command::SetMediaPlaceholder {
+            media: gone,
+            placeholder: true,
+        });
+        assert!(missing_media(bench.doc()).is_empty());
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]

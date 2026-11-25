@@ -920,6 +920,7 @@
   "studio.stabilize": "Chống rung: {0}",
   "studio.stabilizeSkipped": "Concat đã đóng khi đang đo độ rung của một clip, nên bỏ qua chống rung cho clip đó và mở dự án. Tắt rồi bật lại Chống rung để thử lại.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Ảnh tĩnh không có âm thanh để lọc",
   "studio.textToSpeech": "Chuyển văn bản thành giọng nói…",
   "studio.timelineNowHdr": "{0} giờ là HDR (HLG), vì clip HDR đầu tiên của nó. Mục Sửa đổi có thể đặt lại.",
   "studio.track": "Track {0}",

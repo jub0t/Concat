@@ -920,6 +920,7 @@
   "studio.stabilize": "Stabilizza: {0}",
   "studio.stabilizeSkipped": "Concat si è chiuso mentre misurava il tremolio di una clip, quindi la sua stabilizzazione viene saltata e il progetto si apre. Disattiva e riattiva Stabilizza per riprovare.",
   "studio.stereo": "stereo",
+  "studio.stillHasNoSound": "Un'immagine fissa non ha suono da filtrare",
   "studio.textToSpeech": "Sintesi vocale…",
   "studio.timelineNowHdr": "{0} ora è HDR (HLG), per la sua prima clip HDR. Da Modifica puoi tornare indietro.",
   "studio.track": "Track {0}",

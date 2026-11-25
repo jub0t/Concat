@@ -3,24 +3,39 @@
 //! Keyframes.
 
 use concat_core::Halt;
+use concat_doc::commands::MaskNumber;
+use concat_doc::model::{Ease, Key};
 
 use super::*;
+
+/// The keys of the colour link of a clip's picture chain, and its place in
+/// the chain the inspector counts: what the Adjust panel keys.
+fn adjust_link(clip: &Item) -> Option<&Effect> {
+    doc_view::chain(&clip.effects)
+        .into_iter()
+        .find(|link| link.package == ADJUST_ID)
+}
+
+/// The key of a run within a hair of `at`, if there is one.
+fn key_here(keys: &[Key<f64>], at: Tick) -> Option<&Key<f64>> {
+    doc_view::key_near(keys, at)
+}
 
 impl Studio {
     // ── keyframes ──
 
     /// The keyable property a field names, or None for a field that is a
     /// constant and stays one.
-    pub fn key_property_of(field: ClipField) -> Option<model::KeyProperty> {
+    pub fn key_property_of(field: ClipField) -> Option<KeyProperty> {
         Some(match field {
-            ClipField::Scale => model::KeyProperty::Scale,
-            ClipField::OffsetX => model::KeyProperty::OffsetX,
-            ClipField::OffsetY => model::KeyProperty::OffsetY,
-            ClipField::Rotation => model::KeyProperty::Rotation,
-            ClipField::StretchX => model::KeyProperty::StretchX,
-            ClipField::StretchY => model::KeyProperty::StretchY,
-            ClipField::Opacity => model::KeyProperty::Opacity,
-            ClipField::Volume => model::KeyProperty::Volume,
+            ClipField::Scale => KeyProperty::Scale,
+            ClipField::OffsetX => KeyProperty::OffsetX,
+            ClipField::OffsetY => KeyProperty::OffsetY,
+            ClipField::Rotation => KeyProperty::Rotation,
+            ClipField::StretchX => KeyProperty::StretchX,
+            ClipField::StretchY => KeyProperty::StretchY,
+            ClipField::Opacity => KeyProperty::Opacity,
+            ClipField::Volume => KeyProperty::Volume,
             _ => return None,
         })
     }
@@ -32,23 +47,27 @@ impl Studio {
     /// under the pointer is not dropped when the graph is published again.
     pub(super) fn publish_speed_ramp(&self, app: &App, models: &Models) {
         let ramp = app.global::<SpeedRamp>();
-        let clip = self.speed_clip().and_then(|id| self.clip(&id));
-        let points = clip
-            .and_then(|clip| clip.speed_curve.as_deref())
-            .unwrap_or(&[]);
+        let id = self.speed_clip();
+        let clip = id.as_deref().and_then(|id| self.clip(id));
+        let points = id
+            .as_deref()
+            .and_then(|id| self.speed_points(id))
+            .unwrap_or_default();
         ramp.set_usable(clip.is_some());
         ramp.set_has_curve(!points.is_empty());
         // No curve shows as smooth: a curve begins smooth.
-        ramp.set_eased(points.is_empty() || concat_project::speed::is_eased(points));
-        ramp.set_active_preset(speed_ramp::preset_index(points));
-        let extreme = |faster| speed_ramp::extreme_of(points, faster).unwrap_or(0.0) as f32;
+        ramp.set_eased(points.is_empty() || speed_ramp::is_eased(&points));
+        ramp.set_active_preset(speed_ramp::preset_index(&points));
+        let extreme = |faster| speed_ramp::extreme_of(&points, faster).unwrap_or(0.0) as f32;
         ramp.set_peak_speed(extreme(true));
         ramp.set_trough_speed(extreme(false));
-        ramp.set_line_path(speed_ramp::curve_path(points).into());
+        ramp.set_line_path(speed_ramp::curve_path(&points).into());
         let across = clip.and_then(|clip| {
-            let local = f64::from(self.playhead) - clip.start;
-            (clip.duration > 0.0 && (0.0..=clip.duration).contains(&local))
-                .then(|| (local / clip.duration) as f32)
+            let local = f64::from(self.playhead) - doc_view::start_s(clip);
+            let length = doc_view::len_s(clip);
+            (0.0..=length)
+                .contains(&local)
+                .then(|| (local / length) as f32)
         });
         ramp.set_playhead_at(across.unwrap_or(-1.0));
         let last = points.len().saturating_sub(1);
@@ -81,21 +100,39 @@ impl Studio {
         );
     }
 
-    /// The selected clip and where the playhead is inside it, `0..=1`, or
+    /// The selected clip and where the playhead is on its content time, or
     /// None when there is no sole selection or the playhead is outside it.
     ///
-    /// Outside is not clamped to an end: a key put on from outside the clip
+    /// Outside is not held to an end: a key put on from outside the clip
     /// would land on its first or last frame, which is never what the person
     /// pressing the diamond meant.
-    pub fn key_point(&self) -> Option<(&Clip, f64)> {
+    pub fn key_point(&self) -> Option<(&Item, Tick)> {
         let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
-        if clip.duration <= 0.0 {
-            return None;
-        }
-        let local = f64::from(self.playhead) - clip.start;
-        (0.0..=clip.duration)
-            .contains(&local)
-            .then(|| (clip, local / clip.duration))
+        let playhead = doc_view::tick(f64::from(self.playhead));
+        (clip.start..=doc_view::end(clip))
+            .contains(&playhead)
+            .then(|| (clip, doc_view::content_at(clip, playhead)))
+    }
+
+    /// The selected clip, its id as the document's and where the playhead
+    /// is on its content time, as [`Studio::key_point`] has them.
+    fn key_target(&self) -> Option<(ItemId, &Item, Tick)> {
+        let id = doc_view::parse::<ItemId>(&self.sole_selection()?)?;
+        let (clip, at) = self.key_point()?;
+        Some((id, clip, at))
+    }
+
+    /// The selected clip with its id as the document's.
+    fn sole_item(&self) -> Option<(ItemId, &Item)> {
+        let id = self.sole_selection()?;
+        Some((doc_view::parse(&id)?, self.clip(&id)?))
+    }
+
+    /// The timeline second a content tick of `clip` shows at, for the
+    /// playhead to go to.
+    fn seek_to_key(&mut self, clip: &Item, at: Tick) {
+        let place = doc_view::timeline_at(clip, at);
+        self.seek(doc_view::secs(place) as f32);
     }
 
     /// The keyframe cluster's eight rows, in the order the `Keyframes` global
@@ -105,14 +142,15 @@ impl Studio {
         let Some((clip, at)) = self.key_point() else {
             return Vec::new();
         };
-        let mut rows: Vec<ClipKeyData> = model::KeyProperty::ALL
+        let mut rows: Vec<ClipKeyData> = doc_view::KEY_PROPERTIES
             .iter()
             .map(|&property| {
-                let (prev, next) = clip.keys_around(property, at);
+                let keys = &doc_view::animated(clip, property).keys;
+                let (prev, next) = doc_view::keys_around(keys, at);
                 ClipKeyData {
                     field: key_field_of(property),
-                    keyed: clip.is_keyed(property),
-                    here: clip.key_at(property, at).is_some(),
+                    keyed: !keys.is_empty(),
+                    here: key_here(keys, at).is_some(),
                     prev: prev.is_some(),
                     next: next.is_some(),
                 }
@@ -131,23 +169,23 @@ impl Studio {
         let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
             return Vec::new();
         };
-        let at = place_in(clip, self.playhead);
-        let near = |a: f64, b: f64| (a - b).abs() <= model::KEY_EPSILON;
-        // A run of keys as marks: each with its value as a fraction of the
-        // range and the ease into it, and the ride as a path - a hold to
-        // the first key, a cubic per segment (the ease's control points are
-        // exactly the curve's, in time and value), a hold after the last.
-        let marks_and_curve = |keys: &[(f64, f64, model::KeyEase)],
+        let at = doc_view::content_at(clip, doc_view::tick(f64::from(self.playhead)));
+        // A run of keys as marks: each at its share of the clip, with its
+        // value as a fraction of the range and the ease into it, and the
+        // ride as a path - a hold to the first key, a cubic per segment
+        // (the ease's control points are exactly the curve's, in time and
+        // value), a hold after the last.
+        let marks_and_curve = |keys: &[(Tick, f64, Ease)],
                                to_fraction: &dyn Fn(f64) -> f64|
          -> (ModelRc<KeyMarkData>, String, i32) {
             let marks: Vec<KeyMarkData> = keys
                 .iter()
                 .enumerate()
                 .map(|(index, (key_at, value, ease))| {
-                    let [x1, y1, x2, y2] = ease.0;
+                    let [x1, y1, x2, y2] = doc_view::ease_parts(ease);
                     KeyMarkData {
-                        at: *key_at as f32,
-                        here: near(*key_at, at),
+                        at: doc_view::share_of(clip, *key_at) as f32,
+                        here: doc_view::near(*key_at, at),
                         value: to_fraction(*value).clamp(0.0, 1.0) as f32,
                         ease_x1: x1 as f32,
                         ease_y1: y1 as f32,
@@ -183,34 +221,37 @@ impl Studio {
             }
             // The key the ease menu edits: the one at the playhead, else
             // the next, when it has a key behind it to ease from.
-            let ease_index = marks
+            let ease_index = keys
                 .iter()
-                .position(|mark| mark.eased && f64::from(mark.at) >= at - model::KEY_EPSILON)
+                .enumerate()
+                .position(|(index, (key_at, _, _))| {
+                    index > 0 && (*key_at >= at || doc_view::near(*key_at, at))
+                })
                 .map_or(-1, |index| index as i32);
             (ModelRc::new(VecModel::from(marks)), curve, ease_index)
+        };
+        let run_of = |keys: &[Key<f64>], to_knob: &dyn Fn(f64) -> f64| -> Vec<(Tick, f64, Ease)> {
+            keys.iter()
+                .map(|key| (key.at, to_knob(key.value), key.ease.clone()))
+                .collect()
         };
         // Only a picture or a shape is pulled out of its shape: a title's
         // glyphs never are, and a sound has no shape. Their Width and
         // Height rows would key something nothing draws, so they are left
         // out unless keys already sit on them to be taken off.
-        let pulled = matches!(
-            clip.kind,
-            model::ClipKind::Video | model::ClipKind::Image | model::ClipKind::Shape
-        );
+        let pulled = matches!(self.kind(clip), Kind::Video | Kind::Image | Kind::Shape);
         let mut rows = Vec::new();
-        for property in model::KeyProperty::ALL {
-            let pull = matches!(
-                property,
-                model::KeyProperty::StretchX | model::KeyProperty::StretchY
-            );
-            if pull && !pulled && !clip.is_keyed(property) {
+        for property in doc_view::KEY_PROPERTIES {
+            let held = doc_view::animated(clip, property);
+            let pull = matches!(property, KeyProperty::StretchX | KeyProperty::StretchY);
+            if pull && !pulled && !held.is_keyed() {
                 continue;
             }
             // The same ranges and units as the inspector's knobs. The level
             // knob speaks decibels, floored where silence is.
             let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
                 match property {
-                    model::KeyProperty::Scale => (
+                    KeyProperty::Scale => (
                         t("common.scale"),
                         0.05,
                         8.0,
@@ -220,7 +261,7 @@ impl Studio {
                         "%",
                         100.0,
                     ),
-                    model::KeyProperty::OffsetX => (
+                    KeyProperty::OffsetX => (
                         t("common.positionX"),
                         -1.0,
                         1.0,
@@ -230,7 +271,7 @@ impl Studio {
                         "%",
                         100.0,
                     ),
-                    model::KeyProperty::OffsetY => (
+                    KeyProperty::OffsetY => (
                         t("common.positionY"),
                         -1.0,
                         1.0,
@@ -240,7 +281,7 @@ impl Studio {
                         "%",
                         100.0,
                     ),
-                    model::KeyProperty::Rotation => (
+                    KeyProperty::Rotation => (
                         t("common.rotation"),
                         -180.0,
                         180.0,
@@ -253,7 +294,7 @@ impl Studio {
                     // A pull reads as the inspector's Width and Height
                     // do: a percentage of the scaled size, 100 % being
                     // the picture's own shape.
-                    model::KeyProperty::StretchX => (
+                    KeyProperty::StretchX => (
                         t("common.width"),
                         0.1,
                         4.0,
@@ -263,7 +304,7 @@ impl Studio {
                         "%",
                         100.0,
                     ),
-                    model::KeyProperty::StretchY => (
+                    KeyProperty::StretchY => (
                         t("common.height"),
                         0.1,
                         4.0,
@@ -273,7 +314,7 @@ impl Studio {
                         "%",
                         100.0,
                     ),
-                    model::KeyProperty::Opacity => (
+                    KeyProperty::Opacity => (
                         t("common.opacity"),
                         0.0,
                         1.0,
@@ -283,7 +324,7 @@ impl Studio {
                         "%",
                         100.0,
                     ),
-                    model::KeyProperty::Volume => (
+                    KeyProperty::Volume => (
                         t("common.level"),
                         -60.0,
                         24.0,
@@ -295,13 +336,10 @@ impl Studio {
                     ),
                 };
             let to_knob = |value: f64| knob_value(property, value);
-            let keys: Vec<(f64, f64, model::KeyEase)> = clip
-                .keys_on(property)
-                .map(|key| (key.at, to_knob(key.value), key.ease))
-                .collect();
+            let keys = run_of(&held.keys, &to_knob);
             let (marks, curve, ease_index) =
                 marks_and_curve(&keys, &|value| (value - minimum) / (maximum - minimum));
-            let (prev, next) = clip.keys_around(property, at);
+            let (prev, next) = doc_view::keys_around(&held.keys, at);
             rows.push(KeyRowData {
                 field: key_field_of(property),
                 param: SharedString::default(),
@@ -310,7 +348,7 @@ impl Studio {
                 state: ClipKeyData {
                     field: key_field_of(property),
                     keyed: !keys.is_empty(),
-                    here: clip.key_at(property, at).is_some(),
+                    here: key_here(&held.keys, at).is_some(),
                     prev: prev.is_some(),
                     next: next.is_some(),
                 },
@@ -329,40 +367,37 @@ impl Studio {
         // Every mask's numbers: all of the current mask's, which the Mask
         // section is showing, and the keyed ones of the rest. A row is the
         // number's field with the mask's id beside it.
-        let current = self.current_mask(clip).map(|mask| mask.id.clone());
-        for (index, mask) in clip.masks.iter().enumerate() {
-            let is_current = current.as_deref() == Some(mask.id.as_str());
+        let current = self.current_mask(clip).map(|mask| mask.id);
+        for (index, mask) in doc_view::masks(&clip.masks).into_iter().enumerate() {
+            let is_current = current == Some(mask.id);
             for field in masks::MASK_KEY_FIELDS {
                 let number = masks::mask_number_of(field).expect("a mask field");
-                let (Some(_), Some(knob)) = (mask.get(number), masks::mask_knob(number)) else {
+                let (Some(held), Some(knob)) =
+                    (doc_view::mask_number(mask, number), masks::mask_knob(number))
+                else {
                     continue;
                 };
-                let held = mask.keys_on(number);
-                if !is_current && held.is_empty() {
+                if !is_current && !held.is_keyed() {
                     continue;
                 }
-                let keys: Vec<(f64, f64, model::KeyEase)> = held
-                    .iter()
-                    .map(|key| (key.at, key.value, key.ease))
-                    .collect();
+                let keys = run_of(&held.keys, &|value| value);
                 let span = knob.maximum - knob.minimum;
                 let (marks, curve, ease_index) =
                     marks_and_curve(&keys, &|value| (value - knob.minimum) / span);
-                let before = |key: &&model::ParamKey| key.at < at - model::KEY_EPSILON;
-                let after = |key: &&model::ParamKey| key.at > at + model::KEY_EPSILON;
+                let (prev, next) = doc_view::keys_around(&held.keys, at);
                 rows.push(KeyRowData {
                     field,
-                    param: mask.id.as_str().into(),
-                    label: format!("{} · {}", masks::mask_label(mask, index), knob.label).into(),
+                    param: doc_view::text(mask.id),
+                    label: format!("{} ({})", knob.label, masks::mask_label(mask, index)).into(),
                     keys: marks,
                     state: ClipKeyData {
                         field,
-                        keyed: !held.is_empty(),
-                        here: held.iter().any(|key| near(key.at, at)),
-                        prev: held.iter().any(|key| before(&key)),
-                        next: held.iter().any(|key| after(&key)),
+                        keyed: held.is_keyed(),
+                        here: key_here(&held.keys, at).is_some(),
+                        prev: prev.is_some(),
+                        next: next.is_some(),
                     },
-                    value: mask.value_at(number, at) as f32,
+                    value: doc_view::value_at(held, at) as f32,
                     minimum: knob.minimum as f32,
                     maximum: knob.maximum as f32,
                     step: knob.step,
@@ -375,21 +410,13 @@ impl Studio {
                 });
             }
         }
-        if let Some(link) = clip
-            .video_effects
-            .iter()
-            .find(|entry| entry.id == ADJUST_ID)
-        {
+        if let Some(link) = adjust_link(clip) {
             let inside = self.key_point().map(|(_, at)| at);
-            for row in adjust_rows(&clip.video_effects, inside) {
+            for row in adjust_rows(&doc_view::chain(&clip.effects), inside) {
                 if !row.keyed {
                     continue;
                 }
-                let keys: Vec<(f64, f64, model::KeyEase)> = link
-                    .keys_on(&row.key)
-                    .iter()
-                    .map(|key| (key.at, key.value, key.ease))
-                    .collect();
+                let keys = run_of(doc_view::param_keys(link, &row.key), &|value| value);
                 let (minimum, maximum) = (f64::from(row.min), f64::from(row.max));
                 let (marks, curve, ease_index) = marks_and_curve(&keys, &|value| {
                     if maximum > minimum {
@@ -428,11 +455,7 @@ impl Studio {
                 let (wheels, _) = grading_rows(package, Some(link), -1, Some(inside));
                 for wheel in wheels.into_iter().filter(|wheel| wheel.keyed) {
                     let [_, _, master] = grading::wheel_keys(&wheel.key);
-                    let keys: Vec<(f64, f64, model::KeyEase)> = link
-                        .keys_on(&master)
-                        .iter()
-                        .map(|key| (key.at, key.value, key.ease))
-                        .collect();
+                    let keys = run_of(doc_view::param_keys(link, &master), &|value| value);
                     let (minimum, maximum) = (f64::from(wheel.min), f64::from(wheel.max));
                     let (marks, curve, ease_index) = marks_and_curve(&keys, &|value| {
                         if maximum > minimum {
@@ -470,115 +493,157 @@ impl Studio {
         rows
     }
 
-    /// Moves the key at `from` to `to` and gives it `fraction` of its
-    /// row's range, keeping its ease: a drag of a handle in the curve view.
-    pub fn drag_key(&mut self, field: ClipField, param: &str, from: f32, to: f32, fraction: f32) {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
-            return;
+    /// The key a row of the Keyframes pane names at `from` - a share of the
+    /// clip, as the pane places its marks - and the commands that take it
+    /// to `to` with `value`, or with its own value when that is None, and
+    /// `ease`, or its own. `field` and `param` name the row as the pane
+    /// does: a property, a mask's number with the mask's id, or an Adjust
+    /// knob by its key. Empty when there is no such key.
+    fn rekey(
+        &self,
+        field: ClipField,
+        param: &str,
+        from: f32,
+        to: f32,
+        value: Option<&dyn Fn(f64, f64) -> f64>,
+        ease: Option<Ease>,
+    ) -> Vec<Command> {
+        let Some((item, clip)) = self.sole_item() else {
+            return Vec::new();
         };
-        let clip_id = clip.id.clone();
-        let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
-        let fraction = f64::from(fraction).clamp(0.0, 1.0);
+        let from = doc_view::at_share(clip, f64::from(from));
+        let to = doc_view::at_share(clip, f64::from(to));
         if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
-            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
-                return;
-            };
-            let Some(key) = mask
-                .keys_on(number)
-                .iter()
-                .find(|key| (key.at - from).abs() <= model::KEY_EPSILON)
-                .copied()
+            let Some(mask) = doc_view::masks(&clip.masks)
+                .into_iter()
+                .find(|mask| mask.id.to_string() == param)
             else {
-                return;
+                return Vec::new();
             };
-            let Some(knob) = masks::mask_knob(number) else {
-                return;
+            let Some(key) = doc_view::mask_number(mask, number)
+                .and_then(|held| key_here(&held.keys, from))
+                .cloned()
+            else {
+                return Vec::new();
             };
-            let value = knob.minimum + fraction * (knob.maximum - knob.minimum);
-            let commands = vec![
+            let value = match (value, masks::mask_knob(number)) {
+                (Some(value), Some(knob)) => value(knob.minimum, knob.maximum),
+                _ => key.value,
+            };
+            return vec![
                 Command::ClearMaskKey {
-                    clip_id: clip_id.clone(),
-                    mask_id: param.to_owned(),
-                    number: number.to_owned(),
+                    item,
+                    mask: mask.id,
+                    number,
                     at: key.at,
                 },
                 Command::SetMaskKey {
-                    clip_id,
-                    mask_id: param.to_owned(),
-                    number: number.to_owned(),
+                    item,
+                    mask: mask.id,
+                    number,
                     at: to,
                     value,
-                    ease: key.ease,
+                    ease: ease.unwrap_or(key.ease),
                 },
             ];
-            self.apply(Command::Batch { commands });
-            return;
         }
-        let commands = if param.is_empty() {
+        if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
-                return;
+                return Vec::new();
             };
-            let Some(index) = clip.key_at(property, from) else {
-                return;
+            let Some(key) = key_here(&doc_view::animated(clip, property).keys, from).cloned()
+            else {
+                return Vec::new();
             };
-            let (minimum, maximum) = knob_range(property);
-            let value = model_value(property, minimum + fraction * (maximum - minimum));
-            let ease = clip.keys[index].ease;
-            vec![
+            let value = match value {
+                Some(value) => {
+                    let (minimum, maximum) = knob_range(property);
+                    model_value(property, value(minimum, maximum))
+                }
+                None => key.value,
+            };
+            return vec![
                 Command::ClearClipKey {
-                    clip_id: clip_id.clone(),
+                    item,
                     property,
-                    at: from,
+                    at: key.at,
                 },
                 Command::SetClipKey {
-                    clip_id,
+                    item,
                     property,
                     at: to,
                     value,
-                    ease,
-                },
-            ]
-        } else {
-            let Some(entry) = clip
-                .video_effects
-                .iter()
-                .position(|entry| entry.id == ADJUST_ID)
-            else {
-                return;
-            };
-            let link = &clip.video_effects[entry];
-            let Some(index) = link.key_at(param, from) else {
-                return;
-            };
-            let Some(row) = adjust_rows(&clip.video_effects, Some(from))
-                .into_iter()
-                .find(|row| row.key == param)
-            else {
-                return;
-            };
-            let (minimum, maximum) = (f64::from(row.min), f64::from(row.max));
-            let value = minimum + fraction * (maximum - minimum);
-            let ease = link.keys_on(param)[index].ease;
-            let mut commands = vec![
-                Command::ClearEffectKey {
-                    clip_id: clip_id.clone(),
-                    entry,
-                    key: param.to_owned(),
-                    at: from,
-                },
-                Command::SetEffectKey {
-                    clip_id: clip_id.clone(),
-                    entry,
-                    key: param.to_owned(),
-                    at: to,
-                    value,
-                    ease,
+                    ease: ease.unwrap_or(key.ease),
                 },
             ];
-            commands.extend(partners_moved(link, &clip_id, entry, param, from, to));
-            commands
+        }
+        let Some(link) = adjust_link(clip) else {
+            return Vec::new();
         };
-        self.apply(Command::Batch { commands });
+        let Some(key) = key_here(doc_view::param_keys(link, param), from).cloned() else {
+            return Vec::new();
+        };
+        let value = match value {
+            Some(value) => {
+                let Some(row) = adjust_rows(&doc_view::chain(&clip.effects), Some(from))
+                    .into_iter()
+                    .find(|row| row.key == param)
+                else {
+                    return Vec::new();
+                };
+                value(f64::from(row.min), f64::from(row.max))
+            }
+            None => key.value,
+        };
+        let mut commands = vec![
+            Command::ClearEffectKey {
+                item,
+                effect: link.id,
+                param: param.to_owned(),
+                at: key.at,
+            },
+            Command::SetEffectKey {
+                item,
+                effect: link.id,
+                param: param.to_owned(),
+                at: to,
+                value,
+                ease: ease.unwrap_or(key.ease),
+            },
+        ];
+        commands.extend(partners_moved(link, item, param, key.at, to));
+        commands
+    }
+
+    /// Moves the key at `from` to `to` and gives it `fraction` of its
+    /// row's range, keeping its ease: a drag of a handle in the curve view.
+    pub fn drag_key(&mut self, field: ClipField, param: &str, from: f32, to: f32, fraction: f32) {
+        let fraction = f64::from(fraction).clamp(0.0, 1.0);
+        let value = move |minimum: f64, maximum: f64| minimum + fraction * (maximum - minimum);
+        let commands = self.rekey(field, param, from, to.clamp(0.0, 1.0), Some(&value), None);
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
+    }
+
+    /// Every key's place on the selected clip's content time: its own
+    /// numbers', its masks' and its colour link's.
+    fn key_places(clip: &Item) -> Vec<Tick> {
+        let mut ats: Vec<Tick> = doc_view::KEY_PROPERTIES
+            .iter()
+            .flat_map(|&property| doc_view::animated(clip, property).keys.iter().map(|key| key.at))
+            .collect();
+        for mask in doc_view::masks(&clip.masks) {
+            for number in doc_view::MASK_NUMBERS {
+                if let Some(held) = doc_view::mask_number(mask, number) {
+                    ats.extend(held.keys.iter().map(|key| key.at));
+                }
+            }
+        }
+        if let Some(link) = adjust_link(clip) {
+            ats.extend(doc_view::param_key_places(link));
+        }
+        ats
     }
 
     /// The selected clip's keys as instants on the timeline, every property
@@ -588,26 +653,11 @@ impl Studio {
         let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
             return Vec::new();
         };
-        let mut ats: Vec<f64> = model::KeyProperty::ALL
-            .iter()
-            .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
-            .collect();
-        ats.extend(
-            clip.masks
-                .iter()
-                .flat_map(|mask| mask.keys.values().flatten().map(|key| key.at)),
-        );
-        if let Some(link) = clip
-            .video_effects
-            .iter()
-            .find(|entry| entry.id == ADJUST_ID)
-        {
-            ats.extend(link.keys.values().flatten().map(|key| key.at));
-        }
-        ats.sort_by(f64::total_cmp);
-        ats.dedup_by(|a, b| (*a - *b).abs() <= model::KEY_EPSILON);
+        let mut ats = Self::key_places(clip);
+        ats.sort();
+        ats.dedup_by(|a, b| doc_view::near(*a, *b));
         ats.iter()
-            .map(|at| (clip.start + at * clip.duration) as f32)
+            .map(|at| doc_view::secs(doc_view::timeline_at(clip, *at)) as f32)
             .collect()
     }
 
@@ -615,82 +665,70 @@ impl Studio {
     /// `from` to the instant `to`, as one undo step: what a dragged ruler
     /// diamond does.
     pub fn move_keys_at(&mut self, from: f32, to: f32) {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+        let Some((item, clip)) = self.sole_item() else {
             return;
         };
-        if clip.duration <= 0.0 {
-            return;
-        }
-        let clip_id = clip.id.clone();
-        let from_at = (f64::from(from) - clip.start) / clip.duration;
-        let to_at = ((f64::from(to) - clip.start) / clip.duration).clamp(0.0, 1.0);
+        let from_at = doc_view::content_free(clip, doc_view::tick(f64::from(from)));
+        let to_at = doc_view::content_at(clip, doc_view::tick(f64::from(to)));
         let mut commands = Vec::new();
-        for property in model::KeyProperty::ALL {
-            let Some(index) = clip.key_at(property, from_at) else {
+        for property in doc_view::KEY_PROPERTIES {
+            let Some(key) = key_here(&doc_view::animated(clip, property).keys, from_at) else {
                 continue;
             };
-            let key = &clip.keys[index];
             commands.push(Command::ClearClipKey {
-                clip_id: clip_id.clone(),
+                item,
                 property,
                 at: key.at,
             });
             commands.push(Command::SetClipKey {
-                clip_id: clip_id.clone(),
+                item,
                 property,
                 at: to_at,
                 value: key.value,
-                ease: key.ease,
+                ease: key.ease.clone(),
             });
         }
-        for mask in &clip.masks {
-            for (number, run) in &mask.keys {
-                let Some(key) = run
-                    .iter()
-                    .find(|key| (key.at - from_at).abs() <= model::KEY_EPSILON)
+        for mask in doc_view::masks(&clip.masks) {
+            for number in doc_view::MASK_NUMBERS {
+                let Some(key) =
+                    doc_view::mask_number(mask, number).and_then(|held| key_here(&held.keys, from_at))
                 else {
                     continue;
                 };
                 commands.push(Command::ClearMaskKey {
-                    clip_id: clip_id.clone(),
-                    mask_id: mask.id.clone(),
-                    number: number.clone(),
+                    item,
+                    mask: mask.id,
+                    number,
                     at: key.at,
                 });
                 commands.push(Command::SetMaskKey {
-                    clip_id: clip_id.clone(),
-                    mask_id: mask.id.clone(),
-                    number: number.clone(),
+                    item,
+                    mask: mask.id,
+                    number,
                     at: to_at,
                     value: key.value,
-                    ease: key.ease,
+                    ease: key.ease.clone(),
                 });
             }
         }
-        if let Some(entry) = clip
-            .video_effects
-            .iter()
-            .position(|entry| entry.id == ADJUST_ID)
-        {
-            let link = &clip.video_effects[entry];
-            for name in link.keys.keys() {
-                let Some(index) = link.key_at(name, from_at) else {
+        if let Some(link) = adjust_link(clip) {
+            for name in link.params.keys() {
+                let Some(key) = key_here(doc_view::param_keys(link, name), from_at) else {
                     continue;
                 };
-                let key = &link.keys_on(name)[index];
                 commands.push(Command::ClearEffectKey {
-                    clip_id: clip_id.clone(),
-                    entry,
-                    key: name.clone(),
+                    item,
+                    effect: link.id,
+                    param: name.clone(),
                     at: key.at,
                 });
                 commands.push(Command::SetEffectKey {
-                    clip_id: clip_id.clone(),
-                    entry,
-                    key: name.clone(),
+                    item,
+                    effect: link.id,
+                    param: name.clone(),
                     at: to_at,
                     value: key.value,
-                    ease: key.ease,
+                    ease: key.ease.clone(),
                 });
             }
         }
@@ -701,183 +739,87 @@ impl Studio {
 
     /// Moves the playhead to `at` of the selected clip, `0..1`.
     pub fn jump_to_key(&mut self, at: f32) {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)).cloned() else {
             return;
         };
-        let (start, duration) = (clip.start, clip.duration);
-        self.seek((start + f64::from(at).clamp(0.0, 1.0) * duration) as f32);
+        let at = doc_view::at_share(&clip, f64::from(at));
+        self.seek_to_key(&clip, at);
     }
 
     /// Moves the key at `from` to `to` on a property, or on the Adjust
     /// knob `param` names: the same value and ease at the new place, as
     /// one undo step.
     pub fn move_key(&mut self, field: ClipField, param: &str, from: f32, to: f32) {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
-            return;
-        };
-        let clip_id = clip.id.clone();
-        let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
-        if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
-            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
-                return;
-            };
-            let Some(key) = mask
-                .keys_on(number)
-                .iter()
-                .find(|key| (key.at - from).abs() <= model::KEY_EPSILON)
-                .copied()
-            else {
-                return;
-            };
-            let commands = vec![
-                Command::ClearMaskKey {
-                    clip_id: clip_id.clone(),
-                    mask_id: param.to_owned(),
-                    number: number.to_owned(),
-                    at: key.at,
-                },
-                Command::SetMaskKey {
-                    clip_id,
-                    mask_id: param.to_owned(),
-                    number: number.to_owned(),
-                    at: to,
-                    value: key.value,
-                    ease: key.ease,
-                },
-            ];
+        let commands = self.rekey(field, param, from, to.clamp(0.0, 1.0), None, None);
+        if !commands.is_empty() {
             self.apply(Command::Batch { commands });
-            return;
         }
-        let commands = if param.is_empty() {
-            let Some(property) = Self::key_property_of(field) else {
-                return;
-            };
-            let Some(index) = clip.key_at(property, from) else {
-                return;
-            };
-            let key = &clip.keys[index];
-            let (value, ease) = (key.value, key.ease);
-            vec![
-                Command::ClearClipKey {
-                    clip_id: clip_id.clone(),
-                    property,
-                    at: from,
-                },
-                Command::SetClipKey {
-                    clip_id,
-                    property,
-                    at: to,
-                    value,
-                    ease,
-                },
-            ]
-        } else {
-            let Some(entry) = clip
-                .video_effects
-                .iter()
-                .position(|entry| entry.id == ADJUST_ID)
-            else {
-                return;
-            };
-            let link = &clip.video_effects[entry];
-            let Some(index) = link.key_at(param, from) else {
-                return;
-            };
-            let key = &link.keys_on(param)[index];
-            let (value, ease) = (key.value, key.ease);
-            let mut commands = vec![
-                Command::ClearEffectKey {
-                    clip_id: clip_id.clone(),
-                    entry,
-                    key: param.to_owned(),
-                    at: from,
-                },
-                Command::SetEffectKey {
-                    clip_id: clip_id.clone(),
-                    entry,
-                    key: param.to_owned(),
-                    at: to,
-                    value,
-                    ease,
-                },
-            ];
-            commands.extend(partners_moved(link, &clip_id, entry, param, from, to));
-            commands
-        };
-        self.apply(Command::Batch { commands });
     }
 
     /// Sets the ease into the key at `at`. A drag of the curve editor is
     /// many of these, folded into one undo step.
     pub fn set_key_ease(&mut self, field: ClipField, param: &str, at: f32, ease: [f32; 4]) {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+        let Some((item, clip)) = self.sole_item() else {
             return;
         };
-        let clip_id = clip.id.clone();
-        let at = f64::from(at);
-        let ease = model::KeyEase(ease.map(f64::from)).sane();
+        let ease = doc_view::ease_of(ease.map(f64::from));
+        let at = doc_view::at_share(clip, f64::from(at));
         if let Some(number) = masks::mask_number_of(field).filter(|_| !param.is_empty()) {
-            let Some(mask) = clip.masks.iter().find(|mask| mask.id == param) else {
-                return;
-            };
-            let Some(key) = mask
-                .keys_on(number)
-                .iter()
-                .find(|key| (key.at - at).abs() <= model::KEY_EPSILON)
-                .copied()
+            let Some(mask) = doc_view::masks(&clip.masks)
+                .into_iter()
+                .find(|mask| mask.id.to_string() == param)
             else {
                 return;
             };
-            self.apply_within(
-                "ease",
-                Command::SetMaskKey {
-                    clip_id,
-                    mask_id: param.to_owned(),
-                    number: number.to_owned(),
-                    at: key.at,
-                    value: key.value,
-                    ease,
-                },
-            );
+            let Some(key) = doc_view::mask_number(mask, number)
+                .and_then(|held| key_here(&held.keys, at))
+                .cloned()
+            else {
+                return;
+            };
+            let command = Command::SetMaskKey {
+                item,
+                mask: mask.id,
+                number,
+                at: key.at,
+                value: key.value,
+                ease,
+            };
+            self.apply_within("ease", command);
             return;
         }
         let command = if param.is_empty() {
             let Some(property) = Self::key_property_of(field) else {
                 return;
             };
-            let Some(index) = clip.key_at(property, at) else {
+            let Some(key) = key_here(&doc_view::animated(clip, property).keys, at) else {
                 return;
             };
             Command::SetClipKey {
-                clip_id,
+                item,
                 property,
-                at,
-                value: clip.keys[index].value,
+                at: key.at,
+                value: key.value,
                 ease,
             }
         } else {
-            let Some(entry) = clip
-                .video_effects
-                .iter()
-                .position(|entry| entry.id == ADJUST_ID)
-            else {
+            let Some(link) = adjust_link(clip) else {
                 return;
             };
-            let link = &clip.video_effects[entry];
-            if link.key_at(param, at).is_none() {
+            if key_here(doc_view::param_keys(link, param), at).is_none() {
                 return;
             }
             let mut commands: Vec<Command> = std::iter::once(param.to_owned())
                 .chain(wheel_partners(param))
                 .filter_map(|name| {
-                    let index = link.key_at(&name, at)?;
+                    let key = key_here(doc_view::param_keys(link, &name), at)?;
                     Some(Command::SetEffectKey {
-                        clip_id: clip_id.clone(),
-                        entry,
-                        value: link.keys_on(&name)[index].value,
-                        key: name,
-                        at,
-                        ease,
+                        item,
+                        effect: link.id,
+                        at: key.at,
+                        value: key.value,
+                        param: name,
+                        ease: ease.clone(),
                     })
                 })
                 .collect();
@@ -896,77 +838,56 @@ impl Studio {
         let Some((clip, at)) = self.key_point() else {
             return;
         };
-        let mut candidates: Vec<f64> = model::KeyProperty::ALL
-            .iter()
-            .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
-            .collect();
-        candidates.extend(
-            clip.masks
-                .iter()
-                .flat_map(|mask| mask.keys.values().flatten().map(|key| key.at)),
-        );
-        if let Some(link) = clip
-            .video_effects
-            .iter()
-            .find(|entry| entry.id == ADJUST_ID)
-        {
-            candidates.extend(link.keys.values().flatten().map(|key| key.at));
-        }
+        let candidates = Self::key_places(clip);
         let target = if delta < 0 {
             candidates
-                .iter()
-                .copied()
-                .filter(|&key_at| key_at < at - model::KEY_EPSILON)
-                .reduce(f64::max)
+                .into_iter()
+                .filter(|&key_at| key_at < at && !doc_view::near(key_at, at))
+                .max()
         } else {
             candidates
-                .iter()
-                .copied()
-                .filter(|&key_at| key_at > at + model::KEY_EPSILON)
-                .reduce(f64::min)
+                .into_iter()
+                .filter(|&key_at| key_at > at && !doc_view::near(key_at, at))
+                .min()
         };
         let Some(target) = target else {
             return;
         };
-        let (start, duration) = (clip.start, clip.duration);
-        self.seek((start + target * duration) as f32);
+        let clip = clip.clone();
+        self.seek_to_key(&clip, target);
     }
 
     /// Takes every key off the selected clip: its properties and its
     /// Adjust knobs, as one undo step.
     pub fn clear_all_keys(&mut self) {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+        let Some((item, clip)) = self.sole_item() else {
             return;
         };
-        let clip_id = clip.id.clone();
-        let mut commands: Vec<Command> = model::KeyProperty::ALL
+        let mut commands: Vec<Command> = doc_view::KEY_PROPERTIES
             .iter()
-            .filter(|&&property| clip.is_keyed(property))
-            .map(|&property| Command::ClearClipKeys {
-                clip_id: clip_id.clone(),
-                property,
-            })
+            .filter(|&&property| doc_view::animated(clip, property).is_keyed())
+            .map(|&property| Command::ClearClipKeys { item, property })
             .collect();
-        for mask in &clip.masks {
-            for number in mask.keys.keys() {
-                commands.push(Command::ClearMaskKeys {
-                    clip_id: clip_id.clone(),
-                    mask_id: mask.id.clone(),
-                    number: number.clone(),
-                });
+        for mask in doc_view::masks(&clip.masks) {
+            for number in doc_view::MASK_NUMBERS {
+                if doc_view::mask_number(mask, number).is_some_and(|held| held.is_keyed()) {
+                    commands.push(Command::ClearMaskKeys {
+                        item,
+                        mask: mask.id,
+                        number,
+                    });
+                }
             }
         }
-        if let Some(entry) = clip
-            .video_effects
-            .iter()
-            .position(|entry| entry.id == ADJUST_ID)
-        {
-            for key in clip.video_effects[entry].keys.keys() {
-                commands.push(Command::ClearEffectKeys {
-                    clip_id: clip_id.clone(),
-                    entry,
-                    key: key.clone(),
-                });
+        if let Some(link) = adjust_link(clip) {
+            for (name, param) in &link.params {
+                if !param.keys.is_empty() {
+                    commands.push(Command::ClearEffectKeys {
+                        item,
+                        effect: link.id,
+                        param: name.clone(),
+                    });
+                }
             }
         }
         if !commands.is_empty() {
@@ -991,33 +912,27 @@ impl Studio {
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
-        let Some((clip, at)) = self.key_point() else {
+        let Some((item, clip, at)) = self.key_target() else {
             return;
         };
-        let clip_id = clip.id.clone();
-        let command = if clip.key_at(property, at).is_some() {
-            Command::ClearClipKey {
-                clip_id,
+        let held = doc_view::animated(clip, property);
+        let command = match key_here(&held.keys, at) {
+            Some(key) => Command::ClearClipKey {
+                item,
                 property,
-                at,
-            }
-        } else {
-            let value = clip.value_at(property, at);
+                at: key.at,
+            },
             // The ease of whichever key this one is joining behind, so
             // laying a run of keys down does not alternate between shapes.
             // The first key on a property has nothing to inherit and gets
             // the straight line.
-            let ease = clip
-                .keys_on(property)
-                .rfind(|key| key.at < at)
-                .map_or(model::KeyEase::LINEAR, |key| key.ease);
-            Command::SetClipKey {
-                clip_id,
+            None => Command::SetClipKey {
+                item,
                 property,
                 at,
-                value,
-                ease,
-            }
+                value: doc_view::value_at(held, at),
+                ease: doc_view::ease_before(&held.keys, at),
+            },
         };
         self.apply(command);
     }
@@ -1033,87 +948,86 @@ impl Studio {
         let Some(property) = Self::key_property_of(field) else {
             return;
         };
-        let Some(clip_id) = self.sole_selection() else {
+        let Some(item) = self
+            .sole_selection()
+            .and_then(|id| doc_view::parse::<ItemId>(&id))
+        else {
             return;
         };
-        self.apply(Command::ClearClipKeys { clip_id, property });
+        self.apply(Command::ClearClipKeys { item, property });
     }
 
     /// Moves the playhead to this field's previous (-1) or next (+1) key.
     pub fn step_key(&mut self, field: ClipField, delta: i32) {
-        if masks::mask_number_of(field).is_some() {
-            let Some((clip, at)) = self.key_point() else {
-                return;
-            };
-            let (start, duration) = (clip.start, clip.duration);
-            let times = self.mask_key_times(field);
-            let target = if delta < 0 {
-                times
-                    .into_iter()
-                    .filter(|&key| key < at - model::KEY_EPSILON)
-                    .reduce(f64::max)
-            } else {
-                times
-                    .into_iter()
-                    .filter(|&key| key > at + model::KEY_EPSILON)
-                    .reduce(f64::min)
-            };
-            if let Some(target) = target {
-                self.seek((start + target * duration) as f32);
-            }
-            return;
-        }
-        let Some(property) = Self::key_property_of(field) else {
-            return;
-        };
         let Some((clip, at)) = self.key_point() else {
             return;
         };
-        let (start, duration) = (clip.start, clip.duration);
-        let (prev, next) = clip.keys_around(property, at);
-        let Some(target) = (if delta < 0 { prev } else { next }) else {
+        let clip = clip.clone();
+        let times: Vec<Tick> = if masks::mask_number_of(field).is_some() {
+            self.mask_key_times(field)
+        } else if let Some(property) = Self::key_property_of(field) {
+            doc_view::animated(&clip, property)
+                .keys
+                .iter()
+                .map(|key| key.at)
+                .collect()
+        } else {
             return;
         };
-        self.seek((start + target * duration) as f32);
+        let target = if delta < 0 {
+            times
+                .into_iter()
+                .filter(|&key| key < at && !doc_view::near(key, at))
+                .max()
+        } else {
+            times
+                .into_iter()
+                .filter(|&key| key > at && !doc_view::near(key, at))
+                .min()
+        };
+        if let Some(target) = target {
+            self.seek_to_key(&clip, target);
+        }
     }
 
     /// The audio tracks the Audio panel offers for the selection: one label
-    /// per track of the selected clip's media when it has more than one,
-    /// else nothing - a file with one track has nothing to choose.
+    /// per sound stream of the selected clip's file when it has more than
+    /// one, else nothing - a file with one stream has nothing to choose.
     pub(super) fn audio_track_labels(&self) -> Vec<SharedString> {
-        let Some(item) = self
+        let Some(media) = self
             .sole_selection()
             .and_then(|id| self.clip(&id))
-            .and_then(|clip| self.project().media_by_id(&clip.media_id))
+            .and_then(|clip| doc_view::media_of(self.doc(), clip))
         else {
             return Vec::new();
         };
-        if item.audio_tracks.len() < 2 {
+        if media.streams.len() < 2 {
             return Vec::new();
         }
-        item.audio_tracks
+        media
+            .streams
             .iter()
             .enumerate()
             .map(|(position, track)| audio_track_label(track, position).into())
             .collect()
     }
 
-    /// The selection, flattened for the inspector: exactly one clip or
-    /// nothing.
     /// The selected transition, as the inspector's panel for it shows it.
     pub(super) fn selected_transition_data(&self) -> crate::ui::SelectedTransitionData {
         let Some(clip) = self.selected_transition() else {
             return Default::default();
         };
-        let transition = clip.transition_in.as_ref().expect("held to one");
+        let Some(cut) = clip.cut_in.as_ref() else {
+            return Default::default();
+        };
         let name = Catalogue::builtin()
-            .get(&transition.id)
+            .get(&cut.effect.package)
             .map(|package| package.manifest.effect.name.clone())
-            .unwrap_or_else(|| label_of(&transition.id));
+            .unwrap_or_else(|| label_of(&cut.effect.package));
         crate::ui::SelectedTransitionData {
             present: true,
             name: name.into(),
-            duration: transition.duration as f32,
+            duration: doc_view::len_secs(cut.len) as f32,
             into: clip.name.as_str().into(),
         }
     }
@@ -1126,20 +1040,17 @@ impl Studio {
     ) -> (Vec<AppliedParamData>, Vec<crate::ui::TransitionChoiceData>) {
         let Some(transition) = self
             .selected_transition()
-            .and_then(|clip| clip.transition_in.as_ref())
+            .and_then(|clip| clip.cut_in.as_ref())
+            .map(|cut| &cut.effect)
         else {
             return Default::default();
         };
-        let Some(package) = Catalogue::builtin().get(&transition.id) else {
+        let Some(package) = Catalogue::builtin().get(&transition.package) else {
             return Default::default();
         };
         let (mut knobs, mut choices) = (Vec::new(), Vec::new());
         for param in &package.manifest.params {
-            let value = transition
-                .params
-                .get(&param.key)
-                .copied()
-                .unwrap_or(param.default);
+            let value = doc_view::param_or(transition, &param.key, param.default);
             match param.kind {
                 ParamType::Enum if !param.values.is_empty() => {
                     let options: Vec<SharedString> = param
@@ -1211,13 +1122,21 @@ impl Studio {
         if batch_volume {
             targets = self.volume_targets();
         }
-        let Some(clip) = targets.first().and_then(|id| self.clip(id)) else {
+        let Some(id) = targets.first() else {
             return SelectedClipData::default();
+        };
+        let Some(clip) = self.clip(id) else {
+            return SelectedClipData::default();
+        };
+        let media = doc_view::media_of(self.doc(), clip);
+        let cut = match &clip.content {
+            Content::Media(cut) => Some(cut),
+            _ => None,
         };
         // A keyed property shows what it is worth at the playhead, which is
         // what the knob edits.
-        let at = place_in(clip, self.playhead);
-        let text = clip.text.clone().unwrap_or_default();
+        let at = doc_view::content_at(clip, doc_view::tick(f64::from(self.playhead)));
+        let text = doc_view::title(clip).cloned().unwrap_or_default();
         // Where the family sits in the picker's list; none when nothing on
         // this machine has it, which the picker shows in red.
         let family_row = self
@@ -1227,42 +1146,57 @@ impl Studio {
         // Some words selected in the text box: the typography controls
         // style those words, so they show what the first of them wears -
         // a run's override where it has one, the title's look elsewhere.
-        let words = self.styled_words().filter(|(id, _, _)| *id == clip.id);
+        let words = self.styled_words().filter(|(words_id, _, _)| words_id == id);
         let look = words
             .as_ref()
-            .map(|(_, start, _)| text.run_style_at(*start))
+            .and_then(|(_, start, _)| {
+                text.runs
+                    .iter()
+                    .find(|run| run.start as usize <= *start && *start < run.end as usize)
+                    .cloned()
+            })
             .unwrap_or_default();
         let words_styled = words.as_ref().is_some_and(|(_, start, end)| {
             text.runs
                 .iter()
-                .any(|run| run.start < *end && *start < run.end)
+                .any(|run| (run.start as usize) < *end && *start < run.end as usize)
         });
-        let fill = look
-            .color
-            .as_deref()
-            .map_or_else(|| colour_of(&text.color), colour_of);
-        let stroke = colour_of(&text.stroke_color);
-        let plate = colour_of(&text.background);
-        let analysis = clip.cutout.as_ref().and_then(|cutout| {
+        let fill = doc_view::to_slint(look.color.unwrap_or(text.color));
+        let stroke = doc_view::to_slint(text.stroke_color);
+        let plate = doc_view::to_slint(text.plate.unwrap_or(model::Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }));
+        let picture = &clip.picture;
+        let cutout = picture.cutout.as_ref();
+        let analysis = cutout.zip(doc_view::media_id(clip)).and_then(|(cutout, media)| {
             self.cutout_jobs
-                .get(&Self::analysis_key(&clip.media_id, cutout.subject))
+                .get(&Self::analysis_key(&media.to_string(), &cutout.subject))
                 .copied()
         });
-        let mut enhance = self.enhance_readout(clip);
-        let shape = clip.shape.clone().unwrap_or_default();
+        let mut enhance = self.enhance_readout(id, clip);
+        let shape = doc_view::shape(clip).cloned().unwrap_or_default();
         let steady = self.stabilize_readout(clip);
         let enhance_preview = enhance.preview.is_some();
         let (enhance_before, enhance_after, (estimate_total, estimate_frames, estimate_per_frame)) =
             enhance.preview.take().unwrap_or_default();
         let current_mask = self.current_mask(clip);
-        let fresh_mask = model::Mask::of("", "", model::MaskShape::Circle);
-        let mask_number = |number: &str| -> f32 {
-            match current_mask {
-                Some(mask) => mask.value_at(number, at) as f32,
-                None => fresh_mask.get(number).unwrap_or(0.0) as f32,
-            }
+        let fresh_mask = doc_view::mask_of(doc_view::new_mask_id(), concat_core::mask::MaskShape::Circle);
+        let mask_number = |number: MaskNumber| -> f32 {
+            doc_view::mask_value_at(current_mask.unwrap_or(&fresh_mask), number, at) as f32
         };
         let (mask_rows, mask_index) = self.mask_rows(clip);
+        let motion = &picture.motion;
+        let voice = clip.sound.voice.as_ref();
+        let stabilize = picture.stabilize.clone();
+        let colour = |colour: Option<model::Color>| {
+            colour.map_or(slint::Color::from_rgb_u8(255, 255, 255), doc_view::to_slint)
+        };
+        let gradient = shape.gradient.clone();
+        let shadow = shape.shadow.clone();
+        let enhanced = cut.and_then(|cut| cut.enhanced.as_ref());
         SelectedClipData {
             present: true,
             batch: targets.len() as i32,
@@ -1270,121 +1204,91 @@ impl Studio {
             has_sound: self.clip_has_sound(clip),
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
-            id: clip.id.as_str().into(),
+            id: id.as_str().into(),
             name: clip.name.as_str().into(),
-            kind: kind_of(clip),
-            duration: clip.duration as f32,
+            kind: kind_of(self.doc(), clip),
+            duration: doc_view::len_s(clip) as f32,
             transition_id: clip
-                .transition_in
+                .cut_in
                 .as_ref()
-                .map(|transition| transition.id.as_str())
+                .map(|cut| cut.effect.package.as_str())
                 .unwrap_or_default()
                 .into(),
             transition_name: clip
-                .transition_in
+                .cut_in
                 .as_ref()
-                .and_then(|transition| Catalogue::builtin().get(&transition.id))
+                .and_then(|cut| Catalogue::builtin().get(&cut.effect.package))
                 .map(|package| package.manifest.effect.name.clone())
                 .unwrap_or_default()
                 .into(),
             transition_duration: clip
-                .transition_in
+                .cut_in
                 .as_ref()
-                .map(|transition| transition.duration as f32)
+                .map(|cut| doc_view::len_secs(cut.len) as f32)
                 .unwrap_or(0.5),
-            scale: shown(clip, model::KeyProperty::Scale, at) as f32,
-            offset_x: shown(clip, model::KeyProperty::OffsetX, at) as f32,
-            offset_y: shown(clip, model::KeyProperty::OffsetY, at) as f32,
-            rotation: shown(clip, model::KeyProperty::Rotation, at) as f32,
-            stretch_x: shown(clip, model::KeyProperty::StretchX, at) as f32,
-            stretch_y: shown(clip, model::KeyProperty::StretchY, at) as f32,
-            opacity: shown(clip, model::KeyProperty::Opacity, at) as f32,
-            volume: shown(clip, model::KeyProperty::Volume, at) as f32,
-            audio_track: self
-                .project()
-                .media_by_id(&clip.media_id)
-                .map_or(0, |item| item.audio_track_position(clip.audio_stream))
-                as i32,
-            speed: clip.speed as f32,
-            preserve_pitch: clip.preserve_pitch,
-            flip_h: clip.flip_h,
-            flip_v: clip.flip_v,
+            scale: shown(clip, KeyProperty::Scale, at) as f32,
+            offset_x: shown(clip, KeyProperty::OffsetX, at) as f32,
+            offset_y: shown(clip, KeyProperty::OffsetY, at) as f32,
+            rotation: shown(clip, KeyProperty::Rotation, at) as f32,
+            stretch_x: shown(clip, KeyProperty::StretchX, at) as f32,
+            stretch_y: shown(clip, KeyProperty::StretchY, at) as f32,
+            opacity: shown(clip, KeyProperty::Opacity, at) as f32,
+            volume: shown(clip, KeyProperty::Volume, at) as f32,
+            // The row of the Audio panel's list: the stream's place in the
+            // file's list, the first for the file's own.
+            audio_track: cut
+                .and_then(|cut| cut.stream)
+                .zip(media)
+                .and_then(|(stream, media)| {
+                    media.streams.iter().position(|held| held.index == stream)
+                })
+                .unwrap_or(0) as i32,
+            speed: doc_view::speed(clip) as f32,
+            preserve_pitch: clip.sound.keep_pitch,
+            flip_h: picture.flip_h,
+            flip_v: picture.flip_v,
             blend: concat_core::Blend::ALL
                 .iter()
-                .position(|mode| *mode == concat_core::Blend::parse(&clip.blend))
+                .position(|mode| *mode == doc_view::engine_blend(&picture.blend))
                 .unwrap_or(0) as i32,
-            crop_left: clip.crop.map(|crop| crop.left as f32).unwrap_or(0.0),
-            crop_top: clip.crop.map(|crop| crop.top as f32).unwrap_or(0.0),
-            crop_right: clip.crop.map(|crop| crop.right as f32).unwrap_or(0.0),
-            crop_bottom: clip.crop.map(|crop| crop.bottom as f32).unwrap_or(0.0),
+            crop_left: picture.crop.map(|crop| crop.left as f32).unwrap_or(0.0),
+            crop_top: picture.crop.map(|crop| crop.top as f32).unwrap_or(0.0),
+            crop_right: picture.crop.map(|crop| crop.right as f32).unwrap_or(0.0),
+            crop_bottom: picture.crop.map(|crop| crop.bottom as f32).unwrap_or(0.0),
             masks: ModelRc::new(VecModel::from(mask_rows)),
             mask_index,
-            mask: current_mask
-                .and_then(|mask| mask.shape())
-                .and_then(|shape| model::MaskShape::ALL.iter().position(|s| *s == shape))
-                .map_or(-1, |index| index as i32),
+            mask: current_mask.map_or(-1, masks::shape_place),
             mask_invert: current_mask.is_some_and(|mask| mask.invert),
-            mask_mode: current_mask
-                .and_then(|mask| {
-                    model::MaskMode::ALL
-                        .iter()
-                        .position(|mode| *mode == mask.mode)
-                })
-                .map_or(0, |index| index as i32),
-            motion_in: motion_place(
-                clip.motion
-                    .as_ref()
-                    .and_then(|m| m.enter.as_ref())
-                    .map(|m| m.kind.as_str()),
-                false,
-            ),
-            motion_in_seconds: clip
-                .motion
+            mask_mode: current_mask.map_or(0, masks::mode_place),
+            motion_in: motion_place(motion.enter.as_ref().map(|m| m.name.as_str()), false),
+            motion_in_seconds: motion
+                .enter
                 .as_ref()
-                .and_then(|m| m.enter.as_ref())
-                .map_or(0.5, |m| m.seconds) as f32,
-            motion_out: motion_place(
-                clip.motion
-                    .as_ref()
-                    .and_then(|m| m.exit.as_ref())
-                    .map(|m| m.kind.as_str()),
-                false,
-            ),
-            motion_out_seconds: clip
-                .motion
+                .map_or(0.5, |m| doc_view::len_secs(m.len)) as f32,
+            motion_out: motion_place(motion.exit.as_ref().map(|m| m.name.as_str()), false),
+            motion_out_seconds: motion
+                .exit
                 .as_ref()
-                .and_then(|m| m.exit.as_ref())
-                .map_or(0.5, |m| m.seconds) as f32,
-            motion_loop: motion_place(
-                clip.motion
-                    .as_ref()
-                    .and_then(|m| m.cycle.as_ref())
-                    .map(|m| m.kind.as_str()),
-                true,
-            ),
-            motion_loop_seconds: clip
-                .motion
+                .map_or(0.5, |m| doc_view::len_secs(m.len)) as f32,
+            motion_loop: motion_place(motion.repeat.as_ref().map(|m| m.name.as_str()), true),
+            motion_loop_seconds: motion
+                .repeat
                 .as_ref()
-                .and_then(|m| m.cycle.as_ref())
-                .map_or(1.0, |m| m.seconds) as f32,
-            motion_loop_amount: clip
-                .motion
-                .as_ref()
-                .and_then(|m| m.cycle.as_ref())
-                .map_or(1.0, |m| m.amount) as f32,
-            mask_x: mask_number("x"),
-            mask_y: mask_number("y"),
-            mask_width: mask_number("width"),
-            mask_height: mask_number("height"),
-            mask_rotation: mask_number("rotation"),
-            mask_roundness: mask_number("roundness"),
-            mask_feather: mask_number("feather"),
-            mask_expand: mask_number("expand"),
-            mask_opacity: mask_number("opacity"),
-            fade_in: clip.fade_in as f32,
+                .map_or(1.0, |m| doc_view::len_secs(m.lap)) as f32,
+            motion_loop_amount: motion.repeat.as_ref().map_or(1.0, |m| m.amount) as f32,
+            mask_x: mask_number(MaskNumber::X),
+            mask_y: mask_number(MaskNumber::Y),
+            mask_width: mask_number(MaskNumber::Width),
+            mask_height: mask_number(MaskNumber::Height),
+            mask_rotation: mask_number(MaskNumber::Rotation),
+            mask_roundness: mask_number(MaskNumber::Roundness),
+            mask_feather: mask_number(MaskNumber::Feather),
+            mask_expand: mask_number(MaskNumber::Expand),
+            mask_opacity: mask_number(MaskNumber::Opacity),
+            fade_in: doc_view::dur_secs(clip.sound.fade_in) as f32,
             wave_head: self.wave_end(clip, false),
             wave_tail: self.wave_end(clip, true),
-            fade_out: clip.fade_out as f32,
+            fade_out: doc_view::dur_secs(clip.sound.fade_out) as f32,
             content: text.content.as_str().into(),
             font_family: text.font_family.trim_matches('"').into(),
             family_row: family_row.unwrap_or(0) as i32,
@@ -1397,15 +1301,15 @@ impl Studio {
             strikethrough: look.strikethrough.unwrap_or(text.strikethrough),
             styling_words: words.is_some(),
             words_styled,
-            text_case: match text.text_case {
-                model::TextCase::Original => 0,
+            text_case: match text.case {
                 model::TextCase::Upper => 1,
                 model::TextCase::Lower => 2,
                 model::TextCase::Sentence => 3,
+                model::TextCase::Original | model::TextCase::Unknown(_) => 0,
             },
             fill,
             fill_hex: hex_of(fill).into(),
-            align: align_of(text.align),
+            align: align_of(&text.align),
             text_opacity: text.opacity as f32,
             stroke_width: text.stroke_width as f32,
             stroke,
@@ -1416,141 +1320,127 @@ impl Studio {
             plate_hex: hex_of(plate).into(),
             plated: plate.alpha() > 0,
             plate_opacity: f32::from(plate.alpha()) / 255.0,
-            plate_radius: text.background_radius as f32,
-            plate_padding_x: text.background_padding_x as f32,
-            plate_padding_y: text.background_padding_y as f32,
+            plate_radius: text.plate_radius as f32,
+            plate_padding_x: text.plate_padding_x as f32,
+            plate_padding_y: text.plate_padding_y as f32,
             line_height: text.line_height as f32,
             tracking: text.tracking as f32,
             text_width: text.max_width as f32,
             text_height: text.max_height as f32,
-            cutout: match &clip.cutout {
+            cutout: match cutout {
                 None => 0,
                 Some(cutout) if cutout.mode == model::CutoutMode::Auto => 1,
                 Some(_) => 2,
             },
-            cutout_feather: clip
-                .cutout
-                .as_ref()
-                .map(|cutout| cutout.feather as f32)
-                .unwrap_or(model::DEFAULT_FEATHER as f32),
-            cutout_strokes: clip
-                .cutout
-                .as_ref()
-                .map(|cutout| cutout.strokes.len() as i32)
-                .unwrap_or(0),
-            cutout_subject: clip
-                .cutout
-                .as_ref()
-                .map(|cutout| match cutout.subject {
-                    model::Subject::Auto => 0,
-                    model::Subject::Person => 1,
-                    model::Subject::Object => 2,
-                })
-                .unwrap_or(0),
+            cutout_feather: cutout.map_or(doc_view::CUTOUT_FEATHER, |cutout| cutout.feather)
+                as f32,
+            cutout_strokes: cutout.map_or(0, |cutout| cutout.strokes.len() as i32),
+            cutout_subject: cutout.map_or(0, |cutout| match cutout.subject {
+                model::Subject::Person => 1,
+                model::Subject::Object => 2,
+                model::Subject::Auto | model::Subject::Unknown(_) => 0,
+            }),
             cutout_progress: analysis.map(|(_, fraction)| fraction).unwrap_or(-1.0),
             cutout_fetching: analysis.is_some_and(|(fetching, _)| fetching),
             cutout_empty: self.cutout_empty(clip),
-            stabilize: clip.stabilize.is_some(),
-            stabilize_smoothness: clip.stabilize.unwrap_or_default().smoothness as f32,
-            stabilize_max_zoom: clip.stabilize.unwrap_or_default().max_zoom as f32,
-            stabilize_tripod: clip.stabilize.is_some_and(|stabilize| stabilize.tripod),
-            stabilize_progress: self
-                .stabilize_jobs
-                .get(&clip.media_id)
-                .copied()
-                .filter(|_| clip.stabilize.is_some())
+            stabilize: stabilize.is_some(),
+            stabilize_smoothness: stabilize
+                .as_ref()
+                .map_or(0.5, |stabilize| stabilize.smoothness) as f32,
+            stabilize_max_zoom: stabilize
+                .as_ref()
+                .map_or(1.2, |stabilize| stabilize.max_zoom) as f32,
+            stabilize_tripod: stabilize.as_ref().is_some_and(|stabilize| stabilize.tripod),
+            stabilize_progress: doc_view::media_id(clip)
+                .and_then(|media| self.stabilize_jobs.get(&media.to_string()).copied())
+                .filter(|_| stabilize.is_some())
                 .unwrap_or(-1.0),
             stabilize_zoom: steady.map_or(-1.0, |(zoom, _)| zoom as f32),
             stabilize_needed: steady.map_or(-1.0, |(_, needed)| needed as f32),
-            voice_mode: match clip.voice {
+            voice_mode: match voice {
                 None => 0,
                 Some(mix) if mix.voice == 1.0 && mix.background == 0.0 => 1,
                 Some(mix) if mix.voice == 0.0 && mix.background == 1.0 => 2,
                 Some(_) => 3,
             },
-            voice_level: clip.voice.map_or(1.0, |mix| mix.voice as f32),
-            background_level: clip.voice.map_or(1.0, |mix| mix.background as f32),
+            voice_level: voice.map_or(1.0, |mix| mix.voice as f32),
+            background_level: voice.map_or(1.0, |mix| mix.background as f32),
             voice_progress: self.voice_progress(clip).0,
             voice_fetching: self.voice_progress(clip).1,
-            voice_kind: match clip.voice.unwrap_or_default().kind {
-                model::VoiceKind::Vocals => 0,
-                model::VoiceKind::Speech => 1,
+            voice_kind: match voice.map(|mix| &mix.kind) {
+                Some(model::VoiceKind::Vocals) => 0,
+                _ => 1,
             },
             enhance_progress: self
                 .enhance_jobs
-                .get(&clip.id)
+                .get(id)
                 .map(|(_, fraction)| *fraction)
                 .unwrap_or(-1.0),
             enhance_fetching: self
                 .enhance_jobs
-                .get(&clip.id)
+                .get(id)
                 .is_some_and(|(fetching, _)| *fetching),
-            reverse_progress: self.reverse_jobs.get(&clip.id).copied().unwrap_or(-1.0),
-            enhance_linked: clip.enhanced.is_some(),
-            enhance_on: self.enhance_ticked(clip),
+            reverse_progress: self.reverse_jobs.get(id).copied().unwrap_or(-1.0),
+            enhance_linked: enhanced.is_some(),
+            enhance_on: self.enhance_ticked(id, clip),
             enhance_busy: !self.enhance_jobs.is_empty() || self.enhance_previewing.is_some(),
             enhance_scale: enhance.scale,
-            shape_kind: model::ShapeKind::ALL
+            shape_kind: doc_view::SHAPE_KINDS
                 .iter()
-                .position(|kind| *kind == shape.kind)
+                .position(|held| *held == shape.kind)
                 .unwrap_or(0) as i32,
-            shape_is_line: shape.kind.is_line(),
+            shape_is_line: doc_view::is_line(&shape.kind),
             shape_width: shape.width as f32,
-            shape_height: shape.figure_box().1 as f32,
+            shape_height: doc_view::figure_box(&shape).1 as f32,
             shape_radius: shape.corner_radius as f32,
             shape_sides: shape.sides as i32,
             shape_points: shape.points as i32,
             shape_inner: shape.inner_radius as f32,
-            shape_fill_on: !shape.fill.is_empty(),
-            shape_fill: if shape.fill.is_empty() {
-                slint::Color::from_rgb_u8(255, 255, 255)
-            } else {
-                crate::format::colour_of(&shape.fill)
-            },
-            shape_gradient: match &shape.gradient {
+            shape_fill_on: shape.fill.is_some(),
+            shape_fill: colour(shape.fill),
+            shape_gradient: match &gradient {
                 None => 0,
                 Some(gradient) if gradient.radial => 2,
                 Some(_) => 1,
             },
-            shape_gradient_color: crate::format::colour_of(
-                &shape.gradient.clone().unwrap_or_default().color,
-            ),
-            shape_gradient_angle: shape.gradient.as_ref().map_or(90.0, |g| g.angle) as f32,
-            shape_stroke_on: !shape.stroke.is_empty() && shape.stroke_width > 0.0,
+            shape_gradient_color: colour(gradient.as_ref().map(|gradient| gradient.color)),
+            shape_gradient_angle: gradient.as_ref().map_or(90.0, |g| g.angle) as f32,
+            shape_stroke_on: shape.stroke.is_some() && shape.stroke_width > 0.0,
             // A line is drawn in its outline's colour, or its fill's.
-            shape_stroke: match (shape.stroke.is_empty(), shape.fill.is_empty()) {
-                (false, _) => crate::format::colour_of(&shape.stroke),
-                (true, false) if shape.kind.is_line() => crate::format::colour_of(&shape.fill),
+            shape_stroke: match (shape.stroke, shape.fill) {
+                (Some(stroke), _) => doc_view::to_slint(stroke),
+                (None, Some(fill)) if doc_view::is_line(&shape.kind) => doc_view::to_slint(fill),
                 _ => slint::Color::from_rgb_u8(255, 255, 255),
             },
             shape_stroke_width: shape.stroke_width as f32,
             shape_stroke_align: match shape.stroke_align {
-                model::StrokeAlign::Center => 0,
                 model::StrokeAlign::Inside => 1,
                 model::StrokeAlign::Outside => 2,
+                model::StrokeAlign::Center | model::StrokeAlign::Unknown(_) => 0,
             },
             shape_dash: match shape.dash {
-                model::StrokeDash::Solid => 0,
                 model::StrokeDash::Dashed => 1,
                 model::StrokeDash::Dotted => 2,
+                model::StrokeDash::Solid | model::StrokeDash::Unknown(_) => 0,
             },
-            shape_start_head: model::LineHead::ALL
+            shape_start_head: doc_view::LINE_HEADS
                 .iter()
-                .position(|head| *head == shape.start())
+                .position(|head| *head == doc_view::start_head(&shape))
                 .unwrap_or(0) as i32,
-            shape_end_head: model::LineHead::ALL
+            shape_end_head: doc_view::LINE_HEADS
                 .iter()
-                .position(|head| *head == shape.end())
+                .position(|head| *head == doc_view::end_head(&shape))
                 .unwrap_or(0) as i32,
             shape_trim_start: shape.trim_start as f32,
             shape_trim_end: shape.trim_end as f32,
-            shape_shadow_on: shape.shadow.is_some(),
-            shape_shadow_color: crate::format::colour_of(
-                &shape.shadow.clone().unwrap_or_default().color,
+            shape_shadow_on: shadow.is_some(),
+            shape_shadow_color: shadow.as_ref().map_or(
+                slint::Color::from_argb_u8(128, 0, 0, 0),
+                |shadow| doc_view::to_slint(shadow.color),
             ),
-            shape_shadow_blur: shape.shadow.as_ref().map_or(0.02, |s| s.blur) as f32,
-            shape_shadow_distance: shape.shadow.as_ref().map_or(0.012, |s| s.distance) as f32,
-            shape_shadow_angle: shape.shadow.as_ref().map_or(90.0, |s| s.angle) as f32,
+            shape_shadow_blur: shadow.as_ref().map_or(0.02, |s| s.blur) as f32,
+            shape_shadow_distance: shadow.as_ref().map_or(0.012, |s| s.distance) as f32,
+            shape_shadow_angle: shadow.as_ref().map_or(90.0, |s| s.angle) as f32,
             enhance_auto: self.enhance_scale <= 0.0,
             enhance_auto_scale: enhance.auto_scale,
             enhance_max_scale: enhance.max_scale,
@@ -1561,11 +1451,11 @@ impl Studio {
             enhance_previewing: self
                 .enhance_previewing
                 .as_ref()
-                .is_some_and(|(id, _, _)| *id == clip.id),
+                .is_some_and(|(previewing, _, _)| previewing == id),
             enhance_preview_fetch: self
                 .enhance_previewing
                 .as_ref()
-                .filter(|(id, fetching, _)| *id == clip.id && *fetching)
+                .filter(|(previewing, fetching, _)| previewing == id && *fetching)
                 .map(|(_, _, fraction)| *fraction)
                 .unwrap_or(-1.0),
             enhance_preview,
@@ -1577,16 +1467,18 @@ impl Studio {
         }
     }
 
-    /// What the Enhance section shows for `clip` beyond its switch: the
-    /// sizes its file can take, the preview made for it at the section's
-    /// settings, if there is one, and what a whole run would cost.
-    pub(super) fn enhance_readout(&self, clip: &Clip) -> EnhanceReadout {
+    /// What the Enhance section shows for `clip`, under `id`, beyond its
+    /// switch: the sizes its file can take, the preview made for it at the
+    /// section's settings, if there is one, and what a whole run would cost.
+    pub(super) fn enhance_readout(&self, id: &str, clip: &Item) -> EnhanceReadout {
         let mut readout = EnhanceReadout::default();
-        let Some(media) = self.enhance_source(clip) else {
+        let Some((media_id, media)) = self.enhance_source(clip) else {
             return readout;
         };
-        let (width, height) = (media.width.unwrap_or(0), media.height.unwrap_or(0));
-        let scale = self.enhance_scale_of(&media);
+        let (width, height) = media
+            .size
+            .map_or((0, 0), |size| (size.width.get(), size.height.get()));
+        let scale = self.enhance_scale_of(media);
         // The row shows what will happen: an ask this file cannot take as
         // the scale it is held to.
         readout.scale = scale;
@@ -1602,17 +1494,21 @@ impl Studio {
         } else {
             String::new()
         };
+        let still = self.kind(clip) == Kind::Image;
         readout.preview = self
-            .enhance_preview_for(clip, &media, scale)
+            .enhance_preview_for(id, &media_id.to_string(), scale)
             .map(|preview| {
                 // The model's work on what a run covers - the span the clip
                 // shows and a second either side, as `enhance_clip` cuts it -
                 // at the warm tile time the preview measured.
-                let frames = if clip.kind == model::ClipKind::Image {
+                let frames = if still {
                     1.0
                 } else {
-                    let span = clip.duration * clip.speed + 2.0 * super::ENHANCE_MARGIN;
-                    span.min(media.duration.unwrap_or(f64::MAX)) * media.frame_rate.unwrap_or(30.0)
+                    let span = doc_view::len_s(clip) * doc_view::speed(clip).abs()
+                        + 2.0 * super::ENHANCE_MARGIN;
+                    let length = media.length.map_or(f64::MAX, doc_view::len_secs);
+                    let rate = media.rate.map_or(30.0, |rate| rate.display_per_second());
+                    span.min(length) * rate
                 };
                 let per_frame = preview.tile_seconds * preview.tiles_per_frame as f64;
                 let total = concat_host::enhance::estimate_seconds(
@@ -1622,7 +1518,7 @@ impl Studio {
                 );
                 // The time, and for a video what it is made of: the frames
                 // and each one's time. A still is one frame, said once.
-                let estimate = if clip.kind == model::ClipKind::Image {
+                let estimate = if still {
                     (crate::format::span(total), String::new(), String::new())
                 } else {
                     (
@@ -1636,33 +1532,34 @@ impl Studio {
         readout
     }
 
-    /// The source instant of `clip` under the playhead, held to the clip.
-    pub(super) fn source_at_playhead(&self, clip: &Clip) -> f64 {
-        let along = (f64::from(self.playhead) - clip.start).clamp(0.0, clip.duration);
-        clip.source_start + along * clip.speed
+    /// The source second of `clip` under the playhead, held to the clip.
+    pub(super) fn source_at_playhead(&self, clip: &Item) -> f64 {
+        let at = doc_view::content_at(clip, doc_view::tick(f64::from(self.playhead)));
+        doc_view::time_map(clip)
+            .and_then(|map| doc_view::source_at(map, at))
+            .map_or_else(|| doc_view::in_point_s(clip), doc_view::secs)
     }
 
     /// Whether the cutout model found nothing at the playhead's frame of
     /// `clip`, so the picture is showing as shot. Only an automatic cutout
     /// says so: a custom one is whatever was painted.
-    fn cutout_empty(&self, clip: &Clip) -> bool {
-        let Some(cutout) = clip.cutout.as_ref() else {
+    fn cutout_empty(&self, clip: &Item) -> bool {
+        let Some(cutout) = clip.picture.cutout.as_ref() else {
             return false;
         };
         if cutout.mode != model::CutoutMode::Auto {
             return false;
         }
-        let (Some(session), Some(media)) = (
-            self.session.as_ref(),
-            self.project().media_by_id(&clip.media_id),
-        ) else {
+        let (Some(session), Some(media)) =
+            (self.session.as_ref(), doc_view::media_of(self.doc(), clip))
+        else {
             return false;
         };
         let project = std::path::Path::new(session.path());
         let store = concat_vision::MaskStore::open(&concat_vision::mask_dir(
             project,
             &media.path,
-            cutout.subject,
+            &cutout.subject,
         ));
         store
             .mask_at(self.source_at_playhead(clip))
@@ -1682,28 +1579,33 @@ impl Studio {
         let project = std::path::PathBuf::from(session.path());
         let mut next: Option<(String, RegionRequest)> = None;
         let mut tripped = Vec::new();
-        'clips: for clip in &self.timeline().clips {
-            let Some(cutout) = clip.cutout.as_ref() else {
+        'clips: for (_, clip) in doc_view::items(self.doc()) {
+            let Some(cutout) = clip.picture.cutout.as_ref() else {
                 continue;
             };
-            if cutout.mode != model::CutoutMode::Custom || !clip.kind.is_visual() {
+            if cutout.mode != model::CutoutMode::Custom || !self.kind(clip).is_visual() {
                 continue;
             }
-            let Some(media) = self.project().media_by_id(&clip.media_id) else {
+            let (Some(media_id), Some(media)) =
+                (doc_view::media_id(clip), doc_view::media_of(self.doc(), clip))
+            else {
                 continue;
             };
             // The source the clip shows, as the mask analysis reckons it.
-            let range = (
-                clip.source_start,
-                clip.source_start + clip.duration * clip.speed.max(0.0625),
-            );
+            let Some((from, span)) = doc_view::covered(clip) else {
+                continue;
+            };
+            let (a, b) = (doc_view::secs(from), doc_view::secs(from + span));
+            let range = (a.min(b), a.max(b));
             for stroke in &cutout.strokes {
                 let request = RegionRequest {
                     project: project.clone(),
                     media_path: media.path.clone(),
-                    media_size: (media.width.unwrap_or(0), media.height.unwrap_or(0)),
+                    media_size: media
+                        .size
+                        .map_or((0, 0), |size| (size.width.get(), size.height.get())),
                     still: media.kind == model::MediaKind::Image,
-                    subject: cutout.subject,
+                    subject: cutout.subject.clone(),
                     ranges: vec![range],
                     stroke: stroke.clone(),
                 };
@@ -1717,7 +1619,10 @@ impl Studio {
                     tripped.push(request.dir());
                     continue;
                 }
-                next = Some((Self::analysis_key(&media.id, cutout.subject), request));
+                next = Some((
+                    Self::analysis_key(&media_id.to_string(), &cutout.subject),
+                    request,
+                ));
                 break 'clips;
             }
         }
@@ -1953,12 +1858,14 @@ impl Studio {
         // The bin.
         // The Media shelves count the imports; what the editor made is
         // counted on its own shelf under Generated. See MediaBin::shows.
-        let items = &self.project().media;
+        let items: Vec<&model::Media> = doc_view::bin(self.doc()).map(|(_, item)| item).collect();
         sync(&models.media, self.media.rows(self));
         let imported = |kind: Option<model::MediaKind>| {
             items
                 .iter()
-                .filter(|item| item.origin.is_none() && kind.is_none_or(|kind| item.kind == kind))
+                .filter(|item| {
+                    item.origin.is_none() && kind.as_ref().is_none_or(|kind| item.kind == *kind)
+                })
                 .count() as i32
         };
         editor.set_media_count_all(imported(None));
@@ -2003,26 +1910,29 @@ impl Studio {
             .map(|session| session.path().to_owned())
             .unwrap_or_else(|| "—".to_owned())
             .into();
-        let timeline_name: SharedString = self.timeline().name.as_str().into();
+        let timeline_name: SharedString = doc_view::sequence(self.doc())
+            .map(|sequence| sequence.name.as_str())
+            .unwrap_or_default()
+            .into();
         editor.set_project_name(self.project_name.as_str().into());
         editor.set_project_folder(folder.clone());
         editor.set_timeline_name(timeline_name.clone());
         editor.set_project_output(format!("{width} × {height}").into());
         editor.set_project_rate(format!("{:.2} fps", self.frame_rate()).into());
         editor.set_project_duration(frames_timecode(self.duration(), self.frame_rate()).into());
-        editor.set_count_media(self.project().media.len() as i32);
-        editor.set_count_tracks(self.timeline().tracks.len() as i32);
-        editor.set_count_clips(self.timeline().clips.len() as i32);
+        editor.set_count_media(self.doc().media.len() as i32);
+        editor.set_count_tracks(doc_view::lanes(self.doc()).len() as i32);
+        editor.set_count_clips(doc_view::items(self.doc()).len() as i32);
         // What the file holds and this build cannot show: a row only while
         // there is any, its whole sentence behind it.
-        let unread = self
+        let notes = self
             .session
             .as_ref()
-            .map(|session| session.unread())
+            .map(|session| session.notes())
             .unwrap_or_default();
-        editor.set_unread_count(super::project_files::unread_count(unread).into());
+        editor.set_unread_count(super::project_files::unread_count(notes).into());
         editor.set_unread_notice(
-            super::project_files::unread_notice(unread)
+            super::project_files::unread_notice(notes)
                 .unwrap_or_default()
                 .into(),
         );
@@ -2202,12 +2112,16 @@ impl Studio {
         if let Some(id) = self.menu_media.as_deref() {
             return self.media_menu(id);
         }
-        let Some(clip) = self.menu_target.as_ref().and_then(|id| self.clip(id)) else {
+        let Some(id) = self.menu_target.as_deref() else {
             return Vec::new();
         };
-        let locked = self.locked(&clip.track_id);
+        let Some(clip) = self.clip(id) else {
+            return Vec::new();
+        };
+        let kind = self.kind(clip);
+        let locked = self.lane_locked(clip.lane);
         let playhead = f64::from(self.playhead);
-        let straddled = clip.start < playhead && playhead < clip.start + clip.duration;
+        let straddled = doc_view::start_s(clip) < playhead && playhead < doc_view::end_s(clip);
 
         let action =
             |id: &str, label: String, glyph: Glyph, shortcut: &str, enabled: bool| MenuItemData {
@@ -2295,9 +2209,7 @@ impl Studio {
                 t("studio.freezeFrame"),
                 Glyph::Frame,
                 &keymap::label(&self.prefs, "freeze"),
-                straddled
-                    && !locked
-                    && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image),
+                straddled && !locked && matches!(kind, Kind::Video | Kind::Image),
             ),
             // The picture restored and enlarged by the model: the row opens
             // the clip's Enhance in the inspector, whose switch runs it.
@@ -2306,28 +2218,18 @@ impl Studio {
                 t("common.enhance"),
                 Glyph::Sparkle,
                 "",
-                !locked
-                    && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image),
+                !locked && matches!(kind, Kind::Video | Kind::Image),
             ),
             rule(),
         ];
         // The picture sized to the frame, whole or covering it: beside the
         // inspector's two buttons, where a vertical cut is assembled clip
         // by clip.
-        if clip.kind.is_visual() {
+        if kind.is_visual() {
+            // A picture can be sized to the frame when its size is known: a
+            // file's, or a title's or a shape's own.
             let frameable = !locked
-                && self
-                    .project()
-                    .media_by_id(&clip.media_id)
-                    .and_then(|media| {
-                        clip.framing_scale(
-                            model::Framing::Fit,
-                            (media.width, media.height),
-                            self.output_size(),
-                            0.0,
-                        )
-                    })
-                    .is_some();
+                && doc_view::media_of(self.doc(), clip).is_none_or(|media| media.size.is_some());
             rows.push(action(
                 "fit",
                 t("studio.fitToFrame"),
@@ -2347,7 +2249,7 @@ impl Studio {
         // One slot, two verbs: the sound is either on its picture or off it.
         // Shown on every video clip, so the verb is where a person looks for
         // it, and greyed rather than gone when the file has no sound.
-        let (can_detach, can_reattach) = self.sound_placement(clip);
+        let (can_detach, can_reattach) = self.sound_placement(id, clip);
         if can_reattach {
             rows.push(action(
                 "reattach",
@@ -2357,7 +2259,7 @@ impl Studio {
                 !locked,
             ));
             rows.push(rule());
-        } else if clip.kind == model::ClipKind::Video {
+        } else if kind == Kind::Video {
             rows.push(action(
                 "detach",
                 t("studio.detachAudio"),
@@ -2371,7 +2273,7 @@ impl Studio {
         // in the bin. For anything with sound in it; a clip whose track is
         // muted still renders, since the file is the clip's and not the
         // mix's.
-        if clip.kind == model::ClipKind::Audio || clip.kind == model::ClipKind::Video {
+        if kind.is_audible() {
             rows.push(action(
                 "export-audio",
                 t("studio.exportAudio"),
@@ -2396,7 +2298,7 @@ impl Studio {
             // what the clip plays, and chosen again to play it as recorded
             // (#120).
             let voiced = self.clip_has_sound(clip) && !locked;
-            let mix = clip.voice;
+            let mix = clip.sound.voice.as_ref();
             rows.push(check(
                 "voice-keep",
                 &t("voice.keepOnly"),
@@ -2413,12 +2315,12 @@ impl Studio {
             ));
             rows.push(rule());
         }
-        let audible = clip.kind != model::ClipKind::Image;
+        let audible = kind != Kind::Image;
         rows.push(check(
             "mute",
             &t("studio.mute"),
             &keymap::label(&self.prefs, "mute"),
-            clip.volume <= 0.0,
+            clip.sound.volume.value <= 0.0,
             !locked && audible,
         ));
         rows.push(check("lock", &t("studio.lockTrack"), "", locked, true));
@@ -2452,7 +2354,8 @@ impl Studio {
     /// `concat_media::ColorRange::implied`.
     /// https://github.com/jub0t/Concat/issues/103
     fn media_menu(&self, id: &str) -> Vec<MenuItemData> {
-        let Some(item) = self.project().media_by_id(id) else {
+        let Some(item) = doc_view::parse::<MediaId>(id).and_then(|id| doc_view::media(self.doc(), id))
+        else {
             return Vec::new();
         };
         let action = |id: &str, label: String, glyph: Glyph, danger: bool| MenuItemData {
@@ -2488,7 +2391,7 @@ impl Studio {
             rule(),
         ];
         if item.kind != model::MediaKind::Audio {
-            let range = item.color_range;
+            let range = item.range.as_ref();
             rows.push(MenuItemData {
                 label: t("common.colourRange").to_uppercase().into(),
                 kind: MenuRow::Label,
@@ -2499,13 +2402,13 @@ impl Studio {
                 "range-limited",
                 t("common.limited"),
                 "16-235",
-                range == Some(model::ColorRange::Limited),
+                range == Some(&model::ColorRange::Limited),
             ));
             rows.push(check(
                 "range-full",
                 t("common.full"),
                 "0-255",
-                range == Some(model::ColorRange::Full),
+                range == Some(&model::ColorRange::Full),
             ));
             rows.push(rule());
         }
@@ -2520,13 +2423,12 @@ impl Studio {
         let Some(row) = self.media.row_of(id) else {
             return;
         };
-        if self.project().media_by_id(id).is_none() {
+        let Some(media) = doc_view::parse::<MediaId>(id)
+            .filter(|media| doc_view::media(self.doc(), *media).is_some())
+        else {
             return;
-        }
-        let range = |range| Command::SetMediaColorRange {
-            media_id: id.to_owned(),
-            range,
         };
+        let range = |range| Command::SetMediaColorRange { media, range };
         match action {
             "add" => self.place_at_playhead(&format!("media:{row}")),
             "remove" => self.handle(crate::panes::Msg::Media(
@@ -2584,9 +2486,9 @@ impl Studio {
         };
         let selected = self.selection.len();
         let playhead = f64::from(self.playhead);
-        let straddled = self.timeline().clips.iter().any(|clip| {
-            clip.start + f64::from(MIN_DURATION) < playhead
-                && playhead < clip.start + clip.duration - f64::from(MIN_DURATION)
+        let straddled = doc_view::items(self.doc()).iter().any(|(_, clip)| {
+            doc_view::start_s(clip) + f64::from(MIN_DURATION) < playhead
+                && playhead < doc_view::end_s(clip) - f64::from(MIN_DURATION)
         });
         let (can_undo, can_redo) = self.session.as_ref().map_or((false, false), |session| {
             (session.can_undo(), session.can_redo())
@@ -2628,7 +2530,7 @@ impl Studio {
                     t("studio.export"),
                     Glyph::Export,
                     &keymap::label(&self.prefs, "export"),
-                    !self.timeline().clips.is_empty(),
+                    !doc_view::items(self.doc()).is_empty(),
                 ),
                 row(
                     "template",
@@ -2766,7 +2668,7 @@ impl Studio {
                     enabled: true,
                     danger: false,
                     checkable: true,
-                    checked: self.timeline().linkage,
+                    checked: doc_view::sequence(self.doc()).is_some_and(|sequence| sequence.linkage),
                 },
             ],
             2 => vec![
@@ -2825,33 +2727,32 @@ impl Studio {
     /// The clip's track flags, as one command per flag that changed, plus
     /// the lock, which is the window's.
     pub fn track_flags(&mut self, row: i32, visible: bool, muted: bool, locked: bool) {
-        let Some(track) = self.row_track(row).cloned() else {
+        let Some(lane) = self.row_track(row) else {
+            return;
+        };
+        let Some(track) = doc_view::lane(self.doc(), lane).cloned() else {
             return;
         };
         let mut commands = Vec::new();
         if track.visible != visible {
             commands.push(Command::SetTrackFlag {
-                track_id: track.id.clone(),
-                flag: TrackFlag::Visible,
+                lane,
+                flag: LaneFlag::Visible,
                 value: visible,
             });
         }
         if track.muted != muted {
             commands.push(Command::SetTrackFlag {
-                track_id: track.id.clone(),
-                flag: TrackFlag::Muted,
+                lane,
+                flag: LaneFlag::Muted,
                 value: muted,
             });
         }
-        let view = self.lanes.lane_view.entry(track.id.clone()).or_default();
+        let view = self.lanes.lane_view.entry(lane.to_string()).or_default();
         view.locked = locked;
         if locked {
-            let doomed: Vec<String> = self
-                .timeline()
-                .clips
-                .iter()
-                .filter(|clip| clip.track_id == track.id)
-                .map(|clip| clip.id.clone())
+            let doomed: Vec<String> = doc_view::on_lane(self.doc(), lane)
+                .map(|(id, _)| id.to_string())
                 .collect();
             self.selection.retain(|held| !doomed.contains(held));
         }
@@ -2867,8 +2768,8 @@ impl Studio {
     }
 
     pub fn set_lane_size(&mut self, row: i32, size: TrackSize) {
-        if let Some(id) = self.row_track(row).map(|track| track.id.clone()) {
-            self.lanes.lane_view.entry(id).or_default().size = size;
+        if let Some(lane) = self.row_track(row) {
+            self.lanes.lane_view.entry(lane.to_string()).or_default().size = size;
         }
     }
 
@@ -2883,33 +2784,35 @@ impl Studio {
             .iter()
             .filter(|id| {
                 self.clip(id).is_some_and(|clip| {
-                    clip.kind != model::ClipKind::Audio && !self.locked(&clip.track_id)
+                    self.kind(clip) != Kind::Audio && !self.lane_locked(clip.lane)
                 })
             })
             .cloned()
             .collect();
         let mut commands = Vec::new();
         for id in ids {
-            let Some(before) = self.clip(&id).cloned() else {
+            let (Some(before), Some(item)) =
+                (self.clip(&id).cloned(), doc_view::parse::<ItemId>(&id))
+            else {
                 continue;
             };
             let mut after = before.clone();
-            let at = place_in(&after, playhead);
+            let at = doc_view::content_at(&after, doc_view::tick(f64::from(playhead)));
             // Kept in the inspector's range, wrapping rather than stopping,
             // as the grip does.
-            let next = (shown(&after, model::KeyProperty::Rotation, at) + 90.0 + 180.0)
+            let next = (shown(&after, KeyProperty::Rotation, at) + 90.0 + 180.0)
                 .rem_euclid(360.0)
                 - 180.0;
-            write_keyable(&mut after, model::KeyProperty::Rotation, next, at);
-            if after.rotation != before.rotation {
+            write_keyable(&mut after, KeyProperty::Rotation, next, at);
+            if after.picture.rotation.value != before.picture.rotation.value {
                 commands.push(Command::SetClipTransform {
-                    clip_id: id.clone(),
-                    scale: Some(after.scale),
-                    offset_x: Some(after.offset_x),
-                    offset_y: Some(after.offset_y),
-                    rotation: Some(after.rotation),
-                    stretch_x: Some(after.stretch_x),
-                    stretch_y: Some(after.stretch_y),
+                    item,
+                    offset_x: None,
+                    offset_y: None,
+                    rotation: Some(after.picture.rotation.value),
+                    scale: None,
+                    stretch_x: None,
+                    stretch_y: None,
                 });
             }
             commands.extend(key_commands(&id, &before, &after));
@@ -2933,10 +2836,11 @@ impl Studio {
             .selection
             .iter()
             .filter_map(|id| {
-                self.clip(id).map(|clip| Command::UpdateClip {
-                    clip_id: id.clone(),
-                    patch: ClipPatch {
-                        flip_h: Some(!clip.flip_h),
+                let clip = self.clip(id)?;
+                Some(Command::UpdateClip {
+                    item: doc_view::parse(id)?,
+                    patch: ItemPatch {
+                        flip_h: Some(!clip.picture.flip_h),
                         ..Default::default()
                     },
                 })
@@ -2950,13 +2854,11 @@ impl Studio {
     pub fn toggle_lock(&mut self, track_id: &str) {
         let view = self.lanes.lane_view.entry(track_id.to_owned()).or_default();
         view.locked = !view.locked;
-        if view.locked {
-            let doomed: Vec<String> = self
-                .timeline()
-                .clips
-                .iter()
-                .filter(|clip| clip.track_id == track_id)
-                .map(|clip| clip.id.clone())
+        if view.locked
+            && let Some(lane) = doc_view::parse::<LaneId>(track_id)
+        {
+            let doomed: Vec<String> = doc_view::on_lane(self.doc(), lane)
+                .map(|(id, _)| id.to_string())
                 .collect();
             self.selection.retain(|held| !doomed.contains(held));
         }
@@ -2969,13 +2871,19 @@ impl Studio {
         let Some(session) = self.session.as_ref() else {
             return;
         };
-        let video = model::VideoSettings {
-            width: width as u32,
-            height: height as u32,
-            ..session.video()
+        let (Some(sequence), Some(width), Some(height)) = (
+            session.showing(),
+            std::num::NonZeroU32::new(width as u32),
+            std::num::NonZeroU32::new(height as u32),
+        ) else {
+            return;
         };
-        let timeline_id = self.project().active_timeline_id.clone();
-        self.apply(Command::SetTimelineVideo { timeline_id, video });
+        let frame = model::Frame {
+            width,
+            height,
+            ..session.frame()
+        };
+        self.apply(Command::SetTimelineVideo { sequence, frame });
         self.request_preview();
     }
 }
@@ -2983,7 +2891,10 @@ impl Studio {
 /// A text preset as its card draws it: enough of the look to set its
 /// sample in. The Text page's shelves and the captions' style picker.
 pub(crate) fn preset_card(preset: &TextPreset) -> TextPresetData {
-    let plate = colour_of(&preset.style.background);
+    let plate = preset
+        .style
+        .plate
+        .map_or(slint::Color::from_argb_u8(0, 0, 0, 0), doc_view::to_slint);
     TextPresetData {
         id: preset.id.as_str().into(),
         name: preset.name.as_str().into(),
@@ -2992,12 +2903,12 @@ pub(crate) fn preset_card(preset: &TextPreset) -> TextPresetData {
         family: preset.style.font_family.trim_matches('"').into(),
         weight: preset.style.font_weight.round() as i32,
         italic: preset.style.italic,
-        fill: colour_of(&preset.style.color),
+        fill: doc_view::to_slint(preset.style.color),
         plate,
         plated: plate.alpha() > 0,
-        stroke: colour_of(&preset.style.stroke_color),
+        stroke: doc_view::to_slint(preset.style.stroke_color),
         stroke_width: preset.style.stroke_width as f32,
-        align: align_of(preset.style.align),
+        align: align_of(&preset.style.align),
     }
 }
 

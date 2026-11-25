@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 //! The keyboard, and the menu's verbs.
 
+use super::menus::PlayheadSide;
 use super::*;
 
 impl Studio {
@@ -79,28 +80,37 @@ impl Studio {
         }
     }
 
-    /// One of the clip menu's verbs on clip `id`. The menu's rows and the
-    /// keyboard's chords both land here, so a shortcut and the row that
-    /// advertises it cannot disagree.
+    /// The sounds detached from an item, as the panels hold their ids.
+    pub(super) fn detached_from(&self, id: ItemId) -> Vec<String> {
+        self.doc()
+            .items
+            .index()
+            .tied_to(id)
+            .filter(|other| {
+                doc_view::item(self.doc(), *other).is_some_and(|item| {
+                    item.link
+                        .as_ref()
+                        .is_some_and(|link| link.kind == model::LinkKind::SoundOf)
+                })
+            })
+            .map(|other| other.to_string())
+            .collect()
+    }
+
     /// Takes a video clip's sound off onto a lane of its own, and selects
     /// what came off: the lane it lands on may be a new one, out of view,
     /// and a detach that changed nothing anyone could see read as one that
     /// did nothing. One that cannot happen says why instead of nothing.
     /// https://github.com/jub0t/Concat/issues/310
-    fn detach_audio(&mut self, clip: &Clip) {
-        let has_audio = self
-            .project()
-            .media_by_id(&clip.media_id)
-            .is_some_and(|media| media.has_audio);
-        let detached = self
-            .timeline()
-            .clips
-            .iter()
-            .any(|other| other.detached_from.as_deref() == Some(clip.id.as_str()));
-        let detach = Command::DetachAudio {
-            clip_id: clip.id.clone(),
+    fn detach_audio(&mut self, id: &str) {
+        let (Some(item_id), Some(clip)) = (doc_view::parse::<ItemId>(id), self.clip(id)) else {
+            return;
         };
-        let command = match detach_plan(clip, has_audio, detached) {
+        let has_audio = doc_view::has_sound(self.doc(), clip);
+        let detached = !self.detached_from(item_id).is_empty();
+        let plan = detach_plan(self.kind(clip), clip.sound.muted, has_audio, detached);
+        let detach = Command::DetachAudio { item: item_id };
+        let command = match plan {
             DetachPlan::NoSound => {
                 self.notify(&t("studio.detachNoSound"), false);
                 return;
@@ -117,8 +127,8 @@ impl Studio {
             DetachPlan::Again => Command::Batch {
                 commands: vec![
                     Command::UpdateClip {
-                        clip_id: clip.id.clone(),
-                        patch: ClipPatch {
+                        item: item_id,
+                        patch: ItemPatch {
                             muted: Some(false),
                             ..Default::default()
                         },
@@ -129,13 +139,7 @@ impl Studio {
         };
         let token = self.toast.token;
         self.apply(command);
-        let sounds: Vec<String> = self
-            .timeline()
-            .clips
-            .iter()
-            .filter(|other| other.detached_from.as_deref() == Some(clip.id.as_str()))
-            .map(|other| other.id.clone())
-            .collect();
+        let sounds = self.detached_from(item_id);
         if sounds.is_empty() {
             // A failure has said so already.
             if self.toast.token == token {
@@ -147,12 +151,16 @@ impl Studio {
         self.selection = sounds;
     }
 
+    /// One of the clip menu's verbs on clip `id`. The menu's rows and the
+    /// keyboard's chords both land here, so a shortcut and the row that
+    /// advertises it cannot disagree.
     pub fn clip_action(&mut self, id: &str, action: &str) {
         log::debug!("clip menu: {action} on {id}");
         // The edits this makes say they came from the clip's menu, unless a
         // shortcut brought them here.
         let _asked = Asked::by("clip menu");
-        let Some(clip) = self.clip(id).cloned() else {
+        let (Some(item_id), Some(clip)) = (doc_view::parse::<ItemId>(id), self.clip(id).cloned())
+        else {
             return;
         };
         match action {
@@ -210,38 +218,42 @@ impl Studio {
                     self.selection = vec![id.to_owned()];
                     self.transition_selected = None;
                 }
-                let wanted = concat_project::model::VoiceMix {
-                    // The kind the clip had; speech apart from noise else.
-                    kind: clip.voice.unwrap_or_default().kind,
-                    ..if action == "voice-keep" {
-                        concat_project::model::VoiceMix::KEEP_VOICE
-                    } else {
-                        concat_project::model::VoiceMix::REMOVE_VOICE
-                    }
+                // The kind the clip had; speech apart from noise else.
+                let kind = clip
+                    .sound
+                    .voice
+                    .as_ref()
+                    .map_or(model::VoiceKind::Speech, |mix| mix.kind.clone());
+                let wanted = if action == "voice-keep" {
+                    doc_view::keep_voice(kind)
+                } else {
+                    doc_view::remove_voice(kind)
                 };
-                let on = clip.voice.is_some_and(|mix| {
+                let on = clip.sound.voice.as_ref().is_some_and(|mix| {
                     (mix.voice == 0.0) == (wanted.voice == 0.0)
                         && (mix.background == 0.0) == (wanted.background == 0.0)
                 });
                 self.set_voice((!on).then_some(wanted));
             }
-            "detach" => self.detach_audio(&clip),
+            "detach" => self.detach_audio(id),
             "reattach" => {
-                self.apply(Command::ReattachAudio {
-                    clip_id: id.to_owned(),
-                });
+                self.apply(Command::ReattachAudio { item: item_id });
             }
             "mute" => {
-                let volume = if clip.volume <= 0.0 { 1.0 } else { 0.0 };
+                let volume = if clip.sound.volume.value <= 0.0 {
+                    1.0
+                } else {
+                    0.0
+                };
                 self.apply(Command::UpdateClip {
-                    clip_id: id.to_owned(),
-                    patch: ClipPatch {
+                    item: item_id,
+                    patch: ItemPatch {
                         volume: Some(volume),
                         ..Default::default()
                     },
                 });
             }
-            "lock" => self.toggle_lock(&clip.track_id),
+            "lock" => self.toggle_lock(&clip.lane.to_string()),
             // A clip that is part of the selection takes the selection with
             // it: Delete on one of five selected clips means the five.
             "delete" | "ripple-delete" => {
@@ -257,7 +269,7 @@ impl Studio {
                     self.remove_selected(ripple);
                 } else {
                     self.apply(Command::RemoveClips {
-                        clip_ids: vec![id.to_owned()],
+                        items: vec![item_id],
                         ripple,
                     });
                 }
@@ -278,11 +290,10 @@ impl Studio {
             return;
         }
         self.selection = self
-            .timeline()
-            .clips
-            .iter()
-            .filter(|clip| !self.locked(&clip.track_id))
-            .map(|clip| clip.id.clone())
+            .clips()
+            .into_iter()
+            .filter(|(_, clip)| !self.lane_locked(clip.lane))
+            .map(|(id, _)| id)
             .collect();
     }
 
@@ -292,18 +303,14 @@ impl Studio {
         let Some(from) = usize::try_from(from).ok() else {
             return;
         };
-        let Some(timeline) = self.project().timelines.get(from) else {
+        let Some(sequence) = self.doc().view.tabs.get(from).copied() else {
             return;
         };
-        let id = timeline.id.clone();
         let slot = slot.max(0) as usize;
         let index = if from < slot { slot - 1 } else { slot };
         if index == from {
             return;
         }
-        self.apply(Command::MoveTimeline {
-            timeline_id: id,
-            index,
-        });
+        self.apply(Command::MoveTimeline { sequence, index });
     }
 }
