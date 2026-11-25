@@ -561,8 +561,16 @@ mod tests {
             text in "[\\[\\]{}\":,0-9.eE+\\- \\\\ntrufalsu\u{e9}]{0,24}",
         ) {
             let ours = parse(&text).is_ok();
-            let theirs = serde_json::from_str::<serde_json::Value>(&text).is_ok();
-            proptest::prop_assert_eq!(ours, theirs, "{:?}", text);
+            let theirs = serde_json::from_str::<serde_json::Value>(&text);
+            // A number past a double's range, such as 1e309, is JSON all
+            // the same: the other reader refuses it because it would hold
+            // it as a double, while this one keeps its text, so a value
+            // written by a later build survives. That is the one
+            // difference allowed.
+            let out_of_range = matches!(&theirs, Err(error) if error.to_string().starts_with("number out of range"));
+            if !out_of_range {
+                proptest::prop_assert_eq!(ours, theirs.is_ok(), "{:?}", text);
+            }
         }
 
         /// Any JSON another program writes reads to the same strings and
