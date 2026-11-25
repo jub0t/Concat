@@ -733,6 +733,19 @@ pub struct DropPlan {
     pub start: f32,
     pub duration: f32,
     pub row: i32,
+    /// Where to insert a lane when the hovered lane cannot fit the clip, in
+    /// the model's bottom-first order.
+    pub new_lane: Option<usize>,
+}
+
+pub(crate) fn on_new_track(new_lane: Option<usize>, command: Command) -> Command {
+    match new_lane {
+        Some(index) => Command::OnNewTrack {
+            index,
+            command: Box::new(command),
+        },
+        None => command,
+    }
 }
 
 /// Every model the window is handed, kept for its lifetime rather than
@@ -2008,6 +2021,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::DetachAudio { .. } => "Detach audio",
         Command::ReattachAudio { .. } => "Reattach audio",
         Command::AddTrack { .. } => "Add track",
+        Command::OnNewTrack { command, .. } => command_kind(command),
         Command::RemoveTrack { .. } => "Delete track",
         Command::SetTrackFlag {
             flag: TrackFlag::Visible,

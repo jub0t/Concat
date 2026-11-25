@@ -943,6 +943,14 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         bottom: bool,
     },
+    /// Inserts a fresh lane at `index` in the bottom-first track list and
+    /// places the inner clip on it, as one atomic edit and undo step.
+    OnNewTrack {
+        /// Where the lane goes: 0 is the bottom, the track count the top.
+        index: usize,
+        /// The clip placement whose track is replaced by the new lane.
+        command: Box<Command>,
+    },
     /// Deletes a lane and every clip on it. Errs at the floor of one track.
     RemoveTrack {
         /// The lane to delete.
@@ -1126,6 +1134,9 @@ pub enum CommandError {
     /// one stored would poison every duration and key that touched it.
     #[error("A number in that edit is not finite.")]
     NotANumber,
+    /// [`Command::OnNewTrack`] wrapped something other than a clip placement.
+    #[error("Only a new clip can be given a new track.")]
+    NotAPlacement,
 }
 
 /// Mints ids. Owned by the editor so restored projects advance it past every
@@ -1260,6 +1271,7 @@ impl Command {
         }
         match self {
             Command::Batch { commands } => commands.iter().any(Command::has_non_finite),
+            Command::OnNewTrack { command, .. } => command.has_non_finite(),
             Command::AddMedia { item }
             | Command::FillSlot { item, .. }
             | Command::ConsolidateClips { item, .. } => bad(item.duration) || bad(item.frame_rate),
@@ -1517,6 +1529,7 @@ pub fn apply(
             audio::apply(project, mint, command)
         }
         command @ (Command::AddTrack { .. }
+        | Command::OnNewTrack { .. }
         | Command::RemoveTrack { .. }
         | Command::SetTrackFlag { .. }) => tracks::apply(project, mint, command),
         command @ (Command::AddTimeline

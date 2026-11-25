@@ -167,6 +167,10 @@ export struct DropData {
     start: float,
     duration: float,
     row: int,
+    /// The drop opens a lane of its own rather than landing on `row`.
+    new-lane: bool,
+    /// Position down the track stack where the lane will be inserted.
+    line-y: length,
 }
 
 /// Which axis the alignment segmented control is on. Mirrors TextAlign.

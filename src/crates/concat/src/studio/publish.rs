@@ -392,6 +392,8 @@ impl Studio {
                 start: plan.start,
                 duration: plan.duration,
                 row: plan.row,
+                new_lane: plan.new_lane.is_some(),
+                line_y: plan.new_lane.map_or(0.0, |index| self.seam_of(index)),
             },
             None => DropData::default(),
         });
