@@ -212,6 +212,19 @@ jobs:
       # that ships never is.
       - name: Java 17
         run: echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+      # Gradle's downloads (its own distribution, the plugins and every
+      # library) kept between runs. Without them each run asked Maven
+      # Central for all of it again, and on a busy day Maven answered 429
+      # (too many requests) and failed the build before any code of ours
+      # was compiled.
+      - name: Gradle's downloads (cached)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android-native/**/*.gradle.kts', 'android-native/gradle/**', 'android-native/gradle.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
       - name: Build the APK
         run: |
           set -o pipefail
